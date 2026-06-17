@@ -485,6 +485,26 @@ describe("browser_click", () => {
     expect(result.output).toContain("anti-automation risk control")
     }),
   )
+
+  it.live("an action that navigates to a high-risk site surfaces the caution from the landed URL", () =>
+    Effect.gen(function* () {
+    const server = makeServer()
+    // The click starts on an ordinary page (the pre-action probe), but the
+    // click navigates to a high-risk site — the caution must come from where
+    // the page ended up, not the pre-action URL.
+    server.url = "https://example.com/page"
+    server.handlers.set("Runtime.evaluate", (params) => {
+      const expr = (params as { expression?: string })?.expression ?? ""
+      return expr.includes("location.href")
+        ? { result: { type: "string", value: "https://www.xiaohongshu.com/explore" } }
+        : { result: { type: "object", value: { ok: true, matches_n: 1, match_level: "exact", visible: true, x: 10, y: 10 } } }
+    })
+    provideFakeHost(server)
+    const result = yield* exec(BrowserClickTool, { ref: "[1]" })
+    expect(result.output).toContain("Clicked [1]")
+    expect(result.output).toContain("anti-automation risk control")
+    }),
+  )
 })
 
 describe("normalizeElementRef", () => {

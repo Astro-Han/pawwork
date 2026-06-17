@@ -85,7 +85,24 @@ export function runBrowserAction<T>(input: {
         withBrowserPage(
           input.ctx.sessionID,
           input.label,
-          (page, info) => input.run(page, { ...info, highRiskNotice }),
+          async (page, info) => {
+            // The tools surface this object via withNotes(info); they return the
+            // same reference as result.info, so filling it post-action below
+            // reaches their output.
+            const actionInfo = { ...info, highRiskNotice }
+            const result = await input.run(page, actionInfo)
+            // A navigable action — a click or submit on a link — can land on a
+            // high-risk site the PRE-action URL never named, so the pre-action
+            // caution above would miss it. When the start page wasn't already
+            // flagged, re-read the page's real URL and fill the caution from
+            // where it ended up. Additive: it can only add a missing caution,
+            // never drop one.
+            if (!actionInfo.highRiskNotice) {
+              const landed = await page.evaluate<string>("window.location.href").catch(() => null)
+              if (typeof landed === "string" && landed) actionInfo.highRiskNotice = highRiskSiteNotice(landed)
+            }
+            return result
+          },
           {
             timeoutMs: input.timeoutMs,
             // User stop must reach the page driver: on abort the session severs
