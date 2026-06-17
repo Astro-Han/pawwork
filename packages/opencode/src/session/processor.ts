@@ -126,8 +126,6 @@ type ToolLifecycleRecord = {
   attemptID?: RunObservability.AttemptID
   callMaterialized?: boolean
   executionStarted?: boolean
-  executionCompleted?: boolean
-  executionFailed?: boolean
   executionStartedRecorded?: boolean
   executionCompletedRecorded?: boolean
   executionFailedRecorded?: boolean
@@ -513,7 +511,6 @@ export const layer: Layer.Layer<
           if (isToolLifecycleAttemptClosed(attemptID)) return
           const call = ctx.toolcalls[input.toolCallID]
           const lifecycleAttemptID = toolCallAttemptID(input.toolCallID, attemptID ?? ctx.currentAttemptID)
-          if (call) call.executionCompleted = true
           if (!call || !lifecycleAttemptID || call.executionCompletedRecorded) return
           call.executionCompletedRecorded = true
           ctx.runTrace.recordToolCompleted({
@@ -531,7 +528,6 @@ export const layer: Layer.Layer<
         if (isToolLifecycleAttemptClosed(attemptID)) return
         const call = ctx.toolcalls[input.toolCallID]
         const lifecycleAttemptID = toolCallAttemptID(input.toolCallID, attemptID ?? ctx.currentAttemptID)
-        if (call) call.executionFailed = true
         if (!call || !lifecycleAttemptID || call.executionFailedRecorded) return
         call.executionFailedRecorded = true
         ctx.runTrace.recordToolFailed({
