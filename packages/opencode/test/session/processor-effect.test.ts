@@ -3615,6 +3615,126 @@ it.live("session.processor effect tests bounds drain for dead tools after provid
   ),
 )
 
+it.live(
+  "session.processor effect tests bounds default drain for dead tools after provider stream timeout",
+  () =>
+    provideTmpdirServer(
+      ({ dir, llm }) =>
+        Effect.gen(function* () {
+          const { processors, session, provider } = yield* boot()
+          const toolStarted = defer<void>()
+
+          yield* llm.push(
+            raw({
+              head: [
+                {
+                  id: "chatcmpl-test",
+                  object: "chat.completion.chunk",
+                  choices: [{ delta: { role: "assistant" } }],
+                },
+                {
+                  id: "chatcmpl-test",
+                  object: "chat.completion.chunk",
+                  choices: [
+                    {
+                      delta: {
+                        tool_calls: [
+                          {
+                            index: 0,
+                            id: "call_default_dead_tool",
+                            type: "function",
+                            function: { name: "dead", arguments: "" },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+                {
+                  id: "chatcmpl-test",
+                  object: "chat.completion.chunk",
+                  choices: [
+                    {
+                      delta: {
+                        tool_calls: [
+                          {
+                            index: 0,
+                            function: { arguments: JSON.stringify({ value: "ok" }) },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+                {
+                  id: "chatcmpl-test",
+                  object: "chat.completion.chunk",
+                  choices: [{ delta: {}, finish_reason: "tool_calls" }],
+                },
+              ],
+              hang: true,
+            }),
+          )
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "default dead tool after stream timeout")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          const run = yield* handle
+            .process({
+              user: {
+                id: parent.id,
+                sessionID: chat.id,
+                role: "user",
+                time: parent.time,
+                agent: parent.agent,
+                model: { providerID: ref.providerID, modelID: ref.modelID },
+                tools: { dead: true },
+              } satisfies MessageV2.User,
+              sessionID: chat.id,
+              model: mdl,
+              agent: agent(),
+              system: [],
+              messages: [{ role: "user", content: "default dead tool after stream timeout" }],
+              streamTimeoutMs: 100,
+              tools: {
+                dead: tool({
+                  description: "Never resolves",
+                  inputSchema: z.object({ value: z.string() }),
+                  execute: async () => {
+                    toolStarted.resolve()
+                    await new Promise<never>(() => {})
+                  },
+                }),
+              },
+            })
+            .pipe(Effect.forkChild)
+
+          yield* Effect.promise(() => toolStarted.promise)
+          const exit = yield* Fiber.join(run).pipe(Effect.timeout("3 seconds"), Effect.exit)
+          if (Exit.isFailure(exit)) yield* Fiber.interrupt(run)
+          expect(Exit.isSuccess(exit)).toBe(true)
+
+          const call = MessageV2.parts(msg.id).find((part): part is MessageV2.ToolPart => part.type === "tool")
+          expect(call?.state.status).toBe("error")
+          if (call?.state.status === "error") {
+            expect(call.state.error).toContain("do not repeat")
+            expect(call.state.metadata?.interrupted).toBe(true)
+            expect(call.state.metadata?.interruption_phase).toBe("tool_execution")
+          }
+        }),
+      { git: true, config: (url) => providerCfg(url) },
+    ),
+  10_000,
+)
+
 it.live("session.processor effect tests aborts tools while cleanup is draining", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>

@@ -752,6 +752,56 @@ it.live("prompt records lifecycle wait diagnostics on the queued user message", 
   ),
 )
 
+it.live("cancel prevents a queued prompt from starting after lifecycle wait", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Cancel queued lifecycle wait" })
+        const releaseClose = beginLifecycleClose([dir])
+        const fiber = yield* prompt
+          .prompt({
+            sessionID: chat.id,
+            agent: "build",
+            parts: [{ type: "text", text: "hello" }],
+          })
+          .pipe(Effect.forkChild)
+
+        try {
+          let queuedUser: MessageV2.WithParts | undefined
+          const deadline = Date.now() + 1000
+          while (Date.now() < deadline) {
+            const pending = yield* sessions.messages({ sessionID: chat.id })
+            queuedUser = pending.find(
+              (message) =>
+                message.info.role === "user" &&
+                message.info.diagnostics?.run_lifecycle?.some((event) => event.type === "run_wait_started"),
+            )
+            if (queuedUser) break
+            yield* Effect.sleep("5 millis")
+          }
+          expect(queuedUser?.info.role).toBe("user")
+
+          const cancelled = yield* prompt.cancel(chat.id)
+          expect(cancelled).toBe(true)
+          yield* llm.text("should not be consumed")
+          releaseClose()
+
+          const exit = yield* Fiber.await(fiber).pipe(Effect.timeout(cancelRaceCheckpointTimeout))
+          expect(Exit.isSuccess(exit)).toBe(true)
+          if (Exit.isSuccess(exit) && queuedUser) {
+            expect(exit.value.info.id).toBe(queuedUser.info.id)
+          }
+          expect(yield* llm.calls).toBe(0)
+        } finally {
+          releaseClose()
+        }
+      }),
+    { git: true, config: providerCfg },
+  ),
+)
+
 
 it.live("provider env matches assistant path for an active worktree", () =>
   provideTmpdirServer(

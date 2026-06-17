@@ -37,7 +37,7 @@ import {
 
 const log = Log.create({ service: "session.processor" })
 const TOOL_CLEANUP_TIMEOUT_MS = 1_000
-const TOOL_DRAIN_TIMEOUT_MS = 10 * 60_000
+const DEFAULT_TOOL_DRAIN_TIMEOUT_MS = 2_000
 export const REASONING_FIRST_ATTEMPT_CONNECT_TIMEOUT_MS = 60_000
 export const REASONING_SAFE_RETRY_CONNECT_TIMEOUT_MS = 120_000
 const LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE = "The run was interrupted by a local lifecycle close."
@@ -151,7 +151,9 @@ const TOOL_INTERRUPTION_ERRORS: Record<ToolInterruptionPhase, string> = {
   tool_call_materialized_without_execution: "Tool call was prepared, but the tool did not run before the interruption.",
   tool_input_generation: "Tool call generation interrupted before the tool ran.",
 }
-const TOOL_EXECUTION_UNRESOLVED_CAUTION =
+// Persisted into the tool result, so the next model turn can see that rerunning
+// this side-effecting call is unsafe until the external state is checked.
+const UNRESOLVED_TOOL_EXECUTION_CAUTION =
   "Tool execution was interrupted after it started. The operation may have started or completed; do not repeat it without verifying the external state or asking the user."
 
 function watchdogPhase(error: unknown): "connect" | "silent_stream" | "unknown" | undefined {
@@ -376,7 +378,7 @@ export const layer: Layer.Layer<
         terminalClassification: undefined,
       }
       let aborted = false
-      let toolDrainTimeoutMs = TOOL_DRAIN_TIMEOUT_MS
+      let toolDrainTimeoutMs = DEFAULT_TOOL_DRAIN_TIMEOUT_MS
       let toolAbortRequested: Deferred.Deferred<void> | undefined
       let currentStreamStopRequested: Deferred.Deferred<void> | undefined
       const closedToolLifecycleAttempts = new Set<RunObservability.AttemptID>()
@@ -1333,7 +1335,7 @@ export const layer: Layer.Layer<
         }
       })
 
-      const finalizeToolLifecycles = Effect.fn("SessionProcessor.finalizeToolLifecycles")(function* () {
+      const prepareToolLifecyclesForDrain = Effect.fn("SessionProcessor.prepareToolLifecyclesForDrain")(function* () {
         for (const call of Object.values(ctx.toolcalls)) {
           if (call.executionStarted === true && call.callMaterialized !== true) {
             yield* Deferred.succeed(call.ready, undefined).pipe(Effect.ignore)
@@ -1342,6 +1344,9 @@ export const layer: Layer.Layer<
             yield* Deferred.succeed(call.partCreated, undefined).pipe(Effect.ignore)
           }
         }
+      })
+
+      const drainToolLifecycles = Effect.fn("SessionProcessor.drainToolLifecycles")(function* () {
         const callsToDrain = Object.values(ctx.toolcalls).filter(
           (call) => !call.settled && (call.executionStarted === true || (aborted && hasToolPart(call))),
         )
@@ -1361,7 +1366,11 @@ export const layer: Layer.Layer<
           },
           { concurrency: "unbounded" },
         )
+      })
 
+      const finalizeUnresolvedToolLifecyclesAsUncertain = Effect.fn(
+        "SessionProcessor.finalizeUnresolvedToolLifecyclesAsUncertain",
+      )(function* () {
         for (const toolCallID of Object.keys(ctx.toolcalls)) {
           const call = ctx.toolcalls[toolCallID]
           if (!call || call.settled) continue
@@ -1390,7 +1399,7 @@ export const layer: Layer.Layer<
           // (cancelled before answered), don't claim whether the user saw it
           // — they may have. See issue #419.
           let errorText = TOOL_INTERRUPTION_ERRORS[interruptionPhase]
-          if (interruptionPhase === "tool_execution" && !aborted) errorText = TOOL_EXECUTION_UNRESOLVED_CAUTION
+          if (interruptionPhase === "tool_execution" && !aborted) errorText = UNRESOLVED_TOOL_EXECUTION_CAUTION
           if (part.tool === "question") errorText = "Question cancelled before the user answered it."
           yield* session.updatePart({
             ...part,
@@ -1426,6 +1435,9 @@ export const layer: Layer.Layer<
             }
           }
         }
+      })
+
+      const closeRemainingToolLifecycles = Effect.fn("SessionProcessor.closeRemainingToolLifecycles")(function* () {
         const remainingCalls = Object.values(ctx.toolcalls)
         for (const call of remainingCalls) {
           if (call.attemptID) closedToolLifecycleAttempts.add(call.attemptID)
@@ -1436,6 +1448,13 @@ export const layer: Layer.Layer<
           (call) => releaseToolLifecycleWaiters(call),
           { concurrency: "unbounded" },
         )
+      })
+
+      const finalizeToolLifecycles = Effect.fn("SessionProcessor.finalizeToolLifecycles")(function* () {
+        yield* prepareToolLifecyclesForDrain()
+        yield* drainToolLifecycles()
+        yield* finalizeUnresolvedToolLifecyclesAsUncertain()
+        yield* closeRemainingToolLifecycles()
       })
 
       const hasModelConsumableToolSettlement = () =>
@@ -1606,7 +1625,7 @@ export const layer: Layer.Layer<
           Number.isFinite(streamInput.toolDrainTimeoutMs) &&
           streamInput.toolDrainTimeoutMs > 0
             ? streamInput.toolDrainTimeoutMs
-            : TOOL_DRAIN_TIMEOUT_MS
+            : DEFAULT_TOOL_DRAIN_TIMEOUT_MS
         let processAttemptID: RunObservability.AttemptID | undefined
         let automaticStreamRetriesUsed = 0
         let safeRetryNoticeWritten = false
