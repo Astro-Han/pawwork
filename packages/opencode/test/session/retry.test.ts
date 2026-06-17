@@ -32,10 +32,29 @@ function retryableRaw(error: ReturnType<NamedError["toObject"]>): string | undef
 }
 
 describe("session.retry.delay", () => {
-  test("caps delay at 30 seconds when headers missing", () => {
+  test("caps delay at 30 seconds when headers missing, with jitter within 50-100% of the exponential value", () => {
     const error = apiError()
+    const base = [2000, 4000, 8000, 16000, 30000, 30000, 30000, 30000, 30000, 30000]
     const delays = Array.from({ length: 10 }, (_, index) => SessionRetry.delay(index + 1, error))
-    expect(delays).toStrictEqual([2000, 4000, 8000, 16000, 30000, 30000, 30000, 30000, 30000, 30000])
+    // jitter equal-split: each delay lands in [50%, 100%] of the exponential base, capped at 30s
+    delays.forEach((d, i) => {
+      expect(d).toBeGreaterThanOrEqual(Math.round(base[i] * 0.5))
+      expect(d).toBeLessThanOrEqual(base[i])
+    })
+  })
+
+  test("exponential backoff without headers spreads parallel retries via jitter", () => {
+    // The core fix for issue #1348: parallel subagents retrying 429s must not retry
+    // in lockstep. delay() applies equal jitter (50-100% of exponential base) so
+    // concurrent callers land on different moments.
+    const attempts = Array.from({ length: 20 }, () => SessionRetry.delay(2))
+    const expectedBase = 4000
+    attempts.forEach((d) => {
+      expect(d).toBeGreaterThanOrEqual(Math.round(expectedBase * 0.5))
+      expect(d).toBeLessThanOrEqual(expectedBase)
+    })
+    // with 20 draws in [2000, 4000], at least 3 distinct values should appear
+    expect(new Set(attempts).size).toBeGreaterThanOrEqual(3)
   })
 
   test("prefers retry-after-ms when shorter than exponential", () => {
@@ -56,20 +75,26 @@ describe("session.retry.delay", () => {
     expect(d).toBeLessThanOrEqual(20000)
   })
 
-  test("ignores invalid retry hints", () => {
+  test("ignores invalid retry hints and falls back to jittered exponential", () => {
     const error = apiError({ "retry-after": "not-a-number" })
-    expect(SessionRetry.delay(1, error)).toBe(2000)
+    const d = SessionRetry.delay(1, error)
+    expect(d).toBeGreaterThanOrEqual(1000)
+    expect(d).toBeLessThanOrEqual(2000)
   })
 
-  test("ignores malformed date retry hints", () => {
+  test("ignores malformed date retry hints and falls back to jittered exponential", () => {
     const error = apiError({ "retry-after": "Invalid Date String" })
-    expect(SessionRetry.delay(1, error)).toBe(2000)
+    const d = SessionRetry.delay(1, error)
+    expect(d).toBeGreaterThanOrEqual(1000)
+    expect(d).toBeLessThanOrEqual(2000)
   })
 
-  test("ignores past date retry hints", () => {
+  test("ignores past date retry hints and falls back to jittered exponential", () => {
     const pastDate = new Date(Date.now() - 5000).toUTCString()
     const error = apiError({ "retry-after": pastDate })
-    expect(SessionRetry.delay(1, error)).toBe(2000)
+    const d = SessionRetry.delay(1, error)
+    expect(d).toBeGreaterThanOrEqual(1000)
+    expect(d).toBeLessThanOrEqual(2000)
   })
 
   test("uses retry-after values even when exceeding 10 minutes with headers", () => {
@@ -171,8 +196,14 @@ describe("session.retry.delay", () => {
     })
   })
 
-  test("delay() produces the expected exponential backoff values", () => {
-    expect([SessionRetry.delay(1), SessionRetry.delay(2), SessionRetry.delay(3)]).toEqual([2000, 4000, 8000])
+  test("delay() produces exponential backoff within the jittered range", () => {
+    // Equal jitter (50-100% of exponential base) — see issue #1348.
+    const bases = [2000, 4000, 8000]
+    const got = [SessionRetry.delay(1), SessionRetry.delay(2), SessionRetry.delay(3)]
+    got.forEach((d, i) => {
+      expect(d).toBeGreaterThanOrEqual(Math.round(bases[i] * 0.5))
+      expect(d).toBeLessThanOrEqual(bases[i])
+    })
   })
 
   test("safe recovery policy uses injected delay across the replay budget then stops", async () => {
@@ -216,9 +247,7 @@ describe("session.retry.delay", () => {
     expect(
       statuses.every(
         (status) =>
-          status.message === "" &&
-          status.presentation === "recovery" &&
-          status.reason === "network_connection_dropped",
+          status.message === "" && status.presentation === "recovery" && status.reason === "network_connection_dropped",
       ),
     ).toBe(true)
   })
