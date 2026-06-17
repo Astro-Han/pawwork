@@ -1038,9 +1038,11 @@ it.live("loop activates automate_manage through tool_info before invoking it", (
         expect(result.info.role).toBe("assistant")
 
         const requests = yield* llm.inputs
-        expect(requestToolNames(requests[0])).toContain("tool_info")
-        expect(requestToolNames(requests[0])).not.toContain("automate_manage")
-        expect(requestToolNames(requests[1])).toContain("automate_manage")
+        expect(requests.length).toBeGreaterThanOrEqual(2)
+        const [firstRequest, secondRequest] = requests
+        expect(requestToolNames(firstRequest)).toContain("tool_info")
+        expect(requestToolNames(firstRequest)).not.toContain("automate_manage")
+        expect(requestToolNames(secondRequest)).toContain("automate_manage")
 
         const allMessages = yield* MessageV2.filterCompactedEffect(session.id)
         const toolParts = allMessages.flatMap((message) =>
