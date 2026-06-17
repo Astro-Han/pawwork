@@ -146,7 +146,9 @@ export const OpenCliRunTool = Tool.define(
           command.browser !== false ? highRiskCommandNotice(openCliCommandSummaryFromCommand(command)) : null
         return {
           title: `OpenCLI ${fullName(command)}`,
-          output: formatAdapterOutput(value) + (riskNotice ? `\n\n${riskNotice}` : ""),
+          // Lead with the caution: tool output is truncated head-first, so a
+          // caution after a long adapter body would be silently dropped.
+          output: (riskNotice ? `${riskNotice}\n\n` : "") + formatAdapterOutput(value),
           metadata: {
             command: fullName(command),
             access: command.access,

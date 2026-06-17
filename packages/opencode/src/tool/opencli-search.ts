@@ -52,7 +52,9 @@ export function formatOpenCliSearchOutput(results: OpenCliCommandSummary[]) {
         .filter((notice): notice is string => notice !== null),
     ),
   ]
-  return cautions.length > 0 ? `${body}\n\n${cautions.join("\n\n")}` : body
+  // Lead with the cautions: tool output is truncated head-first, so cautions
+  // after a long result list could be dropped before the model sees them.
+  return cautions.length > 0 ? `${cautions.join("\n\n")}\n\n${body}` : body
 }
 
 export const OpenCliSearchTool = Tool.define(

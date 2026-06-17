@@ -77,7 +77,8 @@ export function runBrowserAction<T>(input: {
     }
     // Compute the high-risk caution once, here, so EVERY browser action (not
     // just navigate) surfaces it when it touches a flagged site — the tools
-    // append it via trailingNotes(info).
+    // surface it via withNotes(info), which leads the output so head-first
+    // truncation can't drop it.
     const highRiskNotice = actedUrl ? highRiskSiteNotice(actedUrl) : null
     return yield* Effect.tryPromise({
       try: () =>
@@ -121,13 +122,18 @@ export function takeoverNote(info: { takeoverReloaded: boolean }): string {
 }
 
 /**
- * All trailing notes a browser tool appends to its output: the takeover reload
- * note plus the high-risk-site caution. Computed centrally in runBrowserAction
- * and carried on `info`, so every browser tool gets identical coverage by
- * appending this once.
+ * Compose a browser tool's output with its notes, safety-first. Tool results are
+ * truncated head-first (the tail is dropped and replaced by a "...truncated..."
+ * hint), so the high-risk caution must LEAD the output — appended after a large
+ * body (a full snapshot, extracted page text) it would be silently cut on
+ * exactly the high-risk pages that matter. The informational takeover note (fine
+ * to lose) stays trailing. Both are computed centrally in runBrowserAction and
+ * carried on `info`, so every browser tool gets identical coverage from this one
+ * call.
  */
-export function trailingNotes(info: BrowserActionInfo): string {
-  return takeoverNote(info) + (info.highRiskNotice ? `\n\n${info.highRiskNotice}` : "")
+export function withNotes(info: BrowserActionInfo, body: string): string {
+  const lead = info.highRiskNotice ? `${info.highRiskNotice}\n\n` : ""
+  return lead + body + takeoverNote(info)
 }
 
 /**

@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import DESCRIPTION from "./browser-click.txt"
-import { normalizeElementRef, runBrowserAction, trailingNotes } from "./browser-shared"
+import { normalizeElementRef, runBrowserAction, withNotes } from "./browser-shared"
 
 export const Parameters = Schema.Struct({
   ref: Schema.String.annotate({
@@ -28,10 +28,11 @@ export const BrowserClickTool = Tool.define(
         const { matches_n, match_level } = result.outcome
         return {
           title: `Clicked ${params.ref}`,
-          output:
+          output: withNotes(
+            result.info,
             `Clicked ${params.ref} (matched ${matches_n} element${matches_n === 1 ? "" : "s"}, ${match_level} match).` +
-            (matches_n > 1 ? " Multiple matches — verify the right element reacted, or re-snapshot for a tighter ref." : "") +
-            trailingNotes(result.info),
+              (matches_n > 1 ? " Multiple matches — verify the right element reacted, or re-snapshot for a tighter ref." : ""),
+          ),
           metadata: { ref: params.ref, matches: matches_n, matchLevel: match_level },
         }
       }),

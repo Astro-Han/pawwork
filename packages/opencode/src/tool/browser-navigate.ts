@@ -2,7 +2,7 @@ import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import DESCRIPTION from "./browser-navigate.txt"
 import { parseNavigableUrl } from "@/browser/session"
-import { browserAlwaysPatterns, runBrowserAction, trailingNotes } from "./browser-shared"
+import { browserAlwaysPatterns, runBrowserAction, withNotes } from "./browser-shared"
 import { highRiskSiteNotice } from "./high-risk-site"
 
 // Above opencli's internal 30s CDP guard so a slow load surfaces the CDP
@@ -66,17 +66,21 @@ export const BrowserNavigateTool = Tool.define(
           })
         }
         // The centralized notice keys on the REQUESTED url; a redirect can land
-        // on a high-risk site the request never named. Append the landed-url
-        // caution when the centralized one didn't already fire (so no dupe).
-        const landedNotice = result.info.highRiskNotice ? null : highRiskSiteNotice(result.landed)
+        // on a high-risk site the request never named. Fall back to the landed-url
+        // caution when the centralized one didn't fire (so no dupe), and let
+        // withNotes lead the output with whichever applies.
+        const info = {
+          ...result.info,
+          highRiskNotice: result.info.highRiskNotice ?? highRiskSiteNotice(result.landed),
+        }
         return {
           title: result.title || result.landed,
-          output:
+          output: withNotes(
+            info,
             [`Loaded ${result.landed}`, result.title ? `Title: ${result.title}` : undefined]
               .filter(Boolean)
-              .join("\n") +
-            trailingNotes(result.info) +
-            (landedNotice ? `\n\n${landedNotice}` : ""),
+              .join("\n"),
+          ),
           metadata: { url: result.landed, pageTitle: result.title },
         }
       }),
