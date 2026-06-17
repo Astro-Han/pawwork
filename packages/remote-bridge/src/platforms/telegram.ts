@@ -298,11 +298,16 @@ export class TelegramPlatform implements Platform {
     if (this.ac) return
     const ac = new AbortController()
     this.ac = ac
-    // Validate the token up front so a bad credential rejects start() (the
-    // gateway turns that into a surfaced failure) instead of looping silently.
-    await this.poller.getMe(ac.signal)
-    this.loop = this.poller.runLoop(0, (update) => this.dispatch(handler, update), ac.signal)
     try {
+      // Validate the token up front so a bad credential rejects start() (the
+      // gateway turns that into a surfaced failure) instead of looping silently.
+      await this.poller.getMe(ac.signal)
+      // Drop the backlog before serving: a prompt queued while the app was down,
+      // or one in flight when it crashed, must not auto-run on reconnect. Poll
+      // forward from the live tip so only genuinely new messages are delivered.
+      const startOffset = await drainBacklog(this.poller, ac.signal)
+      if (startOffset === null) return // aborted during startup
+      this.loop = this.poller.runLoop(startOffset, (update) => this.dispatch(handler, update), ac.signal)
       await this.loop
     } finally {
       this.ac = null
@@ -367,33 +372,47 @@ async function getUpdatesWithRetry(
 }
 
 /**
+ * Advance the offset past everything already queued WITHOUT dispatching it,
+ * returning the next offset to poll from (or null if the signal aborts first).
+ * getUpdates returns at most ~100 updates per call, so the backlog can span
+ * several batches; loop immediate polls (timeout 0) until one comes back empty,
+ * each call acking what the previous one drained.
+ *
+ * Both entry points drain on (re)start: pairing, so a stale queued message can't
+ * mispair as the "first new sender"; and the steady-state platform, so a prompt
+ * queued while the app was down — or one already dispatched but not yet acked
+ * when the process died — is dropped instead of replayed. Telegram redelivers
+ * unacked updates, and replaying a prompt re-drives the agent.
+ */
+async function drainBacklog(poller: TelegramPoller, signal: AbortSignal): Promise<number | null> {
+  let offset = 0
+  while (!signal.aborted) {
+    const backlog = await getUpdatesWithRetry(poller, offset, signal, 0)
+    if (backlog === null) return null
+    if (backlog.length === 0) return offset
+    for (const update of backlog) offset = Math.max(offset, Number(update?.update_id ?? offset - 1) + 1)
+  }
+  return null
+}
+
+/**
  * Pairing primitive: identify who is allowed to drive the bridge by capturing
  * the first private message sent AFTER pairing begins. Used main-only by the
  * connect flow before any `allow_from` exists, so it must run on its OWN poller
  * and the caller must fully await it (including its final ack) before starting
  * the real `TelegramPlatform` — two pollers on one token race a 409.
  *
- * It first drains whatever is already queued (pre-pairing backlog) with an
- * immediate poll so a stale message can't mispair, then long-polls for the
- * first new private text message. On capture it acks that message server-side
- * so the real bridge does not later replay it as a prompt. Returns null if the
- * signal aborts first (the connect dialog was closed). A bad token surfaces as
- * a thrown fatal error; transient failures back off and retry.
+ * It first drains whatever is already queued (pre-pairing backlog) so a stale
+ * message can't mispair, then long-polls for the first new private text message.
+ * On capture it acks that message server-side so the real bridge does not later
+ * replay it as a prompt. Returns null if the signal aborts first (the connect
+ * dialog was closed). A bad token surfaces as a thrown fatal error; transient
+ * failures back off and retry.
  */
 export async function captureFirstSender(poller: TelegramPoller, signal: AbortSignal): Promise<CapturedSender | null> {
-  let offset = 0
-  // Drain the ENTIRE pre-pairing backlog before waiting for new traffic.
-  // getUpdates returns at most ~100 updates per call, so the backlog can span
-  // several batches; a single immediate poll would leave the rest, and the first
-  // long-poll would then hand back a stale message as if it were the new sender.
-  // Loop immediate polls (timeout 0) until one returns empty — each advances and
-  // acks the offset past what it drained.
-  while (!signal.aborted) {
-    const backlog = await getUpdatesWithRetry(poller, offset, signal, 0)
-    if (backlog === null) return null // aborted while draining
-    if (backlog.length === 0) break
-    for (const update of backlog) offset = Math.max(offset, Number(update?.update_id ?? offset - 1) + 1)
-  }
+  const drained = await drainBacklog(poller, signal)
+  if (drained === null) return null // aborted while draining
+  let offset = drained
 
   while (!signal.aborted) {
     const updates = await getUpdatesWithRetry(poller, offset, signal, POLL_TIMEOUT_S)

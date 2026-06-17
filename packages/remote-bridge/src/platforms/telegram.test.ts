@@ -165,7 +165,9 @@ test("runLoop advances the offset past the highest update_id it received", async
 })
 
 test("TelegramPlatform delivers only the paired user's private messages", async () => {
-  const api = fakeBotApi([[update(1, 42, "from owner"), update(2, 99, "from stranger")]])
+  // Batch 0 (empty) ends the start-up drain; the live poll then returns the owner
+  // and a stranger, and only the owner's private message is delivered.
+  const api = fakeBotApi([[], [update(1, 42, "from owner"), update(2, 99, "from stranger")]])
   try {
     const platform = new TelegramPlatform({ token: "t", allowFrom: "42", baseUrl: api.url })
     const received: { platform: Platform; content: string; channelID?: string }[] = []
@@ -177,6 +179,31 @@ test("TelegramPlatform delivers only the paired user's private messages", async 
     expect(received).toHaveLength(1)
     expect(received[0].content).toBe("from owner")
     expect(received[0].channelID).toBe("42")
+  } finally {
+    api.stop()
+  }
+})
+
+test("TelegramPlatform drops the backlog on start so a queued prompt is not replayed", async () => {
+  // update 5 is already queued when the platform starts (a prompt sent while the
+  // app was down, or one left unacked when it crashed). The start-up drain must
+  // ack past it WITHOUT dispatching it; only the genuinely new message (update 6,
+  // after the empty drain poll) is delivered.
+  const api = fakeBotApi([[update(5, 42, "stale offline prompt")], [], [update(6, 42, "new prompt")]])
+  try {
+    const platform = new TelegramPlatform({ token: "t", allowFrom: "42", baseUrl: api.url })
+    const received: string[] = []
+    const handler: MessageHandler = (_p, m) => received.push(m.content)
+    const run = platform.start(handler)
+    await waitFor(() => received.length >= 1)
+    await platform.stop()
+    await run
+    expect(received).toEqual(["new prompt"])
+    // The drain started at offset 0 and acked the stale backlog (max id 5) at
+    // offset 6 before the live poll began.
+    const offsets = api.calls.filter((c) => c.method === "getUpdates").map((c) => c.body.offset)
+    expect(offsets[0]).toBe(0)
+    expect(offsets[1]).toBe(6)
   } finally {
     api.stop()
   }
