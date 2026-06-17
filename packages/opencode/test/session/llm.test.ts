@@ -193,6 +193,30 @@ describe("session.llm.wrapToolsWithLifecycle", () => {
     expect(started).toEqual([{ tool: "probe", toolCallID: "call-test", input: { value: "ok" } }])
   })
 
+  test("normalizes non-record tool input before lifecycle reporting", async () => {
+    const started: unknown[] = []
+    const wrapped = LLM.wrapToolsWithLifecycle(
+      {
+        probe: tool({
+          description: "Probe",
+          inputSchema: z.any(),
+          execute: async () => ({ output: "ok", title: "probe", metadata: {} }),
+        }),
+      },
+      {
+        started: async (input) => {
+          started.push(input)
+        },
+      },
+    )
+
+    await expect(wrapped.probe.execute?.("raw-input", toolOptions)).resolves.toMatchObject({
+      title: "probe",
+      metadata: {},
+    })
+    expect(started).toEqual([{ tool: "probe", toolCallID: "call-test", input: { value: "raw-input" } }])
+  })
+
   test("does not report completed lifecycle errors as tool execution failures", async () => {
     const completedError = new Error("completed callback failed")
     const failed: unknown[] = []

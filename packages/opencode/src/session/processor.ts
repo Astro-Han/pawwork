@@ -120,9 +120,8 @@ type ToolLifecycleRecord = {
   partID?: MessageV2.ToolPart["id"]
   messageID?: MessageV2.ToolPart["messageID"]
   sessionID?: MessageV2.ToolPart["sessionID"]
-  partCreated: Deferred.Deferred<void>
-  ready: Deferred.Deferred<void>
-  done: Deferred.Deferred<void>
+  inputReady: Deferred.Deferred<void>
+  terminalDone: Deferred.Deferred<void>
   attemptID?: RunObservability.AttemptID
   callMaterialized?: boolean
   executionStarted?: boolean
@@ -393,9 +392,8 @@ export const layer: Layer.Layer<
       ) {
         yield* Effect.all(
           [
-            Deferred.succeed(call.partCreated, undefined),
-            Deferred.succeed(call.ready, undefined),
-            Deferred.succeed(call.done, undefined),
+            Deferred.succeed(call.inputReady, undefined),
+            Deferred.succeed(call.terminalDone, undefined),
           ],
           { concurrency: "unbounded", discard: true },
         ).pipe(Effect.ignore)
@@ -425,9 +423,8 @@ export const layer: Layer.Layer<
         let call = ctx.toolcalls[toolCallID]
         if (!call) {
           call = {
-            partCreated: yield* Deferred.make<void>(),
-            ready: yield* Deferred.make<void>(),
-            done: yield* Deferred.make<void>(),
+            inputReady: yield* Deferred.make<void>(),
+            terminalDone: yield* Deferred.make<void>(),
           }
           ctx.toolcalls[toolCallID] = call
         }
@@ -465,19 +462,17 @@ export const layer: Layer.Layer<
         if (!call || !hasToolPart(call)) {
           call = yield* getToolLifecycleRecord(toolCallID)
           if (!call) return
-          yield* Deferred.await(call.partCreated)
-          call = ctx.toolcalls[toolCallID]
         }
         if (!call || call.settled) return
-        yield* Deferred.await(call.ready)
+        yield* Deferred.await(call.inputReady)
       })
 
-      const cloneToolLifecycleInput = (input: unknown): Record<string, any> | undefined => {
-        if (!isRecord(input)) return undefined
+      const cloneToolLifecycleInput = (input: unknown): Record<string, any> => {
+        const normalized = isRecord(input) ? input : { value: input }
         try {
-          return structuredClone(input)
+          return structuredClone(normalized)
         } catch {
-          return { ...input }
+          return { ...normalized }
         }
       }
 
@@ -777,7 +772,6 @@ export const layer: Layer.Layer<
           messageID: part.messageID,
           sessionID: part.sessionID,
         }
-        yield* Deferred.succeed(ctx.toolcalls[toolCallID].partCreated, undefined).pipe(Effect.ignore)
         yield* applyPendingToolUpdates(toolCallID)
         return yield* readToolCall(toolCallID)
       })
@@ -1068,7 +1062,7 @@ export const layer: Layer.Layer<
             delete ctx.reasoningMap[value.id]
             return
 
-          case "tool-input-start":
+          case "tool-input-start": {
             if (ctx.assistantMessage.summary) {
               throw new Error(`Tool call not allowed while generating summary: ${value.toolName}`)
             }
@@ -1103,9 +1097,13 @@ export const layer: Layer.Layer<
                 effect: RunObservability.toolEffect(current.startedToolName),
               })
             }
-            yield* Deferred.succeed(current.partCreated, undefined).pipe(Effect.ignore)
             yield* applyPendingToolUpdates(value.id)
+            const readyPart = yield* readToolCall(value.id)
+            if (current.callMaterialized && readyPart) {
+              yield* Deferred.succeed(current.inputReady, undefined).pipe(Effect.ignore)
+            }
             return
+          }
 
           case "tool-input-delta":
             return
@@ -1139,9 +1137,9 @@ export const layer: Layer.Layer<
             yield* applyPendingToolUpdates(value.toolCallId)
             const refreshed = yield* readToolCall(value.toolCallId)
             running = refreshed?.part
-            const ready = ctx.toolcalls[value.toolCallId]?.ready
+            const inputReady = ctx.toolcalls[value.toolCallId]?.inputReady
             if (!ctx.assistantMessage.parentID) {
-              if (ready) yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
+              if (inputReady && running) yield* Deferred.succeed(inputReady, undefined).pipe(Effect.ignore)
               return
             }
             const info = yield* session.get(ctx.sessionID)
@@ -1165,7 +1163,7 @@ export const layer: Layer.Layer<
             })
             if (running) yield* session.updatePart(withDiagnostics(running))
             else yield* updateToolCall(value.toolCallId, withDiagnostics)
-            if (ready) yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
+            if (inputReady && running) yield* Deferred.succeed(inputReady, undefined).pipe(Effect.ignore)
             return
           }
 
@@ -1195,8 +1193,8 @@ export const layer: Layer.Layer<
                 : value.providerMetadata,
             }))
             yield* applyPendingToolUpdates(value.toolCallId)
-            const ready = ctx.toolcalls[value.toolCallId]?.ready
-            if (ready) yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
+            const inputReady = ctx.toolcalls[value.toolCallId]?.inputReady
+            if (inputReady) yield* Deferred.succeed(inputReady, undefined).pipe(Effect.ignore)
             yield* failToolCall(value.toolCallId, value.error)
             return
           }
@@ -1333,11 +1331,8 @@ export const layer: Layer.Layer<
 
       const prepareToolLifecyclesForDrain = Effect.fn("SessionProcessor.prepareToolLifecyclesForDrain")(function* () {
         for (const call of Object.values(ctx.toolcalls)) {
-          if (call.executionStarted === true && call.callMaterialized !== true) {
-            yield* Deferred.succeed(call.ready, undefined).pipe(Effect.ignore)
-          }
-          if (!hasToolPart(call)) {
-            yield* Deferred.succeed(call.partCreated, undefined).pipe(Effect.ignore)
+          if (call.executionStarted === true && (call.callMaterialized !== true || !hasToolPart(call))) {
+            yield* Deferred.succeed(call.inputReady, undefined).pipe(Effect.ignore)
           }
         }
       })
@@ -1349,13 +1344,16 @@ export const layer: Layer.Layer<
         yield* Effect.forEach(
           callsToDrain,
           (call) => {
-            const wait = Deferred.await(call.done)
+            const wait = Deferred.await(call.terminalDone)
             if (aborted) return wait.pipe(Effect.timeout(`${TOOL_CLEANUP_TIMEOUT_MS} millis`), Effect.ignore)
             const drain = wait.pipe(Effect.timeout(`${toolDrainTimeoutMs} millis`), Effect.ignore)
             if (!toolAbortRequested) return drain
             const abort = Deferred.await(toolAbortRequested).pipe(
               Effect.flatMap(() =>
-                Deferred.await(call.done).pipe(Effect.timeout(`${TOOL_CLEANUP_TIMEOUT_MS} millis`), Effect.ignore),
+                Deferred.await(call.terminalDone).pipe(
+                  Effect.timeout(`${TOOL_CLEANUP_TIMEOUT_MS} millis`),
+                  Effect.ignore,
+                ),
               ),
             )
             return Effect.raceFirst(drain, abort)
@@ -1376,10 +1374,16 @@ export const layer: Layer.Layer<
           if (ctx.toolcalls[toolCallID] !== match.call) continue
           if (match.call.attemptID) closedToolLifecycleAttempts.add(match.call.attemptID)
           delete ctx.toolcalls[toolCallID]
-          yield* Effect.all([Deferred.succeed(match.call.ready, undefined), Deferred.succeed(match.call.done, undefined)], {
-            concurrency: "unbounded",
-            discard: true,
-          }).pipe(Effect.ignore)
+          yield* Effect.all(
+            [
+              Deferred.succeed(match.call.inputReady, undefined),
+              Deferred.succeed(match.call.terminalDone, undefined),
+            ],
+            {
+              concurrency: "unbounded",
+              discard: true,
+            },
+          ).pipe(Effect.ignore)
           const part = match.part
           const end = Date.now()
           const metadata = "metadata" in part.state && isRecord(part.state.metadata) ? part.state.metadata : {}

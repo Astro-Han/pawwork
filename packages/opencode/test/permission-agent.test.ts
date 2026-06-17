@@ -145,6 +145,7 @@ describe("Permission.disabled for agent tool", () => {
 describe("permission.agent with real config files", () => {
   test("loads agent permissions from opencode.json config", async () => {
     await using tmp = await tmpdir({
+      git: true,
       config: {
         permission: {
           agent: {
@@ -169,6 +170,7 @@ describe("permission.agent with real config files", () => {
 
   test("loads agent permissions with wildcard patterns from config", async () => {
     await using tmp = await tmpdir({
+      git: true,
       config: {
         permission: {
           agent: {
@@ -193,6 +195,7 @@ describe("permission.agent with real config files", () => {
 
   test("evaluate respects agent permission from config", async () => {
     await using tmp = await tmpdir({
+      git: true,
       config: {
         permission: {
           agent: {
@@ -217,6 +220,7 @@ describe("permission.agent with real config files", () => {
 
   test("mixed permission config with agent and other tools", async () => {
     await using tmp = await tmpdir({
+      git: true,
       config: {
         permission: {
           bash: "allow",
@@ -255,6 +259,7 @@ describe("permission.agent with real config files", () => {
 
   test("agent tool disabled when global deny comes last in config", async () => {
     await using tmp = await tmpdir({
+      git: true,
       config: {
         permission: {
           agent: {
@@ -286,6 +291,7 @@ describe("permission.agent with real config files", () => {
 
   test("agent tool NOT disabled when specific allow comes last in config", async () => {
     await using tmp = await tmpdir({
+      git: true,
       config: {
         permission: {
           agent: {

@@ -51,7 +51,7 @@ export type StreamInput = {
   toolChoice?: "auto" | "required" | "none"
   toolAbortSignal?: AbortSignal
   toolLifecycle?: {
-    started?(input: { tool: string; toolCallID: string; input: unknown }): void | Promise<void>
+    started?(input: { tool: string; toolCallID: string; input: Record<string, any> }): void | Promise<void>
     completed?(input: {
       toolCallID: string
       output: {
@@ -719,7 +719,11 @@ export function wrapToolsWithLifecycle(
           execute: async (...args: Parameters<NonNullable<typeof execute>>) => {
             const [parameters, options] = args
             const toolOptions = toolAbortSignal ? { ...options, abortSignal: toolAbortSignal } : options
-            await lifecycle?.started?.({ tool: name, toolCallID: options.toolCallId, input: parameters })
+            await lifecycle?.started?.({
+              tool: name,
+              toolCallID: options.toolCallId,
+              input: normalizeToolLifecycleInput(parameters),
+            })
             let result: Awaited<ReturnType<NonNullable<typeof execute>>>
             try {
               result = await execute(parameters, toolOptions)
@@ -737,6 +741,11 @@ export function wrapToolsWithLifecycle(
       ]
     }),
   )
+}
+
+function normalizeToolLifecycleInput(input: unknown): Record<string, any> {
+  if (isPlainRecord(input)) return input
+  return { value: input }
 }
 
 function normalizeToolLifecycleOutput(toolName: string, result: unknown) {
