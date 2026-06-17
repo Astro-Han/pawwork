@@ -4,7 +4,6 @@ import type { UpgradeWebSocket } from "hono/ws"
 import fs from "fs/promises"
 import { Effect } from "effect"
 import z from "zod"
-import { Format } from "../../format"
 import { Instance } from "../../project/instance"
 import { Vcs } from "../../project/vcs"
 import { Agent } from "../../agent/agent"
@@ -196,7 +195,8 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
       "/vcs/diff",
       describeRoute({
         summary: "Get VCS diff",
-        description: "Retrieve the current working-tree diff. `git` compares the working tree against HEAD (covers staged and unstaged changes plus untracked files); `branch` compares the working tree against the merge base with the default branch.",
+        description:
+          "Retrieve the current working-tree diff. `git` compares the working tree against HEAD (covers staged and unstaged changes plus untracked files); `branch` compares the working tree against the merge base with the default branch.",
         operationId: "vcs.diff",
         responses: {
           200: {
@@ -257,7 +257,8 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
       "/vcs/diff/raw",
       describeRoute({
         summary: "Get raw VCS diff",
-        description: "Retrieve the current git diff as raw patch text. Review-oriented unified diff; not guaranteed to apply cleanly via `git apply` for mixed index/worktree states in pre-first-commit repos (the same path may appear in both staged and worktree sections).",
+        description:
+          "Retrieve the current git diff as raw patch text. Review-oriented unified diff; not guaranteed to apply cleanly via `git apply` for mixed index/worktree states in pre-first-commit repos (the same path may appear in both staged and worktree sections).",
         operationId: "vcs.diffRaw",
         responses: {
           200: {
@@ -467,33 +468,6 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
           Effect.gen(function* () {
             const lsp = yield* LSP.Service
             return yield* lsp.status()
-          }),
-        )
-        return c.json(status)
-      },
-    )
-    .get(
-      "/formatter",
-      describeRoute({
-        summary: "Get formatter status",
-        description: "Get formatter status",
-        operationId: "formatter.status",
-        responses: {
-          200: {
-            description: "Formatter status",
-            content: {
-              "application/json": {
-                schema: resolver(Format.Status.array()),
-              },
-            },
-          },
-        },
-      }),
-      async (c) => {
-        const status = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const format = yield* Format.Service
-            return yield* format.status()
           }),
         )
         return c.json(status)

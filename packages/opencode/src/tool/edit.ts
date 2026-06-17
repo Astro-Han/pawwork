@@ -12,7 +12,6 @@ import DESCRIPTION from "./edit.txt"
 import { File } from "../file"
 import { FileWatcher } from "../file/watcher"
 import { Bus } from "../bus"
-import { Format } from "../format"
 import { Instance } from "../project/instance"
 import { Snapshot } from "@/snapshot"
 import { assertExternalDirectoryEffect } from "./external-directory"
@@ -62,7 +61,6 @@ export const EditTool = Tool.define(
   Effect.gen(function* () {
     const lsp = yield* LSP.Service
     const afs = yield* AppFileSystem.Service
-    const format = yield* Format.Service
     const bus = yield* Bus.Service
     const turnChange = yield* TurnChange.Service
 
@@ -133,13 +131,6 @@ export const EditTool = Tool.define(
                     },
               })
               yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
-              if (yield* format.file(filePath)) {
-                contentNew = yield* Bom.syncFile(afs, filePath, desiredBom)
-                // Recompute the diff so the metadata/snapshot reflects the
-                // post-format on-disk content (formatters can rewrite the
-                // file after the diff was originally built).
-                diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
-              }
               yield* bus.publish(File.Event.Edited, { file: filePath })
               yield* bus.publish(FileWatcher.Event.Updated, {
                 file: filePath,
@@ -198,9 +189,6 @@ export const EditTool = Tool.define(
             })
 
             yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
-            if (yield* format.file(filePath)) {
-              contentNew = yield* Bom.syncFile(afs, filePath, desiredBom)
-            }
             yield* bus.publish(File.Event.Edited, { file: filePath })
             yield* bus.publish(FileWatcher.Event.Updated, {
               file: filePath,

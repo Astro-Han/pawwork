@@ -54,7 +54,6 @@ import { FetchHttpClient, HttpClient } from "effect/unstable/http"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "../file/ripgrep"
-import { Format } from "../format"
 import { InstanceState } from "@/effect/instance-state"
 import { EffectBridge } from "@/effect"
 import { makeRuntime } from "@/effect/run-service"
@@ -132,7 +131,6 @@ export namespace ToolRegistry {
     | HttpClient.HttpClient
     | ChildProcessSpawner
     | Ripgrep.Service
-    | Format.Service
     | Truncate.Service
     | Automation.Service
   > = Layer.effect(
@@ -430,20 +428,19 @@ export namespace ToolRegistry {
       }) {
         const allTools = yield* all()
         const registeredToolIDs = new Set(allTools.map((tool) => tool.id))
-        const isDeferredAvailable = (id: string) =>
-          registeredToolIDs.has(id) && (input.deferredAvailable?.(id) ?? true)
+        const isDeferredAvailable = (id: string) => registeredToolIDs.has(id) && (input.deferredAvailable?.(id) ?? true)
         const availableDeferred = [...DEFERRED_TOOL_IDS].filter(
           (id) => isDeferredAvailable(id) && !(input.activatedTools?.has(id) ?? false),
         )
         return { allTools, availableDeferred, isDeferredAvailable }
       })
 
-      const availableDeferred: Interface["availableDeferred"] = Effect.fn("ToolRegistry.availableDeferred")(function* (
-        input,
-      ) {
-        const availability = yield* deferredAvailability(input)
-        return new Set(availability.availableDeferred)
-      })
+      const availableDeferred: Interface["availableDeferred"] = Effect.fn("ToolRegistry.availableDeferred")(
+        function* (input) {
+          const availability = yield* deferredAvailability(input)
+          return new Set(availability.availableDeferred)
+        },
+      )
 
       const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
         const webSearchEnabled = yield* settings.webSearchEnabled()
@@ -475,7 +472,7 @@ export namespace ToolRegistry {
             yield* plugin.trigger("tool.definition", { toolID: tool.id }, output)
             const execute: Tool.Def["execute"] =
               tool.id === TOOL_INFO_ID
-                ? ((args, ctx) => {
+                ? (args, ctx) => {
                     const contextDeferredAvailable = ctx.extra?.["deferredAvailable"] as
                       | ((id: string) => boolean)
                       | undefined
@@ -485,7 +482,7 @@ export namespace ToolRegistry {
                       ...ctx,
                       extra: { ...ctx.extra, deferredAvailable },
                     })
-                  })
+                  }
                 : tool.execute
             return {
               id: tool.id,
@@ -535,7 +532,6 @@ export namespace ToolRegistry {
       Layer.provide(AppFileSystem.defaultLayer),
       Layer.provide(Bus.layer),
       Layer.provide(FetchHttpClient.layer),
-      Layer.provide(Format.defaultLayer),
       Layer.provide(CrossSpawnSpawner.defaultLayer),
       Layer.provide(Ripgrep.defaultLayer),
       Layer.provide(Truncate.defaultLayer),

@@ -12,7 +12,6 @@ import { LSP } from "../lsp"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import DESCRIPTION from "./apply_patch.txt"
 import { File } from "../file"
-import { Format } from "../format"
 import * as Bom from "@/util/bom"
 import { isSensitiveTargetPath, type SensitiveStatus } from "./sensitive"
 import { TurnChange } from "@/session/turn-change"
@@ -74,7 +73,6 @@ export const ApplyPatchTool = Tool.define(
   Effect.gen(function* () {
     const lsp = yield* LSP.Service
     const afs = yield* AppFileSystem.Service
-    const format = yield* Format.Service
     const bus = yield* Bus.Service
     const turnChange = yield* TurnChange.Service
 
@@ -327,25 +325,6 @@ export const ApplyPatchTool = Tool.define(
         }
 
         if (edited) {
-          if (yield* format.file(edited)) {
-            // Mirror the recompute-after-format pattern in edit.ts/write.ts:
-            // formatters can rewrite the file after we've already built the
-            // diff/additions/deletions, so re-read the bytes and refresh this
-            // change's metadata. Without this, the patch metadata (and the
-            // aggregated `totalDiff` returned to the caller) describes content
-            // that no longer matches what's on disk.
-            const synced = yield* Bom.syncFile(afs, edited, change.bom)
-            change.newContent = synced
-            change.diff = trimDiff(createTwoFilesPatch(edited, edited, change.oldContent, synced))
-            let additions = 0
-            let deletions = 0
-            for (const piece of diffLines(change.oldContent, synced)) {
-              if (piece.added) additions += piece.count || 0
-              if (piece.removed) deletions += piece.count || 0
-            }
-            change.additions = additions
-            change.deletions = deletions
-          }
           yield* bus.publish(File.Event.Edited, { file: edited })
         }
 
@@ -374,13 +353,15 @@ export const ApplyPatchTool = Tool.define(
             before: change.beforeExists
               ? { exists: true, content: change.beforeContent ?? change.oldContent, bom: change.beforeBom }
               : { exists: false },
-            after: change.type === "delete" ? { exists: false } : { exists: true, content: change.newContent, bom: change.bom },
+            after:
+              change.type === "delete"
+                ? { exists: false }
+                : { exists: true, content: change.newContent, bom: change.bom },
           })
         }
       }
 
-      // Rebuild the aggregated diff and per-file metadata so the caller-visible
-      // `totalDiff` / `files` reflect any post-format mutations applied above.
+      // Rebuild the aggregated diff and per-file metadata.
       totalDiff = ""
       for (let i = 0; i < fileChanges.length; i++) {
         const c = fileChanges[i]!

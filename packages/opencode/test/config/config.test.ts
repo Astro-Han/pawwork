@@ -415,7 +415,7 @@ test("PawWork .opencode aliases win consistently when OpenCode aliases coexist",
   })
 })
 
-test("loads formatter boolean config", async () => {
+test("ignores removed formatter config", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await writeConfig(dir, {
@@ -428,7 +428,7 @@ test("loads formatter boolean config", async () => {
     directory: tmp.path,
     fn: async () => {
       const config = await load()
-      expect(config.formatter).toBe(true)
+      expect((config as any).formatter).toBeUndefined()
     },
   })
 })
@@ -1493,7 +1493,9 @@ test("installDependencies bootstraps the config plugin package metadata", async 
   try {
     await Config.installDependencies(tmp.path)
 
-    const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.path, "package.json"))
+    const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(
+      path.join(tmp.path, "package.json"),
+    )
     const target = Installation.isLocal() ? "*" : Installation.VERSION
 
     expect(pkg.dependencies?.["@opencode-ai/plugin"]).toBe(target)
@@ -1516,7 +1518,9 @@ test("installDependencies does not pin config plugin metadata to a packaged app 
 
     await Config.installDependencies(tmp.path)
 
-    const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.path, "package.json"))
+    const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(
+      path.join(tmp.path, "package.json"),
+    )
 
     expect(pkg.dependencies?.["@opencode-ai/plugin"]).toBe(InstallationPluginVersion)
     expect(pkg.dependencies?.["@opencode-ai/plugin"]).not.toBe(Installation.VERSION)
@@ -1550,7 +1554,9 @@ test("service dependency loading uses config plugin package metadata", async () 
         },
       })
 
-      const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.extra, "package.json"))
+      const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(
+        path.join(tmp.extra, "package.json"),
+      )
       const target = Installation.isLocal() ? "*" : Installation.VERSION
 
       expect(pkg.dependencies?.["@opencode-ai/plugin"]).toBe(target)
@@ -2646,10 +2652,9 @@ test("wellknown HTML response surfaces remote auth recovery error", async () => 
   )
 
   try {
-    const exit = await provideTmpdirInstance(
-      () => Config.Service.use((svc) => svc.get()).pipe(Effect.exit),
-      { git: true },
-    ).pipe(Effect.scoped, Effect.provide(layer), Effect.runPromise)
+    const exit = await provideTmpdirInstance(() => Config.Service.use((svc) => svc.get()).pipe(Effect.exit), {
+      git: true,
+    }).pipe(Effect.scoped, Effect.provide(layer), Effect.runPromise)
 
     expect(Exit.isFailure(exit)).toBe(true)
     const error = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
@@ -2693,10 +2698,9 @@ test("wellknown non-json response surfaces remote auth recovery error", async ()
   )
 
   try {
-    const exit = await provideTmpdirInstance(
-      () => Config.Service.use((svc) => svc.get()).pipe(Effect.exit),
-      { git: true },
-    ).pipe(Effect.scoped, Effect.provide(layer), Effect.runPromise)
+    const exit = await provideTmpdirInstance(() => Config.Service.use((svc) => svc.get()).pipe(Effect.exit), {
+      git: true,
+    }).pipe(Effect.scoped, Effect.provide(layer), Effect.runPromise)
 
     expect(Exit.isFailure(exit)).toBe(true)
     const error = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
@@ -2734,10 +2738,9 @@ test("wellknown unauthorized response surfaces remote auth recovery error", asyn
   )
 
   try {
-    const exit = await provideTmpdirInstance(
-      () => Config.Service.use((svc) => svc.get()).pipe(Effect.exit),
-      { git: true },
-    ).pipe(Effect.scoped, Effect.provide(layer), Effect.runPromise)
+    const exit = await provideTmpdirInstance(() => Config.Service.use((svc) => svc.get()).pipe(Effect.exit), {
+      git: true,
+    }).pipe(Effect.scoped, Effect.provide(layer), Effect.runPromise)
 
     expect(Exit.isFailure(exit)).toBe(true)
     const error = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined

@@ -30,7 +30,6 @@ import { zod, ZodOverride } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
 import { ConfigAgent } from "./agent"
 import { ConfigCommand } from "./command"
-import { ConfigFormatter } from "./formatter"
 import { ConfigKeybinds } from "./keybinds"
 import { ConfigLayout } from "./layout"
 import { ConfigLSP } from "./lsp"
@@ -140,6 +139,8 @@ function normalizeLoadedConfig(data: unknown, source: string) {
   // Legacy compat for v0.2.13-era configs: ignore removed default_agent before strict schema decode.
   // Keep this as a narrow read-time shim only; do not write the file back.
   delete copy["default_agent"]
+  // Legacy compat: formatter integration was removed. Silently ignore the field.
+  delete copy["formatter"]
   const hadLegacy = "theme" in copy || "keybinds" in copy || "tui" in copy
   if (!hadLegacy) return copy
   delete copy.theme
@@ -274,7 +275,6 @@ export const Info = Schema.Struct({
       ]),
     ),
   ).annotate({ description: "MCP (Model Context Protocol) server configurations" }),
-  formatter: Schema.optional(ConfigFormatter.Info),
   lsp: Schema.optional(ConfigLSP.Info),
   instructions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
     description: "Additional instruction files or patterns to include",
@@ -438,7 +438,8 @@ export async function withConfigFileLock<T>(file: string, fn: () => Promise<T>) 
 
 function isWindowsSyncUnsupportedError(error: unknown) {
   if (process.platform !== "win32") return false
-  const code = error && typeof error === "object" && "code" in error ? (error as NodeJS.ErrnoException)?.code : undefined
+  const code =
+    error && typeof error === "object" && "code" in error ? (error as NodeJS.ErrnoException)?.code : undefined
   return code === "EPERM" || code === "EINVAL" || code === "ENOTSUP"
 }
 
@@ -920,9 +921,9 @@ const rawLayer = Layer.effect(
             if (!response.ok) {
               throw new Error(`failed to fetch remote config from ${url}: ${response.status}`)
             }
-            const wellknown = (yield* Effect.promise(() =>
-              readRemoteConfigJson(response, { url, remote }),
-            )) as { config?: Record<string, unknown> }
+            const wellknown = (yield* Effect.promise(() => readRemoteConfigJson(response, { url, remote }))) as {
+              config?: Record<string, unknown>
+            }
             const remoteConfig = wellknown.config ?? {}
             if (!remoteConfig.$schema) remoteConfig.$schema = "https://opencode.ai/config.json"
             const source = remote
@@ -1194,9 +1195,8 @@ const rawLayer = Layer.effect(
       // abort any in-flight assistant turn.
       if (changed)
         yield* Effect.promise(() =>
-          withLifecycleOrigin(
-            { source: "config", operation: "config.update", reason: "config.update" },
-            () => Instance.dispose(),
+          withLifecycleOrigin({ source: "config", operation: "config.update", reason: "config.update" }, () =>
+            Instance.dispose(),
           ),
         )
     })
@@ -1215,8 +1215,7 @@ const rawLayer = Layer.effect(
       const task = withLifecycleOrigin({ source: "config", operation, reason: operation }, async () => {
         const result = await Instance.disposeAll({ onCompleted: emitDisposed })
         if (wait && result.completed) await result.completed
-      })
-        .catch(() => undefined)
+      }).catch(() => undefined)
       if (wait) yield* Effect.promise(() => task)
       else void task
     })
@@ -1271,7 +1270,8 @@ const rawLayer = Layer.effect(
           const updated = patchJsonc(before, writable(config))
           next = ConfigParse.schema(Info.zod, ConfigParse.jsonc(updated, file), file)
           changed = !fileExisted || updated !== before
-          if (changed) yield* Effect.promise(() => writeConfigTextAtomic(file, updated, writeOptions)).pipe(Effect.orDie)
+          if (changed)
+            yield* Effect.promise(() => writeConfigTextAtomic(file, updated, writeOptions)).pipe(Effect.orDie)
         }
       } finally {
         yield* Effect.promise(() => lock.release())

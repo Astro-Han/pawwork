@@ -196,7 +196,6 @@ jobs:
               test/bus
               test/cli
               test/global
-              test/format
               test/account
               test/sync
               test/filesystem

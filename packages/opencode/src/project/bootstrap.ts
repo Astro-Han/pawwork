@@ -4,7 +4,6 @@ import { Config } from "@/config"
 import { InstanceState } from "@/effect/instance-state"
 import { File } from "@/file"
 import { FileWatcher } from "@/file/watcher"
-import { Format } from "@/format"
 import { LSP } from "@/lsp"
 import { Plugin } from "@/plugin"
 import { Project } from "@/project/project"
@@ -29,7 +28,6 @@ export const layer = Layer.effect(
     const plugin = yield* Plugin.Service
     const lsp = yield* LSP.Service
     const shareNext = yield* ShareNext.Service
-    const format = yield* Format.Service
     const file = yield* File.Service
     const fileWatcher = yield* FileWatcher.Service
     const vcs = yield* Vcs.Service
@@ -65,19 +63,10 @@ export const layer = Layer.effect(
         })
 
         yield* config.get().pipe(Effect.asVoid)
-        yield* Effect.forEach(
-          [
-            shareNext.init(),
-            format.init(),
-            lsp.init(),
-            file.init(),
-          ],
-          boot,
-          {
-            concurrency: "unbounded",
-            discard: true,
-          },
-        )
+        yield* Effect.forEach([shareNext.init(), lsp.init(), file.init()], boot, {
+          concurrency: "unbounded",
+          discard: true,
+        })
         yield* boot(fileWatcher.init())
         yield* boot(vcs.init())
         yield* boot(snapshot.init())
@@ -91,7 +80,6 @@ export const defaultLayer = layer.pipe(
   Layer.provide(Config.defaultLayer),
   Layer.provide(File.defaultLayer),
   Layer.provide(FileWatcher.defaultLayer),
-  Layer.provide(Format.defaultLayer),
   Layer.provide(LSP.defaultLayer),
   Layer.provide(Plugin.defaultLayer),
   Layer.provide(Project.defaultLayer),
