@@ -30,6 +30,18 @@ test("splitForTelegram splits over the 4096-unit cap and headers each piece", ()
   expect(body).toBe(long)
 })
 
+test("splitForTelegram preserves a newline that falls on a split boundary", () => {
+  // Long enough to split, with a newline in the last 10% of the first chunk so
+  // the line-boundary break fires. The delimiter must survive: stripping headers
+  // and concatenating the bodies must reproduce the original exactly.
+  const text = "a".repeat(3980) + "\n" + "b".repeat(4000)
+  const chunks = splitForTelegram(text)
+  expect(chunks.length).toBeGreaterThan(1)
+  for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(4096)
+  const body = chunks.map((c) => c.replace(/^\[\d+\/\d+\]\n/, "")).join("")
+  expect(body).toBe(text)
+})
+
 test("splitForTelegram never splits a surrogate pair", () => {
   const emoji = "😀".repeat(3000) // each emoji is 2 UTF-16 units
   const chunks = splitForTelegram(emoji)

@@ -157,9 +157,12 @@ export function splitForTelegram(text: string): string[] {
     let chunk = prefixWithinUtf16(remaining, cap)
     const minBoundary = Math.floor(chunk.length * 0.9)
     const nl = chunk.lastIndexOf("\n")
-    if (nl >= minBoundary) chunk = chunk.slice(0, nl)
+    // Prefer a line boundary near the end, keeping the newline as the chunk's
+    // last char. Every character lands in exactly one chunk — never drop the
+    // delimiter, or reassembling a split reply loses a newline at the seam.
+    if (nl >= minBoundary) chunk = chunk.slice(0, nl + 1)
     pieces.push(chunk)
-    remaining = remaining.slice(chunk.length).replace(/^\n/, "")
+    remaining = remaining.slice(chunk.length)
   }
   if (remaining.length > 0) pieces.push(remaining)
   const total = pieces.length
