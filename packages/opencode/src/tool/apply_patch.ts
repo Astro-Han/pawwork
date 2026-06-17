@@ -115,8 +115,6 @@ export const ApplyPatchTool = Tool.define(
         sensitive: boolean
       }> = []
 
-      let totalDiff = ""
-
       for (const hunk of hunks) {
         const rawFilePath = path.resolve(Instance.directory, hunk.path)
         const filePath = (yield* assertExternalDirectoryEffect(ctx, rawFilePath)) ?? rawFilePath
@@ -154,8 +152,6 @@ export const ApplyPatchTool = Tool.define(
               moveBeforeExists: undefined,
               sensitive: isSensitiveFile(filePath),
             })
-
-            totalDiff += diff + "\n"
             break
           }
 
@@ -212,8 +208,6 @@ export const ApplyPatchTool = Tool.define(
               moveBeforeExists: !!moveBefore,
               sensitive: isSensitiveFile(filePath) || (movePath ? isSensitiveFile(movePath) : false),
             })
-
-            totalDiff += diff + "\n"
             break
           }
 
@@ -239,8 +233,6 @@ export const ApplyPatchTool = Tool.define(
               beforeBom: source.bom,
               sensitive: isSensitiveFile(filePath),
             })
-
-            totalDiff += deleteDiff + "\n"
             break
           }
         }
@@ -355,19 +347,6 @@ export const ApplyPatchTool = Tool.define(
               : { exists: false },
             after: change.type === "delete" ? { exists: false } : { exists: true, content: change.newContent, bom: change.bom },
           })
-        }
-      }
-
-      // Rebuild the aggregated diff and per-file metadata.
-      totalDiff = ""
-      for (let i = 0; i < fileChanges.length; i++) {
-        const c = fileChanges[i]!
-        totalDiff += c.diff + (c.diff.endsWith("\n") ? "" : "\n")
-        const f = files[i]
-        if (f && !c.sensitive) {
-          f.patch = c.diff
-          f.additions = c.additions
-          f.deletions = c.deletions
         }
       }
 

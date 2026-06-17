@@ -75,14 +75,13 @@ export const WriteTool = Tool.define(
         })
 
         yield* fs.writeWithDirs(filepath, Bom.join(contentNew, desiredBom))
-        let finalContent = contentNew
         yield* bus.publish(File.Event.Edited, { file: filepath })
         yield* turnChange.recordWrite({
           sessionID: ctx.sessionID,
           messageID: ctx.messageID,
           path: filepath,
           before: exists ? { exists: true, content: contentOld, bom: source.bom } : { exists: false },
-          after: { exists: true, content: finalContent, bom: desiredBom },
+          after: { exists: true, content: contentNew, bom: desiredBom },
         })
         yield* bus.publish(FileWatcher.Event.Updated, {
           file: filepath,

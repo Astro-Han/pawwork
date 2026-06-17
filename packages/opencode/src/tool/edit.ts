@@ -194,14 +194,6 @@ export const EditTool = Tool.define(
               file: filePath,
               event: "change",
             })
-            diff = trimDiff(
-              createTwoFilesPatch(
-                filePath,
-                filePath,
-                normalizeLineEndings(contentOld),
-                normalizeLineEndings(contentNew),
-              ),
-            )
           }),
         )
 
