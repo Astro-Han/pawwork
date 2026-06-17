@@ -43,7 +43,7 @@ describe("desktop smoke workflow", () => {
     expect(parsed.concurrency?.group).toContain("github.event.pull_request.number || github.ref")
     expect(parsed.concurrency?.["cancel-in-progress"]).toBe("${{ github.ref != 'refs/heads/dev' }}")
     expect(parsed.permissions).toEqual({ contents: "read", "pull-requests": "read" })
-    expect(Object.keys(jobs).sort()).toEqual(["changes", "check", "smoke-macos-arm64"])
+    expect(Object.keys(jobs).sort()).toEqual(["changes", "check", "install-matrix", "smoke-macos-arm64"])
     expect(changesCheckoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
     expect(smokeCheckoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
 
@@ -67,10 +67,7 @@ describe("desktop smoke workflow", () => {
     expect(smoke?.if).toBe("needs.changes.outputs.docs_only != 'true'")
     expect(smoke?.["runs-on"]).toBe("macos-14")
     expect(check?.if).toBe("always()")
-    expect(check?.needs).toEqual(["changes", "smoke-macos-arm64"])
-
-    expect(workflow).not.toContain("strategy:")
-    expect(workflow).not.toContain("matrix:")
+    expect(check?.needs).toEqual(["changes", "smoke-macos-arm64", "install-matrix"])
 
     expect(smokeCheckoutStep?.with).toEqual({ "persist-credentials": false })
     expect(smokeBunStep?.uses).toBe("oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6")
