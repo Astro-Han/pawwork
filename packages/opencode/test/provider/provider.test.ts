@@ -1435,7 +1435,7 @@ test("Volcano Engine Coding Plan models have correct key parameters", async () =
   const models = await ModelsDev.get()
   const provider = models[VOLCENGINE_PLAN_PROVIDER_ID]
 
-  const expected: Record<string, { context: number; output: number; reasoning: boolean; interleaved?: object }> = {
+  const expected: Record<string, { context: number; output: number; reasoning: boolean; interleaved?: true | { field: "reasoning_content" | "reasoning_details" } }> = {
     "minimax-m3": { context: 512000, output: 128000, reasoning: true },
     "glm-5.2": { context: 1000000, output: 131072, reasoning: true, interleaved: { field: "reasoning_content" } },
     "deepseek-v4-flash": { context: 1000000, output: 384000, reasoning: true, interleaved: { field: "reasoning_content" } },
