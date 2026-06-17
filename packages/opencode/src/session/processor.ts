@@ -124,15 +124,18 @@ type ToolLifecycleRecord = {
   terminalDone: Deferred.Deferred<void>
   attemptID?: RunObservability.AttemptID
   callMaterialized?: boolean
-  executionStarted?: boolean
-  executionStartedRecorded?: boolean
-  executionCompletedRecorded?: boolean
-  executionFailedRecorded?: boolean
-  startedToolName?: string
-  startedInput?: Record<string, any>
-  startedAt?: number
+  started?: ToolLifecycleStarted
+  recordedEvents?: Set<ToolLifecycleRecordedEvent>
   settled?: boolean
 }
+
+type ToolLifecycleStarted = {
+  toolName: string
+  input: Record<string, any>
+  at: number
+}
+
+type ToolLifecycleRecordedEvent = "started" | "completed" | "failed"
 
 type ToolLifecycleOutput = {
   title: string
@@ -415,6 +418,16 @@ export const layer: Layer.Layer<
       const isToolLifecycleAttemptClosed = (attemptID: RunObservability.AttemptID | undefined) =>
         attemptID !== undefined && closedToolLifecycleAttempts.has(attemptID)
 
+      const markToolLifecycleEventRecorded = (
+        call: ToolLifecycleRecord,
+        event: ToolLifecycleRecordedEvent,
+      ): boolean => {
+        const recorded = (call.recordedEvents ??= new Set())
+        if (recorded.has(event)) return false
+        recorded.add(event)
+        return true
+      }
+
       const getToolLifecycleRecord = Effect.fn("SessionProcessor.getToolLifecycleRecord")(function* (
         toolCallID: string,
         attemptID?: RunObservability.AttemptID,
@@ -485,19 +498,19 @@ export const layer: Layer.Layer<
         const call = yield* getToolLifecycleRecord(input.toolCallID, activeAttemptID)
         if (!call) return
         const lifecycleAttemptID = toolCallAttemptID(input.toolCallID, activeAttemptID)
-        call.executionStarted = true
-        call.startedToolName ??= input.tool
-        call.startedInput ??= cloneToolLifecycleInput(input.input)
-        call.startedAt ??= Date.now()
+        call.started ??= {
+          toolName: input.tool,
+          input: cloneToolLifecycleInput(input.input),
+          at: Date.now(),
+        }
         call.attemptID ??= activeAttemptID
-        if (!lifecycleAttemptID || call.executionStartedRecorded) return
-        call.executionStartedRecorded = true
+        if (!lifecycleAttemptID || !markToolLifecycleEventRecorded(call, "started")) return
         ctx.runTrace.recordToolExecutionStarted({
           attemptID: lifecycleAttemptID,
           at: Date.now(),
           monotonicMs: performance.now(),
-          toolName: RunObservability.safeToolName(input.tool),
-          effect: RunObservability.toolEffect(input.tool),
+          toolName: RunObservability.safeToolName(call.started.toolName),
+          effect: RunObservability.toolEffect(call.started.toolName),
         })
       })
 
@@ -506,8 +519,7 @@ export const layer: Layer.Layer<
           if (isToolLifecycleAttemptClosed(attemptID)) return
           const call = ctx.toolcalls[input.toolCallID]
           const lifecycleAttemptID = toolCallAttemptID(input.toolCallID, attemptID ?? ctx.currentAttemptID)
-          if (!call || !lifecycleAttemptID || call.executionCompletedRecorded) return
-          call.executionCompletedRecorded = true
+          if (!call || !lifecycleAttemptID || !markToolLifecycleEventRecorded(call, "completed")) return
           ctx.runTrace.recordToolCompleted({
             attemptID: lifecycleAttemptID,
             at: Date.now(),
@@ -523,8 +535,7 @@ export const layer: Layer.Layer<
         if (isToolLifecycleAttemptClosed(attemptID)) return
         const call = ctx.toolcalls[input.toolCallID]
         const lifecycleAttemptID = toolCallAttemptID(input.toolCallID, attemptID ?? ctx.currentAttemptID)
-        if (!call || !lifecycleAttemptID || call.executionFailedRecorded) return
-        call.executionFailedRecorded = true
+        if (!call || !lifecycleAttemptID || !markToolLifecycleEventRecorded(call, "failed")) return
         ctx.runTrace.recordToolFailed({
           attemptID: lifecycleAttemptID,
           at: Date.now(),
@@ -752,17 +763,17 @@ export const layer: Layer.Layer<
       ) {
         const existing = yield* readToolCall(toolCallID)
         if (existing) return existing
-        if (!call.startedToolName || !call.startedInput) return
+        if (!call.started) return
         const part = yield* session.updatePart({
           id: call.partID ?? PartID.ascending(),
           messageID: ctx.assistantMessage.id,
           sessionID: ctx.assistantMessage.sessionID,
           type: "tool",
-          tool: call.startedToolName,
+          tool: call.started.toolName,
           callID: toolCallID,
           state: {
             status: "pending",
-            input: call.startedInput,
+            input: call.started.input,
             raw: "",
           },
         } satisfies MessageV2.ToolPart)
@@ -777,10 +788,10 @@ export const layer: Layer.Layer<
       })
 
       const toolTerminalInput = (call: ToolLifecycleRecord, part: MessageV2.ToolPart) =>
-        call.startedInput ?? part.state.input
+        call.started?.input ?? part.state.input
 
       const toolTerminalStart = (call: ToolLifecycleRecord, part: MessageV2.ToolPart, fallback: number) =>
-        "time" in part.state ? part.state.time.start : (call.startedAt ?? fallback)
+        "time" in part.state ? part.state.time.start : (call.started?.at ?? fallback)
 
       const completeToolCall = Effect.fn("SessionProcessor.completeToolCall")(function* (
         toolCallID: string,
@@ -793,7 +804,7 @@ export const layer: Layer.Layer<
         if (
           !match ||
           (match.part.state.status !== "running" &&
-            !(match.part.state.status === "pending" && match.call.executionStarted === true))
+            !(match.part.state.status === "pending" && match.call.started))
         )
           return
         const diagnostics = toolDiagnostics(match.part)
@@ -878,7 +889,7 @@ export const layer: Layer.Layer<
         }
         if (
           match.part.state.status !== "running" &&
-          !(match.part.state.status === "pending" && match.call.executionStarted === true)
+          !(match.part.state.status === "pending" && match.call.started)
         ) {
           yield* settleToolCall(toolCallID)
           return false
@@ -1087,14 +1098,16 @@ export const layer: Layer.Layer<
               attemptID,
             }
             const current = ctx.toolcalls[value.id]
-            if (current.executionStarted && current.startedToolName && !current.executionStartedRecorded) {
-              current.executionStartedRecorded = true
+            if (
+              current.started &&
+              markToolLifecycleEventRecorded(current, "started")
+            ) {
               ctx.runTrace.recordToolExecutionStarted({
                 attemptID,
                 at: Date.now(),
                 monotonicMs: performance.now(),
-                toolName: RunObservability.safeToolName(current.startedToolName),
-                effect: RunObservability.toolEffect(current.startedToolName),
+                toolName: RunObservability.safeToolName(current.started.toolName),
+                effect: RunObservability.toolEffect(current.started.toolName),
               })
             }
             yield* applyPendingToolUpdates(value.id)
@@ -1331,7 +1344,7 @@ export const layer: Layer.Layer<
 
       const prepareToolLifecyclesForDrain = Effect.fn("SessionProcessor.prepareToolLifecyclesForDrain")(function* () {
         for (const call of Object.values(ctx.toolcalls)) {
-          if (call.executionStarted === true && (call.callMaterialized !== true || !hasToolPart(call))) {
+          if (call.started && (call.callMaterialized !== true || !hasToolPart(call))) {
             yield* Deferred.succeed(call.inputReady, undefined).pipe(Effect.ignore)
           }
         }
@@ -1339,7 +1352,7 @@ export const layer: Layer.Layer<
 
       const drainToolLifecycles = Effect.fn("SessionProcessor.drainToolLifecycles")(function* () {
         const callsToDrain = Object.values(ctx.toolcalls).filter(
-          (call) => !call.settled && (call.executionStarted === true || (aborted && hasToolPart(call))),
+          (call) => !call.settled && (call.started || (aborted && hasToolPart(call))),
         )
         yield* Effect.forEach(
           callsToDrain,
@@ -1387,7 +1400,7 @@ export const layer: Layer.Layer<
           const part = match.part
           const end = Date.now()
           const metadata = "metadata" in part.state && isRecord(part.state.metadata) ? part.state.metadata : {}
-          const interruptionPhase: ToolInterruptionPhase = match.call.executionStarted
+          const interruptionPhase: ToolInterruptionPhase = match.call.started
             ? "tool_execution"
             : match.call.callMaterialized || part.state.status === "running"
               ? "tool_call_materialized_without_execution"
@@ -1411,14 +1424,14 @@ export const layer: Layer.Layer<
                 ...metadata,
                 interrupted: true,
                 interruption_phase: interruptionPhase,
-                tool_execution_started: match.call.executionStarted === true,
+                tool_execution_started: !!match.call.started,
               },
               time: { start: "time" in part.state ? part.state.time.start : end, end },
             },
           })
           const attemptID = match.call.attemptID ?? ctx.currentAttemptID
           if (attemptID) {
-            if (match.call.executionStarted) {
+            if (match.call.started) {
               ctx.runTrace.recordToolInterrupted({
                 attemptID,
                 at: end,
