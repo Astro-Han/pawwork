@@ -1,4 +1,5 @@
 import type { EventHandler } from "./pawwork-events.ts"
+import { t, type Locale } from "./i18n.ts"
 import { SessionPointers as SessionPointersStore } from "./session-pointers.ts"
 import type {
   Message,
@@ -41,6 +42,7 @@ export class Engine implements EventHandler {
   constructor(
     private readonly sidecar: Sidecar,
     private readonly pointers: SessionPointers = SessionPointersStore.memory(),
+    private readonly locale: Locale = "en",
   ) {}
 
   currentSession(remoteKey: string): string {
@@ -67,7 +69,7 @@ export class Engine implements EventHandler {
     try {
       sessionID = await this.ensureSession(key)
     } catch (err) {
-      await replyQuietly(platform, msg.replyCtx, "PawWork could not start a session: " + message(err))
+      await replyQuietly(platform, msg.replyCtx, t(this.locale, "err.startSession") + message(err))
       throw err
     }
 
@@ -81,7 +83,7 @@ export class Engine implements EventHandler {
     try {
       await this.sidecar.sendPrompt(sessionID, text)
     } catch (err) {
-      await replyQuietly(platform, msg.replyCtx, "PawWork could not send the message: " + message(err))
+      await replyQuietly(platform, msg.replyCtx, t(this.locale, "err.sendMessage") + message(err))
       throw err
     }
   }
@@ -177,13 +179,13 @@ export class Engine implements EventHandler {
     if (blocker.kind === "permission") {
       const reply = permissionReplyForText(text)
       if (reply === "") {
-        await platform.reply(msg.replyCtx, "Reply yes, always, or no.")
+        await platform.reply(msg.replyCtx, t(this.locale, "permission.notUnderstoodPrefix") + t(this.locale, "permission.replyHint"))
         return true
       }
       try {
         await this.sidecar.replyPermission(blocker.permission, { reply, message: "" })
       } catch (err) {
-        await replyQuietly(platform, msg.replyCtx, "PawWork could not answer the permission request: " + message(err))
+        await replyQuietly(platform, msg.replyCtx, t(this.locale, "err.answerPermission") + message(err))
         throw err
       }
       this.clearPendingPermission(blocker.permission)
@@ -193,7 +195,7 @@ export class Engine implements EventHandler {
     // question blocker
     let answers: string[][]
     try {
-      answers = answersForQuestionText(blocker.question, text)
+      answers = answersForQuestionText(blocker.question, text, this.locale)
     } catch (err) {
       await platform.reply(msg.replyCtx, message(err))
       return true
@@ -201,7 +203,7 @@ export class Engine implements EventHandler {
     try {
       await this.sidecar.submitQuestion(blocker.question, answers)
     } catch (err) {
-      await replyQuietly(platform, msg.replyCtx, "PawWork could not submit the answer: " + message(err))
+      await replyQuietly(platform, msg.replyCtx, t(this.locale, "err.submitAnswer") + message(err))
       throw err
     }
     this.clearPendingQuestion(blocker.question)
@@ -250,10 +252,10 @@ export class Engine implements EventHandler {
       if (candidate.delivered) return null
       if (candidate.kind === "permission") {
         const permission = this.permissions.get(candidate.key)!
-        return { ref: candidate, sessionID: permission.sessionID, content: permissionPrompt(permission) }
+        return { ref: candidate, sessionID: permission.sessionID, content: permissionPrompt(permission, this.locale) }
       }
       const question = this.questions.get(candidate.key)!
-      return { ref: candidate, sessionID: question.sessionID, content: questionPrompt(question) }
+      return { ref: candidate, sessionID: question.sessionID, content: questionPrompt(question, this.locale) }
     }
     return null
   }
@@ -367,17 +369,17 @@ export class Engine implements EventHandler {
         try {
           sessionID = await this.sidecar.createSession()
         } catch (err) {
-          await replyQuietly(platform, msg.replyCtx, "PawWork could not start a session: " + message(err))
+          await replyQuietly(platform, msg.replyCtx, t(this.locale, "err.startSession") + message(err))
           throw err
         }
         try {
           await this.setCurrent(key, sessionID)
         } catch (err) {
-          await replyQuietly(platform, msg.replyCtx, "PawWork could not remember the session: " + message(err))
+          await replyQuietly(platform, msg.replyCtx, t(this.locale, "err.rememberSession") + message(err))
           throw err
         }
         this.setActive(sessionID, platform, msg.replyCtx)
-        await platform.reply(msg.replyCtx, "Started a new PawWork session.")
+        await platform.reply(msg.replyCtx, t(this.locale, "cmd.newSession"))
         return true
       }
       case "/sessions": {
@@ -389,21 +391,21 @@ export class Engine implements EventHandler {
       case "/stop": {
         const sessionID = this.currentSession(key)
         if (sessionID === "") {
-          await platform.reply(msg.replyCtx, "No active PawWork session.")
+          await platform.reply(msg.replyCtx, t(this.locale, "cmd.noActiveSession"))
           return true
         }
         let aborted: boolean
         try {
           aborted = await this.sidecar.abortSession(sessionID)
         } catch (err) {
-          await replyQuietly(platform, msg.replyCtx, "PawWork could not stop the run: " + message(err))
+          await replyQuietly(platform, msg.replyCtx, t(this.locale, "err.stopRun") + message(err))
           throw err
         }
-        await platform.reply(msg.replyCtx, aborted ? "Stopped the current PawWork run." : "No running PawWork run.")
+        await platform.reply(msg.replyCtx, aborted ? t(this.locale, "cmd.stopped") : t(this.locale, "cmd.noRunning"))
         return true
       }
       case "/help":
-        await platform.reply(msg.replyCtx, "Commands: /new, /sessions, /sessions N, /stop.")
+        await platform.reply(msg.replyCtx, t(this.locale, "cmd.help"))
         return true
       default:
         return false
@@ -440,16 +442,16 @@ export class Engine implements EventHandler {
     try {
       sessions = await this.sidecar.listSessions(5)
     } catch (err) {
-      await replyQuietly(platform, msg.replyCtx, "PawWork could not list sessions: " + message(err))
+      await replyQuietly(platform, msg.replyCtx, t(this.locale, "err.listSessions") + message(err))
       throw err
     }
     if (sessions.length === 0) {
-      await platform.reply(msg.replyCtx, "No recent PawWork sessions.")
+      await platform.reply(msg.replyCtx, t(this.locale, "cmd.noRecent"))
       return
     }
-    const lines = ["Recent PawWork sessions:"]
+    const lines = [t(this.locale, "cmd.recentSessions")]
     sessions.forEach((session, index) => lines.push(`${index + 1}. ${sessionLabel(session)}`))
-    await platform.reply(msg.replyCtx, lines.join("\n") + "\n\nSwitch with /sessions 2.")
+    await platform.reply(msg.replyCtx, lines.join("\n") + "\n\n" + t(this.locale, "cmd.switchHint"))
   }
 
   private async switchSession(platform: Platform, msg: Message, key: string, rawIndex: string): Promise<void> {
@@ -457,7 +459,7 @@ export class Engine implements EventHandler {
     // and "2.5" are rejected, not silently truncated to 2.
     const index = /^[+-]?\d+$/.test(rawIndex) ? Number.parseInt(rawIndex, 10) : Number.NaN
     if (Number.isNaN(index) || index < 1) {
-      await platform.reply(msg.replyCtx, "Choose a session with /sessions 1.")
+      await platform.reply(msg.replyCtx, t(this.locale, "cmd.chooseHint"))
       return
     }
     // Fetch the current list rather than trusting a cached picker: between
@@ -467,11 +469,11 @@ export class Engine implements EventHandler {
     try {
       sessions = await this.sidecar.listSessions(5)
     } catch (err) {
-      await replyQuietly(platform, msg.replyCtx, "PawWork could not list sessions: " + message(err))
+      await replyQuietly(platform, msg.replyCtx, t(this.locale, "err.listSessions") + message(err))
       throw err
     }
     if (index > sessions.length) {
-      await platform.reply(msg.replyCtx, `Only ${sessions.length} recent PawWork sessions are available.`)
+      await platform.reply(msg.replyCtx, t(this.locale, "cmd.onlyN", { n: sessions.length }))
       return
     }
     const session = sessions[index - 1]
@@ -479,11 +481,11 @@ export class Engine implements EventHandler {
       await this.registerSession(session)
       await this.setCurrent(key, session.id)
     } catch (err) {
-      await replyQuietly(platform, msg.replyCtx, "PawWork could not remember the session: " + message(err))
+      await replyQuietly(platform, msg.replyCtx, t(this.locale, "err.rememberSession") + message(err))
       throw err
     }
     this.setActive(session.id, platform, msg.replyCtx)
-    await platform.reply(msg.replyCtx, "Switched to " + sessionLabel(session) + ".")
+    await platform.reply(msg.replyCtx, t(this.locale, "cmd.switchedTo", { x: sessionLabel(session) }))
   }
 
   private setCurrent(remoteKey: string, sessionID: string): Promise<void> {
@@ -547,21 +549,29 @@ function sessionLabel(session: Session): string {
   return session.title.trim() !== "" ? session.title : session.id
 }
 
-function permissionPrompt(permission: PendingPermission): string {
-  const lines = ["PawWork asks permission: " + permission.permission]
+function permissionPrompt(permission: PendingPermission, locale: Locale): string {
+  const lines = [t(locale, "permission.title")]
+  if (permission.permission.trim() !== "") lines.push(permission.permission)
   for (const pattern of permission.patterns) {
     if (pattern.trim() === "") continue
     lines.push(pattern)
   }
-  return lines.join("\n") + "\n\nReply yes, always, or no."
+  return lines.join("\n") + "\n\n" + t(locale, "permission.replyHint")
 }
 
-export function questionPrompt(pending: PendingQuestion): string {
-  if (pending.questions.length === 0) return "PawWork asks a question.\n\nReply with your answer."
+export function questionPrompt(pending: PendingQuestion, locale: Locale = "en"): string {
+  if (pending.questions.length === 0) return t(locale, "question.fallback")
+  const multiQuestion = pending.questions.length > 1
   const blocks: string[] = []
-  for (const question of pending.questions) {
+  pending.questions.forEach((question, qIndex) => {
     const lines: string[] = []
-    if (question.header.trim() !== "") lines.push(question.header)
+    // Number each question when there are several, so "one answer per line" maps
+    // visibly onto them. The label is composed here, not parsed from the backend
+    // header — engine owns the localized "Question N" prefix, header stays as sent.
+    const label = multiQuestion ? t(locale, "question.label", { n: qIndex + 1 }) : ""
+    const header = question.header.trim()
+    if (label && header) lines.push(`${label} ${header}`)
+    else if (label || header) lines.push(label || header)
     lines.push(question.question)
     question.options.forEach((option, index) => {
       let line = `${index + 1}. ${option.label}`
@@ -569,52 +579,64 @@ export function questionPrompt(pending: PendingQuestion): string {
       lines.push(line)
     })
     blocks.push(lines.join("\n"))
-  }
-  return blocks.join("\n\n") + "\n\n" + questionReplyHint(pending.questions)
+  })
+  return blocks.join("\n\n") + "\n\n" + questionReplyHint(pending.questions, locale)
 }
 
-function questionReplyHint(questions: Question[]): string {
+function questionReplyHint(questions: Question[], locale: Locale): string {
   const multiQuestion = questions.length > 1
   const multiSelect = questions.some((question) => question.multiple)
-  if (multiQuestion && multiSelect) {
-    return "Reply with one line per question, in order. For a question that allows several choices, separate the numbers with commas (for example: 1,3)."
-  }
-  if (multiQuestion) {
-    return "Reply with one line per question, in order: a number or the answer text on each line."
-  }
-  if (multiSelect) {
-    return "Reply with the numbers separated by commas (for example: 1,3)."
-  }
-  return "Reply with a number or answer text."
+  if (multiQuestion && multiSelect) return t(locale, "hint.multiQuestionMulti")
+  if (multiQuestion) return t(locale, "hint.multiQuestion")
+  if (multiSelect) return t(locale, "hint.singleMulti")
+  return t(locale, "hint.single")
 }
 
 function permissionReplyForText(text: string): string {
+  // Accepts both English and Chinese keywords regardless of the rendered locale,
+  // so a reply works even if the user types in the other language. toLowerCase is
+  // a no-op on Chinese, harmless here.
   switch (text.trim().toLowerCase()) {
     case "yes":
     case "y":
     case "allow":
     case "ok":
+    case "是":
+    case "好":
+    case "好的":
+    case "允许":
+    case "同意":
+    case "可以":
       return "once"
     case "always":
     case "always allow":
+    case "总是":
+    case "一直":
+    case "始终":
+    case "总是允许":
       return "always"
     case "no":
     case "n":
     case "deny":
     case "reject":
+    case "否":
+    case "不":
+    case "不行":
+    case "拒绝":
+    case "不要":
       return "reject"
     default:
       return ""
   }
 }
 
-export function answersForQuestionText(pending: PendingQuestion, text: string): string[][] {
+export function answersForQuestionText(pending: PendingQuestion, text: string, locale: Locale = "en"): string[][] {
   const questions = pending.questions
   if (questions.length === 0) return [[text]]
   if (questions.length === 1) return [answerRowForQuestion(text, questions[0])]
   const lines = text.trim().split("\n")
   if (lines.length !== questions.length) {
-    throw new Error(`Reply with ${questions.length} lines, one answer per question.`)
+    throw new Error(t(locale, "answers.lineMismatch", { n: questions.length }))
   }
   return lines.map((line, index) => answerRowForQuestion(line, questions[index]))
 }

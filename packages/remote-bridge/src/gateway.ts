@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises"
 import { Engine } from "./engine.ts"
+import { normalizeLocale, type Locale } from "./i18n.ts"
 import { isFatalStreamError, PawWorkClient } from "./pawwork-client.ts"
 import type { EventHandler } from "./pawwork-events.ts"
 import { SessionPointers } from "./session-pointers.ts"
@@ -16,6 +17,8 @@ export interface Config {
   pawWorkUsername?: string
   pawWorkPassword?: string
   statePath: string
+  /** Language for the chat-facing copy; defaults to English when unset. */
+  locale?: Locale
   platforms: PlatformConfig[]
 }
 
@@ -65,7 +68,7 @@ export async function createApp(config: Config, createPlatform: PlatformFactory)
     password: config.pawWorkPassword,
   })
   client.setEventCursorStore(pointers)
-  const engine = new Engine(client, pointers)
+  const engine = new Engine(client, pointers, normalizeLocale(config.locale))
 
   const platforms: Platform[] = []
   for (const item of config.platforms ?? []) {

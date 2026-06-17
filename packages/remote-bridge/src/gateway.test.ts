@@ -254,7 +254,7 @@ test("hydrate resurfaces a pending interaction through the restored target", asy
     // Both pending items share root ses_root; single-active surfacing shows only
     // the permission, leaving the question queued until it is answered.
     expect(platform.sends).toHaveLength(1)
-    expect(platform.sends[0]).toContain("PawWork asks permission: edit")
+    expect(platform.sends[0]).toContain("PawWork needs your permission:")
   } finally {
     server.stop()
   }
