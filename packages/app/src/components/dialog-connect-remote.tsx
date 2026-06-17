@@ -94,7 +94,7 @@ export function DialogConnectRemote(props: { onApproved?: () => void }) {
             <form onSubmit={startPairing} class="flex flex-col gap-4">
               <TextField
                 autofocus
-                type="text"
+                type="password"
                 label={language.t("settings.remote.connect.token.label")}
                 placeholder={language.t("settings.remote.connect.token.placeholder")}
                 name="token"
