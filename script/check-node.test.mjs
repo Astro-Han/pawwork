@@ -19,21 +19,15 @@ function runGuard(version) {
   )
 }
 
-test("rejects Node 25+ with reinstall guidance", () => {
-  const result = runGuard("v25.0.0")
-
-  expect(result.status).toBe(1)
-  expect(result.stderr).toContain("Current node: v25.0.0")
-  expect(result.stderr).toContain("Node 24")
-  expect(result.stderr).toContain(".node-version")
-  expect(result.stderr).toContain("delete node_modules")
-  expect(result.stderr).toContain("rm -rf node_modules")
-  expect(result.stderr).toContain("Remove-Item -Recurse -Force node_modules")
-  expect(result.stderr).toContain("bun install --frozen-lockfile")
-})
-
 test("allows Node 24", () => {
   const result = runGuard("v24.14.0")
+
+  expect(result.status).toBe(0)
+  expect(result.stderr).toBe("")
+})
+
+test("allows Node 26", () => {
+  const result = runGuard("v26.3.0")
 
   expect(result.status).toBe(0)
   expect(result.stderr).toBe("")
