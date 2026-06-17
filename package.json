@@ -16,7 +16,7 @@
     "typecheck": "bun turbo typecheck",
     "lint": "eslint \"packages/{app,ui,desktop-electron}/src/**/*.{ts,tsx}\"",
     "lint:ci": "bun run lint",
-    "postinstall": "bun run --cwd packages/opencode fix-node-pty",
+    "postinstall": "node script/check-node.mjs && bun run --cwd packages/opencode fix-node-pty",
     "test": "echo 'do not run tests from root' && exit 1"
   },
   "workspaces": {
