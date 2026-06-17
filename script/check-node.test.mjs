@@ -1,27 +1,47 @@
 import { expect, test } from "bun:test"
+import { spawnSync } from "node:child_process"
 
-import { checkNodeVersion } from "./check-node.mjs"
+function runGuard(version) {
+  return spawnSync(
+    "node",
+    [
+      "--input-type=module",
+      "-e",
+      [
+        `Object.defineProperty(process, "version", { value: ${JSON.stringify(version)} })`,
+        `await import("./check-node.mjs")`,
+      ].join(";"),
+    ],
+    {
+      cwd: import.meta.dirname,
+      encoding: "utf8",
+    },
+  )
+}
 
 test("rejects Node 25+ with reinstall guidance", () => {
-  const result = checkNodeVersion("v25.0.0")
+  const result = runGuard("v25.0.0")
 
-  expect(result.ok).toBe(false)
-  expect(result.message).toContain("Current node: v25.0.0")
-  expect(result.message).toContain("Node 24")
-  expect(result.message).toContain(".node-version")
-  expect(result.message).toContain("delete node_modules")
-  expect(result.message).toContain("rm -rf node_modules")
-  expect(result.message).toContain("Remove-Item -Recurse -Force node_modules")
-  expect(result.message).toContain("bun install --frozen-lockfile")
+  expect(result.status).toBe(1)
+  expect(result.stderr).toContain("Current node: v25.0.0")
+  expect(result.stderr).toContain("Node 24")
+  expect(result.stderr).toContain(".node-version")
+  expect(result.stderr).toContain("delete node_modules")
+  expect(result.stderr).toContain("rm -rf node_modules")
+  expect(result.stderr).toContain("Remove-Item -Recurse -Force node_modules")
+  expect(result.stderr).toContain("bun install --frozen-lockfile")
 })
 
 test("allows Node 24", () => {
-  expect(checkNodeVersion("v24.14.0")).toEqual({ ok: true })
+  const result = runGuard("v24.14.0")
+
+  expect(result.status).toBe(0)
+  expect(result.stderr).toBe("")
 })
 
 test("rejects unparseable Node versions with a clean message", () => {
-  const result = checkNodeVersion("invalid-version")
+  const result = runGuard("invalid-version")
 
-  expect(result.ok).toBe(false)
-  expect(result.message).toContain("Unsupported Node version format: invalid-version")
+  expect(result.status).toBe(1)
+  expect(result.stderr).toContain("Unsupported Node version format: invalid-version")
 })
