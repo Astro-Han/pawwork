@@ -34,12 +34,12 @@ Client Hints, `navigator.webdriver`, plugins, `permissions.query` states,
 window/screen shape, timezone/locale, WebGL renderer, codecs, EME/Widevine,
 `enumerateDevices`, and WebRTC.
 
-These results assume **#1343 (UA) and #1344 (permissions) are applied**: they
-were measured with Electron 40.8.0 (Chromium 144) using the exact
+These results assume the **UA rewrite (#1343) and permission policy (#1344) are
+applied**: they were measured with Electron 40.8.0 (Chromium 144) using the exact
 `browserViewWebPreferences()` config plus the partition UA from #1343, and the
-permission rows reflect the policy from #1344. Neither change is on `dev` yet, so
-**land this PR after both of them** — on its own it is a forward-looking baseline,
-not a record of current `dev` behavior.
+permission rows reflect the policy from #1344. This baseline holds only with both
+of those changes present — without them the embedded browser does not yet match
+the rows below.
 
 ## Parity (matches real Chrome on the same machine)
 
