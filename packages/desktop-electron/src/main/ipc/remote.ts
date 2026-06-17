@@ -2,10 +2,11 @@ import { BrowserWindow, ipcMain } from "electron"
 import { PairingCancelledError, type RemoteBridgeRuntime } from "../remote-bridge"
 
 /**
- * Wires the mobile-companion bridge IPC. The renderer can only connect, pair,
- * disconnect, and read masked status — the bot token stays main-only and never
- * crosses a remote:* channel. Status changes are broadcast to every window so
- * the settings page reflects connect/degraded without polling.
+ * Wires the mobile-companion bridge IPC. The renderer pastes the bot token once,
+ * inbound, over remote:start-pairing; from there it stays main-only — confirm and
+ * disconnect carry no token, and the status read back is always masked. Status
+ * changes are broadcast to every window so the settings page reflects
+ * connect/degraded without polling.
  */
 export function registerRemoteIpc(runtime: RemoteBridgeRuntime) {
   runtime.onStatusChange((status) => {

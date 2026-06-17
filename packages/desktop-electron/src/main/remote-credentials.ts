@@ -2,11 +2,13 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import path from "node:path"
 import type { CredentialStore, RemoteCredentials } from "./remote-bridge"
 
-// Chat credentials (bot token + paired user id) are secrets: they live only in
-// the main process, encrypted at rest with Electron safeStorage, and never
-// cross the renderer IPC boundary. The renderer only ever sees masked status.
-// Stored separately from electron-store (which the renderer can read) for that
-// reason.
+// Chat credentials (bot token + paired user id) are secrets. The token crosses
+// IPC exactly once, inbound, when the user pastes it into the connect dialog;
+// from there it lives only in the main process, encrypted at rest with Electron
+// safeStorage. It is never sent back out: the renderer only ever reads masked
+// status, confirmPairing carries no token, and the stored secret never returns
+// over IPC. Stored separately from electron-store (which the renderer can read)
+// for that reason.
 
 const FILE_VERSION = 1
 
