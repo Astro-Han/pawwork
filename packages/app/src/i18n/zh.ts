@@ -849,6 +849,7 @@ export const dict = {
   "settings.remote.status.connecting": "连接中…",
   "settings.remote.status.connected": "已连接",
   "settings.remote.status.degraded": "连接异常",
+  "settings.remote.unsupported": "远程访问需要桌面应用。",
   "settings.remote.pairedWith": "已配对：{{name}}",
   "settings.remote.action.connect": "连接",
   "settings.remote.action.disconnect": "断开",

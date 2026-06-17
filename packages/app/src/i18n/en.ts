@@ -965,6 +965,7 @@ export const dict = {
   "settings.remote.status.connecting": "Connecting…",
   "settings.remote.status.connected": "Connected",
   "settings.remote.status.degraded": "Connection problem",
+  "settings.remote.unsupported": "Remote access requires the desktop app.",
   "settings.remote.pairedWith": "Paired with {{name}}",
   "settings.remote.action.connect": "Connect",
   "settings.remote.action.disconnect": "Disconnect",

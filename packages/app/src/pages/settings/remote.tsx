@@ -17,6 +17,11 @@ export const RemotePage: Component = () => {
   const language = useLanguage()
   const dialog = useDialog()
   const [status, setStatus] = createSignal<RemoteStatus>(DISCONNECTED)
+  // The bridge lives in the main process; without its preload API (web preview,
+  // or a preload regression) there is nothing to drive, so the page shows a
+  // disabled "needs the desktop app" state instead of a Connect button that
+  // would silently no-op.
+  const supported = !!window.api?.remote
 
   onMount(() => {
     const api = window.api?.remote
@@ -33,6 +38,7 @@ export const RemotePage: Component = () => {
   }
 
   const statusLabel = () => {
+    if (!supported) return language.t("settings.remote.unsupported")
     switch (status().state) {
       case "connected":
         return language.t("settings.remote.status.connected")
@@ -73,6 +79,11 @@ export const RemotePage: Component = () => {
           </Show>
         </div>
         <Switch>
+          <Match when={!supported}>
+            <Button variant="secondary" size="small" disabled>
+              {language.t("settings.remote.action.connect")}
+            </Button>
+          </Match>
           <Match when={connectable()}>
             <Button variant="secondary" size="small" onClick={openConnect}>
               {language.t("settings.remote.action.connect")}
