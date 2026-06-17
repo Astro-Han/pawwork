@@ -77,40 +77,47 @@ export const RemotePage: Component = () => {
         <p class="text-body text-fg-weak">{language.t("settings.remote.description")}</p>
       </div>
 
-      <div class="relative mt-4 flex items-center gap-3 py-3 pl-4 max-w-[720px]">
+      {/* Telegram block — one 2px status left-rule spans the status row and its
+          provider-specific note, so the note reads as part of Telegram, not the page. */}
+      <div class="relative mt-4 max-w-[720px]">
         <div class={`absolute left-0 inset-y-1 w-0.5 rounded-full ${ruleClass()}`} aria-hidden="true" />
-        <TelegramMark />
-        <div class="flex flex-col min-w-0 flex-1">
-          <span class="text-body text-fg-strong">{language.t("settings.remote.section.telegram")}</span>
-          <span class="text-small">
-            <span class={labelClass()}>{statusLabel()}</span>
-            <Show when={detail()}>
-              <span class="ml-3 text-fg-weak">{detail()}</span>
-            </Show>
-          </span>
+        <div class="flex items-center gap-3 py-3 pl-4">
+          <TelegramMark />
+          <div class="flex flex-col min-w-0 flex-1">
+            <span class="text-body text-fg-strong">{language.t("settings.remote.section.telegram")}</span>
+            <span class="text-small">
+              <span class={labelClass()}>{statusLabel()}</span>
+              <Show when={detail()}>
+                <span class="ml-3 text-fg-weak">{detail()}</span>
+              </Show>
+            </span>
+          </div>
+          <Switch>
+            <Match when={!supported}>
+              <Button variant="secondary" size="small" disabled>
+                {language.t("settings.remote.action.connect")}
+              </Button>
+            </Match>
+            <Match when={connectable()}>
+              <Button variant="secondary" size="small" onClick={openConnect}>
+                {language.t("settings.remote.action.connect")}
+              </Button>
+            </Match>
+            <Match when={status().state === "connecting"}>
+              <Button variant="secondary" size="small" disabled>
+                {language.t("settings.remote.action.connect")}
+              </Button>
+            </Match>
+            <Match when={true}>
+              <Button variant="secondary" size="small" onClick={openDisconnect}>
+                {language.t("settings.remote.action.disconnect")}
+              </Button>
+            </Match>
+          </Switch>
         </div>
-        <Switch>
-          <Match when={!supported}>
-            <Button variant="secondary" size="small" disabled>
-              {language.t("settings.remote.action.connect")}
-            </Button>
-          </Match>
-          <Match when={connectable()}>
-            <Button variant="secondary" size="small" onClick={openConnect}>
-              {language.t("settings.remote.action.connect")}
-            </Button>
-          </Match>
-          <Match when={status().state === "connecting"}>
-            <Button variant="secondary" size="small" disabled>
-              {language.t("settings.remote.action.connect")}
-            </Button>
-          </Match>
-          <Match when={true}>
-            <Button variant="secondary" size="small" onClick={openDisconnect}>
-              {language.t("settings.remote.action.disconnect")}
-            </Button>
-          </Match>
-        </Switch>
+        <p class="pl-4 pb-3 text-small text-fg-weaker leading-relaxed">
+          {language.t("settings.remote.note")}
+        </p>
       </div>
 
       <div class="pt-6 pb-2">
@@ -119,10 +126,6 @@ export const RemotePage: Component = () => {
       <Capability icon="prompt" text={language.t("settings.remote.capabilities.prompts")} />
       <Capability icon="lock" text={language.t("settings.remote.capabilities.permissions")} />
       <Capability icon="new-session" text={language.t("settings.remote.capabilities.sessions")} />
-
-      <p class="max-w-[720px] mt-4 pt-3.5 border-t border-border-weak text-small text-fg-weaker leading-relaxed">
-        {language.t("settings.remote.note")}
-      </p>
 
       <div class="pb-10" />
     </SettingsList>
