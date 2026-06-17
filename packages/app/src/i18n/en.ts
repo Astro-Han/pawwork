@@ -969,6 +969,12 @@ export const dict = {
   "settings.remote.pairedWith": "Paired with {{name}}",
   "settings.remote.action.connect": "Connect",
   "settings.remote.action.disconnect": "Disconnect",
+  "settings.remote.capabilities.title": "What you can do",
+  "settings.remote.capabilities.prompts": "Send prompts and read your agent's replies",
+  "settings.remote.capabilities.permissions": "Approve or deny permission requests",
+  "settings.remote.capabilities.sessions": "Switch sessions or stop a running turn",
+  "settings.remote.note":
+    "Pairing uses a bot you create with @BotFather. Only the first person to message it can drive your agent, and the token is stored encrypted on this computer.",
   "settings.remote.connect.title": "Connect Telegram",
   "settings.remote.connect.token.label": "Bot token",
   "settings.remote.connect.token.placeholder": "123456789:ABCdef…",

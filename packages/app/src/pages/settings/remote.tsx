@@ -1,18 +1,20 @@
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
-import { Spinner } from "@opencode-ai/ui/spinner"
-import { type Component, Match, Show, Switch, createSignal, onCleanup, onMount } from "solid-js"
+import { type Component, type ComponentProps, Match, Show, Switch, createSignal, onCleanup, onMount } from "solid-js"
 import { SettingsList } from "@/components/settings-list"
 import { useLanguage } from "@/context/language"
-import type { RemoteState, RemoteStatus } from "@/desktop-api-contract"
+import type { RemoteStatus } from "@/desktop-api-contract"
 
 const DISCONNECTED: RemoteStatus = { state: "disconnected", platform: null, identity: null, error: null }
 
+type IconName = ComponentProps<typeof Icon>["name"]
+
 // Remote access (mobile companion): connect a phone chat app to this desktop's
-// agent. The bridge lives in the main process; this page only shows masked
-// status and opens the connect / disconnect dialogs. Layout follows the
-// established Settings shape (SettingsList → h2 + description → h3 section).
+// agent. The bridge lives in the main process; this page shows masked status,
+// what the connection enables, and opens the connect / disconnect dialogs. The
+// Telegram row carries a 2px status left-rule (no box) per the cards rule in
+// docs/DESIGN.md — green when connected, red when degraded, neutral otherwise.
 export const RemotePage: Component = () => {
   const language = useLanguage()
   const dialog = useDialog()
@@ -51,6 +53,14 @@ export const RemotePage: Component = () => {
     }
   }
 
+  // The 2px left-rule and the status word share one color: success when
+  // connected, error when degraded, neutral otherwise (idle / connecting /
+  // unsupported). Mirrors the Integrations status mapping.
+  const live = () => supported && status().state === "connected"
+  const bad = () => supported && status().state === "degraded"
+  const ruleClass = () => (live() ? "bg-icon-success-base" : bad() ? "bg-error" : "bg-border-weak")
+  const labelClass = () => (live() ? "text-icon-success-base" : bad() ? "text-error" : "text-fg-weak")
+
   const detail = () => {
     const current = status()
     if (current.state === "degraded") return current.error ?? undefined
@@ -67,16 +77,17 @@ export const RemotePage: Component = () => {
         <p class="text-body text-fg-weak">{language.t("settings.remote.description")}</p>
       </div>
 
-      <div class="pt-6 pb-2">
-        <h3 class="text-h3 text-fg-strong">{language.t("settings.remote.section.telegram")}</h3>
-      </div>
-      <div class="flex items-center gap-3 py-2.5 border-b border-border-weak max-w-[720px]">
-        <StatusIcon state={status().state} />
+      <div class="relative mt-4 flex items-center gap-3 py-3 pl-4 max-w-[720px]">
+        <div class={`absolute left-0 inset-y-1 w-0.5 rounded-full ${ruleClass()}`} aria-hidden="true" />
+        <TelegramMark />
         <div class="flex flex-col min-w-0 flex-1">
-          <span class="text-body text-fg-base">{statusLabel()}</span>
-          <Show when={detail()}>
-            <span class="text-small text-fg-weak truncate">{detail()}</span>
-          </Show>
+          <span class="text-body text-fg-strong">{language.t("settings.remote.section.telegram")}</span>
+          <span class="text-small">
+            <span class={labelClass()}>{statusLabel()}</span>
+            <Show when={detail()}>
+              <span class="ml-3 text-fg-weak">{detail()}</span>
+            </Show>
+          </span>
         </div>
         <Switch>
           <Match when={!supported}>
@@ -102,23 +113,41 @@ export const RemotePage: Component = () => {
         </Switch>
       </div>
 
+      <div class="pt-6 pb-2">
+        <h3 class="text-h3 text-fg-strong">{language.t("settings.remote.capabilities.title")}</h3>
+      </div>
+      <Capability icon="prompt" text={language.t("settings.remote.capabilities.prompts")} />
+      <Capability icon="lock" text={language.t("settings.remote.capabilities.permissions")} />
+      <Capability icon="new-session" text={language.t("settings.remote.capabilities.sessions")} />
+
+      <p class="max-w-[720px] mt-4 pt-3.5 border-t border-border-weak text-small text-fg-weaker leading-relaxed">
+        {language.t("settings.remote.note")}
+      </p>
+
       <div class="pb-10" />
     </SettingsList>
   )
 }
 
-function StatusIcon(props: { state: RemoteState }) {
+// The Telegram vendor mark keeps its brand color — a sanctioned exception to the
+// one-icon-DNA chrome rule (docs/DESIGN.md: app/vendor logos keep brand colors).
+function TelegramMark() {
   return (
-    <Switch fallback={<Icon name="circle" class="text-fg-weaker shrink-0" />}>
-      <Match when={props.state === "connecting"}>
-        <Spinner />
-      </Match>
-      <Match when={props.state === "connected"}>
-        <Icon name="circle-check" class="text-icon-success-base shrink-0" />
-      </Match>
-      <Match when={props.state === "degraded"}>
-        <Icon name="circle-ban-sign" class="text-error shrink-0" />
-      </Match>
-    </Switch>
+    <svg viewBox="0 0 24 24" class="size-5 shrink-0" aria-hidden="true">
+      <circle cx="12" cy="12" r="12" fill="#229ED9" />
+      <path
+        fill="#fff"
+        d="M5.6 11.8 16.5 7.6c.5-.2 1 .1.8.8l-1.85 8.74c-.14.62-.5.77-1.02.48l-2.82-2.08-1.36 1.31c-.15.15-.28.28-.57.28l.2-2.86 5.2-4.7c.23-.2-.05-.32-.35-.12l-6.43 4.05-2.77-.86c-.6-.19-.62-.6.13-.9z"
+      />
+    </svg>
+  )
+}
+
+function Capability(props: { icon: IconName; text: string }) {
+  return (
+    <div class="flex items-center gap-2.5 py-1.5 max-w-[720px]">
+      <Icon name={props.icon} class="size-4 text-fg-weak shrink-0" />
+      <span class="text-body text-fg-base">{props.text}</span>
+    </div>
   )
 }
