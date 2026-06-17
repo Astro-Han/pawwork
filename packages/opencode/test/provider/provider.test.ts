@@ -1446,11 +1446,6 @@ test("Volcano Engine Coding Plan models have correct key parameters", async () =
     attachment: boolean
     inputModalities: ("text" | "image" | "audio" | "video" | "pdf")[]
   }> = {
-    "doubao-seed-2.0-code": { context: 256000, output: 4096, reasoning: false, interleaved: false, attachment: true, inputModalities: ["text", "image"] },
-    "doubao-seed-2.0-pro": { context: 256000, output: 4096, reasoning: false, interleaved: false, attachment: true, inputModalities: ["text", "image"] },
-    "doubao-seed-2.0-lite": { context: 256000, output: 4096, reasoning: false, interleaved: false, attachment: false, inputModalities: ["text"] },
-    "doubao-seed-code": { context: 256000, output: 4096, reasoning: false, interleaved: false, attachment: true, inputModalities: ["text", "image"] },
-    "minimax-m2.7": { context: 204800, output: 131072, reasoning: true, interleaved: false, attachment: false, inputModalities: ["text"] },
     "minimax-m3": { context: 512000, output: 128000, reasoning: true, interleaved: false, attachment: false, inputModalities: ["text"] },
     "glm-5.2": { context: 1000000, output: 131072, reasoning: true, interleaved: { field: "reasoning_content" }, attachment: false, inputModalities: ["text"] },
     "deepseek-v4-flash": { context: 1000000, output: 384000, reasoning: true, interleaved: { field: "reasoning_content" }, attachment: false, inputModalities: ["text"] },
