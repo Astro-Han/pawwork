@@ -18,12 +18,16 @@ const HIGH_RISK_SITES: HighRiskSite[] = [{ name: "Xiaohongshu (RedNote)", hosts:
 function hostnameOf(urlOrHost: string): string | null {
   const trimmed = urlOrHost.trim()
   if (!trimmed) return null
+  // Parse everything through `new URL` so ports, queries, paths, and
+  // protocol-relative ("//host/x") inputs all resolve to the bare hostname.
+  // A protocol-less host gets a scheme prepended; leading slashes are dropped
+  // first so "//host" doesn't become an empty authority.
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : "http://" + trimmed.replace(/^\/+/, "")
   let host: string
   try {
-    host = new URL(trimmed).hostname.toLowerCase()
+    host = new URL(candidate).hostname.toLowerCase()
   } catch {
-    // Not a full URL — treat the input as a bare hostname.
-    host = trimmed.toLowerCase().split("/")[0]
+    return null
   }
   // A fully-qualified name can carry a root-label trailing dot
   // ("xiaohongshu.com." resolves to the same site, and `new URL` keeps it), so
@@ -54,4 +58,20 @@ export function highRiskSiteNotice(urlOrHost: string): string | null {
     `about this risk, keep actions minimal and human-paced, and for anything sensitive (login or posting) suggest ` +
     `doing it manually in their own Chrome.`
   )
+}
+
+/**
+ * High-risk caution for an OpenCLI command, checking BOTH its `domain` and a
+ * string `navigateBefore` target — an adapter can navigate to a flagged site
+ * that its `domain` field doesn't name. Null when neither is high-risk.
+ */
+export function highRiskCommandNotice(command: { domain?: string | null; navigateBefore?: unknown }): string | null {
+  const targets = [command.domain, typeof command.navigateBefore === "string" ? command.navigateBefore : null]
+  for (const target of targets) {
+    if (target) {
+      const notice = highRiskSiteNotice(target)
+      if (notice) return notice
+    }
+  }
+  return null
 }
