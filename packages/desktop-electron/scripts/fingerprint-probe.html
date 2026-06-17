@@ -16,12 +16,13 @@
   td.v { word-break: break-word; }
   .flag-bad { color: #d33; font-weight: 600; }
   .flag-ok { color: #2a2; }
+  .flag-warn { color: #c80; font-weight: 600; }
   textarea { width: 100%; height: 220px; font: inherit; margin-top: 12px; }
 </style>
 </head>
 <body>
 <h1>PawWork fingerprint probe</h1>
-<p class="note">Open this in the <b>embedded browser</b> and in an <b>external Chrome</b>, then compare. Rows flagged red are obvious automation / non-Chrome tells.</p>
+<p class="note">Open this in the <b>embedded browser</b> and in an <b>external Chrome</b>, then compare. <span class="flag-bad">Red</span> rows are obvious automation / non-Chrome tells; <span class="flag-warn">amber</span> rows are known, deferred gaps (e.g. Widevine), expected to differ.</p>
 <button id="copy">Copy JSON</button>
 <button id="reload">Re-run</button>
 <table id="out"><tbody></tbody></table>
@@ -134,8 +135,10 @@ async function collect() {
         videoCapabilities: [{ contentType: 'video/mp4; codecs="avc1.42E01E"' }],
       }]);
       add("EME Widevine", "supported");
-    } catch (e) { add("EME Widevine", "NOT supported (" + e.name + ")", "bad"); }
-  } else add("requestMediaKeySystemAccess", "undefined", "bad");
+      // Amber, not red: Electron ships without the Widevine CDM by design, so
+      // "NOT supported" here is the known, deferred gap — expected, not a failure.
+    } catch (e) { add("EME Widevine", "NOT supported (" + e.name + ") — known gap, deferred", "warn"); }
+  } else add("requestMediaKeySystemAccess", "undefined — known gap, deferred", "warn");
 
   // --- devices / WebRTC (PR4 surface) ---
   try {
@@ -158,6 +161,7 @@ function render() {
     const val = document.createElement("td"); val.className = "v";
     if (r.flag === "bad") val.classList.add("flag-bad");
     if (r.flag === "ok") val.classList.add("flag-ok");
+    if (r.flag === "warn") val.classList.add("flag-warn");
     val.textContent = r.value;
     tr.append(k, val); tb.append(tr);
   }
@@ -168,7 +172,13 @@ function render() {
 
 document.querySelector("#copy").onclick = () => {
   const ta = document.querySelector("#json"); ta.select();
-  navigator.clipboard?.writeText(ta.value).catch(() => document.execCommand("copy"));
+  // Prefer the async Clipboard API; fall back to execCommand when it's absent
+  // (the optional-chain version skipped the fallback entirely when undefined).
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(ta.value).catch(() => document.execCommand("copy"));
+  } else {
+    document.execCommand("copy");
+  }
 };
 document.querySelector("#reload").onclick = collect;
 collect();
