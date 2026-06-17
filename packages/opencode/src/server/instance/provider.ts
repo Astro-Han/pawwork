@@ -6,7 +6,8 @@ import { Config } from "../../config/config"
 import { Provider } from "../../provider/provider"
 import { ModelsDev } from "../../provider/models"
 import { ProviderAuth } from "../../provider/auth"
-import { ProviderID } from "../../provider/schema"
+import { ModelState } from "../../provider/model-state"
+import { ProviderID, ModelID } from "../../provider/schema"
 import { AppRuntime } from "../../effect/app-runtime"
 import { mapValues } from "remeda"
 import { errors } from "../error"
@@ -189,6 +190,38 @@ export const ProviderRoutes = lazy(() =>
             })
           }),
         )
+        return c.json(true)
+      },
+    )
+    .post(
+      "/recent",
+      describeRoute({
+        summary: "Record recent model",
+        description:
+          "Persist the user's picked model as the recent default that model-less sessions (e.g. a Telegram /new) inherit. Called by the desktop model picker on an explicit pick.",
+        operationId: "provider.recordRecent",
+        responses: {
+          200: {
+            description: "Recorded",
+            content: {
+              "application/json": {
+                schema: resolver(z.boolean()),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator(
+        "json",
+        z.object({
+          providerID: ProviderID.zod.meta({ description: "Provider ID" }),
+          modelID: ModelID.zod.meta({ description: "Model ID" }),
+        }),
+      ),
+      async (c) => {
+        const { providerID, modelID } = c.req.valid("json")
+        await ModelState.recordRecent({ providerID, modelID })
         return c.json(true)
       },
     ),

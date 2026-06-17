@@ -411,6 +411,12 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           models.setVisibility(item, true)
           if (!options?.recent) return
           models.recent.push(item)
+          // Mirror an explicit pick to the server's recent-model default so a
+          // model-less session (e.g. a Telegram /new) inherits the user's actual
+          // choice. Best-effort: a failure here must not disrupt the pick.
+          void sdk.client.provider
+            .recordRecent({ providerID: item.providerID, modelID: item.modelID })
+            .catch(() => {})
         })
       },
       visible(item: ModelKey) {

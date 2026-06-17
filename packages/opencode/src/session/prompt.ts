@@ -10,7 +10,6 @@ import { inheritMetadata } from "./inherit-metadata"
 import * as Session from "./session"
 import { Agent } from "../agent/agent"
 import { Provider } from "../provider/provider"
-import { ModelState } from "../provider/model-state"
 import { ModelID, ProviderID } from "../provider/schema"
 import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions, asSchema } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
@@ -98,9 +97,6 @@ type TitleGenerationProgress = {
 
 type PromptRuntimeOptions = {
   abortSignal?: AbortSignal
-  // Set by command() so a command-scoped (often pinned) model never seeds the
-  // global recent-model default — internal only, not part of the public input.
-  fromCommand?: boolean
 }
 
 export function titleGenerationStateAtAbort(
@@ -1946,10 +1942,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       yield* sessions.updateMessage(info)
       for (const part of parts) yield* sessions.updatePart(part)
 
-      // agentModel is the agent's own configured model (if any). The recent-model
-      // writer in prompt() uses it to tell an explicit picker choice apart from a
-      // model that merely fell back to the agent's pin — see shouldRecordRecent.
-      return { info, parts, agentModel: ag.model }
+      return { info, parts }
     }, Effect.scoped)
 
     const prompt: (input: PromptInput, options?: PromptRuntimeOptions) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
@@ -1959,34 +1952,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       interruptedSessions.delete(input.sessionID)
       const session = yield* sessions.get(input.sessionID)
       yield* revert.cleanup(session)
-      const { agentModel, ...message } = yield* createUserMessage(input)
-      // Seed the global "recent model" so a later session with no explicit model
-      // (e.g. a Telegram /new) inherits it. Only the user's OWN explicit selection
-      // counts: input.model is what the chat UI sends. A model from a slash
-      // command, automation, or subagent must never become the default every fresh
-      // session inherits — so we gate on input.model, not the resolved
-      // message.info.model. The desktop UI always sends a model, and that model can
-      // be the agent's own configured pin rather than a picker choice, so a model
-      // equal to agentModel is excluded too (modelFromAgent). Best-effort and
-      // non-blocking: a write failure must not affect the prompt.
-      if (
-        input.model &&
-        message.info.role === "user" &&
-        ModelState.shouldRecordRecent({
-          automationID: input.automationID,
-          parentID: session.parentID,
-          createdByAgentTool: session.createdByAgentTool,
-          fromCommand: options?.fromCommand,
-          modelFromAgent: !!(
-            agentModel &&
-            input.model.providerID === agentModel.providerID &&
-            input.model.modelID === agentModel.modelID
-          ),
-        })
-      ) {
-        const chosen = { providerID: input.model.providerID, modelID: input.model.modelID }
-        yield* Effect.promise(() => ModelState.recordRecent(chosen)).pipe(Effect.forkDetach)
-      }
+      const message = yield* createUserMessage(input)
       yield* sessions.touch(input.sessionID)
 
       const permissions: Permission.Ruleset = []
@@ -2816,19 +2782,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         { parts },
       )
 
-      const result = yield* prompt(
-        {
-          sessionID: input.sessionID,
-          messageID: input.messageID,
-          model: userModel,
-          agent: userAgent,
-          parts,
-          locale: input.locale,
-          variant: input.variant,
-        },
-        // A command resolves its own model; it must not seed the global default.
-        { fromCommand: true },
-      )
+      const result = yield* prompt({
+        sessionID: input.sessionID,
+        messageID: input.messageID,
+        model: userModel,
+        agent: userAgent,
+        parts,
+        locale: input.locale,
+        variant: input.variant,
+      })
       yield* bus.publish(Command.Event.Executed, {
         name: input.command,
         sessionID: input.sessionID,

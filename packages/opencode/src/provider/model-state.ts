@@ -5,12 +5,19 @@ import { Flock } from "../util/flock"
 import { isRecord } from "../util/record"
 
 /**
- * Persists the user's last-used model into `state/model.json`'s `recent` list —
- * the source `Provider.defaultModel()` reads when a prompt carries no explicit
- * model. Upstream opencode wrote this list from the TUI; PawWork replaced the TUI
- * with the desktop UI and kept only the reader, so a fresh session with no model
+ * Persists the user's picked model into `state/model.json`'s `recent` list — the
+ * source `Provider.defaultModel()` reads when a prompt carries no explicit model.
+ * Upstream opencode wrote this list from the TUI; PawWork replaced the TUI with
+ * the desktop UI and kept only the reader, so a fresh session with no model
  * (e.g. a Telegram `/new`) fell through to the first configured provider instead
- * of the user's actual choice. This restores the writer on the server side.
+ * of the user's actual choice.
+ *
+ * This restores the writer, driven by the one place that truly knows the user
+ * chose a model: the desktop model picker, which calls the `/provider/recent`
+ * endpoint on an explicit pick. Recording at that single event — rather than
+ * inferring intent from the prompt path — keeps an agent's pinned model, a
+ * slash command, automation, or a subagent from ever leaking into the default,
+ * with no provenance guessing.
  */
 export namespace ModelState {
   export interface ModelRef {
@@ -37,53 +44,35 @@ export namespace ModelState {
     return { ...base, recent }
   }
 
-  /**
-   * Pure: only a user's own explicit model choice seeds the global default model.
-   * Automation runs (automationID), subagent / agent-tool child sessions
-   * (parentID / createdByAgentTool), and slash-command invocations (fromCommand)
-   * carry their own model and must NOT leak into the default that every fresh
-   * session inherits. A command resolves its own (often pinned) utility model and
-   * reuses the prompt path, so without this guard a `/commit`-style command could
-   * silently become the model a later Telegram `/new` defaults to.
-   *
-   * modelFromAgent closes the same hole for the desktop UI: it always sends a
-   * resolved model with every prompt, and that model can be the selected agent's
-   * configured model rather than a model-picker choice (the renderer's model
-   * falls back to the agent's pin). Recording it would let an agent's utility
-   * model become the inherited default — exactly the pollution this guards. So
-   * a model that merely equals the agent's own configured model does not count
-   * as an explicit selection.
-   */
-  export function shouldRecordRecent(input: {
-    automationID?: string
-    parentID?: string
-    createdByAgentTool?: boolean
-    fromCommand?: boolean
-    modelFromAgent?: boolean
-  }): boolean {
-    return (
-      !input.automationID &&
-      !input.parentID &&
-      !input.createdByAgentTool &&
-      !input.fromCommand &&
-      !input.modelFromAgent
-    )
+  function isEnoent(err: unknown): boolean {
+    return typeof err === "object" && err !== null && (err as { code?: string }).code === "ENOENT"
   }
 
   /**
-   * Best-effort persist of the user's last-used model. Locked read-modify-write so
-   * a concurrent CLI/desktop writer can neither corrupt the file (writeJson is not
-   * atomic) nor drop sibling fields. A failure here must never break the prompt.
+   * Best-effort persist of the user's picked model. Locked read-modify-write so a
+   * concurrent CLI/desktop writer can neither corrupt the file (writeJson is not
+   * atomic) nor drop sibling fields. A failure here must never break the caller.
+   *
+   * Only a missing file (ENOENT) starts from empty state. A parse error,
+   * permission error, or transient read failure means the file may still hold
+   * sibling state (favorite, variant, …); writing a fresh `{recent}` over it
+   * would clobber that, so such a read failure skips this write instead.
    */
   export async function recordRecent(model: ModelRef): Promise<void> {
     const file = path.join(Global.Path.state, "model.json")
     try {
       await Flock.withLock(`model-state:${file}`, async () => {
-        const current = await Filesystem.readJson<unknown>(file).catch(() => undefined)
+        let current: unknown
+        try {
+          current = await Filesystem.readJson<unknown>(file)
+        } catch (err) {
+          if (!isEnoent(err)) return
+          current = undefined
+        }
         await Filesystem.writeJson(file, applyRecent(current, model))
       })
     } catch {
-      // recording recent is best-effort — it must not surface as a prompt failure
+      // recording recent is best-effort — it must not surface to the caller
     }
   }
 }

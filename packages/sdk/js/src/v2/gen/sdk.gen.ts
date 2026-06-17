@@ -123,6 +123,8 @@ import type {
   ProviderOauthAuthorizeResponses,
   ProviderOauthCallbackErrors,
   ProviderOauthCallbackResponses,
+  ProviderRecordRecentErrors,
+  ProviderRecordRecentResponses,
   PtyConnectErrors,
   PtyConnectResponses,
   PtyConnectTokenErrors,
@@ -3299,6 +3301,44 @@ export class Provider extends HeyApiClient {
       url: "/provider/auth",
       ...options,
       ...params,
+    })
+  }
+
+  public recordRecent<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      providerID: string
+      modelID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "providerID" },
+            { in: "body", key: "modelID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ProviderRecordRecentResponses,
+      ProviderRecordRecentErrors,
+      ThrowOnError
+    >({
+      url: "/provider/recent",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
