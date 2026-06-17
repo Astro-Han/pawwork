@@ -840,6 +840,25 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             }
           }),
       })
+      const completeToolExecution = (
+        toolCallID: string,
+        output: Parameters<SessionProcessor.Handle["completeToolCall"]>[1],
+      ) =>
+        input.processor.completeToolExecution
+          ? input.processor.completeToolExecution({ toolCallID, output })
+          : input.processor.completeToolCall(toolCallID, output)
+      const failToolExecution = (toolCallID: string, error: unknown, abortSignal?: AbortSignal) => {
+        if (abortSignal?.aborted) {
+          return input.processor.recordToolExecutionFailed
+            ? input.processor.recordToolExecutionFailed({ toolCallID, error })
+            : Effect.void
+        }
+        return input.processor.failToolExecution
+          ? input.processor.failToolExecution({ toolCallID, error })
+          : input.processor.recordToolExecutionFailed
+            ? input.processor.recordToolExecutionFailed({ toolCallID, error })
+            : Effect.void
+      }
 
       for (const item of yield* registry.tools({
         modelID: ModelID.make(input.model.api.id),
@@ -867,11 +886,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 if (outcome.kind === "stop") return yield* Effect.fail(new LoopStopError(outcome.toolErrorMessage))
                 const output = yield* runInSessionContext(
                   Effect.gen(function* () {
-                    yield* plugin.trigger(
-                      "tool.execute.before",
-                      { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
-                      { args },
-                    )
                     if (input.processor.recordToolExecutionStarted) {
                       yield* input.processor.recordToolExecutionStarted({
                         tool: item.id,
@@ -879,38 +893,35 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                         input: args,
                       })
                     }
-                    let result: Tool.ExecuteResult
                     try {
-                      result = yield* item.execute(args, ctx)
-                    } catch (error) {
-                      if (input.processor.recordToolExecutionFailed) {
-                        yield* input.processor.recordToolExecutionFailed({ toolCallID: options.toolCallId, error })
+                      yield* plugin.trigger(
+                        "tool.execute.before",
+                        { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
+                        { args },
+                      )
+                      const result = yield* item.execute(args, ctx)
+                      const output = {
+                        ...result,
+                        attachments: result.attachments?.map((attachment) => ({
+                          ...attachment,
+                          id: PartID.ascending(),
+                          sessionID: ctx.sessionID,
+                          messageID: input.processor.message.id,
+                        })),
                       }
+                      yield* plugin.trigger(
+                        "tool.execute.after",
+                        { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
+                        output,
+                      )
+                      return output
+                    } catch (error) {
+                      yield* failToolExecution(options.toolCallId, error, options.abortSignal)
                       throw error
                     }
-                    if (input.processor.recordToolExecutionCompleted) {
-                      yield* input.processor.recordToolExecutionCompleted({ toolCallID: options.toolCallId })
-                    }
-                    const output = {
-                      ...result,
-                      attachments: result.attachments?.map((attachment) => ({
-                        ...attachment,
-                        id: PartID.ascending(),
-                        sessionID: ctx.sessionID,
-                        messageID: input.processor.message.id,
-                      })),
-                    }
-                    yield* plugin.trigger(
-                      "tool.execute.after",
-                      { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
-                      output,
-                    )
-                    return output
                   }),
                 )
-                if (options.abortSignal?.aborted) {
-                  yield* input.processor.completeToolCall(options.toolCallId, output)
-                }
+                yield* completeToolExecution(options.toolCallId, output)
                 return output
               }),
             )
@@ -941,17 +952,17 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               if (outcome.kind === "stop") return yield* Effect.fail(new LoopStopError(outcome.toolErrorMessage))
               const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* runInSessionContext(
                 Effect.gen(function* () {
-                  yield* plugin.trigger(
-                    "tool.execute.before",
-                    { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId },
-                    { args },
-                  )
                   const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.gen(function* () {
-                    yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
                     if (input.processor.recordToolExecutionStarted) {
                       yield* input.processor.recordToolExecutionStarted({ tool: key, toolCallID: opts.toolCallId, input: args })
                     }
                     try {
+                      yield* plugin.trigger(
+                        "tool.execute.before",
+                        { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId },
+                        { args },
+                      )
+                      yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
                       const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.promise(() =>
                         execute(args, opts),
                       )
@@ -962,19 +973,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                         const error = new Error(
                           failure.kind === "error" ? failure.message : `MCP tool ${key} reported an error`,
                         )
-                        if (input.processor.recordToolExecutionFailed) {
-                          yield* input.processor.recordToolExecutionFailed({ toolCallID: opts.toolCallId, error })
-                        }
                         return yield* Effect.fail(error)
                       }
-                      if (input.processor.recordToolExecutionCompleted) {
-                        yield* input.processor.recordToolExecutionCompleted({ toolCallID: opts.toolCallId })
-                      }
+                      yield* plugin.trigger(
+                        "tool.execute.after",
+                        { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId, args },
+                        result,
+                      )
                       return result
                     } catch (error) {
-                      if (input.processor.recordToolExecutionFailed) {
-                        yield* input.processor.recordToolExecutionFailed({ toolCallID: opts.toolCallId, error })
-                      }
+                      yield* failToolExecution(opts.toolCallId, error, opts.abortSignal)
                       throw error
                     }
                   }).pipe(
@@ -987,18 +995,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                       },
                     }),
                   )
-                  yield* plugin.trigger(
-                    "tool.execute.after",
-                    { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId, args },
-                    result,
-                  )
                   return result
                 }),
               )
 
               const parsed = parseMcpToolResult(key, result)
               if (parsed.kind === "error") {
-                return yield* Effect.fail(new Error(parsed.message))
+                const error = new Error(parsed.message)
+                yield* failToolExecution(opts.toolCallId, error, opts.abortSignal)
+                return yield* Effect.fail(error)
               }
               const { textParts, attachments } = parsed
 
@@ -1021,9 +1026,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 })),
                 content: result.content,
               }
-              if (opts.abortSignal?.aborted) {
-                yield* input.processor.completeToolCall(opts.toolCallId, output)
-              }
+              yield* completeToolExecution(opts.toolCallId, output)
               return output
             }),
           )

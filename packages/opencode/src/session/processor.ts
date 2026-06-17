@@ -60,6 +60,14 @@ export interface Handle {
     toolCallID: string,
     output: ToolLifecycleOutput,
   ) => Effect.Effect<void>
+  readonly completeToolExecution?: (input: {
+    toolCallID: string
+    output: ToolLifecycleOutput
+  }) => Effect.Effect<void>
+  readonly failToolExecution?: (input: {
+    toolCallID: string
+    error: unknown
+  }) => Effect.Effect<void>
   readonly recordToolExecutionStarted?: (input: {
     tool: string
     toolCallID: string
@@ -382,6 +390,7 @@ export const layer: Layer.Layer<
       let toolAbortRequested: Deferred.Deferred<void> | undefined
       let currentStreamStopRequested: Deferred.Deferred<void> | undefined
       const closedToolLifecycleAttempts = new Set<RunObservability.AttemptID>()
+      const closedToolLifecycleCalls = new Set<string>()
       const slog = log.clone().tag("sessionID", input.sessionID).tag("messageID", input.assistantMessage.id)
 
       const parse = (e: unknown) =>
@@ -405,6 +414,7 @@ export const layer: Layer.Layer<
       const settleToolCall = Effect.fn("SessionProcessor.settleToolCall")(function* (toolCallID: string) {
         const call = ctx.toolcalls[toolCallID]
         if (!call) return
+        closedToolLifecycleCalls.add(toolCallID)
         call.settled = true
         yield* releaseToolLifecycleWaiters(call)
       })
@@ -417,6 +427,10 @@ export const layer: Layer.Layer<
 
       const isToolLifecycleAttemptClosed = (attemptID: RunObservability.AttemptID | undefined) =>
         attemptID !== undefined && closedToolLifecycleAttempts.has(attemptID)
+      const isToolLifecycleClosed = (
+        toolCallID: string,
+        attemptID: RunObservability.AttemptID | undefined,
+      ) => closedToolLifecycleCalls.has(toolCallID) || isToolLifecycleAttemptClosed(attemptID)
 
       const markToolLifecycleEventRecorded = (
         call: ToolLifecycleRecord,
@@ -432,7 +446,7 @@ export const layer: Layer.Layer<
         toolCallID: string,
         attemptID?: RunObservability.AttemptID,
       ) {
-        if (isToolLifecycleAttemptClosed(attemptID)) return
+        if (isToolLifecycleClosed(toolCallID, attemptID)) return
         let call = ctx.toolcalls[toolCallID]
         if (!call) {
           call = {
@@ -453,6 +467,7 @@ export const layer: Layer.Layer<
           sessionID: call.sessionID,
         })
         if (!part || part.type !== "tool") {
+          closedToolLifecycleCalls.add(toolCallID)
           delete ctx.toolcalls[toolCallID]
           return
         }
@@ -1385,6 +1400,7 @@ export const layer: Layer.Layer<
           if (!match) match = yield* ensureToolPartForTerminal(toolCallID, call)
           if (!match) continue
           if (ctx.toolcalls[toolCallID] !== match.call) continue
+          closedToolLifecycleCalls.add(toolCallID)
           if (match.call.attemptID) closedToolLifecycleAttempts.add(match.call.attemptID)
           delete ctx.toolcalls[toolCallID]
           yield* Effect.all(
@@ -1451,10 +1467,12 @@ export const layer: Layer.Layer<
       })
 
       const closeRemainingToolLifecycles = Effect.fn("SessionProcessor.closeRemainingToolLifecycles")(function* () {
-        const remainingCalls = Object.values(ctx.toolcalls)
-        for (const call of remainingCalls) {
+        const remainingEntries = Object.entries(ctx.toolcalls)
+        for (const [toolCallID, call] of remainingEntries) {
+          closedToolLifecycleCalls.add(toolCallID)
           if (call.attemptID) closedToolLifecycleAttempts.add(call.attemptID)
         }
+        const remainingCalls = remainingEntries.map(([, call]) => call)
         ctx.toolcalls = {}
         yield* Effect.forEach(
           remainingCalls,
@@ -1779,23 +1797,6 @@ export const layer: Layer.Layer<
               tools: activeTools,
               trace: ctx.trace,
               toolAbortSignal: toolAbortController.signal,
-              toolLifecycle: {
-                started: (input) => Effect.runPromise(recordToolExecutionStarted(input, attempt.attemptID)),
-                completed: (input) =>
-                  Effect.runPromise(
-                    completeToolExecution({ toolCallID: input.toolCallID, output: input.output }, attempt.attemptID),
-                  ),
-                failed: (input) =>
-                  Effect.runPromise(
-                    Effect.gen(function* () {
-                      if (toolAbortController.signal.aborted) {
-                        yield* recordToolExecutionFailed(input, attempt.attemptID)
-                        return
-                      }
-                      yield* failToolExecution(input, attempt.attemptID)
-                    }),
-                  ),
-              },
             })
           } catch (error) {
             ctx.runTrace.recordSetupFailure({ at: Date.now(), monotonicMs: performance.now(), error })
@@ -2162,6 +2163,8 @@ export const layer: Layer.Layer<
         },
         updateToolCall,
         completeToolCall,
+        completeToolExecution: (input) => completeToolExecution(input),
+        failToolExecution: (input) => failToolExecution(input),
         recordToolExecutionStarted,
         recordToolExecutionCompleted,
         recordToolExecutionFailed,

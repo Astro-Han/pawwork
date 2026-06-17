@@ -161,6 +161,26 @@ function transportDisconnectError(message: string) {
   return Object.assign(new Error(message), { code: "ECONNRESET", syscall: "read" })
 }
 
+function startFakeStreamTool(
+  input: LLM.StreamInput,
+  tool: string,
+  toolCallID: string,
+  toolInput: Record<string, unknown>,
+  failures: unknown[],
+) {
+  const execute = input.tools[tool]?.execute
+  if (!execute) throw new Error(`tool ${tool} is missing execute()`)
+  void Promise.resolve(
+    execute(toolInput, {
+      toolCallId: toolCallID,
+      messages: input.messages,
+      abortSignal: new AbortController().signal,
+    } as any),
+  ).catch((error) => {
+    failures.push(error)
+  })
+}
+
 function responseCreated(model = "gpt-5.2") {
   return {
     type: "response.created",
@@ -363,19 +383,7 @@ const lifecycleBeforeToolEventIt = testEffect(
       const toolInput = { value: "ok" }
       return Stream.fromEffect(
         Effect.promise(async () => {
-          await input.toolLifecycle?.started?.({ tool: "fast", toolCallID, input: toolInput })
-          void Promise.resolve(
-            input.toolLifecycle?.completed?.({
-              toolCallID,
-              output: {
-                title: "fast",
-                metadata: { marker: "lifecycle-first" },
-                output: "fast result",
-              },
-            }),
-          ).catch((error) => {
-            lifecycleBeforeToolEventFailures.push(error)
-          })
+          startFakeStreamTool(input, "fast", toolCallID, toolInput, lifecycleBeforeToolEventFailures)
         }),
       ).pipe(
         Stream.flatMap(() =>
@@ -408,19 +416,7 @@ const noStreamToolCompletionIt = testEffect(
       const toolInput = { value: "ok" }
       return Stream.fromEffect(
         Effect.promise(async () => {
-          await input.toolLifecycle?.started?.({ tool: "offline", toolCallID, input: toolInput })
-          void Promise.resolve(
-            input.toolLifecycle?.completed?.({
-              toolCallID,
-              output: {
-                title: "offline",
-                metadata: { marker: "no-stream" },
-                output: "offline result",
-              },
-            }),
-          ).catch((error) => {
-            noStreamToolCompletionFailures.push(error)
-          })
+          startFakeStreamTool(input, "offline", toolCallID, toolInput, noStreamToolCompletionFailures)
         }),
       ).pipe(Stream.flatMap(() => Stream.fail(transportDisconnectError("connection reset before tool events"))))
     },
@@ -443,19 +439,7 @@ const noStreamToolCompletionTerminalIt = testEffect(
       })
       return Stream.fromEffect(
         Effect.promise(async () => {
-          await input.toolLifecycle?.started?.({ tool: "offline", toolCallID, input: toolInput })
-          void Promise.resolve(
-            input.toolLifecycle?.completed?.({
-              toolCallID,
-              output: {
-                title: "offline",
-                metadata: { marker: "terminal-after-tool" },
-                output: "offline result",
-              },
-            }),
-          ).catch((error) => {
-            noStreamToolCompletionTerminalFailures.push(error)
-          })
+          startFakeStreamTool(input, "offline", toolCallID, toolInput, noStreamToolCompletionTerminalFailures)
         }),
       ).pipe(Stream.flatMap(() => Stream.fail(terminalError)))
     },
@@ -470,12 +454,7 @@ const noStreamToolFailureIt = testEffect(
       const toolInput = { value: "bad" }
       return Stream.fromEffect(
         Effect.promise(async () => {
-          await input.toolLifecycle?.started?.({ tool: "offline", toolCallID, input: toolInput })
-          void Promise.resolve(input.toolLifecycle?.failed?.({ toolCallID, error: new Error("offline failure") })).catch(
-            (error) => {
-              noStreamToolFailureFailures.push(error)
-            },
-          )
+          startFakeStreamTool(input, "offline", toolCallID, toolInput, noStreamToolFailureFailures)
         }),
       ).pipe(Stream.flatMap(() => Stream.fail(transportDisconnectError("connection reset before tool error event"))))
     },
@@ -489,26 +468,25 @@ const noStreamDeadToolIt = testEffect(
       const toolInput = { value: "stuck" }
       return Stream.fromEffect(
         Effect.promise(async () => {
-          await input.toolLifecycle?.started?.({ tool: "offline", toolCallID, input: toolInput })
+          startFakeStreamTool(input, "offline", toolCallID, toolInput, [])
         }),
       ).pipe(Stream.flatMap(() => Stream.fail(transportDisconnectError("connection reset before dead tool events"))))
     },
   }),
 )
 
-type CapturedToolLifecycle = NonNullable<LLM.StreamInput["toolLifecycle"]>
 const lateLifecycleAfterFinalizeState: {
-  lifecycle?: CapturedToolLifecycle
+  complete?: () => Promise<void>
+  fail?: () => Promise<void>
 } = {}
 const lateLifecycleAfterFinalizeIt = testEffect(
   processorEnvWithLLM({
     stream(input) {
       const toolCallID = "call_late_lifecycle_after_finalize"
       const toolInput = { value: "stuck" }
-      lateLifecycleAfterFinalizeState.lifecycle = input.toolLifecycle
       return Stream.fromEffect(
         Effect.promise(async () => {
-          await input.toolLifecycle?.started?.({ tool: "offline", toolCallID, input: toolInput })
+          startFakeStreamTool(input, "offline", toolCallID, toolInput, [])
         }),
       ).pipe(Stream.flatMap(() => Stream.fail(new Error("connection reset before late lifecycle events"))))
     },
@@ -2823,12 +2801,29 @@ it.live("session.processor effect tests persists completed tool result after pro
               slow: tool({
                 description: "Complete after the provider stream has failed",
                 inputSchema: z.object({ value: z.string() }),
-                execute: async (_args, options) => {
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted || !handle.completeToolExecution) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
                   executions += 1
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "slow",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
                   toolStarted.resolve()
                   await toolFinish.promise
                   toolAbortSignalAborted = options.abortSignal?.aborted ?? false
-                  return { output: "slow result", title: "slow", metadata: { marker: "drained" } }
+                  const output = { output: "slow result", title: "slow", metadata: { marker: "drained" } }
+                  await Effect.runPromise(
+                    handle.completeToolExecution({
+                      toolCallID: options.toolCallId,
+                      output,
+                    }),
+                  )
+                  return output
                 },
               }),
             },
@@ -2906,9 +2901,31 @@ noStreamToolCompletionIt.live(
             toolDrainTimeoutMs: 5_000,
             tools: {
               offline: tool({
-                description: "Fake LLM drives lifecycle directly in this test",
+                description: "Fake LLM executes this tool without stream events",
                 inputSchema: z.object({ value: z.string() }),
-                execute: async () => ({ output: "unused" }),
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted || !handle.completeToolExecution) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "offline",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  void Effect.runPromise(
+                    handle.completeToolExecution({
+                      toolCallID: options.toolCallId,
+                      output: {
+                        title: "offline",
+                        metadata: { marker: "no-stream" },
+                        output: "offline result",
+                      },
+                    }),
+                  ).catch((error) => noStreamToolCompletionFailures.push(error))
+                  return { output: "unused" }
+                },
               }),
             },
           })
@@ -2982,9 +2999,31 @@ noStreamToolCompletionTerminalIt.live(
             toolDrainTimeoutMs: 5_000,
             tools: {
               offline: tool({
-                description: "Fake LLM drives lifecycle directly in this test",
+                description: "Fake LLM executes this tool without stream events",
                 inputSchema: z.object({ value: z.string() }),
-                execute: async () => ({ output: "unused" }),
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted || !handle.completeToolExecution) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "offline",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  void Effect.runPromise(
+                    handle.completeToolExecution({
+                      toolCallID: options.toolCallId,
+                      output: {
+                        title: "offline",
+                        metadata: { marker: "terminal-after-tool" },
+                        output: "offline result",
+                      },
+                    }),
+                  ).catch((error) => noStreamToolCompletionTerminalFailures.push(error))
+                  return { output: "unused" }
+                },
               }),
             },
           })
@@ -3056,9 +3095,27 @@ noStreamToolFailureIt.live(
             toolDrainTimeoutMs: 5_000,
             tools: {
               offline: tool({
-                description: "Fake LLM drives lifecycle directly in this test",
+                description: "Fake LLM executes this tool without stream events",
                 inputSchema: z.object({ value: z.string() }),
-                execute: async () => ({ output: "unused" }),
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted || !handle.failToolExecution) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "offline",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  void Effect.runPromise(
+                    handle.failToolExecution({
+                      toolCallID: options.toolCallId,
+                      error: new Error("offline failure"),
+                    }),
+                  ).catch((error) => noStreamToolFailureFailures.push(error))
+                  return { output: "unused" }
+                },
               }),
             },
           })
@@ -3130,9 +3187,21 @@ noStreamDeadToolIt.live(
             toolDrainTimeoutMs: 25,
             tools: {
               offline: tool({
-                description: "Fake LLM starts lifecycle then disconnects before stream tool events",
+                description: "Fake LLM starts execution then disconnects before stream tool events",
                 inputSchema: z.object({ value: z.string() }),
-                execute: async () => ({ output: "unused" }),
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "offline",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  await new Promise<never>(() => {})
+                },
               }),
             },
           })
@@ -3202,7 +3271,8 @@ lateLifecycleAfterFinalizeIt.live(
     provideTmpdirInstance(
       (dir) =>
         Effect.gen(function* () {
-          lateLifecycleAfterFinalizeState.lifecycle = undefined
+          lateLifecycleAfterFinalizeState.complete = undefined
+          lateLifecycleAfterFinalizeState.fail = undefined
           const { processors, session, provider } = yield* boot()
 
           const chat = yield* session.create({})
@@ -3234,40 +3304,53 @@ lateLifecycleAfterFinalizeIt.live(
             toolDrainTimeoutMs: 25,
             tools: {
               offline: tool({
-                description: "Fake LLM starts lifecycle then disconnects before terminal lifecycle",
+                description: "Fake LLM starts execution then disconnects before terminal callbacks",
                 inputSchema: z.object({ value: z.string() }),
-                execute: async () => ({ output: "unused" }),
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted || !handle.completeToolExecution || !handle.failToolExecution) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "offline",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  lateLifecycleAfterFinalizeState.complete = () =>
+                    Effect.runPromise(
+                      handle.completeToolExecution!({
+                        toolCallID: options.toolCallId,
+                        output: {
+                          title: "offline",
+                          metadata: { marker: "late-complete" },
+                          output: "late output",
+                        },
+                      }),
+                    )
+                  lateLifecycleAfterFinalizeState.fail = () =>
+                    Effect.runPromise(
+                      handle.failToolExecution!({
+                        toolCallID: options.toolCallId,
+                        error: new Error("late failure"),
+                      }),
+                    )
+                  await new Promise<never>(() => {})
+                },
               }),
             },
           })
 
-          const lifecycle = lateLifecycleAfterFinalizeState.lifecycle as CapturedToolLifecycle | undefined
-          const completed = lifecycle?.completed
-          const failed = lifecycle?.failed
-          if (!completed || !failed) throw new Error("tool lifecycle callbacks were not captured")
+          if (!lateLifecycleAfterFinalizeState.complete || !lateLifecycleAfterFinalizeState.fail) {
+            throw new Error("tool execution callbacks were not captured")
+          }
+          const completed: () => Promise<void> = lateLifecycleAfterFinalizeState.complete
+          const failed: () => Promise<void> = lateLifecycleAfterFinalizeState.fail
           const completedExit = yield* Effect.exit(
-            Effect.promise(() =>
-              Promise.resolve(
-                completed({
-                  toolCallID: "call_late_lifecycle_after_finalize",
-                  output: {
-                    title: "offline",
-                    metadata: { marker: "late-complete" },
-                    output: "late output",
-                  },
-                }),
-              ),
-            ).pipe(Effect.timeout("250 millis")),
+            Effect.promise(() => completed()).pipe(Effect.timeout("250 millis")),
           )
           const failedExit = yield* Effect.exit(
-            Effect.promise(() =>
-              Promise.resolve(
-                failed({
-                  toolCallID: "call_late_lifecycle_after_finalize",
-                  error: new Error("late failure"),
-                }),
-              ),
-            ).pipe(Effect.timeout("250 millis")),
+            Effect.promise(() => failed()).pipe(Effect.timeout("250 millis")),
           )
 
           const toolParts = MessageV2.parts(msg.id).filter((part): part is MessageV2.ToolPart => part.type === "tool")
@@ -3378,10 +3461,27 @@ it.live("session.processor effect tests waits for fast completed tool materializ
             fast: tool({
               description: "Completes immediately",
               inputSchema: z.object({ value: z.string() }),
-              execute: async (_args, options) => {
+              execute: async (args, options) => {
+                if (!handle.recordToolExecutionStarted || !handle.completeToolExecution) {
+                  throw new Error("processor tool execution helpers are missing")
+                }
                 executions += 1
+                await Effect.runPromise(
+                  handle.recordToolExecutionStarted({
+                    tool: "fast",
+                    toolCallID: options.toolCallId,
+                    input: args,
+                  }),
+                )
                 toolAbortSignalAborted = options.abortSignal?.aborted ?? false
-                return { output: "fast result", title: "fast", metadata: { marker: "fast-drained" } }
+                const output = { output: "fast result", title: "fast", metadata: { marker: "fast-drained" } }
+                await Effect.runPromise(
+                  handle.completeToolExecution({
+                    toolCallID: options.toolCallId,
+                    output,
+                  }),
+                )
+                return output
               },
             }),
           },
@@ -3452,9 +3552,31 @@ lifecycleBeforeToolEventIt.live(
             toolDrainTimeoutMs: 100,
             tools: {
               fast: tool({
-                description: "Fake LLM drives lifecycle directly in this test",
+                description: "Fake LLM executes this tool before stream materialization",
                 inputSchema: z.object({ value: z.string() }),
-                execute: async () => ({ output: "unused" }),
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted || !handle.completeToolExecution) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "fast",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
+                  void Effect.runPromise(
+                    handle.completeToolExecution({
+                      toolCallID: options.toolCallId,
+                      output: {
+                        title: "fast",
+                        metadata: { marker: "lifecycle-first" },
+                        output: "fast result",
+                      },
+                    }),
+                  ).catch((error) => lifecycleBeforeToolEventFailures.push(error))
+                  return { output: "unused" }
+                },
               }),
             },
           })
@@ -3579,7 +3701,17 @@ it.live("session.processor effect tests keeps abort-aware executing tools interr
               slow: tool({
                 description: "Rejects when the processor aborts the tool signal",
                 inputSchema: z.object({ value: z.string() }),
-                execute: async (_args, options) => {
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "slow",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
                   toolStarted.resolve()
                   await new Promise<never>((_, reject) => {
                     options.abortSignal?.addEventListener(
@@ -3703,8 +3835,18 @@ it.live("session.processor effect tests bounds drain for dead tools after provid
               dead: tool({
                 description: "Never resolves",
                 inputSchema: z.object({ value: z.string() }),
-                execute: async () => {
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
                   executions += 1
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "dead",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
                   toolStarted.resolve()
                   await new Promise<never>(() => {})
                 },
@@ -3823,7 +3965,17 @@ it.live(
                 dead: tool({
                   description: "Never resolves",
                   inputSchema: z.object({ value: z.string() }),
-                  execute: async () => {
+                  execute: async (args, options) => {
+                    if (!handle.recordToolExecutionStarted) {
+                      throw new Error("processor tool execution helpers are missing")
+                    }
+                    await Effect.runPromise(
+                      handle.recordToolExecutionStarted({
+                        tool: "dead",
+                        toolCallID: options.toolCallId,
+                        input: args,
+                      }),
+                    )
                     toolStarted.resolve()
                     await new Promise<never>(() => {})
                   },
@@ -3942,7 +4094,17 @@ it.live("session.processor effect tests aborts tools while cleanup is draining",
               slow: tool({
                 description: "Rejects when cleanup drain is aborted",
                 inputSchema: z.object({ value: z.string() }),
-                execute: async (_args, options) => {
+                execute: async (args, options) => {
+                  if (!handle.recordToolExecutionStarted) {
+                    throw new Error("processor tool execution helpers are missing")
+                  }
+                  await Effect.runPromise(
+                    handle.recordToolExecutionStarted({
+                      tool: "slow",
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    }),
+                  )
                   toolStarted.resolve()
                   await new Promise<never>((_, reject) => {
                     options.abortSignal?.addEventListener(

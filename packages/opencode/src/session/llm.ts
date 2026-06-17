@@ -50,19 +50,6 @@ export type StreamInput = {
   streamTimeoutMs?: number
   toolChoice?: "auto" | "required" | "none"
   toolAbortSignal?: AbortSignal
-  toolLifecycle?: {
-    started?(input: { tool: string; toolCallID: string; input: Record<string, any> }): void | Promise<void>
-    completed?(input: {
-      toolCallID: string
-      output: {
-        title: string
-        metadata: Record<string, any>
-        output: string
-        attachments?: MessageV2.FilePart[]
-      }
-    }): void | Promise<void>
-    failed?(input: { toolCallID: string; error: unknown }): void | Promise<void>
-  }
   trace?: Pick<
     LLMTrace.Recorder,
     | "request"
@@ -224,7 +211,7 @@ const live: Layer.Layer<
         },
       )
 
-      const tools = wrapToolsWithLifecycle(resolveTools(input), input.toolLifecycle, input.toolAbortSignal)
+      const tools = wrapToolsWithAbortSignal(resolveTools(input), input.toolAbortSignal)
       const traceToolCount = Object.keys(tools).filter((x) => x !== "invalid").length
 
       // LiteLLM and some Anthropic proxies require the tools parameter to be present
@@ -699,13 +686,8 @@ export function resolveTools(input: Pick<StreamInput, "tools" | "agent" | "permi
   return Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))
 }
 
-/** @internal Exported for testing */
-export function wrapToolsWithLifecycle(
-  tools: Record<string, Tool>,
-  lifecycle: StreamInput["toolLifecycle"],
-  toolAbortSignal?: AbortSignal,
-) {
-  if (!lifecycle && !toolAbortSignal) return tools
+function wrapToolsWithAbortSignal(tools: Record<string, Tool>, toolAbortSignal?: AbortSignal) {
+  if (!toolAbortSignal) return tools
 
   return Object.fromEntries(
     Object.entries(tools).map(([name, item]) => {
@@ -718,68 +700,12 @@ export function wrapToolsWithLifecycle(
           ...item,
           execute: async (...args: Parameters<NonNullable<typeof execute>>) => {
             const [parameters, options] = args
-            const toolOptions = toolAbortSignal ? { ...options, abortSignal: toolAbortSignal } : options
-            await lifecycle?.started?.({
-              tool: name,
-              toolCallID: options.toolCallId,
-              input: normalizeToolLifecycleInput(parameters),
-            })
-            let result: Awaited<ReturnType<NonNullable<typeof execute>>>
-            try {
-              result = await execute(parameters, toolOptions)
-            } catch (error) {
-              await lifecycle?.failed?.({ toolCallID: options.toolCallId, error })
-              throw error
-            }
-            await lifecycle?.completed?.({
-              toolCallID: options.toolCallId,
-              output: normalizeToolLifecycleOutput(name, result),
-            })
-            return result
+            return execute(parameters, { ...options, abortSignal: toolAbortSignal })
           },
         } satisfies Tool,
       ]
     }),
   )
-}
-
-function normalizeToolLifecycleInput(input: unknown): Record<string, any> {
-  if (isPlainRecord(input)) return input
-  return { value: input }
-}
-
-function normalizeToolLifecycleOutput(toolName: string, result: unknown) {
-  if (!isPlainRecord(result)) {
-    return {
-      title: toolName,
-      metadata: {},
-      output: stringifyToolOutput(result),
-    }
-  }
-
-  const metadata = isPlainRecord(result.metadata) ? result.metadata : {}
-  const attachments = Array.isArray(result.attachments) ? (result.attachments as MessageV2.FilePart[]) : undefined
-  const outputValue = "output" in result ? result.output : result
-  return {
-    title: typeof result.title === "string" && result.title.length > 0 ? result.title : toolName,
-    metadata,
-    output: stringifyToolOutput(outputValue),
-    ...(attachments ? { attachments } : {}),
-  }
-}
-
-function stringifyToolOutput(value: unknown) {
-  if (typeof value === "string") return value
-  try {
-    const json = JSON.stringify(value)
-    return json ?? String(value)
-  } catch {
-    return String(value)
-  }
-}
-
-function isPlainRecord(value: unknown): value is Record<string, any> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 export function buildInvalidToolRepairInput(
