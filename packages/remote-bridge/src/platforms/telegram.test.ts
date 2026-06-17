@@ -4,6 +4,7 @@ import {
   captureFirstSender,
   inboundMessage,
   isFatalTelegramError,
+  MAX_CONFLICT_RETRIES,
   normalizeUpdate,
   parseTelegramRemoteKey,
   splitForTelegram,
@@ -233,10 +234,11 @@ test("TelegramPlatform drops the backlog on start so a queued prompt is not repl
   }
 })
 
-test("start() signals onReady only after the backlog drain, once the live loop is serving", async () => {
-  // The startup-race guard: onReady must not fire until the drain is done and the
-  // poll loop is installed, so a caller can't report "connected" while a freshly
-  // sent message would still be swept away as backlog. update 5 is the stale
+test("start() signals onReady only after the first live poll returns, past the backlog drain", async () => {
+  // The startup-race guard: onReady must not fire until the drain is done AND the
+  // first live getUpdates has actually returned, so a caller can't report
+  // "connected" while a freshly sent message would still be swept away as backlog
+  // (or while a 409 keeps the live loop from ever serving). update 5 is the stale
   // backlog; the empty batch ends the drain; update 6 is the first live message.
   const api = fakeBotApi([[update(5, 42, "stale")], [], [update(6, 42, "new")]])
   try {
@@ -254,11 +256,82 @@ test("start() signals onReady only after the backlog drain, once the live loop i
     await platform.stop()
     await run
     expect(readyCalls).toBe(1)
-    // The drain took two polls (the stale batch, then the empty terminator) before
-    // the loop was installed; onReady fires only after that, never during the drain.
-    expect(getUpdatesAtReady).toBeGreaterThanOrEqual(2)
+    // Two drain polls (the stale batch, then the empty terminator) and then the
+    // first live poll that returned update 6: onReady fires only on that third
+    // poll's return, never during the drain and never on mere loop install.
+    expect(getUpdatesAtReady).toBeGreaterThanOrEqual(3)
   } finally {
     api.stop()
+  }
+})
+
+test("runLoop gives up after bounded 409 conflicts and never signals ready", async () => {
+  // Every getUpdates returns 409 — another client is long-polling this token, so
+  // the loop will NEVER receive anything. It must not spin forever (which would
+  // leave the desktop showing a healthy-looking "connecting"): after a bounded
+  // number of retries it rejects, and onReady never fires, so the runtime lands
+  // on "degraded" with a real cause. The test resolving at all proves the retry
+  // is bounded — an unbounded loop against this server would hang to timeout.
+  let polls = 0
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const method = new URL(req.url).pathname.split("/").pop() ?? ""
+      if (method !== "getUpdates") return json({ ok: true, result: {} })
+      polls++
+      return json({ ok: false, error_code: 409, description: "Conflict: terminated by other getUpdates request" })
+    },
+  })
+  try {
+    const poller = new TelegramPoller("t", `http://localhost:${server.port}`)
+    poller.pollRetryMs = 0
+    let ready = 0
+    await expect(poller.runLoop(0, () => {}, new AbortController().signal, () => ready++)).rejects.toThrow(
+      /another client is polling this bot token/i,
+    )
+    expect(ready).toBe(0)
+    // MAX_CONFLICT_RETRIES retries are tolerated; the next conflict throws.
+    expect(polls).toBe(MAX_CONFLICT_RETRIES + 1)
+  } finally {
+    server.stop(true)
+  }
+})
+
+test("runLoop signals ready only after the first poll that returns, surviving a transient 409", async () => {
+  // The first two live polls 409 (a brief handoff — our own previous poller still
+  // releasing on reconnect), then it clears. onReady must NOT fire during the
+  // conflict: only after the first getUpdates that actually returns, and exactly
+  // once. The conflict counter resets on that success, so a later blip is tolerated.
+  let polls = 0
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const method = new URL(req.url).pathname.split("/").pop() ?? ""
+      if (method !== "getUpdates") return json({ ok: true, result: {} })
+      polls++
+      if (polls <= 2) return json({ ok: false, error_code: 409, description: "Conflict" })
+      return json({ ok: true, result: [] }) // conflict cleared: an empty live poll
+    },
+  })
+  try {
+    const poller = new TelegramPoller("t", `http://localhost:${server.port}`)
+    poller.pollRetryMs = 0
+    const ac = new AbortController()
+    let ready = 0
+    let pollsAtReady = -1
+    const loop = poller.runLoop(0, () => {}, ac.signal, () => {
+      ready++
+      pollsAtReady = polls
+    })
+    await waitFor(() => ready > 0)
+    ac.abort()
+    await loop
+    expect(ready).toBe(1)
+    // The two 409s plus the first poll that returned: ready fires on the 3rd poll,
+    // never during the retries.
+    expect(pollsAtReady).toBe(3)
+  } finally {
+    server.stop(true)
   }
 })
 

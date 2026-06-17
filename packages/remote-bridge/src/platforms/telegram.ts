@@ -16,6 +16,13 @@ const REQUEST_TIMEOUT_MS = 10_000
 // the server's retry_after. Lowered in tests.
 const POLL_RETRY_MS = 3_000
 
+// Telegram allows ONE getUpdates consumer per token; a 409 means another client
+// is already long-polling it. A few retries absorb a handoff (our own previous
+// poller releasing on reconnect), but a persistent 409 never clears by retrying —
+// so we give up after this many and surface it, instead of spinning while the UI
+// shows a "connected" bridge that silently receives nothing.
+export const MAX_CONFLICT_RETRIES = 3
+
 // Telegram caps a message at 4096 UTF-16 code units (NOT codepoints): an
 // astral-plane char (most emoji, CJK ext-B) costs 2. Splitting long assistant
 // replies is correctness — an over-cap send returns 400 and the user gets
@@ -40,8 +47,9 @@ export class TelegramApiError extends Error {
 /**
  * Whether a Bot API error is permanent. A bad/blocked token (401/403) or a
  * missing method (404) cannot be fixed by retrying, so the poll loop surfaces
- * it (rejecting `start()`) instead of spinning. Everything else — 409 conflict,
- * 429, 5xx, network — is transient and retried with backoff.
+ * it (rejecting `start()`) instead of spinning. A 409 conflict is retried only a
+ * bounded number of times (see `MAX_CONFLICT_RETRIES`) — it never self-heals, so
+ * after that it is surfaced too. 429/5xx/network are transient and retried with backoff.
  */
 export function isFatalTelegramError(err: unknown): boolean {
   if (err instanceof TelegramApiError) {
@@ -49,6 +57,27 @@ export function isFatalTelegramError(err: unknown): boolean {
     return code === 401 || code === 403 || code === 404
   }
   return false
+}
+
+/** A getUpdates 409: another client is already long-polling this bot token. */
+function isConflictError(err: unknown): boolean {
+  return err instanceof TelegramApiError && (err.errorCode ?? err.httpStatus) === 409
+}
+
+/** Raised when getUpdates keeps returning 409 past `MAX_CONFLICT_RETRIES` — a
+ * real, non-self-healing conflict (another bridge or client owns the token).
+ * Surfaced so the desktop lands on "degraded" with a clear cause, never a false
+ * "connected" over a token that delivers nothing. */
+export class TelegramConflictError extends Error {
+  constructor() {
+    super("another client is polling this bot token (Telegram 409 conflict)")
+    this.name = "TelegramConflictError"
+  }
+}
+
+/** Backoff for a transient poll failure: a 429's retry_after if present, else base. */
+function backoffMs(err: unknown, base: number): number {
+  return err instanceof TelegramApiError && err.retryAfterMs ? err.retryAfterMs : base
 }
 
 export interface TelegramIdentity {
@@ -210,12 +239,25 @@ export class TelegramPoller {
   /**
    * Long-poll from `startOffset`, calling `onUpdate` for each raw update. The
    * offset advances past every update returned (even ones `onUpdate` ignores)
-   * so nothing is refetched. Resolves when `signal` aborts; rejects only on a
-   * fatal error — transient failures back off and retry. `onUpdate` errors are
-   * swallowed so one bad message cannot kill the loop.
+   * so nothing is refetched. Resolves when `signal` aborts; rejects on a fatal
+   * error or a persistent 409 conflict — other transient failures back off and
+   * retry. `onUpdate` errors are swallowed so one bad message cannot kill the loop.
+   *
+   * `onReady` fires once, after the FIRST getUpdates that actually returns (even
+   * empty): that is the only proof the token is ours and live messages will be
+   * delivered. Firing it any earlier (e.g. when the loop is merely installed)
+   * would let a caller report "connected" over a token a 409 conflict keeps
+   * silently empty.
    */
-  async runLoop(startOffset: number, onUpdate: (update: any) => void, signal: AbortSignal): Promise<void> {
+  async runLoop(
+    startOffset: number,
+    onUpdate: (update: any) => void,
+    signal: AbortSignal,
+    onReady?: () => void,
+  ): Promise<void> {
     let offset = startOffset
+    let conflicts = 0
+    let ready = false
     while (!signal.aborted) {
       let updates: any[]
       try {
@@ -223,9 +265,14 @@ export class TelegramPoller {
       } catch (err) {
         if (signal.aborted) return
         if (isFatalTelegramError(err)) throw err
-        const backoff = err instanceof TelegramApiError && err.retryAfterMs ? err.retryAfterMs : this.pollRetryMs
-        await sleep(backoff, signal)
+        if (isConflictError(err) && ++conflicts > MAX_CONFLICT_RETRIES) throw new TelegramConflictError()
+        await sleep(backoffMs(err, this.pollRetryMs), signal)
         continue
+      }
+      conflicts = 0
+      if (!ready) {
+        ready = true
+        onReady?.()
       }
       for (const update of updates) {
         offset = nextOffset(offset, update)
@@ -307,10 +354,12 @@ export class TelegramPlatform implements Platform {
       // forward from the live tip so only genuinely new messages are delivered.
       const startOffset = await drainBacklog(this.poller, ac.signal)
       if (startOffset === null) return // aborted during startup
-      this.loop = this.poller.runLoop(startOffset, (update) => this.dispatch(handler, update), ac.signal)
-      // The live loop is installed and the backlog is already behind us, so from
-      // here a new message is delivered, not dropped: only now are we "ready".
-      onReady?.()
+      // onReady is handed to runLoop, which fires it only after the first live
+      // getUpdates actually returns — not when the loop is merely installed. A
+      // 409 conflict (another client owns the token) then keeps us out of
+      // "ready" and, past a few retries, rejects start() so the caller surfaces
+      // it instead of showing a "connected" bridge that receives nothing.
+      this.loop = this.poller.runLoop(startOffset, (update) => this.dispatch(handler, update), ac.signal, onReady)
       await this.loop
     } finally {
       this.ac = null
@@ -365,14 +414,15 @@ async function getUpdatesWithRetry(
   signal: AbortSignal,
   timeoutS: number,
 ): Promise<any[] | null> {
+  let conflicts = 0
   while (!signal.aborted) {
     try {
       return await poller.getUpdates(offset, signal, timeoutS)
     } catch (err) {
       if (signal.aborted) return null
       if (isFatalTelegramError(err)) throw err
-      const backoff = err instanceof TelegramApiError && err.retryAfterMs ? err.retryAfterMs : poller.pollRetryMs
-      await sleep(backoff, signal)
+      if (isConflictError(err) && ++conflicts > MAX_CONFLICT_RETRIES) throw new TelegramConflictError()
+      await sleep(backoffMs(err, poller.pollRetryMs), signal)
     }
   }
   return null

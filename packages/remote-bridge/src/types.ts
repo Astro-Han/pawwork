@@ -102,8 +102,11 @@ export interface Platform {
   /**
    * Run the platform, delivering inbound messages to `handler`; resolves when
    * stopped. `onReady`, if given, fires once the platform is actually serving —
-   * past any backlog drain and into its live receive loop — so the gateway can
-   * defer "connected" until an inbound message would really be delivered.
+   * past any backlog drain AND after the first live receive actually returns, the
+   * only proof inbound delivery works — so the gateway can defer "connected" until
+   * a message would really arrive. A platform whose receive loop cannot get going
+   * (e.g. a Telegram 409: another client owns the token) must reject `start()`
+   * without ever firing `onReady`, so the caller surfaces it instead of "connected".
    */
   start(handler: MessageHandler, onReady?: () => void): Promise<void>
   /** Reply in-thread to the message `replyCtx` identifies. */
