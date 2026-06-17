@@ -973,12 +973,11 @@ export const dict = {
   "settings.remote.capabilities.prompts": "Send prompts and read your agent's replies",
   "settings.remote.capabilities.permissions": "Approve or deny permission requests",
   "settings.remote.capabilities.sessions": "Switch sessions or stop a running turn",
-  "settings.remote.note":
-    "Pairing uses a bot you create with @BotFather. Only the first person to message it can drive your agent, and the token is stored encrypted on this computer.",
   "settings.remote.connect.title": "Connect Telegram",
   "settings.remote.connect.token.label": "Bot token",
   "settings.remote.connect.token.placeholder": "123456789:ABCdef…",
-  "settings.remote.connect.token.help": "Create a bot with @BotFather in Telegram, then paste the token it gives you.",
+  "settings.remote.connect.token.help":
+    "Create a bot with @BotFather in Telegram, then paste the token it gives you. It's stored encrypted on this computer.",
   "settings.remote.connect.waiting.title": "Send your bot a message",
   "settings.remote.connect.waiting.body":
     "Open Telegram on your phone and send any message to your bot. The first sender becomes the only person who can drive your agent.",
