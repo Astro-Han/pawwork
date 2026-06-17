@@ -37,6 +37,13 @@ describe("applyRecent", () => {
     expect(ModelState.applyRecent({ recent: "nope" }, model).recent).toEqual([model])
     expect(ModelState.applyRecent("not an object", model).recent).toEqual([model])
   })
+
+  test("drops malformed old entries so a valid older model is not capped out", () => {
+    // cap 2: with the bad entries kept, `other` would fall outside the cap; dropped,
+    // it survives. defaultModel() skips malformed entries anyway, so this is pure cleanup.
+    const next = ModelState.applyRecent({ recent: [{ providerID: "x" }, "garbage", other] }, model, 2)
+    expect(next.recent).toEqual([model, other])
+  })
 })
 
 describe("recordRecent", () => {

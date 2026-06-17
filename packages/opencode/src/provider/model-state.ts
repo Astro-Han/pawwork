@@ -30,6 +30,10 @@ export namespace ModelState {
   // when the most-recent provider/model is no longer connected.
   export const MAX_RECENT = 50
 
+  function isModelRef(x: unknown): x is ModelRef {
+    return isRecord(x) && typeof x.providerID === "string" && typeof x.modelID === "string"
+  }
+
   /**
    * Pure: compute the next model.json contents, promoting `model` to the front of
    * `recent` (deduped, capped) while preserving every other field (favorite,
@@ -37,9 +41,12 @@ export namespace ModelState {
    */
   export function applyRecent(current: unknown, model: ModelRef, max: number = MAX_RECENT): Record<string, unknown> {
     const base = isRecord(current) ? current : {}
-    const previous = Array.isArray(base.recent) ? base.recent : []
+    // Drop malformed old entries: defaultModel() skips them when reading, so
+    // keeping them here would only waste a cap slot and push a still-valid older
+    // model out of `recent`.
+    const previous = (Array.isArray(base.recent) ? base.recent : []).filter(isModelRef)
     const deduped = previous.filter(
-      (entry) => !(isRecord(entry) && entry.providerID === model.providerID && entry.modelID === model.modelID),
+      (entry) => !(entry.providerID === model.providerID && entry.modelID === model.modelID),
     )
     const recent = [{ providerID: model.providerID, modelID: model.modelID }, ...deduped].slice(0, max)
     return { ...base, recent }
