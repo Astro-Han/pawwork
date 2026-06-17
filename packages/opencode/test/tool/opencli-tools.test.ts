@@ -104,6 +104,8 @@ describe("opencli_search", () => {
       expect(result.output).toContain("- query (required) | type: str | help: Question for 点点")
       expect(result.output).toContain("- timeout | type: int | default: 90")
       expect(result.output).toContain("- source-limit | type: int | default: 10")
+      // Discovery warns about the high-risk site before the model runs anything.
+      expect(result.output).toContain("anti-automation risk control")
     }),
   )
 

@@ -297,6 +297,38 @@ describe("browser_navigate", () => {
     }),
   )
 
+  it.live("appends a high-risk caution when navigating to a high-risk site", () =>
+    Effect.gen(function* () {
+    setupServer()
+    const result = yield* exec(BrowserNavigateTool, { url: "https://www.xiaohongshu.com/explore" })
+    expect(result.output).toContain("Loaded https://www.xiaohongshu.com/explore")
+    expect(result.output).toContain("anti-automation risk control")
+    }),
+  )
+
+  it.live("adds no caution for an ordinary site", () =>
+    Effect.gen(function* () {
+    setupServer()
+    const result = yield* exec(BrowserNavigateTool, { url: "https://example.com/page" })
+    expect(result.output).not.toContain("anti-automation risk control")
+    }),
+  )
+
+  it.live("a redirect that lands on a high-risk site still surfaces the caution", () =>
+    Effect.gen(function* () {
+    const server = makeServer()
+    provideFakeHost(server)
+    // Requested URL is ordinary; the document lands on a high-risk site. The
+    // caution must key on where it actually landed, not the request.
+    server.handlers.set("Runtime.evaluate", () => ({
+      result: { type: "string", value: "https://www.xiaohongshu.com/explore" },
+    }))
+    const result = yield* exec(BrowserNavigateTool, { url: "https://ok.example/start" })
+    expect(result.output).toContain("Loaded https://www.xiaohongshu.com/explore")
+    expect(result.output).toContain("anti-automation risk control")
+    }),
+  )
+
   it.live("a redirect's real landing is reported and re-judged, not the requested URL", () =>
     Effect.gen(function* () {
     const server = makeServer()
@@ -436,6 +468,41 @@ describe("browser_click", () => {
     // selector and fails.
     expect(expressions.join("\n")).toContain('const ref = "1"')
     expect(expressions.join("\n")).not.toContain('"[1]"')
+    }),
+  )
+
+  it.live("a current-page action on a high-risk site surfaces the caution (not just navigate)", () =>
+    Effect.gen(function* () {
+    const server = makeServer()
+    // The user is already on a high-risk page; the click probes that URL.
+    server.url = "https://www.xiaohongshu.com/explore"
+    server.handlers.set("Runtime.evaluate", () => ({
+      result: { type: "object", value: { ok: true, matches_n: 1, match_level: "exact", visible: true, x: 10, y: 10 } },
+    }))
+    provideFakeHost(server)
+    const result = yield* exec(BrowserClickTool, { ref: "[1]" })
+    expect(result.output).toContain("Clicked [1]")
+    expect(result.output).toContain("anti-automation risk control")
+    }),
+  )
+
+  it.live("an action that navigates to a high-risk site surfaces the caution from the landed URL", () =>
+    Effect.gen(function* () {
+    const server = makeServer()
+    // The click starts on an ordinary page (the pre-action probe), but the
+    // click navigates to a high-risk site — the caution must come from where
+    // the page ended up, not the pre-action URL.
+    server.url = "https://example.com/page"
+    server.handlers.set("Runtime.evaluate", (params) => {
+      const expr = (params as { expression?: string })?.expression ?? ""
+      return expr.includes("location.href")
+        ? { result: { type: "string", value: "https://www.xiaohongshu.com/explore" } }
+        : { result: { type: "object", value: { ok: true, matches_n: 1, match_level: "exact", visible: true, x: 10, y: 10 } } }
+    })
+    provideFakeHost(server)
+    const result = yield* exec(BrowserClickTool, { ref: "[1]" })
+    expect(result.output).toContain("Clicked [1]")
+    expect(result.output).toContain("anti-automation risk control")
     }),
   )
 })

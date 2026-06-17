@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import DESCRIPTION from "./browser-screenshot.txt"
-import { runBrowserAction, takeoverNote } from "./browser-shared"
+import { runBrowserAction, withNotes } from "./browser-shared"
 
 export const Parameters = Schema.Struct({
   annotate: Schema.optional(Schema.Boolean).annotate({
@@ -33,11 +33,12 @@ export const BrowserScreenshotTool = Tool.define(
         })
         return {
           title: result.url || "Screenshot",
-          output:
+          output: withNotes(
+            result.info,
             `Captured a screenshot of ${result.url || "the current page"}${
               result.annotated ? " with element reference annotations" : ""
-            }${params.annotate && !result.annotated ? " (annotation unavailable; plain capture)" : ""}.` +
-            takeoverNote(result.info),
+            }${params.annotate && !result.annotated ? " (annotation unavailable; plain capture)" : ""}.`,
+          ),
           metadata: { url: result.url, annotated: result.annotated },
           attachments: [
             {
