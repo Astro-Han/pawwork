@@ -33,6 +33,41 @@ Adapters are constructed by the `PlatformFactory` and wired in `createApp`
 wildcard/empty audience — closed by default.** Telegram requires `allow_from`;
 Feishu/Lark additionally require a named group (`allow_chat` + `group_only`).
 
+## Interactive prompts: text today, native UI later
+
+Question and permission blockers are rendered to **plain text** and answered by the
+user **typing** — a number / `yes` / `no`, and for a multi-question prompt one answer
+per line (see `questionPrompt` / `answersForQuestionText` in [`../engine.ts`](../engine.ts)).
+`reply` / `send` are deliberately text-only, so a new adapter works the moment it can
+send a string.
+
+The cost is a clumsy answer UX: the multi-question hint asks for newline-separated
+lines, but on a phone Enter *sends* the message, so newlines are awkward to type.
+
+**Deferred optimization — native tap-to-answer controls.** Every platform has one
+(Telegram **inline keyboards**, Feishu **interactive cards**, Discord **message
+components**). Wiring them up means:
+
+- **`Platform`** — add a structured `ask(replyCtx, prompt)` beside text `reply`, and
+  route taps back through the existing `MessageHandler` channel (a new optional
+  `Message.answer` carrying the decoded choice — no second inbound seam).
+- **engine** — `headPromptToDeliver` emits the blocker structure (not just text) and
+  delivers via `ask` when the platform supports it; `handleMessage` gains a
+  structured-answer path beside the text parser. Keep the text path as fallback.
+- **telegram** — `callback_query` in `allowed_updates`, `answerCallbackQuery`,
+  `reply_markup`, and `editMessageReplyMarkup` for multi-select toggles.
+  `callback_data` is capped at **64 bytes** — encode indices + a short blocker token,
+  never labels.
+- **multi-select / multi-question** — multi-select needs a per-message selection draft
+  plus a Submit button (edit the markup as choices toggle); multi-question needs one
+  message per question (Telegram allows one keyboard per message), which is what
+  finally kills the newline UX.
+
+Scoped at ~2-3 days, staged (permission + single-select → multi-select →
+multi-question). **Deferred on purpose**: broaden platform support on the simple text
+protocol first; revisit once the adapter set is wide enough that the answer UX is the
+bottleneck.
+
 ## Conventions every adapter must follow
 
 These are the lessons distilled from the most-supported agents (Hermes Agent,
