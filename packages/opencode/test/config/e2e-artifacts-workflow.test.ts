@@ -15,6 +15,8 @@ describe("e2e artifacts workflow", () => {
     const changesSteps = changes?.steps ?? []
     const steps = job?.steps ?? []
     const checkSteps = checkJob?.steps ?? []
+    const runCommands = steps.flatMap((step) => (typeof step.run === "string" ? [step.run] : []))
+    const runCommandText = runCommands.join("\n")
     const docsPathsStep = changesSteps.find((step) => step.id === "docs-paths")
     const codePathsStep = changesSteps.find((step) => step.id === "code-paths")
     const filterStep = changesSteps.find((step) => step.id === "filter")
@@ -75,8 +77,8 @@ describe("e2e artifacts workflow", () => {
     expect(chromeStep?.["timeout-minutes"]).toBe(2)
     expect(chromeStep?.run).toBe("google-chrome --version")
     expect(workflow).not.toContain("PLAYWRIGHT_BROWSERS_PATH")
-    expect(workflow).not.toContain("bunx playwright install")
-    expect(workflow).not.toContain("run: playwright install")
+    expect(runCommandText).not.toContain("playwright install")
+    expect(runCommandText).not.toContain("playwright install-deps")
     expect(runStep?.env?.PLAYWRIGHT_BROWSER_CHANNEL).toBe("chrome")
     expect(runStep?.env?.PLAYWRIGHT_VIDEO).toBe("off")
     expect(runStep?.run).toContain("bun --cwd packages/app test:e2e:local:smoke")
