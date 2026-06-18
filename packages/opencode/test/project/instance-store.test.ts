@@ -191,23 +191,26 @@ describe("InstanceStore", () => {
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped()
       const store = yield* InstanceStore.Service
+      const completed = Promise.withResolvers<void>()
       yield* store.load({ directory: dir })
 
       const first = trackActiveRun(dir)
       const releaseFirst = yield* Effect.promise(() => first.promise)
       let releaseSecond: (() => void) | undefined
       try {
-        const result = yield* store.disposeDirectory(dir)
+        const result = yield* store.disposeDirectory(dir, { onCompleted: () => completed.resolve() })
         expect(result).toBe(false)
 
         const second = trackActiveRun(dir)
-        const secondExit = yield* Effect.promise(() => second.promise).pipe(Effect.timeout("100 millis"), Effect.exit)
-        if (Exit.isSuccess(secondExit)) releaseSecond = secondExit.value
-        expect(Exit.isSuccess(secondExit)).toBe(true)
+        expect(second.wait).toBeUndefined()
+        releaseSecond = yield* Effect.promise(() => second.promise)
       } finally {
         releaseSecond?.()
         releaseFirst()
       }
+
+      const completedExit = yield* Effect.promise(() => completed.promise).pipe(Effect.timeout("1 second"), Effect.exit)
+      expect(Exit.isSuccess(completedExit)).toBe(true)
     }),
   )
 
@@ -231,10 +234,9 @@ describe("InstanceStore", () => {
 
       releaseFirst()
       const second = trackActiveRun(dir)
-      const secondExit = yield* Effect.promise(() => second.promise).pipe(Effect.timeout("100 millis"), Effect.exit)
       let releaseSecond: (() => void) | undefined
-      if (Exit.isSuccess(secondExit)) releaseSecond = secondExit.value
-      expect(Exit.isSuccess(secondExit)).toBe(true)
+      expect(second.wait).toBeUndefined()
+      releaseSecond = yield* Effect.promise(() => second.promise)
 
       try {
         const earlyDispose = yield* Effect.promise(() => disposed.promise).pipe(Effect.timeout("100 millis"), Effect.exit)
@@ -269,9 +271,8 @@ describe("InstanceStore", () => {
         expect(reloaded).toBe(firstContext)
 
         const second = trackActiveRun(dir)
-        const secondExit = yield* Effect.promise(() => second.promise).pipe(Effect.timeout("100 millis"), Effect.exit)
-        if (Exit.isSuccess(secondExit)) releaseSecond = secondExit.value
-        expect(Exit.isSuccess(secondExit)).toBe(true)
+        expect(second.wait).toBeUndefined()
+        releaseSecond = yield* Effect.promise(() => second.promise)
       } finally {
         releaseSecond?.()
         releaseFirst()
@@ -300,9 +301,8 @@ describe("InstanceStore", () => {
         completed = result.completed
 
         const second = trackActiveRun(dir)
-        const secondExit = yield* Effect.promise(() => second.promise).pipe(Effect.timeout("100 millis"), Effect.exit)
-        if (Exit.isSuccess(secondExit)) releaseSecond = secondExit.value
-        expect(Exit.isSuccess(secondExit)).toBe(true)
+        expect(second.wait).toBeUndefined()
+        releaseSecond = yield* Effect.promise(() => second.promise)
       } finally {
         releaseSecond?.()
         releaseFirst()
