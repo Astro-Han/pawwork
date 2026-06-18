@@ -13,6 +13,7 @@ export const SURFACE_ROUTE_PATHS = {
   settings: "/settings",
   automations: "/automations",
   skills: "/skills",
+  remote: "/remote",
 } as const
 
 export type SurfaceRouteName = keyof typeof SURFACE_ROUTE_PATHS

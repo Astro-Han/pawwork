@@ -6,7 +6,7 @@
 // — turning a scan/paste into a saved account, and a saved account into a live Platform.
 
 import { createApp } from "@opencode-ai/remote-bridge/gateway"
-import { type FeishuChannelFactory } from "@opencode-ai/remote-bridge/platforms/feishu/channel"
+import type { FeishuChannelFactory } from "@opencode-ai/remote-bridge/platforms/feishu/channel"
 import { createFeishuChannel } from "@opencode-ai/remote-bridge/platforms/feishu/channel-lark"
 import { captureFeishuChat } from "@opencode-ai/remote-bridge/platforms/feishu/pairing"
 import { FeishuPlatform } from "@opencode-ai/remote-bridge/platforms/feishu/platform"
@@ -20,6 +20,7 @@ import { WeChatClient } from "@opencode-ai/remote-bridge/platforms/wechat/client
 import { pollWeChatLogin, startWeChatLogin } from "@opencode-ai/remote-bridge/platforms/wechat/login"
 import { captureWeChatSender, WeChatPlatform } from "@opencode-ai/remote-bridge/platforms/wechat/platform"
 import type { Platform } from "@opencode-ai/remote-bridge/types"
+import { toDataURL } from "qrcode"
 import {
   type PairingProgress,
   type PlatformPairer,
@@ -78,7 +79,11 @@ class FeishuPairer implements PlatformPairer {
     // Step 1 — device-flow registration: the user scans the launcher QR and Feishu
     // mints a PersonalAgent app, handing its App ID + Secret straight back.
     const registration = await startFeishuRegistration()
-    emit({ phase: "qr", platform: "feishu", url: registration.verificationUri, code: registration.userCode || undefined })
+    // Feishu hands back a launcher URL, not a QR image (WeChat returns one ready);
+    // render it main-side so the renderer just shows <img> for both. If rendering
+    // fails the renderer falls back to the url + code carried alongside.
+    const image = await toDataURL(registration.verificationUri, { margin: 1, width: 232 }).catch(() => undefined)
+    emit({ phase: "qr", platform: "feishu", image, url: registration.verificationUri, code: registration.userCode || undefined })
     const deadline = Date.now() + registration.expiresInMs
     let domain: FeishuDomain = registration.domain
     let credentials: { appId: string; appSecret: string; domain: FeishuDomain } | null = null
