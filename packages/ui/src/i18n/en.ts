@@ -75,8 +75,14 @@ export const dict: Record<string, string> = {
   "ui.sessionTurn.retry.attemptLine": "{{line}} - attempt #{{attempt}}",
   "ui.sessionTurn.retry.geminiHot": "gemini is way too hot right now",
   "ui.sessionTurn.retry.recovery": "Recovering...",
+  "ui.sessionTurn.retry.recoveryAttempt": "Recovering... attempt #{{attempt}}",
   "ui.sessionTurn.retry.safeRecovery": "Recovering...",
-  "ui.sessionTurn.notice.safeRetryFailed": "Recovery failed. Try again later or switch models.",
+  "ui.sessionTurn.notice.safeRetryFailed.sideEffect.title": "Action completed",
+  "ui.sessionTurn.notice.safeRetryFailed.sideEffect.body":
+    "The previous action already went through, so no need to repeat it. The network or model provider may be having connection issues. You can regenerate the reply later, or switch models.",
+  "ui.sessionTurn.notice.safeRetryFailed.default.title": "Reply incomplete",
+  "ui.sessionTurn.notice.safeRetryFailed.default.body":
+    "The model's reply couldn't be generated. The network or model provider may be having connection issues. Try again later, or switch models.",
   "ui.sessionTurn.error.freeUsageExceeded": "Free usage exceeded",
   "ui.sessionTurn.error.addCredits": "Add credits",
 
@@ -88,6 +94,7 @@ export const dict: Record<string, string> = {
   "ui.sessionTurn.status.searchingWeb": "Searching the web",
   "ui.sessionTurn.status.makingEdits": "Making edits",
   "ui.sessionTurn.status.runningCommands": "Running commands",
+  "ui.sessionTurn.status.connecting": "Connecting",
   "ui.sessionTurn.status.thinking": "Thinking",
   "ui.sessionTurn.status.thinkingWithTopic": "Thinking - {{topic}}",
   "ui.sessionTurn.status.gatheringThoughts": "Gathering thoughts",

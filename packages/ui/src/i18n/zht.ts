@@ -50,8 +50,14 @@ export const dict = {
   "ui.sessionTurn.retry.attemptLine": "{{line}} - 第 {{attempt}} 次",
   "ui.sessionTurn.retry.geminiHot": "gemini 目前過載",
   "ui.sessionTurn.retry.recovery": "正在恢復…",
+  "ui.sessionTurn.retry.recoveryAttempt": "正在恢復…第 {{attempt}} 次",
   "ui.sessionTurn.retry.safeRecovery": "正在恢復…",
-  "ui.sessionTurn.notice.safeRetryFailed": "恢復失敗。你可以稍後再試，或換一個模型。",
+  "ui.sessionTurn.notice.safeRetryFailed.sideEffect.title": "操作已完成",
+  "ui.sessionTurn.notice.safeRetryFailed.sideEffect.body":
+    "上一項操作已執行，無需重複。目前網路或模型服務商連線異常，可稍後重新生成回覆，或更換模型。",
+  "ui.sessionTurn.notice.safeRetryFailed.default.title": "回覆未完成",
+  "ui.sessionTurn.notice.safeRetryFailed.default.body":
+    "模型回覆未能生成。目前網路或模型服務商存在連線問題，請稍後重試，或換一個模型。",
   "ui.sessionTurn.error.freeUsageExceeded": "免費使用額度已用完",
   "ui.sessionTurn.error.addCredits": "新增點數",
 
@@ -63,6 +69,7 @@ export const dict = {
   "ui.sessionTurn.status.searchingWeb": "正在搜尋網頁",
   "ui.sessionTurn.status.makingEdits": "正在修改",
   "ui.sessionTurn.status.runningCommands": "正在執行命令",
+  "ui.sessionTurn.status.connecting": "連線中",
   "ui.sessionTurn.status.thinking": "思考中",
   "ui.sessionTurn.status.thinkingWithTopic": "思考 - {{topic}}",
   "ui.sessionTurn.status.gatheringThoughts": "正在整理思緒",

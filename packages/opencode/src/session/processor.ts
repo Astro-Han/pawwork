@@ -28,6 +28,7 @@ import { TurnChange } from "./turn-change"
 import { LLMTrace } from "./llm-trace"
 import type { RunIncident } from "./run-incident"
 import { RunObservability } from "./run-observability"
+import { turnHasCompletedSideEffect } from "./safe-retry-notice"
 import {
   currentLifecycleCloseAction,
   isLifecycleClosing,
@@ -1764,12 +1765,18 @@ export const layer: Layer.Layer<
         ) {
           ctx.streamError = true
           yield* removeReasoningForAttempt(attemptID)
+          // Scan the whole turn (not just this message): the side-effecting tool
+          // ran in an earlier step's assistant message, while this notice lands
+          // on the failed continuation's message (#1358).
+          const parentID = ctx.assistantMessage.parentID
+          const sideEffect = parentID ? turnHasCompletedSideEffect(turnMessages(parentID), parentID) : false
           yield* session.updatePart({
             id: PartID.ascending(),
             sessionID: ctx.sessionID,
             messageID: ctx.assistantMessage.id,
             type: "notice",
             kind: "safe_retry_failed",
+            sideEffect,
             time: { created: Date.now() },
           } satisfies MessageV2.NoticePart)
           yield* status.set(ctx.sessionID, { type: "idle" })
