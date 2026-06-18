@@ -26,9 +26,20 @@ function activeRunStillRunningError(error: ActiveRunStillRunningError) {
   })
 }
 
-async function settleAutomationScheduler() {
-  await AutomationScheduler.current().settleOwner()
-}
+const AutomationIDParam = z.object({ automationID: AutomationID.Definition.zod })
+const AutomationRunsQuery = z.object({
+  limit: z.coerce.number().int().positive().max(100).optional(),
+  cursor: AutomationID.Run.zod.optional(),
+})
+
+type AutomationIDParam = z.infer<typeof AutomationIDParam>
+type AutomationRunsQuery = z.infer<typeof AutomationRunsQuery>
+
+const settleAutomationScheduler = Effect.fn("AutomationRoutes.scheduler.settle")(function* (
+  scheduler: Pick<AutomationScheduler.Interface, "settleOwner"> = AutomationScheduler.current(),
+) {
+  yield* Effect.promise(() => scheduler.settleOwner())
+})
 
 function modelValidation(
   model: Automation.Model,
@@ -96,6 +107,124 @@ function automationBodyValidationHook(
   )
 }
 
+const listAutomations = Effect.fn("AutomationRoutes.list")(function* (c: Context) {
+  const automation = yield* Automation.Service
+  yield* settleAutomationScheduler()
+  const items = yield* automation.list()
+  return c.json({ items })
+})
+
+const createAutomation = Effect.fn("AutomationRoutes.create")(function* (c: Context, input: Automation.CreateInput) {
+  const automation = yield* Automation.Service
+  yield* settleAutomationScheduler()
+  const modelDetails = yield* modelValidation(input.model, input.variant)
+  if (modelDetails.length) {
+    return c.json(Automation.ValidationErrorResponse.parse({ error: "invalid_automation", details: modelDetails }), 422)
+  }
+  const definition = yield* automation.create(input)
+  yield* automation.publishDefinitionUpdated(definition)
+  return c.json(definition)
+})
+
+const getAutomation = Effect.fn("AutomationRoutes.get")(function* (c: Context, automationID: AutomationIDParam["automationID"]) {
+  const automation = yield* Automation.Service
+  yield* settleAutomationScheduler()
+  return c.json(yield* automation.get(automationID))
+})
+
+const updateAutomation = Effect.fn("AutomationRoutes.update")(function* (
+  c: Context,
+  automationID: AutomationIDParam["automationID"],
+  patch: Automation.UpdateInput,
+) {
+  const automation = yield* Automation.Service
+  yield* settleAutomationScheduler()
+  const previous = yield* automation.get(automationID)
+  if (patch.model !== undefined || patch.variant !== undefined) {
+    const effectiveModel = patch.model ?? previous.model
+    const effectiveVariant = patch.variant === null ? undefined : (patch.variant ?? previous.variant)
+    const modelDetails = yield* modelValidation(effectiveModel, effectiveVariant)
+    if (modelDetails.length) {
+      return c.json(Automation.ValidationErrorResponse.parse({ error: "invalid_automation", details: modelDetails }), 422)
+    }
+  }
+  const definition = yield* automation.update(automationID, patch)
+  if (definition.revision !== previous.revision) {
+    if (definition.where.projectID !== previous.where.projectID) {
+      yield* automation.publishDefinitionDeleted({ id: previous.id, deleted: true, revision: definition.revision })
+      yield* automation.publishDefinitionUpdatedForScope(definition, Automation.getScope(definition.id))
+    } else {
+      yield* automation.publishDefinitionUpdated(definition)
+    }
+  }
+  return c.json(definition)
+})
+
+const pauseAutomation = Effect.fn("AutomationRoutes.pause")(function* (
+  c: Context,
+  automationID: AutomationIDParam["automationID"],
+) {
+  const automation = yield* Automation.Service
+  yield* settleAutomationScheduler()
+  const previous = yield* automation.get(automationID)
+  const definition = yield* automation.update(automationID, { paused: true })
+  if (definition.revision !== previous.revision) {
+    yield* automation.publishDefinitionUpdated(definition)
+  }
+  return c.json(definition)
+})
+
+const resumeAutomation = Effect.fn("AutomationRoutes.resume")(function* (
+  c: Context,
+  automationID: AutomationIDParam["automationID"],
+) {
+  const automation = yield* Automation.Service
+  yield* settleAutomationScheduler()
+  const previous = yield* automation.get(automationID)
+  const definition = yield* automation.update(automationID, { paused: false })
+  if (definition.revision !== previous.revision) {
+    yield* automation.publishDefinitionUpdated(definition)
+  }
+  return c.json(definition)
+})
+
+const deleteAutomation = Effect.fn("AutomationRoutes.delete")(function* (
+  c: Context,
+  automationID: AutomationIDParam["automationID"],
+) {
+  const automation = yield* Automation.Service
+  const scheduler = AutomationScheduler.current()
+  yield* settleAutomationScheduler(scheduler)
+  const removed = yield* automation.remove(automationID)
+  yield* Effect.sync(() => scheduler.cancel(removed.tombstone.id))
+  if (removed.stoppedRun) yield* automation.publishRunUpdated(removed.stoppedRun)
+  yield* automation.publishDefinitionDeleted(removed.tombstone)
+  return c.json(removed.tombstone)
+})
+
+const runAutomationNow = Effect.fn("AutomationRoutes.runNow")(function* (
+  c: Context,
+  automationID: AutomationIDParam["automationID"],
+) {
+  const automation = yield* Automation.Service
+  yield* settleAutomationScheduler()
+  const run = yield* automation.runNowExecuting(automationID, {
+    executor: sessionPromptExecutor,
+  })
+  yield* automation.publishRunUpdated(run)
+  return c.json(run)
+})
+
+const listAutomationRuns = Effect.fn("AutomationRoutes.runs")(function* (
+  c: Context,
+  automationID: AutomationIDParam["automationID"],
+  query: AutomationRunsQuery,
+) {
+  const automation = yield* Automation.Service
+  yield* settleAutomationScheduler()
+  return c.json(yield* automation.runs({ automationID, ...query }))
+})
+
 export const AutomationRoutes = (): Hono =>
   new Hono()
     .get(
@@ -111,16 +240,7 @@ export const AutomationRoutes = (): Hono =>
           },
         },
       }),
-      async (c) =>
-        runRoute(
-          c,
-          Effect.gen(function* () {
-            const automation = yield* Automation.Service
-            yield* Effect.promise(() => settleAutomationScheduler())
-            const items = yield* automation.list()
-            return c.json({ items })
-          }),
-        ),
+      async (c) => runRoute(c, listAutomations(c)),
     )
     .post(
       "/",
@@ -141,25 +261,7 @@ export const AutomationRoutes = (): Hono =>
         },
       }),
       validator("json", Automation.CreateInput, automationBodyValidationHook),
-      async (c) =>
-        runRoute(
-          c,
-          Effect.gen(function* () {
-            const automation = yield* Automation.Service
-            yield* Effect.promise(() => settleAutomationScheduler())
-            const input = c.req.valid("json")
-            const modelDetails = yield* modelValidation(input.model, input.variant)
-            if (modelDetails.length) {
-              return c.json(
-                Automation.ValidationErrorResponse.parse({ error: "invalid_automation", details: modelDetails }),
-                422,
-              )
-            }
-            const definition = yield* automation.create(input)
-            yield* automation.publishDefinitionUpdated(definition)
-            return c.json(definition)
-          }),
-        ),
+      async (c) => runRoute(c, createAutomation(c, c.req.valid("json"))),
     )
     .get(
       "/:automationID",
@@ -175,16 +277,8 @@ export const AutomationRoutes = (): Hono =>
           ...errors(404),
         },
       }),
-      validator("param", z.object({ automationID: AutomationID.Definition.zod })),
-      async (c) =>
-        runRoute(
-          c,
-          Effect.gen(function* () {
-            const automation = yield* Automation.Service
-            yield* Effect.promise(() => settleAutomationScheduler())
-            return c.json(yield* automation.get(c.req.valid("param").automationID))
-          }),
-        ),
+      validator("param", AutomationIDParam),
+      async (c) => runRoute(c, getAutomation(c, c.req.valid("param").automationID)),
     )
     .put(
       "/:automationID",
@@ -208,40 +302,9 @@ export const AutomationRoutes = (): Hono =>
           ...errors(400, 404),
         },
       }),
-      validator("param", z.object({ automationID: AutomationID.Definition.zod })),
+      validator("param", AutomationIDParam),
       validator("json", Automation.UpdateInput, automationBodyValidationHook),
-      async (c) =>
-        runRoute(
-          c,
-          Effect.gen(function* () {
-            const automation = yield* Automation.Service
-            const automationID = c.req.valid("param").automationID
-            yield* Effect.promise(() => settleAutomationScheduler())
-            const previous = yield* automation.get(automationID)
-            const patch = c.req.valid("json")
-            if (patch.model !== undefined || patch.variant !== undefined) {
-              const effectiveModel = patch.model ?? previous.model
-              const effectiveVariant = patch.variant === null ? undefined : (patch.variant ?? previous.variant)
-              const modelDetails = yield* modelValidation(effectiveModel, effectiveVariant)
-              if (modelDetails.length) {
-                return c.json(
-                  Automation.ValidationErrorResponse.parse({ error: "invalid_automation", details: modelDetails }),
-                  422,
-                )
-              }
-            }
-            const definition = yield* automation.update(automationID, patch)
-            if (definition.revision !== previous.revision) {
-              if (definition.where.projectID !== previous.where.projectID) {
-                yield* automation.publishDefinitionDeleted({ id: previous.id, deleted: true, revision: definition.revision })
-                yield* automation.publishDefinitionUpdatedForScope(definition, Automation.getScope(definition.id))
-              } else {
-                yield* automation.publishDefinitionUpdated(definition)
-              }
-            }
-            return c.json(definition)
-          }),
-        ),
+      async (c) => runRoute(c, updateAutomation(c, c.req.valid("param").automationID, c.req.valid("json"))),
     )
     .post(
       "/:automationID/pause",
@@ -261,22 +324,8 @@ export const AutomationRoutes = (): Hono =>
           ...errors(404),
         },
       }),
-      validator("param", z.object({ automationID: AutomationID.Definition.zod })),
-      async (c) =>
-        runRoute(
-          c,
-          Effect.gen(function* () {
-            const automation = yield* Automation.Service
-            const automationID = c.req.valid("param").automationID
-            yield* Effect.promise(() => settleAutomationScheduler())
-            const previous = yield* automation.get(automationID)
-            const definition = yield* automation.update(automationID, { paused: true })
-            if (definition.revision !== previous.revision) {
-              yield* automation.publishDefinitionUpdated(definition)
-            }
-            return c.json(definition)
-          }),
-        ),
+      validator("param", AutomationIDParam),
+      async (c) => runRoute(c, pauseAutomation(c, c.req.valid("param").automationID)),
     )
     .post(
       "/:automationID/resume",
@@ -296,22 +345,8 @@ export const AutomationRoutes = (): Hono =>
           ...errors(404),
         },
       }),
-      validator("param", z.object({ automationID: AutomationID.Definition.zod })),
-      async (c) =>
-        runRoute(
-          c,
-          Effect.gen(function* () {
-            const automation = yield* Automation.Service
-            const automationID = c.req.valid("param").automationID
-            yield* Effect.promise(() => settleAutomationScheduler())
-            const previous = yield* automation.get(automationID)
-            const definition = yield* automation.update(automationID, { paused: false })
-            if (definition.revision !== previous.revision) {
-              yield* automation.publishDefinitionUpdated(definition)
-            }
-            return c.json(definition)
-          }),
-        ),
+      validator("param", AutomationIDParam),
+      async (c) => runRoute(c, resumeAutomation(c, c.req.valid("param").automationID)),
     )
     .delete(
       "/:automationID",
@@ -332,21 +367,8 @@ export const AutomationRoutes = (): Hono =>
           ...errors(404),
         },
       }),
-      validator("param", z.object({ automationID: AutomationID.Definition.zod })),
-      async (c) =>
-        runRoute(
-          c,
-          Effect.gen(function* () {
-            const automation = yield* Automation.Service
-            const scheduler = AutomationScheduler.current()
-            yield* Effect.promise(() => scheduler.settleOwner())
-            const removed = yield* automation.remove(c.req.valid("param").automationID)
-            yield* Effect.sync(() => scheduler.cancel(removed.tombstone.id))
-            if (removed.stoppedRun) yield* automation.publishRunUpdated(removed.stoppedRun)
-            yield* automation.publishDefinitionDeleted(removed.tombstone)
-            return c.json(removed.tombstone)
-          }),
-        ),
+      validator("param", AutomationIDParam),
+      async (c) => runRoute(c, deleteAutomation(c, c.req.valid("param").automationID)),
     )
     .post(
       "/:automationID/run",
@@ -362,20 +384,8 @@ export const AutomationRoutes = (): Hono =>
           ...errors(404),
         },
       }),
-      validator("param", z.object({ automationID: AutomationID.Definition.zod })),
-      async (c) =>
-        runRoute(
-          c,
-          Effect.gen(function* () {
-            const automation = yield* Automation.Service
-            yield* Effect.promise(() => settleAutomationScheduler())
-            const run = yield* automation.runNowExecuting(c.req.valid("param").automationID, {
-              executor: sessionPromptExecutor,
-            })
-            yield* automation.publishRunUpdated(run)
-            return c.json(run)
-          }),
-        ),
+      validator("param", AutomationIDParam),
+      async (c) => runRoute(c, runAutomationNow(c, c.req.valid("param").automationID)),
     )
     .get(
       "/:automationID/runs",
@@ -391,21 +401,7 @@ export const AutomationRoutes = (): Hono =>
           ...errors(400, 404),
         },
       }),
-      validator("param", z.object({ automationID: AutomationID.Definition.zod })),
-      validator(
-        "query",
-        z.object({
-          limit: z.coerce.number().int().positive().max(100).optional(),
-          cursor: AutomationID.Run.zod.optional(),
-        }),
-      ),
-      async (c) =>
-        runRoute(
-          c,
-          Effect.gen(function* () {
-            const automation = yield* Automation.Service
-            yield* Effect.promise(() => settleAutomationScheduler())
-            return c.json(yield* automation.runs({ automationID: c.req.valid("param").automationID, ...c.req.valid("query") }))
-          }),
-        ),
+      validator("param", AutomationIDParam),
+      validator("query", AutomationRunsQuery),
+      async (c) => runRoute(c, listAutomationRuns(c, c.req.valid("param").automationID, c.req.valid("query"))),
     )
