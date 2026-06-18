@@ -225,6 +225,70 @@ describe("route inventory harness", () => {
     })
   })
 
+  test("tracks local HttpApi migration coverage for ordinary JSON session routes", async () => {
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+
+    for (const [method, routePath] of [
+      ["GET", "/session"],
+      ["POST", "/session"],
+      ["GET", "/session/status"],
+      ["POST", "/session/__e2e/update-todos"],
+      ["GET", "/session/:sessionID"],
+      ["PATCH", "/session/:sessionID"],
+      ["DELETE", "/session/:sessionID"],
+      ["GET", "/session/:sessionID/children"],
+      ["POST", "/session/:sessionID/init"],
+      ["GET", "/session/:sessionID/message"],
+      ["POST", "/session/:sessionID/message"],
+      ["GET", "/session/:sessionID/message/:messageID"],
+      ["DELETE", "/session/:sessionID/message/:messageID"],
+      ["PATCH", "/session/:sessionID/message/:messageID/part/:partID"],
+      ["DELETE", "/session/:sessionID/message/:messageID/part/:partID"],
+      ["GET", "/session/:sessionID/todo"],
+      ["POST", "/session/:sessionID/prompt_async"],
+      ["POST", "/session/:sessionID/abort"],
+      ["POST", "/session/:sessionID/command"],
+      ["POST", "/session/:sessionID/fork"],
+      ["GET", "/session/:sessionID/diff"],
+      ["POST", "/session/:sessionID/share"],
+      ["DELETE", "/session/:sessionID/share"],
+      ["POST", "/session/:sessionID/summarize"],
+      ["POST", "/session/:sessionID/shell"],
+      ["POST", "/session/:sessionID/revert"],
+      ["POST", "/session/:sessionID/unrevert"],
+      ["POST", "/session/:sessionID/permissions/:permissionID"],
+      ["GET", "/session/:sessionID/artifacts"],
+      ["GET", "/session/:sessionID/export"],
+      ["POST", "/session/:sessionID/tool/respond"],
+      ["GET", "/session/:sessionID/turn-change/:messageID"],
+      ["POST", "/session/:sessionID/turn-change/:messageID/undo"],
+      ["POST", "/session/:sessionID/turn-change/:messageID/redo"],
+      ["GET", "/session/:sessionID/turn/:userMessageID/changes"],
+      ["POST", "/session/:sessionID/turn/:userMessageID/changes/undo"],
+      ["POST", "/session/:sessionID/turn/:userMessageID/changes/redo"],
+    ] as const) {
+      expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
+        hono: true,
+        localHttpApi: true,
+      })
+    }
+  })
+
+  test("tracks local HttpApi migration coverage for the experimental session list route", async () => {
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+
+    expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/experimental/session")).toMatchObject({
+      hono: true,
+      localHttpApi: true,
+    })
+  })
+
+  test("keeps the session local HttpApi handler importable", async () => {
+    const mod = await import("../../src/server/routes/instance/httpapi/handlers/session")
+
+    expect(mod.sessionHandlers).toBeDefined()
+  })
+
   test("parses upstream HttpApi route declarations without requiring a live upstream ref", () => {
     const routes = parseHttpApiRoutesFromText(
       `

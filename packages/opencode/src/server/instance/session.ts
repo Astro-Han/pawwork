@@ -432,6 +432,45 @@ function runHttpPrompt(input: SessionPrompt.PromptInput) {
   return runSessionRoute(promptSession(input))
 }
 
+export const SessionRouteEffects = {
+  listSessions,
+  getSessionStatus,
+  updateE2ETodos,
+  e2eSessionRoutesEnabled,
+  getSession,
+  listSessionChildren,
+  getSessionTodos,
+  createSession,
+  deleteSession,
+  updateSession,
+  initSession,
+  forkSession,
+  resolveToolResponse,
+  abortSession,
+  shareSession,
+  exportSession,
+  getSessionDiff,
+  getTurnChange,
+  undoTurnChange,
+  redoTurnChange,
+  getAggregateTurnChanges,
+  undoAggregateTurnChanges,
+  redoAggregateTurnChanges,
+  listSessionArtifacts,
+  unshareSession,
+  summarizeSession,
+  listSessionMessages,
+  deleteSessionMessage,
+  deleteSessionPart,
+  updateSessionPart,
+  promptSession,
+  runSessionCommand,
+  runSessionShell,
+  revertSession,
+  unrevertSession,
+  replyToDeprecatedPermission,
+} as const
+
 export const SessionRoutes = lazy(() =>
   new Hono()
     .get(
