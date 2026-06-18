@@ -259,6 +259,12 @@ export type ReasoningPart = z.infer<typeof ReasoningPart>
 export const NoticePart = PartBase.extend({
   type: z.literal("notice"),
   kind: z.literal("safe_retry_failed"),
+  // True when a side-effecting tool already completed earlier in this turn —
+  // possibly on a sibling assistant message, since the post-tool continuation
+  // runs as a new message (#1358). The backend is the single source of truth so
+  // the UI need not (and cannot reliably) scan sibling messages or reclassify
+  // tools. Drives the "Action completed — don't repeat it" notice copy.
+  sideEffect: z.boolean().optional(),
   time: z.object({
     created: z.number(),
   }),

@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 import { test } from "../fixtures"
 import { composeGrid, snapOutputPath, type Shot } from "./_compose"
 
-test.use({ viewport: { width: 840, height: 420 }, deviceScaleFactor: 2 })
+test.use({ viewport: { width: 1200, height: 760 }, deviceScaleFactor: 2 })
 
 const fixturePath = fileURLToPath(new URL("./fixtures/recovery-presentation-snap-fixture.tsx", import.meta.url))
 
@@ -34,37 +34,36 @@ test("recovery-presentation", async ({ page }) => {
     mod.mountRecoveryPresentationSnapFixture(root)
   }, `/@fs/${fixturePath}`)
 
-  const sideEffect = page.locator('[data-snap="side-effect"]')
-  const readOnly = page.locator('[data-snap="read-only"]')
-  const fallback = page.locator('[data-snap="default"]')
+  const zh = page.locator('[data-lang="中文"]')
+  const en = page.locator('[data-lang="English"]')
 
-  // Side-effect turn: completed bash tool card above, reassuring side-effect copy.
-  await expect(sideEffect).toContainText("在 #1358 下留言", { timeout: 30_000 })
-  await expect(sideEffect.locator('[data-kind="safe_retry_failed"][data-variant="side-effect"]')).toBeVisible()
-  await expect(sideEffect).toContainText("操作已完成")
+  // Side-effect, REAL cross-message topology: the bash card lives on message A,
+  // the notice on message B; the backend `sideEffect` flag still drives the
+  // reassuring copy that names "no redo".
+  const zhSide = zh.locator('[data-snap="side-effect"]')
+  await expect(zhSide).toContainText("在 #1358 下留言", { timeout: 30_000 })
+  await expect(zhSide.locator('[data-kind="safe_retry_failed"][data-variant="side-effect"]')).toBeVisible()
+  await expect(zhSide).toContainText("操作已完成")
+  await expect(zhSide).toContainText("无需重复")
 
-  // Read-only turn: a completed grep ran, but it carries no side effect, so the
-  // notice must NOT claim "操作已完成" — it falls back to the default copy.
-  await expect(readOnly.locator('[data-kind="safe_retry_failed"][data-variant="default"]')).toBeVisible({
-    timeout: 30_000,
-  })
-  await expect(readOnly).toContainText("回复未完成")
-  await expect(readOnly).not.toContainText("操作已完成")
+  // Read-only turn: a grep ran, but it carries no side effect, so the backend
+  // sets sideEffect=false and the notice falls back to the default copy.
+  const zhRead = zh.locator('[data-snap="read-only"]')
+  await expect(zhRead.locator('[data-kind="safe_retry_failed"][data-variant="default"]')).toBeVisible()
+  await expect(zhRead).toContainText("回复未完成")
+  await expect(zhRead).not.toContainText("操作已完成")
 
-  // No-tool turn: default copy, no tool card.
-  await expect(fallback.locator('[data-kind="safe_retry_failed"][data-variant="default"]')).toBeVisible({
-    timeout: 30_000,
-  })
-  await expect(fallback).toContainText("回复未完成")
+  // No-tool turn: default copy.
+  await expect(zh.locator('[data-snap="default"] [data-variant="default"]')).toBeVisible()
+
+  // English mirrors the same three scenarios.
+  const enSide = en.locator('[data-snap="side-effect"]')
+  await expect(enSide.locator('[data-variant="side-effect"]')).toBeVisible({ timeout: 30_000 })
+  await expect(enSide).toContainText("Action completed")
+  await expect(en.locator('[data-snap="read-only"] [data-variant="default"]')).toBeVisible()
+  await expect(en.locator('[data-snap="read-only"]')).toContainText("Reply incomplete")
 
   const out = snapOutputPath("recovery-presentation")
-  await composeGrid(
-    [
-      await capture("after side-effecting tool", sideEffect),
-      await capture("after read-only tool", readOnly),
-      await capture("reply never started", fallback),
-    ],
-    out,
-  )
+  await composeGrid([await capture("中文", zh), await capture("English", en)], out)
   process.stdout.write(`\n[snap] recovery-presentation grid -> ${out}\n\n`)
 })

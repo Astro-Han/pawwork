@@ -4,13 +4,17 @@ import { DataProvider, I18nProvider } from "@opencode-ai/ui/context"
 import { DialogProvider } from "@opencode-ai/ui/context/dialog"
 import { MarkedProvider } from "@opencode-ai/ui/context/marked"
 import { dict as zh } from "@opencode-ai/ui/i18n/zh"
+import { dict as en } from "@opencode-ai/ui/i18n/en"
 import { AssistantParts } from "@opencode-ai/ui/message-part"
 import type { UiI18nKey, UiI18nParams } from "@opencode-ai/ui/context/i18n"
 
-// The #1358 terminal notice rendered through the real component pipeline
-// (AssistantParts → tool.tsx card + notice.tsx). Two columns cover the adaptive
-// copy: a turn that ran a side-effecting tool (operation already landed) vs. a
-// turn whose reply never started (no tool).
+// The #1358 terminal notice through the real pipeline (AssistantParts →
+// tool.tsx card + notice.tsx), in the REAL cross-message topology: a
+// side-effecting tool completes in one assistant message, and the trailing
+// safe_retry_failed notice lands on the NEXT assistant message of the same turn
+// (the post-tool continuation runs as a new message). The notice now carries the
+// backend `sideEffect` flag, so the UI reads the field instead of scanning its
+// own message. Three scenarios × two languages (中英对照).
 const SESSION = "ses_recovery_presentation"
 
 function assistant(id: string): AssistantMessage {
@@ -30,15 +34,8 @@ function assistant(id: string): AssistantMessage {
   }
 }
 
-function text(messageID: string): TextPart {
-  return {
-    id: `${messageID}_text`,
-    sessionID: SESSION,
-    messageID,
-    type: "text",
-    text: "我帮你在 issue #1358 下留了一条评论。",
-    time: { start: 0, end: 1 },
-  }
+function text(messageID: string, body: string): TextPart {
+  return { id: `${messageID}_text`, sessionID: SESSION, messageID, type: "text", text: body, time: { start: 0, end: 1 } }
 }
 
 function bashTool(messageID: string): ToolPart {
@@ -51,7 +48,7 @@ function bashTool(messageID: string): ToolPart {
     tool: "bash",
     state: {
       status: "completed",
-      input: { command: 'gh issue comment 1358 --body "已按方案排期，明天开工。"', description: "在 #1358 下留言" },
+      input: { command: 'gh issue comment 1358 --body "已按方案排期。"', description: "在 #1358 下留言" },
       output: "https://github.com/Astro-Han/pawwork/issues/1358#issuecomment-3920481",
       title: "在 #1358 下留言",
       metadata: {},
@@ -60,9 +57,6 @@ function bashTool(messageID: string): ToolPart {
   }
 }
 
-// A completed read-only tool (grep) carries no side effect: it must NOT flip
-// the notice to the "操作已完成" reassurance. This column proves the predicate
-// excludes read-only tools and falls back to the default "回复未完成" copy.
 function grepTool(messageID: string): ToolPart {
   return {
     id: `${messageID}_grep`,
@@ -82,84 +76,108 @@ function grepTool(messageID: string): ToolPart {
   }
 }
 
-function searchText(messageID: string): TextPart {
+// `sideEffect` is what the backend writes: true when a side-effecting tool
+// completed earlier in the turn (bash here), false for read-only / no tool.
+function notice(messageID: string, sideEffect: boolean): NoticePart {
+  return { id: `${messageID}_notice`, sessionID: SESSION, messageID, type: "notice", kind: "safe_retry_failed", sideEffect, time: { created: 1 } }
+}
+
+function makeI18n(dict: Record<string, string>) {
   return {
-    id: `${messageID}_text`,
-    sessionID: SESSION,
-    messageID,
-    type: "text",
-    text: "我先在代码里查了下相关实现。",
-    time: { start: 0, end: 1 },
+    locale: () => "x",
+    t: (key: UiI18nKey, params?: UiI18nParams) => {
+      const template = dict[key] ?? en[key] ?? String(key)
+      return template.replace(/{{\s*([^}]+?)\s*}}/g, (_, rawKey) => String(params?.[String(rawKey)] ?? ""))
+    },
   }
 }
 
-function notice(messageID: string): NoticePart {
-  return {
-    id: `${messageID}_notice`,
-    sessionID: SESSION,
-    messageID,
-    type: "notice",
-    kind: "safe_retry_failed",
-    time: { created: 1 },
+type MsgParts = { message: AssistantMessage; parts: (TextPart | ToolPart | NoticePart)[] }
+
+// AssistantParts renders each message's parts in order, so a two-message turn
+// shows the tool card (message A) above the notice (message B) — the real split.
+function Turn(props: { messages: MsgParts[] }) {
+  const store = {
+    message: {},
+    part: Object.fromEntries(props.messages.map((m) => [m.message.id, m.parts])),
   }
-}
-
-const i18n = {
-  locale: () => "zh",
-  t: (key: UiI18nKey, params?: UiI18nParams) => {
-    const template = zh[key] ?? String(key)
-    return template.replace(/{{\s*([^}]+?)\s*}}/g, (_, rawKey) => String(params?.[String(rawKey)] ?? ""))
-  },
-}
-
-// AssistantParts reads parts from the DataProvider store by messageID; the real
-// notice.tsx reads the same store to pick the side-effect vs. default copy.
-function Turn(props: { message: AssistantMessage; parts: (TextPart | ToolPart | NoticePart)[] }) {
   return (
     <MarkedProvider>
-      <DataProvider data={{ message: {}, part: { [props.message.id]: props.parts } }} directory="/Users/yuhan/PawWork">
-        <AssistantParts messages={[props.message]} />
+      <DataProvider data={store} directory="/Users/yuhan/PawWork">
+        <AssistantParts messages={props.messages.map((m) => m.message)} />
       </DataProvider>
     </MarkedProvider>
   )
 }
 
-function RecoveryPresentationSnapFixture() {
-  const sideEffect = assistant("msg_side_effect")
-  const readOnly = assistant("msg_read_only")
-  const reply = assistant("msg_reply")
+// Scenarios built fresh per band so each language's Turn gets an isolated store.
+function sideEffectTurn(): MsgParts[] {
+  const a = assistant("msg_se_a")
+  const b = assistant("msg_se_b")
+  return [
+    { message: a, parts: [text(a.id, "我帮你在 issue #1358 下留了一条评论。"), bashTool(a.id)] },
+    { message: b, parts: [notice(b.id, true)] },
+  ]
+}
+function readOnlyTurn(): MsgParts[] {
+  const a = assistant("msg_ro_a")
+  const b = assistant("msg_ro_b")
+  return [
+    { message: a, parts: [text(a.id, "我先在代码里查了下相关实现。"), grepTool(a.id)] },
+    { message: b, parts: [notice(b.id, false)] },
+  ]
+}
+function noToolTurn(): MsgParts[] {
+  const b = assistant("msg_nt_b")
+  return [{ message: b, parts: [notice(b.id, false)] }]
+}
+
+function Band(props: { dict: Record<string, string>; label: string }) {
   return (
-    <I18nProvider value={i18n}>
-      <DialogProvider>
-        {/* Opaque full-viewport cover at max z-index so the app's dev chrome
-            (debug bar, server-health toast) renders behind the captured grid. */}
-        <div
-          style={{
-            position: "fixed",
-            inset: "0",
-            "z-index": "2147483647",
-            overflow: "auto",
-            display: "grid",
-            "grid-template-columns": "repeat(3, 360px)",
-            "align-content": "start",
-            gap: "24px",
-            padding: "24px",
-            background: "var(--bg-base)",
-            color: "var(--fg-base)",
-          }}
-        >
+    <I18nProvider value={makeI18n(props.dict)}>
+      <div data-lang={props.label} style={{ display: "flex", "flex-direction": "column", gap: "10px" }}>
+        <div style={{ "font-size": "12px", "font-weight": "600", color: "var(--fg-weak)", "letter-spacing": "0.04em" }}>
+          {props.label}
+        </div>
+        <div style={{ display: "grid", "grid-template-columns": "repeat(3, 360px)", gap: "24px", "align-items": "start" }}>
           <div data-snap="side-effect">
-            <Turn message={sideEffect} parts={[text(sideEffect.id), bashTool(sideEffect.id), notice(sideEffect.id)]} />
+            <Turn messages={sideEffectTurn()} />
           </div>
           <div data-snap="read-only">
-            <Turn message={readOnly} parts={[searchText(readOnly.id), grepTool(readOnly.id), notice(readOnly.id)]} />
+            <Turn messages={readOnlyTurn()} />
           </div>
           <div data-snap="default">
-            <Turn message={reply} parts={[text(reply.id), notice(reply.id)]} />
+            <Turn messages={noToolTurn()} />
           </div>
         </div>
-      </DialogProvider>
+      </div>
     </I18nProvider>
+  )
+}
+
+function RecoveryPresentationSnapFixture() {
+  return (
+    <DialogProvider>
+      {/* Opaque full-viewport cover at max z-index so the app's dev chrome
+          (debug bar, server-health toast) renders behind the captured grid. */}
+      <div
+        style={{
+          position: "fixed",
+          inset: "0",
+          "z-index": "2147483647",
+          overflow: "auto",
+          display: "flex",
+          "flex-direction": "column",
+          gap: "28px",
+          padding: "24px",
+          background: "var(--bg-base)",
+          color: "var(--fg-base)",
+        }}
+      >
+        <Band dict={zh} label="中文" />
+        <Band dict={en} label="English" />
+      </div>
+    </DialogProvider>
   )
 }
 

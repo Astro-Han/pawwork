@@ -32,12 +32,15 @@ test("safe retry failure renders a titled notice that adapts to a prior tool sid
   expect(notice).toContain('<Icon name="warning"')
   expect(notice).toContain('data-slot="notice-title"')
   expect(notice).toContain('data-slot="notice-body"')
-  // Adaptive copy: a completed *side-effecting* tool earlier in the turn means
-  // an external action already landed, so the user must not be nudged to redo
-  // it. Read-only tools (read/grep/...) must NOT trigger the reassurance — that
-  // would falsely claim an action landed — so the predicate excludes them.
-  expect(notice).toContain('p.type === "tool" && p.state.status === "completed" && !READ_ONLY_TOOLS.has(p.tool)')
-  expect(notice).toContain('const READ_ONLY_TOOLS = new Set(["read", "glob", "grep", "webfetch", "tool_info"])')
+  // Adaptive copy is driven by the backend `sideEffect` field, NOT a UI scan of
+  // the notice's own message. #1358: the side-effecting tool ran in an earlier
+  // step's assistant message while the notice lands on the failed continuation's
+  // message, so the UI cannot see the tool — it must trust the backend field and
+  // must not reclassify tools.
+  expect(notice).toContain("part().sideEffect")
+  expect(notice).not.toContain("data.store.part")
+  expect(notice).not.toContain("READ_ONLY_TOOLS")
+  expect(notice).not.toContain("useData")
   expect(notice).toContain("ui.sessionTurn.notice.safeRetryFailed.sideEffect.title")
   expect(notice).toContain("ui.sessionTurn.notice.safeRetryFailed.sideEffect.body")
   expect(notice).toContain("ui.sessionTurn.notice.safeRetryFailed.default.title")

@@ -1018,6 +1018,7 @@ export type NoticePart = {
   messageID: string
   type: "notice"
   kind: "safe_retry_failed"
+  sideEffect?: boolean
   time: {
     created: number
   }
