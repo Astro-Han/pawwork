@@ -565,7 +565,7 @@ function mark(value: boolean) {
 
 async function main() {
   const root = repoRoot()
-  git(root, ["fetch", "upstream", "dev"])
+  git(root, ["fetch", "opencode", "dev"])
   const inventory = await buildRouteInventory({ root, requireUpstream: true })
   const report = renderRouteInventoryReport(inventory)
   const date = new Date().toISOString().slice(0, 10)
