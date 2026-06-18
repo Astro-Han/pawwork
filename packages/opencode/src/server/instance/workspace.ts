@@ -18,6 +18,37 @@ function preserveWorkspaceRouteError<A>(effect: Effect.Effect<A, Workspace.Works
   )
 }
 
+const runWorkspaceRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
+type WorkspaceCreateBody = Omit<Workspace.CreateInput, "projectID">
+
+const createWorkspace = Effect.fn("WorkspaceRoutes.create")(function* (body: WorkspaceCreateBody) {
+  const workspace = yield* Workspace.Service
+  return yield* preserveWorkspaceRouteError(
+    workspace.create({
+      projectID: Instance.project.id,
+      ...body,
+    }),
+  )
+})
+
+const listWorkspaces = Effect.fn("WorkspaceRoutes.list")(function* () {
+  const workspace = yield* Workspace.Service
+  return yield* preserveWorkspaceRouteError(workspace.list(Instance.project))
+})
+
+const getWorkspaceStatus = Effect.fn("WorkspaceRoutes.status")(function* () {
+  const workspace = yield* Workspace.Service
+  const workspaces = yield* preserveWorkspaceRouteError(workspace.list(Instance.project))
+  const ids = new Set(workspaces.map((item) => item.id))
+  const statuses = yield* preserveWorkspaceRouteError(workspace.status())
+  return statuses.filter((item) => ids.has(item.workspaceID))
+})
+
+const removeWorkspace = Effect.fn("WorkspaceRoutes.remove")(function* (id: Workspace.Info["id"]) {
+  const workspace = yield* Workspace.Service
+  return yield* preserveWorkspaceRouteError(workspace.remove(id))
+})
+
 export const WorkspaceRoutes = lazy(() =>
   new Hono()
     .post(
@@ -46,17 +77,7 @@ export const WorkspaceRoutes = lazy(() =>
       ),
       async (c) => {
         const body = c.req.valid("json")
-        const workspace = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const workspaceSvc = yield* Workspace.Service
-            return yield* preserveWorkspaceRouteError(
-              workspaceSvc.create({
-                projectID: Instance.project.id,
-                ...body,
-              }),
-            )
-          }),
-        )
+        const workspace = await runWorkspaceRoute(createWorkspace(body))
         return c.json(workspace)
       },
     )
@@ -78,12 +99,7 @@ export const WorkspaceRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const workspaces = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const workspaceSvc = yield* Workspace.Service
-            return yield* preserveWorkspaceRouteError(workspaceSvc.list(Instance.project))
-          }),
-        )
+        const workspaces = await runWorkspaceRoute(listWorkspaces())
         return c.json(workspaces)
       },
     )
@@ -105,15 +121,7 @@ export const WorkspaceRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const status = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const workspaceSvc = yield* Workspace.Service
-            const workspaces = yield* preserveWorkspaceRouteError(workspaceSvc.list(Instance.project))
-            const ids = new Set(workspaces.map((item) => item.id))
-            const statuses = yield* preserveWorkspaceRouteError(workspaceSvc.status())
-            return statuses.filter((item) => ids.has(item.workspaceID))
-          }),
-        )
+        const status = await runWorkspaceRoute(getWorkspaceStatus())
         return c.json(status)
       },
     )
@@ -143,12 +151,7 @@ export const WorkspaceRoutes = lazy(() =>
       ),
       async (c) => {
         const { id } = c.req.valid("param")
-        const workspace = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const workspaceSvc = yield* Workspace.Service
-            return yield* preserveWorkspaceRouteError(workspaceSvc.remove(id))
-          }),
-        )
+        const workspace = await runWorkspaceRoute(removeWorkspace(id))
         return c.json(workspace)
       },
     ),

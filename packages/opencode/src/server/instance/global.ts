@@ -161,6 +161,55 @@ GlobalBus.on("event", (event) => {
   globalEventReplay.append(event as GlobalEventEnvelope)
 })
 
+const runGlobalRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
+
+const getGlobalConfig = Effect.fn("GlobalRoutes.config.get")(function* () {
+  const service = yield* Config.Service
+  return yield* service.getGlobal()
+})
+
+const updateGlobalConfig = Effect.fn("GlobalRoutes.config.update")(function* (config: Config.Info) {
+  const service = yield* Config.Service
+  return yield* service.updateGlobal(config)
+})
+
+const disposeGlobalInstances = Effect.fn("GlobalRoutes.dispose")(function* () {
+  return yield* Effect.promise(() => Instance.disposeAll({ onCompleted: emitGlobalDisposed }))
+})
+
+type UpgradeResult =
+  | {
+      success: true
+      status: 200
+      version: string
+    }
+  | {
+      success: false
+      status: 400 | 500
+      error: string
+    }
+
+const upgradeInstallation = Effect.fn("GlobalRoutes.upgrade")(function* (target?: string) {
+  const installation = yield* Installation.Service
+  const method = yield* installation.method()
+  if (method === "unknown") {
+    return { success: false, status: 400, error: "Unknown installation method" } satisfies UpgradeResult
+  }
+
+  const resolvedTarget = target || (yield* installation.latest(method))
+  const result = yield* Effect.catch(
+    installation.upgrade(method, resolvedTarget).pipe(Effect.as({ success: true as const, version: resolvedTarget })),
+    (err) =>
+      Effect.succeed({
+        success: false as const,
+        status: 500 as const,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+  )
+  if (!result.success) return result
+  return { ...result, status: 200 } satisfies UpgradeResult
+})
+
 async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>) => () => void, heartbeatMs = 10_000) {
   return streamSSE(c, async (stream) => {
     const q = new AsyncQueue<string | null>()
@@ -392,12 +441,7 @@ export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
         },
       }),
       async (c) => {
-        const config = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const service = yield* Config.Service
-            return yield* service.getGlobal()
-          }),
-        )
+        const config = await runGlobalRoute(getGlobalConfig())
         return c.json(config)
       },
     )
@@ -422,12 +466,7 @@ export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
       validator("json", Config.Info.zod),
       async (c) => {
         const config = c.req.valid("json")
-        const next = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const service = yield* Config.Service
-            return yield* service.updateGlobal(config)
-          }),
-        )
+        const next = await runGlobalRoute(updateGlobalConfig(config))
         return c.json(next)
       },
     )
@@ -449,7 +488,7 @@ export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
         },
       }),
       async (c) => {
-        const result = await Instance.disposeAll({ onCompleted: emitGlobalDisposed })
+        const result = await runGlobalRoute(disposeGlobalInstances())
         return c.json(result)
       },
     )
@@ -490,28 +529,7 @@ export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
       ),
       async (c) => {
         const json = c.req.valid("json")
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const installation = yield* Installation.Service
-            const method = yield* installation.method()
-            if (method === "unknown") {
-              return { success: false as const, status: 400 as const, error: "Unknown installation method" }
-            }
-
-            const target = json.target || (yield* installation.latest(method))
-            const result = yield* Effect.catch(
-              installation.upgrade(method, target).pipe(Effect.as({ success: true as const, version: target })),
-              (err) =>
-                Effect.succeed({
-                  success: false as const,
-                  status: 500 as const,
-                  error: err instanceof Error ? err.message : String(err),
-                }),
-            )
-            if (!result.success) return result
-            return { ...result, status: 200 as const }
-          }),
-        )
+        const result = await runGlobalRoute(upgradeInstallation(json.target))
         if (!result.success) {
           return c.json({ success: false, error: result.error }, result.status)
         }

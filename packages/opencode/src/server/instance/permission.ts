@@ -14,38 +14,65 @@ import { Effect } from "effect"
 
 const log = Log.create({ service: "server" })
 const e2ePermissionRoutesEnabled = () => Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
+const runPermissionRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
+
+const E2EPermissionAskBody = z.object({
+  sessionID: SessionID.zod,
+  permission: z.string().min(1),
+  patterns: z.array(z.string()).min(1),
+  metadata: z.record(z.string(), z.any()).optional(),
+  always: z.array(z.string()).optional(),
+})
+
+type E2EPermissionAskBody = z.infer<typeof E2EPermissionAskBody>
+type PermissionReplyBody = {
+  reply: z.infer<typeof Permission.Reply>
+  message?: string
+}
+
+const seedE2EPermissionAsk = Effect.fn("PermissionRoutes.e2e.ask")(function* (json: E2EPermissionAskBody) {
+  const permission = yield* Permission.Service
+  yield* permission.ask({
+    sessionID: json.sessionID,
+    permission: json.permission,
+    patterns: json.patterns,
+    metadata: json.metadata ?? {},
+    always: json.always ?? json.patterns,
+    ruleset: [{ permission: json.permission, pattern: "*", action: "ask" }],
+  })
+})
+
+const replyToPermission = Effect.fn("PermissionRoutes.reply")(function* (
+  requestID: PermissionID,
+  json: PermissionReplyBody,
+) {
+  const permission = yield* Permission.Service
+  yield* permission.reply({
+    requestID,
+    reply: json.reply,
+    message: json.message,
+  })
+})
+
+const listPendingPermissions = Effect.fn("PermissionRoutes.list")(function* () {
+  const permission = yield* Permission.Service
+  return yield* permission.list().pipe(
+    Effect.flatMap((items) =>
+      SessionLiveness.pruneDangling(items, (sessionID) => permission.clearSession(sessionID, "dangling_session")),
+    ),
+  )
+})
 
 export const PermissionRoutes = lazy(() =>
   new Hono()
     .post(
       "/__e2e/ask",
-      validator(
-        "json",
-        z.object({
-          sessionID: SessionID.zod,
-          permission: z.string().min(1),
-          patterns: z.array(z.string()).min(1),
-          metadata: z.record(z.string(), z.any()).optional(),
-          always: z.array(z.string()).optional(),
-        }),
-      ),
+      validator("json", E2EPermissionAskBody),
       async (c) => {
         if (!e2ePermissionRoutesEnabled()) return c.notFound()
 
         const json = c.req.valid("json")
-        void AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const permission = yield* Permission.Service
-            yield* permission.ask({
-              sessionID: json.sessionID,
-              permission: json.permission,
-              patterns: json.patterns,
-              metadata: json.metadata ?? {},
-              always: json.always ?? json.patterns,
-              ruleset: [{ permission: json.permission, pattern: "*", action: "ask" }],
-            })
-          }),
-        ).catch((error) => {
+        void runPermissionRoute(seedE2EPermissionAsk(json)).catch((error) => {
           log.error("e2e permission seed failed", { sessionID: json.sessionID, error })
         })
 
@@ -80,16 +107,7 @@ export const PermissionRoutes = lazy(() =>
       async (c) => {
         const params = c.req.valid("param")
         const json = c.req.valid("json")
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const permission = yield* Permission.Service
-            yield* permission.reply({
-              requestID: params.requestID,
-              reply: json.reply,
-              message: json.message,
-            })
-          }),
-        )
+        await runPermissionRoute(replyToPermission(params.requestID, json))
         return c.json(true)
       },
     )
@@ -111,20 +129,7 @@ export const PermissionRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const permissions = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const permission = yield* Permission.Service
-            return yield* permission
-              .list()
-              .pipe(
-                Effect.flatMap((items) =>
-                  SessionLiveness.pruneDangling(items, (sessionID) =>
-                    permission.clearSession(sessionID, "dangling_session"),
-                  ),
-                ),
-              )
-          }),
-        )
+        const permissions = await runPermissionRoute(listPendingPermissions())
         return c.json(permissions)
       },
     ),

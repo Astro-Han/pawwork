@@ -394,10 +394,11 @@ Decision table for the design:
 - Experimental route boundary — migrated 2026-06-15. The current `server/instance/experimental.ts` owner now routes Console state/org switch, tool ids/list, worktree create/list/remove/reset, and MCP resources through named `Effect.fn(...)` route boundaries that yield `Config.Service`, `Account.Service`, `ToolRegistry.Service`, `Agent.Service`, `Worktree.Service`, and `MCP.Service`. The `/experimental/session` list route intentionally remains on the existing `Session.listGlobal(...)` async iterator because migrating it would broaden the slice into Session pagination/cursor internals.
 - Instance root route boundary — migrated 2026-06-18. The current `server/instance/index.ts` owner now routes instance dispose, path metadata, root VCS JSON/diff/status/raw/apply, command list, agent list, skill list, and LSP status through named `Effect.fn(...)` route boundaries with one shared `AppRuntime.runPromise` bridge. VCS handlers still yield `Vcs.Service` and preserve raw/apply error mappings; `/instance/dispose` intentionally keeps the existing `Instance.dispose()` compatibility facade inside the Effect boundary because it updates legacy instance directory bookkeeping that is not exposed as an Effect service API.
 - Small instance route owners — migrated 2026-06-18. `server/instance/file.ts`, `server/instance/project.ts`, `server/instance/memory.ts`, and `server/instance/external-result.ts` now route body work through named `Effect.fn(...)` boundaries with one route-local `AppRuntime.runPromise` bridge per owner. File/project/external-result routes yield `Ripgrep.Service`, `File.Service`, `Project.Service`, and `Session.Service` where service APIs already exist. Project init still keeps the existing `Instance.reload(...)` compatibility call inside the route effect, memory still wraps the existing `MemoryService` Promise API, and external-result still uses `MessageV2.get(...)` inside the route effect because those behaviors do not yet have suitable service APIs in this slice.
+- Global/workspace/permission/automation route boundary — migrated 2026-06-18. The current `server/instance/global.ts`, `workspace.ts`, `permission.ts`, and `automation.ts` owners now route their non-streaming service work through named `Effect.fn(...)` boundaries and shared route-local AppRuntime bridges. Global config/dispose/upgrade, workspace create/list/status/remove, permission e2e ask/reply/list, and automation list/create/get/update/pause/resume/delete/run/runs preserve their existing HTTP shapes; automation intentionally keeps its `runPromiseExit` typed error mapper so `ValidationError`, `ConflictError`, and `ActiveRunStillRunningError` still map to the same `422`/`409` responses. Global health and SSE routes stay direct because they do not cross a service runtime boundary.
 
 ## Route handler effectification
 
-Route handlers should wrap their entire body in a single `AppRuntime.runPromise(Effect.gen(...))` call, yielding services from context rather than calling facades one-by-one. This eliminates multiple `runPromise` round-trips and lets handlers compose naturally.
+Route handlers should keep effectful service work behind named `Effect.fn(...)` route boundaries and run each handler through one AppRuntime bridge, yielding services from context rather than calling facades one-by-one. This eliminates multiple `runPromise` round-trips and gives route effects stable trace names.
 
 ```ts
 // Before — one facade call per service
@@ -407,16 +408,16 @@ Route handlers should wrap their entire body in a single `AppRuntime.runPromise(
   return c.json(true)
 }
 
-// After — one Effect.gen, yield services from context
+// After — one named route effect, yield services from context
+const removeMessage = Effect.fn("SessionRoutes.message.remove")(function* (id, messageID) {
+  const state = yield* SessionRunState.Service
+  const session = yield* Session.Service
+  yield* state.assertNotBusy(id)
+  yield* session.removeMessage({ sessionID: id, messageID })
+})
+
 ;async (c) => {
-  await AppRuntime.runPromise(
-    Effect.gen(function* () {
-      const state = yield* SessionRunState.Service
-      const session = yield* Session.Service
-      yield* state.assertNotBusy(id)
-      yield* session.removeMessage({ sessionID: id, messageID })
-    }),
-  )
+  await AppRuntime.runPromise(removeMessage(id, messageID))
   return c.json(true)
 }
 ```
@@ -426,12 +427,14 @@ When migrating, always use `{ concurrency: "unbounded" }` with `Effect.all` — 
 Route files to convert (each handler that calls facades should be wrapped):
 
 - [ ] `server/routes/session.ts` — heaviest; current owner is `server/instance/session.ts`. The 2026-06-15 straggler pass cleared GET `/session`, share/unshare `Session.get`, summarize `Session.messages`, and deprecated permission response `Permission.reply`; heavier SessionPrompt/SessionRevert/SessionShare/etc. route work remains out of scope.
-- [ ] `server/routes/global.ts` — uses Config, Project, Provider, Vcs, Snapshot, Agent
+- [x] `server/instance/global.ts` — migrated 2026-06-18. Config, dispose, and upgrade service work now uses named route effects plus a shared AppRuntime bridge; health and SSE routes remain direct by design.
 - [x] `server/instance/index.ts` — migrated 2026-06-18. Root instance, path, VCS, command, agent, skill, and LSP handlers now use named route effects plus a shared AppRuntime bridge; `/instance/dispose` keeps `Instance.dispose()` inside the Effect boundary for legacy directory bookkeeping.
 - [x] `server/instance/provider.ts` — migrated 2026-06-15. Provider auth route bodies now yield `ProviderAuth.Service` inside `AppRuntime.runPromise(Effect.gen(...))`; the old `server/routes/provider.ts` checklist path is stale in the current tree.
 - [ ] `server/routes/question.ts` — stale checklist path. The current tree has no `server/instance/question.ts` route; do not claim completion without a live route owner.
 - [x] `server/instance/pty.ts` — migrated 2026-06-15. Connect-token and WebSocket connect route bodies now yield `Pty.Service` for target lookup and connection setup; the old `server/routes/pty.ts` checklist path is stale in the current tree.
-- [x] `server/instance/workspace.ts` — migrated 2026-06-15. Workspace create/list/status/remove handlers now yield `Workspace.Service`; status still lists the current project first and filters global workspace statuses by those ids.
+- [x] `server/instance/workspace.ts` — migrated 2026-06-18. Workspace create/list/status/remove handlers now use named route effects plus a shared AppRuntime bridge; status still lists the current project first and filters global workspace statuses by those ids.
+- [x] `server/instance/permission.ts` — migrated 2026-06-18. E2E ask, reply, and list/prune handlers now use named route effects plus a shared AppRuntime bridge while preserving fire-and-forget logging for the e2e seed route.
+- [x] `server/instance/automation.ts` — migrated 2026-06-18. Automation handlers now use named route effects while preserving the route-local `runPromiseExit` error mapper for typed validation/conflict/active-run HTTP responses.
 - [x] `server/instance/experimental.ts` — migrated 2026-06-15 for Console, tool, worktree, and MCP resource handlers. The old `server/routes/experimental.ts` checklist path is stale in the current tree. `/experimental/session` still calls `Session.listGlobal(...)` directly by design.
 - [x] `server/instance/file.ts` — migrated 2026-06-18. Find/list/read/status handlers now use named route effects and yield `Ripgrep.Service` / `File.Service` through one route-local runtime bridge.
 - [x] `server/instance/project.ts` — migrated 2026-06-18. List/init-git/update handlers now use named route effects and yield `Project.Service`; init-git keeps `Instance.reload(...)` inside the route effect for legacy instance bookkeeping.
