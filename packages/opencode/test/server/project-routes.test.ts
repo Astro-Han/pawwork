@@ -49,6 +49,10 @@ describe("project routes", () => {
     expect(spec.paths["/project/current"]).toHaveProperty("get")
     expect(spec.paths["/project/git/init"]).toHaveProperty("post")
     expect(spec.paths["/project/{projectID}"]).toHaveProperty("patch")
+    expect(spec.paths["/project/{projectID}"]?.patch?.responses?.["404"]).toMatchObject({
+      description: "Not found",
+      content: { "application/json": { schema: { $ref: "#/components/schemas/NotFoundError" } } },
+    })
   })
 
   test("PATCH /:projectID returns documented 404 when the project does not exist", async () => {

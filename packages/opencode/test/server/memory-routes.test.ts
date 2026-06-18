@@ -53,6 +53,18 @@ describe("memory routes", () => {
     expect(spec.paths["/memory/reset"]).toHaveProperty("post")
     expect(spec.paths["/memory/disabled"]).toHaveProperty("patch")
     expect(spec.paths["/memory/entry/{id}"]).toHaveProperty("delete")
+    expect(spec.paths["/memory"]?.patch?.responses?.["400"]).toMatchObject({
+      content: {
+        "application/json": {
+          schema: {
+            anyOf: [
+              { $ref: "#/components/schemas/BadRequestError" },
+              { $ref: "#/components/schemas/InvalidMemoryFileError" },
+            ],
+          },
+        },
+      },
+    })
   })
 
   test("reads and updates memory through the route runtime", async () => {

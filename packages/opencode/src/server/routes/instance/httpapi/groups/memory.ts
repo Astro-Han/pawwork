@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
-import { BadRequestError, WorkspaceRoutingQuery } from "./common"
+import { BadRequestError, InvalidMemoryFileError, WorkspaceRoutingQuery } from "./common"
 
 const MemoryRawPayload = Schema.Struct({
   content: Schema.String,
@@ -31,7 +31,7 @@ export const MemoryApi = HttpApi.make("memory")
           query: WorkspaceRoutingQuery,
           payload: MemoryRawPayload,
           success: Schema.Any,
-          error: BadRequestError,
+          error: [BadRequestError, InvalidMemoryFileError],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "memory.update",

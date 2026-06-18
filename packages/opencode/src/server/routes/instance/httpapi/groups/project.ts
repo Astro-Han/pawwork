@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
-import { BadRequestError, WorkspaceRoutingQuery } from "./common"
+import { BadRequestError, NotFoundError, WorkspaceRoutingQuery } from "./common"
 
 const ProjectIDParam = Schema.Struct({
   projectID: Schema.String,
@@ -76,7 +76,7 @@ export const ProjectApi = HttpApi.make("project")
           query: WorkspaceRoutingQuery,
           payload: ProjectUpdatePayload,
           success: ProjectInfo,
-          error: BadRequestError,
+          error: [BadRequestError, NotFoundError],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "project.update",
