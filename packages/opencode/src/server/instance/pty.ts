@@ -1,7 +1,7 @@
 import { Hono, type MiddlewareHandler } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import { HTTPException } from "hono/http-exception"
-import type { UpgradeWebSocket } from "hono/ws"
+import type { UpgradeWebSocket, WSEvents } from "hono/ws"
 import z from "zod"
 import { Effect } from "effect"
 import { AppRuntime } from "@/effect/app-runtime"
@@ -30,6 +30,107 @@ type PtyConnectRequest = {
   valid(target: "query"): PtyConnectQuery
 }
 
+type PtyConnectHandler = {
+  onMessage: (message: string | ArrayBuffer) => void
+  onClose: () => void
+}
+
+type PtyConnectSocket = {
+  readyState: number
+  send: (data: string | Uint8Array | ArrayBuffer) => void
+  close: (code?: number, reason?: string) => void
+}
+
+const isPtyConnectSocket = (value: unknown): value is PtyConnectSocket => {
+  if (!value || typeof value !== "object") return false
+  if (!("readyState" in value)) return false
+  if (!("send" in value) || typeof (value as { send?: unknown }).send !== "function") return false
+  if (!("close" in value) || typeof (value as { close?: unknown }).close !== "function") return false
+  return typeof (value as { readyState?: unknown }).readyState === "number"
+}
+
+const runPtyRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
+
+const listPtySessions = Effect.fn("PtyRoutes.list")(function* () {
+  const pty = yield* Pty.Service
+  return yield* pty.list()
+})
+
+const createPtySession = Effect.fn("PtyRoutes.create")(function* (input: Pty.CreateInput) {
+  const pty = yield* Pty.Service
+  return yield* pty.create(input)
+})
+
+const getPtySession = Effect.fn("PtyRoutes.get")(function* (id: PtyID) {
+  const pty = yield* Pty.Service
+  return yield* pty.get(id)
+})
+
+const updatePtySession = Effect.fn("PtyRoutes.update")(function* (input: { id: PtyID; update: Pty.UpdateInput }) {
+  const pty = yield* Pty.Service
+  return yield* pty.update(input.id, input.update)
+})
+
+const removePtySession = Effect.fn("PtyRoutes.remove")(function* (id: PtyID) {
+  const pty = yield* Pty.Service
+  const info = yield* pty.get(id)
+  if (!info) return false
+  yield* pty.remove(id)
+  return true
+})
+
+const assertPtyConnectTokenTarget = Effect.fn("PtyRoutes.connectToken")(function* (id: PtyID) {
+  const pty = yield* Pty.Service
+  assertPtyConnectTarget(yield* pty.get(id))
+})
+
+const connectPtySession = Effect.fn("PtyRoutes.connect")(function* (request: PtyConnectRequest) {
+  const pty = yield* Pty.Service
+  const id = request.valid("param").ptyID
+  const query = request.valid("query")
+  assertPtyConnectTicket({ ptyID: id, ticket: query.ticket })
+  const cursor = (() => {
+    const value = query.cursor
+    if (!value) return
+    const parsed = Number(value)
+    if (!Number.isSafeInteger(parsed) || parsed < -1) return
+    return parsed
+  })()
+  let handler: PtyConnectHandler | undefined
+  assertPtyConnectTarget(yield* pty.get(id))
+
+  const pending: string[] = []
+  let ready = false
+
+  return {
+    async onOpen(_event, ws) {
+      const socket = ws.raw
+      if (!isPtyConnectSocket(socket)) {
+        ws.close()
+        return
+      }
+      handler = await AppRuntime.runPromise(pty.connect(id, socket, cursor))
+      ready = true
+      for (const msg of pending) handler?.onMessage(msg)
+      pending.length = 0
+    },
+    onMessage(event) {
+      if (typeof event.data !== "string") return
+      if (!ready) {
+        pending.push(event.data)
+        return
+      }
+      handler?.onMessage(event.data)
+    },
+    onClose() {
+      handler?.onClose()
+    },
+    onError() {
+      handler?.onClose()
+    },
+  } satisfies WSEvents
+})
+
 export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
   return new Hono()
     .get(
@@ -50,12 +151,7 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
         },
       }),
       async (c) => {
-        const sessions = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const pty = yield* Pty.Service
-            return yield* pty.list()
-          }),
-        )
+        const sessions = await runPtyRoute(listPtySessions())
         return c.json(sessions)
       },
     )
@@ -80,12 +176,7 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
       validator("json", Pty.CreateInput),
       async (c) => {
         const input = c.req.valid("json")
-        const info = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const pty = yield* Pty.Service
-            return yield* pty.create(input)
-          }),
-        )
+        const info = await runPtyRoute(createPtySession(input))
         return c.json(info)
       },
     )
@@ -110,12 +201,7 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
       validator("param", z.object({ ptyID: PtyID.zod })),
       async (c) => {
         const id = c.req.valid("param").ptyID
-        const info = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const pty = yield* Pty.Service
-            return yield* pty.get(id)
-          }),
-        )
+        const info = await runPtyRoute(getPtySession(id))
         if (!info) {
           throw new NotFoundError({ message: "Session not found" })
         }
@@ -146,12 +232,7 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
       async (c) => {
         const id = c.req.valid("param").ptyID
         const input = c.req.valid("json")
-        const info = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const pty = yield* Pty.Service
-            return yield* pty.update(id, input)
-          }),
-        )
+        const info = await runPtyRoute(updatePtySession({ id, update: input }))
         if (!info) {
           throw new NotFoundError({ message: "Session not found" })
         }
@@ -179,15 +260,7 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
       validator("param", z.object({ ptyID: PtyID.zod })),
       async (c) => {
         const id = c.req.valid("param").ptyID
-        const removed = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const pty = yield* Pty.Service
-            const info = yield* pty.get(id)
-            if (!info) return false
-            yield* pty.remove(id)
-            return true
-          }),
-        )
+        const removed = await runPtyRoute(removePtySession(id))
         if (!removed) {
           throw new NotFoundError({ message: "Session not found" })
         }
@@ -215,12 +288,7 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
       validator("param", z.object({ ptyID: PtyID.zod })),
       async (c) => {
         const id = c.req.valid("param").ptyID
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const pty = yield* Pty.Service
-            assertPtyConnectTarget(yield* pty.get(id))
-          }),
-        )
+        await runPtyRoute(assertPtyConnectTokenTarget(id))
         return c.json(PtyTicket.issue({ ptyID: id }))
       },
     )
@@ -245,73 +313,8 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
       validator("param", z.object({ ptyID: PtyID.zod })),
       validator("query", PtyConnectQuery),
       upgradeWebSocket(async (c) => {
-        return AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const pty = yield* Pty.Service
-            const request = c.req as unknown as PtyConnectRequest
-            const id = request.valid("param").ptyID
-            const query = request.valid("query")
-            assertPtyConnectTicket({ ptyID: id, ticket: query.ticket })
-            const cursor = (() => {
-              const value = query.cursor
-              if (!value) return
-              const parsed = Number(value)
-              if (!Number.isSafeInteger(parsed) || parsed < -1) return
-              return parsed
-            })()
-            type PtyConnectHandler = {
-              onMessage: (message: string | ArrayBuffer) => void
-              onClose: () => void
-            }
-            let handler: PtyConnectHandler | undefined
-            assertPtyConnectTarget(yield* pty.get(id))
-
-            type Socket = {
-              readyState: number
-              send: (data: string | Uint8Array | ArrayBuffer) => void
-              close: (code?: number, reason?: string) => void
-            }
-
-            const isSocket = (value: unknown): value is Socket => {
-              if (!value || typeof value !== "object") return false
-              if (!("readyState" in value)) return false
-              if (!("send" in value) || typeof (value as { send?: unknown }).send !== "function") return false
-              if (!("close" in value) || typeof (value as { close?: unknown }).close !== "function") return false
-              return typeof (value as { readyState?: unknown }).readyState === "number"
-            }
-
-            const pending: string[] = []
-            let ready = false
-
-            return {
-              async onOpen(_event, ws) {
-                const socket = ws.raw
-                if (!isSocket(socket)) {
-                  ws.close()
-                  return
-                }
-                handler = await AppRuntime.runPromise(pty.connect(id, socket, cursor))
-                ready = true
-                for (const msg of pending) handler?.onMessage(msg)
-                pending.length = 0
-              },
-              onMessage(event) {
-                if (typeof event.data !== "string") return
-                if (!ready) {
-                  pending.push(event.data)
-                  return
-                }
-                handler?.onMessage(event.data)
-              },
-              onClose() {
-                handler?.onClose()
-              },
-              onError() {
-                handler?.onClose()
-              },
-            }
-          }),
-        )
+        const request = c.req as unknown as PtyConnectRequest
+        return runPtyRoute(connectPtySession(request))
       }),
     )
 }
