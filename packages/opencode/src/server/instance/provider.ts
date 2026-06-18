@@ -1,77 +1,18 @@
 import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
-import { Effect } from "effect"
 import z from "zod"
-import { Config } from "../../config/config"
 import { Provider } from "../../provider/provider"
-import { ModelsDev } from "../../provider/models"
 import { ProviderAuth } from "../../provider/auth"
-import { ModelState } from "../../provider/model-state"
 import { ProviderID, ModelID } from "../../provider/schema"
 import { AppRuntime } from "../../effect/app-runtime"
-import { mapValues } from "remeda"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 import { Log } from "@opencode-ai/core/util/log"
+import { authorizeProvider, completeProviderAuth, getAuthMethods, listProviders, recordRecentModel } from "./provider-actions"
 
 const log = Log.create({ service: "server" })
 
 const runProviderRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
-
-const listProviders = Effect.fn("ProviderRoutes.list")(function* () {
-  const config = yield* Config.Service
-  const provider = yield* Provider.Service
-  const [configInfo, allProviders, connected] = yield* Effect.all(
-    [config.get(), Effect.promise(() => ModelsDev.get()), provider.list()],
-    { concurrency: 3 },
-  )
-  const disabled = new Set(configInfo.disabled_providers ?? [])
-  const enabled = configInfo.enabled_providers ? new Set(configInfo.enabled_providers) : undefined
-
-  const filteredProviders: Record<string, (typeof allProviders)[string]> = {}
-  for (const [key, value] of Object.entries(allProviders)) {
-    if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) {
-      filteredProviders[key] = value
-    }
-  }
-
-  const providers = Object.assign(
-    mapValues(filteredProviders, (item) => Provider.fromModelsDevProvider(item)),
-    connected,
-  )
-  return {
-    all: Object.values(providers),
-    default: mapValues(providers, (item) => Provider.defaultModelID(item)),
-    connected: Object.keys(connected),
-  }
-})
-
-const getAuthMethods = Effect.fn("ProviderRoutes.auth.methods")(function* () {
-  const auth = yield* ProviderAuth.Service
-  return yield* auth.methods()
-})
-
-const authorizeProvider = Effect.fn("ProviderRoutes.oauth.authorize")(function* (input: {
-  providerID: ProviderID
-  method: number
-  inputs?: Record<string, string>
-}) {
-  const auth = yield* ProviderAuth.Service
-  return yield* auth.authorize(input)
-})
-
-const completeProviderAuth = Effect.fn("ProviderRoutes.oauth.callback")(function* (input: {
-  providerID: ProviderID
-  method: number
-  code?: string
-}) {
-  const auth = yield* ProviderAuth.Service
-  yield* auth.callback(input)
-})
-
-const recordRecentModel = Effect.fn("ProviderRoutes.recent.record")(function* (input: ModelState.ModelRef) {
-  yield* Effect.promise(() => ModelState.recordRecent(input))
-})
 
 export const ProviderRoutes = lazy(() =>
   new Hono()

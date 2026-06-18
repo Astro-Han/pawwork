@@ -54,6 +54,18 @@ describe("route inventory harness", () => {
   test("tracks local HttpApi migration coverage separately from upstream parity", async () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
+    for (const [method, routePath] of [
+      ["GET", "/provider"],
+      ["GET", "/provider/auth"],
+      ["POST", "/provider/:providerID/oauth/authorize"],
+      ["POST", "/provider/:providerID/oauth/callback"],
+      ["POST", "/provider/recent"],
+    ] as const) {
+      expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
+        hono: true,
+        localHttpApi: true,
+      })
+    }
     expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/config")).toMatchObject({
       hono: true,
       openapi: true,
