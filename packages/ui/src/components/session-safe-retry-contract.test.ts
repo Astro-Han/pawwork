@@ -2,7 +2,6 @@ import { expect, test } from "bun:test"
 import { readdirSync, readFileSync } from "node:fs"
 
 const retry = readFileSync(new URL("./session-retry.tsx", import.meta.url), "utf8")
-const notice = readFileSync(new URL("./message-part/parts/notice.tsx", import.meta.url), "utf8")
 const en = readFileSync(new URL("../i18n/en.ts", import.meta.url), "utf8")
 const zh = readFileSync(new URL("../i18n/zh.ts", import.meta.url), "utf8")
 const zht = readFileSync(new URL("../i18n/zht.ts", import.meta.url), "utf8")
@@ -22,32 +21,9 @@ test("recovery retry uses a lightweight status row instead of the error card", (
   expect(retry).toContain('<Card variant="error" class="error-card">')
 })
 
-test("safe retry failure renders a titled notice that adapts to a prior tool side effect", () => {
-  expect(notice).toContain('registerPartComponent("notice"')
-  expect(notice).toContain('part().kind === "safe_retry_failed"')
-  expect(notice).toContain('data-kind="safe_retry_failed"')
-  // Separated, calm presentation (#1358): a stroked status icon + ink title,
-  // not the old weak single-line caption.
-  expect(notice).toContain('data-variant=')
-  expect(notice).toContain('<Icon name="warning"')
-  expect(notice).toContain('data-slot="notice-title"')
-  expect(notice).toContain('data-slot="notice-body"')
-  // Adaptive copy is driven by the backend `sideEffect` field, NOT a UI scan of
-  // the notice's own message. #1358: the side-effecting tool ran in an earlier
-  // step's assistant message while the notice lands on the failed continuation's
-  // message, so the UI cannot see the tool — it must trust the backend field and
-  // must not reclassify tools.
-  expect(notice).toContain("part().sideEffect")
-  expect(notice).not.toContain("data.store.part")
-  expect(notice).not.toContain("READ_ONLY_TOOLS")
-  expect(notice).not.toContain("useData")
-  expect(notice).toContain("ui.sessionTurn.notice.safeRetryFailed.sideEffect.title")
-  expect(notice).toContain("ui.sessionTurn.notice.safeRetryFailed.sideEffect.body")
-  expect(notice).toContain("ui.sessionTurn.notice.safeRetryFailed.default.title")
-  expect(notice).toContain("ui.sessionTurn.notice.safeRetryFailed.default.body")
-  // The old weak caption is gone.
-  expect(notice).not.toContain('class="text-caption text-fg-weak"')
-})
+// The notice's rendering behavior — sideEffect=true → "操作已完成", false/undefined
+// → "回复未完成", driven by the backend field with no tool scan — is proven by the
+// real render in notice-render.test.tsx (#1358), so it is not re-grepped here.
 
 test("safe-retry notice copy names an external cause and a next step, without nudging a redo", () => {
   // Side-effect case reassures the action already ran AND tells the user not to
