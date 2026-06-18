@@ -78,6 +78,7 @@ export const dict = {
   "ui.sessionTurn.retry.attemptLine": "{{line}} - 第 {{attempt}} 次",
   "ui.sessionTurn.retry.geminiHot": "gemini 当前过载",
   "ui.sessionTurn.retry.recovery": "正在恢复…",
+  "ui.sessionTurn.retry.recoveryAttempt": "正在恢复…第 {{attempt}} 次",
   "ui.sessionTurn.retry.safeRecovery": "正在恢复…",
   "ui.sessionTurn.notice.safeRetryFailed.sideEffect.title": "操作已完成",
   "ui.sessionTurn.notice.safeRetryFailed.sideEffect.body":
@@ -96,6 +97,7 @@ export const dict = {
   "ui.sessionTurn.status.searchingWeb": "正在搜索网页",
   "ui.sessionTurn.status.makingEdits": "正在修改",
   "ui.sessionTurn.status.runningCommands": "正在运行命令",
+  "ui.sessionTurn.status.connecting": "连接中",
   "ui.sessionTurn.status.thinking": "思考中",
   "ui.sessionTurn.status.thinkingWithTopic": "思考：{{topic}}",
   "ui.sessionTurn.status.gatheringThoughts": "正在整理思路",

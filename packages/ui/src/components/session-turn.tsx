@@ -351,6 +351,21 @@ export function SessionTurn(
     }
     return visible
   })
+  // Once any provider-output part exists (text / reasoning / tool — the same set
+  // the backend counts as `isProviderProgressEvent`), the provider has started
+  // responding, so the silent wait is real "thinking". Before that — building
+  // the request, connecting, waiting for the stream to be accepted, waiting for
+  // the first chunk — it is only "connecting" (#1358). A `step-start` part does
+  // not count: it can precede the first provider chunk and would otherwise make
+  // a connection wait read as model reasoning.
+  const providerStarted = createMemo(() => {
+    for (const message of visibleAssistantMessages()) {
+      for (const part of list(data.store.part?.[message.id], emptyParts)) {
+        if (part.type === "text" || part.type === "reasoning" || part.type === "tool") return true
+      }
+    }
+    return false
+  })
   const showThinking = createMemo(() => {
     if (compactionDivider() === "pending") return false
     if (!working() || !!error()) return false
@@ -462,8 +477,17 @@ export function SessionTurn(
                   </div>
                 </Show>
                 <Show when={showThinking()}>
-                  <div data-slot="session-turn-thinking">
-                    <TextShimmer text={i18n.t("ui.sessionTurn.status.thinking")} />
+                  <div
+                    data-slot="session-turn-thinking"
+                    data-phase={providerStarted() ? "thinking" : "connecting"}
+                  >
+                    <TextShimmer
+                      text={
+                        providerStarted()
+                          ? i18n.t("ui.sessionTurn.status.thinking")
+                          : i18n.t("ui.sessionTurn.status.connecting")
+                      }
+                    />
                   </div>
                 </Show>
                 <SessionRetry status={status()} show={active()} rateLimitCardSlot={props.rateLimitCardSlot} />
