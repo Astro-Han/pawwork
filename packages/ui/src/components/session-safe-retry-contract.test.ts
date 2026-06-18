@@ -47,21 +47,28 @@ test("safe retry failure renders a titled notice that adapts to a prior tool sid
 })
 
 test("safe-retry notice copy names an external cause and a next step, without nudging a redo", () => {
-  // Side-effect case reassures the action already ran; default case does not
-  // claim an action happened. Both attribute the failure outside PawWork and
-  // give a next step.
+  // Side-effect case reassures the action already ran AND tells the user not to
+  // repeat it — it points at regenerating the reply, never a plain "retry" that
+  // could redo the external action (#1358). Default case makes no completion
+  // claim, so a plain retry stays safe. Both attribute the failure outside PawWork.
   expect(en).toContain('"ui.sessionTurn.notice.safeRetryFailed.sideEffect.title": "Action completed"')
   expect(en).toContain('"ui.sessionTurn.notice.safeRetryFailed.default.title": "Reply incomplete"')
-  expect(en).toMatch(/already went through[\s\S]*network or model provider[\s\S]*switch models/)
+  expect(en).toMatch(/already went through[\s\S]*no need to repeat[\s\S]*regenerate the reply[\s\S]*switch models/)
 
   expect(zh).toContain('"ui.sessionTurn.notice.safeRetryFailed.sideEffect.title": "操作已完成"')
   expect(zh).toContain('"ui.sessionTurn.notice.safeRetryFailed.default.title": "回复未完成"')
-  expect(zh).toMatch(/上一项操作已执行[\s\S]*网络或模型服务商[\s\S]*请稍后重试，或换一个模型/)
-  expect(zh).toMatch(/模型回复未能生成[\s\S]*网络或模型服务商/)
+  // Side-effect body: no redo nudge — "无需重复" + regenerate the reply, never "重试".
+  expect(zh).toContain(
+    "上一项操作已执行，无需重复。当前网络或模型服务商连接异常，可稍后重新生成回复，或更换模型。",
+  )
+  // Default body still offers a safe retry (nothing landed).
+  expect(zh).toMatch(/模型回复未能生成[\s\S]*请稍后重试/)
 
   expect(zht).toContain('"ui.sessionTurn.notice.safeRetryFailed.sideEffect.title": "操作已完成"')
   expect(zht).toContain('"ui.sessionTurn.notice.safeRetryFailed.default.title": "回覆未完成"')
-  expect(zht).toMatch(/網路或模型服務商/)
+  expect(zht).toContain(
+    "上一項操作已執行，無需重複。目前網路或模型服務商連線異常，可稍後重新生成回覆，或更換模型。",
+  )
 })
 
 test("the old single safe-retry notice key is gone everywhere", () => {

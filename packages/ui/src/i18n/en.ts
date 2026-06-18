@@ -79,7 +79,7 @@ export const dict: Record<string, string> = {
   "ui.sessionTurn.retry.safeRecovery": "Recovering...",
   "ui.sessionTurn.notice.safeRetryFailed.sideEffect.title": "Action completed",
   "ui.sessionTurn.notice.safeRetryFailed.sideEffect.body":
-    "The previous action already went through. The network or model provider may be having connection issues. Try again later, or switch models.",
+    "The previous action already went through, so no need to repeat it. The network or model provider may be having connection issues. You can regenerate the reply later, or switch models.",
   "ui.sessionTurn.notice.safeRetryFailed.default.title": "Reply incomplete",
   "ui.sessionTurn.notice.safeRetryFailed.default.body":
     "The model's reply couldn't be generated. The network or model provider may be having connection issues. Try again later, or switch models.",

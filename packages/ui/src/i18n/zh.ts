@@ -82,7 +82,7 @@ export const dict = {
   "ui.sessionTurn.retry.safeRecovery": "正在恢复…",
   "ui.sessionTurn.notice.safeRetryFailed.sideEffect.title": "操作已完成",
   "ui.sessionTurn.notice.safeRetryFailed.sideEffect.body":
-    "上一项操作已执行。当前网络或模型服务商存在连接问题，请稍后重试，或换一个模型。",
+    "上一项操作已执行，无需重复。当前网络或模型服务商连接异常，可稍后重新生成回复，或更换模型。",
   "ui.sessionTurn.notice.safeRetryFailed.default.title": "回复未完成",
   "ui.sessionTurn.notice.safeRetryFailed.default.body":
     "模型回复未能生成。当前网络或模型服务商存在连接问题，请稍后重试，或换一个模型。",

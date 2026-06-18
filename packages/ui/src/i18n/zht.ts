@@ -54,7 +54,7 @@ export const dict = {
   "ui.sessionTurn.retry.safeRecovery": "正在恢復…",
   "ui.sessionTurn.notice.safeRetryFailed.sideEffect.title": "操作已完成",
   "ui.sessionTurn.notice.safeRetryFailed.sideEffect.body":
-    "上一項操作已執行。目前網路或模型服務商存在連線問題，請稍後重試，或換一個模型。",
+    "上一項操作已執行，無需重複。目前網路或模型服務商連線異常，可稍後重新生成回覆，或更換模型。",
   "ui.sessionTurn.notice.safeRetryFailed.default.title": "回覆未完成",
   "ui.sessionTurn.notice.safeRetryFailed.default.body":
     "模型回覆未能生成。目前網路或模型服務商存在連線問題，請稍後重試，或換一個模型。",
