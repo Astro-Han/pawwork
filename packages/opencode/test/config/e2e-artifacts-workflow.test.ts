@@ -23,7 +23,7 @@ describe("e2e artifacts workflow", () => {
     const playwrightCacheStep = steps.find(
       (step) => step.uses?.startsWith("actions/cache@") && step.with?.path === "${{ github.workspace }}/.playwright-browsers",
     )
-    const installBrowsersStep = steps.find((step) => step.name === "Install Playwright system dependencies")
+    const chromeStep = steps.find((step) => step.name === "Verify GitHub-hosted Chrome")
     const runStep = steps.find((step) => step.name === "Run e2e")
     const warnStep = steps.find((step) => step.name === "Warn on E2E failure")
     const uploadStep = steps.find((step) => step.name === "Upload e2e artifacts")
@@ -71,13 +71,12 @@ describe("e2e artifacts workflow", () => {
     expect(checkoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
     expect(checkoutStep?.with).toEqual({ "persist-credentials": false })
     expect(bunStep?.uses).toBe("oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6")
-    expect(playwrightCacheStep?.with?.key).toBe(
-      "playwright-${{ runner.os }}-${{ hashFiles('packages/app/package.json', 'bun.lock') }}",
-    )
-    expect(playwrightCacheStep?.with?.["restore-keys"]).toBe("playwright-${{ runner.os }}-")
-    expect(installBrowsersStep?.["timeout-minutes"]).toBe(10)
-    expect(installBrowsersStep?.run).toContain("bunx playwright install-deps chromium")
-    expect(installBrowsersStep?.run).not.toContain("playwright install chromium")
+    expect(playwrightCacheStep).toBeUndefined()
+    expect(chromeStep?.["timeout-minutes"]).toBe(2)
+    expect(chromeStep?.run).toBe("google-chrome --version")
+    expect(workflow).not.toContain("PLAYWRIGHT_BROWSERS_PATH")
+    expect(workflow).not.toContain("bunx playwright install")
+    expect(workflow).not.toContain("run: playwright install")
     expect(runStep?.env?.PLAYWRIGHT_BROWSER_CHANNEL).toBe("chrome")
     expect(runStep?.env?.PLAYWRIGHT_VIDEO).toBe("off")
     expect(runStep?.run).toContain("bun --cwd packages/app test:e2e:local:smoke")
