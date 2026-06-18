@@ -93,6 +93,21 @@ async function waitForTerminalRun(automationID: string) {
   throw new Error("Timed out waiting for terminal automation run")
 }
 
+function readRun(runID: string) {
+  const row = Database.use((db) => db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, runID)).get())
+  return row ? Automation.Run.parse(row.data) : undefined
+}
+
+async function waitForRunByID(runID: string, state: Automation.Run["state"]) {
+  const deadline = Date.now() + RUN_WAIT_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    const run = readRun(runID)
+    if (run?.state === state) return run
+    await Bun.sleep(10)
+  }
+  throw new Error(`Timed out waiting for run ${runID} to reach ${state}`)
+}
+
 function defer<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
   const promise = new Promise<T>((done) => {
@@ -111,7 +126,7 @@ function automationSessionsForTitle(title: string) {
   )
 }
 
-function hangingChat(ready: () => void) {
+function hangingChat(ready: () => void, delayMs = 10_000) {
   const encoder = new TextEncoder()
   let timer: ReturnType<typeof setTimeout> | undefined
   const first = `data: ${JSON.stringify({
@@ -141,23 +156,12 @@ function hangingChat(ready: () => void) {
       timer = setTimeout(() => {
         ctrl.enqueue(encoder.encode(rest))
         ctrl.close()
-      }, 10_000)
+      }, delayMs)
     },
     cancel() {
       if (timer) clearTimeout(timer)
     },
   })
-}
-
-async function waitForAbortedAssistant(sessionID: SessionID) {
-  const deadline = Date.now() + 1_000
-  while (Date.now() < deadline) {
-    const messages = await Session.messages({ sessionID })
-    const assistant = messages.findLast((message) => message.info.role === "assistant")
-    if (assistant?.info.role === "assistant" && assistant.info.error?.name === "MessageAbortedError") return assistant
-    await Bun.sleep(10)
-  }
-  throw new Error("Timed out waiting for aborted assistant message")
 }
 
 describe("automation runNow execution", () => {
@@ -424,16 +428,16 @@ describe("automation runNow execution", () => {
       })
       let removed!: Awaited<ReturnType<typeof Automation.remove>>
 
-      await Automation.runNowExecuting(definition.id, {
+      const initial = await Automation.runNowExecuting(definition.id, {
         executor: async () => {
           removed = await Automation.remove(definition.id)
           return { sessionID: SessionID.descending(), result: "done", cost: 0 }
         },
       })
 
-      await Bun.sleep(20)
+      await waitForRunByID(initial.id, "succeeded")
       unsubscribeDefinition()
-      expect(removed.stoppedRun).toMatchObject({ state: "stopped", stopReason: "cancelled" })
+      expect(removed.tombstone).toEqual({ id: definition.id, deleted: true, revision: 2 })
       expect(() => Automation.get(definition.id)).toThrow()
       expect(definitionEvents).toHaveLength(0)
     })
@@ -460,7 +464,7 @@ describe("automation runNow execution", () => {
     })
   })
 
-  test("aborts an active run when its automation is deleted", async () => {
+  test("keeps an active run alive when its automation is deleted", async () => {
     await withAutomation(async (projectID) => {
       const definition = Automation.create(input(projectID))
       const sessionID = SessionID.descending()
@@ -472,7 +476,7 @@ describe("automation runNow execution", () => {
         if (event.properties.automationID === definition.id) runEvents.push(event.properties)
       })
 
-      await Automation.runNowExecuting(definition.id, {
+      const initial = await Automation.runNowExecuting(definition.id, {
         executor: async ({ run, signal }) => {
           Automation.markRunStarted(run, sessionID, { now: run.triggeredAt })
           signal.addEventListener("abort", () => {
@@ -481,33 +485,36 @@ describe("automation runNow execution", () => {
           })
           started.resolve()
           await release.promise
-          return { sessionID, result: "should not succeed", cost: 0 }
+          return { sessionID, result: "done", cost: 0 }
         },
       })
 
       await started.promise
       const removed = await Automation.remove(definition.id)
+      release.resolve()
 
-      expect(sawAbort).toBe(true)
-      expect(removed.stoppedRun).toMatchObject({
-        state: "stopped",
+      expect(sawAbort).toBe(false)
+      expect(removed).not.toHaveProperty("stoppedRun")
+      expect(() => Automation.get(definition.id)).toThrow()
+      const succeeded = await waitForRunByID(initial.id, "succeeded")
+      expect(succeeded).toMatchObject({
+        state: "succeeded",
         sessionID,
-        stopReason: "cancelled",
+        result: "done",
       })
-      await Bun.sleep(20)
       unsubscribeRun()
-      expect(runEvents.some((event) => event.state === "succeeded")).toBe(false)
+      expect(runEvents.some((event) => event.state === "stopped")).toBe(false)
     })
   })
 
-  test("deleting an active automation cancels the real session prompt", async () => {
+  test("deleting an active automation lets the real session prompt finish", async () => {
     const ready = defer<void>()
     const server = Bun.serve({
       port: 0,
       fetch(req) {
         const url = new URL(req.url)
         if (!url.pathname.endsWith("/chat/completions")) return new Response("not found", { status: 404 })
-        return new Response(hangingChat(() => ready.resolve()), {
+        return new Response(hangingChat(() => ready.resolve(), 10), {
           status: 200,
           headers: { "Content-Type": "text/event-stream" },
         })
@@ -546,15 +553,18 @@ describe("automation runNow execution", () => {
         fn: async () => {
           const definition = Automation.create(input(Instance.project.id, { title: "Cancel real prompt" }))
 
-          await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
+          const initial = await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
           await ready.promise
 
           const removed = await Automation.remove(definition.id)
-          const stoppedRun = removed.stoppedRun
-          expect(stoppedRun).toMatchObject({ state: "stopped", stopReason: "cancelled" })
-          if (!stoppedRun?.sessionID) throw new Error("expected stopped run to keep its sessionID")
+          expect(removed).not.toHaveProperty("stoppedRun")
 
-          await waitForAbortedAssistant(stoppedRun.sessionID)
+          const succeeded = await waitForRunByID(initial.id, "succeeded")
+          if (!succeeded.sessionID) throw new Error("expected succeeded run to keep its sessionID")
+          const messages = await Session.messages({ sessionID: succeeded.sessionID })
+          expect(
+            messages.some((message) => message.info.role === "assistant" && message.info.error?.name === "MessageAbortedError"),
+          ).toBe(false)
         },
       })
     } finally {
@@ -974,7 +984,7 @@ describe("automation runNow execution", () => {
     }
   })
 
-  test("deleting after run start but before prompt runner is busy does not call the provider", async () => {
+  test("deleting after run start but before prompt runner is busy still lets the prompt run", async () => {
     let providerCalls = 0
     const server = Bun.serve({
       port: 0,
@@ -982,7 +992,7 @@ describe("automation runNow execution", () => {
         const url = new URL(req.url)
         if (!url.pathname.endsWith("/chat/completions")) return new Response("not found", { status: 404 })
         providerCalls++
-        return new Response(hangingChat(() => undefined), {
+        return new Response(hangingChat(() => undefined, 10), {
           status: 200,
           headers: { "Content-Type": "text/event-stream" },
         })
@@ -1026,7 +1036,7 @@ describe("automation runNow execution", () => {
             void Automation.remove(definition.id).then(removed.resolve, removed.reject)
           })
 
-          await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
+          const initial = await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
           let result: Awaited<ReturnType<typeof Automation.remove>>
           try {
             result = await Promise.race([
@@ -1039,13 +1049,9 @@ describe("automation runNow execution", () => {
             unsubscribe()
           }
 
-          expect(result.stoppedRun).toMatchObject({ state: "stopped", stopReason: "cancelled" })
-          await Bun.sleep(50)
-          expect(providerCalls).toBe(0)
-          if (result.stoppedRun?.sessionID) {
-            const messages = await Session.messages({ sessionID: result.stoppedRun.sessionID })
-            expect(messages.some((message) => message.info.role === "assistant")).toBe(false)
-          }
+          expect(result).not.toHaveProperty("stoppedRun")
+          await waitForRunByID(initial.id, "succeeded")
+          expect(providerCalls).toBe(1)
         },
       })
     } finally {

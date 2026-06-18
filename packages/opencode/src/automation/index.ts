@@ -66,10 +66,6 @@ export namespace Automation {
     .object({ error: z.literal("automation_conflict"), message: z.string() })
     .strict()
     .meta({ ref: "AutomationConflictError" })
-  export const ActiveRunStillRunningErrorResponse = z
-    .object({ error: z.literal("active_run_still_running"), runID: RunID })
-    .strict()
-    .meta({ ref: "AutomationActiveRunStillRunningError" })
   // Stop accepts all three kinds at the schema layer so create/update can
   // return a structured `unsupported_stop_condition` error for `kind: "condition"`
   // (rejected by validateCreateInput / validateUpdateInput). The agent-facing
@@ -800,13 +796,10 @@ export namespace Automation {
     return true
   }
 
-  export async function remove(id: string): Promise<{ tombstone: Tombstone; stoppedRun?: Run }> {
+  export async function remove(id: string): Promise<{ tombstone: Tombstone }> {
     const previous = get(id)
-    const stoppedRun = stopActiveRun(id)
-    const liveRun = await getLiveActiveRun(id)
-    if (liveRun) throw new ActiveRunStillRunningError(liveRun.id)
     Database.use((db) => db.delete(AutomationDefinitionTable).where(eq(AutomationDefinitionTable.id, id)).run())
-    return { tombstone: { id: previous.id, deleted: true, revision: previous.revision + 1 }, stoppedRun }
+    return { tombstone: { id: previous.id, deleted: true, revision: previous.revision + 1 } }
   }
 
   // A continue automation lives inside the conversation it was created in
@@ -821,9 +814,8 @@ export namespace Automation {
       try {
         const removed = await remove(definition.id)
         await Bus.publish(Event.DefinitionDeleted, removed.tombstone)
-        if (removed.stoppedRun) await publishRunUpdated(removed.stoppedRun)
       } catch (error) {
-        if (NotFoundError.isInstance(error) || error instanceof ActiveRunStillRunningError) continue
+        if (NotFoundError.isInstance(error)) continue
         throw error
       }
     }
@@ -890,39 +882,6 @@ export namespace Automation {
       },
       options?.scope,
     )
-  }
-
-  function stopActiveRun(automationID: string) {
-    const active = state().activeRuns.get(automationID)
-    if (!active) return undefined
-    active.controller.abort()
-    const current = getRun(active.runID)
-    return current ? stopRun(current, "cancelled") : undefined
-  }
-
-  async function getLiveActiveRun(automationID: string) {
-    get(automationID)
-    const projectID = Instance.project.id
-    const ownerDirectory = Instance.directory
-    const rows = Database.use((db) =>
-      db
-        .select()
-        .from(AutomationRunTable)
-        .where(
-          and(
-            eq(AutomationRunTable.automation_id, automationID),
-            eq(AutomationRunTable.project_id, projectID),
-            eq(AutomationRunTable.owner_directory, ownerDirectory),
-            sql`json_extract(${AutomationRunTable.data}, '$.state') in ('scheduled', 'running', 'awaiting_input')`,
-          ),
-        )
-        .all(),
-    )
-    for (const row of rows) {
-      const run = Run.parse(row.data)
-      if (!isActiveRun(run)) continue
-      if (await hasLiveRunLease(run.id)) return run
-    }
   }
 
   export function stopRunByID(
@@ -1327,9 +1286,7 @@ export namespace Automation {
       patch: UpdateInput,
       options?: { now?: number },
     ) => Effect.Effect<Definition, ValidationError | ConflictError>
-    readonly remove: (
-      id: string,
-    ) => Effect.Effect<{ tombstone: Tombstone; stoppedRun?: Run }, ActiveRunStillRunningError>
+    readonly remove: (id: string) => Effect.Effect<{ tombstone: Tombstone }>
     readonly runNowExecuting: (
       id: string,
       options: { executor: RunExecutor; attendance?: AutomationRunAttendance; now?: number },
@@ -1376,9 +1333,7 @@ export namespace Automation {
           }),
         remove: (id) =>
           Effect.tryPromise({ try: () => remove(id), catch: (error) => error }).pipe(
-            Effect.catch((error) =>
-              error instanceof ActiveRunStillRunningError ? Effect.fail(error) : Effect.die(error),
-            ),
+            Effect.catch((error) => Effect.die(error)),
           ),
         runNowExecuting: (id, options) => Effect.promise(() => runNowExecuting(id, options)),
         runs: (input) => Effect.sync(() => runs(input)),
@@ -1407,12 +1362,5 @@ export class ConflictError extends Error {
   constructor(readonly id: string) {
     super(`Automation changed while updating: ${id}`)
     this.name = "AutomationConflictError"
-  }
-}
-
-export class ActiveRunStillRunningError extends Error {
-  constructor(readonly runID: string) {
-    super(`Automation run is still running: ${runID}`)
-    this.name = "AutomationActiveRunStillRunningError"
   }
 }

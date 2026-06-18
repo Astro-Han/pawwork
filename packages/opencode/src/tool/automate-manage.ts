@@ -1,5 +1,5 @@
 import { Cause, Effect, Schema } from "effect"
-import { ActiveRunStillRunningError, Automation } from "@/automation"
+import { Automation } from "@/automation"
 import { NotFoundError } from "@/storage/db"
 import * as Tool from "./tool"
 
@@ -21,7 +21,6 @@ type Metadata = {
   automationDefinitions?: Automation.Definition[]
   automationDefinition?: Automation.Definition
   automationTombstone?: Automation.Tombstone
-  stoppedRun?: Automation.Run
 }
 
 function schedule(definition: Automation.Definition) {
@@ -51,12 +50,6 @@ function requireID(params: Parameters) {
 function readableAutomationError(error: unknown, id: string) {
   if (NotFoundError.isInstance(error)) {
     return new Error(`Automation not found: ${id}. Run automate_manage list to get a current id.`, { cause: error })
-  }
-  if (error instanceof ActiveRunStillRunningError) {
-    return new Error(
-      `Cannot delete automation ${id}: active_run_still_running (${error.runID}). Try again after the active run finishes.`,
-      { cause: error },
-    )
   }
   return error
 }
@@ -116,11 +109,10 @@ export function createAutomateManageDefinition(
         metadata: { action: "delete", id, title: previous.title },
       })
       const removed = yield* readableAutomationEffect(automation.remove(id), id)
-      if (removed.stoppedRun) yield* automation.publishRunUpdated(removed.stoppedRun)
       yield* automation.publishDefinitionDeleted(removed.tombstone)
       return {
         title: "Automation deleted",
-        metadata: { automationTombstone: removed.tombstone, stoppedRun: removed.stoppedRun },
+        metadata: { automationTombstone: removed.tombstone },
         output: JSON.stringify(removed.tombstone, null, 2),
       }
     }),
