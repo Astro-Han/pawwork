@@ -216,7 +216,7 @@ export async function listExperimentalSessions(query: ExperimentalSessionListQue
       ? query.sort === "created"
         ? encodeCreatedSessionCursor(last)
         : query.sort === "activity"
-          ? (encodeActivitySessionCursor(last) ?? "")
+          ? encodeActivitySessionCursor(last)
           : String(last.time.updated)
       : undefined
 

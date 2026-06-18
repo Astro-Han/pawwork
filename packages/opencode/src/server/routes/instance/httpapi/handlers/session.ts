@@ -139,6 +139,35 @@ function boolQuery(value: "true" | "false" | undefined) {
   return value === undefined ? undefined : value === "true"
 }
 
+function parseMessagesQuery(query: { limit?: number; before?: string }) {
+  if (query.limit !== undefined && (!Number.isInteger(query.limit) || query.limit < 0)) {
+    return badRequestJson({
+      data: query,
+      error: [{ message: "limit must be an integer greater than or equal to 0" }],
+      success: false,
+    })
+  }
+  if (query.before && query.limit === undefined) {
+    return badRequestJson({
+      data: query,
+      error: [{ message: "before requires limit" }],
+      success: false,
+    })
+  }
+  if (query.before) {
+    try {
+      MessageV2.cursor.decode(query.before)
+    } catch {
+      return badRequestJson({
+        data: query,
+        error: [{ message: "Invalid cursor" }],
+        success: false,
+      })
+    }
+  }
+  return query
+}
+
 export const sessionHandlers = HttpApiBuilder.group(SessionApi, "session", (handlers) =>
   handlers
     .handleRaw("list", (ctx) =>
@@ -198,12 +227,17 @@ export const sessionHandlers = HttpApiBuilder.group(SessionApi, "session", (hand
       }),
     )
     .handleRaw("messages", (ctx) =>
-      SessionRouteEffects.listSessionMessages({
-        sessionID: ctx.params.sessionID,
-        limit: ctx.query.limit,
-        before: ctx.query.before,
+      Effect.gen(function* () {
+        const query = parseMessagesQuery(ctx.query)
+        if (HttpServerResponse.isHttpServerResponse(query)) return query
+        return yield* SessionRouteEffects.listSessionMessages({
+          sessionID: ctx.params.sessionID,
+          limit: query.limit,
+          before: query.before,
+        })
       }).pipe(
         Effect.map((result) => {
+          if (HttpServerResponse.isHttpServerResponse(result)) return result
           if (result.kind === "all") return HttpServerResponse.jsonUnsafe(result.items)
 
           const limit = ctx.query.limit!
@@ -211,7 +245,7 @@ export const sessionHandlers = HttpApiBuilder.group(SessionApi, "session", (hand
             result.page.cursor === undefined
               ? undefined
               : (() => {
-                  const url = new URL(ctx.request.url)
+                  const url = new URL(ctx.request.url, "http://localhost")
                   url.searchParams.set("limit", limit.toString())
                   url.searchParams.set("before", result.page.cursor)
                   return {

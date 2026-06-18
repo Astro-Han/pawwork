@@ -117,7 +117,7 @@ export const experimentalHandlers = HttpApiBuilder.group(ExperimentalApi, "exper
             result.hasMore && result.sessions.length > 0
               ? {
                   "Access-Control-Expose-Headers": "X-Next-Cursor",
-                  "x-next-cursor": result.nextCursor ?? "",
+                  ...(result.nextCursor === undefined ? {} : { "x-next-cursor": result.nextCursor }),
                 }
               : undefined
           return HttpServerResponse.jsonUnsafe(result.sessions, { headers })

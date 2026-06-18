@@ -49,7 +49,12 @@ const SessionDiffQuery = Schema.Struct({
 
 const SessionMessagesQuery = Schema.Struct({
   ...WorkspaceRoutingQuery.fields,
-  limit: Schema.optionalKey(Schema.NumberFromString),
+  limit: Schema.optionalKey(
+    Schema.NumberFromString.pipe(
+      Schema.check(Schema.isInt()),
+      Schema.check(Schema.isGreaterThanOrEqualTo(0)),
+    ),
+  ),
   before: Schema.optionalKey(Schema.String),
 })
 
