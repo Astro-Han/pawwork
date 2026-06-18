@@ -102,6 +102,20 @@
   }
 }
 
+/* Shared collapse affordance: a single chevron that points right when collapsed and rotates down
+   when the item expands — the same convention session-turn / session-review diffs already use, so
+   accordion call sites drop the bidirectional grabber glyph for one consistent icon. Opt in by
+   wrapping the chevron in [data-slot="accordion-chevron"]. */
+[data-slot="accordion-chevron"] {
+  display: inline-flex;
+  transition: transform 0.15s ease;
+  transform: rotate(-90deg);
+}
+
+[data-slot="accordion-item"][data-expanded] [data-slot="accordion-chevron"] {
+  transform: rotate(0deg);
+}
+
 @keyframes slideDown {
   from {
     height: 0;

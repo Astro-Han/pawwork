@@ -366,7 +366,7 @@ export const SessionReview = (props: SessionReviewProps) => {
           <Show when={hasDiffs()}>
             <Button
               size="small"
-              icon="chevron-grabber-vertical"
+              icon={hasOpenRenderableFiles() ? "chevron-up" : "chevron-down"}
               class="w-[106px] justify-start"
               onClick={handleExpandOrCollapseAll}
             >

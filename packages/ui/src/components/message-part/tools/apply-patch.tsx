@@ -130,7 +130,9 @@ ToolRegistry.register({
                                       <DiffChanges changes={{ additions: file.additions, deletions: file.deletions }} />
                                     </Match>
                                   </Switch>
-                                  <Icon name="chevron-grabber-vertical" />
+                                  <span data-slot="accordion-chevron">
+                                    <Icon name="chevron-down" />
+                                  </span>
                                 </div>
                               </div>
                             </Accordion.Trigger>
