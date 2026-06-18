@@ -86,6 +86,7 @@ const windowsOpencodeShards = [
   {
     suffix: "opencode-session",
     usesTurbo: false,
+    timeoutMinutes: 30,
     command:
       "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-session.xml test/session test/plugin test/permission test/util test/skill test/index-runtime-namespace.test.ts test/permission-agent.test.ts test/permission-cleanup.test.ts",
     reportPath: "packages/opencode/.artifacts/unit/junit-windows-session.xml",
@@ -93,6 +94,7 @@ const windowsOpencodeShards = [
   {
     suffix: "opencode-config-project",
     usesTurbo: false,
+    timeoutMinutes: 20,
     command:
       "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-config-project.xml test/config test/project test/worktree test/file/ test/github test/opencli test/settings test/settings.test.ts",
     reportPath: "packages/opencode/.artifacts/unit/junit-windows-config-project.xml",
@@ -100,6 +102,7 @@ const windowsOpencodeShards = [
   {
     suffix: "opencode-server-tools",
     usesTurbo: false,
+    timeoutMinutes: 20,
     command:
       "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-server-tools.xml test/server test/snapshot test/tool test/browser test/mcp test/question test/effect test/agent test/git/ test/storage test/provider test/pty test/share/ test/script test/memory test/lsp test/fixture test/acp test/bus test/cli test/global test/account test/sync test/filesystem test/patch test/shell test/control-plane test/ide test/installation test/auth test/automation",
     reportPath: "packages/opencode/.artifacts/unit/junit-windows-server-tools.xml",
@@ -110,6 +113,7 @@ const windowsUnitPackages = [
   {
     suffix: "app",
     usesTurbo: true,
+    timeoutMinutes: 20,
     command: "bun turbo test:ci --filter=@opencode-ai/app",
     reportPath: "packages/app/.artifacts/unit/junit.xml",
   },
@@ -117,6 +121,7 @@ const windowsUnitPackages = [
   {
     suffix: "desktop",
     usesTurbo: true,
+    timeoutMinutes: 20,
     command: "bun turbo test:ci --filter=@opencode-ai/desktop-electron",
     reportPath: "packages/desktop-electron/.artifacts/unit/junit.xml",
   },
@@ -557,7 +562,7 @@ describe("ci workflow", () => {
     expect(job?.needs).toBe("changes")
     expect(job?.if).toBe("needs.changes.outputs.docs_only != 'true'")
     expect(job?.["runs-on"]).toBe("windows-latest")
-    expect(job?.["timeout-minutes"]).toBe(20)
+    expect(job?.["timeout-minutes"] as unknown).toBe("${{ matrix.timeout_minutes }}")
     expect(job?.["continue-on-error"]).toBeUndefined()
     expect(job?.strategy?.["fail-fast"]).toBe(false)
     expect(job?.permissions).toEqual({ contents: "read" })
@@ -651,9 +656,10 @@ describe("ci workflow", () => {
     const matrixIncludes = job?.strategy?.matrix?.include ?? []
 
     expect(matrixIncludes).toEqual(
-      windowsUnitJobs.map(({ jobName, usesTurbo, command, reportPath }) => ({
+      windowsUnitJobs.map(({ jobName, usesTurbo, timeoutMinutes, command, reportPath }) => ({
         package: jobName.replace("unit-windows-", ""),
         uses_turbo: usesTurbo,
+        timeout_minutes: timeoutMinutes,
         command,
         report_path: reportPath,
       })),
