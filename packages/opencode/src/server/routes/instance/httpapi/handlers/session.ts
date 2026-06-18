@@ -128,6 +128,13 @@ function okAfter(effect: Effect.Effect<unknown, unknown, unknown>) {
   )
 }
 
+function emptyPromptStreamResponse() {
+  return HttpServerResponse.raw("", {
+    status: 200,
+    contentType: "application/json",
+  })
+}
+
 function noContentAfter(effect: Effect.Effect<unknown, unknown, unknown>) {
   return effect.pipe(
     Effect.as(HttpServerResponse.empty()),
@@ -274,11 +281,16 @@ export const sessionHandlers = HttpApiBuilder.group(SessionApi, "session", (hand
       Effect.gen(function* () {
         const body = yield* parseJsonBody(ctx.request, SessionPrompt.PromptInput.omit({ sessionID: true }))
         if (HttpServerResponse.isHttpServerResponse(body)) return body
-        const message = yield* SessionRouteEffects.promptSession({ ...body, sessionID: ctx.params.sessionID })
-        return HttpServerResponse.raw(JSON.stringify(message), {
-          contentType: "application/json",
-        })
-      }).pipe(Effect.catch(sessionFailure), Effect.catchDefect(sessionFailure)),
+        return yield* SessionRouteEffects.promptSession({ ...body, sessionID: ctx.params.sessionID }).pipe(
+          Effect.map((message) =>
+            HttpServerResponse.raw(JSON.stringify(message), {
+              contentType: "application/json",
+            }),
+          ),
+          Effect.catch(() => Effect.succeed(emptyPromptStreamResponse())),
+          Effect.catchDefect(() => Effect.succeed(emptyPromptStreamResponse())),
+        )
+      }),
     )
     .handleRaw("message", (ctx) =>
       Effect.sync(() =>

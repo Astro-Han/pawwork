@@ -186,7 +186,7 @@ describe("session HttpApi routes", () => {
     })
   })
 
-  test("maps missing provider models to bad requests like the Hono route", async () => {
+  test("preserves prompt stream error response after request validation succeeds", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -202,10 +202,10 @@ describe("session HttpApi routes", () => {
               parts: [{ type: "text", text: "hello" }],
             }),
           })
-          const body = await response.json()
 
-          expect(response.status).toBe(400)
-          expect(body.name).toBe("ProviderModelNotFoundError")
+          expect(response.status).toBe(200)
+          expect(response.headers.get("content-type")).toContain("application/json")
+          expect(await response.text()).toBe("")
         } finally {
           await svc.remove(session.id).catch(() => undefined)
         }
