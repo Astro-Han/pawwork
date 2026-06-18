@@ -18,6 +18,7 @@ export type RouteRow = {
   openapi: boolean
   legacySdk: boolean
   v2Sdk: boolean
+  localHttpApi: boolean
   upstreamHttpApi: boolean
   classification: string
   specialSurface: string
@@ -33,12 +34,14 @@ export type RouteInventory = {
     openapi: number
     legacySdk: number
     v2Sdk: number
+    localHttpApi: number
     upstreamHttpApi: number
   }
   hono: { routes: Route[] }
   openapi: { routes: Route[] }
   legacySdk: { routes: Route[] }
   v2Sdk: { routes: Route[] }
+  localHttpApi: { routes: Route[] }
   upstreamHttpApi: { routes: Route[] }
   rows: RouteRow[]
 }
@@ -355,7 +358,7 @@ export function parseHttpApiRoutesFromText(text: string, source: string): Route[
     if (literal) routePath = resolveTemplatePath(literal[2]!, constants)
     else {
       const key = pathExpr.split(".").pop()
-      routePath = pathValues.get(pathExpr) ?? (key ? pathValues.get(key) : undefined)
+      routePath = pathValues.get(pathExpr) ?? constants.get(pathExpr) ?? (key ? pathValues.get(key) : undefined)
     }
     if (routePath) routes.push({ method, path: normalizePath(routePath), source })
   }
@@ -395,6 +398,15 @@ async function readUpstreamHttpApiRoutes(root: string, ref: string, required: bo
   return unique
 }
 
+async function readLocalHttpApiRoutes(root: string): Promise<Route[]> {
+  const files = await listTypeScriptFiles(root, "packages/opencode/src/server/routes/instance/httpapi")
+  const routes: Route[] = []
+  for (const file of files) {
+    routes.push(...parseHttpApiRoutesFromText(await readText(path.join(root, file)), file))
+  }
+  return uniqueRoutes(routes)
+}
+
 function specialSurfaceFor(method: string, routePath: string) {
   const key = `${method} ${routePath}`
   return specialSurfaces.find(([pattern]) => pattern.test(key) || pattern.test(routePath))?.[1] ?? "-"
@@ -432,11 +444,12 @@ export async function buildRouteInventory(options: BuildOptions = {}): Promise<R
   if (sourceCoverage.missing.length > 0) {
     throw new Error(`Hono route inventory source list is missing: ${sourceCoverage.missing.join(", ")}`)
   }
-  const [hono, openapi, legacySdk, v2Sdk, upstreamHttpApi] = await Promise.all([
+  const [hono, openapi, legacySdk, v2Sdk, localHttpApi, upstreamHttpApi] = await Promise.all([
     discoverHonoRoutes(root),
     readOpenApiRoutes(root),
     readSdkRoutes(root, "packages/sdk/js/src/gen/sdk.gen.ts"),
     readSdkRoutes(root, "packages/sdk/js/src/v2/gen/sdk.gen.ts"),
+    readLocalHttpApiRoutes(root),
     readUpstreamHttpApiRoutes(root, upstreamRef, requireUpstream),
   ])
 
@@ -445,6 +458,7 @@ export async function buildRouteInventory(options: BuildOptions = {}): Promise<R
     openapi: new Set(openapi.map(routeKey)),
     legacySdk: new Set(legacySdk.map(routeKey)),
     v2Sdk: new Set(v2Sdk.map(routeKey)),
+    localHttpApi: new Set(localHttpApi.map(routeKey)),
     upstreamHttpApi: new Set(upstreamHttpApi.map(routeKey)),
   }
 
@@ -463,6 +477,7 @@ export async function buildRouteInventory(options: BuildOptions = {}): Promise<R
         openapi: sets.openapi.has(key),
         legacySdk: sets.legacySdk.has(key),
         v2Sdk: sets.v2Sdk.has(key),
+        localHttpApi: sets.localHttpApi.has(key),
         upstreamHttpApi: sets.upstreamHttpApi.has(key),
       }
       return {
@@ -496,12 +511,14 @@ export async function buildRouteInventory(options: BuildOptions = {}): Promise<R
       openapi: openapi.length,
       legacySdk: legacySdk.length,
       v2Sdk: v2Sdk.length,
+      localHttpApi: localHttpApi.length,
       upstreamHttpApi: upstreamHttpApi.length,
     },
     hono: { routes: hono },
     openapi: { routes: openapi },
     legacySdk: { routes: legacySdk },
     v2Sdk: { routes: v2Sdk },
+    localHttpApi: { routes: localHttpApi },
     upstreamHttpApi: { routes: upstreamHttpApi },
     rows,
   }
@@ -528,17 +545,18 @@ export function renderRouteInventoryReport(inventory: RouteInventory) {
     `- Checked-in OpenAPI method routes: ${inventory.counts.openapi}`,
     `- Legacy generated SDK route calls: ${inventory.counts.legacySdk}`,
     `- v2 generated SDK route calls: ${inventory.counts.v2Sdk}`,
+    `- Local HttpApi method routes: ${inventory.counts.localHttpApi}`,
     `- Upstream parsed HttpApi method routes: ${inventory.counts.upstreamHttpApi}`,
     "",
     "## Main Table",
     "",
-    "| Path | Method | Hono | OpenAPI | Legacy SDK | v2 SDK | Upstream HttpApi | Classification | Special surface |",
-    "|---|---:|---:|---:|---:|---:|---:|---|---|",
+    "| Path | Method | Hono | OpenAPI | Legacy SDK | v2 SDK | Local HttpApi | Upstream HttpApi | Classification | Special surface |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---|---|",
   ]
 
   for (const row of inventory.rows) {
     lines.push(
-      `| \`${row.path}\` | \`${row.method}\` | ${mark(row.hono)} | ${mark(row.openapi)} | ${mark(row.legacySdk)} | ${mark(row.v2Sdk)} | ${mark(row.upstreamHttpApi)} | \`${row.classification}\` | ${row.specialSurface} |`,
+      `| \`${row.path}\` | \`${row.method}\` | ${mark(row.hono)} | ${mark(row.openapi)} | ${mark(row.legacySdk)} | ${mark(row.v2Sdk)} | ${mark(row.localHttpApi)} | ${mark(row.upstreamHttpApi)} | \`${row.classification}\` | ${row.specialSurface} |`,
     )
   }
 
