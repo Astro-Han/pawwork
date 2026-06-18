@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { NodeFileSystem, NodeHttpPlatform, NodePath } from "@effect/platform-node"
 import { Effect, Layer } from "effect"
 import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
-import { HttpApiBuilder } from "effect/unstable/httpapi"
+import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { SessionApi } from "../../src/server/routes/instance/httpapi/groups/session"
@@ -80,6 +80,51 @@ async function fill(sessionID: SessionID, count: number, time = (index: number) 
 }
 
 describe("session HttpApi routes", () => {
+  test("declares Hono-compatible OpenAPI operation IDs", () => {
+    const spec = OpenApi.fromApi(SessionApi) as any
+
+    for (const [routePath, method, operationId] of [
+      ["/session", "get", "session.list"],
+      ["/session", "post", "session.create"],
+      ["/session/status", "get", "session.status"],
+      ["/session/{sessionID}", "get", "session.get"],
+      ["/session/{sessionID}", "patch", "session.update"],
+      ["/session/{sessionID}", "delete", "session.delete"],
+      ["/session/{sessionID}/children", "get", "session.children"],
+      ["/session/{sessionID}/init", "post", "session.init"],
+      ["/session/{sessionID}/message", "get", "session.messages"],
+      ["/session/{sessionID}/message", "post", "session.prompt"],
+      ["/session/{sessionID}/message/{messageID}", "get", "session.message"],
+      ["/session/{sessionID}/message/{messageID}", "delete", "session.deleteMessage"],
+      ["/session/{sessionID}/message/{messageID}/part/{partID}", "patch", "part.update"],
+      ["/session/{sessionID}/message/{messageID}/part/{partID}", "delete", "part.delete"],
+      ["/session/{sessionID}/todo", "get", "session.todo"],
+      ["/session/{sessionID}/prompt_async", "post", "session.prompt_async"],
+      ["/session/{sessionID}/abort", "post", "session.abort"],
+      ["/session/{sessionID}/command", "post", "session.command"],
+      ["/session/{sessionID}/fork", "post", "session.fork"],
+      ["/session/{sessionID}/diff", "get", "session.diff"],
+      ["/session/{sessionID}/share", "post", "session.share"],
+      ["/session/{sessionID}/share", "delete", "session.unshare"],
+      ["/session/{sessionID}/summarize", "post", "session.summarize"],
+      ["/session/{sessionID}/shell", "post", "session.shell"],
+      ["/session/{sessionID}/revert", "post", "session.revert"],
+      ["/session/{sessionID}/unrevert", "post", "session.unrevert"],
+      ["/session/{sessionID}/permissions/{permissionID}", "post", "permission.respond"],
+      ["/session/{sessionID}/artifacts", "get", "session.artifacts"],
+      ["/session/{sessionID}/export", "get", "session.export"],
+      ["/session/{sessionID}/tool/respond", "post", "session.toolRespond"],
+      ["/session/{sessionID}/turn-change/{messageID}", "get", "session.turnChange"],
+      ["/session/{sessionID}/turn-change/{messageID}/undo", "post", "session.turnChangeUndo"],
+      ["/session/{sessionID}/turn-change/{messageID}/redo", "post", "session.turnChangeRedo"],
+      ["/session/{sessionID}/turn/{userMessageID}/changes", "get", "session.turnChangesAggregate"],
+      ["/session/{sessionID}/turn/{userMessageID}/changes/undo", "post", "session.turnChangesAggregateUndo"],
+      ["/session/{sessionID}/turn/{userMessageID}/changes/redo", "post", "session.turnChangesAggregateRedo"],
+    ] as const) {
+      expect(spec.paths[routePath]?.[method]?.operationId).toBe(operationId)
+    }
+  })
+
   test("rejects message cursors without a limit like the Hono route", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
@@ -123,11 +168,16 @@ describe("session HttpApi routes", () => {
         try {
           await fill(session.id, 3)
 
-          const response = await requestSessionHttpApi(`/session/${session.id}/message?limit=2`)
+          const response = await requestSessionHttpApi(
+            `/session/${session.id}/message?limit=2`,
+            { headers: { host: "api.example.test" } },
+          )
+          const link = response.headers.get("link")
 
           expect(response.status).toBe(200)
           expect(response.headers.get("x-next-cursor")).toBeTruthy()
-          expect(response.headers.get("link")).toContain("rel=\"next\"")
+          expect(link).toContain("rel=\"next\"")
+          expect(link?.startsWith("<http://api.example.test/session/")).toBe(true)
           expect((await response.json()).length).toBe(2)
         } finally {
           await svc.remove(session.id).catch(() => undefined)

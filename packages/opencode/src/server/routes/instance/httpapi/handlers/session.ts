@@ -90,6 +90,12 @@ function parseJsonBody<T>(request: HttpServerRequest.HttpServerRequest, schema: 
   })
 }
 
+function requestUrl(request: HttpServerRequest.HttpServerRequest) {
+  const protocol = request.headers["x-forwarded-proto"] ?? "http"
+  const host = request.headers.host ?? "localhost"
+  return new URL(request.url, `${protocol}://${host}`)
+}
+
 function unknownError(message = "Unexpected server error. Check server logs for details.") {
   return new NamedError.Unknown({ message }).toObject()
 }
@@ -249,7 +255,7 @@ export const sessionHandlers = HttpApiBuilder.group(SessionApi, "session", (hand
             result.page.cursor === undefined
               ? undefined
               : (() => {
-                  const url = new URL(ctx.request.url, "http://localhost")
+                  const url = requestUrl(ctx.request)
                   url.searchParams.set("limit", limit.toString())
                   url.searchParams.set("before", result.page.cursor)
                   return {
