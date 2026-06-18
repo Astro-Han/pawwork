@@ -11,18 +11,40 @@ const MemoryDisabledInput = z.object({ disabled: z.boolean() }).meta({ ref: "Mem
 
 const MemoryState = z.any().meta({ ref: "MemoryState" })
 
-function service() {
+const runMemoryRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
+
+function createMemoryService() {
   return MemoryService.create({ workspacePath: Instance.directory })
 }
 
-function runMemory<A>(fn: (memory: ReturnType<typeof service>) => Promise<A>) {
-  return AppRuntime.runPromise(
-    Effect.gen(function* () {
-      const memory = service()
-      return yield* Effect.promise(() => fn(memory))
-    }),
-  )
-}
+const readMemory = Effect.fn("MemoryRoutes.read")(function* () {
+  const memory = createMemoryService()
+  return yield* Effect.promise(() => memory.read())
+})
+
+const updateRawMemory = Effect.fn("MemoryRoutes.updateRaw")(function* (content: string) {
+  const memory = createMemoryService()
+  yield* Effect.promise(() => memory.saveRaw(content))
+  return yield* Effect.promise(() => memory.read())
+})
+
+const resetMemory = Effect.fn("MemoryRoutes.reset")(function* () {
+  const memory = createMemoryService()
+  yield* Effect.promise(() => memory.resetToTemplate())
+  return yield* Effect.promise(() => memory.read())
+})
+
+const setMemoryDisabled = Effect.fn("MemoryRoutes.disabled")(function* (disabled: boolean) {
+  const memory = createMemoryService()
+  yield* Effect.promise(() => memory.setDisabled(disabled))
+  return yield* Effect.promise(() => memory.read())
+})
+
+const deleteMemoryEntry = Effect.fn("MemoryRoutes.deleteEntry")(function* (id: string) {
+  const memory = createMemoryService()
+  yield* Effect.promise(() => memory.deleteEntry(id))
+  return yield* Effect.promise(() => memory.read())
+})
 
 export const MemoryRoutes = () =>
   new Hono()
@@ -35,7 +57,7 @@ export const MemoryRoutes = () =>
           200: { description: "Memory state", content: { "application/json": { schema: resolver(MemoryState) } } },
         },
       }),
-      async (c) => c.json(await runMemory((memory) => memory.read())),
+      async (c) => c.json(await runMemoryRoute(readMemory())),
     )
     .patch(
       "/",
@@ -51,10 +73,7 @@ export const MemoryRoutes = () =>
       async (c) => {
         try {
           const content = c.req.valid("json").content
-          const state = await runMemory(async (memory) => {
-            await memory.saveRaw(content)
-            return memory.read()
-          })
+          const state = await runMemoryRoute(updateRawMemory(content))
           return c.json(state)
         } catch (error) {
           return c.json({ error: "invalid_memory_file", reason: error instanceof Error ? error.message : String(error) }, 400)
@@ -71,10 +90,7 @@ export const MemoryRoutes = () =>
         },
       }),
       async (c) => {
-        const state = await runMemory(async (memory) => {
-          await memory.resetToTemplate()
-          return memory.read()
-        })
+        const state = await runMemoryRoute(resetMemory())
         return c.json(state)
       },
     )
@@ -90,10 +106,7 @@ export const MemoryRoutes = () =>
       validator("json", MemoryDisabledInput),
       async (c) => {
         const disabled = c.req.valid("json").disabled
-        const state = await runMemory(async (memory) => {
-          await memory.setDisabled(disabled)
-          return memory.read()
-        })
+        const state = await runMemoryRoute(setMemoryDisabled(disabled))
         return c.json(state)
       },
     )
@@ -108,10 +121,7 @@ export const MemoryRoutes = () =>
       }),
       async (c) => {
         const id = c.req.param("id")
-        const state = await runMemory(async (memory) => {
-          await memory.deleteEntry(id)
-          return memory.read()
-        })
+        const state = await runMemoryRoute(deleteMemoryEntry(id))
         return c.json(state)
       },
     )

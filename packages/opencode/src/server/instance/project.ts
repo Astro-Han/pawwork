@@ -10,6 +10,33 @@ import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 import { AppRuntime } from "../../effect/app-runtime"
 
+const runProjectRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
+
+const listProjects = Effect.fn("ProjectRoutes.list")(function* () {
+  const project = yield* Project.Service
+  return yield* project.list()
+})
+
+const initGit = Effect.fn("ProjectRoutes.git.init")(function* (input: { directory: string; project: Project.Info }) {
+  const project = yield* Project.Service
+  const next = yield* project.initGit(input)
+  if (next.id === input.project.id && next.vcs === input.project.vcs && next.worktree === input.project.worktree)
+    return next
+  yield* Effect.promise(() =>
+    Instance.reload({
+      directory: input.directory,
+      worktree: input.directory,
+      project: next,
+    }),
+  )
+  return next
+})
+
+const updateProject = Effect.fn("ProjectRoutes.update")(function* (input: Project.UpdateInput) {
+  const project = yield* Project.Service
+  return yield* project.update(input)
+})
+
 export const ProjectRoutes = lazy(() =>
   new Hono()
     .get(
@@ -30,12 +57,7 @@ export const ProjectRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const projects = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const service = yield* Project.Service
-            return yield* service.list()
-          }),
-        )
+        const projects = await runProjectRoute(listProjects())
         return c.json(projects)
       },
     )
@@ -80,24 +102,7 @@ export const ProjectRoutes = lazy(() =>
       async (c) => {
         const dir = Instance.directory
         const prev = Instance.project
-        const next = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const service = yield* Project.Service
-            const project = yield* service.initGit({
-              directory: dir,
-              project: prev,
-            })
-            if (project.id === prev.id && project.vcs === prev.vcs && project.worktree === prev.worktree) return project
-            yield* Effect.promise(() =>
-              Instance.reload({
-                directory: dir,
-                worktree: dir,
-                project,
-              }),
-            )
-            return project
-          }),
-        )
+        const next = await runProjectRoute(initGit({ directory: dir, project: prev }))
         return c.json(next)
       },
     )
@@ -124,12 +129,7 @@ export const ProjectRoutes = lazy(() =>
       async (c) => {
         const projectID = c.req.valid("param").projectID
         const body = c.req.valid("json")
-        const project = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const service = yield* Project.Service
-            return yield* service.update({ ...body, projectID })
-          }),
-        )
+        const project = await runProjectRoute(updateProject({ ...body, projectID }))
         return c.json(project)
       },
     ),

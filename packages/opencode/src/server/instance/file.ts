@@ -9,6 +9,47 @@ import { Instance } from "../../project/instance"
 import { AppRuntime } from "../../effect/app-runtime"
 import { lazy } from "../../util/lazy"
 
+const runFileRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
+
+const findText = Effect.fn("FileRoutes.findText")(function* (pattern: string) {
+  const rg = yield* Ripgrep.Service
+  return yield* rg.search({
+    cwd: Instance.directory,
+    pattern,
+    limit: 10,
+  })
+})
+
+const findFiles = Effect.fn("FileRoutes.findFiles")(function* (input: {
+  query: string
+  dirs?: "true" | "false"
+  type?: "file" | "directory"
+  limit?: number
+}) {
+  const file = yield* File.Service
+  return yield* file.search({
+    query: input.query,
+    limit: input.limit ?? 10,
+    dirs: input.dirs !== "false",
+    type: input.type,
+  })
+})
+
+const listFiles = Effect.fn("FileRoutes.list")(function* (path: string) {
+  const file = yield* File.Service
+  return yield* file.list(path)
+})
+
+const readFileContent = Effect.fn("FileRoutes.read")(function* (path: string) {
+  const file = yield* File.Service
+  return yield* file.read(path)
+})
+
+const getFileStatus = Effect.fn("FileRoutes.status")(function* () {
+  const file = yield* File.Service
+  return yield* file.status()
+})
+
 export const FileRoutes = lazy(() =>
   new Hono()
     .get(
@@ -42,16 +83,7 @@ export const FileRoutes = lazy(() =>
       ),
       async (c) => {
         const pattern = c.req.valid("query").pattern
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const rg = yield* Ripgrep.Service
-            return yield* rg.search({
-              cwd: Instance.directory,
-              pattern,
-              limit: 10,
-            })
-          }),
-        )
+        const result = await runFileRoute(findText(pattern))
         return c.json(result)
       },
     )
@@ -86,17 +118,7 @@ export const FileRoutes = lazy(() =>
         const dirs = c.req.valid("query").dirs
         const type = c.req.valid("query").type
         const limit = c.req.valid("query").limit
-        const results = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const file = yield* File.Service
-            return yield* file.search({
-              query,
-              limit: limit ?? 10,
-              dirs: dirs !== "false",
-              type,
-            })
-          }),
-        )
+        const results = await runFileRoute(findFiles({ query, dirs, type, limit }))
         return c.json(results)
       },
     )
@@ -157,12 +179,7 @@ export const FileRoutes = lazy(() =>
       ),
       async (c) => {
         const path = c.req.valid("query").path
-        const content = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const file = yield* File.Service
-            return yield* file.list(path)
-          }),
-        )
+        const content = await runFileRoute(listFiles(path))
         return c.json(content)
       },
     )
@@ -191,12 +208,7 @@ export const FileRoutes = lazy(() =>
       ),
       async (c) => {
         const path = c.req.valid("query").path
-        const content = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const file = yield* File.Service
-            return yield* file.read(path)
-          }),
-        )
+        const content = await runFileRoute(readFileContent(path))
         return c.json(content)
       },
     )
@@ -218,12 +230,7 @@ export const FileRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const content = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const file = yield* File.Service
-            return yield* file.status()
-          }),
-        )
+        const content = await runFileRoute(getFileStatus())
         return c.json(content)
       },
     ),
