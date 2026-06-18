@@ -1,9 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { NodeFileSystem, NodeHttpPlatform, NodePath } from "@effect/platform-node"
+import { Effect, Layer } from "effect"
+import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
 import { Hono } from "hono"
 import { Log } from "@opencode-ai/core/util/log"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { ExperimentalRoutes } from "../../src/server/instance/experimental"
 import { ErrorMiddleware } from "../../src/server/middleware"
+import { ExperimentalApi } from "../../src/server/routes/instance/httpapi/groups/experimental"
+import { experimentalHandlers } from "../../src/server/routes/instance/httpapi/handlers/experimental"
 import { Session } from "../../src/session"
 import { Worktree } from "../../src/worktree"
 import { tmpdir } from "../fixture/fixture"
@@ -19,6 +26,44 @@ describe("experimental routes", () => {
     return new Hono().route("/experimental", ExperimentalRoutes()).onError(ErrorMiddleware)
   }
 
+  function requestExperimentalHttpApi(routePath: string, init?: RequestInit) {
+    return AppRuntime.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const router = yield* HttpRouter.toHttpEffect(
+            HttpApiBuilder.layer(ExperimentalApi).pipe(
+              Layer.provide(experimentalHandlers),
+              Layer.provide(Layer.mergeAll(NodeFileSystem.layer, NodeHttpPlatform.layer, NodePath.layer, Etag.layer)),
+            ),
+          )
+          const request = HttpServerRequest.fromWeb(new Request(`http://localhost${routePath}`, init))
+          const response = yield* router.pipe(Effect.provideService(HttpServerRequest.HttpServerRequest, request), Effect.orDie)
+          return HttpServerResponse.toWeb(response)
+        }),
+      ) as Effect.Effect<Response>,
+    )
+  }
+
+  test("declares the ordinary experimental route group as HttpApi endpoints", () => {
+    const spec = OpenApi.fromApi(ExperimentalApi) as any
+
+    for (const [routePath, method] of [
+      ["/experimental/console", "get"],
+      ["/experimental/console/orgs", "get"],
+      ["/experimental/console/switch", "post"],
+      ["/experimental/tool", "get"],
+      ["/experimental/tool/ids", "get"],
+      ["/experimental/resource", "get"],
+      ["/experimental/worktree", "get"],
+      ["/experimental/worktree", "post"],
+      ["/experimental/worktree", "delete"],
+      ["/experimental/worktree/reset", "post"],
+    ] as const) {
+      expect(spec.paths).toHaveProperty(routePath)
+      expect(spec.paths[routePath]).toHaveProperty(method)
+    }
+  })
+
   test("lists tool IDs through the route runtime", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
@@ -29,6 +74,41 @@ describe("experimental routes", () => {
 
         expect(response.status).toBe(200)
         expect(body).toBeArray()
+      },
+    })
+  })
+
+  test("lists console, tool, worktree, and resource data through the HttpApi handlers", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const consoleState = await requestExperimentalHttpApi("/experimental/console")
+        expect(consoleState.status).toBe(200)
+        expect(await consoleState.json()).toMatchObject({
+          consoleManagedProviders: [],
+          switchableOrgCount: 0,
+        })
+
+        const orgs = await requestExperimentalHttpApi("/experimental/console/orgs")
+        expect(orgs.status).toBe(200)
+        expect(await orgs.json()).toEqual({ orgs: [] })
+
+        const toolIDs = await requestExperimentalHttpApi("/experimental/tool/ids")
+        expect(toolIDs.status).toBe(200)
+        expect(await toolIDs.json()).toBeArray()
+
+        const tools = await requestExperimentalHttpApi("/experimental/tool?provider=anthropic&model=claude")
+        expect(tools.status).toBe(200)
+        expect(await tools.json()).toBeArray()
+
+        const worktrees = await requestExperimentalHttpApi("/experimental/worktree")
+        expect(worktrees.status).toBe(200)
+        expect(await worktrees.json()).toBeArray()
+
+        const resources = await requestExperimentalHttpApi("/experimental/resource")
+        expect(resources.status).toBe(200)
+        expect(await resources.json()).toBeObject()
       },
     })
   })
@@ -87,6 +167,53 @@ describe("experimental routes", () => {
         expect(response.status).toBe(400)
         expect(body.name).toBe("WorktreeRemoveFailedError")
         expect(body.data.message).toContain("Worktree is in use by session")
+      },
+    })
+  })
+
+  test("DELETE /worktree keeps active session failures as bad requests through the HttpApi handlers", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const info = await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const info = await Worktree.makeWorktreeInfo("bound-session-httpapi")
+        await Worktree.createFromInfo(info)
+        const session = await Session.create({ title: "Bound session HttpApi" })
+        await Session.updateExecutionContext({ sessionID: session.id, activeWorktree: info })
+        return info
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const response = await requestExperimentalHttpApi("/experimental/worktree", {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ directory: info.directory }),
+        })
+        const body = await response.json()
+
+        expect(response.status).toBe(400)
+        expect(body.name).toBe("WorktreeRemoveFailedError")
+        expect(body.data.message).toContain("Worktree is in use by session")
+      },
+    })
+  })
+
+  test("rejects malformed console switch JSON through the HttpApi handlers", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const response = await requestExperimentalHttpApi("/experimental/console/switch", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{",
+        })
+
+        expect(response.status).toBe(400)
+        expect(await response.text()).toBe("Malformed JSON in request body")
       },
     })
   })
