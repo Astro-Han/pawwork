@@ -63,12 +63,16 @@ export default defineConfig({
       rollupOptions: {
         input: { index: "src/main/index.ts" },
       },
-      // remote-bridge ships TypeScript source only (exports map → ./src/*.ts) and
-      // has no runtime deps, so it must be BUNDLED into out/main rather than
-      // externalized — a bare `import "@opencode-ai/remote-bridge/..."` left in the
-      // output would resolve to .ts at runtime, which Electron cannot execute (and
-      // the runtime-import-guard fails the build on exactly that).
-      externalizeDeps: { include: [nodePtyPkg], exclude: ["@opencode-ai/remote-bridge"] },
+      // remote-bridge ships TypeScript source only (exports map → ./src/*.ts), so it
+      // must be BUNDLED into out/main rather than externalized — a bare
+      // `import "@opencode-ai/remote-bridge/..."` left in the output would resolve to
+      // .ts at runtime, which Electron cannot execute (and the runtime-import-guard
+      // fails the build on exactly that). But the Feishu channel it bundles pulls in
+      // the Lark SDK, a compiled CJS package with native-style deep deps (protobufjs);
+      // bundling that leaves bare `require("protobufjs/minimal")` calls the runtime
+      // can't resolve, so the SDK is externalized (and declared a direct dependency
+      // here) to load whole from node_modules like node-pty.
+      externalizeDeps: { include: [nodePtyPkg, "@larksuiteoapi/node-sdk"], exclude: ["@opencode-ai/remote-bridge"] },
     },
     plugins: [
       {
