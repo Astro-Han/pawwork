@@ -252,6 +252,8 @@ Tool tests should use the existing Effect helpers in `packages/opencode/test/lib
 
 This keeps migrated tool tests aligned with the production service graph today, and makes the eventual `Tool.Info` → `Effect` cleanup mostly mechanical later.
 
+As of the tool-wrapper cleanup slice, `packages/opencode/src/tool/*.ts` no longer has plain `execute:` declarations in the inventory: each execute boundary is named with `Effect.fn(...)`. `tool/registry.ts` still contains compatibility adapters for plugin tools and `tool_info` availability injection, but those wrappers are also named Effect boundaries rather than Promise-returning tool definitions.
+
 Individual tools, ordered by value:
 
 - [x] `apply_patch.ts` — HIGH: multi-step orchestration, error accumulation, Bus events

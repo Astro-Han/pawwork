@@ -197,7 +197,7 @@ export namespace ToolRegistry {
               id,
               parameters,
               description: def.description,
-              execute: (args, toolCtx) =>
+              execute: Effect.fn("ToolRegistry.plugin.execute")((args, toolCtx) =>
                 Effect.gen(function* () {
                   // Plugin tools see `ask`/`metadata` as Promise/void (see
                   // @opencode-ai/plugin), but the framework versions are Effects.
@@ -240,6 +240,7 @@ export namespace ToolRegistry {
                     },
                   }),
                 ),
+              ),
             }
           }
 
@@ -473,7 +474,7 @@ export namespace ToolRegistry {
             yield* plugin.trigger("tool.definition", { toolID: tool.id }, output)
             const execute: Tool.Def["execute"] =
               tool.id === TOOL_INFO_ID
-                ? ((args, ctx) => {
+                ? Effect.fn("ToolRegistry.toolInfo.execute")((args, ctx) => {
                     const contextDeferredAvailable = ctx.extra?.["deferredAvailable"] as
                       | ((id: string) => boolean)
                       | undefined
