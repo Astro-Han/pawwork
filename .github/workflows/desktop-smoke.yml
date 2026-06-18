@@ -147,6 +147,10 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Assert Electron install complete (pre-repair)
+        run: node ./scripts/repair-electron-install.mjs --assert-complete
+        working-directory: packages/desktop-electron
+
       - name: Repair Electron install
         run: node ./scripts/repair-electron-install.mjs
         working-directory: packages/desktop-electron
@@ -259,6 +263,42 @@ jobs:
         env:
           PAWWORK_CI_SMOKE_CDP: "true"
 
+  install-matrix:
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    strategy:
+      matrix:
+        node-version: ["24", "26"]
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
+        with:
+          # Load-bearing for `bun audit` exit semantics; do not bump without re-verifying advisory exit codes.
+          bun-version: "1.3.14"
+
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Assert Electron install complete
+        run: node ./scripts/repair-electron-install.mjs --assert-complete
+        working-directory: packages/desktop-electron
+
   # Compatibility aggregator for branch protection setups that require
   # `desktop-smoke / check`. The live dev ruleset currently requires
   # `smoke-macos-arm64` directly, so every blocking job added above should
@@ -268,12 +308,14 @@ jobs:
     needs:
       - changes
       - smoke-macos-arm64
+      - install-matrix
     runs-on: ubuntu-latest
     steps:
       - name: Validate desktop smoke result
         env:
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
           SMOKE_RESULT: ${{ needs.smoke-macos-arm64.result }}
+          INSTALL_MATRIX_RESULT: ${{ needs.install-matrix.result }}
         run: |
           set -euo pipefail
 
@@ -284,5 +326,10 @@ jobs:
 
           if [ "$SMOKE_RESULT" != "success" ]; then
             echo "smoke-macos-arm64=$SMOKE_RESULT"
+            exit 1
+          fi
+
+          if [ "$INSTALL_MATRIX_RESULT" != "success" ]; then
+            echo "install-matrix=$INSTALL_MATRIX_RESULT"
             exit 1
           fi

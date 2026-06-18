@@ -6765,50 +6765,6 @@
         ]
       }
     },
-    "/formatter": {
-      "get": {
-        "operationId": "formatter.status",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "directory",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "workspace",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "summary": "Get formatter status",
-        "description": "Get formatter status",
-        "responses": {
-          "200": {
-            "description": "Formatter status",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/FormatterStatus"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "x-codeSamples": [
-          {
-            "lang": "js",
-            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.formatter.status({\n  ...\n})"
-          }
-        ]
-      }
-    },
     "/pty/{ptyID}/connect-token": {
       "post": {
         "operationId": "pty.connectToken",
@@ -12038,48 +11994,6 @@
               ]
             }
           },
-          "formatter": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "object",
-                "propertyNames": {
-                  "type": "string"
-                },
-                "additionalProperties": {
-                  "type": "object",
-                  "properties": {
-                    "disabled": {
-                      "type": "boolean"
-                    },
-                    "command": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "environment": {
-                      "type": "object",
-                      "propertyNames": {
-                        "type": "string"
-                      },
-                      "additionalProperties": {
-                        "type": "string"
-                      }
-                    },
-                    "extensions": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  }
-                }
-              }
-            ]
-          },
           "lsp": {
             "anyOf": [
               {
@@ -14237,28 +14151,6 @@
           "name",
           "root",
           "status"
-        ]
-      },
-      "FormatterStatus": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "extensions": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "enabled": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "name",
-          "extensions",
-          "enabled"
         ]
       },
       "PtyConnectToken": {

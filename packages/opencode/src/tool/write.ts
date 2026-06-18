@@ -8,7 +8,6 @@ import DESCRIPTION from "./write.txt"
 import { Bus } from "../bus"
 import { File } from "../file"
 import { FileWatcher } from "../file/watcher"
-import { Format } from "../format"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Instance } from "../project/instance"
 import { trimDiff } from "./edit"
@@ -32,7 +31,6 @@ export const WriteTool = Tool.define(
     const lsp = yield* LSP.Service
     const fs = yield* AppFileSystem.Service
     const bus = yield* Bus.Service
-    const format = yield* Format.Service
     const turnChange = yield* TurnChange.Service
 
     return {
@@ -77,21 +75,13 @@ export const WriteTool = Tool.define(
         })
 
         yield* fs.writeWithDirs(filepath, Bom.join(contentNew, desiredBom))
-        let finalContent = contentNew
-        if (yield* format.file(filepath)) {
-          const synced = yield* Bom.syncFile(fs, filepath, desiredBom)
-          finalContent = synced
-          // Recompute the diff so the bus event / snapshot reflects the
-          // post-format on-disk content. Mirrors the same pattern in edit.ts.
-          diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, finalContent))
-        }
         yield* bus.publish(File.Event.Edited, { file: filepath })
         yield* turnChange.recordWrite({
           sessionID: ctx.sessionID,
           messageID: ctx.messageID,
           path: filepath,
           before: exists ? { exists: true, content: contentOld, bom: source.bom } : { exists: false },
-          after: { exists: true, content: finalContent, bom: desiredBom },
+          after: { exists: true, content: contentNew, bom: desiredBom },
         })
         yield* bus.publish(FileWatcher.Event.Updated, {
           file: filepath,

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import type { NamedError } from "@opencode-ai/util/error"
 import { APICallError } from "ai"
 import { setTimeout as sleep } from "node:timers/promises"
@@ -32,10 +32,38 @@ function retryableRaw(error: ReturnType<NamedError["toObject"]>): string | undef
 }
 
 describe("session.retry.delay", () => {
-  test("caps delay at 30 seconds when headers missing", () => {
+  test("caps delay at 30 seconds when headers missing, with jitter within 50-100% of the exponential value", () => {
     const error = apiError()
+    const base = [2000, 4000, 8000, 16000, 30000, 30000, 30000, 30000, 30000, 30000]
     const delays = Array.from({ length: 10 }, (_, index) => SessionRetry.delay(index + 1, error))
-    expect(delays).toStrictEqual([2000, 4000, 8000, 16000, 30000, 30000, 30000, 30000, 30000, 30000])
+    // jitter equal-split: each delay lands in [50%, 100%] of the exponential base, capped at 30s
+    delays.forEach((d, i) => {
+      expect(d).toBeGreaterThanOrEqual(Math.round(base[i] * 0.5))
+      expect(d).toBeLessThanOrEqual(base[i])
+    })
+  })
+
+  test("exponential backoff applies equal jitter at 50%, midpoint, and 100% of the base", () => {
+    // The core fix for issue #1348: parallel subagents retrying 429s must not retry
+    // in lockstep. delay() applies equal jitter (50-100% of exponential base) so
+    // concurrent callers land on different moments. Deterministic via Math.random
+    // stubbing — no probabilistic draws.
+    const base = 4000 // attempt 2, RETRY_INITIAL_DELAY * 2^(2-1)
+    const cases = [
+      { rand: 0, expected: 2000 }, // 50% lower bound: base * (0.5 + 0*0.5)
+      { rand: 0.5, expected: 3000 }, // midpoint: base * (0.5 + 0.5*0.5)
+      { rand: 0.999, expected: 3998 }, // near 100%: base * (0.5 + 0.999*0.5), rounded
+    ]
+    for (const { rand, expected } of cases) {
+      const spy = spyOn(Math, "random").mockReturnValue(rand)
+      try {
+        expect(SessionRetry.delay(2)).toBe(expected)
+      } finally {
+        spy.mockRestore()
+      }
+    }
+    // sanity: base is what we think it is, so the boundaries above are meaningful
+    expect(base).toBe(SessionRetry.RETRY_INITIAL_DELAY * Math.pow(SessionRetry.RETRY_BACKOFF_FACTOR, 2 - 1))
   })
 
   test("prefers retry-after-ms when shorter than exponential", () => {
@@ -56,20 +84,26 @@ describe("session.retry.delay", () => {
     expect(d).toBeLessThanOrEqual(20000)
   })
 
-  test("ignores invalid retry hints", () => {
+  test("ignores invalid retry hints and falls back to jittered exponential", () => {
     const error = apiError({ "retry-after": "not-a-number" })
-    expect(SessionRetry.delay(1, error)).toBe(2000)
+    const d = SessionRetry.delay(1, error)
+    expect(d).toBeGreaterThanOrEqual(1000)
+    expect(d).toBeLessThanOrEqual(2000)
   })
 
-  test("ignores malformed date retry hints", () => {
+  test("ignores malformed date retry hints and falls back to jittered exponential", () => {
     const error = apiError({ "retry-after": "Invalid Date String" })
-    expect(SessionRetry.delay(1, error)).toBe(2000)
+    const d = SessionRetry.delay(1, error)
+    expect(d).toBeGreaterThanOrEqual(1000)
+    expect(d).toBeLessThanOrEqual(2000)
   })
 
-  test("ignores past date retry hints", () => {
+  test("ignores past date retry hints and falls back to jittered exponential", () => {
     const pastDate = new Date(Date.now() - 5000).toUTCString()
     const error = apiError({ "retry-after": pastDate })
-    expect(SessionRetry.delay(1, error)).toBe(2000)
+    const d = SessionRetry.delay(1, error)
+    expect(d).toBeGreaterThanOrEqual(1000)
+    expect(d).toBeLessThanOrEqual(2000)
   })
 
   test("uses retry-after values even when exceeding 10 minutes with headers", () => {
@@ -171,8 +205,14 @@ describe("session.retry.delay", () => {
     })
   })
 
-  test("delay() produces the expected exponential backoff values", () => {
-    expect([SessionRetry.delay(1), SessionRetry.delay(2), SessionRetry.delay(3)]).toEqual([2000, 4000, 8000])
+  test("delay() produces exponential backoff within the jittered range", () => {
+    // Equal jitter (50-100% of exponential base) — see issue #1348.
+    const bases = [2000, 4000, 8000]
+    const got = [SessionRetry.delay(1), SessionRetry.delay(2), SessionRetry.delay(3)]
+    got.forEach((d, i) => {
+      expect(d).toBeGreaterThanOrEqual(Math.round(bases[i] * 0.5))
+      expect(d).toBeLessThanOrEqual(bases[i])
+    })
   })
 
   test("safe recovery policy uses injected delay across the replay budget then stops", async () => {
@@ -216,9 +256,7 @@ describe("session.retry.delay", () => {
     expect(
       statuses.every(
         (status) =>
-          status.message === "" &&
-          status.presentation === "recovery" &&
-          status.reason === "network_connection_dropped",
+          status.message === "" && status.presentation === "recovery" && status.reason === "network_connection_dropped",
       ),
     ).toBe(true)
   })

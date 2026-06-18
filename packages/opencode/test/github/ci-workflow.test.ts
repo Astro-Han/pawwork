@@ -101,7 +101,7 @@ const windowsOpencodeShards = [
     suffix: "opencode-server-tools",
     usesTurbo: false,
     command:
-      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-server-tools.xml test/server test/snapshot test/tool test/browser test/mcp test/question test/effect test/agent test/git/ test/storage test/provider test/pty test/share/ test/script test/memory test/lsp test/fixture test/acp test/bus test/cli test/global test/format test/account test/sync test/filesystem test/patch test/shell test/control-plane test/ide test/installation test/auth test/automation",
+      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-server-tools.xml test/server test/snapshot test/tool test/browser test/mcp test/question test/effect test/agent test/git/ test/storage test/provider test/pty test/share/ test/script test/memory test/lsp test/fixture test/acp test/bus test/cli test/global test/account test/sync test/filesystem test/patch test/shell test/control-plane test/ide test/installation test/auth test/automation",
     reportPath: "packages/opencode/.artifacts/unit/junit-windows-server-tools.xml",
   },
 ] as const

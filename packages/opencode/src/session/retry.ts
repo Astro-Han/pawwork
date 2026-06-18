@@ -35,6 +35,16 @@ function cap(ms: number) {
   return Math.min(ms, RETRY_MAX_DELAY)
 }
 
+// Equal jitter (50-100% of the computed delay) so parallel retrying callers —
+// e.g. several subagents hitting the same provider 429 at once — spread their
+// retries across different moments instead of retrying in lockstep and
+// re-triggering the rate limit together. Applied only to the exponential
+// backoff branch; explicit Retry-After values are server directives and stay
+// exact. See https://github.com/Astro-Han/pawwork/issues/1348
+function withJitter(ms: number) {
+  return Math.round(ms * (0.5 + Math.random() * 0.5))
+}
+
 export function delay(attempt: number, error?: MessageV2.APIError) {
   if (error) {
     const headers = error.data.responseHeaders
@@ -61,11 +71,11 @@ export function delay(attempt: number, error?: MessageV2.APIError) {
         }
       }
 
-      return cap(RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1))
+      return cap(withJitter(RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1)))
     }
   }
 
-  return cap(Math.min(RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1), RETRY_MAX_DELAY_NO_HEADERS))
+  return cap(withJitter(Math.min(RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1), RETRY_MAX_DELAY_NO_HEADERS)))
 }
 
 export function classifyRetry(error: Err): RetryClassification | undefined {

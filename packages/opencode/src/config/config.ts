@@ -30,7 +30,6 @@ import { zod, ZodOverride } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
 import { ConfigAgent } from "./agent"
 import { ConfigCommand } from "./command"
-import { ConfigFormatter } from "./formatter"
 import { ConfigKeybinds } from "./keybinds"
 import { ConfigLayout } from "./layout"
 import { ConfigLSP } from "./lsp"
@@ -140,6 +139,8 @@ function normalizeLoadedConfig(data: unknown, source: string) {
   // Legacy compat for v0.2.13-era configs: ignore removed default_agent before strict schema decode.
   // Keep this as a narrow read-time shim only; do not write the file back.
   delete copy["default_agent"]
+  // Legacy compat: formatter integration was removed. Silently ignore the field.
+  delete copy["formatter"]
   const hadLegacy = "theme" in copy || "keybinds" in copy || "tui" in copy
   if (!hadLegacy) return copy
   delete copy.theme
@@ -274,7 +275,6 @@ export const Info = Schema.Struct({
       ]),
     ),
   ).annotate({ description: "MCP (Model Context Protocol) server configurations" }),
-  formatter: Schema.optional(ConfigFormatter.Info),
   lsp: Schema.optional(ConfigLSP.Info),
   instructions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
     description: "Additional instruction files or patterns to include",

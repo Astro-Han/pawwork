@@ -54,7 +54,6 @@ import { FetchHttpClient, HttpClient } from "effect/unstable/http"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "../file/ripgrep"
-import { Format } from "../format"
 import { InstanceState } from "@/effect/instance-state"
 import { EffectBridge } from "@/effect"
 import { makeRuntime } from "@/effect/run-service"
@@ -132,7 +131,6 @@ export namespace ToolRegistry {
     | HttpClient.HttpClient
     | ChildProcessSpawner
     | Ripgrep.Service
-    | Format.Service
     | Truncate.Service
     | Automation.Service
   > = Layer.effect(
@@ -535,7 +533,6 @@ export namespace ToolRegistry {
       Layer.provide(AppFileSystem.defaultLayer),
       Layer.provide(Bus.layer),
       Layer.provide(FetchHttpClient.layer),
-      Layer.provide(Format.defaultLayer),
       Layer.provide(CrossSpawnSpawner.defaultLayer),
       Layer.provide(Ripgrep.defaultLayer),
       Layer.provide(Truncate.defaultLayer),

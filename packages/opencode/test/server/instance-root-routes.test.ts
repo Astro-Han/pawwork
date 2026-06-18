@@ -22,7 +22,7 @@ describe("instance root routes", () => {
     expect(pathResponse.status).toBe(200)
     expect(await pathResponse.json()).toMatchObject({ directory: tmp.path, worktree: tmp.path })
 
-    for (const route of ["/agent", "/skill", "/command", "/lsp", "/formatter"]) {
+    for (const route of ["/agent", "/skill", "/command", "/lsp"]) {
       const response = await app.request(route, { headers })
       expect(response.status, route).toBe(200)
       expect(await response.json(), route).toBeArray()

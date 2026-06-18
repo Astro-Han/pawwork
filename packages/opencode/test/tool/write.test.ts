@@ -7,7 +7,6 @@ import { Instance } from "../../src/project/instance"
 import { LSP } from "../../src/lsp"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Bus } from "../../src/bus"
-import { Format } from "../../src/format"
 import { Truncate } from "../../src/tool/truncate"
 import * as Tool from "../../src/tool/tool"
 import { Agent } from "../../src/agent/agent"
@@ -51,7 +50,6 @@ const it = testEffect(
     LSP.defaultLayer,
     AppFileSystem.defaultLayer,
     Bus.layer,
-    Format.defaultLayer,
     CrossSpawnSpawner.defaultLayer,
     Truncate.defaultLayer,
     Agent.defaultLayer,
