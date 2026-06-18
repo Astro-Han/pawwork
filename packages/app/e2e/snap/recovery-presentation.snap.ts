@@ -35,12 +35,21 @@ test("recovery-presentation", async ({ page }) => {
   }, `/@fs/${fixturePath}`)
 
   const sideEffect = page.locator('[data-snap="side-effect"]')
+  const readOnly = page.locator('[data-snap="read-only"]')
   const fallback = page.locator('[data-snap="default"]')
 
   // Side-effect turn: completed bash tool card above, reassuring side-effect copy.
   await expect(sideEffect).toContainText("在 #1358 下留言", { timeout: 30_000 })
   await expect(sideEffect.locator('[data-kind="safe_retry_failed"][data-variant="side-effect"]')).toBeVisible()
   await expect(sideEffect).toContainText("操作已完成")
+
+  // Read-only turn: a completed grep ran, but it carries no side effect, so the
+  // notice must NOT claim "操作已完成" — it falls back to the default copy.
+  await expect(readOnly.locator('[data-kind="safe_retry_failed"][data-variant="default"]')).toBeVisible({
+    timeout: 30_000,
+  })
+  await expect(readOnly).toContainText("回复未完成")
+  await expect(readOnly).not.toContainText("操作已完成")
 
   // No-tool turn: default copy, no tool card.
   await expect(fallback.locator('[data-kind="safe_retry_failed"][data-variant="default"]')).toBeVisible({
@@ -50,7 +59,11 @@ test("recovery-presentation", async ({ page }) => {
 
   const out = snapOutputPath("recovery-presentation")
   await composeGrid(
-    [await capture("after side-effecting tool", sideEffect), await capture("reply never started", fallback)],
+    [
+      await capture("after side-effecting tool", sideEffect),
+      await capture("after read-only tool", readOnly),
+      await capture("reply never started", fallback),
+    ],
     out,
   )
   process.stdout.write(`\n[snap] recovery-presentation grid -> ${out}\n\n`)

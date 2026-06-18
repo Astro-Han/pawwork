@@ -60,6 +60,39 @@ function bashTool(messageID: string): ToolPart {
   }
 }
 
+// A completed read-only tool (grep) carries no side effect: it must NOT flip
+// the notice to the "操作已完成" reassurance. This column proves the predicate
+// excludes read-only tools and falls back to the default "回复未完成" copy.
+function grepTool(messageID: string): ToolPart {
+  return {
+    id: `${messageID}_grep`,
+    sessionID: SESSION,
+    messageID,
+    type: "tool",
+    callID: `${messageID}_call`,
+    tool: "grep",
+    state: {
+      status: "completed",
+      input: { pattern: "safe_retry_failed", include: "*.tsx" },
+      output: "packages/ui/src/components/message-part/parts/notice.tsx",
+      title: "搜索 safe_retry_failed",
+      metadata: {},
+      time: { start: 0, end: 1 },
+    },
+  }
+}
+
+function searchText(messageID: string): TextPart {
+  return {
+    id: `${messageID}_text`,
+    sessionID: SESSION,
+    messageID,
+    type: "text",
+    text: "我先在代码里查了下相关实现。",
+    time: { start: 0, end: 1 },
+  }
+}
+
 function notice(messageID: string): NoticePart {
   return {
     id: `${messageID}_notice`,
@@ -93,6 +126,7 @@ function Turn(props: { message: AssistantMessage; parts: (TextPart | ToolPart | 
 
 function RecoveryPresentationSnapFixture() {
   const sideEffect = assistant("msg_side_effect")
+  const readOnly = assistant("msg_read_only")
   const reply = assistant("msg_reply")
   return (
     <I18nProvider value={i18n}>
@@ -106,7 +140,7 @@ function RecoveryPresentationSnapFixture() {
             "z-index": "2147483647",
             overflow: "auto",
             display: "grid",
-            "grid-template-columns": "repeat(2, 360px)",
+            "grid-template-columns": "repeat(3, 360px)",
             "align-content": "start",
             gap: "24px",
             padding: "24px",
@@ -116,6 +150,9 @@ function RecoveryPresentationSnapFixture() {
         >
           <div data-snap="side-effect">
             <Turn message={sideEffect} parts={[text(sideEffect.id), bashTool(sideEffect.id), notice(sideEffect.id)]} />
+          </div>
+          <div data-snap="read-only">
+            <Turn message={readOnly} parts={[searchText(readOnly.id), grepTool(readOnly.id), notice(readOnly.id)]} />
           </div>
           <div data-snap="default">
             <Turn message={reply} parts={[text(reply.id), notice(reply.id)]} />
