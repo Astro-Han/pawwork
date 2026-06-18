@@ -80,7 +80,7 @@ const hydratePendingExternalResult = Effect.fn("ExternalResultRoutes.hydrate")(f
   return { session, message: pending.message.info, part: pending.part } satisfies z.infer<typeof PendingExternalResult>
 })
 
-const listPendingExternalResults = Effect.fn("ExternalResultRoutes.list")(function* () {
+export const listPendingExternalResults = Effect.fn("ExternalResultRoutes.list")(function* () {
   const sessions = yield* Session.Service
   const out: Array<z.infer<typeof PendingExternalResult>> = []
   for (const snap of ExternalResult.list()) {

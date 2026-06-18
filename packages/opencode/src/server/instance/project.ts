@@ -12,12 +12,12 @@ import { AppRuntime } from "../../effect/app-runtime"
 
 const runProjectRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
 
-const listProjects = Effect.fn("ProjectRoutes.list")(function* () {
+export const listProjects = Effect.fn("ProjectRoutes.list")(function* () {
   const project = yield* Project.Service
   return yield* project.list()
 })
 
-const initGit = Effect.fn("ProjectRoutes.git.init")(function* (input: { directory: string; project: Project.Info }) {
+export const initGit = Effect.fn("ProjectRoutes.git.init")(function* (input: { directory: string; project: Project.Info }) {
   const project = yield* Project.Service
   const next = yield* project.initGit(input)
   if (next.id === input.project.id && next.vcs === input.project.vcs && next.worktree === input.project.worktree)
@@ -32,7 +32,7 @@ const initGit = Effect.fn("ProjectRoutes.git.init")(function* (input: { director
   return next
 })
 
-const updateProject = Effect.fn("ProjectRoutes.update")(function* (input: Project.UpdateInput) {
+export const updateProject = Effect.fn("ProjectRoutes.update")(function* (input: Project.UpdateInput) {
   const project = yield* Project.Service
   return yield* project.update(input)
 })

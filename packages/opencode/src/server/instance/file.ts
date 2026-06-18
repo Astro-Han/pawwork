@@ -11,7 +11,7 @@ import { lazy } from "../../util/lazy"
 
 const runFileRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
 
-const findText = Effect.fn("FileRoutes.findText")(function* (pattern: string) {
+export const findText = Effect.fn("FileRoutes.findText")(function* (pattern: string) {
   const rg = yield* Ripgrep.Service
   return yield* rg.search({
     cwd: Instance.directory,
@@ -20,7 +20,7 @@ const findText = Effect.fn("FileRoutes.findText")(function* (pattern: string) {
   })
 })
 
-const findFiles = Effect.fn("FileRoutes.findFiles")(function* (input: {
+export const findFiles = Effect.fn("FileRoutes.findFiles")(function* (input: {
   query: string
   dirs?: "true" | "false"
   type?: "file" | "directory"
@@ -35,17 +35,17 @@ const findFiles = Effect.fn("FileRoutes.findFiles")(function* (input: {
   })
 })
 
-const listFiles = Effect.fn("FileRoutes.list")(function* (path: string) {
+export const listFiles = Effect.fn("FileRoutes.list")(function* (path: string) {
   const file = yield* File.Service
   return yield* file.list(path)
 })
 
-const readFileContent = Effect.fn("FileRoutes.read")(function* (path: string) {
+export const readFileContent = Effect.fn("FileRoutes.read")(function* (path: string) {
   const file = yield* File.Service
   return yield* file.read(path)
 })
 
-const getFileStatus = Effect.fn("FileRoutes.status")(function* () {
+export const getFileStatus = Effect.fn("FileRoutes.status")(function* () {
   const file = yield* File.Service
   return yield* file.status()
 })
