@@ -8,7 +8,7 @@ Use `InstanceState` (from `src/effect/instance-state.ts`) for services that need
 
 Use `makeRuntime` (from `src/effect/run-service.ts`) to create a per-service `ManagedRuntime` that lazily initializes and shares layers via a global `memoMap`. Returns `{ runPromise, runFork, runCallback }`.
 
-- Global services (no per-directory state): Account, Auth, AppFileSystem, Installation, Truncate, Worktree
+- Global services (no per-directory state): Account, Auth, AppFileSystem, Installation, ModelState, Truncate, Worktree
 - Instance-scoped (per-directory state via InstanceState): Agent, Bus, Command, Config, File, FileTime, FileWatcher, Format, LSP, MCP, Permission, Plugin, ProviderAuth, Pty, Question, SessionStatus, Skill, Snapshot, ToolRegistry, Vcs
 
 Rule of thumb: if two open directories should not share one copy of the service, it needs `InstanceState`.
@@ -196,6 +196,7 @@ Fully migrated (single namespace, InstanceState where needed, flattened facade):
 - [x] `LSP` — `lsp/index.ts`
 - [x] `MCP` — `mcp/index.ts`
 - [x] `McpAuth` — `mcp/auth.ts`
+- [x] `ModelState` — `provider/model-state.ts` (`recordRecent` write path; `Provider.defaultModel()` still owns the read path)
 - [x] `Permission` — `permission/index.ts`
 - [x] `Plugin` — `plugin/index.ts`
 - [x] `Project` — `project/project.ts`
