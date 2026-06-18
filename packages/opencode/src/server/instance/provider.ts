@@ -16,6 +16,63 @@ import { Log } from "@opencode-ai/core/util/log"
 
 const log = Log.create({ service: "server" })
 
+const runProviderRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
+
+const listProviders = Effect.fn("ProviderRoutes.list")(function* () {
+  const config = yield* Config.Service
+  const provider = yield* Provider.Service
+  const [configInfo, allProviders, connected] = yield* Effect.all(
+    [config.get(), Effect.promise(() => ModelsDev.get()), provider.list()],
+    { concurrency: 3 },
+  )
+  const disabled = new Set(configInfo.disabled_providers ?? [])
+  const enabled = configInfo.enabled_providers ? new Set(configInfo.enabled_providers) : undefined
+
+  const filteredProviders: Record<string, (typeof allProviders)[string]> = {}
+  for (const [key, value] of Object.entries(allProviders)) {
+    if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) {
+      filteredProviders[key] = value
+    }
+  }
+
+  const providers = Object.assign(
+    mapValues(filteredProviders, (item) => Provider.fromModelsDevProvider(item)),
+    connected,
+  )
+  return {
+    all: Object.values(providers),
+    default: mapValues(providers, (item) => Provider.defaultModelID(item)),
+    connected: Object.keys(connected),
+  }
+})
+
+const getAuthMethods = Effect.fn("ProviderRoutes.auth.methods")(function* () {
+  const auth = yield* ProviderAuth.Service
+  return yield* auth.methods()
+})
+
+const authorizeProvider = Effect.fn("ProviderRoutes.oauth.authorize")(function* (input: {
+  providerID: ProviderID
+  method: number
+  inputs?: Record<string, string>
+}) {
+  const auth = yield* ProviderAuth.Service
+  return yield* auth.authorize(input)
+})
+
+const completeProviderAuth = Effect.fn("ProviderRoutes.oauth.callback")(function* (input: {
+  providerID: ProviderID
+  method: number
+  code?: string
+}) {
+  const auth = yield* ProviderAuth.Service
+  yield* auth.callback(input)
+})
+
+const recordRecentModel = Effect.fn("ProviderRoutes.recent.record")(function* (input: ModelState.ModelRef) {
+  yield* Effect.promise(() => ModelState.recordRecent(input))
+})
+
 export const ProviderRoutes = lazy(() =>
   new Hono()
     .get(
@@ -42,34 +99,8 @@ export const ProviderRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const [config, allProviders, connected] = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const config = yield* Config.Service
-            const provider = yield* Provider.Service
-            return yield* Effect.all([config.get(), Effect.promise(() => ModelsDev.get()), provider.list()], {
-              concurrency: 3,
-            })
-          }),
-        )
-        const disabled = new Set(config.disabled_providers ?? [])
-        const enabled = config.enabled_providers ? new Set(config.enabled_providers) : undefined
-
-        const filteredProviders: Record<string, (typeof allProviders)[string]> = {}
-        for (const [key, value] of Object.entries(allProviders)) {
-          if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) {
-            filteredProviders[key] = value
-          }
-        }
-
-        const providers = Object.assign(
-          mapValues(filteredProviders, (x) => Provider.fromModelsDevProvider(x)),
-          connected,
-        )
-        return c.json({
-          all: Object.values(providers),
-          default: mapValues(providers, (item) => Provider.defaultModelID(item)),
-          connected: Object.keys(connected),
-        })
+        const providers = await runProviderRoute(listProviders())
+        return c.json(providers)
       },
     )
     .get(
@@ -90,12 +121,7 @@ export const ProviderRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const methods = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const auth = yield* ProviderAuth.Service
-            return yield* auth.methods()
-          }),
-        )
+        const methods = await runProviderRoute(getAuthMethods())
         return c.json(methods)
       },
     )
@@ -133,16 +159,7 @@ export const ProviderRoutes = lazy(() =>
       async (c) => {
         const providerID = c.req.valid("param").providerID
         const { method, inputs } = c.req.valid("json")
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const auth = yield* ProviderAuth.Service
-            return yield* auth.authorize({
-              providerID,
-              method,
-              inputs,
-            })
-          }),
-        )
+        const result = await runProviderRoute(authorizeProvider({ providerID, method, inputs }))
         return c.json(result)
       },
     )
@@ -180,16 +197,7 @@ export const ProviderRoutes = lazy(() =>
       async (c) => {
         const providerID = c.req.valid("param").providerID
         const { method, code } = c.req.valid("json")
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const auth = yield* ProviderAuth.Service
-            yield* auth.callback({
-              providerID,
-              method,
-              code,
-            })
-          }),
-        )
+        await runProviderRoute(completeProviderAuth({ providerID, method, code }))
         return c.json(true)
       },
     )
@@ -221,7 +229,7 @@ export const ProviderRoutes = lazy(() =>
       ),
       async (c) => {
         const { providerID, modelID } = c.req.valid("json")
-        await ModelState.recordRecent({ providerID, modelID })
+        await runProviderRoute(recordRecentModel({ providerID, modelID }))
         return c.json(true)
       },
     ),
