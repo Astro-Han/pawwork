@@ -4,7 +4,7 @@ import {
   findDescendantExternalResultQuestion,
   findRunningExternalResultQuestion,
   rootSessionIDsWithDescendantExternalResultQuestions,
-} from "./running-external-result-question"
+} from "@/context/global-sync/external-result-question"
 
 const message = (id: string): Message => ({ id }) as Message
 
