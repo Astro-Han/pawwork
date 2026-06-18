@@ -66,8 +66,25 @@ const listDirs = () =>
   Effect.runPromise(Config.Service.use((svc) => svc.directories()).pipe(Effect.scoped, Effect.provide(layer)))
 const ready = () =>
   Effect.runPromise(Config.Service.use((svc) => svc.waitForDependencies()).pipe(Effect.scoped, Effect.provide(layer)))
-const installDeps = (dir: string) =>
-  Effect.runPromise(Config.Service.use((svc) => svc.installDependencies(dir)).pipe(Effect.scoped, Effect.provide(layer)))
+const installDepsWithLayer = (dir: string, targetLayer = layer) =>
+  Effect.runPromise(
+    Config.Service.use((svc) => svc.installDependencies(dir)).pipe(Effect.scoped, Effect.provide(targetLayer)),
+  )
+const installDeps = (dir: string) => installDepsWithLayer(dir)
+
+const lockFailureLayer = Config.layer.pipe(
+  Layer.provide(
+    Layer.mock(EffectFlock.Service)({
+      acquire: () => Effect.fail(new EffectFlock.LockTimeoutError({ key: "config-install:test" })),
+      withLock: ((body: Effect.Effect<unknown>, key?: string) =>
+        Effect.fail(new EffectFlock.LockTimeoutError({ key: key ?? "config-install:test" }))) as never,
+    }),
+  ),
+  Layer.provide(AppFileSystem.defaultLayer),
+  Layer.provide(emptyAuth),
+  Layer.provide(emptyAccount),
+  Layer.provideMerge(infra),
+)
 
 async function withPawWorkRuntime(fn: () => Promise<void>) {
   const previous = process.env.PAWWORK_RUNTIME_NAMESPACE
@@ -1546,6 +1563,24 @@ test("service installDependencies treats malformed package metadata as missing",
   }
 })
 
+test("service installDependencies treats non-object package metadata as missing", async () => {
+  await using tmp = await tmpdir()
+  await Filesystem.write(path.join(tmp.path, "package.json"), "null")
+  const install = spyOn(Npm, "install").mockResolvedValue(undefined)
+
+  try {
+    await installDeps(tmp.path)
+
+    const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.path, "package.json"))
+    const target = Installation.isLocal() ? "*" : Installation.VERSION
+
+    expect(pkg.dependencies?.["@opencode-ai/plugin"]).toBe(target)
+    expect(install).toHaveBeenCalledWith(tmp.path)
+  } finally {
+    install.mockRestore()
+  }
+})
+
 test("service installDependencies returns false when dependency install fails", async () => {
   await using tmp = await tmpdir()
   const install = spyOn(Npm, "install").mockImplementation(async () => {
@@ -1557,6 +1592,12 @@ test("service installDependencies returns false when dependency install fails", 
   } finally {
     install.mockRestore()
   }
+})
+
+test("service installDependencies returns false when config install lock fails", async () => {
+  await using tmp = await tmpdir()
+
+  await expect(installDepsWithLayer(tmp.path, lockFailureLayer)).resolves.toBe(false)
 })
 
 test("installDependencies does not pin config plugin metadata to a packaged app build version", async () => {

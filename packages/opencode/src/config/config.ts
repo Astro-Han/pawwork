@@ -1179,10 +1179,10 @@ const rawLayer = Layer.effect(
           Effect.gen(function* () {
             const pkg = path.join(dir, "package.json")
             const target = configPluginDependencyTarget()
-            const json: Package = yield* fs.readFileString(pkg).pipe(
+            const parsed = yield* fs.readFileString(pkg).pipe(
               Effect.flatMap((text) =>
                 Effect.try({
-                  try: () => JSON.parse(text) as Package,
+                  try: () => JSON.parse(text) as unknown,
                   catch: () => undefined,
                 }),
               ),
@@ -1192,6 +1192,10 @@ const rawLayer = Layer.effect(
                 } satisfies Package),
               ),
             )
+            const json: Package =
+              parsed && typeof parsed === "object" && !Array.isArray(parsed)
+                ? (parsed as Package)
+                : ({ dependencies: {} } satisfies Package)
             const dependencies = json.dependencies ?? {}
             const required = {
               ...dependencies,
@@ -1235,7 +1239,14 @@ const rawLayer = Layer.effect(
           }),
           key,
         )
-        .pipe(Effect.orDie)
+        .pipe(
+          Effect.catch((error) =>
+            Effect.sync(() => {
+              log.warn("dependency install failed", { dir, error: String(error) })
+              return false
+            }),
+          ),
+        )
     })
 
     const update = Effect.fn("Config.update")(function* (config: Info) {
