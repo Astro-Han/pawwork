@@ -85,46 +85,45 @@ export function createAutomateManageDefinition(
       "Use action list first when the user has not provided an exact automation id. Pause and resume are reversible and do not need confirmation. Delete is destructive and must ask the user for confirmation before removing anything.",
     ].join("\n\n"),
     parameters: AutomateManageParameters,
-    execute: (params, ctx) =>
-      Effect.gen(function* () {
-        if (params.action === "list") {
-          const items = yield* automation.list()
-          return {
-            title: "Automations",
-            metadata: { automationDefinitions: items },
-            output: JSON.stringify({ items: items.map(item) }, null, 2),
-          }
-        }
-
-        const id = yield* requireID(params)
-        const previous = yield* getAutomation(automation, id)
-        if (params.action === "pause" || params.action === "resume") {
-          const definition = yield* readableAutomationEffect(automation.update(id, { paused: params.action === "pause" }), id)
-          if (definition.revision !== previous.revision) {
-            yield* automation.publishDefinitionUpdated(definition)
-          }
-          return {
-            title: params.action === "pause" ? "Automation paused" : "Automation resumed",
-            metadata: { automationDefinition: definition },
-            output: JSON.stringify(item(definition), null, 2),
-          }
-        }
-
-        yield* ctx.ask({
-          permission: "automate_manage",
-          patterns: [id],
-          always: [],
-          metadata: { action: "delete", id, title: previous.title },
-        })
-        const removed = yield* readableAutomationEffect(automation.remove(id), id)
-        if (removed.stoppedRun) yield* automation.publishRunUpdated(removed.stoppedRun)
-        yield* automation.publishDefinitionDeleted(removed.tombstone)
+    execute: Effect.fn("AutomateManageTool.execute")(function* (params: Parameters, ctx: Tool.Context) {
+      if (params.action === "list") {
+        const items = yield* automation.list()
         return {
-          title: "Automation deleted",
-          metadata: { automationTombstone: removed.tombstone, stoppedRun: removed.stoppedRun },
-          output: JSON.stringify(removed.tombstone, null, 2),
+          title: "Automations",
+          metadata: { automationDefinitions: items },
+          output: JSON.stringify({ items: items.map(item) }, null, 2),
         }
-      }),
+      }
+
+      const id = yield* requireID(params)
+      const previous = yield* getAutomation(automation, id)
+      if (params.action === "pause" || params.action === "resume") {
+        const definition = yield* readableAutomationEffect(automation.update(id, { paused: params.action === "pause" }), id)
+        if (definition.revision !== previous.revision) {
+          yield* automation.publishDefinitionUpdated(definition)
+        }
+        return {
+          title: params.action === "pause" ? "Automation paused" : "Automation resumed",
+          metadata: { automationDefinition: definition },
+          output: JSON.stringify(item(definition), null, 2),
+        }
+      }
+
+      yield* ctx.ask({
+        permission: "automate_manage",
+        patterns: [id],
+        always: [],
+        metadata: { action: "delete", id, title: previous.title },
+      })
+      const removed = yield* readableAutomationEffect(automation.remove(id), id)
+      if (removed.stoppedRun) yield* automation.publishRunUpdated(removed.stoppedRun)
+      yield* automation.publishDefinitionDeleted(removed.tombstone)
+      return {
+        title: "Automation deleted",
+        metadata: { automationTombstone: removed.tombstone, stoppedRun: removed.stoppedRun },
+        output: JSON.stringify(removed.tombstone, null, 2),
+      }
+    }),
   }
 }
 

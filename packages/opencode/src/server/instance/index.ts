@@ -30,6 +30,8 @@ import { WorkspaceRouterMiddleware } from "./middleware"
 import { AppRuntime } from "@/effect/app-runtime"
 import { jsonBodyLimit } from "./json-body-limit"
 
+const runInstanceRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
+
 const applyPatchTooLarge = () =>
   ({
     error: "vcs_apply_failed",
@@ -53,6 +55,77 @@ const applyPatchBodyLimit = jsonBodyLimit({
   maxBytes: applyJsonBodyMaxBytes,
   tooLarge: (c) => c.json(applyPatchTooLarge(), 413),
   invalidJson: (c) => c.json(applyPatchInvalidInput(), 400),
+})
+
+const disposeCurrentInstance = Effect.fn("InstanceRoutes.dispose")(function* () {
+  yield* Effect.promise(() => Instance.dispose())
+})
+
+const getPaths = Effect.fn("InstanceRoutes.path")(function* (ensureConfig: boolean) {
+  const config = Runtime.isPawWork()
+    ? ensureConfig
+      ? yield* Effect.promise(() => PawWorkHome.ensurePrimary())
+      : PawWorkHome.primary()
+    : Global.Path.config
+  if (ensureConfig && !Runtime.isPawWork()) {
+    yield* Effect.promise(() => fs.mkdir(config, { recursive: true }))
+  }
+  return {
+    home: Global.Path.home,
+    state: Global.Path.state,
+    config,
+    worktree: Instance.worktree,
+    directory: Instance.directory,
+  }
+})
+
+const getVcsInfo = Effect.fn("InstanceRoutes.vcs.info")(function* () {
+  const vcs = yield* Vcs.Service
+  const [branch, defaultBranch] = yield* Effect.all([vcs.branch(), vcs.defaultBranch()], { concurrency: 2 })
+  return {
+    branch,
+    default_branch: defaultBranch,
+  }
+})
+
+const getVcsDiff = Effect.fn("InstanceRoutes.vcs.diff")(function* (mode: Vcs.Mode) {
+  const vcs = yield* Vcs.Service
+  return yield* vcs.diff(mode)
+})
+
+const getVcsStatus = Effect.fn("InstanceRoutes.vcs.status")(function* () {
+  const vcs = yield* Vcs.Service
+  return yield* vcs.status()
+})
+
+const getRawVcsDiff = Effect.fn("InstanceRoutes.vcs.diffRaw")(function* () {
+  const vcs = yield* Vcs.Service
+  return yield* vcs.diffRaw()
+})
+
+const applyVcsPatch = Effect.fn("InstanceRoutes.vcs.apply")(function* (input: Vcs.ApplyInput) {
+  const vcs = yield* Vcs.Service
+  return yield* vcs.apply(input)
+})
+
+const listCommands = Effect.fn("InstanceRoutes.command.list")(function* () {
+  const command = yield* Command.Service
+  return yield* command.list()
+})
+
+const listAgents = Effect.fn("InstanceRoutes.agent.list")(function* () {
+  const agent = yield* Agent.Service
+  return yield* agent.list()
+})
+
+const listSkills = Effect.fn("InstanceRoutes.skill.list")(function* () {
+  const skill = yield* Skill.Service
+  return yield* skill.all()
+})
+
+const getLspStatus = Effect.fn("InstanceRoutes.lsp.status")(function* () {
+  const lsp = yield* LSP.Service
+  return yield* lsp.status()
 })
 
 export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
@@ -89,11 +162,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            yield* Effect.promise(() => Instance.dispose())
-          }),
-        )
+        await runInstanceRoute(disposeCurrentInstance())
         return c.json(true)
       },
     )
@@ -139,25 +208,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
       }),
       async (c) => {
         const ensureConfig = c.req.query("ensureConfig") === "true"
-        const paths = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const config = Runtime.isPawWork()
-              ? ensureConfig
-                ? yield* Effect.promise(() => PawWorkHome.ensurePrimary())
-                : PawWorkHome.primary()
-              : Global.Path.config
-            if (ensureConfig && !Runtime.isPawWork()) {
-              yield* Effect.promise(() => fs.mkdir(config, { recursive: true }))
-            }
-            return {
-              home: Global.Path.home,
-              state: Global.Path.state,
-              config,
-              worktree: Instance.worktree,
-              directory: Instance.directory,
-            }
-          }),
-        )
+        const paths = await runInstanceRoute(getPaths(ensureConfig))
         return c.json(paths)
       },
     )
@@ -179,16 +230,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
-        const [branch, default_branch] = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const vcs = yield* Vcs.Service
-            return yield* Effect.all([vcs.branch(), vcs.defaultBranch()], { concurrency: 2 })
-          }),
-        )
-        return c.json({
-          branch,
-          default_branch,
-        })
+        return c.json(await runInstanceRoute(getVcsInfo()))
       },
     )
     .get(
@@ -216,12 +258,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
       ),
       async (c) => {
         const mode = c.req.valid("query").mode
-        const diff = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const vcs = yield* Vcs.Service
-            return yield* vcs.diff(mode)
-          }),
-        )
+        const diff = await runInstanceRoute(getVcsDiff(mode))
         return c.json(diff)
       },
     )
@@ -243,12 +280,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
-        const status = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const vcs = yield* Vcs.Service
-            return yield* vcs.status()
-          }),
-        )
+        const status = await runInstanceRoute(getVcsStatus())
         return c.json(status)
       },
     )
@@ -280,12 +312,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
       async (c) => {
         try {
           c.header("content-type", "text/plain; charset=UTF-8")
-          const diff = await AppRuntime.runPromise(
-            Effect.gen(function* () {
-              const vcs = yield* Vcs.Service
-              return yield* vcs.diffRaw()
-            }),
-          )
+          const diff = await runInstanceRoute(getRawVcsDiff())
           return c.text(diff)
         } catch (error) {
           if (error instanceof Vcs.RawDiffError) {
@@ -340,12 +367,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
       async (c) => {
         try {
           const input = c.req.valid("json")
-          const result = await AppRuntime.runPromise(
-            Effect.gen(function* () {
-              const vcs = yield* Vcs.Service
-              return yield* vcs.apply(input)
-            }),
-          )
+          const result = await runInstanceRoute(applyVcsPatch(input))
           return c.json(result)
         } catch (error) {
           if (error instanceof Vcs.PatchApplyError) {
@@ -381,12 +403,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
-        const commands = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const command = yield* Command.Service
-            return yield* command.list()
-          }),
-        )
+        const commands = await runInstanceRoute(listCommands())
         return c.json(commands)
       },
     )
@@ -408,12 +425,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
-        const modes = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const agent = yield* Agent.Service
-            return yield* agent.list()
-          }),
-        )
+        const modes = await runInstanceRoute(listAgents())
         return c.json(modes)
       },
     )
@@ -435,12 +447,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
-        const skills = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const skill = yield* Skill.Service
-            return yield* skill.all()
-          }),
-        )
+        const skills = await runInstanceRoute(listSkills())
         return c.json(skills)
       },
     )
@@ -462,12 +469,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
-        const status = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const lsp = yield* LSP.Service
-            return yield* lsp.status()
-          }),
-        )
+        const status = await runInstanceRoute(getLspStatus())
         return c.json(status)
       },
     )
