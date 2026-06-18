@@ -13,7 +13,7 @@ describe("compareModelsForDisplay", () => {
     const items = [
       model("volcengine-plan", "kimi-k2.6", "Kimi K2.6"),
       model("volcengine-plan", "doubao-seed-2.0-code", "Doubao Seed 2.0 Code"),
-      model("volcengine-plan", "glm-5.1", "GLM 5.1"),
+      model("volcengine-plan", "glm-5.2", "GLM 5.2"),
     ]
 
     expect(

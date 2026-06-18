@@ -7,12 +7,11 @@ export const VOLCENGINE_PLAN_VISIBLE_MODEL_IDS = [
   "doubao-seed-2.0-lite",
   "doubao-seed-code",
   "minimax-m2.7",
-  "minimax-m2.5",
-  "glm-5.1",
-  "glm-4.7",
-  "deepseek-v3.2",
+  "minimax-m3",
+  "glm-5.2",
+  "deepseek-v4-flash",
+  "deepseek-v4-pro",
   "kimi-k2.6",
-  "kimi-k2.5",
 ] as const
 
 export const VOLCENGINE_PLAN_HIDDEN_MODEL_IDS = ["ark-code-latest"] as const
