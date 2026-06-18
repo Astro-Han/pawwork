@@ -33,7 +33,7 @@ Adapters are constructed by the `PlatformFactory` and wired in `createApp`
 wildcard/empty audience — closed by default.** Telegram requires `allow_from`;
 Feishu/Lark additionally require a named group (`allow_chat` + `group_only`).
 
-## Interactive prompts: text today, native UI later
+## Interactive prompts: plain text
 
 Question and permission blockers are rendered to **plain text** and answered by the
 user **typing** — a number / `yes` / `no`, and for a multi-question prompt one answer
@@ -42,31 +42,10 @@ per line (see `questionPrompt` / `answersForQuestionText` in [`../engine.ts`](..
 send a string.
 
 The cost is a clumsy answer UX: the multi-question hint asks for newline-separated
-lines, but on a phone Enter *sends* the message, so newlines are awkward to type.
-
-**Deferred optimization — native tap-to-answer controls.** Every platform has one
-(Telegram **inline keyboards**, Feishu **interactive cards**, Discord **message
-components**). Wiring them up means:
-
-- **`Platform`** — add a structured `ask(replyCtx, prompt)` beside text `reply`, and
-  route taps back through the existing `MessageHandler` channel (a new optional
-  `Message.answer` carrying the decoded choice — no second inbound seam).
-- **engine** — `headPromptToDeliver` emits the blocker structure (not just text) and
-  delivers via `ask` when the platform supports it; `handleMessage` gains a
-  structured-answer path beside the text parser. Keep the text path as fallback.
-- **telegram** — `callback_query` in `allowed_updates`, `answerCallbackQuery`,
-  `reply_markup`, and `editMessageReplyMarkup` for multi-select toggles.
-  `callback_data` is capped at **64 bytes** — encode indices + a short blocker token,
-  never labels.
-- **multi-select / multi-question** — multi-select needs a per-message selection draft
-  plus a Submit button (edit the markup as choices toggle); multi-question needs one
-  message per question (Telegram allows one keyboard per message), which is what
-  finally kills the newline UX.
-
-Scoped at ~2-3 days, staged (permission + single-select → multi-select →
-multi-question). **Deferred on purpose**: broaden platform support on the simple text
-protocol first; revisit once the adapter set is wide enough that the answer UX is the
-bottleneck.
+lines, but on a phone Enter _sends_ the message, so newlines are awkward to type.
+Native tap-to-answer controls (Telegram inline keyboards, Feishu cards, Discord
+components) are a deferred optimization — design and staging live in
+[#1188](https://github.com/Astro-Han/pawwork/issues/1188).
 
 ## Conventions every adapter must follow
 
@@ -75,7 +54,7 @@ OpenClaw). Follow them or you will ship the bugs they already fixed:
 
 1. **Outbound-only, no public IP.** This is a desktop app behind NAT. Use the
    platform's long-poll / outbound-WebSocket / vendor stream mode. **Never require
-   an inbound webhook.** Webhook-only platforms need a hosted relay (see Roadmap).
+   an inbound webhook.** Webhook-only platforms need a hosted relay (tracked in #1188).
 2. **Dedup by message id.** Long-connections redeliver on reconnect. Keep a
    TTL-bounded seen-set and drop duplicates before dispatching.
 3. **Reconnect with exponential backoff + a stall watchdog.** Assume the socket
@@ -95,56 +74,11 @@ owns the reconnect / long-connection**. Never adopt an all-in-one meta-SDK (Verc
 Chat SDK, `@chat-adapter/*`) — immature and lock-in. Per-adapter SDK deps are fine
 (lazy-load heavy ones); `remote-bridge`'s core stays dependency-free.
 
-## Per-platform transport (researched, source-verified)
+## Planned platforms
 
-Every priority platform has a no-public-IP path:
-
-| Platform | Outbound transport | Node path | Onboarding | Official |
-|---|---|---|---|---|
-| **Telegram** ✅ shipped | `getUpdates` long-poll | raw `fetch` | bot token | yes |
-| **Feishu / 飞书** | `WSClient` long-connection | `@larksuiteoapi/node-sdk` | App ID + Secret | yes |
-| **WeChat / 微信 (personal)** | Tencent iLink `getupdates` long-poll | raw HTTPS (ref: `@tencent-weixin/openclaw-weixin`) | **QR scan** | **✅ official (Tencent)** |
-| **DingTalk / 钉钉** | Stream Mode WS | `@largezhou/ddingtalk` or hand-roll | AppKey + Secret | yes |
-| **WeCom / 企业微信** | AI-Bot WS `wss://openws.work.weixin.qq.com` | raw WS | bot id + secret | yes |
-| **Discord** | Gateway WS | `discord.js` or raw | bot token | yes |
-| **Slack** | Socket Mode WS | `@slack/bolt` | `xoxb-` + `xapp-` | yes |
-| **WhatsApp** | Baileys (WhatsApp Web) | `@whiskeysockets/baileys` | **QR scan** | ⚠ unofficial |
-| LINE / MS Teams / WhatsApp Cloud | inbound webhook only | — | — | **needs relay** |
-
-✅ **WeChat-personal is official.** Tencent publishes the iLink Bot API and the
-MIT-licensed `@tencent-weixin/openclaw-weixin` plugin (verified `Tencent` GitHub org,
-maintainers all `@tencent.com`). The sanctioned path has **no ban risk** — implement
-the iLink long-poll raw following Tencent's protocol, using their plugin as reference.
-Verify two limits when building: the bot may only reply within a window (no proactive
-initiate) and may not support group chat — both affect proactive / restored delivery.
-
-⚠ **WhatsApp has no official no-public-IP path.** Meta's official Cloud API is
-webhook-only (needs a public URL → relay). The only outbound-only option is the
-**unofficial Baileys** (WhatsApp Web) — real account-ban / ToS risk; gate behind an
-experimental flag and disclose.
-
-## Roadmap
-
-- **Wave 1 (next) — Feishu + WeChat.** The Chinese-first priority. Build the
-  multi-platform **supervisor** here (per-platform `AbortController`, failure
-  isolation so one bad token can't crash the others, backoff restart, dedup).
-  Drive it with Feishu first (official SDK, cleanest), then WeChat (official Tencent
-  iLink + QR pane) immediately after.
-- **Wave 2 — Discord + Slack.** Western majors; pure adapter adds once the
-  supervisor exists.
-- **Wave 3 — DingTalk + WeCom.** Chinese enterprise.
-- **Wave 4 — WhatsApp.** Western; unofficial (Baileys), QR onboarding.
-- **Deferred — LINE, MS Teams.** Webhook-only; require a hosted relay that holds the
-  public URL and forwards over the existing outbound channel.
-
-## References
-
-- **Hermes Agent** — `github.com/NousResearch/hermes-agent` (Python, ~26 platforms).
-  Best transport reference: `gateway/platforms/{feishu,weixin,dingtalk}.py`.
-- **OpenClaw** — `github.com/openclaw/openclaw` (TypeScript). Channel-plugin
-  contract + supervisor: `src/channels/plugins/types.plugin.ts`,
-  `src/gateway/server-channels.ts`. The `@larksuite/openclaw-lark` package is the
-  cleanest end-to-end Feishu-over-WebSocket example.
-- **WeChat (official)** — `github.com/Tencent/openclaw-weixin` + npm
-  `@tencent-weixin/openclaw-weixin` (Tencent, MIT). Reference for the iLink Bot
-  long-poll protocol and QR login.
+Telegram ships here. The rollout order for the platforms after it (Feishu, WeChat,
+Discord, Slack, DingTalk, WeCom, WhatsApp), the source-verified outbound-only
+transport for each (every priority platform has a no-public-IP path), and the external
+references (Hermes Agent, OpenClaw, Tencent iLink) live in
+[#1188](https://github.com/Astro-Han/pawwork/issues/1188). Adding a platform is a pure
+adapter against the contract above — no engine change.
