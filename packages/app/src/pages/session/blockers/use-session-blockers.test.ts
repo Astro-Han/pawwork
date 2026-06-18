@@ -3,6 +3,7 @@ import type { Message, Part, Session, ToolState } from "@opencode-ai/sdk/v2"
 import {
   findDescendantExternalResultQuestion,
   findRunningExternalResultQuestion,
+  rootSessionIDsWithDescendantExternalResultQuestions,
 } from "./running-external-result-question"
 
 const message = (id: string): Message => ({ id }) as Message
@@ -273,5 +274,41 @@ describe("findDescendantExternalResultQuestion", () => {
       },
     })
     expect(result?.sessionID).toBe("grand")
+  })
+})
+
+describe("rootSessionIDsWithDescendantExternalResultQuestions", () => {
+  test("ignores running questions outside every reachable root tree", () => {
+    expect(
+      rootSessionIDsWithDescendantExternalResultQuestions({
+        sessions: [session("root")],
+        messages: { orphan: [message("m-orphan")] },
+        partsByMessageID: {
+          "m-orphan": [
+            toolPart("p-orphan", "question", toolState("running", { externalResultReady: true }, { questions }), {
+              messageID: "m-orphan",
+              callID: "c-orphan",
+            }),
+          ],
+        },
+      }),
+    ).toEqual(new Set())
+  })
+
+  test("counts reachable child questions on their root session", () => {
+    expect(
+      rootSessionIDsWithDescendantExternalResultQuestions({
+        sessions: [session("root"), session("child", "root")],
+        messages: { child: [message("m-child")] },
+        partsByMessageID: {
+          "m-child": [
+            toolPart("p-child", "question", toolState("running", { externalResultReady: true }, { questions }), {
+              messageID: "m-child",
+              callID: "c-child",
+            }),
+          ],
+        },
+      }),
+    ).toEqual(new Set(["root"]))
   })
 })
