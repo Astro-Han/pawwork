@@ -7,7 +7,11 @@ export { normalizeLocale }
 import { isFatalStreamError, PawWorkClient } from "./pawwork-client.ts"
 import type { EventHandler } from "./pawwork-events.ts"
 import { SessionPointers } from "./session-pointers.ts"
+import { type PlatformStatus, supervisePlatforms } from "./supervisor.ts"
 import type { MessageHandler, Platform } from "./types.ts"
+
+// Re-exported so the desktop runtime can render per-channel connection status.
+export type { PlatformStatus }
 
 export interface PlatformConfig {
   name: string
@@ -101,12 +105,21 @@ export class App {
   private readonly platforms: Platform[]
   /** Base backoff between event-stream reconnect attempts; lowered in tests. */
   eventRetryDelayMs = 1000
+  /** Base backoff before restarting a failed platform; lowered in tests. */
+  platformRetryDelayMs = 1000
 
-  constructor(opts: { client: PawWorkClient; engine: Engine; platforms: Platform[]; eventRetryDelayMs?: number }) {
+  constructor(opts: {
+    client: PawWorkClient
+    engine: Engine
+    platforms: Platform[]
+    eventRetryDelayMs?: number
+    platformRetryDelayMs?: number
+  }) {
     this.client = opts.client
     this.engine = opts.engine
     this.platforms = opts.platforms
     if (opts.eventRetryDelayMs !== undefined) this.eventRetryDelayMs = opts.eventRetryDelayMs
+    if (opts.platformRetryDelayMs !== undefined) this.platformRetryDelayMs = opts.platformRetryDelayMs
   }
 
   platformNames(): string[] {
@@ -116,21 +129,26 @@ export class App {
   /**
    * Connect the event stream, wait until it is ready, do the initial hydrate,
    * then start the platforms — in that order, so no inbound message is handled
-   * before pending state is loaded. Returns when `signal` aborts; rejects on a
-   * fatal stream error or a platform failure. Ported from Go `App.Run`.
+   * before pending state is loaded. Returns when `signal` aborts; rejects only on
+   * a fatal stream error. A single platform's failure is isolated and retried by
+   * the supervisor (surfaced through `onStatus`), never fatal. Ported from Go
+   * `App.Run`, with per-platform supervision added.
    */
-  async run(signal?: AbortSignal, onReady?: () => void): Promise<void> {
+  async run(signal?: AbortSignal, onReady?: () => void, onStatus?: (status: PlatformStatus) => void): Promise<void> {
     const ac = new AbortController()
     if (signal?.aborted) ac.abort()
     const onParentAbort = () => ac.abort()
     signal?.addEventListener("abort", onParentAbort, { once: true })
     const childSignal = ac.signal
 
+    // `failure` is the fatal stream path only: a dead PawWork event stream tears
+    // the bridge down. A dead platform does not — the supervisor isolates it.
     const failure = createDeferred<never>()
     // Observe early so a failure before any race sees it is never "unhandled".
     failure.promise.catch(() => {})
     const ready = createDeferred<void>()
     let readyResolved = false
+    let supervised: Promise<void> = Promise.resolve()
 
     const handler = this.streamHandler(childSignal, () => {
       if (!readyResolved) {
@@ -150,13 +168,10 @@ export class App {
 
       await this.hydrate(childSignal)
 
-      // Errors from a platform's start() route to `failure` inside startPlatforms.
-      // Like Go's Run, stay up until abort or a fatal error even if every
-      // platform's start() resolves on its own — a clean self-stop is not a reason
-      // to tear the bridge down.
-      //
       // Fire onReady only once every platform has drained its backlog and is
       // serving, so a caller's "connected" can't precede live message delivery.
+      // A platform's failure is isolated and retried by the supervisor — it never
+      // routes to `failure`, so a single dead channel cannot tear the bridge down.
       const total = this.platforms.length
       let readyCount = 0
       const allReady = createDeferred<void>()
@@ -168,7 +183,12 @@ export class App {
         if (!childSignal.aborted) onReady?.()
       })
 
-      this.startPlatforms(childSignal, failure, onPlatformReady)
+      supervised = supervisePlatforms(this.platforms, this.messageHandler(), childSignal, {
+        onPlatformReady,
+        onStatus,
+        backoffMs: this.platformRetryDelayMs,
+      })
+      supervised.catch(() => {})
       await Promise.race([onAbort(childSignal), failure.promise])
     } catch (err) {
       // An abort is a requested stop, not a failure: any error it triggered
@@ -178,7 +198,10 @@ export class App {
     } finally {
       ac.abort()
       signal?.removeEventListener("abort", onParentAbort)
+      // Stop platforms first (unblocks any start() the supervisor is awaiting),
+      // then let the supervision loops wind down.
       await this.stopPlatforms()
+      await supervised
       await streamLoop
     }
   }
@@ -261,34 +284,6 @@ export class App {
       if (signal.aborted) return
       await sleep(this.eventRetryDelayMs, signal)
     }
-  }
-
-  private startPlatforms(
-    signal: AbortSignal,
-    failure: Deferred<never>,
-    onPlatformReady?: () => void,
-  ): Promise<void>[] {
-    const handler = this.messageHandler()
-    return this.platforms.map((platform) => {
-      // Count each platform toward "all ready" at most once. The contract says a
-      // platform signals onReady a single time, but a misbehaving adapter that
-      // double-fires must not let the bridge report "connected" before every
-      // platform is actually serving.
-      let counted = false
-      const ready = () => {
-        if (counted) return
-        counted = true
-        onPlatformReady?.()
-      }
-      return Promise.resolve()
-        .then(() => platform.start(handler, ready))
-        .then(
-          () => {},
-          (err) => {
-            if (!signal.aborted) failure.reject(new Error(`${platform.name} platform failed: ${message(err)}`))
-          },
-        )
-    })
   }
 
   private async stopPlatforms(): Promise<void> {
