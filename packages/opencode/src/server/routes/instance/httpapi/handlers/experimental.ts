@@ -10,7 +10,6 @@ import {
   resetWorktree,
   switchConsoleOrg,
 } from "@/server/instance/experimental"
-import { Worktree } from "@/worktree"
 import { NamedError } from "@opencode-ai/util/error"
 import { Effect } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
@@ -23,7 +22,12 @@ const ConsoleSwitchBody = z.object({
   orgID: z.string(),
 })
 
-const WorktreeCreateBody = Worktree.CreateInput.optional()
+const WorktreeCreateBody = z
+  .object({
+    name: z.string().optional(),
+    startCommand: z.string().optional(),
+  })
+  .optional()
 const WorktreeDirectoryBody = z.object({
   directory: z.string(),
 })
