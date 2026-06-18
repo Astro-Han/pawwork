@@ -282,7 +282,7 @@ Some already-effectified areas still use raw `Filesystem.*` or `Process.spawn` i
 ### `Filesystem.*` → `AppFileSystem.Service` (yield in layer)
 
 - [ ] `file/index.ts` — 1 remaining `Filesystem.readText()` call in untracked diff handling
-- [ ] `config/config.ts` — 5 remaining `Filesystem.*` calls in `installDependencies()`
+- [x] `config/config.ts` — `installDependencies()` now lives on `Config.Service`, uses `AppFileSystem.Service` and `EffectFlock`, and the async facade delegates through `runPromise`
 - [ ] `provider/provider.ts` — 1 remaining `Filesystem.readJson()` call for recent model state
 
 ### `Process.spawn` → `ChildProcessSpawner` (yield in layer)

@@ -14,7 +14,7 @@ import { Auth } from "../auth"
 import { Env } from "../env"
 import { applyEdits, modify } from "jsonc-parser"
 import { Instance, type InstanceContext } from "../project/instance"
-import { constants, existsSync, statSync } from "fs"
+import { existsSync, statSync } from "fs"
 import { GlobalBus } from "@/bus/global"
 import { Event } from "../server/event"
 import { Account } from "@/account"
@@ -109,15 +109,6 @@ function shouldGenerateInDirectory(dir: string) {
 
 type Package = {
   dependencies?: Record<string, string>
-}
-
-async function isWritable(dir: string) {
-  try {
-    await fsNode.access(dir, constants.W_OK)
-    return true
-  } catch {
-    return false
-  }
 }
 
 function configPluginDependencyTarget() {
@@ -390,6 +381,7 @@ export interface Interface {
   readonly invalidate: (wait?: boolean) => Effect.Effect<void>
   readonly directories: () => Effect.Effect<string[]>
   readonly waitForDependencies: () => Effect.Effect<void>
+  readonly installDependencies: (dir: string) => Effect.Effect<boolean>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Config") {}
@@ -731,6 +723,7 @@ const rawLayer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
+    const flock = yield* EffectFlock.Service
     const authSvc = yield* Auth.Service
     const accountSvc = yield* Account.Service
     const env = yield* Env.Service
@@ -988,13 +981,15 @@ const rawLayer = Layer.effect(
           if (shouldGenerateInDirectory(dir)) {
             yield* ensureGitignore(dir).pipe(Effect.orDie)
 
-            const dep = yield* Effect.promise(async () => {
-              try {
-                await installDependencies(dir)
-              } catch (error) {
-                log.warn("background dependency install failed", { dir, error: String(error) })
-              }
-            }).pipe(Effect.forkDetach)
+            const dep = yield* installDependencies(dir).pipe(
+              Effect.asVoid,
+              Effect.catchDefect((defect) =>
+                Effect.sync(() => {
+                  log.warn("background dependency install failed", { dir, error: String(defect) })
+                }),
+              ),
+              Effect.forkDetach,
+            )
             deps.push(dep)
           }
 
@@ -1168,6 +1163,81 @@ const rawLayer = Layer.effect(
       )
     })
 
+    const installDependencies: Interface["installDependencies"] = Effect.fn("Config.installDependencies")(function* (
+      dir,
+    ) {
+      const canWrite = yield* fs.access(dir, { writable: true }).pipe(
+        Effect.as(true),
+        Effect.orElseSucceed(() => false),
+      )
+      if (!canWrite) return false
+
+      const key = process.platform === "win32" ? "config-install:win32" : `config-install:${AppFileSystem.resolve(dir)}`
+
+      return yield* flock
+        .withLock(
+          Effect.gen(function* () {
+            const pkg = path.join(dir, "package.json")
+            const target = configPluginDependencyTarget()
+            const json: Package = yield* fs.readFileString(pkg).pipe(
+              Effect.flatMap((text) =>
+                Effect.try({
+                  try: () => JSON.parse(text) as Package,
+                  catch: () => undefined,
+                }),
+              ),
+              Effect.catch(() =>
+                Effect.succeed({
+                  dependencies: {},
+                } satisfies Package),
+              ),
+            )
+            const dependencies = json.dependencies ?? {}
+            const required = {
+              ...dependencies,
+              "@opencode-ai/plugin": target,
+            }
+            const hasDep = dependencies["@opencode-ai/plugin"] === target
+            json.dependencies = required
+
+            const gitignore = path.join(dir, ".gitignore")
+            const ignore = yield* fs.existsSafe(gitignore)
+            const installed = yield* Effect.all(
+              Object.keys(required).map((pkg) =>
+                fs.existsSafe(path.join(dir, "node_modules", ...pkg.split("/"), "package.json")),
+              ),
+              { concurrency: "unbounded" },
+            )
+
+            if (!hasDep) {
+              yield* fs.writeJson(pkg, json)
+            }
+            if (!ignore) {
+              yield* fs.writeFileString(
+                gitignore,
+                ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
+              )
+            }
+            if (hasDep && ignore && installed.every(Boolean)) return true
+            const installedDependencies = yield* Effect.tryPromise({
+              try: () => Npm.install(dir),
+              catch: (error) => error,
+            }).pipe(
+              Effect.as(true),
+              Effect.catch((error) =>
+                Effect.sync(() => {
+                  log.warn("dependency install failed", { dir, error: String(error) })
+                  return false
+                }),
+              ),
+            )
+            return installedDependencies
+          }),
+          key,
+        )
+        .pipe(Effect.orDie)
+    })
+
     const update = Effect.fn("Config.update")(function* (config: Info) {
       const dir = yield* InstanceState.directory
       const file = projectConfigFile(dir)
@@ -1293,6 +1363,7 @@ const rawLayer = Layer.effect(
       invalidate,
       directories,
       waitForDependencies,
+      installDependencies,
     })
   }),
 )
@@ -1345,50 +1416,7 @@ export async function waitForDependencies() {
 }
 
 export async function installDependencies(dir: string) {
-  if (!(await isWritable(dir))) return false
-  const key = process.platform === "win32" ? "config-install:win32" : `config-install:${Filesystem.resolve(dir)}`
-  await using _ = await Flock.acquire(key)
-
-  const pkg = path.join(dir, "package.json")
-  const target = configPluginDependencyTarget()
-  const json = await Filesystem.readJson<Package>(pkg).catch(
-    (): Package => ({
-      dependencies: {},
-    }),
-  )
-  const dependencies = json.dependencies ?? {}
-  const required = {
-    ...dependencies,
-    "@opencode-ai/plugin": target,
-  }
-  const hasDep = dependencies["@opencode-ai/plugin"] === target
-  json.dependencies = required
-
-  const gitignore = path.join(dir, ".gitignore")
-  const ignore = await Filesystem.exists(gitignore)
-  const installed = await Promise.all(
-    Object.keys(required).map((pkg) =>
-      Filesystem.exists(path.join(dir, "node_modules", ...pkg.split("/"), "package.json")),
-    ),
-  )
-
-  if (!hasDep) {
-    await Filesystem.writeJson(pkg, json)
-  }
-  if (!ignore) {
-    await Filesystem.write(
-      gitignore,
-      ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
-    )
-  }
-  if (hasDep && ignore && installed.every(Boolean)) return true
-  try {
-    await Npm.install(dir)
-    return true
-  } catch (error) {
-    log.warn("dependency install failed", { dir, error: String(error) })
-    return false
-  }
+  return runPromise((svc) => svc.installDependencies(dir))
 }
 
 const ConfigInfo = Info
