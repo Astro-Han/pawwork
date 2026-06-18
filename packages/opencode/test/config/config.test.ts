@@ -13,6 +13,7 @@ import { Auth } from "../../src/auth"
 import { Account } from "../../src/account"
 import { AccessToken, AccountID, OrgID } from "../../src/account/schema"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { tmpdir } from "../fixture/fixture"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
@@ -47,6 +48,7 @@ const emptyAuth = Layer.mock(Auth.Service)({
 })
 
 const layer = Config.layer.pipe(
+  Layer.provide(EffectFlock.defaultLayer),
   Layer.provide(AppFileSystem.defaultLayer),
   Layer.provide(emptyAuth),
   Layer.provide(emptyAccount),
@@ -64,6 +66,25 @@ const listDirs = () =>
   Effect.runPromise(Config.Service.use((svc) => svc.directories()).pipe(Effect.scoped, Effect.provide(layer)))
 const ready = () =>
   Effect.runPromise(Config.Service.use((svc) => svc.waitForDependencies()).pipe(Effect.scoped, Effect.provide(layer)))
+const installDepsWithLayer = (dir: string, targetLayer = layer) =>
+  Effect.runPromise(
+    Config.Service.use((svc) => svc.installDependencies(dir)).pipe(Effect.scoped, Effect.provide(targetLayer)),
+  )
+const installDeps = (dir: string) => installDepsWithLayer(dir)
+
+const lockFailureLayer = Config.layer.pipe(
+  Layer.provide(
+    Layer.mock(EffectFlock.Service)({
+      acquire: () => Effect.fail(new EffectFlock.LockTimeoutError({ key: "config-install:test" })),
+      withLock: ((body: Effect.Effect<unknown>, key?: string) =>
+        Effect.fail(new EffectFlock.LockTimeoutError({ key: key ?? "config-install:test" }))) as never,
+    }),
+  ),
+  Layer.provide(AppFileSystem.defaultLayer),
+  Layer.provide(emptyAuth),
+  Layer.provide(emptyAccount),
+  Layer.provideMerge(infra),
+)
 
 async function withPawWorkRuntime(fn: () => Promise<void>) {
   const previous = process.env.PAWWORK_RUNTIME_NAMESPACE
@@ -743,6 +764,7 @@ test("resolves env templates in account config with account token", async () => 
   })
 
   const layer = Config.layer.pipe(
+    Layer.provide(EffectFlock.defaultLayer),
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(emptyAuth),
     Layer.provide(fakeAccount),
@@ -1442,6 +1464,7 @@ it.live(
     const install = spyOn(Npm, "install").mockResolvedValue(undefined)
 
     const testLayer = Config.layer.pipe(
+      Layer.provide(EffectFlock.defaultLayer),
       Layer.provide(AppFileSystem.defaultLayer),
       Layer.provide(emptyAuth),
       Layer.provide(emptyAccount),
@@ -1502,6 +1525,79 @@ test("installDependencies bootstraps the config plugin package metadata", async 
   } finally {
     install.mockRestore()
   }
+})
+
+test("service installDependencies bootstraps the config plugin package metadata", async () => {
+  await using tmp = await tmpdir()
+  const install = spyOn(Npm, "install").mockResolvedValue(undefined)
+
+  try {
+    await installDeps(tmp.path)
+
+    const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.path, "package.json"))
+    const target = Installation.isLocal() ? "*" : Installation.VERSION
+
+    expect(pkg.dependencies?.["@opencode-ai/plugin"]).toBe(target)
+    expect(await Filesystem.readText(path.join(tmp.path, ".gitignore"))).toContain("package-lock.json")
+    expect(install).toHaveBeenCalledWith(tmp.path)
+  } finally {
+    install.mockRestore()
+  }
+})
+
+test("service installDependencies treats malformed package metadata as missing", async () => {
+  await using tmp = await tmpdir()
+  await Filesystem.write(path.join(tmp.path, "package.json"), "{")
+  const install = spyOn(Npm, "install").mockResolvedValue(undefined)
+
+  try {
+    await installDeps(tmp.path)
+
+    const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.path, "package.json"))
+    const target = Installation.isLocal() ? "*" : Installation.VERSION
+
+    expect(pkg.dependencies?.["@opencode-ai/plugin"]).toBe(target)
+    expect(install).toHaveBeenCalledWith(tmp.path)
+  } finally {
+    install.mockRestore()
+  }
+})
+
+test("service installDependencies treats non-object package metadata as missing", async () => {
+  await using tmp = await tmpdir()
+  await Filesystem.write(path.join(tmp.path, "package.json"), "null")
+  const install = spyOn(Npm, "install").mockResolvedValue(undefined)
+
+  try {
+    await installDeps(tmp.path)
+
+    const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.path, "package.json"))
+    const target = Installation.isLocal() ? "*" : Installation.VERSION
+
+    expect(pkg.dependencies?.["@opencode-ai/plugin"]).toBe(target)
+    expect(install).toHaveBeenCalledWith(tmp.path)
+  } finally {
+    install.mockRestore()
+  }
+})
+
+test("service installDependencies returns false when dependency install fails", async () => {
+  await using tmp = await tmpdir()
+  const install = spyOn(Npm, "install").mockImplementation(async () => {
+    throw new Error("install failed")
+  })
+
+  try {
+    await expect(installDeps(tmp.path)).resolves.toBe(false)
+  } finally {
+    install.mockRestore()
+  }
+})
+
+test("service installDependencies returns false when config install lock fails", async () => {
+  await using tmp = await tmpdir()
+
+  await expect(installDepsWithLayer(tmp.path, lockFailureLayer)).resolves.toBe(false)
 })
 
 test("installDependencies does not pin config plugin metadata to a packaged app build version", async () => {
@@ -2539,6 +2635,7 @@ test("project config overrides remote well-known config", async () => {
   })
 
   const layer = Config.layer.pipe(
+    Layer.provide(EffectFlock.defaultLayer),
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(fakeAuth),
     Layer.provide(emptyAccount),
@@ -2594,6 +2691,7 @@ test("wellknown URL with trailing slash is normalized", async () => {
   })
 
   const layer = Config.layer.pipe(
+    Layer.provide(EffectFlock.defaultLayer),
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(fakeAuth),
     Layer.provide(emptyAccount),
@@ -2639,6 +2737,7 @@ test("wellknown HTML response surfaces remote auth recovery error", async () => 
   })
 
   const layer = Config.layer.pipe(
+    Layer.provide(EffectFlock.defaultLayer),
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(fakeAuth),
     Layer.provide(emptyAccount),
@@ -2686,6 +2785,7 @@ test("wellknown non-json response surfaces remote auth recovery error", async ()
   })
 
   const layer = Config.layer.pipe(
+    Layer.provide(EffectFlock.defaultLayer),
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(fakeAuth),
     Layer.provide(emptyAccount),
@@ -2727,6 +2827,7 @@ test("wellknown unauthorized response surfaces remote auth recovery error", asyn
   })
 
   const layer = Config.layer.pipe(
+    Layer.provide(EffectFlock.defaultLayer),
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(fakeAuth),
     Layer.provide(emptyAccount),

@@ -319,6 +319,7 @@ describe("config routes", () => {
           invalidate: () => Effect.void,
           directories: () => Effect.succeed([]),
           waitForDependencies: () => Effect.void,
+          installDependencies: () => Effect.succeed(true),
         },
         provider: unusedProvider(),
       },

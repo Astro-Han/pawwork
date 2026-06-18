@@ -274,17 +274,17 @@ export namespace ToolRegistry {
               const needsDeps = yield* Effect.promise(() => needsConfigDependencies(match, configDir))
               yield* config.waitForDependencies()
               if (needsDeps) {
-                const installed = yield* Effect.promise(async () => {
-                  try {
-                    return await Config.installDependencies(configDir)
-                  } catch (error) {
-                    log.warn("failed to install config dependencies for local tool", {
-                      dir: configDir,
-                      error: String(error),
-                    })
-                    return false
-                  }
-                })
+                const installed = yield* config.installDependencies(configDir).pipe(
+                  Effect.catchDefect((defect) =>
+                    Effect.sync(() => {
+                      log.warn("failed to install config dependencies for local tool", {
+                        dir: configDir,
+                        error: String(defect),
+                      })
+                      return false
+                    }),
+                  ),
+                )
                 if (!installed) {
                   depsFailed.add(configDir)
                   continue
