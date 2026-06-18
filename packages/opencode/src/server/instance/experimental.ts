@@ -44,7 +44,7 @@ type ToolListQuery = {
   model: string
 }
 
-const getConsoleState = Effect.fn("ExperimentalRoutes.console.get")(function* () {
+export const getConsoleState = Effect.fn("ExperimentalRoutes.console.get")(function* () {
   const config = yield* Config.Service
   const account = yield* Account.Service
   const [state, groups] = yield* Effect.all([config.getConsoleState(), account.orgsByAccount()], {
@@ -56,7 +56,7 @@ const getConsoleState = Effect.fn("ExperimentalRoutes.console.get")(function* ()
   }
 })
 
-const listConsoleOrgs = Effect.fn("ExperimentalRoutes.console.listOrgs")(function* () {
+export const listConsoleOrgs = Effect.fn("ExperimentalRoutes.console.listOrgs")(function* () {
   const account = yield* Account.Service
   const [groups, active] = yield* Effect.all([account.orgsByAccount(), account.active()], {
     concurrency: "unbounded",
@@ -76,18 +76,18 @@ const listConsoleOrgs = Effect.fn("ExperimentalRoutes.console.listOrgs")(functio
   }
 })
 
-const switchConsoleOrg = Effect.fn("ExperimentalRoutes.console.switchOrg")(function* (body: ConsoleSwitchBody) {
+export const switchConsoleOrg = Effect.fn("ExperimentalRoutes.console.switchOrg")(function* (body: ConsoleSwitchBody) {
   const account = yield* Account.Service
   yield* account.use(AccountID.make(body.accountID), Option.some(OrgID.make(body.orgID)))
   return true
 })
 
-const listToolIDs = Effect.fn("ExperimentalRoutes.tool.ids")(function* () {
+export const listToolIDs = Effect.fn("ExperimentalRoutes.tool.ids")(function* () {
   const registry = yield* ToolRegistry.Service
   return yield* registry.ids()
 })
 
-const listTools = Effect.fn("ExperimentalRoutes.tool.list")(function* ({ provider, model }: ToolListQuery) {
+export const listTools = Effect.fn("ExperimentalRoutes.tool.list")(function* ({ provider, model }: ToolListQuery) {
   const registry = yield* ToolRegistry.Service
   const agents = yield* Agent.Service
   const agent = yield* agents.get(yield* agents.defaultAgent())
@@ -104,29 +104,29 @@ const listTools = Effect.fn("ExperimentalRoutes.tool.list")(function* ({ provide
   }))
 })
 
-const createWorktree = Effect.fn("ExperimentalRoutes.worktree.create")(function* (body?: Worktree.CreateInput) {
+export const createWorktree = Effect.fn("ExperimentalRoutes.worktree.create")(function* (body?: Worktree.CreateInput) {
   const worktrees = yield* Worktree.Service
   return yield* worktrees.create(body)
 })
 
-const listWorktrees = Effect.fn("ExperimentalRoutes.worktree.list")(function* () {
+export const listWorktrees = Effect.fn("ExperimentalRoutes.worktree.list")(function* () {
   const worktrees = yield* Worktree.Service
   return yield* worktrees.list()
 })
 
-const removeWorktree = Effect.fn("ExperimentalRoutes.worktree.remove")(function* (body: Worktree.RemoveInput) {
+export const removeWorktree = Effect.fn("ExperimentalRoutes.worktree.remove")(function* (body: Worktree.RemoveInput) {
   const worktrees = yield* Worktree.Service
   yield* worktrees.remove(body)
   return true
 })
 
-const resetWorktree = Effect.fn("ExperimentalRoutes.worktree.reset")(function* (body: Worktree.ResetInput) {
+export const resetWorktree = Effect.fn("ExperimentalRoutes.worktree.reset")(function* (body: Worktree.ResetInput) {
   const worktrees = yield* Worktree.Service
   yield* worktrees.reset(body)
   return true
 })
 
-const listResources = Effect.fn("ExperimentalRoutes.resource.list")(function* () {
+export const listResources = Effect.fn("ExperimentalRoutes.resource.list")(function* () {
   const mcp = yield* MCP.Service
   return yield* mcp.resources()
 })
