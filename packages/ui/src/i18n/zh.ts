@@ -79,7 +79,12 @@ export const dict = {
   "ui.sessionTurn.retry.geminiHot": "gemini 当前过载",
   "ui.sessionTurn.retry.recovery": "正在恢复…",
   "ui.sessionTurn.retry.safeRecovery": "正在恢复…",
-  "ui.sessionTurn.notice.safeRetryFailed": "恢复失败。你可以稍后再试，或换一个模型。",
+  "ui.sessionTurn.notice.safeRetryFailed.sideEffect.title": "操作已完成",
+  "ui.sessionTurn.notice.safeRetryFailed.sideEffect.body":
+    "上一项操作已执行。当前网络或模型服务商存在连接问题，请稍后重试，或换一个模型。",
+  "ui.sessionTurn.notice.safeRetryFailed.default.title": "回复未完成",
+  "ui.sessionTurn.notice.safeRetryFailed.default.body":
+    "模型回复未能生成。当前网络或模型服务商存在连接问题，请稍后重试，或换一个模型。",
   "ui.sessionTurn.error.freeUsageExceeded": "免费使用额度已用完",
   "ui.sessionTurn.error.addCredits": "添加积分",
 

@@ -51,7 +51,12 @@ export const dict = {
   "ui.sessionTurn.retry.geminiHot": "gemini 目前過載",
   "ui.sessionTurn.retry.recovery": "正在恢復…",
   "ui.sessionTurn.retry.safeRecovery": "正在恢復…",
-  "ui.sessionTurn.notice.safeRetryFailed": "恢復失敗。你可以稍後再試，或換一個模型。",
+  "ui.sessionTurn.notice.safeRetryFailed.sideEffect.title": "操作已完成",
+  "ui.sessionTurn.notice.safeRetryFailed.sideEffect.body":
+    "上一項操作已執行。目前網路或模型服務商存在連線問題，請稍後重試，或換一個模型。",
+  "ui.sessionTurn.notice.safeRetryFailed.default.title": "回覆未完成",
+  "ui.sessionTurn.notice.safeRetryFailed.default.body":
+    "模型回覆未能生成。目前網路或模型服務商存在連線問題，請稍後重試，或換一個模型。",
   "ui.sessionTurn.error.freeUsageExceeded": "免費使用額度已用完",
   "ui.sessionTurn.error.addCredits": "新增點數",
 
