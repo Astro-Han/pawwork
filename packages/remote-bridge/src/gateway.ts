@@ -269,16 +269,26 @@ export class App {
     onPlatformReady?: () => void,
   ): Promise<void>[] {
     const handler = this.messageHandler()
-    return this.platforms.map((platform) =>
-      Promise.resolve()
-        .then(() => platform.start(handler, onPlatformReady))
+    return this.platforms.map((platform) => {
+      // Count each platform toward "all ready" at most once. The contract says a
+      // platform signals onReady a single time, but a misbehaving adapter that
+      // double-fires must not let the bridge report "connected" before every
+      // platform is actually serving.
+      let counted = false
+      const ready = () => {
+        if (counted) return
+        counted = true
+        onPlatformReady?.()
+      }
+      return Promise.resolve()
+        .then(() => platform.start(handler, ready))
         .then(
           () => {},
           (err) => {
             if (!signal.aborted) failure.reject(new Error(`${platform.name} platform failed: ${message(err)}`))
           },
-        ),
-    )
+        )
+    })
   }
 
   private async stopPlatforms(): Promise<void> {
