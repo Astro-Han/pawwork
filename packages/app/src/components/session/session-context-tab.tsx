@@ -7,6 +7,7 @@ import { same } from "@/utils/same"
 import { Collapsible } from "@opencode-ai/ui/collapsible"
 import { File } from "@opencode-ai/ui/file"
 import { Markdown } from "@opencode-ai/ui/markdown"
+import { Progress } from "@opencode-ai/ui/progress"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
@@ -75,18 +76,21 @@ function StackedBar(props: { segments: { color: string; width: number }[] }) {
   )
 }
 
-// Budget meter — solid fill is tokens already used, the quiet tick is the auto-compaction threshold,
-// and the bare track beyond it is the headroom that remains. Fill tone escalates brand → warning →
-// error in step with the composer usage ring (session-context-usage.tsx) so the whole app signals
-// context pressure the same way. Track styling mirrors the house progress bar (progress.css).
-function BudgetMeter(props: { usedPercent: number; markerPercent?: number; color: string }) {
+// Budget meter — the house Progress bar carries the used percent; its fill tone escalates brand →
+// warning → error in step with the composer usage ring (session-context-usage.tsx) via the
+// --progress-fill custom property, so the whole app signals context pressure the same way. The quiet
+// tick is the auto-compaction threshold, kept as a thin overlay since a generic Progress has no
+// marker concept; the bare track beyond it is the headroom that remains.
+function BudgetMeter(props: { label: string; usedPercent: number; markerPercent?: number; color: string }) {
   const used = () => clampPercent(props.usedPercent)
   const marker = () => (props.markerPercent === undefined ? undefined : clampPercent(props.markerPercent))
   return (
-    <div class="relative h-2 w-full rounded-full overflow-hidden bg-surface-base border border-border-weak">
-      <div
-        class="absolute inset-y-0 left-0 rounded-full"
-        style={{ width: `${used()}%`, "background-color": props.color }}
+    <div class="relative">
+      <Progress
+        value={used()}
+        aria-label={props.label}
+        getValueLabel={({ value }) => `${Math.round(value)}%`}
+        style={{ "--progress-fill": props.color }}
       />
       <Show when={marker() !== undefined}>
         <div
@@ -410,6 +414,7 @@ export function SessionContextTab() {
               fallback={<div class="text-body text-fg-weaker">{language.t("context.budget.empty")}</div>}
             >
               <BudgetMeter
+                label={language.t("context.budget.title")}
                 usedPercent={budgetUsedPercent() ?? 0}
                 markerPercent={budgetMarkerPercent()}
                 color={budgetColor()}
