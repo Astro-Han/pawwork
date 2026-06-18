@@ -34,6 +34,17 @@ const ToolListItem = Schema.Struct({
   parameters: Schema.Any,
 })
 
+const SessionListQuery = Schema.Struct({
+  directory: Schema.optionalKey(Schema.String),
+  roots: Schema.optionalKey(Schema.Literals(["true", "false"])),
+  start: Schema.optionalKey(Schema.NumberFromString),
+  cursor: Schema.optionalKey(Schema.String),
+  search: Schema.optionalKey(Schema.String),
+  limit: Schema.optionalKey(Schema.NumberFromString),
+  archived: Schema.optionalKey(Schema.Literals(["true", "false"])),
+  sort: Schema.optionalKey(Schema.Literals(["updated", "created", "activity"])),
+})
+
 const McpResource = Schema.Struct({
   name: Schema.String,
   uri: Schema.String,
@@ -65,6 +76,7 @@ export const ExperimentalPaths = {
   tool: `${root}/tool`,
   toolIds: `${root}/tool/ids`,
   resource: `${root}/resource`,
+  session: `${root}/session`,
   worktree: `${root}/worktree`,
   worktreeReset: `${root}/worktree/reset`,
 } as const
@@ -132,6 +144,16 @@ export const ExperimentalApi = HttpApi.make("experimental")
             identifier: "experimental.resource.list",
             summary: "Get MCP resources",
             description: "Get all available MCP resources from connected servers. Optionally filter by name.",
+          }),
+        ),
+        HttpApiEndpoint.get("session", ExperimentalPaths.session, {
+          query: SessionListQuery,
+          success: Schema.Array(Schema.Any),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "experimental.session.list",
+            summary: "List global sessions",
+            description: "List OpenCode sessions across projects with the same cursor and sort semantics as the Hono route.",
           }),
         ),
         HttpApiEndpoint.post("worktreeCreate", ExperimentalPaths.worktree, {

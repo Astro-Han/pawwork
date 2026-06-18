@@ -176,6 +176,53 @@ function decodeUpdatedSessionCursor(value: string | number | undefined) {
   return Number.isFinite(cursor) ? cursor : undefined
 }
 
+export type ExperimentalSessionListQuery = {
+  directory?: string
+  roots?: boolean
+  start?: number
+  cursor?: string | number
+  search?: string
+  limit?: number
+  archived?: boolean
+  sort?: "updated" | "created" | "activity"
+}
+
+export async function listExperimentalSessions(query: ExperimentalSessionListQuery) {
+  const limit = query.limit ?? 100
+  const sessions: Session.GlobalInfo[] = []
+  for await (const session of Session.listGlobal({
+    directory: query.directory,
+    roots: query.roots,
+    start: query.start,
+    cursor:
+      query.sort === "created"
+        ? decodeCreatedSessionCursor(query.cursor)
+        : query.sort === "activity"
+          ? decodeActivitySessionCursor(query.cursor)
+          : decodeUpdatedSessionCursor(query.cursor),
+    search: query.search,
+    limit: limit + 1,
+    archived: query.archived,
+    sort: query.sort,
+  })) {
+    sessions.push(session)
+  }
+
+  const hasMore = sessions.length > limit
+  const list = hasMore ? sessions.slice(0, limit) : sessions
+  const last = list[list.length - 1]
+  const nextCursor =
+    hasMore && last
+      ? query.sort === "created"
+        ? encodeCreatedSessionCursor(last)
+        : query.sort === "activity"
+          ? encodeActivitySessionCursor(last)
+          : String(last.time.updated)
+      : undefined
+
+  return { sessions: list, hasMore, nextCursor }
+}
+
 export const ExperimentalRoutes = lazy(() =>
   new Hono()
     .get(
@@ -457,39 +504,12 @@ export const ExperimentalRoutes = lazy(() =>
       ),
       async (c) => {
         const query = c.req.valid("query")
-        const limit = query.limit ?? 100
-        const sessions: Session.GlobalInfo[] = []
-        for await (const session of Session.listGlobal({
-          directory: query.directory,
-          roots: query.roots,
-          start: query.start,
-          cursor:
-            query.sort === "created"
-              ? decodeCreatedSessionCursor(query.cursor)
-              : query.sort === "activity"
-                ? decodeActivitySessionCursor(query.cursor)
-              : decodeUpdatedSessionCursor(query.cursor),
-          search: query.search,
-          limit: limit + 1,
-          archived: query.archived,
-          sort: query.sort,
-        })) {
-          sessions.push(session)
-        }
-        const hasMore = sessions.length > limit
-        const list = hasMore ? sessions.slice(0, limit) : sessions
-        if (hasMore && list.length > 0) {
+        const result = await listExperimentalSessions(query)
+        if (result.hasMore && result.sessions.length > 0) {
           c.header("Access-Control-Expose-Headers", "X-Next-Cursor")
-          c.header(
-            "x-next-cursor",
-            query.sort === "created"
-              ? encodeCreatedSessionCursor(list[list.length - 1])
-              : query.sort === "activity"
-                ? encodeActivitySessionCursor(list[list.length - 1])
-              : String(list[list.length - 1].time.updated),
-          )
+          c.header("x-next-cursor", result.nextCursor)
         }
-        return c.json(list)
+        return c.json(result.sessions)
       },
     )
     .get(

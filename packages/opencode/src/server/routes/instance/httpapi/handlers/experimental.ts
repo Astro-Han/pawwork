@@ -2,6 +2,7 @@ import {
   createWorktree,
   getConsoleState,
   listConsoleOrgs,
+  listExperimentalSessions,
   listResources,
   listToolIDs,
   listTools,
@@ -98,6 +99,33 @@ export const experimentalHandlers = HttpApiBuilder.group(ExperimentalApi, "exper
     )
     .handleRaw("toolIds", () => jsonResponse(listToolIDs()))
     .handleRaw("resource", () => jsonResponse(listResources()))
+    .handleRaw("session", (ctx) =>
+      Effect.gen(function* () {
+        const result = yield* Effect.promise(() =>
+          listExperimentalSessions({
+            directory: ctx.query.directory,
+            roots: ctx.query.roots === undefined ? undefined : ctx.query.roots === "true",
+            start: ctx.query.start,
+            cursor: ctx.query.cursor === "" ? undefined : ctx.query.cursor,
+            search: ctx.query.search,
+            limit: ctx.query.limit,
+            archived: ctx.query.archived === undefined ? undefined : ctx.query.archived === "true",
+            sort: ctx.query.sort,
+          }),
+        )
+        const headers =
+          result.hasMore && result.sessions.length > 0
+            ? {
+                "Access-Control-Expose-Headers": "X-Next-Cursor",
+                ...(result.nextCursor === undefined ? {} : { "x-next-cursor": result.nextCursor }),
+              }
+            : undefined
+        return HttpServerResponse.jsonUnsafe(result.sessions, { headers })
+      }).pipe(
+        Effect.catch(experimentalFailure),
+        Effect.catchDefect(experimentalFailure),
+      ),
+    )
     .handleRaw("worktreeCreate", (ctx) =>
       Effect.gen(function* () {
         const payload = yield* parseJsonBody(ctx.request, WorktreeCreateBody)

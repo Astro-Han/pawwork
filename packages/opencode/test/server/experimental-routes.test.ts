@@ -250,4 +250,21 @@ describe("experimental routes", () => {
       },
     })
   })
+
+  test("treats an empty session cursor as absent through the HttpApi handler", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "empty-cursor-httpapi" })
+        const dir = encodeURIComponent(tmp.path)
+
+        const response = await requestExperimentalHttpApi(`/experimental/session?directory=${dir}&roots=true&limit=10&cursor=`)
+        const ids = (await response.json()).map((item: { id: string }) => item.id)
+
+        expect(response.status).toBe(200)
+        expect(ids).toContain(session.id)
+      },
+    })
+  })
 })
