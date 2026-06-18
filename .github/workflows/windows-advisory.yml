@@ -113,16 +113,17 @@ jobs:
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: windows-latest
-    # Windows unit jobs are advisory, package-scoped or shard-scoped. The
-    # 20-minute budget applies per matrix child; opencode has three parallel
-    # shards, so a full stall can consume up to three Windows runner slots.
-    timeout-minutes: 20
+    # Windows unit jobs are advisory, package-scoped or shard-scoped. Timeout
+    # budgets are explicit per matrix child; opencode has three parallel
+    # shards, so a full stall can still consume multiple Windows runner slots.
+    timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - package: app
             uses_turbo: true
+            timeout_minutes: 20
             command: bun turbo test:ci --filter=@opencode-ai/app
             report_path: packages/app/.artifacts/unit/junit.xml
           # The opencode-* package values below are synthetic shard names for
@@ -134,6 +135,7 @@ jobs:
           # tests to keep the Windows shard runtimes close.
           - package: opencode-session
             uses_turbo: false
+            timeout_minutes: 30
             command: >-
               cd packages/opencode && bun test
               --timeout 30000
@@ -152,6 +154,7 @@ jobs:
           # and GitHub workflow tests.
           - package: opencode-config-project
             uses_turbo: false
+            timeout_minutes: 20
             command: >-
               cd packages/opencode && bun test
               --timeout 30000
@@ -170,6 +173,7 @@ jobs:
           # why it has more entries than the other two opencode shards.
           - package: opencode-server-tools
             uses_turbo: false
+            timeout_minutes: 20
             command: >-
               cd packages/opencode && bun test
               --timeout 30000
@@ -209,6 +213,7 @@ jobs:
             report_path: packages/opencode/.artifacts/unit/junit-windows-server-tools.xml
           - package: desktop
             uses_turbo: true
+            timeout_minutes: 20
             command: bun turbo test:ci --filter=@opencode-ai/desktop-electron
             report_path: packages/desktop-electron/.artifacts/unit/junit.xml
     permissions:
