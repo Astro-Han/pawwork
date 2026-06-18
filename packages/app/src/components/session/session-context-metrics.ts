@@ -159,3 +159,29 @@ export function getRecentTurnCache(messages: Message[] = [], revertID?: string):
 
   return { input, read, write, hitRate: cacheHitRate(input, read, write) }
 }
+
+// Session-wide cache: the same tokensCumulative tally as getRecentTurnCache, but summed across every
+// visible turn instead of only the latest. Pairing the two lets the panel show "this turn" beside the
+// running session rate without a scope toggle. Summary and reverted turns are excluded for the same
+// reasons as the per-turn metric, so the session figure only reflects turns the user still sees.
+export function getSessionCacheAggregate(messages: Message[] = [], revertID?: string): RecentTurnCache | null {
+  const visible = revertID ? messages.filter((message) => message.id < revertID) : messages
+  const turns = buildTurnMessagesByUserID(visible)
+
+  let input = 0
+  let read = 0
+  let write = 0
+  for (const assistants of turns.values()) {
+    for (const assistant of assistants) {
+      if (assistant.summary) continue
+      const tokens = assistant.tokensCumulative
+      if (!tokens) continue
+      input += tokens.input
+      read += tokens.cache.read
+      write += tokens.cache.write
+    }
+  }
+  if (read + write <= 0) return null
+
+  return { input, read, write, hitRate: cacheHitRate(input, read, write) }
+}

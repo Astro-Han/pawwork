@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Message } from "@opencode-ai/sdk/v2/client"
-import { getRecentTurnCache, getSessionContextMetrics } from "./session-context-metrics"
+import { getRecentTurnCache, getSessionCacheAggregate, getSessionContextMetrics } from "./session-context-metrics"
 
 const assistant = (
   id: string,
@@ -283,5 +283,60 @@ describe("getRecentTurnCache", () => {
   test("returns null when there is no assistant turn yet", () => {
     expect(getRecentTurnCache([user("1")])).toBeNull()
     expect(getRecentTurnCache([])).toBeNull()
+  })
+})
+
+describe("getSessionCacheAggregate", () => {
+  test("sums cumulative tokens across every visible turn", () => {
+    const messages = [
+      user("1"),
+      turnAssistant("2", "1", { input: 40_000, read: 40_000, write: 0 }),
+      user("3"),
+      turnAssistant("4", "3", { input: 12_000, read: 108_000, write: 0 }),
+    ]
+
+    // read 148,000 / (input 52,000 + read 148,000 + write 0) = 148,000 / 200,000 = 74.0%
+    expect(getSessionCacheAggregate(messages)).toEqual({ input: 52_000, read: 148_000, write: 0, hitRate: 74 })
+  })
+
+  test("aggregates multiple assistant messages within a turn", () => {
+    const messages = [
+      user("1"),
+      turnAssistant("2", "1", { input: 100, read: 0, write: 500 }),
+      turnAssistant("3", "1", { input: 20, read: 480, write: 10 }),
+    ]
+
+    // 480 / (120 + 480 + 510) = 480 / 1110 = 43.2%
+    expect(getSessionCacheAggregate(messages)).toEqual({ input: 120, read: 480, write: 510, hitRate: 43.2 })
+  })
+
+  test("excludes reverted turns", () => {
+    const messages = [
+      user("1"),
+      turnAssistant("2", "1", { input: 10, read: 90, write: 0 }),
+      user("3"),
+      turnAssistant("4", "3", { input: 5, read: 0, write: 500 }),
+    ]
+
+    // revert points at "3": only the "1" turn stays visible -> 90 / (10 + 90) = 90%
+    expect(getSessionCacheAggregate(messages, "3")).toEqual({ input: 10, read: 90, write: 0, hitRate: 90 })
+  })
+
+  test("skips compaction summary messages", () => {
+    const messages = [
+      user("1"),
+      turnAssistant("2", "1", { input: 10, read: 90, write: 0 }),
+      user("c"),
+      turnAssistant("s", "c", { input: 5, read: 1000, write: 0 }, { summary: true }),
+    ]
+
+    // the summary turn's tokens are ignored: 90 / (10 + 90) = 90%
+    expect(getSessionCacheAggregate(messages)).toEqual({ input: 10, read: 90, write: 0, hitRate: 90 })
+  })
+
+  test("returns null when no turn reported cache activity", () => {
+    const messages = [user("1"), turnAssistant("2", "1", { input: 300, read: 0, write: 0 })]
+    expect(getSessionCacheAggregate(messages)).toBeNull()
+    expect(getSessionCacheAggregate([])).toBeNull()
   })
 })
