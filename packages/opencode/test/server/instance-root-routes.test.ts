@@ -145,6 +145,11 @@ describe("instance root routes", () => {
         expect(status.status).toBe(200)
         expect(await status.json()).toEqual([{ file: "tracked.txt", additions: 1, deletions: 1, status: "modified" }])
 
+        const rawDiff = await requestRootHttpApi("/vcs/diff/raw")
+        expect(rawDiff.status).toBe(200)
+        expect(rawDiff.headers.get("content-type")).toContain("text/plain")
+        expect(await rawDiff.text()).toContain("diff --git a/tracked.txt b/tracked.txt")
+
         const dispose = await requestRootHttpApi("/instance/dispose", { method: "POST" })
         expect(dispose.status).toBe(200)
         expect(await dispose.json()).toBe(true)

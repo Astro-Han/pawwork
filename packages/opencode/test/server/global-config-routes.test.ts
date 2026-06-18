@@ -131,6 +131,27 @@ describe("global config routes", () => {
     })
   })
 
+  test("returns the merged global config after HttpApi patch", async () => {
+    await withConfigDepsLock(async () => {
+      await withIsolatedGlobalConfig(async (globalDir) => {
+        await fs.writeFile(path.join(globalDir, "pawwork.json"), JSON.stringify({ username: "kept-user" }), "utf8")
+
+        const response = await requestGlobalHttpApi("/global/config", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ model: "test/httpapi-merged-model" }),
+        })
+        const body = await response.json()
+
+        expect(response.status).toBe(200)
+        expect(body).toMatchObject({
+          username: "kept-user",
+          model: "test/httpapi-merged-model",
+        })
+      })
+    })
+  })
+
   test("serves dispose and upgrade through the HttpApi handlers", async () => {
     const dispose = await requestGlobalHttpApi("/global/dispose", { method: "POST" })
     expect(dispose.status).toBe(200)

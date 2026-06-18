@@ -109,8 +109,8 @@ export const globalHandlers = HttpApiBuilder.group(GlobalApi, "global", (handler
         Effect.gen(function* () {
           const body = yield* parseJsonBody(ctx.request, Config.Info.zod)
           if (HttpServerResponse.isHttpServerResponse(body)) return body
-          yield* config.updateGlobal(body)
-          return HttpServerResponse.jsonUnsafe(body)
+          const next = yield* config.updateGlobal(body)
+          return HttpServerResponse.jsonUnsafe(next)
         }),
       )
       .handleRaw("health", () =>
