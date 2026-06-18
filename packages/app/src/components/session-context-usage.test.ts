@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { runBrowserCheck } from "@/testing/browser-subprocess"
-import { contextUsageRingPercent, contextUsageTone } from "./session-context-usage-state"
+import { contextBudgetMarkerPercent, contextUsageRingPercent, contextUsageTone } from "./session-context-usage-state"
 
 const sessionContextUsageBehaviorCheck = String.raw`
 import { mock } from "bun:test"
@@ -133,6 +133,33 @@ describe("session context usage indicator helpers", () => {
     expect(contextUsageRingPercent(-1)).toBe(0)
     expect(contextUsageRingPercent(42.5)).toBe(42.5)
     expect(contextUsageRingPercent(120)).toBe(100)
+  })
+
+  test("places the budget marker at the threshold share of the input limit", () => {
+    expect(
+      contextBudgetMarkerPercent({ autoCompactEnabled: true, compactThreshold: 140_000, effectiveInputLimit: 160_000 }),
+    ).toBeCloseTo(87.5)
+  })
+
+  test("keeps a 0% marker when the threshold is a legitimate zero (reserved >= input limit)", () => {
+    expect(
+      contextBudgetMarkerPercent({ autoCompactEnabled: true, compactThreshold: 0, effectiveInputLimit: 160_000 }),
+    ).toBe(0)
+  })
+
+  test("drops the marker when disabled, threshold missing, or the limit is unusable", () => {
+    expect(
+      contextBudgetMarkerPercent({ autoCompactEnabled: false, compactThreshold: 140_000, effectiveInputLimit: 160_000 }),
+    ).toBeUndefined()
+    expect(
+      contextBudgetMarkerPercent({ autoCompactEnabled: true, compactThreshold: undefined, effectiveInputLimit: 160_000 }),
+    ).toBeUndefined()
+    expect(
+      contextBudgetMarkerPercent({ autoCompactEnabled: true, compactThreshold: 140_000, effectiveInputLimit: undefined }),
+    ).toBeUndefined()
+    expect(
+      contextBudgetMarkerPercent({ autoCompactEnabled: true, compactThreshold: 140_000, effectiveInputLimit: 0 }),
+    ).toBeUndefined()
   })
 })
 

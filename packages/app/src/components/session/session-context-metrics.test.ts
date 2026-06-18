@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Message } from "@opencode-ai/sdk/v2/client"
-import { getRecentTurnCache, getSessionContextMetrics } from "./session-context-metrics"
+import { getRecentTurnCache, getSessionCacheAggregate, getSessionContextMetrics } from "./session-context-metrics"
 
 const assistant = (
   id: string,
@@ -280,8 +280,92 @@ describe("getRecentTurnCache", () => {
     expect(getRecentTurnCache(messages, "3")).toEqual({ input: 10, read: 90, write: 10, hitRate: 81.8 })
   })
 
+  test("clips reverted turns by array position, not id string order", () => {
+    // Custom message ids need not sort in turn order (the prompt API accepts caller-supplied ids), so
+    // the reverted assistant "b" sorts before the revert id "m". A naive `id < revertID` check would
+    // keep it and report the rolled-back turn as the recent one; array-order slicing drops it.
+    const messages = [
+      user("z"),
+      turnAssistant("a", "z", { input: 10, read: 90, write: 0 }),
+      user("m"),
+      turnAssistant("b", "m", { input: 5, read: 900, write: 0 }),
+    ]
+
+    expect(getRecentTurnCache(messages, "m")).toEqual({ input: 10, read: 90, write: 0, hitRate: 90 })
+  })
+
   test("returns null when there is no assistant turn yet", () => {
     expect(getRecentTurnCache([user("1")])).toBeNull()
     expect(getRecentTurnCache([])).toBeNull()
+  })
+})
+
+describe("getSessionCacheAggregate", () => {
+  test("sums cumulative tokens across every visible turn", () => {
+    const messages = [
+      user("1"),
+      turnAssistant("2", "1", { input: 40_000, read: 40_000, write: 0 }),
+      user("3"),
+      turnAssistant("4", "3", { input: 12_000, read: 108_000, write: 0 }),
+    ]
+
+    // read 148,000 / (input 52,000 + read 148,000 + write 0) = 148,000 / 200,000 = 74.0%
+    expect(getSessionCacheAggregate(messages)).toEqual({ input: 52_000, read: 148_000, write: 0, hitRate: 74 })
+  })
+
+  test("aggregates multiple assistant messages within a turn", () => {
+    const messages = [
+      user("1"),
+      turnAssistant("2", "1", { input: 100, read: 0, write: 500 }),
+      turnAssistant("3", "1", { input: 20, read: 480, write: 10 }),
+    ]
+
+    // 480 / (120 + 480 + 510) = 480 / 1110 = 43.2%
+    expect(getSessionCacheAggregate(messages)).toEqual({ input: 120, read: 480, write: 510, hitRate: 43.2 })
+  })
+
+  test("excludes reverted turns", () => {
+    const messages = [
+      user("1"),
+      turnAssistant("2", "1", { input: 10, read: 90, write: 0 }),
+      user("3"),
+      turnAssistant("4", "3", { input: 5, read: 0, write: 500 }),
+    ]
+
+    // revert points at "3": only the "1" turn stays visible -> 90 / (10 + 90) = 90%
+    expect(getSessionCacheAggregate(messages, "3")).toEqual({ input: 10, read: 90, write: 0, hitRate: 90 })
+  })
+
+  test("excludes reverted turns by array position, not id string order", () => {
+    // The prompt API accepts custom message ids, so ids are not guaranteed to sort in turn order.
+    // Here the reverted assistant "b" sorts before the revert id "m", so a naive `id < revertID`
+    // check would fold its 900 cache reads into the session total. Array-order slicing keeps only the
+    // first ("z") turn.
+    const messages = [
+      user("z"),
+      turnAssistant("a", "z", { input: 10, read: 90, write: 0 }),
+      user("m"),
+      turnAssistant("b", "m", { input: 5, read: 900, write: 0 }),
+    ]
+
+    expect(getSessionCacheAggregate(messages, "m")).toEqual({ input: 10, read: 90, write: 0, hitRate: 90 })
+  })
+
+  test("skips compaction summary messages", () => {
+    const messages = [
+      user("1"),
+      turnAssistant("2", "1", { input: 10, read: 90, write: 0 }),
+      user("c"),
+      turnAssistant("s", "c", { input: 5, read: 1000, write: 0 }, { summary: true }),
+    ]
+
+    // the summary turn's tokens are ignored: 90 / (10 + 90) = 90%
+    expect(getSessionCacheAggregate(messages)).toEqual({ input: 10, read: 90, write: 0, hitRate: 90 })
+  })
+
+  test("returns null when no turn reported cache activity", () => {
+    const messages = [user("1"), turnAssistant("2", "1", { input: 300, read: 0, write: 0 })]
+    expect(getSessionCacheAggregate(messages)).toBeNull()
+    expect(getSessionCacheAggregate([])).toBeNull()
   })
 })
