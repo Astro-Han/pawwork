@@ -94,7 +94,39 @@ describe("route inventory harness", () => {
     })
     expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/external-result")).toMatchObject({
       hono: true,
-      localHttpApi: false,
+      localHttpApi: true,
+      classification: "pawwork-owned-sdk-v2-only",
+    })
+  })
+
+  test("tracks local HttpApi migration coverage for ordinary JSON file, project, memory, and external-result routes", async () => {
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+
+    for (const [method, routePath] of [
+      ["GET", "/find"],
+      ["GET", "/find/file"],
+      ["GET", "/find/symbol"],
+      ["GET", "/file"],
+      ["GET", "/file/content"],
+      ["GET", "/file/status"],
+      ["GET", "/project"],
+      ["GET", "/project/current"],
+      ["POST", "/project/git/init"],
+      ["PATCH", "/project/:projectID"],
+      ["GET", "/memory"],
+      ["PATCH", "/memory"],
+      ["POST", "/memory/reset"],
+      ["PATCH", "/memory/disabled"],
+      ["DELETE", "/memory/entry/:id"],
+      ["GET", "/external-result"],
+    ] as const) {
+      expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
+        hono: true,
+        localHttpApi: true,
+      })
+    }
+
+    expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/external-result")).toMatchObject({
       classification: "pawwork-owned-sdk-v2-only",
     })
   })
