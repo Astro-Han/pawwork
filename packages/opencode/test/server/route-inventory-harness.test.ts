@@ -159,6 +159,34 @@ describe("route inventory harness", () => {
     }
   })
 
+  test("tracks local HttpApi migration coverage for root instance and global JSON routes", async () => {
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+
+    for (const [method, routePath] of [
+      ["POST", "/instance/dispose"],
+      ["GET", "/path"],
+      ["GET", "/vcs"],
+      ["GET", "/vcs/status"],
+      ["GET", "/vcs/diff"],
+      ["GET", "/vcs/diff/raw"],
+      ["POST", "/vcs/apply"],
+      ["GET", "/command"],
+      ["GET", "/agent"],
+      ["GET", "/skill"],
+      ["GET", "/lsp"],
+      ["GET", "/global/config"],
+      ["PATCH", "/global/config"],
+      ["GET", "/global/health"],
+      ["POST", "/global/dispose"],
+      ["POST", "/global/upgrade"],
+    ] as const) {
+      expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
+        hono: true,
+        localHttpApi: true,
+      })
+    }
+  })
+
   test("parses upstream HttpApi route declarations without requiring a live upstream ref", () => {
     const routes = parseHttpApiRoutesFromText(
       `
