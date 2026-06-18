@@ -2,18 +2,13 @@ import { getFilename } from "@opencode-ai/util/path"
 import { type Session } from "@opencode-ai/sdk/v2/client"
 import { compareSessionsByCreated } from "@/context/global-sync/utils"
 import { base64Encode } from "@opencode-ai/util/encode"
+import { workspaceKey } from "@/utils/workspace-key"
+
+export { workspaceKey }
 
 type SessionStore = {
   session?: Session[]
   path: { directory: string }
-}
-
-export const workspaceKey = (directory: string) => {
-  const value = directory.replaceAll("\\", "/")
-  const drive = value.match(/^([A-Za-z]:)\/+$/)
-  if (drive) return `${drive[1]}/`
-  if (/^\/+$/i.test(value)) return "/"
-  return value.replace(/\/+$/, "")
 }
 
 export const pawworkSessionRowKey = (input: { directory: string; id: string }) =>
