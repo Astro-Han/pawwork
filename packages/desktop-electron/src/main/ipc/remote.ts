@@ -1,34 +1,33 @@
 import { BrowserWindow, ipcMain } from "electron"
-import { PairingCancelledError, type RemoteBridgeRuntime } from "../remote-bridge"
+import type { RemotePairingStart, RemotePlatform } from "@opencode-ai/app/desktop-api"
+import type { RemoteBridgeRuntime } from "../remote-bridge"
 
 /**
- * Wires the mobile-companion bridge IPC. The renderer pastes the bot token once,
- * inbound, over remote:start-pairing; from there it stays main-only — confirm and
- * disconnect carry no token, and the status read back is always masked. Status
- * changes are broadcast to every window so the settings page reflects
- * connect/degraded without polling.
+ * Wires the mobile-companion bridge IPC. Secrets stay main-only: the Telegram token
+ * crosses once, inbound, inside the start-pairing options; Feishu/WeChat are QR
+ * flows that mint credentials main-side. confirm/disconnect carry no secret, and
+ * the status read back is always masked. Status and pairing progress are broadcast
+ * to every window so the page reflects connect/degraded and the QR → bind → captured
+ * steps without polling.
  */
 export function registerRemoteIpc(runtime: RemoteBridgeRuntime) {
-  runtime.onStatusChange((status) => {
+  const broadcast = (channel: string, payload: unknown) => {
     for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) win.webContents.send("remote:status", status)
+      if (!win.isDestroyed()) win.webContents.send(channel, payload)
     }
-  })
+  }
+  runtime.onStatusChange((status) => broadcast("remote:status", status))
+  runtime.onPairing((event) => broadcast("remote:pairing", event))
 
   ipcMain.handle("remote:get-status", () => runtime.getStatus())
-  // Resolves with the captured sender, or null if the user cancelled (closed the
-  // connect dialog). A real failure (bad token) rejects so the UI can show it.
-  ipcMain.handle("remote:start-pairing", async (_event, token: string) => {
-    try {
-      return await runtime.startPairing(token)
-    } catch (err) {
-      if (err instanceof PairingCancelledError) return null
-      throw err
-    }
-  })
+  // Fire-and-forget: the QR, the bind hint, and the outcome (captured / error /
+  // cancelled) all arrive on remote:pairing, so this just kicks the flow off.
+  ipcMain.handle("remote:start-pairing", (_event, platform: RemotePlatform, start?: RemotePairingStart) =>
+    runtime.startPairing(platform, start),
+  )
   ipcMain.handle("remote:cancel-pairing", () => runtime.cancelPairing())
-  // No args: the token + captured identity are held main-side from start-pairing,
-  // so confirm only approves them — the renderer can't supply or swap the token.
-  ipcMain.handle("remote:confirm-pairing", () => runtime.confirmPairing())
-  ipcMain.handle("remote:disconnect", () => runtime.disconnect())
+  // No secret: the credential + captured identity are held main-side from
+  // start-pairing, so confirm only approves them for the named platform.
+  ipcMain.handle("remote:confirm-pairing", (_event, platform: RemotePlatform) => runtime.confirmPairing(platform))
+  ipcMain.handle("remote:disconnect", (_event, platform: RemotePlatform) => runtime.disconnect(platform))
 }

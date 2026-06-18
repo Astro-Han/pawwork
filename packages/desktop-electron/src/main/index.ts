@@ -93,7 +93,7 @@ import {
   SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
 } from "./renderer-diagnostics"
 import { backendLogFilePath, getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, spawnLocalServer } from "./server"
-import { createRemoteBridgeRuntime } from "./remote-bridge"
+import { createRemoteBridgeRuntime } from "./remote-pairers"
 import { safeStorageCredentialStore, type CredentialStoreEnv } from "./remote-credentials"
 import { PAWWORK_RUNTIME } from "./runtime-namespace"
 import { createUpdaterController, createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./updater"
@@ -166,7 +166,6 @@ const remoteUserData = () => app.getPath("userData")
 const remoteStateFile = () => join(remoteUserData(), "remote-bridge-state.json")
 const remoteCredentialEnv: CredentialStoreEnv = {
   credentialsFile: () => join(remoteUserData(), "remote-bridge-credentials.json"),
-  stateFile: remoteStateFile,
   isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
   encryptString: (plain) => safeStorage.encryptString(plain),
   decryptString: (cipher) => safeStorage.decryptString(cipher),

@@ -78,38 +78,64 @@ export type WebSearchStatus = {
   quotaExceeded: boolean
 }
 
-/** Mobile-companion connection state, as the renderer sees it. */
+/** Connection state of one mobile-companion channel, as the renderer sees it. */
 export type RemoteState = "disconnected" | "connecting" | "connected" | "degraded"
 
-/** Masked status of the mobile-companion bridge — never includes the bot token. */
-export type RemoteStatus = {
+/** The chat platforms the bridge can connect. */
+export type RemotePlatform = "telegram" | "feishu" | "wechat"
+
+/** Masked status of one channel — never includes a secret. */
+export type RemoteChannelStatus = {
+  platform: RemotePlatform
   state: RemoteState
-  platform: "telegram" | null
-  identity: { userId: string; userName: string } | null
+  /** The paired target (user or group), for display; null until known. */
+  identity: { id: string; name: string } | null
   error: string | null
 }
 
-/** The sender captured during pairing, for the user to approve before connecting. */
-export type RemotePairingResult = {
-  userId: string
-  userName: string
-  botUsername?: string
-}
+/**
+ * Masked status of the whole bridge: one entry per platform that has a saved
+ * account. Platforms run concurrently and independently — a dead Feishu token
+ * shows `degraded` while Telegram stays `connected`. A platform with no account
+ * simply has no entry (the page renders it as a disconnected connect-target).
+ */
+export type RemoteStatus = { channels: RemoteChannelStatus[] }
+
+/**
+ * A step in a scan-to-connect pairing flow, pushed to the renderer as it
+ * progresses. Secrets never appear here.
+ *  - `qr` — render the QR (`image` data-URL for WeChat, `url` + `code` for Feishu).
+ *  - `awaitingBind` — QR scanned / token validated; now act from the phone
+ *    (`message` the bot, or add it to a `group` and @mention it).
+ *  - `captured` — the paired identity is ready for the user to approve.
+ *  - `error` / `cancelled` — the flow ended.
+ */
+export type RemotePairingEvent =
+  | { phase: "qr"; platform: RemotePlatform; image?: string; url?: string; code?: string }
+  | { phase: "awaitingBind"; platform: RemotePlatform; hint: "message" | "group" }
+  | { phase: "captured"; platform: RemotePlatform; identity: { id: string; name: string } }
+  | { phase: "error"; platform: RemotePlatform; message: string }
+  | { phase: "cancelled"; platform: RemotePlatform }
+
+/** Options to begin pairing. Telegram needs a bot token; Feishu/WeChat are QR
+ * flows that mint credentials main-side (`domain` only labels Feishu vs Lark). */
+export type RemotePairingStart = { token?: string; domain?: "feishu" | "lark" }
 
 /**
  * Control surface for the mobile-companion bridge (connect a phone chat app to
- * this desktop's agent). Desktop/Electron only. Pairing is two steps: start
- * (paste token, then message the bot from your phone — resolves with the
- * captured sender, or null if cancelled) then confirm (approve that identity).
- * The token crosses this boundary only on `startPairing`; the main process holds
- * it from there, so `confirmPairing` approves the captured identity with no args
- * and never resends the secret.
+ * this desktop's agent). Desktop/Electron only. Each platform pairs independently
+ * and runs concurrently. Pairing is event-driven: `startPairing` kicks off the
+ * flow, `onPairing` streams its steps (QR → bind → captured), `confirmPairing`
+ * approves the captured identity. Secrets cross only on `startPairing` (the
+ * Telegram token) or never (Feishu/WeChat QR mint them main-side); `confirmPairing`
+ * approves with no secret, and the stored credential never returns over IPC.
  */
 export type RemoteBridge = {
   getStatus(): Promise<RemoteStatus>
-  startPairing(token: string): Promise<RemotePairingResult | null>
-  cancelPairing(): Promise<void>
-  confirmPairing(): Promise<void>
-  disconnect(): Promise<void>
   onStatus(handler: (status: RemoteStatus) => void): () => void
+  startPairing(platform: RemotePlatform, start?: RemotePairingStart): Promise<void>
+  onPairing(handler: (event: RemotePairingEvent) => void): () => void
+  confirmPairing(platform: RemotePlatform): Promise<void>
+  cancelPairing(): Promise<void>
+  disconnect(platform: RemotePlatform): Promise<void>
 }

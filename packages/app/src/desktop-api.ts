@@ -2,7 +2,10 @@ export { buildDesktopContext, desktopWindowTitle, type DesktopContext } from "./
 export type {
   AboutInfo,
   RemoteBridge,
-  RemotePairingResult,
+  RemoteChannelStatus,
+  RemotePairingEvent,
+  RemotePairingStart,
+  RemotePlatform,
   RemoteState,
   RemoteStatus,
   RendererDiagnosticInput,

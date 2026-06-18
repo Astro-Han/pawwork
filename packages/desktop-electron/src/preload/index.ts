@@ -9,14 +9,19 @@ const invokeSetDesktopContext = (context: DesktopContext) => ipcRenderer.invoke(
 
 const remote: ElectronAPI["remote"] = {
   getStatus: () => ipcRenderer.invoke("remote:get-status"),
-  startPairing: (token) => ipcRenderer.invoke("remote:start-pairing", token),
+  startPairing: (platform, start) => ipcRenderer.invoke("remote:start-pairing", platform, start),
   cancelPairing: () => ipcRenderer.invoke("remote:cancel-pairing"),
-  confirmPairing: () => ipcRenderer.invoke("remote:confirm-pairing"),
-  disconnect: () => ipcRenderer.invoke("remote:disconnect"),
+  confirmPairing: (platform) => ipcRenderer.invoke("remote:confirm-pairing", platform),
+  disconnect: (platform) => ipcRenderer.invoke("remote:disconnect", platform),
   onStatus: (cb) => {
     const handler = (_: unknown, status: Parameters<typeof cb>[0]) => cb(status)
     ipcRenderer.on("remote:status", handler)
     return () => ipcRenderer.removeListener("remote:status", handler)
+  },
+  onPairing: (cb) => {
+    const handler = (_: unknown, event: Parameters<typeof cb>[0]) => cb(event)
+    ipcRenderer.on("remote:pairing", handler)
+    return () => ipcRenderer.removeListener("remote:pairing", handler)
   },
 }
 
