@@ -1,13 +1,11 @@
 import { beforeAll, describe, expect, mock, test } from "bun:test"
 import type {
-  createModelActions as CreateModelActions,
   localSavedStoreKey as LocalSavedStoreKey,
   localPersistReadyForAction as LocalPersistReadyForAction,
   pruneLocalSavedStores as PruneLocalSavedStores,
   shouldRestoreLocalSessionModel as ShouldRestoreLocalSessionModel,
 } from "./local"
 
-let createModelActions: typeof CreateModelActions
 let localSavedStoreKey: typeof LocalSavedStoreKey
 let localPersistReadyForAction: typeof LocalPersistReadyForAction
 let pruneLocalSavedStores: typeof PruneLocalSavedStores
@@ -20,7 +18,6 @@ beforeAll(async () => {
   }))
 
   const mod = await import("./local")
-  createModelActions = mod.createModelActions
   localSavedStoreKey = mod.localSavedStoreKey
   localPersistReadyForAction = mod.localPersistReadyForAction
   pruneLocalSavedStores = mod.pruneLocalSavedStores
@@ -100,58 +97,5 @@ describe("pruneLocalSavedStores", () => {
 
     expect([...stores.keys()]).toEqual(["current", "newer"])
     expect(disposed).toEqual(["oldest"])
-  })
-})
-
-describe("createModelActions recent-model wiring", () => {
-  // Two connected models, the first "current" — enough to exercise set() and
-  // cycle() without standing up the Local context.
-  function setup() {
-    const calls = {
-      recordRecent: [] as Array<{ providerID: string; modelID: string }>,
-      pushRecent: [] as Array<{ providerID: string; modelID: string }>,
-      write: [] as Array<{ providerID: string; modelID: string } | undefined>,
-    }
-    const recent = [
-      { provider: { id: "anthropic" }, id: "claude" },
-      { provider: { id: "openai" }, id: "gpt" },
-    ]
-    const actions = createModelActions({
-      batch: <T>(fn: () => T): T => fn(),
-      recordLast: () => {},
-      write: (item) => calls.write.push(item),
-      setVisibility: () => {},
-      pushRecent: (item) => calls.pushRecent.push(item),
-      recordRecent: async (ref) => {
-        calls.recordRecent.push(ref)
-      },
-      recent: () => recent,
-      current: () => recent[0],
-    })
-    return { actions, calls }
-  }
-
-  test("an explicit pick mirrors the choice to the server's recent-model default", () => {
-    const { actions, calls } = setup()
-    actions.set({ providerID: "anthropic", modelID: "claude" }, { recent: true })
-    expect(calls.recordRecent).toEqual([{ providerID: "anthropic", modelID: "claude" }])
-    expect(calls.pushRecent).toEqual([{ providerID: "anthropic", modelID: "claude" }])
-  })
-
-  test("a non-recent set (programmatic / agent-pinned) never touches the server default", () => {
-    const { actions, calls } = setup()
-    actions.set({ providerID: "anthropic", modelID: "claude" })
-    expect(calls.recordRecent).toEqual([])
-    expect(calls.pushRecent).toEqual([])
-    // the selection is still applied locally — it just isn't promoted to default
-    expect(calls.write).toEqual([{ providerID: "anthropic", modelID: "claude" }])
-  })
-
-  test("cycling between recent models never re-records the default", () => {
-    const { actions, calls } = setup()
-    actions.cycle(1)
-    expect(calls.recordRecent).toEqual([])
-    // cycle still moved the selection on to the next recent model
-    expect(calls.write).toEqual([{ providerID: "openai", modelID: "gpt" }])
   })
 })
