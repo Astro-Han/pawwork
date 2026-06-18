@@ -10,7 +10,7 @@ import { File } from "../file"
 import { FileWatcher } from "../file/watcher"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Instance } from "../project/instance"
-import { trimDiff } from "./edit"
+import { trimDiff, countLineChanges } from "./edit"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import * as Bom from "@/util/bom"
 import { isSensitiveTargetPath, safeFilepathMetadata } from "./sensitive"
@@ -59,6 +59,7 @@ export const WriteTool = Tool.define(
 
         let diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, contentNew))
         const relativeFilepath = path.relative(Instance.worktree, filepath)
+        const { additions, deletions } = countLineChanges(contentOld, contentNew)
         const sensitive = isSensitiveTargetPath(filepath, Instance.worktree)
         const status = exists ? "modified" : "added"
         yield* ctx.ask({
@@ -88,7 +89,9 @@ export const WriteTool = Tool.define(
           event: exists ? "change" : "add",
         })
 
-        let output = "Wrote file successfully."
+        let output = exists
+          ? `Wrote ${relativeFilepath} (+${additions} -${deletions} lines).`
+          : `Created ${relativeFilepath} (+${additions} lines).`
         yield* lsp.touchFile(filepath, true)
         const diagnostics = sensitive ? {} : yield* lsp.diagnostics()
         const normalizedFilepath = AppFileSystem.normalizePath(filepath)

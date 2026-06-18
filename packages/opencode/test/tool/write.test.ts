@@ -78,7 +78,7 @@ describe("tool.write", () => {
           const filepath = path.join(dir, "newfile.txt")
           const result = yield* run({ filePath: filepath, content: "Hello, World!" })
 
-          expect(result.output).toContain("Wrote file successfully")
+          expect(result.output).toContain("newfile.txt (+1 lines).")
           expect(result.metadata.exists).toBe(false)
 
           const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
@@ -120,7 +120,7 @@ describe("tool.write", () => {
 
           const result = yield* run({ filePath: filepath, content: "new content" })
 
-          expect(result.output).toContain("Wrote file successfully")
+          expect(result.output).toContain("existing-no-read.txt (+1 -1 lines).")
           expect(result.metadata.exists).toBe(true)
 
           const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
@@ -137,7 +137,7 @@ describe("tool.write", () => {
 
           const result = yield* run({ filePath: filepath, content: "new content" })
 
-          expect(result.output).toContain("Wrote file successfully")
+          expect(result.output).toContain("existing.txt (+1 -1 lines).")
           expect(result.metadata.exists).toBe(true)
 
           const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))

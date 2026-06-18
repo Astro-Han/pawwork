@@ -125,6 +125,7 @@ describe("tool.edit", () => {
           })
 
           expect(result.metadata.diff).toContain("new content")
+          expect(result.output).toContain("newfile.txt (+1 lines).")
 
           const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
           expect(content).toBe("new content")
@@ -184,7 +185,7 @@ describe("tool.edit", () => {
             newString: "new content",
           })
 
-          expect(result.output).toContain("Edit applied successfully")
+          expect(result.output).toContain("existing-no-read.txt (+1 -1 lines).")
 
           const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
           expect(content).toBe("new content here")
@@ -204,7 +205,7 @@ describe("tool.edit", () => {
             newString: "new content",
           })
 
-          expect(result.output).toContain("Edit applied successfully")
+          expect(result.output).toContain("existing.txt (+1 -1 lines).")
 
           const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
           expect(content).toBe("new content here")
@@ -612,11 +613,13 @@ describe("tool.edit", () => {
           const filepath = path.join(dir, "file.txt")
           yield* Effect.promise(() => fs.writeFile(filepath, "line1\nline2\nline3", "utf-8"))
 
-          yield* run({
+          const result = yield* run({
             filePath: filepath,
             oldString: "line2",
             newString: "new line 2\nextra line",
           })
+
+          expect(result.output).toContain("file.txt (+2 -1 lines).")
 
           const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
           expect(content).toBe("line1\nnew line 2\nextra line\nline3")

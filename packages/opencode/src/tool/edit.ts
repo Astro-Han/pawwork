@@ -197,12 +197,7 @@ export const EditTool = Tool.define(
           }),
         )
 
-        let additions = 0
-        let deletions = 0
-        for (const change of diffLines(contentOld, contentNew)) {
-          if (change.added) additions += change.count || 0
-          if (change.removed) deletions += change.count || 0
-        }
+        const { additions, deletions } = countLineChanges(contentOld, contentNew)
         const sensitive = isSensitiveTargetPath(filePath, Instance.worktree)
         const status = existedBefore ? "modified" : "added"
         const filediff: Snapshot.FileDiff = sensitive
@@ -230,7 +225,9 @@ export const EditTool = Tool.define(
           after: { exists: true, content: contentNew, bom: afterBom },
         })
 
-        let output = "Edit applied successfully."
+        let output = existedBefore
+          ? `Edited ${relativeFilePath} (+${additions} -${deletions} lines).`
+          : `Created ${relativeFilePath} (+${additions} lines).`
         yield* lsp.touchFile(filePath, true)
         const diagnostics = sensitive ? {} : yield* lsp.diagnostics()
         const normalizedFilePath = AppFileSystem.normalizePath(filePath)
@@ -680,6 +677,16 @@ export const ContextAwareReplacer: Replacer = function* (content, find) {
       }
     }
   }
+}
+
+export function countLineChanges(oldContent: string, newContent: string): { additions: number; deletions: number } {
+  let additions = 0
+  let deletions = 0
+  for (const change of diffLines(oldContent, newContent)) {
+    if (change.added) additions += change.count || 0
+    if (change.removed) deletions += change.count || 0
+  }
+  return { additions, deletions }
 }
 
 export function trimDiff(diff: string): string {
