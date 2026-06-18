@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test"
+import { execFileSync } from "node:child_process"
+import { mkdtemp, rm } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 import {
   buildRouteInventory,
+  fetchOpencodeDev,
   findWorkspaceRoot,
   getHonoRouteSourceCoverage,
   getMissingHonoRouteSources,
@@ -146,6 +151,25 @@ describe("route inventory harness", () => {
     await expect(buildRouteInventory({ root, upstreamRef: "HEAD", requireUpstream: true })).rejects.toThrow(
       /Unable to read upstream HttpApi route tree/,
     )
+  })
+
+  test("explains how to configure the opencode remote when fetch fails", async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "route-inventory-"))
+    try {
+      execFileSync("git", ["init"], { cwd: workspace, stdio: "ignore" })
+
+      const remoteGuidance = new RegExp(
+        [
+          "Failed to fetch opencode/dev",
+          "git remote rename upstream opencode",
+          "git remote add opencode https://github\\.com/anomalyco/opencode\\.git",
+        ].join(".*"),
+        "s",
+      )
+      expect(() => fetchOpencodeDev(workspace)).toThrow(remoteGuidance)
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
   })
 
   test("covers every current Hono route implementation module in the inventory source list", async () => {

@@ -563,9 +563,24 @@ function mark(value: boolean) {
   return value ? "yes" : "no"
 }
 
+export function fetchOpencodeDev(root: string) {
+  try {
+    git(root, ["fetch", "opencode", "dev"])
+  } catch (cause) {
+    throw new Error(
+      [
+        "Failed to fetch opencode/dev.",
+        "Ensure remote 'opencode' exists (for example: git remote rename upstream opencode,",
+        "or git remote add opencode https://github.com/anomalyco/opencode.git).",
+      ].join(" "),
+      { cause },
+    )
+  }
+}
+
 async function main() {
   const root = repoRoot()
-  git(root, ["fetch", "opencode", "dev"])
+  fetchOpencodeDev(root)
   const inventory = await buildRouteInventory({ root, requireUpstream: true })
   const report = renderRouteInventoryReport(inventory)
   const date = new Date().toISOString().slice(0, 10)
