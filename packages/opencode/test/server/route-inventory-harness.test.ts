@@ -51,6 +51,34 @@ describe("route inventory harness", () => {
     expect(inventory.counts.v2Sdk).toBeGreaterThanOrEqual(100)
   })
 
+  test("tracks local HttpApi migration coverage separately from upstream parity", async () => {
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+
+    expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/config")).toMatchObject({
+      hono: true,
+      openapi: true,
+      localHttpApi: true,
+      classification: "all-public-surfaces",
+    })
+    expect(inventory.rows.find((row) => row.method === "PATCH" && row.path === "/config")).toMatchObject({
+      hono: true,
+      openapi: true,
+      localHttpApi: true,
+      classification: "all-public-surfaces",
+    })
+    expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/config/providers")).toMatchObject({
+      hono: true,
+      openapi: true,
+      localHttpApi: true,
+      classification: "all-public-surfaces",
+    })
+    expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/external-result")).toMatchObject({
+      hono: true,
+      localHttpApi: false,
+      classification: "pawwork-owned-sdk-v2-only",
+    })
+  })
+
   test("parses upstream HttpApi route declarations without requiring a live upstream ref", () => {
     const routes = parseHttpApiRoutesFromText(
       `
@@ -74,6 +102,26 @@ describe("route inventory harness", () => {
       path: "/session/:sessionID/message/:messageID",
       source: "fixture.ts",
     })
+  })
+
+  test("parses upstream HttpApi route declarations when one add call registers multiple endpoints", () => {
+    const routes = parseHttpApiRoutesFromText(
+      `
+      const root = "/config"
+
+      HttpApiGroup.make("config")
+        .add(
+          HttpApiEndpoint.get("get", root, {}),
+          HttpApiEndpoint.patch("update", root, {}),
+          HttpApiEndpoint.get("providers", \`\${root}/providers\`, {}),
+        )
+      `,
+      "fixture.ts",
+    )
+
+    expect(routes).toContainEqual({ method: "GET", path: "/config", source: "fixture.ts" })
+    expect(routes).toContainEqual({ method: "PATCH", path: "/config", source: "fixture.ts" })
+    expect(routes).toContainEqual({ method: "GET", path: "/config/providers", source: "fixture.ts" })
   })
 
   test("qualifies upstream HttpApi path object keys when names collide", () => {
@@ -148,7 +196,13 @@ describe("route inventory harness", () => {
   })
 
   test("fails when the upstream ref does not contain the HttpApi route tree", async () => {
-    await expect(buildRouteInventory({ root, upstreamRef: "HEAD", requireUpstream: true })).rejects.toThrow(
+    await expect(
+      buildRouteInventory({
+        root,
+        upstreamRef: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        requireUpstream: true,
+      }),
+    ).rejects.toThrow(
       /Unable to read upstream HttpApi route tree/,
     )
   })
