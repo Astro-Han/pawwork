@@ -68,6 +68,12 @@ describe("route inventory harness", () => {
       ["DELETE", "/mcp/:name/auth"],
       ["POST", "/mcp/:name/connect"],
       ["POST", "/mcp/:name/disconnect"],
+      ["GET", "/permission"],
+      ["POST", "/permission/:requestID/reply"],
+      ["POST", "/experimental/workspace"],
+      ["GET", "/experimental/workspace"],
+      ["GET", "/experimental/workspace/status"],
+      ["DELETE", "/experimental/workspace/:id"],
     ] as const) {
       expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
         hono: true,
