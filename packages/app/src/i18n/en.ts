@@ -411,7 +411,7 @@ export const dict = {
   "context.cache.read": "Read",
   "context.cache.new": "New",
   "context.cache.write": "Write",
-  "context.cache.empty": "No cache activity this turn",
+  "context.cache.empty": "No cache activity yet",
 
   "context.stats.session": "Session",
   "context.stats.messages": "Messages",

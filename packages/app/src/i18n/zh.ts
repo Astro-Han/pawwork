@@ -406,7 +406,7 @@ export const dict = {
   "context.cache.read": "读取",
   "context.cache.new": "新增",
   "context.cache.write": "写入",
-  "context.cache.empty": "本回合无缓存活动",
+  "context.cache.empty": "暂无缓存活动",
   "context.stats.session": "会话",
   "context.stats.messages": "消息数",
   "context.stats.provider": "提供商",
