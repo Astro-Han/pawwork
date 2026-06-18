@@ -19,11 +19,12 @@ test("renderer dedupes the ui workspace package", () => {
 test("main build does not externalize OpenCLI from the desktop bundle", () => {
   const source = readFileSync(path.join(import.meta.dir, "electron.vite.config.ts"), "utf8")
 
-  // node-pty is the only dependency force-externalized (a native module); OpenCLI
-  // stays bundled. remote-bridge ships .ts source, so it is force-BUNDLED via
+  // Force-externalized: node-pty (a native module) and the Lark SDK (compiled CJS
+  // with deep deps like protobufjs that don't survive bundling — see desktop-smoke).
+  // OpenCLI stays bundled. remote-bridge ships .ts source, so it is force-BUNDLED via
   // exclude — leaving it external would leak a bare .ts import the runtime guard
   // rejects (see desktop-smoke).
-  expect(source).toContain("include: [nodePtyPkg]")
+  expect(source).toContain('include: [nodePtyPkg, "@larksuiteoapi/node-sdk"]')
   expect(source).toContain('exclude: ["@opencode-ai/remote-bridge"]')
   expect(source).not.toContain("OPENCLI_EXTERNALS")
 })
