@@ -1,5 +1,9 @@
 import { readFile } from "node:fs/promises"
 import { Engine } from "./engine.ts"
+import { normalizeLocale, type Locale } from "./i18n.ts"
+
+// Re-exported so the desktop runtime can normalize its UI locale into Config.locale.
+export { normalizeLocale }
 import { isFatalStreamError, PawWorkClient } from "./pawwork-client.ts"
 import type { EventHandler } from "./pawwork-events.ts"
 import { SessionPointers } from "./session-pointers.ts"
@@ -16,6 +20,8 @@ export interface Config {
   pawWorkUsername?: string
   pawWorkPassword?: string
   statePath: string
+  /** Language for the chat-facing copy; defaults to English when unset. */
+  locale?: Locale
   platforms: PlatformConfig[]
 }
 
@@ -65,7 +71,7 @@ export async function createApp(config: Config, createPlatform: PlatformFactory)
     password: config.pawWorkPassword,
   })
   client.setEventCursorStore(pointers)
-  const engine = new Engine(client, pointers)
+  const engine = new Engine(client, pointers, normalizeLocale(config.locale))
 
   const platforms: Platform[] = []
   for (const item of config.platforms ?? []) {
@@ -113,7 +119,7 @@ export class App {
    * before pending state is loaded. Returns when `signal` aborts; rejects on a
    * fatal stream error or a platform failure. Ported from Go `App.Run`.
    */
-  async run(signal?: AbortSignal): Promise<void> {
+  async run(signal?: AbortSignal, onReady?: () => void): Promise<void> {
     const ac = new AbortController()
     if (signal?.aborted) ac.abort()
     const onParentAbort = () => ac.abort()
@@ -148,7 +154,21 @@ export class App {
       // Like Go's Run, stay up until abort or a fatal error even if every
       // platform's start() resolves on its own — a clean self-stop is not a reason
       // to tear the bridge down.
-      this.startPlatforms(childSignal, failure)
+      //
+      // Fire onReady only once every platform has drained its backlog and is
+      // serving, so a caller's "connected" can't precede live message delivery.
+      const total = this.platforms.length
+      let readyCount = 0
+      const allReady = createDeferred<void>()
+      if (total === 0) allReady.resolve()
+      const onPlatformReady = () => {
+        if (++readyCount >= total) allReady.resolve()
+      }
+      void Promise.race([allReady.promise, onAbort(childSignal)]).then(() => {
+        if (!childSignal.aborted) onReady?.()
+      })
+
+      this.startPlatforms(childSignal, failure, onPlatformReady)
       await Promise.race([onAbort(childSignal), failure.promise])
     } catch (err) {
       // An abort is a requested stop, not a failure: any error it triggered
@@ -243,18 +263,32 @@ export class App {
     }
   }
 
-  private startPlatforms(signal: AbortSignal, failure: Deferred<never>): Promise<void>[] {
+  private startPlatforms(
+    signal: AbortSignal,
+    failure: Deferred<never>,
+    onPlatformReady?: () => void,
+  ): Promise<void>[] {
     const handler = this.messageHandler()
-    return this.platforms.map((platform) =>
-      Promise.resolve()
-        .then(() => platform.start(handler))
+    return this.platforms.map((platform) => {
+      // Count each platform toward "all ready" at most once. The contract says a
+      // platform signals onReady a single time, but a misbehaving adapter that
+      // double-fires must not let the bridge report "connected" before every
+      // platform is actually serving.
+      let counted = false
+      const ready = () => {
+        if (counted) return
+        counted = true
+        onPlatformReady?.()
+      }
+      return Promise.resolve()
+        .then(() => platform.start(handler, ready))
         .then(
           () => {},
           (err) => {
             if (!signal.aborted) failure.reject(new Error(`${platform.name} platform failed: ${message(err)}`))
           },
-        ),
-    )
+        )
+    })
   }
 
   private async stopPlatforms(): Promise<void> {

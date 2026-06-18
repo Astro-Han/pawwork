@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { answersForQuestionText, deliveryConfig, Engine, questionPrompt } from "./engine.ts"
 import { SessionPointers } from "./session-pointers.ts"
+import { PartialDeliveryError } from "./types.ts"
 import type {
   Message,
   PendingPermission,
@@ -61,11 +62,15 @@ class FakePlatform implements Platform {
   reconstructKey = ""
   replyFailures = 0
   replyCalls = 0
+  // When set, reply throws a PartialDeliveryError instead of a plain transient
+  // error — used to assert the engine does NOT retry (resend) a partial delivery.
+  replyPartial = false
   constructor(readonly name = "chat") {}
 
   async start(): Promise<void> {}
   async reply(_replyCtx: unknown, content: string): Promise<void> {
     this.replyCalls++
+    if (this.replyPartial) throw new PartialDeliveryError(new Error("a later chunk failed"))
     if (this.replyFailures > 0) {
       this.replyFailures--
       throw new Error("transient delivery failure")
@@ -341,7 +346,7 @@ test("surfaces a pending permission and answers it", async () => {
   await engine.handleMessage(platform, msg)
 
   await engine.handlePermission(perm({ id: "perm_1", sessionID: "ses_new", permission: "edit", patterns: ["/repo/app.ts"] }))
-  expect(lastReply(platform)).toBe("PawWork asks permission: edit\n/repo/app.ts\n\nReply yes, always, or no.")
+  expect(lastReply(platform)).toBe("PawWork needs your permission:\nedit\n/repo/app.ts\n\nReply yes (allow once), always (always allow), or no (deny).")
 
   msg.content = "always"
   await engine.handleMessage(platform, msg)
@@ -357,7 +362,7 @@ test("routes a child session permission through the root conversation", async ()
   await engine.registerSession(sessionInfo({ id: "child_1", parentID: "ses_new" }))
 
   await engine.handlePermission(perm({ id: "perm_child", sessionID: "child_1", permission: "edit", patterns: ["/repo/child.ts"] }))
-  expect(lastReply(platform)).toBe("PawWork asks permission: edit\n/repo/child.ts\n\nReply yes, always, or no.")
+  expect(lastReply(platform)).toBe("PawWork needs your permission:\nedit\n/repo/child.ts\n\nReply yes (allow once), always (always allow), or no (deny).")
 
   msg.content = "yes"
   await engine.handleMessage(platform, msg)
@@ -433,7 +438,7 @@ test("surfaces a pending question with formatted options", async () => {
   )
 
   expect(lastReply(platform)).toBe(
-    "Approach\nWhich path should I take?\n1. A - Small change\n2. B - Larger cleanup\n\nReply with a number or answer text.",
+    "Approach\nWhich path should I take?\n1. A - Small change\n2. B - Larger cleanup\n\nReply with the number of your choice.",
   )
 })
 
@@ -476,6 +481,18 @@ test("assistant text retries a transient delivery failure, then gives up bounded
   await engine2.handleMessage(keepsFailing, { sessionKey: "slack:dm:b", content: "hi" })
   await expect(engine2.handleAssistantText("ses_new", "answer")).rejects.toThrow()
   expect(keepsFailing.replyCalls).toBe(deliveryConfig.attempts)
+})
+
+test("a partial delivery is surfaced without resending the whole message", async () => {
+  // When the platform reports it already delivered part of a multi-part message
+  // (PartialDeliveryError), retrying would duplicate the parts that arrived. The
+  // engine must surface it on the first failure, never resend.
+  const platform = new FakePlatform()
+  platform.replyPartial = true
+  const engine = new Engine(new FakeSidecar())
+  await engine.handleMessage(platform, { sessionKey: "slack:dm:a", content: "hi" })
+  await expect(engine.handleAssistantText("ses_new", "a long, split answer")).rejects.toBeInstanceOf(PartialDeliveryError)
+  expect(platform.replyCalls).toBe(1)
 })
 
 test("permission and question prompts retry a transient delivery failure", async () => {
@@ -591,7 +608,7 @@ test("a failed next blocker is kept and re-surfaced on recovery (question)", asy
 
 test("question prompt hints match the question type", () => {
   const single = questionPrompt(pendingQuestion({ sessionID: "s", questions: [question("Pick one", { options: [["A"], ["B"]] })] }))
-  expect(single.endsWith("Reply with a number or answer text.")).toBe(true)
+  expect(single.endsWith("Reply with the number of your choice.")).toBe(true)
 
   const multiSelect = questionPrompt(
     pendingQuestion({ sessionID: "s", questions: [question("Pick several", { multiple: true, options: [["A"], ["B"]] })] }),
@@ -599,7 +616,10 @@ test("question prompt hints match the question type", () => {
   expect(multiSelect).toContain("separated by commas")
 
   const multiQuestion = questionPrompt(pendingQuestion({ sessionID: "s", questions: [question("First?"), question("Second?")] }))
-  expect(multiQuestion).toContain("one line per question")
+  expect(multiQuestion).toContain("on its own line")
+  // Multiple questions are numbered so "one answer per line" maps onto them.
+  expect(multiQuestion).toContain("Question 1:")
+  expect(multiQuestion).toContain("Question 2:")
 })
 
 test("multi-select accepts full-width and ideographic commas", () => {
@@ -607,6 +627,38 @@ test("multi-select accepts full-width and ideographic commas", () => {
   for (const input of ["1,3", "1，3", "1、3", "1， 3"]) {
     expect(answersForQuestionText(pending, input)).toEqual([["A", "C"]])
   }
+})
+
+test("renders prompts and accepts replies in Chinese", async () => {
+  const sidecar = new FakeSidecar()
+  const platform = new FakePlatform()
+  const engine = new Engine(sidecar, undefined, "zh")
+  const msg: Message = { sessionKey: "telegram:chat:alice", content: "开始" }
+  await engine.handleMessage(platform, msg)
+
+  await engine.handlePermission(perm({ id: "perm_1", sessionID: "ses_new", permission: "edit", patterns: ["/repo/app.ts"] }))
+  const reply = lastReply(platform)
+  expect(reply).toContain("爪印需要你的许可：")
+  expect(reply).toContain("/repo/app.ts")
+  expect(reply).toContain("允许一次")
+
+  // A Chinese reply keyword resolves the permission, even though the rendered locale is zh.
+  msg.content = "是"
+  await engine.handleMessage(platform, msg)
+  expect(sidecar.permissionReplies[0].reply.reply).toBe("once")
+})
+
+test("localizes question numbering, hints, and the line-count error in Chinese", () => {
+  const zh = questionPrompt(
+    pendingQuestion({ sessionID: "s", questions: [question("第一题"), question("第二题")] }),
+    "zh",
+  )
+  expect(zh).toContain("问题 1：")
+  expect(zh).toContain("问题 2：")
+  expect(zh).toContain("每个问题回复一行")
+
+  const pending = pendingQuestion({ sessionID: "s", questions: [question("A"), question("B")] })
+  expect(() => answersForQuestionText(pending, "只有一行", "zh")).toThrow("共 2 个问题")
 })
 
 test("answers pending questions in arrival order, one at a time", async () => {
@@ -652,7 +704,7 @@ test("surfaces interleaved blockers one at a time", async () => {
     pendingQuestion({ sessionID: "ses_new", messageID: "msg_1", callID: "call_1", questions: [question("Pick one", { options: [["A"], ["B"]] })] }),
   )
   expect(platform.replies).toHaveLength(1)
-  expect(platform.replies[0]).toContain("asks permission")
+  expect(platform.replies[0]).toContain("needs your permission")
 
   msg.content = "yes"
   await engine.handleMessage(platform, msg)

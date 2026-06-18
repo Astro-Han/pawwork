@@ -6,7 +6,7 @@ import { createServer } from "node:net"
 import os, { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import type { Event } from "electron"
-import { app, BrowserWindow, clipboard, dialog, shell } from "electron"
+import { app, BrowserWindow, clipboard, dialog, safeStorage, shell } from "electron"
 import pkg from "electron-updater"
 import { buildDesktopContext } from "@opencode-ai/app/desktop-api"
 
@@ -77,6 +77,7 @@ import { createFeedbackHandler, feedbackDialogLabels } from "./feedback"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { registerAboutIpc, triggerAbout } from "./ipc/about"
 import { registerBrowserIpc } from "./ipc/browser"
+import { registerRemoteIpc } from "./ipc/remote"
 import { createDesktopBrowserBridgeHost } from "./browser/automation-host"
 import { browserControllers } from "./browser/controller-automation"
 import { diagnosticsLogTail, filePath, initLogging } from "./logging"
@@ -92,6 +93,8 @@ import {
   SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
 } from "./renderer-diagnostics"
 import { backendLogFilePath, getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, spawnLocalServer } from "./server"
+import { createRemoteBridgeRuntime } from "./remote-bridge"
+import { safeStorageCredentialStore, type CredentialStoreEnv } from "./remote-credentials"
 import { PAWWORK_RUNTIME } from "./runtime-namespace"
 import { createUpdaterController, createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./updater"
 import { pendingUpdateCacheDir } from "./updater-cache"
@@ -154,6 +157,26 @@ const contextWindowCleanup = new Set<number>()
 const pendingDeepLinks: string[] = []
 
 const serverReady = defer<ServerReadyData>()
+// The mobile-companion bridge: connects a phone chat app to this desktop's agent
+// sessions. Runs in the main process against the local server; credentials are
+// encrypted main-only and never cross to the renderer.
+// safeStorage + the on-disk paths are injected so the credential store itself
+// stays Electron-free and unit-testable with a fake env.
+const remoteUserData = () => app.getPath("userData")
+const remoteStateFile = () => join(remoteUserData(), "remote-bridge-state.json")
+const remoteCredentialEnv: CredentialStoreEnv = {
+  credentialsFile: () => join(remoteUserData(), "remote-bridge-credentials.json"),
+  stateFile: remoteStateFile,
+  isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+  encryptString: (plain) => safeStorage.encryptString(plain),
+  decryptString: (cipher) => safeStorage.decryptString(cipher),
+}
+const remoteBridge = createRemoteBridgeRuntime({
+  credentials: safeStorageCredentialStore(remoteCredentialEnv),
+  statePath: remoteStateFile(),
+  serverInfo: () => serverReady.promise,
+  locale: () => currentDesktopContext().locale,
+})
 const logger = initLogging()
 const problemReportRoot = problemReportsRoot(app.getPath("userData"))
 const rendererDiagnostics = createRendererDiagnosticsRecorder({
@@ -409,6 +432,9 @@ function setupApp() {
   })
 
   app.on("before-quit", () => {
+    // Best-effort: signal the bridge to stop polling before the server it talks
+    // to is torn down. Its poll fetches are aborted, so this returns promptly.
+    void remoteBridge.stop()
     killSidecar()
   })
 
@@ -551,6 +577,11 @@ async function initialize() {
   await loadingTask
   setInitStep({ phase: "done" })
 
+  // Start the mobile-companion bridge only after the server is healthy, in the
+  // background so it never blocks opening the main window. Failures land in the
+  // bridge's own status (degraded), not here.
+  void remoteBridge.startIfConfigured()
+
   if (overlay) {
     await loadingComplete.promise
   }
@@ -671,6 +702,7 @@ registerIpcHandlers({
 
 registerAboutIpc()
 registerBrowserIpc({ sessionIDForWindow: (windowID) => desktopContexts.current(windowID).sessionID })
+registerRemoteIpc(remoteBridge)
 
 function killSidecar() {
   if (!server) return

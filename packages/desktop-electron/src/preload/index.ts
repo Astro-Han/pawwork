@@ -7,6 +7,19 @@ import { getRuntimeFlags } from "./runtime-flags"
 const runtimeFlags = getRuntimeFlags(process.env)
 const invokeSetDesktopContext = (context: DesktopContext) => ipcRenderer.invoke("set-desktop-context", context)
 
+const remote: ElectronAPI["remote"] = {
+  getStatus: () => ipcRenderer.invoke("remote:get-status"),
+  startPairing: (token) => ipcRenderer.invoke("remote:start-pairing", token),
+  cancelPairing: () => ipcRenderer.invoke("remote:cancel-pairing"),
+  confirmPairing: () => ipcRenderer.invoke("remote:confirm-pairing"),
+  disconnect: () => ipcRenderer.invoke("remote:disconnect"),
+  onStatus: (cb) => {
+    const handler = (_: unknown, status: Parameters<typeof cb>[0]) => cb(status)
+    ipcRenderer.on("remote:status", handler)
+    return () => ipcRenderer.removeListener("remote:status", handler)
+  },
+}
+
 const browser: ElectronAPI["browser"] = {
   navigate: (target, url) => ipcRenderer.invoke("browser:navigate", target, url),
   goBack: (target) => ipcRenderer.invoke("browser:back", target),
@@ -144,6 +157,7 @@ const api: ElectronAPI = {
   flashFrame: () => ipcRenderer.invoke("flash-frame"),
   setBadgeCount: (count: number) => ipcRenderer.invoke("set-badge-count", count),
   browser,
+  remote,
 }
 
 contextBridge.exposeInMainWorld("api", api)

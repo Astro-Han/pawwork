@@ -30,6 +30,7 @@
   },
   "main": "./out/main/index.js",
   "dependencies": {
+    "@opencode-ai/remote-bridge": "workspace:*",
     "@opencode-ai/util": "workspace:*",
     "electron-context-menu": "4.1.2",
     "electron-log": "^5",

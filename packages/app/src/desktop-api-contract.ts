@@ -77,3 +77,39 @@ export type WebSearchStatus = {
   needsAttention: boolean
   quotaExceeded: boolean
 }
+
+/** Mobile-companion connection state, as the renderer sees it. */
+export type RemoteState = "disconnected" | "connecting" | "connected" | "degraded"
+
+/** Masked status of the mobile-companion bridge — never includes the bot token. */
+export type RemoteStatus = {
+  state: RemoteState
+  platform: "telegram" | null
+  identity: { userId: string; userName: string } | null
+  error: string | null
+}
+
+/** The sender captured during pairing, for the user to approve before connecting. */
+export type RemotePairingResult = {
+  userId: string
+  userName: string
+  botUsername?: string
+}
+
+/**
+ * Control surface for the mobile-companion bridge (connect a phone chat app to
+ * this desktop's agent). Desktop/Electron only. Pairing is two steps: start
+ * (paste token, then message the bot from your phone — resolves with the
+ * captured sender, or null if cancelled) then confirm (approve that identity).
+ * The token crosses this boundary only on `startPairing`; the main process holds
+ * it from there, so `confirmPairing` approves the captured identity with no args
+ * and never resends the secret.
+ */
+export type RemoteBridge = {
+  getStatus(): Promise<RemoteStatus>
+  startPairing(token: string): Promise<RemotePairingResult | null>
+  cancelPairing(): Promise<void>
+  confirmPairing(): Promise<void>
+  disconnect(): Promise<void>
+  onStatus(handler: (status: RemoteStatus) => void): () => void
+}

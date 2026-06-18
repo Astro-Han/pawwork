@@ -42,17 +42,37 @@ class FakePlatform implements Platform {
   sends: string[] = []
   reconstructKey = ""
   startedAfterStream = false
+  readyCalls = 0
+  fireReady: () => void = () => {}
   readonly started = deferred<void>()
   private readonly stopped = deferred<void>()
 
   constructor(
     readonly name: string,
-    private readonly opts: { sendErr?: Error; streamConnected?: () => boolean; startResolvesImmediately?: boolean } = {},
+    private readonly opts: {
+      sendErr?: Error
+      streamConnected?: () => boolean
+      startResolvesImmediately?: boolean
+      readyMode?: "auto" | "double" | "manual"
+    } = {},
   ) {}
 
-  async start(_handler: MessageHandler): Promise<void> {
+  async start(_handler: MessageHandler, onReady?: () => void): Promise<void> {
     this.startedAfterStream = this.opts.streamConnected ? this.opts.streamConnected() : false
     this.started.resolve()
+    // A real platform signals readiness once it is past startup and serving; model
+    // that here so the gateway's run-level onReady fires in tests. "double" models a
+    // misbehaving adapter; "manual" lets a test drive the moment via fireReady.
+    const fire = () => {
+      this.readyCalls++
+      onReady?.()
+    }
+    const mode = this.opts.readyMode ?? "auto"
+    if (mode === "manual") this.fireReady = fire
+    else {
+      fire()
+      if (mode === "double") fire()
+    }
     // An event-driven adapter may register its callback and return right away;
     // model that with startResolvesImmediately instead of blocking until stop().
     if (this.opts.startResolvesImmediately) return
@@ -254,7 +274,7 @@ test("hydrate resurfaces a pending interaction through the restored target", asy
     // Both pending items share root ses_root; single-active surfacing shows only
     // the permission, leaving the question queued until it is answered.
     expect(platform.sends).toHaveLength(1)
-    expect(platform.sends[0]).toContain("PawWork asks permission: edit")
+    expect(platform.sends[0]).toContain("PawWork needs your permission:")
   } finally {
     server.stop()
   }
@@ -397,6 +417,101 @@ test("run stays up when a platform start resolves on its own", async () => {
       new Promise<typeof pending>((r) => setTimeout(() => r(pending), 50)),
     ])
     expect(raced).toBe(pending)
+    controller.abort()
+    await runPromise
+  } finally {
+    server.stop()
+  }
+})
+
+test("run fires onReady only after the stream, hydrate, and platform are serving", async () => {
+  // The startup-race guard: a caller's "connected" must trail real readiness, so
+  // run's onReady cannot precede the stream, the hydrate, or the platform start.
+  const order: string[] = []
+  const platform = new FakePlatform("runtime-test-onready-after-serving")
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+        order.push("hydrate")
+        return jsonBody([])
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        order.push("stream")
+        return openEventStream()
+    }
+    return undefined
+  })
+  const controller = new AbortController()
+  try {
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [{ name: "runtime-test-onready-after-serving", enabled: true, options: { allow_from: "U123" } }],
+      },
+      () => platform,
+    )
+    const ready = deferred<void>()
+    const runPromise = app.run(controller.signal, () => {
+      order.push("ready")
+      ready.resolve()
+    })
+    await ready.promise
+    expect(order.indexOf("ready")).toBeGreaterThan(order.indexOf("stream"))
+    expect(order.indexOf("ready")).toBeGreaterThan(order.indexOf("hydrate"))
+    controller.abort()
+    await runPromise
+  } finally {
+    server.stop()
+  }
+})
+
+test("run's onReady counts each platform once, even when an adapter double-fires", async () => {
+  // Supervisor hardening: the contract says a platform signals readiness a single
+  // time, but one adapter firing onReady twice must not satisfy the whole set — the
+  // bridge stays "connecting" until every platform is actually serving.
+  let readyFired = 0
+  const doubleFirer = new FakePlatform("runtime-test-double-ready", { readyMode: "double" })
+  const lateComer = new FakePlatform("runtime-test-late-ready", { readyMode: "manual" })
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        return openEventStream()
+    }
+    return undefined
+  })
+  const controller = new AbortController()
+  try {
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [
+          { name: "runtime-test-double-ready", enabled: true, options: { allow_from: "U123" } },
+          { name: "runtime-test-late-ready", enabled: true, options: { allow_from: "U456" } },
+        ],
+      },
+      (name) => (name === "runtime-test-double-ready" ? doubleFirer : lateComer),
+    )
+    const runPromise = app.run(controller.signal, () => {
+      readyFired++
+    })
+    // Both platforms have started: the first fired onReady twice, the second has not
+    // fired yet. The two duplicate fires must not stand in for the missing platform.
+    await doubleFirer.started.promise
+    await lateComer.started.promise
+    await waitUntil(() => doubleFirer.readyCalls === 2)
+    expect(readyFired).toBe(0)
+    // The second platform serving completes the set — run's onReady fires exactly once.
+    lateComer.fireReady()
+    await waitUntil(() => readyFired === 1)
+    expect(readyFired).toBe(1)
     controller.abort()
     await runPromise
   } finally {

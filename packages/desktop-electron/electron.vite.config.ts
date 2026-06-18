@@ -63,7 +63,12 @@ export default defineConfig({
       rollupOptions: {
         input: { index: "src/main/index.ts" },
       },
-      externalizeDeps: { include: [nodePtyPkg] },
+      // remote-bridge ships TypeScript source only (exports map → ./src/*.ts) and
+      // has no runtime deps, so it must be BUNDLED into out/main rather than
+      // externalized — a bare `import "@opencode-ai/remote-bridge/..."` left in the
+      // output would resolve to .ts at runtime, which Electron cannot execute (and
+      // the runtime-import-guard fails the build on exactly that).
+      externalizeDeps: { include: [nodePtyPkg], exclude: ["@opencode-ai/remote-bridge"] },
     },
     plugins: [
       {
