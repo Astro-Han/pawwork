@@ -187,6 +187,44 @@ describe("route inventory harness", () => {
     }
   })
 
+  test("tracks local HttpApi migration coverage for PTY JSON and control-plane routes", async () => {
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+
+    for (const [method, routePath] of [
+      ["GET", "/pty"],
+      ["POST", "/pty"],
+      ["GET", "/pty/:ptyID"],
+      ["PUT", "/pty/:ptyID"],
+      ["DELETE", "/pty/:ptyID"],
+      ["POST", "/pty/:ptyID/connect-token"],
+      ["PUT", "/auth/:providerID"],
+      ["DELETE", "/auth/:providerID"],
+      ["POST", "/log"],
+    ] as const) {
+      expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
+        hono: true,
+        localHttpApi: true,
+      })
+    }
+
+    expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/pty/:ptyID/connect")).toMatchObject({
+      hono: true,
+      localHttpApi: false,
+      specialSurface: "PTY websocket",
+    })
+    expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/doc")).toMatchObject({
+      hono: true,
+      localHttpApi: false,
+      specialSurface: "OpenAPI source",
+    })
+    expect(
+      inventory.rows.find((row) => row.method === "POST" && row.path === "/permission/__e2e/ask"),
+    ).toMatchObject({
+      hono: true,
+      localHttpApi: false,
+    })
+  })
+
   test("parses upstream HttpApi route declarations without requiring a live upstream ref", () => {
     const routes = parseHttpApiRoutesFromText(
       `
@@ -288,6 +326,7 @@ describe("route inventory harness", () => {
       hono: true,
       openapi: true,
       v2Sdk: true,
+      localHttpApi: true,
       classification: "openapi-v2-sdk",
       specialSurface: "PTY websocket",
     })
