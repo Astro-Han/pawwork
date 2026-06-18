@@ -59,5 +59,6 @@ export const completeProviderAuth = Effect.fn("ProviderRoutes.oauth.callback")(f
 })
 
 export const recordRecentModel = Effect.fn("ProviderRoutes.recent.record")(function* (input: ModelState.ModelRef) {
-  yield* Effect.promise(() => ModelState.recordRecent(input))
+  const modelState = yield* ModelState.Service
+  yield* modelState.recordRecent(input)
 })

@@ -2,6 +2,8 @@ import fs from "fs/promises"
 import path from "path"
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { Global } from "@opencode-ai/core/global"
+import { Effect } from "effect"
+import { testEffect } from "../../test/lib/effect"
 import { ModelState } from "./model-state"
 
 const model = { providerID: "deepseek", modelID: "deepseek-chat" }
@@ -79,4 +81,32 @@ describe("recordRecent", () => {
     await ModelState.recordRecent(model)
     expect(await fs.readFile(modelFile(), "utf8")).toBe("{ not valid json")
   })
+})
+
+describe("ModelState.Service.recordRecent", () => {
+  const modelFile = () => path.join(Global.Path.state, "model.json")
+  const run = testEffect(ModelState.defaultLayer)
+
+  beforeEach(async () => {
+    await fs.mkdir(Global.Path.state, { recursive: true })
+    await fs.rm(modelFile(), { force: true })
+  })
+  afterEach(async () => await fs.rm(modelFile(), { force: true }))
+
+  run.live(
+    "promotes the model through the Effect service while preserving sibling state",
+    Effect.gen(function* () {
+      yield* Effect.promise(() =>
+        fs.writeFile(modelFile(), JSON.stringify({ recent: [other], favorite: ["x"], variant: { agent: "fast" } })),
+      )
+
+      const service = yield* ModelState.Service
+      yield* service.recordRecent(model)
+
+      const after = yield* Effect.promise(() => fs.readFile(modelFile(), "utf8").then(JSON.parse))
+      expect(after.recent[0]).toEqual(model)
+      expect(after.favorite).toEqual(["x"])
+      expect(after.variant).toEqual({ agent: "fast" })
+    }),
+  )
 })
