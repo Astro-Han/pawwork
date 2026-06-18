@@ -1,27 +1,9 @@
 import { Info as ConfigInfo } from "@/config/config"
 import { ConfigProvidersResult } from "@/provider/provider"
-import { Schema } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
+import { BadRequestError, WorkspaceRoutingQuery } from "./common"
 
 const root = "/config"
-
-export const WorkspaceRoutingQuery = Schema.Struct({
-  directory: Schema.optionalKey(Schema.String),
-  workspace: Schema.optionalKey(Schema.String),
-})
-
-export const BadRequestError = Schema.Struct({
-  data: Schema.Any,
-  errors: Schema.Array(Schema.Record(Schema.String, Schema.Any)),
-  success: Schema.Literal(false),
-}).pipe(
-  HttpApiSchema.status(400),
-  (schema) =>
-    schema.annotate({
-      identifier: "BadRequestError",
-      description: "Bad request",
-    }),
-)
 
 export const ConfigApi = HttpApi.make("config")
   .add(
