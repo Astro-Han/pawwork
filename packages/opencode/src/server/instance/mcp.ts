@@ -1,60 +1,23 @@
 import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
-import { Effect } from "effect"
 import z from "zod"
 import { MCP } from "../../mcp"
 import { Config } from "../../config/config"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 import { AppRuntime } from "../../effect/app-runtime"
+import {
+  addMcpServer,
+  authenticateMcp,
+  completeMcpAuth,
+  connectMcpServer,
+  disconnectMcpServer,
+  getMcpStatus,
+  removeMcpAuth,
+  startMcpAuth,
+} from "./mcp-actions"
 
 const runMcpRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
-
-const getMcpStatus = Effect.fn("McpRoutes.status")(function* () {
-  const mcp = yield* MCP.Service
-  return yield* mcp.status()
-})
-
-const addMcpServer = Effect.fn("McpRoutes.add")(function* (input: { name: string; config: Config.Mcp }) {
-  const mcp = yield* MCP.Service
-  return yield* mcp.add(input.name, input.config)
-})
-
-const startMcpAuth = Effect.fn("McpRoutes.auth.start")(function* (name: string) {
-  const mcp = yield* MCP.Service
-  const supportsOAuth = yield* mcp.supportsOAuth(name)
-  if (!supportsOAuth) return { type: "unsupported" as const }
-  const { authorizationUrl, oauthState } = yield* mcp.startAuth(name)
-  return { type: "started" as const, authorizationUrl, oauthState }
-})
-
-const completeMcpAuth = Effect.fn("McpRoutes.auth.callback")(function* (input: { name: string; code: string }) {
-  const mcp = yield* MCP.Service
-  return yield* mcp.finishAuth(input.name, input.code)
-})
-
-const authenticateMcp = Effect.fn("McpRoutes.auth.authenticate")(function* (name: string) {
-  const mcp = yield* MCP.Service
-  const supportsOAuth = yield* mcp.supportsOAuth(name)
-  if (!supportsOAuth) return { type: "unsupported" as const }
-  const status = yield* mcp.authenticate(name)
-  return { type: "authenticated" as const, status }
-})
-
-const removeMcpAuth = Effect.fn("McpRoutes.auth.remove")(function* (name: string) {
-  const mcp = yield* MCP.Service
-  yield* mcp.removeAuth(name)
-})
-
-const connectMcpServer = Effect.fn("McpRoutes.connect")(function* (name: string) {
-  const mcp = yield* MCP.Service
-  yield* mcp.connect(name)
-})
-
-const disconnectMcpServer = Effect.fn("McpRoutes.disconnect")(function* (name: string) {
-  const mcp = yield* MCP.Service
-  yield* mcp.disconnect(name)
-})
 
 export const McpRoutes = lazy(() =>
   new Hono()
