@@ -280,6 +280,20 @@ describe("getRecentTurnCache", () => {
     expect(getRecentTurnCache(messages, "3")).toEqual({ input: 10, read: 90, write: 10, hitRate: 81.8 })
   })
 
+  test("clips reverted turns by array position, not id string order", () => {
+    // Custom message ids need not sort in turn order (the prompt API accepts caller-supplied ids), so
+    // the reverted assistant "b" sorts before the revert id "m". A naive `id < revertID` check would
+    // keep it and report the rolled-back turn as the recent one; array-order slicing drops it.
+    const messages = [
+      user("z"),
+      turnAssistant("a", "z", { input: 10, read: 90, write: 0 }),
+      user("m"),
+      turnAssistant("b", "m", { input: 5, read: 900, write: 0 }),
+    ]
+
+    expect(getRecentTurnCache(messages, "m")).toEqual({ input: 10, read: 90, write: 0, hitRate: 90 })
+  })
+
   test("returns null when there is no assistant turn yet", () => {
     expect(getRecentTurnCache([user("1")])).toBeNull()
     expect(getRecentTurnCache([])).toBeNull()
@@ -320,6 +334,21 @@ describe("getSessionCacheAggregate", () => {
 
     // revert points at "3": only the "1" turn stays visible -> 90 / (10 + 90) = 90%
     expect(getSessionCacheAggregate(messages, "3")).toEqual({ input: 10, read: 90, write: 0, hitRate: 90 })
+  })
+
+  test("excludes reverted turns by array position, not id string order", () => {
+    // The prompt API accepts custom message ids, so ids are not guaranteed to sort in turn order.
+    // Here the reverted assistant "b" sorts before the revert id "m", so a naive `id < revertID`
+    // check would fold its 900 cache reads into the session total. Array-order slicing keeps only the
+    // first ("z") turn.
+    const messages = [
+      user("z"),
+      turnAssistant("a", "z", { input: 10, read: 90, write: 0 }),
+      user("m"),
+      turnAssistant("b", "m", { input: 5, read: 900, write: 0 }),
+    ]
+
+    expect(getSessionCacheAggregate(messages, "m")).toEqual({ input: 10, read: 90, write: 0, hitRate: 90 })
   })
 
   test("skips compaction summary messages", () => {
