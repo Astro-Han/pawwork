@@ -49,6 +49,357 @@ const ToolRespondFailure = z.object({
   details: z.unknown().optional(),
 })
 const e2eSessionRoutesEnabled = () => Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
+const runSessionRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
+
+type SessionListQuery = {
+  directory?: string
+  roots?: boolean
+  start?: number
+  search?: string
+  limit?: number
+  sort?: "updated" | "created"
+}
+type UpdateSessionInput = {
+  sessionID: SessionID
+  updates: {
+    title?: string
+    permission?: z.infer<typeof Permission.Ruleset>
+    time?: {
+      archived?: number
+    }
+  }
+}
+type InitSessionInput = {
+  sessionID: SessionID
+  body: {
+    modelID: ModelID
+    providerID: ProviderID
+    messageID: MessageID
+  }
+}
+type ToolRespondValue = { kind: "dismissed" } | { kind: "submitted"; value: unknown }
+type TurnChangeParams = {
+  sessionID: SessionID
+  messageID: MessageID
+}
+type AggregateTurnChangeParams = {
+  sessionID: SessionID
+  userMessageID: MessageID
+}
+type SessionMessagesInput = {
+  sessionID: SessionID
+  limit?: number
+  before?: string
+}
+
+const listSessions = Effect.fn("SessionRoutes.list")(function* (query: SessionListQuery) {
+  const session = yield* Session.Service
+  return yield* session.list(query)
+})
+
+const getSessionStatus = Effect.fn("SessionRoutes.status")(function* () {
+  const status = yield* SessionStatus.Service
+  return yield* status.list()
+})
+
+const updateE2ETodos = Effect.fn("SessionRoutes.e2e.updateTodos")(function* (input: {
+  sessionID: SessionID
+  todos: z.infer<typeof Todo.Input>[]
+}) {
+  const todo = yield* Todo.Service
+  yield* todo.update(input)
+})
+
+const getSession = Effect.fn("SessionRoutes.get")(function* (sessionID: SessionID) {
+  const sessions = yield* Session.Service
+  return yield* sessions.get(sessionID)
+})
+
+const listSessionChildren = Effect.fn("SessionRoutes.children")(function* (sessionID: SessionID) {
+  const sessions = yield* Session.Service
+  return yield* sessions.children(sessionID)
+})
+
+const getSessionTodos = Effect.fn("SessionRoutes.todo")(function* (sessionID: SessionID) {
+  const todo = yield* Todo.Service
+  return yield* todo.get(sessionID)
+})
+
+const createSession = Effect.fn("SessionRoutes.create")(function* (body: Parameters<SessionShare.Interface["create"]>[0]) {
+  const share = yield* SessionShare.Service
+  return yield* share.create(body)
+})
+
+const deleteSession = Effect.fn("SessionRoutes.delete")(function* (sessionID: SessionID) {
+  const sessions = yield* Session.Service
+  yield* sessions.remove(sessionID)
+})
+
+const updateSession = Effect.fn("SessionRoutes.update")(function* ({ sessionID, updates }: UpdateSessionInput) {
+  const sessions = yield* Session.Service
+  const current = yield* sessions.get(sessionID)
+
+  if (updates.title !== undefined) {
+    yield* sessions.setTitle({ sessionID, title: updates.title })
+  }
+  if (updates.permission !== undefined) {
+    yield* sessions.setPermission({
+      sessionID,
+      permission: Permission.merge(current.permission ?? [], updates.permission),
+    })
+  }
+  if (updates.time?.archived !== undefined) {
+    yield* sessions.setArchived({ sessionID, time: updates.time.archived })
+  }
+
+  return yield* sessions.get(sessionID)
+})
+
+const initSession = Effect.fn("SessionRoutes.init")(function* ({ sessionID, body }: InitSessionInput) {
+  const prompt = yield* SessionPrompt.Service
+  yield* prompt.command(
+    SessionPrompt.CommandInput.parse({
+      sessionID,
+      messageID: body.messageID,
+      model: body.providerID + "/" + body.modelID,
+      command: Command.Default.INIT,
+      arguments: "",
+    }),
+  )
+})
+
+const forkSession = Effect.fn("SessionRoutes.fork")(function* (input: Parameters<Session.Interface["fork"]>[0]) {
+  const sessions = yield* Session.Service
+  return yield* sessions.fork(input)
+})
+
+const resolveToolResponse = Effect.fn("SessionRoutes.toolRespond.resolve")(function* (input: {
+  sessionID: SessionID
+  messageID: MessageID
+  callID: string
+  value: ToolRespondValue
+}) {
+  return yield* ExternalResult.resolveIfPending(input)
+})
+
+const abortSession = Effect.fn("SessionRoutes.abort")(function* (input: { sessionID: SessionID; source?: string }) {
+  const prompt = yield* SessionPrompt.Service
+  return yield* prompt.cancel(input.sessionID, {
+    source: input.source,
+  })
+})
+
+const shareSession = Effect.fn("SessionRoutes.share")(function* (sessionID: SessionID) {
+  const gate = yield* ShareRuntime.CloudShareGate
+  if (!gate.isEnabled()) return { enabled: false as const }
+  const share = yield* SessionShare.Service
+  const sessions = yield* Session.Service
+  return {
+    enabled: true as const,
+    share: yield* share.share(sessionID),
+    session: yield* sessions.get(sessionID),
+  }
+})
+
+const exportSession = Effect.fn("SessionRoutes.export")(function* (sessionID: SessionID) {
+  return yield* Export.session(sessionID)
+})
+
+const getSessionDiff = Effect.fn("SessionRoutes.diff")(function* (input: z.infer<typeof SessionSummary.DiffInput>) {
+  const summary = yield* SessionSummary.Service
+  return yield* summary.diff(input)
+})
+
+const getTurnChange = Effect.fn("SessionRoutes.turnChange")(function* (params: TurnChangeParams) {
+  const turnChange = yield* TurnChange.Service
+  return yield* turnChange.get(params)
+})
+
+const undoTurnChange = Effect.fn("SessionRoutes.turnChange.undo")(function* (params: TurnChangeParams) {
+  const state = yield* SessionRunState.Service
+  const turnChange = yield* TurnChange.Service
+  yield* state.assertNotBusy(params.sessionID)
+  const result = yield* turnChange.undo(params)
+  if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "undo")
+  return result
+})
+
+const redoTurnChange = Effect.fn("SessionRoutes.turnChange.redo")(function* (params: TurnChangeParams) {
+  const state = yield* SessionRunState.Service
+  const turnChange = yield* TurnChange.Service
+  yield* state.assertNotBusy(params.sessionID)
+  const result = yield* turnChange.redo(params)
+  if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "redo")
+  return result
+})
+
+const getAggregateTurnChanges = Effect.fn("SessionRoutes.turnChanges.aggregate")(function* (
+  params: AggregateTurnChangeParams,
+) {
+  const turnChange = yield* TurnChange.Service
+  return yield* turnChange.aggregateTurnUnion(params)
+})
+
+const undoAggregateTurnChanges = Effect.fn("SessionRoutes.turnChanges.undo")(function* (
+  input: AggregateTurnChangeParams & { force?: boolean },
+) {
+  const state = yield* SessionRunState.Service
+  const turnChange = yield* TurnChange.Service
+  yield* state.assertNotBusy(input.sessionID)
+  const result = yield* turnChange.aggregateTurnUndo(input)
+  if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "undo", result.mutatedPaths)
+  return result
+})
+
+const redoAggregateTurnChanges = Effect.fn("SessionRoutes.turnChanges.redo")(function* (
+  input: AggregateTurnChangeParams & { force?: boolean },
+) {
+  const state = yield* SessionRunState.Service
+  const turnChange = yield* TurnChange.Service
+  yield* state.assertNotBusy(input.sessionID)
+  const result = yield* turnChange.aggregateTurnRedo(input)
+  if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "redo", result.mutatedPaths)
+  return result
+})
+
+const listSessionArtifacts = Effect.fn("SessionRoutes.artifacts")(function* (
+  input: z.infer<typeof SessionSummary.ArtifactsInput>,
+) {
+  const summary = yield* SessionSummary.Service
+  return yield* summary.artifacts(input)
+})
+
+const unshareSession = Effect.fn("SessionRoutes.unshare")(function* (sessionID: SessionID) {
+  const gate = yield* ShareRuntime.CloudShareGate
+  if (!gate.isEnabled()) return { enabled: false as const }
+  const share = yield* SessionShare.Service
+  const sessions = yield* Session.Service
+  yield* share.unshare(sessionID)
+  return {
+    enabled: true as const,
+    session: yield* sessions.get(sessionID),
+  }
+})
+
+const summarizeSession = Effect.fn("SessionRoutes.summarize")(function* (
+  input: {
+    sessionID: SessionID
+  } & z.infer<typeof SessionPrompt.LoopInput>["prelude"],
+) {
+  const prompt = yield* SessionPrompt.Service
+  yield* prompt.loop(
+    SessionPrompt.LoopInput.parse({
+      sessionID: input.sessionID,
+      prelude: {
+        type: "compaction",
+        model: input.model,
+        auto: input.auto,
+      },
+    }),
+  )
+
+  const sessions = yield* Session.Service
+  const finalMsgs = yield* sessions.messages({ sessionID: input.sessionID })
+  for (let i = finalMsgs.length - 1; i >= 0; i--) {
+    const info = finalMsgs[i].info
+    if (info.role !== "assistant" || info.mode !== "compaction") continue
+    if (info.error && info.error.name !== "MessageAbortedError") {
+      const raw = (info.error.data as { message?: unknown } | undefined)?.message
+      const reason =
+        typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : `Compaction failed (${info.error.name})`
+      return yield* Effect.fail(new NamedError.Unknown({ message: reason }))
+    }
+    break
+  }
+})
+
+const listSessionMessages = Effect.fn("SessionRoutes.messages")(function* (input: SessionMessagesInput) {
+  const sessions = yield* Session.Service
+  if (input.limit === undefined || input.limit === 0) {
+    yield* sessions.get(input.sessionID)
+    return {
+      kind: "all" as const,
+      items: yield* sessions.messages({ sessionID: input.sessionID }),
+    }
+  }
+
+  return {
+    kind: "page" as const,
+    page: yield* sessions.messagesPage({
+      sessionID: input.sessionID,
+      limit: input.limit,
+      before: input.before,
+    }),
+  }
+})
+
+const deleteSessionMessage = Effect.fn("SessionRoutes.message.delete")(function* (params: {
+  sessionID: SessionID
+  messageID: MessageID
+}) {
+  const state = yield* SessionRunState.Service
+  const session = yield* Session.Service
+  yield* state.assertNotBusy(params.sessionID)
+  yield* session.removeMessage(params)
+})
+
+const deleteSessionPart = Effect.fn("SessionRoutes.part.delete")(function* (params: {
+  sessionID: SessionID
+  messageID: MessageID
+  partID: PartID
+}) {
+  const sessions = yield* Session.Service
+  // Surface the route's declared 404 instead of silently succeeding:
+  // deleting a part that does not exist is a not-found, not a no-op.
+  // The check lives in the route, not Session.removePart, because
+  // removePart is also called internally by the message processor,
+  // which must stay a tolerant no-op for an already-gone part.
+  const part = yield* sessions.getPart(params)
+  if (!part) return yield* Effect.fail(new NotFoundError({ message: `Part not found: ${params.partID}` }))
+  yield* sessions.removePart(params)
+})
+
+const updateSessionPart = Effect.fn("SessionRoutes.part.update")(function* (part: MessageV2.Part) {
+  const sessions = yield* Session.Service
+  return yield* sessions.updatePart(part)
+})
+
+const promptSession = Effect.fn("SessionRoutes.prompt")(function* (input: SessionPrompt.PromptInput) {
+  const prompt = yield* SessionPrompt.Service
+  // HTTP callers cannot mark their own messages as automation-sent.
+  return yield* prompt.prompt(SessionPrompt.PromptInput.parse({ ...input, automationID: undefined }))
+})
+
+const runSessionCommand = Effect.fn("SessionRoutes.command")(function* (input: SessionPrompt.CommandInput) {
+  const prompt = yield* SessionPrompt.Service
+  return yield* prompt.command(SessionPrompt.CommandInput.parse(input))
+})
+
+const runSessionShell = Effect.fn("SessionRoutes.shell")(function* (input: SessionPrompt.ShellInput) {
+  const prompt = yield* SessionPrompt.Service
+  return yield* prompt.shell(SessionPrompt.ShellInput.parse(input))
+})
+
+const revertSession = Effect.fn("SessionRoutes.revert")(function* (input: SessionRevert.RevertInput) {
+  const revert = yield* SessionRevert.Service
+  return yield* revert.revert(SessionRevert.RevertInput.parse(input))
+})
+
+const unrevertSession = Effect.fn("SessionRoutes.unrevert")(function* (sessionID: SessionID) {
+  const revert = yield* SessionRevert.Service
+  return yield* revert.unrevert(SessionRevert.UnrevertInput.parse({ sessionID }))
+})
+
+const replyToDeprecatedPermission = Effect.fn("SessionRoutes.permission.reply")(function* (input: {
+  permissionID: PermissionID
+  reply: z.infer<typeof Permission.Reply>
+}) {
+  const permission = yield* Permission.Service
+  yield* permission.reply({
+    requestID: input.permissionID,
+    reply: input.reply,
+  })
+})
 
 function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo", mutatedPaths?: string[]) {
   return Effect.gen(function* () {
@@ -78,13 +429,7 @@ function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo
 }
 
 function runHttpPrompt(input: SessionPrompt.PromptInput) {
-  return AppRuntime.runPromise(
-    Effect.gen(function* () {
-      const prompt = yield* SessionPrompt.Service
-      // HTTP callers cannot mark their own messages as automation-sent.
-      return yield* prompt.prompt(SessionPrompt.PromptInput.parse({ ...input, automationID: undefined }))
-    }),
-  )
+  return runSessionRoute(promptSession(input))
 }
 
 export const SessionRoutes = lazy(() =>
@@ -126,17 +471,14 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const query = c.req.valid("query")
-        const sessions = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const session = yield* Session.Service
-            return yield* session.list({
-              directory: query.directory,
-              roots: query.roots,
-              start: query.start,
-              search: query.search,
-              limit: query.limit,
-              sort: query.sort,
-            })
+        const sessions = await runSessionRoute(
+          listSessions({
+            directory: query.directory,
+            roots: query.roots,
+            start: query.start,
+            search: query.search,
+            limit: query.limit,
+            sort: query.sort,
           }),
         )
         return c.json(sessions)
@@ -161,12 +503,7 @@ export const SessionRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const status = yield* SessionStatus.Service
-            return yield* status.list()
-          }),
-        )
+        const result = await runSessionRoute(getSessionStatus())
         return c.json(Object.fromEntries(result))
       },
     )
@@ -185,13 +522,10 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const json = c.req.valid("json")
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const todo = yield* Todo.Service
-            yield* todo.update({
-              sessionID: json.sessionID,
-              todos: json.todos,
-            })
+        await runSessionRoute(
+          updateE2ETodos({
+            sessionID: json.sessionID,
+            todos: json.todos,
           }),
         )
         return c.body(null, 204)
@@ -224,12 +558,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const session = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            return yield* sessions.get(sessionID)
-          }),
-        )
+        const session = await runSessionRoute(getSession(sessionID))
         return c.json(session)
       },
     )
@@ -260,12 +589,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const session = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            return yield* sessions.children(sessionID)
-          }),
-        )
+        const session = await runSessionRoute(listSessionChildren(sessionID))
         return c.json(session)
       },
     )
@@ -295,12 +619,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const todos = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const todo = yield* Todo.Service
-            return yield* todo.get(sessionID)
-          }),
-        )
+        const todos = await runSessionRoute(getSessionTodos(sessionID))
         return c.json(todos)
       },
     )
@@ -325,12 +644,7 @@ export const SessionRoutes = lazy(() =>
       validator("json", Session.create.schema),
       async (c) => {
         const body = c.req.valid("json") ?? {}
-        const session = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const share = yield* SessionShare.Service
-            return yield* share.create(body)
-          }),
-        )
+        const session = await runSessionRoute(createSession(body))
         return c.json(session)
       },
     )
@@ -360,12 +674,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            yield* sessions.remove(sessionID)
-          }),
-        )
+        await runSessionRoute(deleteSession(sessionID))
         return c.json(true)
       },
     )
@@ -408,27 +717,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const updates = c.req.valid("json")
-        const session = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            const current = yield* sessions.get(sessionID)
-
-            if (updates.title !== undefined) {
-              yield* sessions.setTitle({ sessionID, title: updates.title })
-            }
-            if (updates.permission !== undefined) {
-              yield* sessions.setPermission({
-                sessionID,
-                permission: Permission.merge(current.permission ?? [], updates.permission),
-              })
-            }
-            if (updates.time?.archived !== undefined) {
-              yield* sessions.setArchived({ sessionID, time: updates.time.archived })
-            }
-
-            return yield* sessions.get(sessionID)
-          }),
-        )
+        const session = await runSessionRoute(updateSession({ sessionID, updates }))
         return c.json(session)
       },
     )
@@ -469,20 +758,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const prompt = yield* SessionPrompt.Service
-            yield* prompt.command(
-              SessionPrompt.CommandInput.parse({
-                sessionID,
-                messageID: body.messageID,
-                model: body.providerID + "/" + body.modelID,
-                command: Command.Default.INIT,
-                arguments: "",
-              }),
-            )
-          }),
-        )
+        await runSessionRoute(initSession({ sessionID, body }))
         return c.json(true)
       },
     )
@@ -514,12 +790,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            return yield* sessions.fork({ ...body, sessionID })
-          }),
-        )
+        const result = await runSessionRoute(forkSession({ ...body, sessionID }))
         return c.json(result)
       },
     )
@@ -592,9 +863,7 @@ export const SessionRoutes = lazy(() =>
             value = { kind: "submitted" as const, value: body.payload }
           }
         }
-        const outcome = await AppRuntime.runPromise(
-          ExternalResult.resolveIfPending({ sessionID, messageID, callID, value }),
-        )
+        const outcome = await runSessionRoute(resolveToolResponse({ sessionID, messageID, callID, value }))
         if (outcome === "resolved") return c.json({ status: "ok" })
         if (outcome === "already_resolved") return c.json({ error: "already_resolved" }, 409)
         return c.json({ error: "no_pending_tool_call" }, 404)
@@ -633,14 +902,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const query = c.req.valid("query")
         const sessionID = c.req.valid("param").sessionID
-        const aborted = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const prompt = yield* SessionPrompt.Service
-            return yield* prompt.cancel(sessionID, {
-              source: query.source,
-            })
-          }),
-        )
+        const aborted = await runSessionRoute(abortSession({ sessionID, source: query.source }))
         return c.json(aborted)
       },
     )
@@ -670,19 +932,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const gate = yield* ShareRuntime.CloudShareGate
-            if (!gate.isEnabled()) return { enabled: false as const }
-            const share = yield* SessionShare.Service
-            const sessions = yield* Session.Service
-            return {
-              enabled: true as const,
-              share: yield* share.share(sessionID),
-              session: yield* sessions.get(sessionID),
-            }
-          }),
-        )
+        const result = await runSessionRoute(shareSession(sessionID))
         if (!result.enabled) {
           return c.json({ error: "cloud_share_disabled" }, 410)
         }
@@ -716,7 +966,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         try {
-          const result = await AppRuntime.runPromise(Export.session(sessionID))
+          const result = await runSessionRoute(exportSession(sessionID))
           return c.json(result)
         } catch (err) {
           // Session.get throws NotFoundError; matches the typed pattern used in middleware.ts.
@@ -759,13 +1009,10 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const query = c.req.valid("query")
         const params = c.req.valid("param")
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const summary = yield* SessionSummary.Service
-            return yield* summary.diff({
-              sessionID: params.sessionID,
-              messageID: query.messageID,
-            })
+        const result = await runSessionRoute(
+          getSessionDiff({
+            sessionID: params.sessionID,
+            messageID: query.messageID,
           }),
         )
         return c.json(result)
@@ -798,12 +1045,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const turnChange = yield* TurnChange.Service
-            return yield* turnChange.get(params)
-          }),
-        )
+        const result = await runSessionRoute(getTurnChange(params))
         return c.json(result ?? null)
       },
     )
@@ -833,16 +1075,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const state = yield* SessionRunState.Service
-            const turnChange = yield* TurnChange.Service
-            yield* state.assertNotBusy(params.sessionID)
-            const result = yield* turnChange.undo(params)
-            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "undo")
-            return result
-          }),
-        )
+        const result = await runSessionRoute(undoTurnChange(params))
         return c.json(result)
       },
     )
@@ -872,16 +1105,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const state = yield* SessionRunState.Service
-            const turnChange = yield* TurnChange.Service
-            yield* state.assertNotBusy(params.sessionID)
-            const result = yield* turnChange.redo(params)
-            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "redo")
-            return result
-          }),
-        )
+        const result = await runSessionRoute(redoTurnChange(params))
         return c.json(result)
       },
     )
@@ -912,12 +1136,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const turnChange = yield* TurnChange.Service
-            return yield* turnChange.aggregateTurnUnion(params)
-          }),
-        )
+        const result = await runSessionRoute(getAggregateTurnChanges(params))
         return c.json(result)
       },
     )
@@ -949,16 +1168,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const params = c.req.valid("param")
         const body = c.req.valid("json") ?? {}
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const state = yield* SessionRunState.Service
-            const turnChange = yield* TurnChange.Service
-            yield* state.assertNotBusy(params.sessionID)
-            const result = yield* turnChange.aggregateTurnUndo({ ...params, force: body.force })
-            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "undo", result.mutatedPaths)
-            return result
-          }),
-        )
+        const result = await runSessionRoute(undoAggregateTurnChanges({ ...params, force: body.force }))
         return c.json(result)
       },
     )
@@ -990,16 +1200,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const params = c.req.valid("param")
         const body = c.req.valid("json") ?? {}
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const state = yield* SessionRunState.Service
-            const turnChange = yield* TurnChange.Service
-            yield* state.assertNotBusy(params.sessionID)
-            const result = yield* turnChange.aggregateTurnRedo({ ...params, force: body.force })
-            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "redo", result.mutatedPaths)
-            return result
-          }),
-        )
+        const result = await runSessionRoute(redoAggregateTurnChanges({ ...params, force: body.force }))
         return c.json(result)
       },
     )
@@ -1028,12 +1229,9 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const summary = yield* SessionSummary.Service
-            return yield* summary.artifacts({
-              sessionID: params.sessionID,
-            })
+        const result = await runSessionRoute(
+          listSessionArtifacts({
+            sessionID: params.sessionID,
           }),
         )
         return c.json(result)
@@ -1065,19 +1263,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const gate = yield* ShareRuntime.CloudShareGate
-            if (!gate.isEnabled()) return { enabled: false as const }
-            const share = yield* SessionShare.Service
-            const sessions = yield* Session.Service
-            yield* share.unshare(sessionID)
-            return {
-              enabled: true as const,
-              session: yield* sessions.get(sessionID),
-            }
-          }),
-        )
+        const result = await runSessionRoute(unshareSession(sessionID))
         if (!result.enabled) {
           return c.json({ error: "cloud_share_disabled" }, 410)
         }
@@ -1137,49 +1323,23 @@ export const SessionRoutes = lazy(() =>
         // the work effect, so a busy-rejected compact leaves session state
         // untouched and the agent is picked from the post-cleanup message
         // list (matters when the session has been reverted).
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const prompt = yield* SessionPrompt.Service
-            yield* prompt.loop(
-              SessionPrompt.LoopInput.parse({
-                sessionID,
-                prelude: {
-                  type: "compaction",
-                  model: {
-                    providerID: body.providerID,
-                    modelID: body.modelID,
-                  },
-                  auto: body.auto,
-                },
-              }),
-            )
-          }),
-        )
         // Compaction is fire-and-forget at the loop level: a pre-summary
         // failure writes `error` onto the placeholder summary assistant and
         // returns "stop" without throwing, so summarize would otherwise
         // resolve `true` for a session that visibly failed. Surface the
         // error so SDK callers can branch on it. User-initiated aborts are
         // not failures from the route's perspective.
-        const finalMsgs = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            return yield* sessions.messages({ sessionID })
+        await runSessionRoute(
+          summarizeSession({
+            sessionID,
+            type: "compaction",
+            model: {
+              providerID: body.providerID,
+              modelID: body.modelID,
+            },
+            auto: body.auto,
           }),
         )
-        for (let i = finalMsgs.length - 1; i >= 0; i--) {
-          const info = finalMsgs[i].info
-          if (info.role !== "assistant" || info.mode !== "compaction") continue
-          if (info.error && info.error.name !== "MessageAbortedError") {
-            const raw = (info.error.data as { message?: unknown } | undefined)?.message
-            const reason =
-              typeof raw === "string" && raw.trim().length > 0
-                ? raw.trim()
-                : `Compaction failed (${info.error.name})`
-            throw new NamedError.Unknown({ message: reason })
-          }
-          break
-        }
         return c.json(true)
       },
     )
@@ -1242,48 +1402,25 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const query = c.req.valid("query")
         const sessionID = c.req.valid("param").sessionID
-        if (query.limit === undefined) {
-          const messages = await AppRuntime.runPromise(
-            Effect.gen(function* () {
-              const sessions = yield* Session.Service
-              yield* sessions.get(sessionID)
-              return yield* sessions.messages({ sessionID })
-            }),
-          )
-          return c.json(messages)
-        }
-
-        if (query.limit === 0) {
-          const messages = await AppRuntime.runPromise(
-            Effect.gen(function* () {
-              const sessions = yield* Session.Service
-              yield* sessions.get(sessionID)
-              return yield* sessions.messages({ sessionID })
-            }),
-          )
-          return c.json(messages)
-        }
-
-        const limit = query.limit
-        const page = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            return yield* sessions.messagesPage({
-              sessionID,
-              limit,
-              before: query.before,
-            })
+        const result = await runSessionRoute(
+          listSessionMessages({
+            sessionID,
+            limit: query.limit,
+            before: query.before,
           }),
         )
-        if (page.cursor) {
+        if (result.kind === "all") return c.json(result.items)
+
+        const limit = query.limit!
+        if (result.page.cursor) {
           const url = new URL(c.req.url)
           url.searchParams.set("limit", limit.toString())
-          url.searchParams.set("before", page.cursor)
+          url.searchParams.set("before", result.page.cursor)
           c.header("Access-Control-Expose-Headers", "Link, X-Next-Cursor")
           c.header("Link", `<${url.toString()}>; rel=\"next\"`)
-          c.header("X-Next-Cursor", page.cursor)
+          c.header("X-Next-Cursor", result.page.cursor)
         }
-        return c.json(page.items)
+        return c.json(result.page.items)
       },
     )
     .get(
@@ -1353,17 +1490,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const state = yield* SessionRunState.Service
-            const session = yield* Session.Service
-            yield* state.assertNotBusy(params.sessionID)
-            yield* session.removeMessage({
-              sessionID: params.sessionID,
-              messageID: params.messageID,
-            })
-          }),
-        )
+        await runSessionRoute(deleteSessionMessage(params))
         return c.json(true)
       },
     )
@@ -1394,27 +1521,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            // Surface the route's declared 404 instead of silently succeeding:
-            // deleting a part that does not exist is a not-found, not a no-op.
-            // The check lives in the route, not Session.removePart, because
-            // removePart is also called internally by the message processor,
-            // which must stay a tolerant no-op for an already-gone part.
-            const part = yield* sessions.getPart({
-              sessionID: params.sessionID,
-              messageID: params.messageID,
-              partID: params.partID,
-            })
-            if (!part) throw new NotFoundError({ message: `Part not found: ${params.partID}` })
-            yield* sessions.removePart({
-              sessionID: params.sessionID,
-              messageID: params.messageID,
-              partID: params.partID,
-            })
-          }),
-        )
+        await runSessionRoute(deleteSessionPart(params))
         return c.json(true)
       },
     )
@@ -1461,12 +1568,7 @@ export const SessionRoutes = lazy(() =>
             400,
           )
         }
-        const part = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            return yield* sessions.updatePart(body)
-          }),
-        )
+        const part = await runSessionRoute(updateSessionPart(body))
         return c.json(part)
       },
     )
@@ -1579,12 +1681,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
-        const msg = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const prompt = yield* SessionPrompt.Service
-            return yield* prompt.command(SessionPrompt.CommandInput.parse({ ...body, sessionID }))
-          }),
-        )
+        const msg = await runSessionRoute(runSessionCommand({ ...body, sessionID }))
         return c.json(msg)
       },
     )
@@ -1616,12 +1713,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
-        const msg = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const prompt = yield* SessionPrompt.Service
-            return yield* prompt.shell(SessionPrompt.ShellInput.parse({ ...body, sessionID }))
-          }),
-        )
+        const msg = await runSessionRoute(runSessionShell({ ...body, sessionID }))
         return c.json(msg)
       },
     )
@@ -1652,13 +1744,9 @@ export const SessionRoutes = lazy(() =>
       validator("json", SessionRevert.RevertInput.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        log.info("revert", c.req.valid("json"))
-        const session = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const revert = yield* SessionRevert.Service
-            return yield* revert.revert(SessionRevert.RevertInput.parse({ sessionID, ...c.req.valid("json") }))
-          }),
-        )
+        const body = c.req.valid("json")
+        log.info("revert", body)
+        const session = await runSessionRoute(revertSession({ sessionID, ...body }))
         return c.json(session)
       },
     )
@@ -1688,12 +1776,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const session = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const revert = yield* SessionRevert.Service
-            return yield* revert.unrevert(SessionRevert.UnrevertInput.parse({ sessionID }))
-          }),
-        )
+        const session = await runSessionRoute(unrevertSession(sessionID))
         return c.json(session)
       },
     )
@@ -1728,13 +1811,10 @@ export const SessionRoutes = lazy(() =>
         const params = c.req.valid("param")
         // Await so an unknown permission surfaces this route's documented 404
         // instead of being swallowed by a fire-and-forget rejection.
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const permission = yield* Permission.Service
-            yield* permission.reply({
-              requestID: params.permissionID,
-              reply: c.req.valid("json").response,
-            })
+        await runSessionRoute(
+          replyToDeprecatedPermission({
+            permissionID: params.permissionID,
+            reply: c.req.valid("json").response,
           }),
         )
         return c.json(true)
