@@ -39,7 +39,7 @@
     "electron-window-state": "^5.0.3",
     "marked": "^15",
     "semver": "^7.6.0",
-    "undici": "7.24.7",
+    "undici": "7.28.0",
     "ws": "8.21.0"
   },
   "devDependencies": {
