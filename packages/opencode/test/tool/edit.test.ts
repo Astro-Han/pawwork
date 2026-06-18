@@ -184,7 +184,7 @@ describe("tool.edit", () => {
             newString: "new content",
           })
 
-          expect(result.output).toContain("Edit applied successfully")
+          expect(result.output).toMatch(/^Edited .+ \(\+\d+ -\d+ lines\)\.$/)
 
           const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
           expect(content).toBe("new content here")
@@ -204,7 +204,7 @@ describe("tool.edit", () => {
             newString: "new content",
           })
 
-          expect(result.output).toContain("Edit applied successfully")
+          expect(result.output).toMatch(/^Edited .+ \(\+\d+ -\d+ lines\)\.$/)
 
           const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
           expect(content).toBe("new content here")

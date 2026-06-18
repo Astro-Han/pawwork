@@ -3,7 +3,7 @@ import * as path from "path"
 import { Effect } from "effect"
 import * as Tool from "./tool"
 import { LSP } from "../lsp"
-import { createTwoFilesPatch } from "diff"
+import { createTwoFilesPatch, diffLines } from "diff"
 import DESCRIPTION from "./write.txt"
 import { Bus } from "../bus"
 import { File } from "../file"
@@ -59,6 +59,12 @@ export const WriteTool = Tool.define(
 
         let diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, contentNew))
         const relativeFilepath = path.relative(Instance.worktree, filepath)
+        let additions = 0
+        let deletions = 0
+        for (const change of diffLines(contentOld, contentNew)) {
+          if (change.added) additions += change.count || 0
+          if (change.removed) deletions += change.count || 0
+        }
         const sensitive = isSensitiveTargetPath(filepath, Instance.worktree)
         const status = exists ? "modified" : "added"
         yield* ctx.ask({
@@ -88,7 +94,9 @@ export const WriteTool = Tool.define(
           event: exists ? "change" : "add",
         })
 
-        let output = "Wrote file successfully."
+        let output = exists
+          ? `Wrote ${relativeFilepath} (+${additions} -${deletions} lines).`
+          : `Created ${relativeFilepath} (+${additions} lines).`
         yield* lsp.touchFile(filepath, true)
         const diagnostics = sensitive ? {} : yield* lsp.diagnostics()
         const normalizedFilepath = AppFileSystem.normalizePath(filepath)

@@ -230,7 +230,9 @@ export const EditTool = Tool.define(
           after: { exists: true, content: contentNew, bom: afterBom },
         })
 
-        let output = "Edit applied successfully."
+        let output = existedBefore
+          ? `Edited ${relativeFilePath} (+${additions} -${deletions} lines).`
+          : `Created ${relativeFilePath} (+${additions} lines).`
         yield* lsp.touchFile(filePath, true)
         const diagnostics = sensitive ? {} : yield* lsp.diagnostics()
         const normalizedFilePath = AppFileSystem.normalizePath(filePath)
