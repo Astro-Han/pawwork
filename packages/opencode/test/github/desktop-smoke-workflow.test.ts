@@ -76,7 +76,8 @@ describe("desktop smoke workflow", () => {
     expect(install?.if).toBe("needs.changes.outputs.docs_only != 'true'")
     expect(install?.["runs-on"]).toBe("macos-14")
     expect(install?.["timeout-minutes"]).toBe(10)
-    expect(install?.strategy?.matrix?.["node-version"]).toEqual(["24", "26"])
+    const installMatrix = install?.strategy?.matrix as { "node-version"?: unknown } | undefined
+    expect(installMatrix?.["node-version"]).toEqual(["24", "26"])
     const installCheckout = installSteps.find((step) => step.uses?.startsWith("actions/checkout@"))
     expect(installCheckout?.with?.["persist-credentials"]).toBe(false)
     const installSetupNode = installSteps.find((step) => step.uses?.startsWith("actions/setup-node@"))
