@@ -9,7 +9,7 @@ import { sessionPermissionRequest } from "./request-tree"
 import {
   type DockQuestionRequest,
   findDescendantExternalResultQuestion,
-} from "./running-external-result-question"
+} from "@/context/global-sync/external-result-question"
 
 export type { DockQuestionRequest }
 

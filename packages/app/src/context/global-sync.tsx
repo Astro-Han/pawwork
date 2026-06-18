@@ -731,6 +731,7 @@ function createGlobalSync() {
     child: children.child,
     peek: children.peek,
     peekExisting: children.peekExisting,
+    mountedDirectories: children.directories,
     retainDirectory,
     // Register a rising-edge side effect for live question arrivals (the
     // notification provider hooks OS notify / sound / Dock attention here).

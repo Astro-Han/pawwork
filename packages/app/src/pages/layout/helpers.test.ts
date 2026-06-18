@@ -138,6 +138,11 @@ describe("layout workspace helpers", () => {
     expect(workspaceKey("C:\\tmp\\demo\\\\")).toBe("C:/tmp/demo")
   })
 
+  test("normalizes drive-letter case in workspace key", () => {
+    expect(workspaceKey("c:\\tmp\\demo\\\\")).toBe("C:/tmp/demo")
+    expect(workspaceKey("c://")).toBe("C:/")
+  })
+
   test("preserves posix and drive roots in workspace key", () => {
     expect(workspaceKey("/")).toBe("/")
     expect(workspaceKey("///")).toBe("/")

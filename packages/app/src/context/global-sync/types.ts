@@ -38,6 +38,7 @@ export type State = {
   agent: Agent[]
   command: Command[]
   command_ready: boolean
+  external_result_ready: boolean
   project: string
   projectMeta: ProjectMeta | undefined
   icon: string | undefined
