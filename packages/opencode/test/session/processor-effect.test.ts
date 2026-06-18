@@ -343,34 +343,87 @@ function processorEnvWithLLM(llm: LLM.Interface) {
   )
 }
 
+function connectWatchdogFailure(input: LLM.StreamInput): Stream.Stream<LLM.Event, unknown> {
+  const connectTimeoutMs = input.connectTimeoutMs ?? LLM.CONNECT_STREAM_TIMEOUT_MS
+  const streamTimeoutMs = input.streamTimeoutMs ?? LLM.SILENT_STREAM_TIMEOUT_MS
+  const error = new Error(`LLM stream connection timed out after ${connectTimeoutMs}ms without provider progress`)
+  input.trace?.beginStream({
+    collectorCreatedAt: Date.now(),
+    monotonicMs: performance.now(),
+    connectTimeoutMs,
+    streamTimeoutMs,
+  })
+  input.trace?.recordWatchdogFired({
+    phase: "connect",
+    firedAt: Date.now(),
+    monotonicMs: performance.now(),
+  })
+  input.trace?.recordStreamFailure({
+    error,
+    boundary: "watchdog",
+    confidence: "high",
+    evidence: ["watchdog_fired", "watchdog_error"],
+    failedAt: Date.now(),
+    monotonicMs: performance.now(),
+  })
+  return Stream.fail(error)
+}
+
+function textStream(text: string): Stream.Stream<LLM.Event, unknown> {
+  return Stream.make(
+    { type: "start" } satisfies LLM.Event,
+    { type: "text-start", id: "txt-0" } satisfies LLM.Event,
+    { type: "text-delta", id: "txt-0", delta: text, text } as LLM.Event,
+    { type: "text-end", id: "txt-0" } satisfies LLM.Event,
+    {
+      type: "finish-step",
+      finishReason: "stop",
+      rawFinishReason: "stop",
+      response: { id: "res", modelId: "test-model", timestamp: new Date() },
+      providerMetadata: undefined,
+      usage: {
+        inputTokens: 1,
+        outputTokens: 1,
+        totalTokens: 2,
+        inputTokenDetails: {
+          noCacheTokens: undefined,
+          cacheReadTokens: undefined,
+          cacheWriteTokens: undefined,
+        },
+        outputTokenDetails: {
+          textTokens: undefined,
+          reasoningTokens: undefined,
+        },
+      },
+    } satisfies LLM.Event,
+    {
+      type: "finish",
+      finishReason: "stop",
+      rawFinishReason: "stop",
+      totalUsage: {
+        inputTokens: 1,
+        outputTokens: 1,
+        totalTokens: 2,
+        inputTokenDetails: {
+          noCacheTokens: undefined,
+          cacheReadTokens: undefined,
+          cacheWriteTokens: undefined,
+        },
+        outputTokenDetails: {
+          textTokens: undefined,
+          reasoningTokens: undefined,
+        },
+      },
+    } satisfies LLM.Event,
+  )
+}
+
 const capturedAttemptConnectTimeouts: number[] = []
 const attemptTimeoutIt = testEffect(
   processorEnvWithLLM({
     stream(input) {
-      const connectTimeoutMs = input.connectTimeoutMs ?? LLM.CONNECT_STREAM_TIMEOUT_MS
-      const streamTimeoutMs = input.streamTimeoutMs ?? LLM.SILENT_STREAM_TIMEOUT_MS
-      const error = new Error(`LLM stream connection timed out after ${connectTimeoutMs}ms without provider progress`)
-      capturedAttemptConnectTimeouts.push(connectTimeoutMs)
-      input.trace?.beginStream({
-        collectorCreatedAt: Date.now(),
-        monotonicMs: performance.now(),
-        connectTimeoutMs,
-        streamTimeoutMs,
-      })
-      input.trace?.recordWatchdogFired({
-        phase: "connect",
-        firedAt: Date.now(),
-        monotonicMs: performance.now(),
-      })
-      input.trace?.recordStreamFailure({
-        error,
-        boundary: "watchdog",
-        confidence: "high",
-        evidence: ["watchdog_fired", "watchdog_error"],
-        failedAt: Date.now(),
-        monotonicMs: performance.now(),
-      })
-      return Stream.fail(error)
+      capturedAttemptConnectTimeouts.push(input.connectTimeoutMs ?? LLM.CONNECT_STREAM_TIMEOUT_MS)
+      return connectWatchdogFailure(input)
     },
   }),
 )
@@ -1562,14 +1615,23 @@ it.live("session.processor effect tests publish retry status updates", () =>
   ),
 )
 
-it.live("connect timeout before provider progress auto retries once and succeeds", () =>
-  provideTmpdirServer(
-    ({ dir, llm }) =>
-      Effect.gen(function* () {
-        const { processors, session, provider } = yield* boot()
+let deterministicConnectTimeoutCalls = 0
+const deterministicConnectTimeoutIt = testEffect(
+  processorEnvWithLLM({
+    stream(input) {
+      deterministicConnectTimeoutCalls += 1
+      if (deterministicConnectTimeoutCalls === 1) return connectWatchdogFailure(input)
+      return textStream("after retry")
+    },
+  }),
+)
 
-        yield* llm.hang
-        yield* llm.text("after retry")
+deterministicConnectTimeoutIt.live("connect timeout before provider progress auto retries once and succeeds", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        deterministicConnectTimeoutCalls = 0
+        const { processors, session, provider } = yield* boot()
 
         const chat = yield* session.create({})
         const parent = yield* user(chat.id, "auto retry connect timeout")
@@ -1606,7 +1668,7 @@ it.live("connect timeout before provider progress auto retries once and succeeds
         )
 
         expect(value).toBe("continue")
-        expect(yield* llm.calls).toBe(2)
+        expect(deterministicConnectTimeoutCalls).toBe(2)
         expect(parts.some((part) => part.type === "text" && part.text === "after retry")).toBe(true)
         expect(handle.message.error).toBeUndefined()
         expect(stored?.info.role).toBe("assistant")
@@ -1639,7 +1701,7 @@ it.live("connect timeout before provider progress auto retries once and succeeds
           })
         }
       }),
-    { git: true, config: (url) => providerCfg(url) },
+    { git: true, config: cfg },
   ),
 )
 
