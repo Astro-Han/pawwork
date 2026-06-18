@@ -1,6 +1,47 @@
 import { describe, expect, test } from "bun:test"
+import type { Message, Part, Session, ToolState } from "@opencode-ai/sdk/v2/client"
+import { rootSessionIDsWithDescendantExternalResultQuestions } from "./global-sync/external-result-question"
+import {
+  type PendingQuestion,
+  type PendingQuestionIndex,
+  pendingRootSessionIDs,
+  upsertPendingQuestion,
+} from "./global-sync/pending-question-index"
 import { badgeSessionCount, buildNotificationIndex, isLiveNotification } from "./notification-derive"
 import type { Notification } from "./notification"
+
+const question = (input: {
+  sessionID: string
+  messageID: string
+  callID: string
+  rootSessionID?: string
+}): PendingQuestion => ({
+  id: `${input.messageID}:${input.callID}`,
+  sessionID: input.sessionID,
+  questions: [{ question: "?" }],
+  messageID: input.messageID,
+  callID: input.callID,
+  partID: `prt_${input.callID}`,
+  rootSessionID: input.rootSessionID,
+})
+
+const message = (id: string): Message => ({ id }) as Message
+const session = (id: string, parentID?: string): Session => ({ id, parentID }) as Session
+const runningQuestionPart = (input: { messageID: string; callID: string }): Part =>
+  ({
+    id: `prt_${input.callID}`,
+    type: "tool",
+    tool: "question",
+    messageID: input.messageID,
+    callID: input.callID,
+    state: {
+      status: "running",
+      input: { questions: [{ question: "?" }] },
+      title: "",
+      metadata: { externalResultReady: true },
+      time: { start: 0 },
+    } as ToolState,
+  }) as Part
 
 describe("isLiveNotification", () => {
   test("keeps turn-complete and error, drops legacy question", () => {
@@ -100,5 +141,29 @@ describe("badgeSessionCount", () => {
 
   test("counts a pending root even with no notifications at all", () => {
     expect(badgeSessionCount([], ["ses_a", "ses_b"])).toBe(2)
+  })
+
+  test("clears a mounted stale pending root once hydrated parts are authoritative", () => {
+    const index: PendingQuestionIndex = {}
+    upsertPendingQuestion(index, "/mounted", question({ sessionID: "orphan", messageID: "m1", callID: "c1", rootSessionID: "root" }))
+    const mountedRoots = rootSessionIDsWithDescendantExternalResultQuestions({
+      sessions: [session("root")],
+      messages: { orphan: [message("m1")] },
+      partsByMessageID: { m1: [runningQuestionPart({ messageID: "m1", callID: "c1" })] },
+    })
+
+    expect(
+      badgeSessionCount(
+        [],
+        [...mountedRoots, ...pendingRootSessionIDs(index, { excludeDirectories: ["/mounted"] })],
+      ),
+    ).toBe(0)
+  })
+
+  test("keeps pending roots while mounted parts are not authoritative", () => {
+    const index: PendingQuestionIndex = {}
+    upsertPendingQuestion(index, "/mounted", question({ sessionID: "child", messageID: "m1", callID: "c1", rootSessionID: "root" }))
+
+    expect(badgeSessionCount([], pendingRootSessionIDs(index))).toBe(1)
   })
 })
