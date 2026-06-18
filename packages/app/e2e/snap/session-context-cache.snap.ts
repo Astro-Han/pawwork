@@ -31,16 +31,23 @@ test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
 test("session-context-cache", async ({ page, llm, project }) => {
   await project.open()
 
-  await llm.text("Seeded context cache usage.", { usage: { input: 1_000, output: 40, cacheRead: 900 } })
+  // Two turns so the session aggregate differs from the latest turn:
+  //   turn 1: 40,000 cache read of 80,000 input
+  //   turn 2: 108,000 cache read of 120,000 input -> 90.0% this turn
+  //   session: 148,000 read of 200,000 total -> 74.0%
+  await llm.text("First seeded turn.", { usage: { input: 80_000, output: 500, cacheRead: 40_000 } })
+  await project.prompt("first turn")
+  await llm.text("Second seeded turn.", { usage: { input: 120_000, output: 800, cacheRead: 108_000 } })
   await project.prompt("snap context cache hit rate")
 
   const panel = await openRightPanel(page)
   await page.getByRole("button", { name: "View context usage" }).click()
   await page.getByRole("tab", { name: "Context" }).click()
 
-  await expect(panel.getByText("Cache Hit Rate")).toBeVisible()
+  await expect(panel.getByText("Context budget")).toBeVisible()
+  // Cache shows both scopes at once: 90.0% this turn beside 74.0% session.
   await expect(panel.getByText("90.0%")).toBeVisible()
-  await expect(panel.getByText("Cache Tokens (read/write): 900 / 0")).toBeVisible()
+  await expect(panel.getByText("74.0%").first()).toBeVisible()
 
   const toastCloseButtons = page.locator('[data-component="toast"] [data-slot="toast-close-button"]')
   const toastCount = await toastCloseButtons.count()
