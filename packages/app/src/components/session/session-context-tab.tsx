@@ -16,7 +16,7 @@ import { emptyMessages, emptyUserMessages, readSessionMessages, readUserMessages
 import { getRecentTurnCache, getSessionCacheAggregate, getSessionContextMetrics } from "./session-context-metrics"
 import { estimateSessionContextBreakdown, type SessionContextBreakdownKey } from "./session-context-breakdown"
 import { createSessionContextFormatter } from "./session-context-format"
-import { contextUsageTone } from "../session-context-usage-state"
+import { contextBudgetMarkerPercent, contextUsageTone } from "../session-context-usage-state"
 
 type CacheTally = { input: number; read: number; write: number; hitRate: number | null }
 
@@ -268,8 +268,8 @@ export function SessionContextTab() {
   const budgetUsedPercent = createMemo(() => ctx()?.usagePercent ?? null)
   const budgetMarkerPercent = createMemo(() => {
     const c = ctx()
-    if (!c || !c.autoCompactEnabled || !c.compactThreshold || !c.effectiveInputLimit) return undefined
-    return (c.compactThreshold / c.effectiveInputLimit) * 100
+    if (!c) return undefined
+    return contextBudgetMarkerPercent(c)
   })
   const budgetTone = createMemo(() => contextUsageTone(ctx()?.usagePercent))
   const budgetColor = createMemo(() => {
