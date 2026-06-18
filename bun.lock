@@ -416,6 +416,9 @@
     "web-tree-sitter",
     "tree-sitter-bash",
   ],
+  "patchedDependencies": {
+    "@larksuiteoapi/node-sdk@1.67.0": "patches/@larksuiteoapi%2Fnode-sdk@1.67.0.patch",
+  },
   "overrides": {
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
