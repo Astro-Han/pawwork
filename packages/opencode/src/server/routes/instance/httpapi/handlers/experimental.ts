@@ -105,7 +105,7 @@ export const experimentalHandlers = HttpApiBuilder.group(ExperimentalApi, "exper
           directory: ctx.query.directory,
           roots: ctx.query.roots === undefined ? undefined : ctx.query.roots === "true",
           start: ctx.query.start,
-          cursor: ctx.query.cursor,
+          cursor: ctx.query.cursor === "" ? undefined : ctx.query.cursor,
           search: ctx.query.search,
           limit: ctx.query.limit,
           archived: ctx.query.archived === undefined ? undefined : ctx.query.archived === "true",

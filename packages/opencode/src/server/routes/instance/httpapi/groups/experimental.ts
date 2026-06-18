@@ -38,7 +38,7 @@ const SessionListQuery = Schema.Struct({
   directory: Schema.optionalKey(Schema.String),
   roots: Schema.optionalKey(Schema.Literals(["true", "false"])),
   start: Schema.optionalKey(Schema.NumberFromString),
-  cursor: Schema.optionalKey(Schema.Union([Schema.NumberFromString, Schema.String])),
+  cursor: Schema.optionalKey(Schema.String),
   search: Schema.optionalKey(Schema.String),
   limit: Schema.optionalKey(Schema.NumberFromString),
   archived: Schema.optionalKey(Schema.Literals(["true", "false"])),

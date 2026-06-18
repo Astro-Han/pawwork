@@ -135,4 +135,31 @@ describe("session HttpApi routes", () => {
       },
     })
   })
+
+  test("maps missing provider models to bad requests like the Hono route", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        try {
+          const response = await requestSessionHttpApi(`/session/${session.id}/message`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              model: { providerID: "missing-provider", modelID: "missing-model" },
+              agent: "build",
+              parts: [{ type: "text", text: "hello" }],
+            }),
+          })
+          const body = await response.json()
+
+          expect(response.status).toBe(400)
+          expect(body.name).toBe("ProviderModelNotFoundError")
+        } finally {
+          await svc.remove(session.id).catch(() => undefined)
+        }
+      },
+    })
+  })
 })

@@ -1,6 +1,7 @@
 import { Bus } from "@/bus"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
+import { Provider } from "@/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { SessionRouteEffects } from "@/server/instance/session"
 import { Session as SessionNs } from "@/session"
@@ -95,6 +96,9 @@ function unknownError(message = "Unexpected server error. Check server logs for 
 
 function sessionFailure(error: unknown) {
   if (error instanceof NotFoundError) return Effect.succeed(HttpServerResponse.jsonUnsafe(error.toObject(), { status: 404 }))
+  if (error instanceof Provider.ModelNotFoundError) {
+    return Effect.succeed(HttpServerResponse.jsonUnsafe(error.toObject(), { status: 400 }))
+  }
   if (error instanceof SessionNs.BusyError) {
     return Effect.succeed(HttpServerResponse.jsonUnsafe(unknownError(error.message), { status: 409 }))
   }
