@@ -582,6 +582,31 @@ test("captureFirstSender never signals onValidated for a bad token", async () =>
   }
 })
 
+test("captureFirstSender re-checks abort after getMe and skips onValidated", async () => {
+  // getMe can resolve in the same tick a cancel lands. The "act from the phone"
+  // hint must not fire for a pairing that was cancelled during the identity fetch.
+  const api = fakeBotApi([[]]) // empty drain, then getMe succeeds
+  try {
+    const poller = new TelegramPoller("t", api.url)
+    poller.pollRetryMs = 0
+    const ac = new AbortController()
+    const realGetMe = poller.getMe.bind(poller)
+    poller.getMe = async (signal?: AbortSignal) => {
+      const identity = await realGetMe(signal)
+      ac.abort() // the cancel races in exactly as getMe resolves
+      return identity
+    }
+    let validated = false
+    const result = await captureFirstSender(poller, ac.signal, () => {
+      validated = true
+    })
+    expect(result).toBeNull()
+    expect(validated).toBe(false)
+  } finally {
+    api.stop()
+  }
+})
+
 test("start() rejects on an invalid token so the gateway can surface it", async () => {
   const server = Bun.serve({
     port: 0,

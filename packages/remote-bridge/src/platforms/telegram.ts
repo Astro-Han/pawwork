@@ -517,6 +517,11 @@ export async function captureFirstSender(
     throw err
   }
 
+  // getMe can resolve in the same tick the signal aborts (a cancel that raced the
+  // response). Re-check before signaling, so a pairing cancelled during getMe never
+  // emits a stale "act from the phone" hint.
+  if (signal.aborted) return null
+
   // Token proven and identity known: only now signal "act from the phone". Fired
   // before the wait, not after capture, so the bind hint shows exactly once the
   // token is good — never for a bad token (the drain above already threw).
