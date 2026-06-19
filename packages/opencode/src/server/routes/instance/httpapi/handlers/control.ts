@@ -5,8 +5,19 @@ import { NamedError } from "@opencode-ai/util/error"
 import { Effect } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
+import { resolver } from "hono-openapi"
 import z from "zod"
+import { ControlPlaneRoutes } from "@/server/control"
+import { BadRequestErrorSchema } from "@/server/error"
+import { globalEventOpenApiSchema, globalSyncEventOpenApiSchema } from "@/server/instance/global"
 import { ControlApi } from "../groups/control"
+
+type OpenApiDocument = {
+  paths?: unknown
+  components?: {
+    schemas?: Record<string, unknown>
+  }
+}
 
 const LogPayload = z.object({
   service: z.string(),
@@ -70,6 +81,55 @@ function writeLog(payload: LogPayload) {
   }
 }
 
+function collectSchemaRefs(value: unknown, refs = new Set<string>()) {
+  if (!value || typeof value !== "object") return refs
+  if (Array.isArray(value)) {
+    for (const item of value) collectSchemaRefs(item, refs)
+    return refs
+  }
+
+  const record = value as Record<string, unknown>
+  if (typeof record.$ref === "string" && record.$ref.startsWith("#/components/schemas/")) refs.add(record.$ref)
+  for (const item of Object.values(record)) collectSchemaRefs(item, refs)
+  return refs
+}
+
+function mergeSchemas(document: OpenApiDocument, schemas: Record<string, unknown>) {
+  document.components ??= {}
+  document.components.schemas = {
+    ...schemas,
+    ...document.components.schemas,
+  }
+}
+
+async function ensureReferencedControlDocSchemas(document: OpenApiDocument) {
+  const refs = collectSchemaRefs(document.paths)
+  const schemas = document.components?.schemas ?? {}
+  const missingGlobalEvent = refs.has("#/components/schemas/GlobalEvent") && !schemas.GlobalEvent
+  const missingSyncEvent = refs.has("#/components/schemas/SyncEvent") && !schemas.SyncEvent
+  const missingBadRequestError = refs.has("#/components/schemas/BadRequestError") && !schemas.BadRequestError
+
+  if (missingGlobalEvent) {
+    const generated = await resolver(globalEventOpenApiSchema()).toOpenAPISchema()
+    mergeSchemas(document, generated.components?.schemas ?? {})
+  }
+  if (missingSyncEvent) {
+    const generated = await resolver(globalSyncEventOpenApiSchema()).toOpenAPISchema()
+    mergeSchemas(document, generated.components?.schemas ?? {})
+  }
+  if (missingBadRequestError) {
+    const generated = await resolver(BadRequestErrorSchema).toOpenAPISchema()
+    mergeSchemas(document, generated.components?.schemas ?? {})
+  }
+}
+
+async function controlOpenApiDocument() {
+  const response = await ControlPlaneRoutes().request("/doc")
+  const document = await response.json()
+  await ensureReferencedControlDocSchemas(document)
+  return document
+}
+
 export const controlHandlers = HttpApiBuilder.group(ControlApi, "control", (handlers) =>
   Effect.gen(function* () {
     const auth = yield* Auth.Service
@@ -118,6 +178,9 @@ export const controlHandlers = HttpApiBuilder.group(ControlApi, "control", (hand
             Effect.catchDefect(controlFailure),
           )
         }),
+      )
+      .handleRaw("doc", () =>
+        Effect.promise(() => controlOpenApiDocument()).pipe(Effect.map((document) => HttpServerResponse.jsonUnsafe(document))),
       )
   }),
 )

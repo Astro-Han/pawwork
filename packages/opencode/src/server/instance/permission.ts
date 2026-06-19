@@ -13,10 +13,11 @@ import { SessionLiveness } from "@/session/liveness"
 import { Effect } from "effect"
 
 const log = Log.create({ service: "server" })
-const e2ePermissionRoutesEnabled = () => Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
+export const e2ePermissionRoutesEnabled = () =>
+  Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
 const runPermissionRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
 
-const E2EPermissionAskBody = z.object({
+export const E2EPermissionAskBody = z.object({
   sessionID: SessionID.zod,
   permission: z.string().min(1),
   patterns: z.array(z.string()).min(1),
@@ -24,13 +25,13 @@ const E2EPermissionAskBody = z.object({
   always: z.array(z.string()).optional(),
 })
 
-type E2EPermissionAskBody = z.infer<typeof E2EPermissionAskBody>
+export type E2EPermissionAskBody = z.infer<typeof E2EPermissionAskBody>
 type PermissionReplyBody = {
   reply: z.infer<typeof Permission.Reply>
   message?: string
 }
 
-const seedE2EPermissionAsk = Effect.fn("PermissionRoutes.e2e.ask")(function* (json: E2EPermissionAskBody) {
+export const seedE2EPermissionAsk = Effect.fn("PermissionRoutes.e2e.ask")(function* (json: E2EPermissionAskBody) {
   const permission = yield* Permission.Service
   yield* permission.ask({
     sessionID: json.sessionID,

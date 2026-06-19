@@ -27,6 +27,29 @@ const LifecycleCloseResult = z.object({
   affectedDirectoryKeys: z.array(z.string()),
 })
 
+export function globalEventOpenApiSchema() {
+  return z
+    .object({
+      directory: z.string(),
+      project: z.string().optional(),
+      workspace: z.string().optional(),
+      payload: BusEvent.payloads(),
+    })
+    .meta({
+      ref: "GlobalEvent",
+    })
+}
+
+export function globalSyncEventOpenApiSchema() {
+  return z
+    .object({
+      payload: SyncEvent.payloads(),
+    })
+    .meta({
+      ref: "SyncEvent",
+    })
+}
+
 function emitGlobalDisposed() {
   GlobalBus.emit("event", {
     directory: "global",
@@ -364,18 +387,7 @@ export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
             description: "Event stream",
             content: {
               "text/event-stream": {
-                schema: resolver(
-                  z
-                    .object({
-                      directory: z.string(),
-                      project: z.string().optional(),
-                      workspace: z.string().optional(),
-                      payload: BusEvent.payloads(),
-                    })
-                    .meta({
-                      ref: "GlobalEvent",
-                    }),
-                ),
+                schema: resolver(globalEventOpenApiSchema()),
               },
             },
           },
@@ -401,15 +413,7 @@ export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
             description: "Event stream",
             content: {
               "text/event-stream": {
-                schema: resolver(
-                  z
-                    .object({
-                      payload: SyncEvent.payloads(),
-                    })
-                    .meta({
-                      ref: "SyncEvent",
-                    }),
-                ),
+                schema: resolver(globalSyncEventOpenApiSchema()),
               },
             },
           },

@@ -20,6 +20,7 @@ export type RouteRow = {
   v2Sdk: boolean
   localHttpApi: boolean
   upstreamHttpApi: boolean
+  compatibilityBoundary: boolean
   classification: string
   specialSurface: string
 }
@@ -103,6 +104,15 @@ const specialSurfaces: Array<[RegExp, string]> = [
   [/\/auth\b|\/oauth\//, "auth"],
   [/^\/experimental\/workspace\b/, "workspace"],
 ]
+
+const compatibilityBoundaryRoutes = new Set([
+  "GET /event",
+  "GET /global/event",
+  "GET /global/sync-event",
+  "GET /pty/:ptyID/connect",
+  "GET /__workspace_ws",
+  "ALL /*",
+])
 
 const pawworkOwned = new Set([
   "GET /global/sync-event",
@@ -412,6 +422,10 @@ function specialSurfaceFor(method: string, routePath: string) {
   return specialSurfaces.find(([pattern]) => pattern.test(key) || pattern.test(routePath))?.[1] ?? "-"
 }
 
+function isCompatibilityBoundary(method: string, routePath: string) {
+  return compatibilityBoundaryRoutes.has(`${method} ${routePath}`)
+}
+
 function classify(input: {
   method: string
   path: string
@@ -419,9 +433,13 @@ function classify(input: {
   openapi: boolean
   legacySdk: boolean
   v2Sdk: boolean
+  localHttpApi: boolean
   upstreamHttpApi: boolean
 }) {
   const key = `${input.method} ${input.path}`
+  if (isCompatibilityBoundary(input.method, input.path) && input.hono && !input.localHttpApi) {
+    return "compatibility-boundary"
+  }
   if (explicitlyDeferred.some((pattern) => pattern.test(key) || pattern.test(input.path))) return "explicitly-deferred"
   if (pawworkOwned.has(key) && input.hono && !input.openapi && !input.legacySdk && input.v2Sdk) {
     return "pawwork-owned-sdk-v2-only"
@@ -482,6 +500,7 @@ export async function buildRouteInventory(options: BuildOptions = {}): Promise<R
       }
       return {
         ...flags,
+        compatibilityBoundary: isCompatibilityBoundary(flags.method, flags.path),
         classification: classify(flags),
         specialSurface: specialSurfaceFor(flags.method, flags.path),
       }
@@ -550,13 +569,13 @@ export function renderRouteInventoryReport(inventory: RouteInventory) {
     "",
     "## Main Table",
     "",
-    "| Path | Method | Hono | OpenAPI | Legacy SDK | v2 SDK | Local HttpApi | Upstream HttpApi | Classification | Special surface |",
-    "|---|---:|---:|---:|---:|---:|---:|---:|---|---|",
+    "| Path | Method | Hono | OpenAPI | Legacy SDK | v2 SDK | Local HttpApi | Upstream HttpApi | Compatibility Boundary | Classification | Special surface |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
   ]
 
   for (const row of inventory.rows) {
     lines.push(
-      `| \`${row.path}\` | \`${row.method}\` | ${mark(row.hono)} | ${mark(row.openapi)} | ${mark(row.legacySdk)} | ${mark(row.v2Sdk)} | ${mark(row.localHttpApi)} | ${mark(row.upstreamHttpApi)} | \`${row.classification}\` | ${row.specialSurface} |`,
+      `| \`${row.path}\` | \`${row.method}\` | ${mark(row.hono)} | ${mark(row.openapi)} | ${mark(row.legacySdk)} | ${mark(row.v2Sdk)} | ${mark(row.localHttpApi)} | ${mark(row.upstreamHttpApi)} | ${mark(row.compatibilityBoundary)} | \`${row.classification}\` | ${row.specialSurface} |`,
     )
   }
 
@@ -564,7 +583,8 @@ export function renderRouteInventoryReport(inventory: RouteInventory) {
     "",
     "## Special Surfaces",
     "",
-    "- `/doc`, UI static routing, workspace proxy WebSocket, SSE/event streams, and PTY WebSocket are compatibility boundaries rather than ordinary JSON route parity.",
+    "- UI static routing, workspace proxy WebSocket, SSE/event streams, and PTY WebSocket are compatibility boundaries rather than ordinary JSON route parity.",
+    "- `/doc` is tracked as an OpenAPI-source HttpApi route, not a compatibility boundary.",
     "- PawWork-owned routes must be preserved during future HttpApi migration even when they are absent upstream or absent from the checked-in OpenAPI file.",
     "- v2 SDK coverage is tracked separately from the legacy SDK because PawWork-owned app/runtime routes currently appear in the v2 generated SDK surface.",
     "",

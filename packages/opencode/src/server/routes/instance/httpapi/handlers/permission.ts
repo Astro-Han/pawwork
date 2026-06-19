@@ -1,13 +1,18 @@
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
+import { e2ePermissionRoutesEnabled, E2EPermissionAskBody, seedE2EPermissionAsk } from "@/server/instance/permission"
 import { SessionLiveness } from "@/session/liveness"
 import { NotFoundError } from "@/storage/db"
+import { AppRuntime } from "@/effect/app-runtime"
+import { Log } from "@opencode-ai/core/util/log"
 import { NamedError } from "@opencode-ai/util/error"
 import { Effect } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import z from "zod"
 import { PermissionApi } from "../groups/permission"
+
+const log = Log.create({ service: "server" })
 
 type PermissionReplyBody = {
   reply: z.infer<typeof Permission.Reply>
@@ -75,6 +80,17 @@ export const permissionHandlers = HttpApiBuilder.group(PermissionApi, "permissio
       return true
     })
 
+    const e2eAsk = Effect.fn("PermissionHttpApi.e2eAsk")(function* (json: E2EPermissionAskBody) {
+      if (!e2ePermissionRoutesEnabled()) return HttpServerResponse.empty({ status: 404 })
+
+      return yield* Effect.sync(() => {
+        void AppRuntime.runPromise(seedE2EPermissionAsk(json)).catch((error) => {
+          log.error("e2e permission seed failed", { sessionID: json.sessionID, error })
+        })
+        return HttpServerResponse.empty()
+      })
+    })
+
     return handlers
       .handleRaw("list", () =>
         list().pipe(
@@ -93,6 +109,13 @@ export const permissionHandlers = HttpApiBuilder.group(PermissionApi, "permissio
             Effect.catchDefect(permissionFailure),
           )
           return result
+        }),
+      )
+      .handleRaw("e2eAsk", (ctx) =>
+        Effect.gen(function* () {
+          const payload = yield* parseJsonBody(ctx.request, E2EPermissionAskBody)
+          if (HttpServerResponse.isHttpServerResponse(payload)) return payload
+          return yield* e2eAsk(payload)
         }),
       )
   }),

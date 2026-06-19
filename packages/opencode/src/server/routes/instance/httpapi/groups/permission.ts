@@ -1,8 +1,8 @@
 import { PermissionID } from "@/permission/schema"
 import { MessageID, SessionID } from "@/session/schema"
 import { Schema } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
-import { BadRequestError, WorkspaceRoutingQuery } from "./common"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
+import { BadRequestError, NotFoundError, WorkspaceRoutingQuery } from "./common"
 
 const root = "/permission"
 
@@ -30,19 +30,13 @@ const PermissionReplyParam = Schema.Struct({
   requestID: PermissionID,
 })
 
-const PermissionNotFoundError = Schema.Struct({
-  name: Schema.Literal("NotFoundError"),
-  data: Schema.Struct({
-    message: Schema.String,
-  }),
-}).pipe(
-  HttpApiSchema.status(404),
-  (schema) =>
-    schema.annotate({
-      identifier: "PermissionNotFoundError",
-      description: "Permission request not found",
-    }),
-)
+const E2EPermissionAskPayload = Schema.Struct({
+  sessionID: SessionID,
+  permission: Schema.String,
+  patterns: Schema.Array(Schema.String),
+  metadata: Schema.optional(Schema.Record(Schema.String, Schema.Any)),
+  always: Schema.optional(Schema.Array(Schema.String)),
+})
 
 export const PermissionApi = HttpApi.make("permission")
   .add(
@@ -63,12 +57,23 @@ export const PermissionApi = HttpApi.make("permission")
           query: WorkspaceRoutingQuery,
           payload: PermissionReplyPayload,
           success: Schema.Boolean,
-          error: [BadRequestError, PermissionNotFoundError],
+          error: [BadRequestError, NotFoundError],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "permission.reply",
             summary: "Respond to permission request",
             description: "Approve or deny a permission request from the AI assistant.",
+          }),
+        ),
+        HttpApiEndpoint.post("e2eAsk", `${root}/__e2e/ask`, {
+          payload: E2EPermissionAskPayload,
+          success: Schema.Void,
+          error: BadRequestError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "permission.e2e.ask",
+            summary: "Seed an e2e permission request",
+            description: "Test-only route gated by the OPENCODE_E2E_ENABLED and OPENCODE_E2E_LLM_URL environment flags.",
           }),
         ),
       )
