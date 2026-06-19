@@ -54,6 +54,15 @@ export const ControlApi = HttpApi.make("control")
             description: "Write a log entry to the server logs with specified level and metadata.",
           }),
         ),
+        HttpApiEndpoint.get("doc", "/doc", {
+          success: Schema.Any,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "doc",
+            summary: "Get OpenAPI document",
+            description: "Return the server OpenAPI document.",
+          }),
+        ),
       )
       .annotateMerge(
         OpenApi.annotations({

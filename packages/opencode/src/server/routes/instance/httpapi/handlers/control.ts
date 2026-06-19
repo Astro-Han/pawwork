@@ -6,6 +6,7 @@ import { Effect } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import z from "zod"
+import { ControlPlaneRoutes } from "@/server/control"
 import { ControlApi } from "../groups/control"
 
 const LogPayload = z.object({
@@ -70,6 +71,11 @@ function writeLog(payload: LogPayload) {
   }
 }
 
+async function controlOpenApiDocument() {
+  const response = await ControlPlaneRoutes().request("/doc")
+  return response.json()
+}
+
 export const controlHandlers = HttpApiBuilder.group(ControlApi, "control", (handlers) =>
   Effect.gen(function* () {
     const auth = yield* Auth.Service
@@ -118,6 +124,9 @@ export const controlHandlers = HttpApiBuilder.group(ControlApi, "control", (hand
             Effect.catchDefect(controlFailure),
           )
         }),
+      )
+      .handleRaw("doc", () =>
+        Effect.promise(() => controlOpenApiDocument()).pipe(Effect.map((document) => HttpServerResponse.jsonUnsafe(document))),
       )
   }),
 )

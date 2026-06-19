@@ -57,8 +57,10 @@ describe("permission routes", () => {
 
     expect(spec.paths).toHaveProperty("/permission")
     expect(spec.paths).toHaveProperty("/permission/{requestID}/reply")
+    expect(spec.paths).toHaveProperty("/permission/__e2e/ask")
     expect(spec.paths["/permission"]).toHaveProperty("get")
     expect(spec.paths["/permission/{requestID}/reply"]).toHaveProperty("post")
+    expect(spec.paths["/permission/__e2e/ask"]).toHaveProperty("post")
   })
 
   test("replies to a pending permission through the route runtime", async () => {
@@ -150,6 +152,26 @@ describe("permission routes", () => {
         expect(replyResponse.status).toBe(200)
         expect(await replyResponse.json()).toBe(true)
         await expect(asked).resolves.toBeUndefined()
+      },
+    })
+  })
+
+  test("keeps the e2e permission ask gate closed through the HttpApi handlers", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const response = await requestPermissionHttpApi("/permission/__e2e/ask", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            sessionID: SessionID.descending(),
+            permission: "bash",
+            patterns: ["echo ok"],
+          }),
+        })
+
+        expect(response.status).toBe(404)
       },
     })
   })

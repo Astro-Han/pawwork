@@ -16,6 +16,21 @@ afterEach(async () => {
 })
 
 describe("control routes", () => {
+  function collectSchemaRefs(value: unknown, refs = new Set<string>()) {
+    if (!value || typeof value !== "object") return refs
+    if (Array.isArray(value)) {
+      for (const item of value) collectSchemaRefs(item, refs)
+      return refs
+    }
+
+    const record = value as Record<string, unknown>
+    if (typeof record.$ref === "string" && record.$ref.startsWith("#/components/schemas/")) {
+      refs.add(record.$ref)
+    }
+    for (const item of Object.values(record)) collectSchemaRefs(item, refs)
+    return refs
+  }
+
   function requestControlHttpApi(path: string, init?: RequestInit) {
     return AppRuntime.runPromise(
       Effect.scoped(
@@ -39,10 +54,36 @@ describe("control routes", () => {
 
     expect(spec.paths).toHaveProperty("/auth/{providerID}")
     expect(spec.paths).toHaveProperty("/log")
-    expect(spec.paths).not.toHaveProperty("/doc")
+    expect(spec.paths).toHaveProperty("/doc")
     expect(spec.paths["/auth/{providerID}"]).toHaveProperty("put")
     expect(spec.paths["/auth/{providerID}"]).toHaveProperty("delete")
     expect(spec.paths["/log"]).toHaveProperty("post")
+    expect(spec.paths["/doc"]).toHaveProperty("get")
+  })
+
+  test("serves the generated OpenAPI document through the HttpApi handlers", async () => {
+    const response = await requestControlHttpApi("/doc")
+    const spec = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(spec).toMatchObject({
+      info: {
+        title: "opencode",
+        version: "0.0.3",
+        description: "opencode api",
+      },
+      openapi: "3.1.1",
+    })
+    expect(spec.paths).toHaveProperty("/auth/{providerID}")
+    expect(spec.paths).toHaveProperty("/global/health")
+    expect(spec.paths).toHaveProperty("/global/event")
+    expect(spec.paths).toHaveProperty("/global/sync-event")
+    expect(spec.paths).not.toHaveProperty("/doc")
+
+    const schemas = spec.components?.schemas ?? {}
+    for (const ref of collectSchemaRefs(spec.paths)) {
+      expect(schemas).toHaveProperty(ref.replace("#/components/schemas/", ""))
+    }
   })
 
   test("sets and removes auth credentials through the HttpApi handlers", async () => {

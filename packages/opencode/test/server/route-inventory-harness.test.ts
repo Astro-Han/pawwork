@@ -211,17 +211,18 @@ describe("route inventory harness", () => {
       hono: true,
       localHttpApi: false,
       specialSurface: "PTY websocket",
+      compatibilityBoundary: true,
     })
     expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/doc")).toMatchObject({
       hono: true,
-      localHttpApi: false,
+      localHttpApi: true,
       specialSurface: "OpenAPI source",
     })
     expect(
       inventory.rows.find((row) => row.method === "POST" && row.path === "/permission/__e2e/ask"),
     ).toMatchObject({
       hono: true,
-      localHttpApi: false,
+      localHttpApi: true,
     })
   })
 
@@ -380,7 +381,28 @@ describe("route inventory harness", () => {
 
     expect(
       inventory.rows.find((row) => row.method === "POST" && row.path === "/permission/__e2e/ask"),
-    ).toMatchObject({ hono: true, openapi: false, v2Sdk: true, classification: "hono-v2-sdk" })
+    ).toMatchObject({ hono: true, openapi: false, v2Sdk: true, localHttpApi: true, classification: "hono-v2-sdk" })
+  })
+
+  test("tracks explicit compatibility boundary coverage for non-JSON HTTP surfaces", async () => {
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+
+    for (const [method, routePath, specialSurface] of [
+      ["GET", "/event", "SSE/event"],
+      ["GET", "/global/event", "SSE/event"],
+      ["GET", "/global/sync-event", "SSE/event"],
+      ["GET", "/pty/:ptyID/connect", "PTY websocket"],
+      ["GET", "/__workspace_ws", "workspace websocket proxy"],
+      ["ALL", "/*", "UI static route"],
+    ] as const) {
+      expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
+        hono: true,
+        localHttpApi: false,
+        compatibilityBoundary: true,
+        classification: "compatibility-boundary",
+        specialSurface,
+      })
+    }
   })
 
   test("keeps the PTY connect-token route in the public OpenAPI and v2 SDK surfaces", async () => {

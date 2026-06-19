@@ -21,6 +21,27 @@ const hop = new Set([
 ])
 
 type Msg = string | ArrayBuffer | Uint8Array
+type ProxySocket = {
+  binaryType?: BinaryType
+  readyState: number
+  send(data: Msg): void
+  close(code?: number, reason?: string): void
+  onopen: (() => void) | null
+  onmessage: ((event: { data: unknown }) => void) | null
+  onerror: (() => void) | null
+  onclose: ((event: { code: number; reason: string }) => void) | null
+}
+
+type LocalSocket = {
+  send(data: Msg): void
+  close(code?: number, reason?: string): void
+}
+
+type WorkspaceProxyPeerOptions = {
+  targetUrl?: string
+  protocols?: string[]
+  socketFactory?: (url: string, protocols: string[]) => ProxySocket
+}
 
 function headers(req: Request, extra?: HeadersInit) {
   const out = new Headers(req.headers)
@@ -35,7 +56,7 @@ function headers(req: Request, extra?: HeadersInit) {
   return out
 }
 
-function protocols(req: Request) {
+export function protocols(req: Request) {
   const value = req.headers.get("sec-websocket-protocol")
   if (!value) return []
   return value
@@ -58,46 +79,67 @@ function send(ws: { send(data: string | ArrayBuffer | Uint8Array): void }, data:
   return ws.send(data)
 }
 
+export function createWorkspaceProxyPeer({
+  targetUrl,
+  protocols = [],
+  socketFactory = (url, protocols) => new WebSocket(url, protocols) as ProxySocket,
+}: WorkspaceProxyPeerOptions) {
+  const queue: Msg[] = []
+  let remote: ProxySocket | undefined
+
+  return {
+    onOpen(ws: LocalSocket) {
+      if (!targetUrl) {
+        ws.close(1011, "missing proxy target")
+        return
+      }
+      remote = socketFactory(targetUrl, protocols)
+      remote.binaryType = "arraybuffer"
+      remote.onopen = () => {
+        for (const item of queue) remote?.send(item)
+        queue.length = 0
+      }
+      remote.onmessage = (event) => {
+        void send(ws, event.data)
+      }
+      remote.onerror = () => {
+        ws.close(1011, "proxy error")
+      }
+      remote.onclose = (event) => {
+        ws.close(event.code, event.reason)
+      }
+    },
+    onMessage(data: unknown) {
+      if (typeof data !== "string" && !(data instanceof Uint8Array) && !(data instanceof ArrayBuffer)) return
+      if (remote?.readyState === WebSocket.OPEN) {
+        remote.send(data)
+        return
+      }
+      queue.push(data)
+    },
+    onClose(code?: number, reason?: string) {
+      remote?.close(code, reason)
+    },
+  }
+}
+
 const app = (upgrade: UpgradeWebSocket) =>
   new Hono().get(
     "/__workspace_ws",
     upgrade((c) => {
-      const url = c.req.header("x-opencode-proxy-url")
-      const queue: Msg[] = []
-      let remote: WebSocket | undefined
+      const peer = createWorkspaceProxyPeer({
+        targetUrl: c.req.header("x-opencode-proxy-url"),
+        protocols: protocols(c.req.raw),
+      })
       return {
         onOpen(_, ws) {
-          if (!url) {
-            ws.close(1011, "missing proxy target")
-            return
-          }
-          remote = new WebSocket(url, protocols(c.req.raw))
-          remote.binaryType = "arraybuffer"
-          remote.onopen = () => {
-            for (const item of queue) remote?.send(item)
-            queue.length = 0
-          }
-          remote.onmessage = (event) => {
-            void send(ws, event.data)
-          }
-          remote.onerror = () => {
-            ws.close(1011, "proxy error")
-          }
-          remote.onclose = (event) => {
-            ws.close(event.code, event.reason)
-          }
+          peer.onOpen(ws)
         },
         onMessage(event) {
-          const data = event.data
-          if (typeof data !== "string" && !(data instanceof Uint8Array) && !(data instanceof ArrayBuffer)) return
-          if (remote?.readyState === WebSocket.OPEN) {
-            remote.send(data)
-            return
-          }
-          queue.push(data)
+          peer.onMessage(event.data)
         },
         onClose(event) {
-          remote?.close(event.code, event.reason)
+          peer.onClose(event.code, event.reason)
         },
       }
     }),
