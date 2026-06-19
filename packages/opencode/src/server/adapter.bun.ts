@@ -6,6 +6,7 @@ export const adapter: Adapter = {
     const ws = createBunWebSocket()
     return {
       upgradeWebSocket: ws.upgradeWebSocket,
+      mountWebSocketApp() {},
       async listen(opts) {
         const args = {
           fetch: app.fetch,

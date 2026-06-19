@@ -15,15 +15,3 @@ export function createWebSocketCompatibilityApp(upgradeWebSocket: UpgradeWebSock
     .route("/", WorkspaceWebSocketCompatibilityRoutes(upgradeWebSocket))
     .route("/pty", PtyConnectCompatibilityRoutes(upgradeWebSocket))
 }
-
-export function createWebSocketCompatibilityHost() {
-  const app = new Hono()
-  return {
-    app,
-    mount(upgradeWebSocket: UpgradeWebSocket): WebSocketCompatibilityApp {
-      const compatibilityApp = createWebSocketCompatibilityApp(upgradeWebSocket)
-      app.route("/", compatibilityApp)
-      return compatibilityApp
-    },
-  }
-}

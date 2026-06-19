@@ -7,10 +7,15 @@ describe("node server adapter shutdown", () => {
       import { Hono } from "hono"
       import { adapter } from "./src/server/adapter.node.ts"
 
-      const app = new Hono()
+      const app = {
+        fetch() {
+          return new Response("not found", { status: 404 })
+        },
+      }
       const runtime = adapter.create(app)
 
-      app.get(
+      const websocketApp = new Hono()
+      websocketApp.get(
         "/ws",
         runtime.upgradeWebSocket(() => ({
           onOpen(_event, ws) {
@@ -18,6 +23,7 @@ describe("node server adapter shutdown", () => {
           },
         })),
       )
+      runtime.mountWebSocketApp(websocketApp)
 
       const listener = await runtime.listen({ port: 0, hostname: "127.0.0.1" })
       const socket = new WebSocket(\`ws://127.0.0.1:\${listener.port}/ws\`)
