@@ -267,11 +267,11 @@ Individual tools, ordered by value:
 - [x] `websearch.ts` — MEDIUM: MCP over HTTP → HttpClient
 - [x] `glob.ts` — LOW: simple async generator
 - [x] `lsp.ts` — LOW: dispatch switch over LSP operations
-- [ ] `question.ts` — LOW: prompt wrapper
+- [x] `question.ts` — LOW: prompt wrapper
 - [x] `skill.ts` — LOW: skill tool adapter
-- [ ] `todo.ts` — LOW: todo persistence wrapper
-- [ ] `invalid.ts` — LOW: invalid-tool fallback
-- [ ] `plan.ts` — LOW: plan file operations
+- [x] `todo.ts` — LOW: todo persistence wrapper
+- [x] `invalid.ts` — LOW: invalid-tool fallback
+- [x] `plan.ts` — LOW: plan file operations
 
 Stale entries removed 2026-06-19: the current tree has no `tool/batch.ts`, `tool/task.ts`, or `tool/ls.ts` files.
 
@@ -384,6 +384,7 @@ Decision table for the design:
 - `WriteTool` / `EditTool` / `LspTool` — checklist corrected 2026-06-15. Tool bodies already used named `Effect.fn(...execute)` boundaries and the shared `testEffect(...).live` harness; this follow-up verified the existing write/edit/lsp coverage and closed the stale checklist without code or test changes.
 - `ShellTool` / public `bash` tool — migrated 2026-06-15. The current tree exposes this tool from `tool/shell.ts` with public tool id `bash`; there is no standalone `bash.ts` file. The tool body already used named `Effect.fn(...)` boundaries, and this follow-up moved `shell.test.ts` off its local `ManagedRuntime` / `runtime.runPromise(...)` helper and onto an explicit `Effect.provide(testLayer)` runner that initializes and executes the tool inside the same Effect scope while preserving the shell behavior matrix.
 - `SkillTool` — migrated 2026-06-15. The tool body already used the named `Effect.fn("SkillTool.execute")` boundary; this follow-up moved the remaining `skill.test.ts` execute coverage off its local `ManagedRuntime` / `runtime.runPromise(...)` helper and onto an inline `Effect.scoped` + `Effect.provide(testLayer)` boundary, without changing skill discovery or ToolRegistry behavior.
+- Low-tail tools — migrated 2026-06-19. `QuestionTool`, `TodoWriteTool`, and `InvalidTool` already used `Tool.define(...)`, effectful init, and named `Effect.fn(...execute)` boundaries; this follow-up added shared Effect-harness execute coverage for submitted question answers, Todo.Service-backed persistence, and the invalid-tool fallback shape. `PlanExitTool` now wraps its `MessageV2.stream(...)` model lookup in a named Effect boundary and uses `Clock.currentTimeMillis` for the synthetic build-agent message timestamp, with coverage for the approved plan-exit handoff. No HTTP/server, remote, UI, or registry behavior changed.
 - Browser tool tests / `Tool.define` wrapper tests — migrated 2026-06-15. Browser tool bodies were already `Tool.define` + named `Effect.fn(...execute)` definitions, and `browser-shared.ts` already wrapped the CDP Promise boundary with `Effect.tryPromise`; this follow-up moved `browser-tools.test.ts` and `tool-define.test.ts` off their local `Effect.runPromise` / `ManagedRuntime` helpers and onto the shared `testEffect(...).live` harness while preserving fake CDP, permission, cancellation, and wrapper error-boundary assertions.
 - Light instance route handlers — migrated 2026-06-15. The `server/instance/permission.ts` e2e ask and list/prune handlers, `server/instance/session.ts` status and todo handlers, `server/instance/index.ts` raw/apply VCS handlers, and `server/instance/global.ts` upgrade handler now run their bodies through one `AppRuntime.runPromise(Effect.gen(...))` service injection path while preserving fire-and-forget logging, dangling-session pruning, VCS error mappings, and upgrade result handling. This does not claim full session, global, or heavy route migration.
 - MCP route handlers — migrated 2026-06-15. The current `server/instance/mcp.ts` operation handlers now run MCP service calls through `AppRuntime.runPromise(Effect.gen(...))` and `MCP.Service`, with route tests covering disabled local server add and non-OAuth auth 400 behavior. This does not change MCP service behavior, OAuth providers, or config schema.
