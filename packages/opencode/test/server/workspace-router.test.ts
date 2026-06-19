@@ -471,6 +471,7 @@ describe("workspace router", () => {
     await Instance.disposeAll()
 
     const ensureSync = disableWorkspaceSync()
+    const proxyHttp = spyOn(ServerProxy, "http")
 
     try {
       const app = Server.Default().app
@@ -486,8 +487,14 @@ describe("workspace router", () => {
       expect(response.status).toBe(200)
       expect(await response.json()).toEqual({ routed: "session-workspace" })
       expect(remoteHits).toBe(1)
+      expect(proxyHttp).toHaveBeenCalledTimes(1)
+      const call = proxyHttp.mock.calls[0] as unknown as [URL | string, HeadersInit | undefined, Request, unknown]
+      expect(call[0].toString()).toBe(remote.url.origin)
+      expect(call[3]).toBe(remoteWorkspace.id)
+      expect(call[2].headers.has("x-opencode-workspace")).toBe(false)
     } finally {
       ensureSync.mockRestore()
+      proxyHttp.mockRestore()
     }
   })
 

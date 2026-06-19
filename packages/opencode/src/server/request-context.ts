@@ -41,6 +41,33 @@ export function requestContextFromHono(
   }
 }
 
+export function requestContextFromRequest(
+  request: Request,
+  input: { directory?: string; workspaceID?: string },
+): RequestContextSnapshot {
+  const url = new URL(request.url)
+  const clientActionID = safeHeaderToken(request.headers.get("x-pawwork-client-action-id") ?? undefined)
+  const clientActionKind = safeHeaderToken(request.headers.get("x-pawwork-client-action-kind") ?? undefined)
+  const routeSessionID = safeHeaderToken(request.headers.get("x-pawwork-route-session-id") ?? undefined)
+  const visibleSessionID = safeHeaderToken(request.headers.get("x-pawwork-visible-session-id") ?? undefined)
+  const client_action = clientActionID
+    ? {
+        id: clientActionID,
+        kind: clientActionKind ?? "unknown",
+        route_session_id: routeSessionID,
+        visible_session_id: visibleSessionID,
+      }
+    : undefined
+  return {
+    method: request.method,
+    path: url.pathname,
+    source: client_action ? "renderer" : "local_api",
+    directory_key: input.directory ? directoryKey(input.directory) : undefined,
+    workspace_id: input.workspaceID,
+    client_action,
+  }
+}
+
 function safeHeaderToken(value: string | undefined): string | undefined {
   if (!value) return undefined
   const trimmed = value.trim()

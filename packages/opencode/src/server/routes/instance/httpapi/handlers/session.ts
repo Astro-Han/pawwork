@@ -65,6 +65,7 @@ const SummarizeBody = z.object({
 
 const PermissionBody = z.object({ response: Permission.Reply })
 const OptionalForceBody = z.object({ force: z.boolean().optional() }).optional()
+const AbortSource = z.string().regex(/^[A-Za-z0-9._-]{1,80}$/)
 
 function isJsonContentType(contentType: string | undefined) {
   // Mirrors hono/validator's jsonRegex, reached through hono-openapi's validator("json").
@@ -357,12 +358,22 @@ export const sessionHandlers = HttpApiBuilder.group(SessionApi, "session", (hand
       }).pipe(Effect.catch(sessionFailure), Effect.catchDefect(sessionFailure)),
     )
     .handleRaw("abort", (ctx) =>
-      jsonResponse(
-        SessionRouteEffects.abortSession({
-          sessionID: ctx.params.sessionID,
-          source: ctx.query.source,
-        }),
-      ),
+      Effect.gen(function* () {
+        const source = new URL(ctx.request.url, "http://localhost").searchParams.get("source") ?? undefined
+        if (source !== undefined && !AbortSource.safeParse(source).success) {
+          return badRequestJson({
+            data: { ...ctx.query, source },
+            error: [{ path: ["source"], message: "Invalid token source" }],
+            success: false,
+          })
+        }
+        return yield* jsonResponse(
+          SessionRouteEffects.abortSession({
+            sessionID: ctx.params.sessionID,
+            source,
+          }),
+        )
+      }),
     )
     .handleRaw("command", (ctx) =>
       Effect.gen(function* () {

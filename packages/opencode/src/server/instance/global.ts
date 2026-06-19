@@ -550,4 +550,79 @@ export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
     )
 }
 
+export function createGlobalCompatibilityRoutes(options: GlobalRoutesOptions = {}) {
+  const replayBridge = options.replayBridge ?? globalEventReplay
+  const heartbeatMs = normalizeHeartbeatMs(options.heartbeatMs)
+  const syncSubscribe =
+    options.syncSubscribe ??
+    ((q: AsyncQueue<string | null>) => {
+      return SyncEvent.subscribeAll(({ def, event }) => {
+        // TODO: don't pass def, just pass the type (and it should
+        // be versioned)
+        q.push(
+          JSON.stringify({
+            payload: {
+              ...event,
+              type: SyncEvent.versionedType(def.type, def.version),
+            },
+          }),
+        )
+      })
+    })
+
+  return new Hono()
+    .use((c, next) => withRequestContext(requestContextFromHono(c, {}), () => next()))
+    .get(
+      "/event",
+      describeRoute({
+        summary: "Get global events",
+        description: "Subscribe to global events from the OpenCode system using server-sent events.",
+        operationId: "global.event",
+        responses: {
+          200: {
+            description: "Event stream",
+            content: {
+              "text/event-stream": {
+                schema: resolver(globalEventOpenApiSchema()),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        log.info("global event connected")
+        c.header("Cache-Control", "no-cache, no-transform")
+        c.header("X-Accel-Buffering", "no")
+        c.header("X-Content-Type-Options", "nosniff")
+
+        return streamGlobalEvents(c, replayBridge, heartbeatMs)
+      },
+    )
+    .get(
+      "/sync-event",
+      describeRoute({
+        summary: "Subscribe to global sync events",
+        description: "Get global sync events",
+        operationId: "global.sync-event.subscribe",
+        responses: {
+          200: {
+            description: "Event stream",
+            content: {
+              "text/event-stream": {
+                schema: resolver(globalSyncEventOpenApiSchema()),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        log.info("global sync event connected")
+        c.header("Cache-Control", "no-cache, no-transform")
+        c.header("X-Accel-Buffering", "no")
+        c.header("X-Content-Type-Options", "nosniff")
+        return streamEvents(c, syncSubscribe, heartbeatMs)
+      },
+    )
+}
+
 export const GlobalRoutes = lazy(() => createGlobalRoutes())

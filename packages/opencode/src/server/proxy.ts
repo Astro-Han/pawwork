@@ -123,7 +123,7 @@ export function createWorkspaceProxyPeer({
   }
 }
 
-const app = (upgrade: UpgradeWebSocket) =>
+export const WorkspaceWebSocketCompatibilityRoutes = (upgrade: UpgradeWebSocket) =>
   new Hono().get(
     "/__workspace_ws",
     upgrade((c) => {
@@ -274,7 +274,7 @@ export function websocket(
     request: redactProxyURL(req.url),
     target: redactProxyURL(target),
   })
-  return app(upgrade).fetch(
+  return WorkspaceWebSocketCompatibilityRoutes(upgrade).fetch(
     new Request(proxy, {
       method: req.method,
       headers: next,

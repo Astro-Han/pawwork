@@ -5,8 +5,8 @@ import type { Socket } from "node:net"
 import type { Adapter } from "./adapter"
 
 export const adapter: Adapter = {
-  create(app: Hono) {
-    const ws = createNodeWebSocket({ app })
+  create(app, websocketApp?: Hono) {
+    const ws = createNodeWebSocket({ app: websocketApp ?? (app as Hono) })
     return {
       upgradeWebSocket: ws.upgradeWebSocket,
       async listen(opts) {

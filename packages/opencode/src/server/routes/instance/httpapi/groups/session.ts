@@ -39,12 +39,12 @@ const SessionListQuery = Schema.Struct({
 
 const SessionAbortQuery = Schema.Struct({
   ...WorkspaceRoutingQuery.fields,
-  source: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[A-Za-z0-9._-]{1,80}$/))),
+  source: Schema.optionalKey(Schema.String),
 })
 
 const SessionDiffQuery = Schema.Struct({
   ...WorkspaceRoutingQuery.fields,
-  messageID: MessageID,
+  messageID: Schema.optionalKey(MessageID),
 })
 
 const SessionMessagesQuery = Schema.Struct({
