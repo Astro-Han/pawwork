@@ -1,7 +1,4 @@
-import { Hono } from "hono"
-import { describeRoute, resolver } from "hono-openapi"
 import { Log } from "@opencode-ai/core/util/log"
-import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { AsyncQueue } from "../../util/queue"
 import { createSseResponse } from "../sse"
@@ -11,32 +8,6 @@ const DEFAULT_HEARTBEAT_MS = 10_000
 
 function normalizeHeartbeatMs(value: number | undefined): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : DEFAULT_HEARTBEAT_MS
-}
-
-export const EventRoutes = (options: { heartbeatMs?: number } = {}) => {
-  const heartbeatMs = normalizeHeartbeatMs(options.heartbeatMs)
-
-  return new Hono().get(
-    "/event",
-    describeRoute({
-      summary: "Subscribe to events",
-      description: "Get events",
-      operationId: "event.subscribe",
-      responses: {
-        200: {
-          description: "Event stream",
-          content: {
-            "text/event-stream": {
-              schema: resolver(BusEvent.payloads()),
-            },
-          },
-        },
-      },
-    }),
-    async (c) => {
-      return handleInstanceEventStream(c.req.raw, { heartbeatMs })
-    },
-  )
 }
 
 export function handleInstanceEventStream(request: Request, options: { heartbeatMs?: number } = {}) {

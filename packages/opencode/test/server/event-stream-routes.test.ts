@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { Hono } from "hono"
 import z from "zod"
 import { Bus } from "../../src/bus"
 import { BusEvent } from "../../src/bus/bus-event"
 import { Instance } from "../../src/project/instance"
 import { EventReplayStore } from "../../src/server/event-replay"
-import { EventRoutes } from "../../src/server/instance/event"
-import { createGlobalEventReplayBridge, createGlobalRoutes } from "../../src/server/instance/global"
+import { handleInstanceEventStream } from "../../src/server/instance/event"
+import {
+  createGlobalEventReplayBridge,
+  handleGlobalEventStream,
+  handleGlobalSyncEventStream,
+} from "../../src/server/instance/global"
 import type { AsyncQueue } from "../../src/util/queue"
 import { tmpdir } from "../fixture/fixture"
 
@@ -116,13 +119,19 @@ async function readSseFrames(response: Response, count: number, timeoutMs = 2_00
   }
 }
 
+function globalEventResponse(
+  bridge: ReturnType<typeof createGlobalEventReplayBridge>,
+  init?: RequestInit,
+) {
+  return handleGlobalEventStream(new Request("http://localhost/global/event", init), bridge, 5)
+}
+
 describe("SSE event routes", () => {
   test("global event fresh connect seeds a replay cursor through the real route", async () => {
     const bridge = createGlobalEventReplayBridge({ replayStore: new EventReplayStore({ bootID: "boot" }) })
     bridge.append(envelope("permission.asked", "q1"))
-    const app = new Hono().route("/global", createGlobalRoutes({ replayBridge: bridge, heartbeatMs: 5 }))
 
-    const response = await app.request("/global/event")
+    const response = globalEventResponse(bridge)
 
     expectSseHeaders(response)
     const [connected] = await readSseFrames(response, 1)
@@ -135,9 +144,8 @@ describe("SSE event routes", () => {
     const bridge = createGlobalEventReplayBridge({ replayStore: new EventReplayStore({ bootID: "boot" }) })
     bridge.append(envelope("permission.asked", "q1"))
     bridge.append(envelope("permission.replied", "q1"))
-    const app = new Hono().route("/global", createGlobalRoutes({ replayBridge: bridge, heartbeatMs: 5 }))
 
-    const response = await app.request("/global/event", {
+    const response = globalEventResponse(bridge, {
       headers: { "Last-Event-ID": "boot:1" },
     })
 
@@ -156,9 +164,8 @@ describe("SSE event routes", () => {
     const bridge = createGlobalEventReplayBridge({ replayStore: new EventReplayStore({ bootID: "boot" }) })
     bridge.append(envelope("permission.asked", "q1"))
     bridge.append(envelope("permission.replied", "q1"))
-    const app = new Hono().route("/global", createGlobalRoutes({ replayBridge: bridge, heartbeatMs: 5 }))
 
-    const response = await app.request("/global/event", {
+    const response = globalEventResponse(bridge, {
       headers: { "last-event-id": "boot:1" },
     })
 
@@ -171,9 +178,8 @@ describe("SSE event routes", () => {
   test("global event stale cursor sends only a connected fence", async () => {
     const bridge = createGlobalEventReplayBridge({ replayStore: new EventReplayStore({ bootID: "boot" }) })
     bridge.append(envelope("permission.asked", "q1"))
-    const app = new Hono().route("/global", createGlobalRoutes({ replayBridge: bridge, heartbeatMs: 5 }))
 
-    const response = await app.request("/global/event", {
+    const response = globalEventResponse(bridge, {
       headers: { "Last-Event-ID": "old:1" },
     })
 
@@ -193,9 +199,8 @@ describe("SSE event routes", () => {
     })
     bridge.append(envelope("permission.asked", "q1"))
     bridge.append(envelope("permission.replied", "q1"))
-    const app = new Hono().route("/global", createGlobalRoutes({ replayBridge: bridge, heartbeatMs: 5 }))
 
-    const response = await app.request("/global/event", {
+    const response = globalEventResponse(bridge, {
       headers: { "Last-Event-ID": "boot:0" },
     })
 
@@ -212,8 +217,7 @@ describe("SSE event routes", () => {
 
   test("global event live replayable packets carry ids and heartbeat packets do not", async () => {
     const bridge = createGlobalEventReplayBridge({ replayStore: new EventReplayStore({ bootID: "boot" }) })
-    const app = new Hono().route("/global", createGlobalRoutes({ replayBridge: bridge, heartbeatMs: 5 }))
-    const response = await app.request("/global/event")
+    const response = globalEventResponse(bridge)
 
     const reader = createSseReader(response)
     try {
@@ -250,8 +254,7 @@ describe("SSE event routes", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const app = EventRoutes({ heartbeatMs: 5 })
-        const response = await app.request("/event")
+        const response = handleInstanceEventStream(new Request("http://localhost/event"), { heartbeatMs: 5 })
 
         expectSseHeaders(response)
         const reader = createSseReader(response)
@@ -276,18 +279,14 @@ describe("SSE event routes", () => {
   })
 
   test("global sync event route uses enveloped frames", async () => {
-    const app = new Hono().route(
-      "/global",
-      createGlobalRoutes({
-        heartbeatMs: 5,
-        syncSubscribe: (q: AsyncQueue<string | null>) => {
-          q.push(JSON.stringify({ payload: { type: "sync.fixture.1", id: "evt_1" } }))
-          return () => {}
-        },
-      }),
+    const response = handleGlobalSyncEventStream(
+      new Request("http://localhost/global/sync-event"),
+      (q: AsyncQueue<string | null>) => {
+        q.push(JSON.stringify({ payload: { type: "sync.fixture.1", id: "evt_1" } }))
+        return () => {}
+      },
+      5,
     )
-
-    const response = await app.request("/global/sync-event")
 
     expectSseHeaders(response)
     const [connected, fixture, heartbeat] = await readSseFrames(response, 3)
