@@ -1,5 +1,6 @@
 import { type ChildProcess } from "child_process"
 import launch from "cross-spawn"
+import { Context, Effect, Layer, ManagedRuntime } from "effect"
 import { buffer } from "node:stream/consumers"
 import { setTimeout as sleep } from "node:timers/promises"
 import { errorMessage } from "./error"
@@ -61,6 +62,25 @@ export namespace Process {
   }
 
   export type Child = ChildProcess & { exited: Promise<number> }
+
+  export interface Interface {
+    readonly run: (cmd: string[], opts?: RunOptions) => Effect.Effect<Result, unknown>
+    readonly text: (cmd: string[], opts?: RunOptions) => Effect.Effect<TextResult, unknown>
+    readonly lines: (cmd: string[], opts?: RunOptions) => Effect.Effect<string[], unknown>
+    readonly stop: (proc: ChildProcess) => Effect.Effect<void, unknown>
+    readonly descendants: (pid: number) => Effect.Effect<number[]>
+    readonly terminateTree: (input: TerminateTreeInput) => Effect.Effect<void, unknown>
+  }
+
+  export class Service extends Context.Service<Service, Interface>()("@opencode/Process") {}
+
+  export interface TerminateTreeInput {
+    pid: number
+    graceMs?: number
+    signalRoot?: (signal: NodeJS.Signals) => void
+    waitForExit?: Promise<unknown>
+    findDescendants?: (pid: number) => Promise<number[]>
+  }
 
   export function spawn(cmd: string[], opts: Options = {}): Child {
     if (cmd.length === 0) throw new Error("Command is required")
@@ -130,8 +150,12 @@ export namespace Process {
     return child
   }
 
-  export async function run(cmd: string[], opts: RunOptions = {}): Promise<Result> {
-    const proc = spawn(cmd, {
+  export const spawnEffect = Effect.fn("Process.spawn")(function* (cmd: string[], opts: Options = {}) {
+    return yield* Effect.sync(() => spawn(cmd, opts))
+  })
+
+  export const runEffect = Effect.fn("Process.run")(function* (cmd: string[], opts: RunOptions = {}) {
+    const proc = yield* spawnEffect(cmd, {
       cwd: opts.cwd,
       env: opts.env,
       stdin: opts.stdin,
@@ -143,29 +167,31 @@ export namespace Process {
       stderr: "pipe",
     })
 
-    if (!proc.stdout || !proc.stderr) throw new Error("Process output not available")
+    if (!proc.stdout || !proc.stderr) return yield* Effect.fail(new Error("Process output not available"))
 
-    const out = await Promise.all([proc.exited, buffer(proc.stdout), buffer(proc.stderr)])
-      .then(([code, stdout, stderr]) => ({
+    const out = yield* Effect.tryPromise(() =>
+      Promise.all([proc.exited, buffer(proc.stdout!), buffer(proc.stderr!)]).then(([code, stdout, stderr]) => ({
         code,
         stdout,
         stderr,
-      }))
-      .catch((err: unknown) => {
-        if (!opts.nothrow) throw err
-        return {
+      })),
+    ).pipe(
+      Effect.catch((err: unknown) => {
+        if (!opts.nothrow) return Effect.fail(err)
+        return Effect.succeed({
           code: 1,
           stdout: Buffer.alloc(0),
           stderr: Buffer.from(errorMessage(err)),
-        }
-      })
+        })
+      }),
+    )
     if (out.code === 0 || opts.nothrow) return out
-    throw new RunFailedError(cmd, out.code, out.stdout, out.stderr)
-  }
+    return yield* Effect.fail(new RunFailedError(cmd, out.code, out.stdout, out.stderr))
+  })
 
   // The SDK keeps a sync stop variant because it cannot import opencode without
   // creating a cycle. Keep platform behavior aligned when changing this path.
-  export async function stop(proc: ChildProcess) {
+  export const stopEffect = Effect.fn("Process.stop")(function* (proc: ChildProcess) {
     if (proc.exitCode !== null || proc.signalCode !== null) return
 
     if (!proc.pid) {
@@ -183,12 +209,12 @@ export namespace Process {
       proc.once("error", done)
     })
 
-    await terminateTree({
+    yield* terminateTreeEffect({
       pid: proc.pid,
       signalRoot: (signal) => proc.kill(signal),
       waitForExit,
     })
-  }
+  })
 
   export function exists(pid: number) {
     try {
@@ -199,18 +225,19 @@ export namespace Process {
     }
   }
 
-  export async function descendants(pid: number): Promise<number[]> {
+  export const descendantsEffect = Effect.fn("Process.descendants")(function* (pid: number) {
     if (process.platform === "win32") return []
     const seen = new Set<number>()
     const pending = [pid]
     while (pending.length) {
       const parent = pending.pop()!
-      const out = await text(["pgrep", "-P", String(parent)], { nothrow: true })
-        .then((result) => result.text)
-        .catch((error) => {
+      const out = yield* textEffect(["pgrep", "-P", String(parent)], { nothrow: true }).pipe(
+        Effect.map((result) => result.text),
+        Effect.catch((error) => {
           log.debug("failed to enumerate child processes", { pid: parent, error: errorMessage(error) })
-          return ""
-        })
+          return Effect.succeed("")
+        }),
+      )
       for (const line of out.split(/\s+/)) {
         const child = Number(line)
         if (!Number.isInteger(child) || child <= 0 || seen.has(child)) continue
@@ -219,7 +246,7 @@ export namespace Process {
       }
     }
     return Array.from(seen)
-  }
+  })
 
   function signalPid(pid: number, signal: NodeJS.Signals) {
     try {
@@ -239,25 +266,25 @@ export namespace Process {
     }
   }
 
-  export async function terminateTree(input: {
-    pid: number
-    graceMs?: number
-    signalRoot?: (signal: NodeJS.Signals) => void
-    waitForExit?: Promise<unknown>
-    findDescendants?: (pid: number) => Promise<number[]>
-  }) {
+  export const terminateTreeEffect = Effect.fn("Process.terminateTree")(function* (input: TerminateTreeInput) {
     const graceMs = input.graceMs ?? TERMINATION_GRACE_MS
     if (process.platform === "win32") {
-      await run(["taskkill", "/pid", String(input.pid), "/f", "/t"], { nothrow: true })
+      yield* runEffect(["taskkill", "/pid", String(input.pid), "/f", "/t"], { nothrow: true })
       return
     }
 
     // Descendants are a best-effort snapshot for normal child processes. A
     // daemonized double-fork can intentionally leave this tree before cleanup.
-    const children = await (input.findDescendants ?? descendants)(input.pid).catch((error) => {
-      log.debug("failed to enumerate process tree", { pid: input.pid, error: errorMessage(error) })
-      return []
-    })
+    const children = yield* (
+      input.findDescendants
+        ? Effect.tryPromise(() => input.findDescendants!(input.pid))
+        : descendantsEffect(input.pid)
+    ).pipe(
+      Effect.catch((error) => {
+        log.debug("failed to enumerate process tree", { pid: input.pid, error: errorMessage(error) })
+        return Effect.succeed([])
+      }),
+    )
     const signalRoot = (signal: NodeJS.Signals) => {
       if (input.signalRoot && exists(input.pid)) {
         try {
@@ -277,9 +304,11 @@ export namespace Process {
 
     // With waitForExit, worst case is one grace period before SIGKILL and one
     // bounded wait after SIGKILL so callers can observe the final exit.
-    const rootExited = await (input.waitForExit
-      ? Promise.race([input.waitForExit.then(() => true, () => true), sleep(graceMs).then(() => false)])
-      : sleep(graceMs).then(() => false))
+    const rootExited = yield* Effect.promise(() =>
+      input.waitForExit
+        ? Promise.race([input.waitForExit.then(() => true, () => true), sleep(graceMs).then(() => false)])
+        : sleep(graceMs).then(() => false),
+    )
 
     if (!exists(input.pid) && children.every((child) => !exists(child))) return
     if (groupSignaled && !rootExited && exists(input.pid)) {
@@ -290,18 +319,58 @@ export namespace Process {
     }
     for (const child of children) signalPid(child, "SIGKILL")
     log.debug("sent process tree kill signals", { pid: input.pid, groupSignaled, descendantCount: children.length })
-    if (input.waitForExit) await Promise.race([input.waitForExit.catch(() => undefined), sleep(graceMs)])
-  }
+    if (input.waitForExit) yield* Effect.promise(() => Promise.race([input.waitForExit!.catch(() => undefined), sleep(graceMs)]))
+  })
 
-  export async function text(cmd: string[], opts: RunOptions = {}): Promise<TextResult> {
-    const out = await run(cmd, opts)
+  export const textEffect = Effect.fn("Process.text")(function* (cmd: string[], opts: RunOptions = {}) {
+    const out = yield* runEffect(cmd, opts)
     return {
       ...out,
       text: out.stdout.toString(),
     }
+  })
+
+  export const linesEffect = Effect.fn("Process.lines")(function* (cmd: string[], opts: RunOptions = {}) {
+    return (yield* textEffect(cmd, opts)).text.split(/\r?\n/).filter(Boolean)
+  })
+
+  export const layer = Layer.succeed(
+    Service,
+    Service.of({
+      run: runEffect,
+      text: textEffect,
+      lines: linesEffect,
+      stop: stopEffect,
+      descendants: descendantsEffect,
+      terminateTree: terminateTreeEffect,
+    }),
+  )
+  export const defaultLayer = layer
+
+  const runtime = ManagedRuntime.make(defaultLayer)
+  const runPromise = <A, E>(fn: (process: Interface) => Effect.Effect<A, E>) => runtime.runPromise(Service.use(fn))
+
+  export async function run(cmd: string[], opts: RunOptions = {}): Promise<Result> {
+    return runPromise((process) => process.run(cmd, opts))
+  }
+
+  export async function stop(proc: ChildProcess) {
+    return runPromise((process) => process.stop(proc))
+  }
+
+  export async function descendants(pid: number): Promise<number[]> {
+    return runPromise((process) => process.descendants(pid))
+  }
+
+  export async function terminateTree(input: TerminateTreeInput) {
+    return runPromise((process) => process.terminateTree(input))
+  }
+
+  export async function text(cmd: string[], opts: RunOptions = {}): Promise<TextResult> {
+    return runPromise((process) => process.text(cmd, opts))
   }
 
   export async function lines(cmd: string[], opts: RunOptions = {}): Promise<string[]> {
-    return (await text(cmd, opts)).text.split(/\r?\n/).filter(Boolean)
+    return runPromise((process) => process.lines(cmd, opts))
   }
 }

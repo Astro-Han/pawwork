@@ -607,15 +607,15 @@ export const ShellTool = Tool.define(
 
           if (exit.kind === "abort") {
             aborted = true
-            yield* Effect.promise(() =>
-              Process.terminateTree({ pid: handle.pid, waitForExit: Effect.runPromise(handle.exitCode) }),
-            ).pipe(Effect.orDie)
+            yield* Process.terminateTreeEffect({ pid: handle.pid, waitForExit: Effect.runPromise(handle.exitCode) }).pipe(
+              Effect.orDie,
+            )
           }
           if (exit.kind === "timeout") {
             expired = true
-            yield* Effect.promise(() =>
-              Process.terminateTree({ pid: handle.pid, waitForExit: Effect.runPromise(handle.exitCode) }),
-            ).pipe(Effect.orDie)
+            yield* Process.terminateTreeEffect({ pid: handle.pid, waitForExit: Effect.runPromise(handle.exitCode) }).pipe(
+              Effect.orDie,
+            )
           }
 
           // Drain any chunks the consumer hasn't processed yet, then push the

@@ -169,13 +169,11 @@ export namespace Pty {
           return yield* Effect.promise(() => exited)
         }
 
-        yield* Effect.promise(() =>
-          Process.terminateTree({
-            pid: session.process.pid,
-            signalRoot: (signal) => session.process.kill(signal),
-            waitForExit: exited,
-          }),
-        )
+        yield* Process.terminateTreeEffect({
+          pid: session.process.pid,
+          signalRoot: (signal) => session.process.kill(signal),
+          waitForExit: exited,
+        }).pipe(Effect.orDie)
         if (hasExited(session)) return session.exitCode
         return yield* Effect.promise(() => exited)
       })

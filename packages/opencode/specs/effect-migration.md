@@ -308,7 +308,9 @@ Current raw fs users that will convert during tool migration:
 - [ ] `util/flock.ts` — `packages/core/src/util/effect-flock.ts` is the Effect-native implementation; Effect/service callers should use `EffectFlock.Service`, while legacy Promise callers still use the `packages/opencode/src/util/flock.ts` facade
   - Converted in this slice: `Config.updateGlobal` now uses `EffectFlock.Service.withLock`
   - Retained Promise boundary: provider models, plugin config patching/meta reads, automation run leases/scheduler ownership, and direct flock compatibility tests
-- [ ] `util/process.ts` — child process spawn wrapper → return Effect instead of Promise
+- [x] `util/process.ts` — `Process.Service` and Effect-native `run/text/lines/stop/descendants/terminateTree` now own execution and cleanup; the async facade delegates through `runPromise`
+  - Retained compatibility boundary: `Process.spawn` still returns the Node child facade because CLI pager/auth flows, long-lived LSP launch, Windows cmd script spawning, and stream ownership still depend on that shape
+  - Converted in this slice: `session/prompt.ts` inline shell expansion, `pty/index.ts` teardown cleanup, and `tool/shell.ts` abort/timeout cleanup use `Process.*Effect` directly
 - [ ] `util/lazy.ts` — sync-only route factories, shell selection, native module loading, and zod recursion stay on `lazy`; async Effect code should use `Effect.cached`
   - Converted in this slice: `tool/shell.ts` parser initialization now uses `Effect.cached` inside the tool's Effect definition
   - Retained async legacy boundary: provider models catalog cache and control-plane built-in adaptor import still expose Promise facades
@@ -318,6 +320,8 @@ Current raw fs users that will convert during tool migration:
 Every service currently exports async facade functions at the bottom of its namespace — `export async function read(...) { return runPromise(...) }` — backed by a per-service `makeRuntime`. These exist because cyclic imports used to force each service to build its own independent runtime. Now that the layer DAG is acyclic and `AppRuntime` (`src/effect/app-runtime.ts`) composes everything into one `ManagedRuntime`, we're removing them.
 
 ### Process
+
+Process execution is now effect-native at the utility boundary. Keep the Node child `spawn` facade until long-lived process owners no longer need direct `stdin`/`stdout` streams and `exited` promises, then delete it as a separate compatibility cleanup.
 
 For each service, the migration is roughly:
 
