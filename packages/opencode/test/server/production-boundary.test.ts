@@ -120,6 +120,20 @@ describe("production server boundary", () => {
     expect(websocketCompatibility).toMatch(/\bnew\s+Hono\s*\(/)
   })
 
+  test("keeps the normal adapter app contract at the Web Fetch boundary", async () => {
+    const adapter = await readFile(path.join(import.meta.dir, "../../src/server/adapter.ts"), "utf8")
+    const nodeAdapter = await readFile(path.join(import.meta.dir, "../../src/server/adapter.node.ts"), "utf8")
+    const bunAdapter = await readFile(path.join(import.meta.dir, "../../src/server/adapter.bun.ts"), "utf8")
+
+    expect(adapter).toMatch(/create\(app:\s*FetchApp,\s*websocketApp:\s*Hono\):\s*Runtime/)
+    expect(adapter).toMatch(/create\(app:\s*Hono\):\s*Runtime/)
+    expect(adapter).not.toMatch(/create\(app:\s*Hono\s*\|\s*FetchApp/)
+    expect(adapter).not.toMatch(/create\(app:\s*FetchApp,\s*websocketApp\?:\s*Hono/)
+    expect(nodeAdapter).toMatch(/websocketApp\?:\s*Hono/)
+    expect(bunAdapter).not.toMatch(/from\s+["']hono["']/)
+    expect(bunAdapter).not.toMatch(/create\(app:\s*Hono/)
+  })
+
   test("does not keep a legacy Hono documentation route tree", () => {
     const openapi = path.join(import.meta.dir, "../../src/server/openapi.ts")
 
