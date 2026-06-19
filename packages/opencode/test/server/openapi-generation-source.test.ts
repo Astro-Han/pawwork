@@ -75,6 +75,27 @@ function syncEventSchemaRefs(spec: Awaited<ReturnType<typeof controlOpenApi>>) {
     .sort()
 }
 
+function requestBodySchemaRef(spec: Awaited<ReturnType<typeof controlOpenApi>>, routePath: string, method: string) {
+  const operation = spec.paths?.[routePath]?.[method] as
+    | { requestBody?: { content?: { "application/json"?: { schema?: { $ref?: string } } } } }
+    | undefined
+  return operation?.requestBody?.content?.["application/json"]?.schema?.$ref
+}
+
+function queryParameterSchema(spec: Awaited<ReturnType<typeof controlOpenApi>>, routePath: string, method: string, name: string) {
+  const operation = spec.paths?.[routePath]?.[method] as
+    | { parameters?: Array<{ in?: string; name?: string; schema?: unknown }> }
+    | undefined
+  return operation?.parameters?.find((parameter) => parameter.in === "query" && parameter.name === name)?.schema
+}
+
+function jsonResponseSchema(spec: Awaited<ReturnType<typeof controlOpenApi>>, routePath: string, method: string) {
+  const operation = spec.paths?.[routePath]?.[method] as
+    | { responses?: Record<string, { content?: { "application/json"?: { schema?: unknown } } }> }
+    | undefined
+  return operation?.responses?.["200"]?.content?.["application/json"]?.schema
+}
+
 function generateAfterIsolatedEventLeak() {
   const script = `
     import z from "zod"
@@ -156,6 +177,62 @@ describe("OpenAPI generation source", () => {
 
     expect(schemas).toHaveProperty("AgentConfig")
     expect(JSON.stringify(schemas.Config)).toContain("#/components/schemas/AgentConfig")
+  })
+
+  test("keeps generated SDK parameter and response shapes compatible with the production source", async () => {
+    const spec = await controlOpenApi()
+    const schemas = spec.components?.schemas as Record<string, any>
+
+    expect(requestBodySchemaRef(spec, "/memory", "patch")).toBe("#/components/schemas/MemoryRawInput")
+    expect(requestBodySchemaRef(spec, "/memory/disabled", "patch")).toBe("#/components/schemas/MemoryDisabledInput")
+    expect(requestBodySchemaRef(spec, "/automation", "post")).toBe("#/components/schemas/AutomationCreateInput")
+    expect(requestBodySchemaRef(spec, "/automation/{automationID}", "put")).toBe(
+      "#/components/schemas/AutomationUpdateInput",
+    )
+    expect(requestBodySchemaRef(spec, "/experimental/worktree", "post")).toBe(
+      "#/components/schemas/WorktreeCreateInput",
+    )
+    expect(requestBodySchemaRef(spec, "/experimental/worktree", "delete")).toBe(
+      "#/components/schemas/WorktreeRemoveInput",
+    )
+    expect(requestBodySchemaRef(spec, "/experimental/worktree/reset", "post")).toBe(
+      "#/components/schemas/WorktreeResetInput",
+    )
+
+    expect(queryParameterSchema(spec, "/path", "get", "ensureConfig")).toMatchObject({ type: "boolean" })
+    expect(queryParameterSchema(spec, "/session/{sessionID}/message", "get", "limit")).toMatchObject({
+      type: "number",
+    })
+    expect(queryParameterSchema(spec, "/experimental/session", "get", "roots")).toMatchObject({ type: "boolean" })
+    expect(queryParameterSchema(spec, "/experimental/session", "get", "start")).toMatchObject({ type: "number" })
+    expect(queryParameterSchema(spec, "/experimental/session", "get", "limit")).toMatchObject({ type: "number" })
+    expect(queryParameterSchema(spec, "/experimental/session", "get", "archived")).toMatchObject({ type: "boolean" })
+    expect(queryParameterSchema(spec, "/find/file", "get", "limit")).toMatchObject({ type: "number" })
+
+    expect(jsonResponseSchema(spec, "/project", "get")).toEqual({
+      type: "array",
+      items: { $ref: "#/components/schemas/Project" },
+    })
+    expect(jsonResponseSchema(spec, "/permission", "get")).toEqual({
+      type: "array",
+      items: { $ref: "#/components/schemas/PermissionRequest" },
+    })
+    expect(jsonResponseSchema(spec, "/external-result", "get")).toEqual({
+      type: "array",
+      items: { $ref: "#/components/schemas/PendingExternalResult" },
+    })
+    expect(schemas.PendingExternalResult.properties).toMatchObject({
+      session: { $ref: "#/components/schemas/Session" },
+      message: { $ref: "#/components/schemas/Message" },
+      part: { $ref: "#/components/schemas/Part" },
+    })
+    expect(schemas.FileContent.properties.patch.properties.hunks.items.properties).toMatchObject({
+      oldStart: { type: "number" },
+      oldLines: { type: "number" },
+      newStart: { type: "number" },
+      newLines: { type: "number" },
+      lines: { type: "array", items: { type: "string" } },
+    })
   })
 
   test("keeps the public generated OpenAPI path set aligned with the production source", async () => {

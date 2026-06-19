@@ -2425,6 +2425,58 @@ export type MemoryState = {
   profileTooLarge?: boolean
 }
 
+export type MemoryRawInput = {
+  content: string
+}
+
+export type MemoryDisabledInput = {
+  disabled: boolean
+}
+
+export type WorktreeCreateInput = {
+  name?: string
+  /**
+   * Additional startup script to run after the project's start command
+   */
+  startCommand?: string
+}
+
+export type WorktreeRemoveInput = {
+  directory: string
+}
+
+export type WorktreeResetInput = {
+  directory: string
+}
+
+export type FileContent = {
+  type: "text" | "binary"
+  content: string
+  diff?: string
+  patch?: {
+    oldFileName: string
+    newFileName: string
+    oldHeader?: string
+    newHeader?: string
+    hunks: Array<{
+      oldStart: number
+      oldLines: number
+      newStart: number
+      newLines: number
+      lines: Array<string>
+    }>
+    index?: string
+  }
+  encoding?: "base64"
+  mimeType?: string
+}
+
+export type PendingExternalResult = {
+  session: Session
+  message: Message
+  part: Part
+}
+
 export type TextPartInput = {
   id?: string
   type: "text"
@@ -3119,7 +3171,7 @@ export type PathGetData = {
   query?: {
     directory?: string
     workspace?: string
-    ensureConfig?: "true" | "false"
+    ensureConfig?: boolean
   }
   url: "/path"
 }
@@ -3404,26 +3456,7 @@ export type ProjectListResponses = {
   /**
    * Success
    */
-  200: Array<{
-    id: string
-    worktree: string
-    vcs?: "git"
-    name?: string
-    icon?: {
-      url?: string
-      override?: string
-      color?: string
-    }
-    commands?: {
-      start?: string
-    }
-    time: {
-      created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-      updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-      initialized?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-    }
-    sandboxes: Array<string>
-  }>
+  200: Array<Project>
 }
 
 export type ProjectListResponse = ProjectListResponses[keyof ProjectListResponses]
@@ -3442,26 +3475,7 @@ export type ProjectCurrentResponses = {
   /**
    * Success
    */
-  200: {
-    id: string
-    worktree: string
-    vcs?: "git"
-    name?: string
-    icon?: {
-      url?: string
-      override?: string
-      color?: string
-    }
-    commands?: {
-      start?: string
-    }
-    time: {
-      created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-      updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-      initialized?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-    }
-    sandboxes: Array<string>
-  }
+  200: Project
 }
 
 export type ProjectCurrentResponse = ProjectCurrentResponses[keyof ProjectCurrentResponses]
@@ -3999,12 +4013,12 @@ export type ExperimentalSessionListData = {
   path?: never
   query?: {
     directory?: string
-    roots?: "true" | "false"
-    start?: string
+    roots?: boolean
+    start?: number
     cursor?: string
     search?: string
-    limit?: string
-    archived?: "true" | "false"
+    limit?: number
+    archived?: boolean
     sort?: "updated" | "created" | "activity"
   }
   url: "/experimental/session"
@@ -4020,11 +4034,12 @@ export type ExperimentalSessionListResponses = {
 export type ExperimentalSessionListResponse = ExperimentalSessionListResponses[keyof ExperimentalSessionListResponses]
 
 export type WorktreeRemoveData = {
-  body: {
-    directory: string
-  }
+  body: WorktreeRemoveInput
   path?: never
-  query?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
   url: "/experimental/worktree"
 }
 
@@ -4049,7 +4064,10 @@ export type WorktreeRemoveResponse = WorktreeRemoveResponses[keyof WorktreeRemov
 export type WorktreeListData = {
   body?: never
   path?: never
-  query?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
   url: "/experimental/worktree"
 }
 
@@ -4068,12 +4086,12 @@ export type WorktreeListResponses = {
 export type WorktreeListResponse = WorktreeListResponses[keyof WorktreeListResponses]
 
 export type WorktreeCreateData = {
-  body: {
-    name?: string
-    startCommand?: string
-  } | null
+  body?: WorktreeCreateInput
   path?: never
-  query?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
   url: "/experimental/worktree"
 }
 
@@ -4101,11 +4119,12 @@ export type WorktreeCreateResponses = {
 export type WorktreeCreateResponse = WorktreeCreateResponses[keyof WorktreeCreateResponses]
 
 export type WorktreeResetData = {
-  body: {
-    directory: string
-  }
+  body: WorktreeResetInput
   path?: never
-  query?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
   url: "/experimental/worktree/reset"
 }
 
@@ -4435,7 +4454,7 @@ export type SessionMessagesData = {
   query?: {
     directory?: string
     workspace?: string
-    limit?: string
+    limit?: number
     before?: string
   }
   url: "/session/{sessionID}/message"
@@ -5555,20 +5574,7 @@ export type PermissionListResponses = {
   /**
    * Success
    */
-  200: Array<{
-    id: string
-    sessionID: string
-    permission: string
-    patterns: Array<string>
-    metadata: {
-      [key: string]: unknown
-    }
-    always: Array<string>
-    tool?: {
-      messageID: string
-      callID: string
-    } | null
-  }>
+  200: Array<PermissionRequest>
 }
 
 export type PermissionListResponse = PermissionListResponses[keyof PermissionListResponses]
@@ -5655,11 +5661,7 @@ export type ExternalResultListResponses = {
   /**
    * Success
    */
-  200: Array<{
-    session: unknown
-    message: unknown
-    part: unknown
-  }>
+  200: Array<PendingExternalResult>
 }
 
 export type ExternalResultListResponse = ExternalResultListResponses[keyof ExternalResultListResponses]
@@ -5835,9 +5837,7 @@ export type MemoryGetResponses = {
 export type MemoryGetResponse = MemoryGetResponses[keyof MemoryGetResponses]
 
 export type MemoryUpdateData = {
-  body: {
-    content: string
-  }
+  body: MemoryRawInput
   path?: never
   query?: {
     directory?: string
@@ -5884,9 +5884,7 @@ export type MemoryResetResponses = {
 export type MemoryResetResponse = MemoryResetResponses[keyof MemoryResetResponses]
 
 export type MemoryDisabledData = {
-  body: {
-    disabled: boolean
-  }
+  body: MemoryDisabledInput
   path?: never
   query?: {
     directory?: string
@@ -5954,30 +5952,7 @@ export type AutomationListResponses = {
 export type AutomationListResponse2 = AutomationListResponses[keyof AutomationListResponses]
 
 export type AutomationCreateData = {
-  body:
-    | {
-        kind: "oneshot"
-        title: string
-        prompt: string
-        context: "continue" | "fresh"
-        where: AutomationWhere
-        timezone: string
-        model: AutomationModel
-        variant?: string
-        fireAt: number
-      }
-    | {
-        kind: "recurring"
-        title: string
-        prompt: string
-        context: "continue" | "fresh"
-        where: AutomationWhere
-        timezone: string
-        model: AutomationModel
-        variant?: string
-        rhythm: AutomationRhythm
-        stop: AutomationStop
-      }
+  body: AutomationCreateInput
   path?: never
   query?: {
     directory?: string
@@ -6077,19 +6052,7 @@ export type AutomationGetResponses = {
 export type AutomationGetResponse = AutomationGetResponses[keyof AutomationGetResponses]
 
 export type AutomationUpdateData = {
-  body: {
-    title?: string
-    prompt?: string
-    paused?: boolean
-    context?: "continue" | "fresh"
-    where?: AutomationWhere
-    timezone?: string
-    fireAt?: number
-    rhythm?: AutomationRhythm
-    stop?: AutomationStop
-    model?: AutomationModel
-    variant?: string | null
-  }
+  body: AutomationUpdateInput
   path: {
     automationID: string
   }
@@ -6325,7 +6288,7 @@ export type FindFilesData = {
     query: string
     dirs?: "true" | "false"
     type?: "file" | "directory"
-    limit?: string
+    limit?: number
   }
   url: "/find/file"
 }
@@ -6400,14 +6363,7 @@ export type FileReadResponses = {
   /**
    * Success
    */
-  200: {
-    type: "text" | "binary"
-    content: string
-    diff?: string
-    patch?: unknown
-    encoding?: "base64"
-    mimeType?: string
-  }
+  200: FileContent
 }
 
 export type FileReadResponse = FileReadResponses[keyof FileReadResponses]

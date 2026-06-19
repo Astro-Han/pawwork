@@ -14,26 +14,24 @@ import type {
   AuthSetErrors,
   AuthSetResponses,
   AutomationCreateErrors,
+  AutomationCreateInput,
   AutomationCreateResponses,
   AutomationDeleteErrors,
   AutomationDeleteResponses,
   AutomationGetErrors,
   AutomationGetResponses,
   AutomationListResponses,
-  AutomationModel,
   AutomationPauseErrors,
   AutomationPauseResponses,
   AutomationResumeErrors,
   AutomationResumeResponses,
-  AutomationRhythm,
   AutomationRunNowErrors,
   AutomationRunNowResponses,
   AutomationRunsErrors,
   AutomationRunsResponses,
-  AutomationStop,
   AutomationUpdateErrors,
+  AutomationUpdateInput,
   AutomationUpdateResponses,
-  AutomationWhere,
   CommandListResponses,
   Config as Config3,
   ConfigGetResponses,
@@ -92,8 +90,10 @@ import type {
   McpStatusResponses,
   MemoryDeleteEntryResponses,
   MemoryDisabledErrors,
+  MemoryDisabledInput,
   MemoryDisabledResponses,
   MemoryGetResponses,
+  MemoryRawInput,
   MemoryResetResponses,
   MemoryUpdateErrors,
   MemoryUpdateResponses,
@@ -217,11 +217,14 @@ import type {
   VcsGetResponses,
   VcsStatusResponses,
   WorktreeCreateErrors,
+  WorktreeCreateInput,
   WorktreeCreateResponses,
   WorktreeListResponses,
   WorktreeRemoveErrors,
+  WorktreeRemoveInput,
   WorktreeRemoveResponses,
   WorktreeResetErrors,
+  WorktreeResetInput,
   WorktreeResetResponses,
 } from "./types.gen.js"
 
@@ -791,12 +794,12 @@ export class Session extends HeyApiClient {
   public list<ThrowOnError extends boolean = false>(
     parameters?: {
       directory?: string
-      roots?: "true" | "false"
-      start?: string
+      roots?: boolean
+      start?: number
       cursor?: string
       search?: string
-      limit?: string
-      archived?: "true" | "false"
+      limit?: number
+      archived?: boolean
       sort?: "updated" | "created" | "activity"
     },
     options?: Options<never, ThrowOnError>,
@@ -890,7 +893,7 @@ export class Path extends HeyApiClient {
     parameters?: {
       directory?: string
       workspace?: string
-      ensureConfig?: "true" | "false"
+      ensureConfig?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1618,11 +1621,24 @@ export class Worktree extends HeyApiClient {
    */
   public remove<ThrowOnError extends boolean = false>(
     parameters: {
-      directory: string
+      directory?: string
+      workspace?: string
+      worktreeRemoveInput: WorktreeRemoveInput
     },
     options?: Options<never, ThrowOnError>,
   ) {
-    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "directory" }] }])
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "worktreeRemoveInput", map: "body" },
+          ],
+        },
+      ],
+    )
     return (options?.client ?? this.client).delete<WorktreeRemoveResponses, WorktreeRemoveErrors, ThrowOnError>({
       url: "/experimental/worktree",
       ...options,
@@ -1640,10 +1656,28 @@ export class Worktree extends HeyApiClient {
    *
    * List all sandbox worktrees for the current project.
    */
-  public list<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
     return (options?.client ?? this.client).get<WorktreeListResponses, unknown, ThrowOnError>({
       url: "/experimental/worktree",
       ...options,
+      ...params,
     })
   }
 
@@ -1653,15 +1687,25 @@ export class Worktree extends HeyApiClient {
    * Create a new git worktree for the current project and run any configured startup scripts.
    */
   public create<ThrowOnError extends boolean = false>(
-    parameters: {
-      body: {
-        name?: string
-        startCommand?: string
-      } | null
+    parameters?: {
+      directory?: string
+      workspace?: string
+      worktreeCreateInput?: WorktreeCreateInput
     },
     options?: Options<never, ThrowOnError>,
   ) {
-    const params = buildClientParams([parameters], [{ args: [{ key: "body", map: "body" }] }])
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "worktreeCreateInput", map: "body" },
+          ],
+        },
+      ],
+    )
     return (options?.client ?? this.client).post<WorktreeCreateResponses, WorktreeCreateErrors, ThrowOnError>({
       url: "/experimental/worktree",
       ...options,
@@ -1681,11 +1725,24 @@ export class Worktree extends HeyApiClient {
    */
   public reset<ThrowOnError extends boolean = false>(
     parameters: {
-      directory: string
+      directory?: string
+      workspace?: string
+      worktreeResetInput: WorktreeResetInput
     },
     options?: Options<never, ThrowOnError>,
   ) {
-    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "directory" }] }])
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "worktreeResetInput", map: "body" },
+          ],
+        },
+      ],
+    )
     return (options?.client ?? this.client).post<WorktreeResetResponses, WorktreeResetErrors, ThrowOnError>({
       url: "/experimental/worktree/reset",
       ...options,
@@ -2007,7 +2064,7 @@ export class Session2 extends HeyApiClient {
       sessionID: string
       directory?: string
       workspace?: string
-      limit?: string
+      limit?: number
       before?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -3398,7 +3455,7 @@ export class Memory extends HeyApiClient {
     parameters: {
       directory?: string
       workspace?: string
-      content: string
+      memoryRawInput: MemoryRawInput
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3409,7 +3466,7 @@ export class Memory extends HeyApiClient {
           args: [
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
-            { in: "body", key: "content" },
+            { key: "memoryRawInput", map: "body" },
           ],
         },
       ],
@@ -3461,7 +3518,7 @@ export class Memory extends HeyApiClient {
     parameters: {
       directory?: string
       workspace?: string
-      disabled: boolean
+      memoryDisabledInput: MemoryDisabledInput
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3472,7 +3529,7 @@ export class Memory extends HeyApiClient {
           args: [
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
-            { in: "body", key: "disabled" },
+            { key: "memoryDisabledInput", map: "body" },
           ],
         },
       ],
@@ -3560,30 +3617,7 @@ export class Automation extends HeyApiClient {
     parameters: {
       directory?: string
       workspace?: string
-      body:
-        | {
-            kind: "oneshot"
-            title: string
-            prompt: string
-            context: "continue" | "fresh"
-            where: AutomationWhere
-            timezone: string
-            model: AutomationModel
-            variant?: string
-            fireAt: number
-          }
-        | {
-            kind: "recurring"
-            title: string
-            prompt: string
-            context: "continue" | "fresh"
-            where: AutomationWhere
-            timezone: string
-            model: AutomationModel
-            variant?: string
-            rhythm: AutomationRhythm
-            stop: AutomationStop
-          }
+      automationCreateInput: AutomationCreateInput
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3594,7 +3628,7 @@ export class Automation extends HeyApiClient {
           args: [
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
-            { key: "body", map: "body" },
+            { key: "automationCreateInput", map: "body" },
           ],
         },
       ],
@@ -3685,17 +3719,7 @@ export class Automation extends HeyApiClient {
       automationID: string
       directory?: string
       workspace?: string
-      title?: string
-      prompt?: string
-      paused?: boolean
-      context?: "continue" | "fresh"
-      where?: AutomationWhere
-      timezone?: string
-      fireAt?: number
-      rhythm?: AutomationRhythm
-      stop?: AutomationStop
-      model?: AutomationModel
-      variant?: string | null
+      automationUpdateInput: AutomationUpdateInput
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3707,17 +3731,7 @@ export class Automation extends HeyApiClient {
             { in: "path", key: "automationID" },
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
-            { in: "body", key: "title" },
-            { in: "body", key: "prompt" },
-            { in: "body", key: "paused" },
-            { in: "body", key: "context" },
-            { in: "body", key: "where" },
-            { in: "body", key: "timezone" },
-            { in: "body", key: "fireAt" },
-            { in: "body", key: "rhythm" },
-            { in: "body", key: "stop" },
-            { in: "body", key: "model" },
-            { in: "body", key: "variant" },
+            { key: "automationUpdateInput", map: "body" },
           ],
         },
       ],
@@ -3912,7 +3926,7 @@ export class Find extends HeyApiClient {
       query: string
       dirs?: "true" | "false"
       type?: "file" | "directory"
-      limit?: string
+      limit?: number
     },
     options?: Options<never, ThrowOnError>,
   ) {

@@ -1058,11 +1058,7 @@
             "name": "ensureConfig",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "true",
-                "false"
-              ]
+              "type": "boolean"
             },
             "required": false
           }
@@ -2118,182 +2114,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "string"
-                      },
-                      "worktree": {
-                        "type": "string"
-                      },
-                      "vcs": {
-                        "type": "string",
-                        "enum": [
-                          "git"
-                        ]
-                      },
-                      "name": {
-                        "type": "string"
-                      },
-                      "icon": {
-                        "type": "object",
-                        "properties": {
-                          "url": {
-                            "type": "string"
-                          },
-                          "override": {
-                            "type": "string"
-                          },
-                          "color": {
-                            "type": "string"
-                          }
-                        },
-                        "additionalProperties": false
-                      },
-                      "commands": {
-                        "type": "object",
-                        "properties": {
-                          "start": {
-                            "type": "string"
-                          }
-                        },
-                        "additionalProperties": false
-                      },
-                      "time": {
-                        "type": "object",
-                        "properties": {
-                          "created": {
-                            "anyOf": [
-                              {
-                                "anyOf": [
-                                  {
-                                    "type": "number"
-                                  },
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "NaN"
-                                    ]
-                                  },
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "Infinity"
-                                    ]
-                                  },
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "-Infinity"
-                                    ]
-                                  }
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "Infinity",
-                                  "-Infinity",
-                                  "NaN"
-                                ]
-                              }
-                            ]
-                          },
-                          "updated": {
-                            "anyOf": [
-                              {
-                                "anyOf": [
-                                  {
-                                    "type": "number"
-                                  },
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "NaN"
-                                    ]
-                                  },
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "Infinity"
-                                    ]
-                                  },
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "-Infinity"
-                                    ]
-                                  }
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "Infinity",
-                                  "-Infinity",
-                                  "NaN"
-                                ]
-                              }
-                            ]
-                          },
-                          "initialized": {
-                            "anyOf": [
-                              {
-                                "anyOf": [
-                                  {
-                                    "type": "number"
-                                  },
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "NaN"
-                                    ]
-                                  },
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "Infinity"
-                                    ]
-                                  },
-                                  {
-                                    "type": "string",
-                                    "enum": [
-                                      "-Infinity"
-                                    ]
-                                  }
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "Infinity",
-                                  "-Infinity",
-                                  "NaN"
-                                ]
-                              }
-                            ]
-                          }
-                        },
-                        "required": [
-                          "created",
-                          "updated"
-                        ],
-                        "additionalProperties": false
-                      },
-                      "sandboxes": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      }
-                    },
-                    "required": [
-                      "id",
-                      "worktree",
-                      "time",
-                      "sandboxes"
-                    ],
-                    "additionalProperties": false
+                    "$ref": "#/components/schemas/Project"
                   }
                 }
               }
@@ -2341,182 +2162,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "worktree": {
-                      "type": "string"
-                    },
-                    "vcs": {
-                      "type": "string",
-                      "enum": [
-                        "git"
-                      ]
-                    },
-                    "name": {
-                      "type": "string"
-                    },
-                    "icon": {
-                      "type": "object",
-                      "properties": {
-                        "url": {
-                          "type": "string"
-                        },
-                        "override": {
-                          "type": "string"
-                        },
-                        "color": {
-                          "type": "string"
-                        }
-                      },
-                      "additionalProperties": false
-                    },
-                    "commands": {
-                      "type": "object",
-                      "properties": {
-                        "start": {
-                          "type": "string"
-                        }
-                      },
-                      "additionalProperties": false
-                    },
-                    "time": {
-                      "type": "object",
-                      "properties": {
-                        "created": {
-                          "anyOf": [
-                            {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "enum": [
-                                    "NaN"
-                                  ]
-                                },
-                                {
-                                  "type": "string",
-                                  "enum": [
-                                    "Infinity"
-                                  ]
-                                },
-                                {
-                                  "type": "string",
-                                  "enum": [
-                                    "-Infinity"
-                                  ]
-                                }
-                              ]
-                            },
-                            {
-                              "type": "string",
-                              "enum": [
-                                "Infinity",
-                                "-Infinity",
-                                "NaN"
-                              ]
-                            }
-                          ]
-                        },
-                        "updated": {
-                          "anyOf": [
-                            {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "enum": [
-                                    "NaN"
-                                  ]
-                                },
-                                {
-                                  "type": "string",
-                                  "enum": [
-                                    "Infinity"
-                                  ]
-                                },
-                                {
-                                  "type": "string",
-                                  "enum": [
-                                    "-Infinity"
-                                  ]
-                                }
-                              ]
-                            },
-                            {
-                              "type": "string",
-                              "enum": [
-                                "Infinity",
-                                "-Infinity",
-                                "NaN"
-                              ]
-                            }
-                          ]
-                        },
-                        "initialized": {
-                          "anyOf": [
-                            {
-                              "anyOf": [
-                                {
-                                  "type": "number"
-                                },
-                                {
-                                  "type": "string",
-                                  "enum": [
-                                    "NaN"
-                                  ]
-                                },
-                                {
-                                  "type": "string",
-                                  "enum": [
-                                    "Infinity"
-                                  ]
-                                },
-                                {
-                                  "type": "string",
-                                  "enum": [
-                                    "-Infinity"
-                                  ]
-                                }
-                              ]
-                            },
-                            {
-                              "type": "string",
-                              "enum": [
-                                "Infinity",
-                                "-Infinity",
-                                "NaN"
-                              ]
-                            }
-                          ]
-                        }
-                      },
-                      "required": [
-                        "created",
-                        "updated"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "sandboxes": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  },
-                  "required": [
-                    "id",
-                    "worktree",
-                    "time",
-                    "sandboxes"
-                  ],
-                  "additionalProperties": false
+                  "$ref": "#/components/schemas/Project"
                 }
               }
             }
@@ -4349,11 +3995,7 @@
             "name": "roots",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "true",
-                "false"
-              ]
+              "type": "boolean"
             },
             "required": false
           },
@@ -4361,7 +4003,7 @@
             "name": "start",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "number"
             },
             "required": false
           },
@@ -4385,7 +4027,7 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "number"
             },
             "required": false
           },
@@ -4393,11 +4035,7 @@
             "name": "archived",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "true",
-                "false"
-              ]
+              "type": "boolean"
             },
             "required": false
           },
@@ -4447,7 +4085,22 @@
           "experimental"
         ],
         "operationId": "worktree.create",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "security": [],
         "responses": {
           "200": {
@@ -4498,30 +4151,14 @@
         "description": "Create a new git worktree for the current project and run any configured startup scripts.",
         "summary": "Create worktree",
         "requestBody": {
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
-                "anyOf": [
-                  {
-                    "type": "object",
-                    "properties": {
-                      "name": {
-                        "type": "string"
-                      },
-                      "startCommand": {
-                        "type": "string"
-                      }
-                    },
-                    "additionalProperties": false
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
+                "$ref": "#/components/schemas/WorktreeCreateInput"
               }
             }
-          },
-          "required": true
+          }
         },
         "x-codeSamples": [
           {
@@ -4535,7 +4172,22 @@
           "experimental"
         ],
         "operationId": "worktree.list",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "security": [],
         "responses": {
           "200": {
@@ -4590,7 +4242,22 @@
           "experimental"
         ],
         "operationId": "worktree.remove",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "security": [],
         "responses": {
           "200": {
@@ -4617,23 +4284,14 @@
         "description": "Remove a git worktree and delete its branch.",
         "summary": "Remove worktree",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "directory": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "directory"
-                ],
-                "additionalProperties": false
+                "$ref": "#/components/schemas/WorktreeRemoveInput"
               }
             }
-          },
-          "required": true
+          }
         },
         "x-codeSamples": [
           {
@@ -4649,7 +4307,22 @@
           "experimental"
         ],
         "operationId": "worktree.reset",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "security": [],
         "responses": {
           "200": {
@@ -4676,23 +4349,14 @@
         "description": "Reset a worktree branch to the primary default branch.",
         "summary": "Reset worktree",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "directory": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "directory"
-                ],
-                "additionalProperties": false
+                "$ref": "#/components/schemas/WorktreeResetInput"
               }
             }
-          },
-          "required": true
+          }
         },
         "x-codeSamples": [
           {
@@ -5497,7 +5161,7 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "number"
             },
             "required": false
           },
@@ -8365,65 +8029,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "string"
-                      },
-                      "sessionID": {
-                        "type": "string"
-                      },
-                      "permission": {
-                        "type": "string"
-                      },
-                      "patterns": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      "metadata": {
-                        "type": "object"
-                      },
-                      "always": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      "tool": {
-                        "anyOf": [
-                          {
-                            "type": "object",
-                            "properties": {
-                              "messageID": {
-                                "type": "string"
-                              },
-                              "callID": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "messageID",
-                              "callID"
-                            ],
-                            "additionalProperties": false
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      }
-                    },
-                    "required": [
-                      "id",
-                      "sessionID",
-                      "permission",
-                      "patterns",
-                      "metadata",
-                      "always"
-                    ],
-                    "additionalProperties": false
+                    "$ref": "#/components/schemas/PermissionRequest"
                   }
                 }
               }
@@ -8668,18 +8274,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "type": "object",
-                    "properties": {
-                      "session": {},
-                      "message": {},
-                      "part": {}
-                    },
-                    "required": [
-                      "session",
-                      "message",
-                      "part"
-                    ],
-                    "additionalProperties": false
+                    "$ref": "#/components/schemas/PendingExternalResult"
                   }
                 }
               }
@@ -9270,23 +8865,14 @@
         },
         "summary": "Update raw PawWork memory",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "content": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "content"
-                ],
-                "additionalProperties": false
+                "$ref": "#/components/schemas/MemoryRawInput"
               }
             }
-          },
-          "required": true
+          }
         },
         "x-codeSamples": [
           {
@@ -9391,23 +8977,14 @@
         },
         "summary": "Disable or enable PawWork memory",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "disabled": {
-                    "type": "boolean"
-                  }
-                },
-                "required": [
-                  "disabled"
-                ],
-                "additionalProperties": false
+                "$ref": "#/components/schemas/MemoryDisabledInput"
               }
             }
-          },
-          "required": true
+          }
         },
         "x-codeSamples": [
           {
@@ -9580,122 +9157,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "anyOf": [
-                  {
-                    "type": "object",
-                    "properties": {
-                      "kind": {
-                        "type": "string",
-                        "const": "oneshot"
-                      },
-                      "title": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 160
-                      },
-                      "prompt": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 20000
-                      },
-                      "context": {
-                        "type": "string",
-                        "enum": [
-                          "continue",
-                          "fresh"
-                        ]
-                      },
-                      "where": {
-                        "$ref": "#/components/schemas/AutomationWhere"
-                      },
-                      "timezone": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "model": {
-                        "$ref": "#/components/schemas/AutomationModel"
-                      },
-                      "variant": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "fireAt": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
-                      }
-                    },
-                    "required": [
-                      "kind",
-                      "title",
-                      "prompt",
-                      "context",
-                      "where",
-                      "timezone",
-                      "model",
-                      "fireAt"
-                    ],
-                    "additionalProperties": false
-                  },
-                  {
-                    "type": "object",
-                    "properties": {
-                      "kind": {
-                        "type": "string",
-                        "const": "recurring"
-                      },
-                      "title": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 160
-                      },
-                      "prompt": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 20000
-                      },
-                      "context": {
-                        "type": "string",
-                        "enum": [
-                          "continue",
-                          "fresh"
-                        ]
-                      },
-                      "where": {
-                        "$ref": "#/components/schemas/AutomationWhere"
-                      },
-                      "timezone": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "model": {
-                        "$ref": "#/components/schemas/AutomationModel"
-                      },
-                      "variant": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "rhythm": {
-                        "$ref": "#/components/schemas/AutomationRhythm"
-                      },
-                      "stop": {
-                        "$ref": "#/components/schemas/AutomationStop"
-                      }
-                    },
-                    "required": [
-                      "kind",
-                      "title",
-                      "prompt",
-                      "context",
-                      "where",
-                      "timezone",
-                      "model",
-                      "rhythm",
-                      "stop"
-                    ],
-                    "additionalProperties": false
-                  }
-                ]
+                "$ref": "#/components/schemas/AutomationCreateInput"
               }
             }
           }
@@ -9875,62 +9337,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "title": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 160
-                  },
-                  "prompt": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 20000
-                  },
-                  "paused": {
-                    "type": "boolean"
-                  },
-                  "context": {
-                    "type": "string",
-                    "enum": [
-                      "continue",
-                      "fresh"
-                    ]
-                  },
-                  "where": {
-                    "$ref": "#/components/schemas/AutomationWhere"
-                  },
-                  "timezone": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "fireAt": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  "rhythm": {
-                    "$ref": "#/components/schemas/AutomationRhythm"
-                  },
-                  "stop": {
-                    "$ref": "#/components/schemas/AutomationStop"
-                  },
-                  "model": {
-                    "$ref": "#/components/schemas/AutomationModel"
-                  },
-                  "variant": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  }
-                },
-                "additionalProperties": false
+                "$ref": "#/components/schemas/AutomationUpdateInput"
               }
             }
           }
@@ -10705,7 +10112,7 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "number"
             },
             "required": false
           }
@@ -10920,37 +10327,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "enum": [
-                        "text",
-                        "binary"
-                      ]
-                    },
-                    "content": {
-                      "type": "string"
-                    },
-                    "diff": {
-                      "type": "string"
-                    },
-                    "patch": {},
-                    "encoding": {
-                      "type": "string",
-                      "enum": [
-                        "base64"
-                      ]
-                    },
-                    "mimeType": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "content"
-                  ],
-                  "additionalProperties": false
+                  "$ref": "#/components/schemas/FileContent"
                 }
               }
             }
@@ -20769,6 +20146,170 @@
           "disabled",
           "status",
           "content"
+        ]
+      },
+      "MemoryRawInput": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ]
+      },
+      "MemoryDisabledInput": {
+        "type": "object",
+        "properties": {
+          "disabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "disabled"
+        ]
+      },
+      "WorktreeCreateInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "startCommand": {
+            "type": "string",
+            "description": "Additional startup script to run after the project's start command"
+          }
+        }
+      },
+      "WorktreeRemoveInput": {
+        "type": "object",
+        "properties": {
+          "directory": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "directory"
+        ]
+      },
+      "WorktreeResetInput": {
+        "type": "object",
+        "properties": {
+          "directory": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "directory"
+        ]
+      },
+      "FileContent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "binary"
+            ]
+          },
+          "content": {
+            "type": "string"
+          },
+          "diff": {
+            "type": "string"
+          },
+          "patch": {
+            "type": "object",
+            "properties": {
+              "oldFileName": {
+                "type": "string"
+              },
+              "newFileName": {
+                "type": "string"
+              },
+              "oldHeader": {
+                "type": "string"
+              },
+              "newHeader": {
+                "type": "string"
+              },
+              "hunks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "oldStart": {
+                      "type": "number"
+                    },
+                    "oldLines": {
+                      "type": "number"
+                    },
+                    "newStart": {
+                      "type": "number"
+                    },
+                    "newLines": {
+                      "type": "number"
+                    },
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "oldStart",
+                    "oldLines",
+                    "newStart",
+                    "newLines",
+                    "lines"
+                  ]
+                }
+              },
+              "index": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "oldFileName",
+              "newFileName",
+              "hunks"
+            ]
+          },
+          "encoding": {
+            "type": "string",
+            "enum": [
+              "base64"
+            ]
+          },
+          "mimeType": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "content"
+        ]
+      },
+      "PendingExternalResult": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "$ref": "#/components/schemas/Session"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "part": {
+            "$ref": "#/components/schemas/Part"
+          }
+        },
+        "required": [
+          "session",
+          "message",
+          "part"
         ]
       },
       "TextPartInput": {

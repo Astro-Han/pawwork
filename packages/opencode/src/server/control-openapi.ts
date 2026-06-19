@@ -136,6 +136,17 @@ function patchParameterSchemas(
   }
 }
 
+function upsertQueryParameters(document: OpenApiDocument, path: string, method: string, parameters: Array<Record<string, unknown>>) {
+  const operation = document.paths?.[path]?.[method] as { parameters?: Array<Record<string, unknown>> } | undefined
+  if (!operation) return
+  operation.parameters ??= []
+  for (const parameter of parameters) {
+    const existing = operation.parameters.find((item) => item.in === "query" && item.name === parameter.name)
+    if (existing) Object.assign(existing, parameter)
+    else operation.parameters.push(parameter)
+  }
+}
+
 function patchSessionSchemas(document: OpenApiDocument, schemas: Record<string, unknown>) {
   const session = schemaRef("Session")
   const message = schemaRef("Message")
@@ -166,6 +177,9 @@ function patchSessionSchemas(document: OpenApiDocument, schemas: Record<string, 
   patchJsonResponse(document, "/session/{sessionID}", "get", session)
   patchJsonResponse(document, "/session/{sessionID}", "patch", session)
   patchJsonResponse(document, "/session/{sessionID}/children", "get", arrayOf(session))
+  patchParameterSchemas(document, "/session/{sessionID}/message", "get", {
+    limit: { type: "number" },
+  })
   patchJsonResponse(document, "/session/{sessionID}/message", "get", arrayOf(messageWithParts(message)))
   patchRequestBody(document, "/session/{sessionID}/message", "post", promptBody)
   patchJsonResponse(document, "/session/{sessionID}/message", "post", messageWithParts(assistant))
@@ -211,10 +225,10 @@ function patchAutomationSchemas(document: OpenApiDocument, schemas: Record<strin
   patchParameterSchemas(document, "/automation/{automationID}/resume", "post", { automationID })
 
   patchJsonResponse(document, "/automation", "get", schemaRef("AutomationListResponse"))
-  patchRequestBody(document, "/automation", "post", schemas.AutomationCreateInputInline)
+  patchRequestBody(document, "/automation", "post", schemaRef("AutomationCreateInput"))
   patchJsonResponse(document, "/automation", "post", definition)
   patchJsonResponse(document, "/automation/{automationID}", "get", definition)
-  patchRequestBody(document, "/automation/{automationID}", "put", schemas.AutomationUpdateInputInline)
+  patchRequestBody(document, "/automation/{automationID}", "put", schemaRef("AutomationUpdateInput"))
   patchJsonResponse(document, "/automation/{automationID}", "put", definition)
   patchJsonResponse(document, "/automation/{automationID}", "delete", schemaRef("AutomationDefinitionTombstone"))
   patchJsonResponse(document, "/automation/{automationID}/runs", "get", schemaRef("AutomationRunsResponse"))
@@ -242,16 +256,141 @@ function memoryStateSchema() {
 function patchMemorySchemas(document: OpenApiDocument) {
   const memoryState = schemaRef("MemoryState")
   patchJsonResponse(document, "/memory", "get", memoryState)
+  patchRequestBody(document, "/memory", "patch", schemaRef("MemoryRawInput"))
   patchJsonResponse(document, "/memory", "patch", memoryState)
   patchJsonResponse(document, "/memory/reset", "post", memoryState)
+  patchRequestBody(document, "/memory/disabled", "patch", schemaRef("MemoryDisabledInput"))
   patchJsonResponse(document, "/memory/disabled", "patch", memoryState)
   patchJsonResponse(document, "/memory/entry/{id}", "delete", memoryState)
 }
 
 function patchAdditionalRouteSchemas(document: OpenApiDocument) {
+  patchParameterSchemas(document, "/path", "get", {
+    ensureConfig: { type: "boolean" },
+  })
+  patchJsonResponse(document, "/project", "get", arrayOf(schemaRef("Project")))
+  patchJsonResponse(document, "/project/current", "get", schemaRef("Project"))
+  patchJsonResponse(document, "/project", "patch", schemaRef("Project"))
+  patchParameterSchemas(document, "/experimental/session", "get", {
+    roots: { type: "boolean" },
+    start: { type: "number" },
+    limit: { type: "number" },
+    archived: { type: "boolean" },
+  })
   patchJsonResponse(document, "/experimental/session", "get", arrayOf(schemaRef("GlobalSession")))
+  upsertQueryParameters(document, "/experimental/worktree", "get", workspaceRoutingParameters)
+  upsertQueryParameters(document, "/experimental/worktree", "post", workspaceRoutingParameters)
+  upsertQueryParameters(document, "/experimental/worktree", "delete", workspaceRoutingParameters)
+  upsertQueryParameters(document, "/experimental/worktree/reset", "post", workspaceRoutingParameters)
+  patchRequestBody(document, "/experimental/worktree", "post", schemaRef("WorktreeCreateInput"), { required: false })
+  patchRequestBody(document, "/experimental/worktree", "delete", schemaRef("WorktreeRemoveInput"))
+  patchRequestBody(document, "/experimental/worktree/reset", "post", schemaRef("WorktreeResetInput"))
+  patchJsonResponse(document, "/permission", "get", arrayOf(schemaRef("PermissionRequest")))
+  patchJsonResponse(document, "/external-result", "get", arrayOf(schemaRef("PendingExternalResult")))
   patchJsonResponse(document, "/session/{sessionID}/artifacts", "get", arrayOf(schemaRef("SessionArtifact")))
+  patchParameterSchemas(document, "/find/file", "get", {
+    limit: { type: "number" },
+  })
   patchJsonResponse(document, "/find/symbol", "get", arrayOf(schemaRef("Symbol")))
+  patchJsonResponse(document, "/file/content", "get", schemaRef("FileContent"))
+}
+
+function memoryInputSchemas() {
+  return {
+    MemoryRawInput: {
+      type: "object",
+      properties: {
+        content: { type: "string" },
+      },
+      required: ["content"],
+    },
+    MemoryDisabledInput: {
+      type: "object",
+      properties: {
+        disabled: { type: "boolean" },
+      },
+      required: ["disabled"],
+    },
+  }
+}
+
+function worktreeInputSchemas() {
+  return {
+    WorktreeCreateInput: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        startCommand: {
+          type: "string",
+          description: "Additional startup script to run after the project's start command",
+        },
+      },
+    },
+    WorktreeRemoveInput: {
+      type: "object",
+      properties: {
+        directory: { type: "string" },
+      },
+      required: ["directory"],
+    },
+    WorktreeResetInput: {
+      type: "object",
+      properties: {
+        directory: { type: "string" },
+      },
+      required: ["directory"],
+    },
+  }
+}
+
+function fileContentSchema() {
+  const patchHunk = {
+    type: "object",
+    properties: {
+      oldStart: { type: "number" },
+      oldLines: { type: "number" },
+      newStart: { type: "number" },
+      newLines: { type: "number" },
+      lines: arrayOf({ type: "string" }),
+    },
+    required: ["oldStart", "oldLines", "newStart", "newLines", "lines"],
+  }
+
+  return {
+    type: "object",
+    properties: {
+      type: { type: "string", enum: ["text", "binary"] },
+      content: { type: "string" },
+      diff: { type: "string" },
+      patch: {
+        type: "object",
+        properties: {
+          oldFileName: { type: "string" },
+          newFileName: { type: "string" },
+          oldHeader: { type: "string" },
+          newHeader: { type: "string" },
+          hunks: arrayOf(patchHunk),
+          index: { type: "string" },
+        },
+        required: ["oldFileName", "newFileName", "hunks"],
+      },
+      encoding: { type: "string", enum: ["base64"] },
+      mimeType: { type: "string" },
+    },
+    required: ["type", "content"],
+  }
+}
+
+function pendingExternalResultSchema() {
+  return {
+    type: "object",
+    properties: {
+      session: schemaRef("Session"),
+      message: schemaRef("Message"),
+      part: schemaRef("Part"),
+    },
+    required: ["session", "message", "part"],
+  }
 }
 
 const workspaceRoutingParameters = [
@@ -488,6 +627,10 @@ export async function controlOpenApi() {
   document.components.schemas = {
     ...document.components.schemas,
     MemoryState: memoryStateSchema(),
+    ...memoryInputSchemas(),
+    ...worktreeInputSchemas(),
+    FileContent: fileContentSchema(),
+    PendingExternalResult: pendingExternalResultSchema(),
   }
   const sessionPatchRefs = {
     PromptBody: prompt.schema,
