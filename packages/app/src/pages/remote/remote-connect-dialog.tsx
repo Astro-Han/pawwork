@@ -74,7 +74,7 @@ export function DialogConnectRemote(props: {
     // straight to bind here would tell the user to message the bot before the token
     // is even known to be good.
     setStore({ phase: "checking", error: undefined })
-    void api.startPairing("telegram", { token })
+    void api.startPairing(platform, { token })
   }
 
   async function allow() {
