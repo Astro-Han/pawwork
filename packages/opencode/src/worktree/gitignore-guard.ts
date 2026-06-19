@@ -1,8 +1,8 @@
-import { promises as fs } from "fs"
-import path from "path"
+import { Effect, Path } from "effect"
 import { NamedError } from "@opencode-ai/util/error"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import z from "zod"
-import { Process } from "../util/process"
+import { Git } from "@/git"
 
 export const GitignoreGuardError = NamedError.create(
   "WorktreeGitignoreGuardError",
@@ -12,15 +12,6 @@ export const GitignoreGuardError = NamedError.create(
 )
 
 const ENTRY = ".worktrees/"
-
-async function git(root: string, args: string[]) {
-  const result = await Process.text(["git", ...args], { cwd: root, nothrow: true })
-  return {
-    code: result.code,
-    stdout: result.text,
-    stderr: result.stderr.toString(),
-  }
-}
 
 function hasWorktreesIgnore(text: string) {
   return text
@@ -32,50 +23,67 @@ function hasWorktreesIgnore(text: string) {
     )
 }
 
-export async function ensureWorktreesIgnored(
-  root: string,
-): Promise<{ changed: boolean; file: string; before?: string }> {
+export type GitignoreGuardChange = { changed: boolean; file: string; before?: string }
+
+export const ensureWorktreesIgnoredEffect = Effect.fn("Worktree.ensureWorktreesIgnored")(function* (root: string) {
+  const fs = yield* AppFileSystem.Service
+  const path = yield* Path.Path
+  const git = yield* Git.Service
   const file = path.join(root, ".gitignore")
-  const before = await fs.readFile(file, "utf8").catch((error: unknown) => {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return undefined
-    throw error
-  })
+  const before = yield* fs.readFileString(file).pipe(
+    Effect.catchIf(
+      (error) => error.reason._tag === "NotFound",
+      () => Effect.succeed(undefined),
+    ),
+  )
 
   if (before && hasWorktreesIgnore(before)) return { changed: false, file }
 
-  const status = await git(root, [
-    "-c",
-    "core.fsmonitor=false",
-    "-c",
-    "status.showUntrackedFiles=all",
-    "status",
-    "--porcelain=v1",
-    "--no-renames",
-    "--",
-    ".gitignore",
-  ])
-  if (status.code !== 0) {
-    throw new GitignoreGuardError({
-      message: status.stderr || status.stdout || "Failed to inspect .gitignore status",
-    })
+  const status = yield* git.run(
+    [
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "status.showUntrackedFiles=all",
+      "status",
+      "--porcelain=v1",
+      "--no-renames",
+      "--",
+      ".gitignore",
+    ],
+    { cwd: root },
+  )
+  const stdout = status.text()
+  const stderr = status.stderr.toString()
+  if (status.exitCode !== 0) {
+    return yield* Effect.fail(
+      new GitignoreGuardError({
+        message: stderr || stdout || "Failed to inspect .gitignore status",
+      }),
+    )
   }
-  if (status.stdout.trim()) {
-    throw new GitignoreGuardError({
-      message: ".gitignore has local changes. Commit or discard them before creating a PawWork worktree.",
-    })
+  if (stdout.trim()) {
+    return yield* Effect.fail(
+      new GitignoreGuardError({
+        message: ".gitignore has local changes. Commit or discard them before creating a PawWork worktree.",
+      }),
+    )
   }
 
   const prefix = before && before.length > 0 && !before.endsWith("\n") ? "\n" : ""
   const next = `${before ?? ""}${prefix}${ENTRY}\n`
-  await fs.writeFile(file, next)
+  yield* fs.writeFileString(file, next)
   return { changed: true, file, before }
-}
+})
 
-export async function restoreWorktreesIgnored(change: { changed: boolean; file: string; before?: string }) {
+export const restoreWorktreesIgnoredEffect = Effect.fn("Worktree.restoreWorktreesIgnored")(function* (
+  change: GitignoreGuardChange,
+) {
   if (!change.changed) return
+  const fs = yield* AppFileSystem.Service
   if (change.before === undefined) {
-    await fs.rm(change.file, { force: true })
+    yield* fs.remove(change.file, { force: true })
     return
   }
-  await fs.writeFile(change.file, change.before)
-}
+  yield* fs.writeFileString(change.file, change.before)
+})

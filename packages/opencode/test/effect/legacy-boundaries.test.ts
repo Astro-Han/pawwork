@@ -61,3 +61,10 @@ test("worktree adaptor does not call Worktree Promise facades", async () => {
   expect(text).not.toContain("Worktree.createFromInfo")
   expect(text).not.toContain("Worktree.remove")
 })
+
+test("Worktree service uses the Effect-native gitignore guard boundary", async () => {
+  const text = await readFile(path.join(srcRoot, "worktree/index.ts"), "utf8")
+
+  expect(text).not.toContain("Effect.promise(() => ensureWorktreesIgnored")
+  expect(text).not.toContain("Effect.promise(() => restoreWorktreesIgnored")
+})
