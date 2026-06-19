@@ -15,6 +15,7 @@ import { Storage } from "@/storage/storage"
 import { Snapshot } from "@/snapshot"
 import { Plugin } from "@/plugin"
 import { ModelState } from "@/provider/model-state"
+import { ModelsDev } from "@/provider/models"
 import { Provider } from "@/provider/provider"
 import { ProviderAuth } from "@/provider/auth"
 import { Agent } from "@/agent/agent"
@@ -70,6 +71,7 @@ export const AppLayer = Layer.mergeAll(
   Snapshot.defaultLayer,
   Plugin.defaultLayer,
   ModelState.defaultLayer,
+  ModelsDev.defaultLayer,
   Provider.defaultLayer,
   ProviderAuth.defaultLayer,
   Agent.defaultLayer,
