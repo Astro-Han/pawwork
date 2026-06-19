@@ -77,13 +77,38 @@ test("getQrcodeStatus reports waiting, expired, then confirmed with token + base
   }
 })
 
-test("getQrcodeStatus treats a confirmed response missing ilink_user_id as still waiting", async () => {
-  // An empty user id would become allowFrom:"" — a saved bot that accepts no one.
-  const server = mockServer(() => json({ status: "confirmed", bot_token: "tok_abc", ilink_user_id: "" }))
-  try {
-    expect(await new WeChatClient({ baseURL: server.url }).getQrcodeStatus("QR123")).toEqual({ status: "waiting" })
-  } finally {
-    server.stop()
+test("getQrcodeStatus throws on a confirmed response missing the token or user id", async () => {
+  // confirmed is terminal; an incomplete one won't get better by polling again, so it
+  // must surface as an error (the user waits forever otherwise) — not fall to waiting.
+  for (const body of [
+    { status: "confirmed", bot_token: "", ilink_user_id: "u@im.wechat", baseurl: "https://r2.ilinkai.weixin.qq.com" },
+    { status: "confirmed", bot_token: "tok_abc", ilink_user_id: "", baseurl: "https://r2.ilinkai.weixin.qq.com" },
+  ]) {
+    const server = mockServer(() => json(body))
+    try {
+      await expect(new WeChatClient({ baseURL: server.url }).getQrcodeStatus("QR123")).rejects.toThrow(
+        "incomplete confirm response",
+      )
+    } finally {
+      server.stop()
+    }
+  }
+})
+
+test("getQrcodeStatus rejects a confirmed response whose baseurl isn't a valid https origin", async () => {
+  // baseurl is persisted and trusted for every later call, so a non-https / malformed
+  // host must not be saved.
+  for (const baseurl of ["http://r2.ilinkai.weixin.qq.com", "javascript:alert(1)", "not a url", "   "]) {
+    const server = mockServer(() =>
+      json({ status: "confirmed", bot_token: "tok_abc", ilink_user_id: "u@im.wechat", baseurl }),
+    )
+    try {
+      await expect(new WeChatClient({ baseURL: server.url }).getQrcodeStatus("QR123")).rejects.toThrow(
+        "incomplete confirm response",
+      )
+    } finally {
+      server.stop()
+    }
   }
 })
 
@@ -189,6 +214,18 @@ test("notifyStart POSTs its endpoint with base_info", async () => {
     await new WeChatClient({ baseURL: server.url, botToken: "t" }).notifyStart()
     expect(seen.map((s) => s.path)).toEqual(["/ilink/bot/msg/notifystart"])
     expect(seen[0].body.base_info).toBeDefined()
+  } finally {
+    server.stop()
+  }
+})
+
+test("a 2xx non-JSON body raises WeChatApiError instead of passing as empty success", async () => {
+  // A proxy login page / HTML error returned with 200 must not be swallowed into {}.
+  const server = mockServer(() => new Response("<html>nope</html>", { status: 200, headers: { "content-type": "text/html" } }))
+  try {
+    const client = new WeChatClient({ baseURL: server.url, botToken: "t" })
+    await expect(client.getUpdates("")).rejects.toThrow("invalid JSON response")
+    await expect(client.getQrcodeStatus("QR1")).rejects.toThrow("invalid JSON response")
   } finally {
     server.stop()
   }

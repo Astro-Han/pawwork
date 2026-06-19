@@ -159,19 +159,20 @@ export class WeChatClient {
       throw err
     }
     const status = str(data, "status")
-    const botToken = str(data, "bot_token")
-    const userId = str(data, "ilink_user_id")
-    // A confirmed response must carry both the bot token and the paired user id: the
-    // user id becomes `allowFrom`, and an empty one would save a bot that accepts no
-    // one (and a save-then-start that strands a broken account). Treat an incomplete
-    // confirm as still-waiting rather than mint that account.
-    if (status === "confirmed" && botToken !== "" && userId !== "") {
-      return {
-        status: "confirmed",
-        botToken,
-        baseURL: str(data, "baseurl") || this.baseURL,
-        userId,
+    if (status === "confirmed") {
+      const botToken = str(data, "bot_token")
+      const userId = str(data, "ilink_user_id")
+      const baseURL = str(data, "baseurl") || this.baseURL
+      // confirmed is terminal — the user has approved in WeChat. A confirmed response
+      // missing the token or user id, or carrying a non-https base URL (the host every
+      // later call trusts), is a broken response: fail loudly so the pairer surfaces an
+      // error. Falling through to "waiting" would poll the same bad confirm forever
+      // (the user waits with no feedback); accepting it would strand or mistrust the
+      // saved account.
+      if (botToken === "" || userId === "" || !isHttpsUrl(baseURL)) {
+        throw new WeChatApiError("/ilink/bot/get_qrcode_status", 200, undefined, "incomplete confirm response")
       }
+      return { status: "confirmed", botToken, baseURL, userId }
     }
     if (status === "expired") return { status: "expired" }
     return { status: "waiting" }
@@ -251,11 +252,25 @@ export class WeChatClient {
   }
 
   private async parse(path: string, res: Response): Promise<Record<string, unknown>> {
-    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
-    const ret = typeof data.ret === "number" ? data.ret : undefined
-    if (!res.ok || (ret !== undefined && ret !== 0)) {
-      throw new WeChatApiError(path.split("?")[0], res.status, ret, str(data, "errmsg") || str(data, "message"))
+    const endpoint = path.split("?")[0]
+    let data: Record<string, unknown> = {}
+    let parsed = true
+    try {
+      const json = await res.json()
+      if (json && typeof json === "object") data = json as Record<string, unknown>
+      else parsed = false
+    } catch {
+      parsed = false
     }
+    const ret = typeof data.ret === "number" ? data.ret : undefined
+    // Transport/body-level failure first, keeping httpStatus so isFatalWeChatError
+    // can spot a 401/403.
+    if (!res.ok || (ret !== undefined && ret !== 0)) {
+      throw new WeChatApiError(endpoint, res.status, ret, str(data, "errmsg") || str(data, "message"))
+    }
+    // A 2xx that isn't a JSON object (a proxy login page, an HTML error) must not pass
+    // as an empty success — that silently swallows the real failure.
+    if (!parsed) throw new WeChatApiError(endpoint, res.status, undefined, "invalid JSON response")
     return data
   }
 }
@@ -283,6 +298,15 @@ function normalizeMessage(raw: unknown): WeChatMessage | null {
 function str(data: Record<string, unknown>, key: string): string {
   const value = data[key]
   return typeof value === "string" ? value : ""
+}
+
+/** The base URL every post-pairing call trusts must be a well-formed https origin. */
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === "https:"
+  } catch {
+    return false
+  }
 }
 
 function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
