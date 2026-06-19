@@ -106,10 +106,10 @@ describe("production server boundary", () => {
     expect(server).not.toContain("compatibility.fetch")
   })
 
-  test("keeps legacy route tree usage isolated to spec generation", async () => {
+  test("keeps the legacy route tree explicitly named as legacy", async () => {
     const openapi = await readFile(path.join(import.meta.dir, "../../src/server/openapi.ts"), "utf8")
 
-    expect(openapi).toContain("serverOpenApi")
+    expect(openapi).toContain("legacyServerOpenApi")
     expect(openapi).toContain("generateSpecs")
     expect(openapi).toContain("InstanceRoutes")
     expect(openapi).toContain("ControlPlaneRoutes")
@@ -125,7 +125,8 @@ describe("production server boundary", () => {
     const controlOpenApi = await readFile(path.join(import.meta.dir, "../../src/server/control-openapi.ts"), "utf8")
 
     expect(server).not.toContain('from "./openapi"')
-    expect(server).toContain('await import("./openapi")')
+    expect(server).not.toContain('await import("./openapi")')
+    expect(server).toContain('await import("./control-openapi")')
     expect(controlHandler).not.toContain("ControlPlaneRoutes")
     expect(controlHandler).not.toContain('request("/doc")')
     expect(controlHandler).not.toContain("@/server/openapi")

@@ -3,7 +3,33 @@ export * from "./gen/types.gen.js"
 import { createClient } from "./gen/client/client.gen.js"
 import { type Config } from "./gen/client/types.gen.js"
 import { OpencodeClient } from "./gen/sdk.gen.js"
+import type {
+  AppAgentsResponse,
+  CommandListResponse,
+  FileListResponse,
+  FileReadResponse,
+  LspStatusResponse,
+  McpStatusResponse,
+  PathGetResponse,
+  VcsGetResponse,
+} from "./gen/types.gen.js"
 export { type Config as OpencodeClientConfig, OpencodeClient }
+
+export type FileNode = FileListResponse[number]
+export type FileContent = FileReadResponse
+export type McpStatus = McpStatusResponse[string]
+export type Path = PathGetResponse
+export type VcsInfo = VcsGetResponse
+export type VcsFileDiff = {
+  file: string
+  patch: string
+  additions: number
+  deletions: number
+  status?: "added" | "deleted" | "modified"
+}
+export type Command = CommandListResponse[number]
+export type Agent = AppAgentsResponse[number]
+export type LspStatus = LspStatusResponse[number]
 
 function pick(value: string | null, fallback?: string, encode?: (value: string) => string) {
   if (!value) return

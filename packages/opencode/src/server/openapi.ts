@@ -7,7 +7,7 @@ import { InstanceRoutes } from "./routes/instance"
 import { InstanceMiddleware } from "./routes/instance/middleware"
 import { WorkspaceRoutes } from "./routes/control/workspace"
 
-export async function serverOpenApi() {
+export async function legacyServerOpenApi() {
   // Spec-generation compatibility only. Production requests are dispatched by
   // the native server app in server.ts, not this Hono documentation tree.
   const app = new Hono().route("/global", GlobalRoutes())

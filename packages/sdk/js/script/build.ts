@@ -10,10 +10,12 @@ import { readFile, writeFile } from "fs/promises"
 
 import { createClient } from "@hey-api/openapi-ts"
 
-await $`bun dev generate > ${dir}/openapi.json`.cwd(path.resolve(dir, "../../opencode"))
+const openApiPath = path.resolve(dir, "../openapi.json")
+
+await $`bun dev generate > ${openApiPath}`.cwd(path.resolve(dir, "../../opencode"))
 
 await createClient({
-  input: "./openapi.json",
+  input: openApiPath,
   output: {
     path: "./src/v2/gen",
     tsConfigPath: path.join(dir, "tsconfig.json"),
@@ -49,7 +51,6 @@ await patchV2SseSplitCrLfHandling()
 await $`bun prettier --write src/v2`
 await $`rm -rf dist`
 await $`bun tsc`
-await $`rm openapi.json`
 
 async function patchV2ClientErrorInterceptorOptions() {
   const clientPath = path.join(dir, "src/v2/gen/client/client.gen.ts")
