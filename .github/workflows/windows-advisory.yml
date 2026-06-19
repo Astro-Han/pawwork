@@ -114,7 +114,7 @@ jobs:
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: windows-latest
     # Windows unit jobs are advisory, package-scoped or shard-scoped. Timeout
-    # budgets are explicit per matrix child; opencode has five parallel
+    # budgets are explicit per matrix child; opencode has seven parallel
     # shards, so a full stall can still consume multiple Windows runner slots.
     timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
@@ -169,26 +169,50 @@ jobs:
               test/settings
               test/settings.test.ts
             report_path: packages/opencode/.artifacts/unit/junit-windows-config-project.xml
-          # Server tools carries the slow HTTP/server route suite and adjacent
-          # server support tests, so it gets a little more wall-clock budget.
+          # Server tools carries the slow HTTP/server route suite, so it gets
+          # the largest wall-clock budget plus a process-level attempt timeout.
           - package: opencode-server-tools
             uses_turbo: false
-            timeout_minutes: 25
+            timeout_minutes: 50
+            attempt_timeout_minutes: 20
             command: >-
               cd packages/opencode && bun test
               --timeout 30000
               --reporter=junit
               --reporter-outfile=.artifacts/unit/junit-windows-server-tools.xml
               test/server
-              test/snapshot
+            report_path: packages/opencode/.artifacts/unit/junit-windows-server-tools.xml
+          # Browser is isolated from server routes because a Windows process
+          # hang after browser tests can otherwise consume the whole job
+          # timeout before the retry wrapper sees an exit code.
+          - package: opencode-browser-agent
+            uses_turbo: false
+            timeout_minutes: 30
+            attempt_timeout_minutes: 10
+            command: >-
+              cd packages/opencode && bun test
+              --timeout 30000
+              --reporter=junit
+              --reporter-outfile=.artifacts/unit/junit-windows-browser-agent.xml
               test/browser
-              test/mcp
-              test/question
-              test/effect
               test/agent
+              test/question
+            report_path: packages/opencode/.artifacts/unit/junit-windows-browser-agent.xml
+          - package: opencode-server-support
+            uses_turbo: false
+            timeout_minutes: 30
+            attempt_timeout_minutes: 10
+            command: >-
+              cd packages/opencode && bun test
+              --timeout 30000
+              --reporter=junit
+              --reporter-outfile=.artifacts/unit/junit-windows-server-support.xml
+              test/snapshot
+              test/mcp
+              test/effect
               test/git/
               test/storage
-            report_path: packages/opencode/.artifacts/unit/junit-windows-server-tools.xml
+            report_path: packages/opencode/.artifacts/unit/junit-windows-server-support.xml
           - package: opencode-tool-runtime
             uses_turbo: false
             timeout_minutes: 20
@@ -295,11 +319,24 @@ jobs:
         run: |
           set +e
           attempts=2
+          attempt_timeout_minutes="${{ matrix.attempt_timeout_minutes }}"
           first_status=
+          if [ -n "$attempt_timeout_minutes" ] && ! command -v timeout >/dev/null 2>&1; then
+            echo "::error title=Missing GNU timeout::matrix package ${{ matrix.package }} needs process-level attempt timeout"
+            exit 127
+          fi
+
           for attempt in $(seq 1 "$attempts"); do
             echo "::group::Windows unit attempt $attempt of $attempts"
-            ( ${{ matrix.command }} )
+            if [ -n "$attempt_timeout_minutes" ]; then
+              timeout "${attempt_timeout_minutes}m" bash -lc '${{ matrix.command }}'
+            else
+              ( ${{ matrix.command }} )
+            fi
             status=$?
+            if [ -n "$attempt_timeout_minutes" ] && [ "$status" -eq 124 ]; then
+              echo "Windows unit attempt timed out after ${attempt_timeout_minutes}m"
+            fi
             echo "::endgroup::"
 
             if [ "$attempt" -eq 1 ]; then
