@@ -14,12 +14,19 @@ for (const [locale, dict] of [
   ["zh", zh],
 ] as const) {
   test(`remote i18n placeholders interpolate in ${locale}`, () => {
-    const paired = resolve(dict["settings.remote.pairedWith"], { name: "Ada" })
+    const paired = resolve(dict["remote.pairedWith"], { name: "Ada" })
     expect(paired).toContain("Ada")
     expect(paired).not.toContain("{")
 
-    const confirm = resolve(dict["settings.remote.connect.confirm.body"], { name: "Ada" })
+    const confirm = resolve(dict["remote.connect.confirm.body"], { name: "Ada" })
     expect(confirm).toContain("Ada")
     expect(confirm).not.toContain("{")
+
+    // {{platform}} appears in the connect toast, its body, and the disconnect title.
+    for (const key of ["remote.connect.toast.title", "remote.connect.toast.body", "remote.disconnect.title"] as const) {
+      const resolved = resolve(dict[key], { platform: "Telegram" })
+      expect(resolved).toContain("Telegram")
+      expect(resolved).not.toContain("{")
+    }
   })
 }
