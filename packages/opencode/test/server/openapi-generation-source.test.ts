@@ -96,6 +96,17 @@ function jsonResponseSchema(spec: Awaited<ReturnType<typeof controlOpenApi>>, ro
   return operation?.responses?.["200"]?.content?.["application/json"]?.schema
 }
 
+function codeSampleSources(spec: any) {
+  const sources: string[] = []
+  for (const item of Object.values(spec.paths ?? {}) as any[]) {
+    for (const method of ["get", "post", "put", "delete", "patch"] as const) {
+      const samples = item[method]?.["x-codeSamples"] ?? []
+      for (const sample of samples) if (typeof sample.source === "string") sources.push(sample.source)
+    }
+  }
+  return sources
+}
+
 function generateAfterIsolatedEventLeak() {
   const script = `
     import z from "zod"
@@ -248,5 +259,16 @@ describe("OpenAPI generation source", () => {
     expect([...generatedPaths].filter((routePath) => !productionPaths.has(routePath)).sort()).toEqual([])
     expect([...productionPaths].filter((routePath) => !checkedInPaths.has(routePath)).sort()).toEqual([])
     expect([...checkedInPaths].filter((routePath) => !productionPaths.has(routePath)).sort()).toEqual([])
+  })
+
+  test("keeps checked-in OpenAPI JavaScript code samples valid", async () => {
+    const checkedIn = JSON.parse(await readFile(path.join(import.meta.dir, "../../../sdk/openapi.json"), "utf8"))
+    const samples = codeSampleSources(checkedIn)
+
+    expect(samples.length).toBeGreaterThan(0)
+    for (const source of samples) {
+      expect(source).toContain('import { createOpencodeClient } from "@opencode-ai/sdk"')
+      expect(source).not.toContain('import { createOpencodeClient } from "@opencode-ai/sdk\n')
+    }
   })
 })

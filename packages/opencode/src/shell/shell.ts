@@ -95,7 +95,15 @@ export namespace Shell {
   async function unix() {
     const text = await Filesystem.readText("/etc/shells").catch(() => "")
     if (!text) return ["/bin/bash", "/bin/zsh", "/bin/sh"]
-    return Array.from(new Set(text.split("\n").filter((line) => line.trim() && !line.startsWith("#"))))
+    const shells = Array.from(
+      new Set(
+        text
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line && !line.startsWith("#")),
+      ),
+    )
+    return shells.length ? shells : ["/bin/bash", "/bin/zsh", "/bin/sh"]
   }
 
   function select(file: string | undefined, opts?: { acceptable?: boolean }) {

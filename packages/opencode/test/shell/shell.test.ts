@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import path from "path"
 import { Shell } from "../../src/shell/shell"
 import { Filesystem } from "../../src/util/filesystem"
@@ -38,6 +38,27 @@ describe("shell", () => {
     expect(Shell.posix("/bin/fish")).toBe(false)
     expect(Shell.posix("C:/tools/pwsh.exe")).toBe(false)
   })
+
+  if (process.platform !== "win32") {
+    test("lists Unix shells from trimmed /etc/shells entries", async () => {
+      const readText = spyOn(Filesystem, "readText").mockResolvedValue(
+        ["  # indented comment", "  /tmp/pawwork-shell-a  ", "", "\t/tmp/pawwork-shell-b"].join("\n"),
+      )
+      const stat = spyOn(Filesystem, "stat").mockImplementation((candidate) => {
+        if (candidate.startsWith("/tmp/pawwork-shell-")) return { isFile: () => true } as any
+        return undefined
+      })
+      try {
+        expect(await Shell.list()).toEqual([
+          { path: "/tmp/pawwork-shell-a", name: "/tmp/pawwork-shell-a", acceptable: true },
+          { path: "/tmp/pawwork-shell-b", name: "/tmp/pawwork-shell-b", acceptable: true },
+        ])
+      } finally {
+        readText.mockRestore()
+        stat.mockRestore()
+      }
+    })
+  }
 
   if (process.platform === "win32") {
     test("rejects blacklisted shells case-insensitively", async () => {
