@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { Instance } from "../../src/project/instance"
@@ -106,14 +107,10 @@ describe("production server boundary", () => {
     expect(server).not.toContain("compatibility.fetch")
   })
 
-  test("keeps the legacy route tree explicitly named as legacy", async () => {
-    const openapi = await readFile(path.join(import.meta.dir, "../../src/server/openapi.ts"), "utf8")
+  test("does not keep a legacy Hono documentation route tree", () => {
+    const openapi = path.join(import.meta.dir, "../../src/server/openapi.ts")
 
-    expect(openapi).toContain("legacyServerOpenApi")
-    expect(openapi).toContain("generateSpecs")
-    expect(openapi).toContain("InstanceRoutes")
-    expect(openapi).toContain("ControlPlaneRoutes")
-    expect(openapi).toContain("GlobalRoutes")
+    expect(existsSync(openapi)).toBe(false)
   })
 
   test("keeps production /doc out of the legacy control route tree", async () => {
