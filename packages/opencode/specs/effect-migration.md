@@ -196,6 +196,7 @@ Fully migrated (single namespace, InstanceState where needed, flattened facade):
 - [x] `LSP` — `lsp/index.ts`
 - [x] `MCP` — `mcp/index.ts`
 - [x] `McpAuth` — `mcp/auth.ts`
+- [x] `ModelsDev` — `provider/models.ts` (catalog cache and refresh use `Effect.cached`, `AppFileSystem.Service`, and `EffectFlock.Service`; async facade remains for callers)
 - [x] `ModelState` — `provider/model-state.ts` (`recordRecent` write path; `Provider.defaultModel()` still owns the read path)
 - [x] `Permission` — `permission/index.ts`
 - [x] `Plugin` — `plugin/index.ts`
@@ -284,6 +285,7 @@ Some already-effectified areas still use raw `Filesystem.*` or `Process.spawn` i
 - [x] `file/index.ts` — current tree has no remaining `Filesystem.*` calls; untracked diff handling reads through `AppFileSystem.Service`
 - [x] `config/config.ts` — `installDependencies()` now lives on `Config.Service`, uses `AppFileSystem.Service` and `EffectFlock`, and the async facade delegates through `runPromise`
 - [x] `provider/provider.ts` — default model state reads through `AppFileSystem.Service`; no remaining `Filesystem.*` calls in the current file
+- [x] `provider/models.ts` — catalog cache reads, TTL checks, and atomic writes now run through `AppFileSystem.Service`
 
 ### `Process.spawn` → `ChildProcessSpawner` (yield in layer)
 
@@ -306,16 +308,16 @@ Current raw fs users that will convert during tool migration:
 
 - [x] `util/lock.ts` — removed; no production callers remained, and the only direct references were the util export plus `test/util/lock.test.ts`
 - [ ] `util/flock.ts` — `packages/core/src/util/effect-flock.ts` is the Effect-native implementation; Effect/service callers should use `EffectFlock.Service`, while legacy Promise callers still use the `packages/opencode/src/util/flock.ts` facade
-  - Converted in this slice: `EffectFlock.withLockPromise` now backs Promise critical sections for `Config.withConfigFileLock`, provider models catalog refresh, plugin config patching, and plugin metadata reads; `Config` service schema write-back uses the injected `EffectFlock.Service`
+  - Converted in this slice: provider models catalog refresh now uses the injected `EffectFlock.Service`; `Config.withConfigFileLock`, plugin config patching, and plugin metadata reads still keep Promise critical sections behind `EffectFlock.withLockPromise`
   - Retained Promise lease boundary: automation run leases/scheduler ownership and direct flock compatibility tests still need the legacy lease object facade
   - Guardrail: `test/effect/legacy-boundaries.test.ts` prevents new production imports of `@/util/flock` outside the automation lease owners
 - [x] `util/process.ts` — `Process.Service` and Effect-native `run/text/lines/stop/descendants/terminateTree` now own execution and cleanup; the async facade delegates through `runPromise`
   - Retained compatibility boundary: `Process.spawn` still returns the Node child facade because CLI pager/auth flows, long-lived LSP launch, Windows cmd script spawning, and stream ownership still depend on that shape
   - Converted in this slice: `session/prompt.ts` inline shell expansion, `pty/index.ts` teardown cleanup, and `tool/shell.ts` abort/timeout cleanup use `Process.*Effect` directly
 - [ ] `util/lazy.ts` — sync-only route factories, shell selection, native module loading, and zod recursion stay on `lazy`; async Effect code should use `Effect.cached`
-  - Converted in this slice: `tool/shell.ts` parser initialization now uses `Effect.cached` inside the tool's Effect definition
-  - Retained async legacy boundary: provider models catalog cache and control-plane built-in adaptor import still expose Promise facades
-  - Guardrail: `test/effect/legacy-boundaries.test.ts` keeps async `lazy` limited to the provider catalog cache and built-in adaptor import compatibility boundaries
+  - Converted in this slice: provider models catalog cache now uses `Effect.cached` inside `ModelsDev.Service`; `tool/shell.ts` parser initialization also uses `Effect.cached` inside the tool's Effect definition
+  - Retained async legacy boundary: control-plane built-in adaptor import still exposes a Promise facade
+  - Guardrail: `test/effect/legacy-boundaries.test.ts` keeps async `lazy` limited to the built-in adaptor import compatibility boundary
 
 ## Destroying the facades
 

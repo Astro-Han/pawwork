@@ -2,6 +2,9 @@ import { afterEach, expect, test } from "bun:test"
 import { mkdir, readFile, rm, writeFile } from "fs/promises"
 import path from "path"
 
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
+import { Effect, Layer } from "effect"
 import { tmpdir } from "../fixture/fixture"
 import { makeRuntime } from "../../src/effect/run-service"
 import { Env } from "../../src/env"
@@ -9,17 +12,14 @@ import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
 import { ModelsDev, Provider } from "../../src/provider"
 import { ModelID, ProviderID } from "../../src/provider/schema"
-import { Filesystem } from "../../src/util/filesystem"
 
 const originalFetch = globalThis.fetch
 const originalModelsPath = process.env.OPENCODE_MODELS_PATH
-const originalWrite = Filesystem.write
 const env = makeRuntime(Env.Service, Env.defaultLayer)
 const setEnv = (key: string, value: string) => env.runSync((svc) => svc.set(key, value))
 
 afterEach(async () => {
   globalThis.fetch = originalFetch
-  ;(Filesystem as { write: typeof Filesystem.write }).write = originalWrite
   if (originalModelsPath === undefined) delete process.env.OPENCODE_MODELS_PATH
   else process.env.OPENCODE_MODELS_PATH = originalModelsPath
   ModelsDev.Data.reset()
@@ -177,12 +177,25 @@ test("refresh keeps existing cache when atomic publish write fails", async () =>
   const beforeCache = await readCacheText()
   const beforeVersion = ModelsDev.version()
   mockFetchWithCatalog(catalogWithModels(["kimi-k2.5", "kimi-k2.6"]))
-  ;(Filesystem as { write: typeof Filesystem.write }).write = async (target, content, mode) => {
-    if (target.endsWith(".tmp")) throw new Error("write failed")
-    return originalWrite(target, content, mode)
-  }
+  const failingFsLayer = Layer.effect(
+    AppFileSystem.Service,
+    AppFileSystem.Service.use((fs) =>
+      Effect.succeed(
+        AppFileSystem.Service.of({
+          ...fs,
+          writeWithDirs: (target, content, mode) => {
+            if (target.endsWith(".tmp")) {
+              return Effect.fail(new AppFileSystem.FileSystemError({ method: "writeWithDirs", cause: "write failed" }))
+            }
+            return fs.writeWithDirs(target, content, mode)
+          },
+        }),
+      ),
+    ),
+  ).pipe(Layer.provide(AppFileSystem.defaultLayer))
+  const failingLayer = ModelsDev.layer.pipe(Layer.provide(failingFsLayer), Layer.provide(EffectFlock.defaultLayer))
 
-  await ModelsDev.refresh(true)
+  await Effect.runPromise(ModelsDev.Service.use((svc) => svc.refresh(true)).pipe(Effect.provide(failingLayer)))
 
   expect(await readCacheText()).toBe(beforeCache)
   expect(ModelsDev.version()).toBe(beforeVersion)
