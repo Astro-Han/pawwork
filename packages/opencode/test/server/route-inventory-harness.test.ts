@@ -187,6 +187,27 @@ describe("route inventory harness", () => {
     }
   })
 
+  test("tracks local HttpApi migration coverage for ordinary automation routes", async () => {
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+
+    for (const [method, routePath] of [
+      ["GET", "/automation"],
+      ["POST", "/automation"],
+      ["GET", "/automation/:automationID"],
+      ["PUT", "/automation/:automationID"],
+      ["DELETE", "/automation/:automationID"],
+      ["GET", "/automation/:automationID/runs"],
+      ["POST", "/automation/:automationID/run"],
+      ["POST", "/automation/:automationID/pause"],
+      ["POST", "/automation/:automationID/resume"],
+    ] as const) {
+      expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
+        hono: true,
+        localHttpApi: true,
+      })
+    }
+  })
+
   test("tracks local HttpApi migration coverage for PTY JSON and control-plane routes", async () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
