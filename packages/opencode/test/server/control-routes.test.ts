@@ -63,8 +63,6 @@ describe("control routes", () => {
   })
 
   test("serves the generated OpenAPI document through the HttpApi handlers", async () => {
-    await Server.openapi()
-
     const response = await requestControlHttpApi("/doc")
     const spec = await response.json()
 
@@ -82,6 +80,7 @@ describe("control routes", () => {
     expect(spec.paths).toHaveProperty("/global/event")
     expect(spec.paths).toHaveProperty("/global/sync-event")
     expect(spec.paths).not.toHaveProperty("/doc")
+    expect(spec.paths).not.toHaveProperty("/question")
 
     const schemas = spec.components?.schemas ?? {}
     for (const ref of collectSchemaRefs(spec.paths)) {

@@ -115,4 +115,24 @@ describe("production server boundary", () => {
     expect(openapi).toContain("ControlPlaneRoutes")
     expect(openapi).toContain("GlobalRoutes")
   })
+
+  test("keeps production /doc out of the legacy control route tree", async () => {
+    const server = await readFile(path.join(import.meta.dir, "../../src/server/server.ts"), "utf8")
+    const controlHandler = await readFile(
+      path.join(import.meta.dir, "../../src/server/routes/instance/httpapi/handlers/control.ts"),
+      "utf8",
+    )
+    const controlOpenApi = await readFile(path.join(import.meta.dir, "../../src/server/control-openapi.ts"), "utf8")
+
+    expect(server).not.toContain('from "./openapi"')
+    expect(server).toContain('await import("./openapi")')
+    expect(controlHandler).not.toContain("ControlPlaneRoutes")
+    expect(controlHandler).not.toContain('request("/doc")')
+    expect(controlHandler).not.toContain("@/server/openapi")
+    expect(controlOpenApi).not.toContain("ControlPlaneRoutes")
+    expect(controlOpenApi).not.toContain("InstanceRoutes")
+    expect(controlOpenApi).not.toContain("GlobalRoutes")
+    expect(controlOpenApi).not.toContain("server/instance/global")
+    expect(controlOpenApi).not.toContain("from \"hono\"")
+  })
 })
