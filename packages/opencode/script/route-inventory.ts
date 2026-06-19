@@ -57,6 +57,7 @@ export type HonoRouteSourceCoverage = {
 type BuildOptions = {
   root?: string
   upstreamRef?: string
+  upstreamHttpApiRoutes?: Route[]
   requireUpstream?: boolean
 }
 
@@ -484,7 +485,9 @@ export async function buildRouteInventory(options: BuildOptions = {}): Promise<R
     readSdkRoutes(root, "packages/sdk/js/src/gen/sdk.gen.ts"),
     readSdkRoutes(root, "packages/sdk/js/src/v2/gen/sdk.gen.ts"),
     readLocalHttpApiRoutes(root),
-    readUpstreamHttpApiRoutes(root, upstreamRef, requireUpstream),
+    options.upstreamHttpApiRoutes
+      ? Promise.resolve(uniqueRoutes(options.upstreamHttpApiRoutes))
+      : readUpstreamHttpApiRoutes(root, upstreamRef, requireUpstream),
   ])
 
   const sets = {

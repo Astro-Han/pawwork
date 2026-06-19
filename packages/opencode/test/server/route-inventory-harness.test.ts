@@ -15,6 +15,20 @@ import {
 
 const root = findWorkspaceRoot(import.meta.url)
 
+const upstreamOnlyHttpApiRoutes = [
+  { method: "GET", path: "/experimental/capabilities" },
+  { method: "GET", path: "/project/:projectID/directories" },
+  { method: "GET", path: "/pty/shells" },
+  { method: "GET", path: "/formatter" },
+  { method: "POST", path: "/experimental/control-plane/move-session" },
+  { method: "POST", path: "/experimental/project/:projectID/copy/generate-name" },
+  { method: "POST", path: "/experimental/session/:sessionID/background" },
+]
+
+function buildInventoryWithUpstreamOnlyRoutes() {
+  return buildRouteInventory({ root, upstreamHttpApiRoutes: upstreamOnlyHttpApiRoutes, requireUpstream: false })
+}
+
 function hasRoute(routes: ReadonlyArray<{ method: string; path: string }>, method: string, path: string) {
   return routes.some((route) => route.method === method && route.path === path)
 }
@@ -249,7 +263,7 @@ describe("route inventory harness", () => {
   })
 
   test("tracks local HttpApi coverage for upstream-only backend JSON routes with local semantics", async () => {
-    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+    const inventory = await buildInventoryWithUpstreamOnlyRoutes()
 
     for (const [method, routePath] of [
       ["GET", "/experimental/capabilities"],
@@ -481,7 +495,7 @@ describe("route inventory harness", () => {
   })
 
   test("classifies upstream HttpApi routes without local product semantics as deferred", async () => {
-    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+    const inventory = await buildInventoryWithUpstreamOnlyRoutes()
 
     for (const [method, routePath] of [
       ["GET", "/formatter"],
