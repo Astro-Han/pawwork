@@ -84,6 +84,19 @@ describe("node runtime Bun boundary", () => {
           isolatedEnv.OPENCODE_TEST_MANAGED_CONFIG_DIR,
         ].map((dir) => fs.mkdir(dir, { recursive: true })),
       )
+      const toolDir = path.join(tmp.path, ".opencode", "tool")
+      await fs.mkdir(toolDir, { recursive: true })
+      await fs.writeFile(
+        path.join(toolDir, "hello.ts"),
+        [
+          "export default {",
+          "  description: 'hello tool',",
+          "  args: {},",
+          "  execute: async () => 'hello world',",
+          "}",
+          "",
+        ].join("\n"),
+      )
 
       await Process.run([process.execPath, "run", "build:embedded-server"], {
         cwd: root,
@@ -141,10 +154,13 @@ describe("node runtime Bun boundary", () => {
         })
 
         try {
-          const result = await request("/experimental/worktree", {
-            method: "POST",
-            body: JSON.stringify({ name: "node-runtime-smoke" }),
-          })
+          const result = {
+            toolIDs: await request("/experimental/tool/ids"),
+            worktree: await request("/experimental/worktree", {
+              method: "POST",
+              body: JSON.stringify({ name: "node-runtime-smoke" }),
+            }),
+          }
           writeFileSync(outputFile, JSON.stringify(result))
         } finally {
           await listener.stop(true)
@@ -168,15 +184,18 @@ describe("node runtime Bun boundary", () => {
 
       expect(result.stdout.toString()).toBe("")
       const output = JSON.parse(await fs.readFile(outputFile, "utf8")) as {
-        status: number
-        body: string
+        toolIDs: { status: number; body: string }
+        worktree: { status: number; body: string }
       }
-      const body = JSON.parse(output.body) as { name: string; directory: string }
+      const toolIDs = JSON.parse(output.toolIDs.body) as string[]
+      const worktree = JSON.parse(output.worktree.body) as { name: string; directory: string }
 
-      expect(output.status).toBe(200)
-      expect(body.name).toBe("node-runtime-smoke")
-      expect(body.directory).toContain(`${path.sep}.worktrees${path.sep}`)
-      expect(path.basename(body.directory)).toBe("node-runtime-smoke")
+      expect(output.toolIDs.status).toBe(200)
+      expect(toolIDs).toContain("hello")
+      expect(output.worktree.status).toBe(200)
+      expect(worktree.name).toBe("node-runtime-smoke")
+      expect(worktree.directory).toContain(`${path.sep}.worktrees${path.sep}`)
+      expect(path.basename(worktree.directory)).toBe("node-runtime-smoke")
     })
   }, 60_000)
 })
