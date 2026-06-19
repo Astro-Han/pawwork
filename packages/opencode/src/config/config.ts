@@ -47,7 +47,6 @@ import { ConfigVariable } from "./variable"
 import { RemoteAuthError } from "./error"
 import { Npm } from "@opencode-ai/core/npm"
 import { Filesystem } from "@/util/filesystem"
-import { Flock } from "@/util/flock"
 import { Installation } from "@/installation"
 import { InstallationPluginVersion } from "@opencode-ai/core/installation/version"
 import { withLifecycleOrigin } from "@/session/lifecycle-provenance"
@@ -424,8 +423,7 @@ export function configFileLockKey(file: string) {
 }
 
 export async function withConfigFileLock<T>(file: string, fn: () => Promise<T>) {
-  await using _ = await Flock.acquire(configFileLockKey(file))
-  return await fn()
+  return EffectFlock.withLockPromise(configFileLockKey(file), fn)
 }
 
 function isWindowsSyncUnsupportedError(error: unknown) {
@@ -759,9 +757,9 @@ const rawLayer = Layer.effect(
       if (!data.$schema) {
         data.$schema = "https://opencode.ai/config.json"
         const updated = text.replace(/^\s*\{/, '{\n  "$schema": "https://opencode.ai/config.json",')
-        yield* Effect.promise(() =>
-          withConfigFileLock(options.path, () => writeConfigTextAtomic(options.path, updated)),
-        ).pipe(Effect.catch(() => Effect.void))
+        yield* flock
+          .withLock(Effect.promise(() => writeConfigTextAtomic(options.path, updated)), configFileLockKey(options.path))
+          .pipe(Effect.catch(() => Effect.void))
       }
       return data
     })

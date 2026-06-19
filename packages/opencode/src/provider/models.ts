@@ -5,9 +5,9 @@ import { rename, rm } from "fs/promises"
 import z from "zod"
 import { Installation } from "../installation"
 import { Flag } from "@opencode-ai/core/flag/flag"
+import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { lazy } from "@/util/lazy"
 import { Filesystem } from "../util/filesystem"
-import { Flock } from "../util/flock"
 import { Hash } from "../util/hash"
 import { withPawWorkProviders } from "./pawwork-providers"
 
@@ -260,7 +260,7 @@ export const Data = lazy(async () => {
     .catch(() => undefined)
   if (snapshot) return snapshot
   if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return {}
-  return Flock.withLock(`models-dev:${filepath}`, async () => {
+  return EffectFlock.withLockPromise(`models-dev:${filepath}`, async () => {
     const overridePath = modelsPathOverride()
     const result = await Filesystem.readJson(overridePath ?? filepath).catch(() => {})
     if (result) return result
@@ -313,7 +313,7 @@ export async function refresh(force = false) {
     catalogVersion++
     return Data.reset()
   }
-  await Flock.withLock(`models-dev:${filepath}`, async () => {
+  await EffectFlock.withLockPromise(`models-dev:${filepath}`, async () => {
     if (skip(force)) {
       catalogVersion++
       return Data.reset()
