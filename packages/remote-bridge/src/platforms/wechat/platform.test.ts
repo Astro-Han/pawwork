@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import type { Platform } from "../../types.ts"
-import type { WeChatMessage, WeChatUpdates } from "./client.ts"
+import { WeChatApiError, type WeChatMessage, type WeChatUpdates } from "./client.ts"
 import { inboundMessage, WeChatPlatform, type WeChatTransport } from "./platform.ts"
 
 const USER = "u_alice@im.wechat"
@@ -20,11 +20,18 @@ function wxMsg(over: Partial<WeChatMessage> = {}): WeChatMessage {
 /** A controllable transport: queued update batches, then blocks until abort. */
 class FakeTransport implements WeChatTransport {
   sends: { toUserId: string; contextToken: string; text: string }[] = []
+  notifyStarts = 0
+  notifyStops = 0
+  /** Set true if a poll ever ran before notifyStart — proves the ordering is wrong. */
+  polledBeforeStart = false
+  /** When set, notifyStart rejects with it (to test the failure path). */
+  notifyStartError: Error | undefined
   private readonly batches: WeChatMessage[][] = []
   pushBatch(msgs: WeChatMessage[]): void {
     this.batches.push(msgs)
   }
   async getUpdates(cursor: string, signal?: AbortSignal): Promise<WeChatUpdates> {
+    if (this.notifyStarts === 0) this.polledBeforeStart = true
     const next = this.batches.shift()
     if (next) return { messages: next, cursor: "cursor-next" }
     await new Promise<void>((resolve) => {
@@ -36,8 +43,13 @@ class FakeTransport implements WeChatTransport {
   async sendMessage(toUserId: string, contextToken: string, text: string): Promise<void> {
     this.sends.push({ toUserId, contextToken, text })
   }
-  async notifyStart(): Promise<void> {}
-  async notifyStop(): Promise<void> {}
+  async notifyStart(): Promise<void> {
+    if (this.notifyStartError) throw this.notifyStartError
+    this.notifyStarts++
+  }
+  async notifyStop(): Promise<void> {
+    this.notifyStops++
+  }
 }
 
 test("inboundMessage accepts a finished user text from the paired sender", () => {
@@ -79,6 +91,41 @@ test("start fires onReady, routes a paired message, and replies with its context
 
   await platform.stop()
   await run
+})
+
+test("notifyStart precedes the first poll; notifyStop runs on stop", async () => {
+  const transport = new FakeTransport()
+  transport.pushBatch([wxMsg({ items: [{ type: 1, text: "hi" }] })])
+  const platform = new WeChatPlatform({ transport, allowFrom: USER })
+  platform.pollRetryMs = 1
+
+  let ready = false
+  const run = platform.start(
+    () => {},
+    () => {
+      ready = true
+    },
+  )
+  await waitUntil(() => ready)
+  expect(transport.notifyStarts).toBe(1)
+  expect(transport.polledBeforeStart).toBe(false) // online before any poll
+
+  await platform.stop()
+  await run
+  expect(transport.notifyStops).toBe(1)
+})
+
+test("a fatal notifyStart error rejects start instead of polling silently", async () => {
+  const transport = new FakeTransport()
+  // A bad token: notifyStart can't mark the bot online, so surfacing it beats
+  // looking connected while every reply after the first is silently dropped.
+  transport.notifyStartError = new WeChatApiError("/ilink/bot/msg/notifystart", 401, undefined, "bad token")
+  const platform = new WeChatPlatform({ transport, allowFrom: USER })
+  platform.pollRetryMs = 1
+
+  await expect(platform.start(() => {})).rejects.toThrow()
+  expect(transport.polledBeforeStart).toBe(false) // never polled — online failed first
+  expect(transport.sends).toEqual([])
 })
 
 async function waitUntil(cond: () => boolean, timeoutMs = 2000): Promise<void> {

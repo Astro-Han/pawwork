@@ -99,15 +99,23 @@ export class WeChatPlatform implements Platform {
    * already-cursored message, so there is no Telegram-style backlog to drain.
    */
   private async runLoop(handler: MessageHandler, signal: AbortSignal, onReady?: () => void): Promise<void> {
-    // Register as online before the first poll; without it iLink delivers only the
-    // first reply per connection. Best-effort: a failed notify must not block polling.
-    await this.opts.transport.notifyStart(signal).catch(() => {})
     let cursor = ""
+    let started = false
     let ready = false
     let backoff = this.pollRetryMs
     while (!signal.aborted) {
       let updates: WeChatUpdates
       try {
+        // Mark the bot online before the first poll. iLink delivers only the first
+        // reply per connection to a bot it has not seen notifyStart from, so a failed
+        // notifyStart silently reproduces that drop while we look connected — it must
+        // not be swallowed. Folded into the loop's discipline: a fatal token error
+        // rejects start(), a transient one backs off and retries, and `ready` (the
+        // "connected" signal) only fires once the bot is actually online.
+        if (!started) {
+          await this.opts.transport.notifyStart(signal)
+          started = true
+        }
         updates = await this.opts.transport.getUpdates(cursor, signal)
       } catch (err) {
         if (signal.aborted) return
