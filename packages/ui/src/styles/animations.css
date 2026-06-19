@@ -5,6 +5,7 @@
   /* PawWork motion primitives · STANDARDS L22 */
   --animate-pw-spin:    pw-spin 700ms linear infinite;
   --animate-pw-rail:    pw-rail 1400ms linear infinite;
+  --animate-radar:      radar 2.4s ease-out infinite;
 }
 
 @keyframes pulse-opacity {
@@ -62,6 +63,14 @@
 @keyframes pw-rail {
   from { transform: translateX(-100%); }
   to   { transform: translateX(500%); }
+}
+
+/* Sonar ripple: a ring grows from the core outward and fades. Stacked with
+ * staggered delays it reads as "listening" — used by the remote pairing dialog
+ * while it waits for the user's first message. */
+@keyframes radar {
+  0%   { transform: scale(0.45); opacity: 0.55; }
+  100% { transform: scale(1);    opacity: 0; }
 }
 
 .fade-up-text {

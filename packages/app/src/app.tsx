@@ -49,6 +49,7 @@ import type { AboutInfo, RemoteBridge, RendererDiagnosticInput, RendererDiagnost
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
 import AutomationsRoute from "@/pages/automations/automations-route"
+import RemoteRoute from "@/pages/remote/remote-route"
 import SettingsRoute from "@/pages/settings/settings-route"
 import SkillsRoute from "@/pages/skills/skills-route"
 import { ErrorPage } from "./pages/error"
@@ -439,6 +440,7 @@ export function AppInterface(props: {
                 <Route path="/settings" component={SettingsRoute} />
                 <Route path="/automations" component={AutomationsRoute} />
                 <Route path="/skills" component={SkillsRoute} />
+                <Route path="/remote" component={RemoteRoute} />
                 <Route path="/:dir" component={DirectoryLayout}>
                   <Route path="/" component={SessionIndexRoute} />
                   <Route path="/session/:id?" component={SessionRoute} />

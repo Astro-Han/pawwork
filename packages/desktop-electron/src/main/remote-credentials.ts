@@ -1,43 +1,41 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
-import type { CredentialStore, RemoteCredentials } from "./remote-bridge"
+import type { CredentialStore, RemoteAccount } from "./remote-bridge"
 
-// Chat credentials (bot token + paired user id) are secrets. The token crosses
-// IPC exactly once, inbound, when the user pastes it into the connect dialog;
-// from there it lives only in the main process, encrypted at rest with Electron
-// safeStorage. It is never sent back out: the renderer only ever reads masked
-// status, confirmPairing carries no token, and the stored secret never returns
-// over IPC. Stored separately from electron-store (which the renderer can read)
-// for that reason.
+// Chat accounts (bot tokens, paired ids) are secrets. A secret crosses IPC exactly
+// once, inbound, during pairing — the Telegram token when pasted. From
+// there secrets live only in the main process, encrypted at rest with Electron
+// safeStorage, and are never sent back out: the renderer only ever reads masked
+// status, confirmPairing carries no secret, and the stored file never returns over
+// IPC. Stored separately from electron-store (which the renderer can read) for that
+// reason.
 
-const FILE_VERSION = 1
+const FILE_VERSION = 2
 
 interface Envelope {
   version: number
-  cipher: string // base64 of safeStorage.encryptString(JSON)
+  cipher: string // base64 of safeStorage.encryptString(JSON of RemoteAccount[])
 }
 
 /**
- * The OS-backed bits the credential store depends on: where the files live and
- * the safeStorage crypto. Injected rather than imported so this module stays free
- * of Electron — the store is unit-tested with a fake env. (Importing "electron"
- * in a unit test is order-dependent — other test files mock it — and throws
- * outright without an installed binary.) The Electron-backed env is wired in
- * index.ts.
+ * The OS-backed bits the credential store depends on: where the file lives and the
+ * safeStorage crypto. Injected rather than imported so this module stays free of
+ * Electron — the store is unit-tested with a fake env. (Importing "electron" in a
+ * unit test is order-dependent — other test files mock it — and throws outright
+ * without an installed binary.) The Electron-backed env is wired in index.ts.
  */
 export interface CredentialStoreEnv {
   credentialsFile(): string
-  stateFile(): string
   isEncryptionAvailable(): boolean
   encryptString(plain: string): Buffer
   decryptString(cipher: Buffer): string
 }
 
 /**
- * safeStorage-backed credential store. Encryption is required: if the OS keyring
- * is unavailable (e.g. a headless Linux box with no secret service) we refuse to
+ * safeStorage-backed account store. Encryption is required: if the OS keyring is
+ * unavailable (e.g. a headless Linux box with no secret service) we refuse to
  * persist rather than silently write a plaintext token. macOS and Windows always
- * have it.
+ * have it. Holds the full account list — one entry per connected platform.
  */
 export function safeStorageCredentialStore(env: CredentialStoreEnv): CredentialStore {
   return {
@@ -45,32 +43,44 @@ export function safeStorageCredentialStore(env: CredentialStoreEnv): CredentialS
       return env.isEncryptionAvailable()
     },
 
-    load(): RemoteCredentials | null {
+    load(): RemoteAccount[] {
       const file = env.credentialsFile()
-      if (!existsSync(file)) return null
+      if (!existsSync(file)) return []
       try {
         const envelope = JSON.parse(readFileSync(file, "utf8")) as Envelope
-        if (!envelope?.cipher) return null
+        if (!envelope?.cipher) return []
         const plain = env.decryptString(Buffer.from(envelope.cipher, "base64"))
-        const parsed = JSON.parse(plain) as RemoteCredentials
-        if (!parsed?.token || !parsed?.allowFrom) return null
-        // userName is the non-secret display name approved at pairing; without it
-        // the settings page falls back to the raw user id after a restart.
-        return { token: parsed.token, allowFrom: parsed.allowFrom, userName: parsed.userName }
+        const parsed = JSON.parse(plain) as unknown
+        if (Array.isArray(parsed)) return parsed.filter(isAccount)
+        // v1 migration: the old format stored a single Telegram credential object.
+        // Wrap it so an existing pairing survives the upgrade rather than silently
+        // dropping the user back to "not connected".
+        const legacy = parsed as Record<string, unknown>
+        if (typeof legacy?.token === "string" && typeof legacy?.allowFrom === "string") {
+          return [
+            {
+              platform: "telegram",
+              token: legacy.token,
+              allowFrom: legacy.allowFrom,
+              userName: typeof legacy.userName === "string" ? legacy.userName : undefined,
+            },
+          ]
+        }
+        return []
       } catch {
-        // A corrupt or undecryptable file (e.g. moved between machines) is
-        // treated as "not connected" rather than crashing startup.
-        return null
+        // A corrupt or undecryptable file (e.g. moved between machines) is treated
+        // as "not connected" rather than crashing startup.
+        return []
       }
     },
 
-    save(creds: RemoteCredentials): void {
+    save(accounts: RemoteAccount[]): void {
       if (!env.isEncryptionAvailable()) {
-        throw new Error("secure storage is unavailable on this system, cannot save the bot token")
+        throw new Error("secure storage is unavailable on this system, cannot save the connection")
       }
       const file = env.credentialsFile()
       mkdirSync(path.dirname(file), { recursive: true })
-      const cipher = env.encryptString(JSON.stringify(creds)).toString("base64")
+      const cipher = env.encryptString(JSON.stringify(accounts)).toString("base64")
       const envelope: Envelope = { version: FILE_VERSION, cipher }
       writeFileSync(file, JSON.stringify(envelope), { mode: 0o600 })
       // writeFileSync's mode only applies when the file is created; rewriting an
@@ -81,8 +91,22 @@ export function safeStorageCredentialStore(env: CredentialStoreEnv): CredentialS
     },
 
     clear(): void {
+      // A removal, not a write: no encryption needed, so disconnect can revoke
+      // access even when the keyring is locked. force ignores a missing file.
       rmSync(env.credentialsFile(), { force: true })
-      rmSync(env.stateFile(), { force: true })
     },
+  }
+}
+
+/** Reject anything that is not a recognizable account, so a tampered or
+ * partially-written file degrades to "not connected" per platform, not a crash. */
+function isAccount(value: unknown): value is RemoteAccount {
+  if (!value || typeof value !== "object") return false
+  const account = value as Record<string, unknown>
+  switch (account.platform) {
+    case "telegram":
+      return typeof account.token === "string" && typeof account.allowFrom === "string"
+    default:
+      return false
   }
 }
