@@ -26,9 +26,7 @@ export const AutomationRunTable = sqliteTable(
   "automation_run",
   {
     id: text().primaryKey().$type<Automation.Run["id"]>(),
-    automation_id: text()
-      .notNull()
-      .references(() => AutomationDefinitionTable.id, { onDelete: "cascade" }),
+    automation_id: text().notNull(),
     project_id: text()
       .$type<ProjectID>()
       .notNull()

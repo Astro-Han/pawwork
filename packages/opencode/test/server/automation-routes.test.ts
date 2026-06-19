@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { Hono } from "hono"
 import { Log } from "@opencode-ai/core/util/log"
 import { Automation, AutomationID } from "../../src/automation"
+import { AutomationRunTable } from "../../src/automation/automation.sql"
 import { AutomationScheduler } from "../../src/automation/scheduler"
 import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
@@ -10,6 +11,7 @@ import { ErrorMiddleware } from "../../src/server/middleware"
 import { AutomationRoutes } from "../../src/server/instance/automation"
 import { PermissionID } from "../../src/permission/schema"
 import { SessionID } from "../../src/session/schema"
+import { Database, eq } from "../../src/storage/db"
 import { Flock } from "../../src/util/flock"
 import { tmpdir } from "../fixture/fixture"
 
@@ -732,18 +734,18 @@ describe("automation routes", () => {
     })
   })
 
-  test("delete rejects a live run owned by another process", async () => {
+  test("delete removes the definition while a live run is owned by another process", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const created = Automation.create(recurringInput(projectID), { now: 100 })
       const active = Automation.runNow(created.id, { now: 200 })
       await using _ = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
 
-      const response = await app.request(`/automation/${created.id}`, { method: "DELETE" })
+      const deleted = await json(app, `/automation/${created.id}`, { method: "DELETE" })
 
-      expect(response.status).toBe(409)
-      expect(await response.json()).toEqual({ error: "active_run_still_running", runID: active.id })
-      expect(Automation.get(created.id).id).toBe(created.id)
-      expect(Automation.runs({ automationID: created.id }).items[0]).toMatchObject({
+      expect(deleted).toEqual({ id: created.id, deleted: true, revision: 2 })
+      expect(() => Automation.get(created.id)).toThrow()
+      const row = Database.use((db) => db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, active.id)).get())
+      expect(row ? Automation.Run.parse(row.data) : undefined).toMatchObject({
         id: active.id,
         state: "scheduled",
       })
@@ -1238,28 +1240,29 @@ describe("automation routes", () => {
     const update409 = paths["/automation/{automationID}"].put.responses["409"].content["application/json"].schema
     const pause409 = paths["/automation/{automationID}/pause"].post.responses["409"].content["application/json"].schema
     const resume409 = paths["/automation/{automationID}/resume"].post.responses["409"].content["application/json"].schema
-    const delete409 = paths["/automation/{automationID}"].delete.responses["409"].content["application/json"].schema
+    const deleteResponses = paths["/automation/{automationID}"].delete.responses
 
     expect(create422).toEqual({ $ref: "#/components/schemas/AutomationValidationError" })
     expect(update422).toEqual({ $ref: "#/components/schemas/AutomationValidationError" })
     expect(update409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
     expect(pause409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
     expect(resume409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
-    expect(delete409).toEqual({ $ref: "#/components/schemas/AutomationActiveRunStillRunningError" })
+    expect(deleteResponses).not.toHaveProperty("409")
     expect(spec.components?.schemas).toHaveProperty("AutomationValidationError")
     expect(spec.components?.schemas).toHaveProperty("AutomationConflictError")
-    expect(spec.components?.schemas).toHaveProperty("AutomationActiveRunStillRunningError")
+    expect(spec.components?.schemas).not.toHaveProperty("AutomationActiveRunStillRunningError")
   })
 
-  test("openapi describes delete active-run stop side effect", async () => {
+  test("openapi describes delete as preserving already-started runs", async () => {
     const { Server } = await import("../../src/server/server")
     const spec = await Server.openapi()
     const paths = spec.paths as Record<string, any>
     const description = paths["/automation/{automationID}"].delete.description
 
-    expect(description).toContain("If a run is active")
-    expect(description).toContain("publish the stopped run")
-    expect(description).toContain("live run is owned by another process")
+    expect(description).toContain("Already-started runs continue")
+    expect(description).not.toContain("run stop endpoint")
+    expect(description).not.toContain("publish the stopped run")
+    expect(description).not.toContain("live run is owned by another process")
   })
 
   test("runNow returns the queued run before background execution updates it", async () => {

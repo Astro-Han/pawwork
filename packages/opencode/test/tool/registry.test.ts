@@ -113,6 +113,37 @@ describe("tool.registry", () => {
     })
   })
 
+  test("tool_info describes automate_manage delete as preserving already-started runs", async () => {
+    await using tmp = await tmpdir()
+
+    await withMockedConfigInstall(async () => {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const tools = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary" as const, permission: [], options: {} },
+          })
+          const toolInfo = tools.find((tool) => tool.id === "tool_info")!
+          const ctx = {
+            sessionID: SessionID.descending(),
+            messageID: MessageID.ascending(),
+            agent: "build",
+            abort: new AbortController().signal,
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          }
+
+          const result = await Effect.runPromise(toolInfo.execute({ name: "automate_manage" }, ctx))
+          expect(result.output).toContain("already-started runs continue")
+          expect(result.output).not.toContain("active run prevents removal")
+        },
+      })
+    })
+  })
+
   test("keeps trash removal contract across prompt and package surfaces", async () => {
     const shellDescription = await Bun.file(new URL("../../src/tool/shell.txt", import.meta.url)).text()
     expect(shellDescription).not.toContain("trash tool")
@@ -148,11 +179,19 @@ describe("tool.registry", () => {
   test("keeps scheduling routing contract across prompt surfaces", async () => {
     const shellDescription = await Bun.file(new URL("../../src/tool/shell.txt", import.meta.url)).text()
     expect(shellDescription).toContain("Scheduled or delayed tasks: Use the automate tool")
+    expect(shellDescription).toContain("polling, monitoring, or repeated-check tasks")
+    expect(shellDescription).toContain("over 60 seconds")
     expect(shellDescription).toContain("Existing PawWork Automations: Use automate_manage via tool_info")
 
     const systemPrompt = await Bun.file(new URL("../../src/session/prompt/pawwork.txt", import.meta.url)).text()
     expect(systemPrompt).toContain("# Scheduling, reminders, and recurring work")
     expect(systemPrompt).toContain("`automate` tool")
+    expect(systemPrompt).toContain("monitor, poll, or watch something over time")
+    expect(systemPrompt).toContain("every N minutes")
+    expect(systemPrompt).toContain("until a status changes")
+    expect(systemPrompt).toContain("short bounded waits")
+    expect(systemPrompt).toContain("60 seconds total")
+    expect(systemPrompt).toContain("minute-scale polling")
     expect(systemPrompt).toContain("`automate_manage`")
     expect(systemPrompt).toContain("launchd")
     expect(systemPrompt).toContain("by writing files")

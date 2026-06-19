@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { Effect, ManagedRuntime, Schema } from "effect"
 import { Automation } from "../../src/automation"
+import { AutomationRunTable } from "../../src/automation/automation.sql"
 import { AutomationScheduler } from "../../src/automation/scheduler"
 import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
@@ -9,6 +10,7 @@ import { MessageID, SessionID } from "../../src/session/schema"
 import { AutomateManageParameters, createAutomateManageDefinition } from "../../src/tool/automate-manage"
 import { toJsonSchema } from "../../src/util/effect-zod"
 import { Flock } from "../../src/util/flock"
+import { Database, eq } from "../../src/storage/db"
 import { tmpdir } from "../fixture/fixture"
 import { fakeAutomationProvider } from "../fake/provider"
 
@@ -299,7 +301,7 @@ describe("automate_manage tool", () => {
     })
   })
 
-  test("delete preserves the automation when a live active run is still running", async () => {
+  test("delete removes the automation while a live active run is still running", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -309,11 +311,17 @@ describe("automate_manage tool", () => {
         const active = Automation.runNow(created.id, { now: 200 })
         await using _lease = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
 
-        await expect(
-          Effect.runPromise(tool().execute({ action: "delete", id: created.id }, toolContext())),
-        ).rejects.toThrow(`Cannot delete automation ${created.id}: active_run_still_running (${active.id})`)
+        const result = await Effect.runPromise(tool().execute({ action: "delete", id: created.id }, toolContext()))
 
-        expect(Automation.get(created.id).id).toBe(created.id)
+        expect(result.title).toBe("Automation deleted")
+        expect(result.metadata.automationTombstone).toEqual({ id: created.id, deleted: true, revision: 2 })
+        expect(result.metadata).not.toHaveProperty("stoppedRun")
+        expect(() => Automation.get(created.id)).toThrow()
+        const row = Database.use((db) => db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, active.id)).get())
+        expect(row ? Automation.Run.parse(row.data) : undefined).toMatchObject({
+          id: active.id,
+          state: "scheduled",
+        })
       },
     })
   })
