@@ -11,6 +11,22 @@ import { Log } from "@opencode-ai/core/util/log"
 import { lazy } from "../../util/lazy"
 
 const log = Log.create({ service: "server" })
+const runConfigRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
+
+export const getConfig = Effect.fn("ConfigRoutes.get")(function* () {
+  const config = yield* Config.Service
+  return yield* config.get()
+})
+
+export const updateConfig = Effect.fn("ConfigRoutes.update")(function* (input: Config.Info) {
+  const config = yield* Config.Service
+  yield* config.update(input)
+})
+
+export const listConfigProviders = Effect.fn("ConfigRoutes.providers")(function* () {
+  const provider = yield* Provider.Service
+  return yield* provider.list()
+})
 
 export const ConfigRoutes = lazy(() =>
   new Hono()
@@ -32,12 +48,7 @@ export const ConfigRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const config = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const service = yield* Config.Service
-            return yield* service.get()
-          }),
-        )
+        const config = await runConfigRoute(getConfig())
         return c.json(config)
       },
     )
@@ -62,12 +73,7 @@ export const ConfigRoutes = lazy(() =>
       validator("json", Config.Info.zod),
       async (c) => {
         const config = c.req.valid("json")
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const service = yield* Config.Service
-            yield* service.update(config)
-          }),
-        )
+        await runConfigRoute(updateConfig(config))
         return c.json(config)
       },
     )
@@ -95,12 +101,7 @@ export const ConfigRoutes = lazy(() =>
       }),
       async (c) => {
         using _ = log.time("providers")
-        const providers = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const service = yield* Provider.Service
-            return yield* service.list()
-          }),
-        )
+        const providers = await runConfigRoute(listConfigProviders())
         return c.json({
           providers: Object.values(providers),
           default: mapValues(providers, (item) => Provider.defaultModelID(item)),
