@@ -113,6 +113,37 @@ describe("tool.registry", () => {
     })
   })
 
+  test("tool_info describes automate_manage delete as preserving already-started runs", async () => {
+    await using tmp = await tmpdir()
+
+    await withMockedConfigInstall(async () => {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const tools = await ToolRegistry.tools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary" as const, permission: [], options: {} },
+          })
+          const toolInfo = tools.find((tool) => tool.id === "tool_info")!
+          const ctx = {
+            sessionID: SessionID.descending(),
+            messageID: MessageID.ascending(),
+            agent: "build",
+            abort: new AbortController().signal,
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          }
+
+          const result = await Effect.runPromise(toolInfo.execute({ name: "automate_manage" }, ctx))
+          expect(result.output).toContain("already-started runs continue")
+          expect(result.output).not.toContain("active run prevents removal")
+        },
+      })
+    })
+  })
+
   test("keeps trash removal contract across prompt and package surfaces", async () => {
     const shellDescription = await Bun.file(new URL("../../src/tool/shell.txt", import.meta.url)).text()
     expect(shellDescription).not.toContain("trash tool")
