@@ -65,6 +65,9 @@ test("remote-surface", async ({ page, project }) => {
   shots.push({ name: "telegram-token", buf: await dialog.screenshot() })
   await dialog.getByRole("textbox").first().fill("8403172:AAExampleBotTokenForPreview")
   await dialog.getByRole("button", { name: "Continue" }).click()
+  // Continue shows a "checking" step; the backend emits awaitingBind once the token
+  // is validated. The stub has no backend, so drive that event to reach the bind step.
+  await page.evaluate(() => (window as any).__remote.emit({ phase: "awaitingBind", platform: "telegram", hint: "message" }))
   await dialog.getByText("Message the bot").waitFor({ state: "visible", timeout: 30_000 })
   shots.push({ name: "telegram-bind", buf: await dialog.screenshot() })
 

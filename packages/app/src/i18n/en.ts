@@ -997,6 +997,7 @@ export const dict = {
   "remote.connect.token.placeholder": "123456789:ABCdef…",
   "remote.connect.token.help":
     "Create a bot with @BotFather in Telegram, then paste the token it gives you. It's stored encrypted on this computer.",
+  "remote.connect.checking.title": "Checking token…",
   "remote.connect.bind.message.title": "Message the bot",
   "remote.connect.bind.message.body":
     "Send any message to the bot from your phone. The first sender becomes the only person who can drive your agent.",

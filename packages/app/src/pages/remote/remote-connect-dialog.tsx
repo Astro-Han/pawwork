@@ -15,7 +15,7 @@ import type { RemotePairingEvent, RemotePlatform } from "@/desktop-api-contract"
 // back: confirm approves the captured identity, and the token crossed once on
 // startPairing. Built around the generic event shape so new platforms slot in.
 
-type Phase = "token" | "bind" | "confirm" | "error"
+type Phase = "token" | "checking" | "bind" | "confirm" | "error"
 
 export function DialogConnectRemote(props: {
   platform: RemotePlatform
@@ -69,9 +69,11 @@ export function DialogConnectRemote(props: {
     const api = remote()
     const token = store.token.trim()
     if (!api || token === "" || store.busy) return
-    // The bot is messaged next; show the bind step and let the event stream advance
-    // us to confirm. startPairing emits awaitingBind then captured.
-    setStore({ phase: "bind", error: undefined })
+    // Show "checking" and let the event stream advance us: startPairing validates
+    // the token first and only then emits awaitingBind (→ bind) or error. Jumping
+    // straight to bind here would tell the user to message the bot before the token
+    // is even known to be good.
+    setStore({ phase: "checking", error: undefined })
     void api.startPairing("telegram", { token })
   }
 
@@ -117,6 +119,20 @@ export function DialogConnectRemote(props: {
                 </Button>
               </div>
             </form>
+          </Match>
+
+          <Match when={store.phase === "checking"}>
+            <div class="flex flex-col gap-3">
+              <div class="flex items-center gap-2 text-body text-fg-strong">
+                <Spinner />
+                <span>{language.t("remote.connect.checking.title")}</span>
+              </div>
+              <div class="flex justify-end">
+                <Button variant="secondary" onClick={() => dialog.close()}>
+                  {language.t("common.cancel")}
+                </Button>
+              </div>
+            </div>
           </Match>
 
           <Match when={store.phase === "bind"}>

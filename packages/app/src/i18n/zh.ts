@@ -877,6 +877,7 @@ export const dict = {
   "remote.connect.token.label": "机器人 Token",
   "remote.connect.token.placeholder": "123456789:ABCdef…",
   "remote.connect.token.help": "在 Telegram 里用 @BotFather 创建一个机器人，把它给你的 Token 粘贴进来。Token 会加密保存在本机。",
+  "remote.connect.checking.title": "正在验证 Token…",
   "remote.connect.bind.message.title": "给机器人发条消息",
   "remote.connect.bind.message.body": "在手机上给机器人发任意一条消息。第一个发消息的人会成为唯一能操控你智能体的人。",
   "remote.connect.confirm.title": "允许这个连接？",
