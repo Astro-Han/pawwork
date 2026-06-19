@@ -1,15 +1,15 @@
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Global } from "@opencode-ai/core/global"
 import { Log } from "../util"
 import path from "path"
-import { rename, rm } from "fs/promises"
 import z from "zod"
 import { Installation } from "../installation"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
-import { lazy } from "@/util/lazy"
-import { Filesystem } from "../util/filesystem"
 import { Hash } from "../util/hash"
 import { withPawWorkProviders } from "./pawwork-providers"
+import { Context, Effect, Layer, Option } from "effect"
+import { makeRuntime } from "../effect/run-service"
 
 // Try to import bundled snapshot (generated at build time)
 // Falls back to undefined in dev mode when snapshot doesn't exist
@@ -190,98 +190,221 @@ export function version() {
   return catalogVersion
 }
 
-function fresh() {
-  return Date.now() - Number(Filesystem.stat(filepath)?.mtimeMs ?? 0) < ttl
-}
-
-function skip(force: boolean) {
-  return !force && fresh()
-}
-
-const fetchApi = async () => {
-  const result = await fetch(`${url()}/api.json`, {
-    headers: { "User-Agent": Installation.HTTP_USER_AGENT },
-    signal: AbortSignal.timeout(10000),
-  })
-  return { ok: result.ok, text: await result.text() }
-}
+const fetchApi = Effect.fn("ModelsDev.fetchApi")(function* () {
+  const result = yield* Effect.tryPromise(() =>
+    fetch(`${url()}/api.json`, {
+      headers: { "User-Agent": Installation.HTTP_USER_AGENT },
+      signal: AbortSignal.timeout(10000),
+    }),
+  )
+  return {
+    ok: result.ok,
+    text: yield* Effect.tryPromise(() => result.text()),
+  }
+})
 
 type Catalog = Record<string, Provider>
 
-function parseCatalog(text: string): Catalog {
-  const parsed = JSON.parse(text)
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("models.dev catalog must be an object")
-  }
-  return PublishCatalog.parse(parsed) as unknown as Catalog
+export interface Interface {
+  readonly data: () => Effect.Effect<Catalog, unknown>
+  readonly reset: () => Effect.Effect<void>
+  readonly refresh: (force?: boolean) => Effect.Effect<void>
 }
 
-async function validateCatalog(catalog: Catalog) {
-  const runtime = await import("./provider")
-  const withLocalProviders = withPawWorkProviders(catalog)
-  for (const provider of Object.values(withLocalProviders)) {
-    runtime.fromModelsDevProvider(provider)
-  }
+export class Service extends Context.Service<Service, Interface>()("@opencode/ModelsDev") {}
+
+function cacheFresh(fs: AppFileSystem.Interface) {
+  return fs.stat(filepath).pipe(
+    Effect.map((info) => {
+      const mtime = info.mtime.pipe(
+        Option.map((date) => date.getTime()),
+        Option.getOrElse(() => 0),
+      )
+      return Date.now() - mtime < ttl
+    }),
+    Effect.catch(() => Effect.succeed(false)),
+  )
 }
 
-async function atomicWriteFile(target: string, content: string) {
-  const temp = `${target}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
-  try {
-    await Filesystem.write(temp, content)
-    await rename(temp, target)
-  } catch (error) {
-    await rm(temp, { force: true })
-    throw error
-  }
+function skipCache(fs: AppFileSystem.Interface, force: boolean) {
+  if (force) return Effect.succeed(false)
+  return cacheFresh(fs)
 }
 
-async function publishCandidate(text: string) {
-  const catalog = parseCatalog(text)
-  await validateCatalog(catalog)
-  await atomicWriteFile(filepath, text)
-  catalogVersion++
-  Data.reset()
-  return withPawWorkProviders(catalog)
+function lockKey() {
+  return `models-dev:${filepath}`
 }
 
-async function loadCandidate(text: string) {
-  const catalog = parseCatalog(text)
-  await validateCatalog(catalog)
-  return withPawWorkProviders(catalog)
+function readJsonOptional(fs: AppFileSystem.Interface, target: string) {
+  return fs.readFileString(target).pipe(
+    Effect.flatMap((text) =>
+      Effect.try({
+        try: () => JSON.parse(text) as unknown,
+        catch: (error) => error,
+      }),
+    ),
+    Effect.catch(() => Effect.succeed(undefined)),
+  )
 }
 
-export const Data = lazy(async () => {
-  const overridePath = modelsPathOverride()
-  const result = await Filesystem.readJson(overridePath ?? filepath).catch(() => {})
-  if (result) return result
-  // @ts-ignore
-  const snapshot = await import("./models-snapshot.js")
-    .then((m) => m.snapshot as Record<string, unknown>)
-    .catch(() => undefined)
-  if (snapshot) return snapshot
-  if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return {}
-  return EffectFlock.withLockPromise(`models-dev:${filepath}`, async () => {
-    const overridePath = modelsPathOverride()
-    const result = await Filesystem.readJson(overridePath ?? filepath).catch(() => {})
-    if (result) return result
-    const result2 = await fetchApi()
-    if (result2.ok) {
-      try {
-        const catalog = await loadCandidate(result2.text)
-        try {
-          await atomicWriteFile(filepath, result2.text)
-          catalogVersion++
-        } catch (e) {
-          log.warn("failed to write initial models.dev catalog", { error: e })
-        }
-        return catalog
-      } catch (e) {
-        log.warn("failed to publish initial models.dev catalog", { error: e })
-      }
-    }
-    return {}
+function loadSnapshot() {
+  return Effect.promise(async () => {
+    // @ts-ignore generated at build time
+    return import("./models-snapshot.js")
+      .then((m) => m.snapshot as Record<string, unknown>)
+      .catch(() => undefined)
   })
-})
+}
+
+function atomicWriteFile(fs: AppFileSystem.Interface, target: string, content: string) {
+  const temp = `${target}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
+  return Effect.gen(function* () {
+    yield* fs.writeWithDirs(temp, content)
+    yield* fs.rename(temp, target)
+  }).pipe(Effect.ensuring(fs.remove(temp).pipe(Effect.ignore)))
+}
+
+function loadCandidate(text: string) {
+  return Effect.gen(function* () {
+    const catalog = yield* Effect.try({
+      try: () => parseCatalog(text),
+      catch: (error) => error,
+    })
+    const runtime = yield* Effect.tryPromise({
+      try: () => import("./provider"),
+      catch: (error) => error,
+    })
+    const withLocalProviders = withPawWorkProviders(catalog)
+    yield* Effect.try({
+      try: () => {
+        for (const provider of Object.values(withLocalProviders)) {
+          runtime.fromModelsDevProvider(provider)
+        }
+      },
+      catch: (error) => error,
+    })
+    return withLocalProviders
+  })
+}
+
+export const layer = Layer.effect(
+  Service,
+  Effect.gen(function* () {
+    const fs = yield* AppFileSystem.Service
+    const flock = yield* EffectFlock.Service
+
+    const loadData = Effect.fn("ModelsDev.data.load")(function* () {
+      const overridePath = modelsPathOverride()
+      const result = yield* readJsonOptional(fs, overridePath ?? filepath)
+      if (result) return result as Catalog
+      const snapshot = yield* loadSnapshot()
+      if (snapshot) return snapshot as Catalog
+      if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return {}
+
+      return yield* flock.withLock(
+        Effect.gen(function* () {
+          const overridePath = modelsPathOverride()
+          const result = yield* readJsonOptional(fs, overridePath ?? filepath)
+          if (result) return result as Catalog
+          const result2 = yield* fetchApi()
+          if (!result2.ok) return {}
+
+          return yield* loadCandidate(result2.text).pipe(
+            Effect.matchEffect({
+              onFailure: (error) =>
+                Effect.sync(() => {
+                  log.warn("failed to publish initial models.dev catalog", { error })
+                  return {}
+                }),
+              onSuccess: (catalog) =>
+                Effect.gen(function* () {
+                  yield* atomicWriteFile(fs, filepath, result2.text).pipe(
+                    Effect.tap(() =>
+                      Effect.sync(() => {
+                        catalogVersion++
+                      }),
+                    ),
+                    Effect.catch((error) =>
+                      Effect.sync(() => {
+                        log.warn("failed to write initial models.dev catalog", { error })
+                      }),
+                    ),
+                  )
+                  return catalog
+                }),
+            }),
+          )
+        }),
+        lockKey(),
+      )
+    })
+
+    let cachedData = yield* Effect.cached(loadData())
+
+    const reset = Effect.fn("ModelsDev.reset")(function* () {
+      cachedData = yield* Effect.cached(loadData())
+    })
+
+    const data = Effect.fn("ModelsDev.data")(function* () {
+      return yield* cachedData
+    })
+
+    const publishCandidate = Effect.fn("ModelsDev.publishCandidate")(function* (text: string) {
+      const catalog = yield* loadCandidate(text)
+      yield* atomicWriteFile(fs, filepath, text)
+      catalogVersion++
+      yield* reset()
+      return catalog
+    })
+
+    const refresh = Effect.fn("ModelsDev.refresh")(function* (force = false) {
+      if (modelsPathOverride()) {
+        catalogVersion++
+        yield* reset()
+        return
+      }
+      if (yield* skipCache(fs, force)) {
+        catalogVersion++
+        yield* reset()
+        return
+      }
+      yield* flock
+        .withLock(
+          Effect.gen(function* () {
+            if (yield* skipCache(fs, force)) {
+              catalogVersion++
+              yield* reset()
+              return
+            }
+            const result = yield* fetchApi()
+            if (!result.ok) return
+            yield* publishCandidate(result.text)
+          }),
+          lockKey(),
+        )
+        .pipe(
+          Effect.catch((error) =>
+            Effect.sync(() => {
+              log.error("Failed to fetch models.dev", { error })
+            }),
+          ),
+        )
+    })
+
+    return Service.of({ data, reset, refresh })
+  }),
+)
+
+export const defaultLayer = layer.pipe(Layer.provide(EffectFlock.defaultLayer), Layer.provide(AppFileSystem.defaultLayer))
+
+const { runPromise, runSync } = makeRuntime(Service, defaultLayer)
+
+export const Data = Object.assign(
+  () => runPromise((svc) => svc.data()),
+  {
+    reset: () => runSync((svc) => svc.reset()),
+  },
+)
 
 export async function get() {
   const result = await Data()
@@ -304,32 +427,22 @@ export async function getWithVersion() {
 }
 
 export async function refresh(force = false) {
-  if (modelsPathOverride()) {
-    catalogVersion++
-    Data.reset()
-    return
+  return runPromise((svc) => svc.refresh(force))
+}
+
+function parseCatalog(text: string): Catalog {
+  const parsed = JSON.parse(text)
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("models.dev catalog must be an object")
   }
-  if (skip(force)) {
-    catalogVersion++
-    return Data.reset()
-  }
-  await EffectFlock.withLockPromise(`models-dev:${filepath}`, async () => {
-    if (skip(force)) {
-      catalogVersion++
-      return Data.reset()
-    }
-    const result = await fetchApi()
-    if (!result.ok) return
-    await publishCandidate(result.text)
-  }).catch((e) => {
-    log.error("Failed to fetch models.dev", {
-      error: e,
-    })
-  })
+  return PublishCatalog.parse(parsed) as unknown as Catalog
 }
 
 const ModelsDevModelValue = Model
 const ModelsDevProviderValue = Provider
+const ModelsDevServiceValue = Service
+const ModelsDevLayerValue = layer
+const ModelsDevDefaultLayerValue = defaultLayer
 const ModelsDevDataValue = Data
 const ModelsDevGetValue = get
 const ModelsDevGetWithVersionValue = getWithVersion
@@ -339,9 +452,13 @@ const ModelsDevVersionValue = version
 export namespace ModelsDev {
   export type Model = import("./models").Model
   export type Provider = import("./models").Provider
+  export type Interface = import("./models").Interface
 
   export const Model = ModelsDevModelValue
   export const Provider = ModelsDevProviderValue
+  export const Service = ModelsDevServiceValue
+  export const layer = ModelsDevLayerValue
+  export const defaultLayer = ModelsDevDefaultLayerValue
   export const Data = ModelsDevDataValue
   export const get = ModelsDevGetValue
   export const getWithVersion = ModelsDevGetWithVersionValue

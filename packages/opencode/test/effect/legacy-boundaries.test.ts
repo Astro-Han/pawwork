@@ -41,5 +41,11 @@ test("async lazy stays in explicit compatibility boundaries", async () => {
     if (/\blazy\s*\(\s*async\b/.test(text)) hits.push(relativeSource(file))
   }
 
-  expect(hits.sort()).toEqual(["control-plane/adaptors/index.ts", "provider/models.ts"])
+  expect(hits.sort()).toEqual(["control-plane/adaptors/index.ts"])
+})
+
+test("provider models catalog cache does not use Promise flock compatibility", async () => {
+  const text = await readFile(path.join(srcRoot, "provider/models.ts"), "utf8")
+
+  expect(text).not.toContain("EffectFlock.withLockPromise")
 })
