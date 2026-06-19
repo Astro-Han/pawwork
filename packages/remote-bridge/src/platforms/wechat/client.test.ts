@@ -231,6 +231,19 @@ test("a 2xx non-JSON body raises WeChatApiError instead of passing as empty succ
   }
 })
 
+test("a 2xx JSON array body raises WeChatApiError, not a fake empty success", async () => {
+  // `typeof [] === "object"` would let an array slip through as the keyed body — it
+  // isn't one, so it must be rejected like any other non-object response.
+  const server = mockServer(() => new Response("[]", { status: 200, headers: { "content-type": "application/json" } }))
+  try {
+    const client = new WeChatClient({ baseURL: server.url, botToken: "t" })
+    await expect(client.getUpdates("")).rejects.toThrow("invalid JSON response")
+    await expect(client.getQrcodeStatus("QR1")).rejects.toThrow("invalid JSON response")
+  } finally {
+    server.stop()
+  }
+})
+
 test("a non-zero ret raises WeChatApiError; 401 is fatal", async () => {
   const server = mockServer(() => json({ ret: -2, errmsg: "rate limited" }))
   try {

@@ -257,7 +257,9 @@ export class WeChatClient {
     let parsed = true
     try {
       const json = await res.json()
-      if (json && typeof json === "object") data = json as Record<string, unknown>
+      // A JSON array is `typeof "object"` too, but it's not the keyed body the API
+      // returns — treat it like any other non-object body (fall through to the throw).
+      if (json && typeof json === "object" && !Array.isArray(json)) data = json as Record<string, unknown>
       else parsed = false
     } catch {
       parsed = false
