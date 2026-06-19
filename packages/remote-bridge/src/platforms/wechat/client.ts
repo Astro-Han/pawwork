@@ -147,12 +147,17 @@ export class WeChatClient {
     )
     const status = str(data, "status")
     const botToken = str(data, "bot_token")
-    if (status === "confirmed" && botToken !== "") {
+    const userId = str(data, "ilink_user_id")
+    // A confirmed response must carry both the bot token and the paired user id: the
+    // user id becomes `allowFrom`, and an empty one would save a bot that accepts no
+    // one (and a save-then-start that strands a broken account). Treat an incomplete
+    // confirm as still-waiting rather than mint that account.
+    if (status === "confirmed" && botToken !== "" && userId !== "") {
       return {
         status: "confirmed",
         botToken,
         baseURL: str(data, "baseurl") || this.baseURL,
-        userId: str(data, "ilink_user_id"),
+        userId,
       }
     }
     if (status === "expired") return { status: "expired" }

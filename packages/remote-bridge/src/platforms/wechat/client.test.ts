@@ -52,6 +52,16 @@ test("getQrcodeStatus reports waiting, expired, then confirmed with token + base
   }
 })
 
+test("getQrcodeStatus treats a confirmed response missing ilink_user_id as still waiting", async () => {
+  // An empty user id would become allowFrom:"" — a saved bot that accepts no one.
+  const server = mockServer(() => json({ status: "confirmed", bot_token: "tok_abc", ilink_user_id: "" }))
+  try {
+    expect(await new WeChatClient({ baseURL: server.url }).getQrcodeStatus("QR123")).toEqual({ status: "waiting" })
+  } finally {
+    server.stop()
+  }
+})
+
 test("getUpdates normalizes messages and carries the auth + uin + app headers", async () => {
   let authSeen = ""
   let typeSeen = ""
