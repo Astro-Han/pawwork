@@ -9,6 +9,7 @@ import { useLanguage } from "@/context/language"
 import type { RemoteChannelStatus, RemotePlatform, RemoteState, RemoteStatus } from "@/desktop-api-contract"
 import { connectToastAction } from "./connect-toast"
 import { PlatformMark, platformNameKey } from "./platform-marks"
+import { attemptDisconnect } from "./remote-disconnect"
 import { subscribeRemoteStatus } from "./remote-status-sync"
 
 type IconName = ComponentProps<typeof Icon>["name"]
@@ -228,23 +229,35 @@ function DialogDisconnectRemote(props: { platform: RemotePlatform }) {
   const language = useLanguage()
   const dialog = useDialog()
   const [busy, setBusy] = createSignal(false)
+  const [error, setError] = createSignal<string | undefined>()
   const name = language.t(platformNameKey(props.platform))
 
   const handleDisconnect = async () => {
     if (busy()) return
     setBusy(true)
-    try {
-      await window.api?.remote?.disconnect(props.platform)
-      dialog.close()
-    } finally {
-      setBusy(false)
-    }
+    setError(undefined)
+    // Keep the dialog open if it fails (e.g. a locked keyring): the credential is
+    // still saved, so closing would falsely imply access was revoked. The user
+    // sees the cause and can retry or cancel.
+    const result = await attemptDisconnect(() => window.api?.remote?.disconnect(props.platform) ?? Promise.resolve())
+    if (result.ok) dialog.close()
+    else setError(result.error)
+    setBusy(false)
   }
 
   return (
     <Dialog title={language.t("remote.disconnect.title", { platform: name })} fit class="w-full max-w-[420px] mx-auto">
-      <div class="px-6 pt-2 pb-6">
+      <div class="px-6 pt-2 pb-6 flex flex-col gap-3">
         <span class="text-body text-fg-strong">{language.t("remote.disconnect.body")}</span>
+        <Show when={error()}>
+          <div class="flex items-start gap-2">
+            <Icon name="warning" class="text-error shrink-0 mt-0.5" />
+            <div class="flex flex-col gap-0.5">
+              <span class="text-small text-error">{language.t("remote.disconnect.error.title")}</span>
+              <span class="text-small text-fg-weak">{error()}</span>
+            </div>
+          </div>
+        </Show>
       </div>
       <div class="flex justify-end gap-2 px-6 pb-6">
         <Button variant="secondary" onClick={() => dialog.close()} disabled={busy()}>

@@ -889,6 +889,7 @@ export const dict = {
   "remote.connect.toast.body": "现在可以从 {{platform}} 驱动你的智能体了。",
   "remote.disconnect.title": "断开 {{platform}}？",
   "remote.disconnect.body": "这会从本机删除已保存的凭证。你随时可以重新连接。",
+  "remote.disconnect.error.title": "断开失败",
   "settings.integrations.description": "爪印连接的服务器，以及当前项目可用的 MCP、语言服务器、插件。",
   "settings.integrations.empty": "尚未配置。",
   "connectionHealth.toast.server.title": "服务器连接异常",

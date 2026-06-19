@@ -1011,6 +1011,7 @@ export const dict = {
   "remote.connect.toast.body": "You can now drive your agent from {{platform}}.",
   "remote.disconnect.title": "Disconnect {{platform}}?",
   "remote.disconnect.body": "This removes the saved credentials from this computer. You can connect again any time.",
+  "remote.disconnect.error.title": "Couldn't disconnect",
   "settings.integrations.description":
     "Servers PawWork connects to, plus MCP, language servers, and plugins available to your sessions.",
   "settings.integrations.empty": "None configured.",
