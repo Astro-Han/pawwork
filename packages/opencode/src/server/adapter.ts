@@ -21,5 +21,6 @@ export type FetchApp = {
 }
 
 export interface Adapter {
-  create(app: Hono | FetchApp, websocketApp?: Hono): Runtime
+  create(app: FetchApp, websocketApp: Hono): Runtime
+  create(app: Hono): Runtime
 }

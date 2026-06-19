@@ -1,9 +1,8 @@
-import type { Hono } from "hono"
 import { createBunWebSocket } from "hono/bun"
 import type { Adapter } from "./adapter"
 
 export const adapter: Adapter = {
-  create(app: Hono) {
+  create(app) {
     const ws = createBunWebSocket()
     return {
       upgradeWebSocket: ws.upgradeWebSocket,
