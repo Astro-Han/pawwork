@@ -45,6 +45,9 @@ export namespace SyncEvent {
   }
 
   export type SerializedEvent<Def extends Definition = Definition> = Event<Def> & { type: string }
+  type PayloadOptions = {
+    include?: Iterable<string>
+  }
 
   type ProjectorFunc = (db: Database.TxOrDb, data: unknown) => void
   export interface Interface {
@@ -296,24 +299,33 @@ export namespace SyncEvent {
     return () => Bus.off("event", handler)
   }
 
-  export function payloads() {
+  function payloadEntries(options?: PayloadOptions) {
+    if (!options?.include) return registry.entries().toArray()
+
+    return Array.from(options.include, (type) => {
+      const version = versions.get(type)
+      const schemaType = version === undefined ? undefined : versionedType(type, version)
+      const def = schemaType === undefined ? undefined : registry.get(schemaType)
+      if (!def) throw new Error(`Sync event schema is not registered: ${type}`)
+      return [schemaType, def] as const
+    })
+  }
+
+  export function payloads(options?: PayloadOptions) {
+    const schemas = payloadEntries(options).map(([type, def]) => {
+      return z
+        .object({
+          type: z.literal(type),
+          aggregate: z.literal(def.aggregate),
+          data: def.schema,
+        })
+        .meta({
+          ref: "SyncEvent" + "." + def.type,
+        })
+    })
+
     return z
-      .union(
-        registry
-          .entries()
-          .map(([type, def]) => {
-            return z
-              .object({
-                type: z.literal(type),
-                aggregate: z.literal(def.aggregate),
-                data: def.schema,
-              })
-              .meta({
-                ref: "SyncEvent" + "." + def.type,
-              })
-          })
-          .toArray() as any,
-      )
+      .union(schemas as any)
       .meta({
         ref: "SyncEvent",
       })
