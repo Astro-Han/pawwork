@@ -422,8 +422,18 @@ export function configFileLockKey(file: string) {
   return `config-file:${Filesystem.resolve(file)}`
 }
 
+const { runPromise: runFlockPromise } = makeRuntime(EffectFlock.Service, EffectFlock.defaultLayer)
+
 export async function withConfigFileLock<T>(file: string, fn: () => Promise<T>) {
-  return EffectFlock.withLockPromise(configFileLockKey(file), fn)
+  return runFlockPromise((flock) =>
+    flock.withLock(
+      Effect.tryPromise({
+        try: fn,
+        catch: (error) => error,
+      }),
+      configFileLockKey(file),
+    ),
+  )
 }
 
 function isWindowsSyncUnsupportedError(error: unknown) {
