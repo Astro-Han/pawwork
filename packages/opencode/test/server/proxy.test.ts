@@ -92,4 +92,5 @@ describe("workspace websocket proxy boundary", () => {
     expect(localSent).toEqual(["from-remote"])
     expect(localClosed).toEqual([{ code: 1000, reason: "done" }])
   })
+
 })

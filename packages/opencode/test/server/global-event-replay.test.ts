@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { Hono } from "hono"
 import { EventReplayStore } from "../../src/server/event-replay"
-import { createGlobalEventReplayBridge, openGlobalEventReplayConnection, streamGlobalEvents } from "../../src/server/instance/global"
+import {
+  createGlobalEventReplayBridge,
+  handleGlobalEventStream,
+  openGlobalEventReplayConnection,
+} from "../../src/server/instance/global"
 
 const envelope = (type: string, id = type) => ({
   directory: "/repo",
@@ -174,7 +178,7 @@ describe("createGlobalEventReplayBridge", () => {
   test("route reads Last-Event-ID and writes replay ids into SSE output", async () => {
     const bridge = createGlobalEventReplayBridge({ replayStore: new EventReplayStore({ bootID: "boot" }) })
     bridge.append(envelope("permission.asked", "q1"))
-    const app = new Hono().get("/event", (c) => streamGlobalEvents(c, bridge))
+    const app = new Hono().get("/event", (c) => handleGlobalEventStream(c.req.raw, bridge))
     const controller = new AbortController()
 
     const response = await app.request("/event", {
