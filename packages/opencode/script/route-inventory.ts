@@ -450,7 +450,7 @@ function classify(input: {
   upstreamHttpApi: boolean
 }) {
   const key = `${input.method} ${input.path}`
-  if (isNativeSpecial(input.method, input.path) && input.hono && !input.localHttpApi) {
+  if (isNativeSpecial(input.method, input.path) && !input.localHttpApi) {
     return "production-native-special-surface"
   }
   if (isCompatibilityBoundary(input.method, input.path) && input.hono && !input.localHttpApi) {

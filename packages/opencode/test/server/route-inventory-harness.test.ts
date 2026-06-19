@@ -454,10 +454,9 @@ describe("route inventory harness", () => {
       ["GET", "/event", "SSE/event"],
       ["GET", "/global/event", "SSE/event"],
       ["GET", "/global/sync-event", "SSE/event"],
-      ["ALL", "/*", "UI static route"],
     ] as const) {
       expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
-        hono: true,
+        hono: false,
         localHttpApi: false,
         nativeSpecial: true,
         compatibilityBoundary: false,
@@ -465,6 +464,15 @@ describe("route inventory harness", () => {
         specialSurface,
       })
     }
+
+    expect(inventory.rows.find((row) => row.method === "ALL" && row.path === "/*")).toMatchObject({
+      hono: true,
+      localHttpApi: false,
+      nativeSpecial: true,
+      compatibilityBoundary: false,
+      classification: "production-native-special-surface",
+      specialSurface: "UI static route",
+    })
 
     for (const [method, routePath, specialSurface] of [
       ["GET", "/pty/:ptyID/connect", "PTY websocket"],

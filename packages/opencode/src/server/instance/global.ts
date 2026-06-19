@@ -3,7 +3,6 @@ import { describeRoute, resolver, validator } from "hono-openapi"
 import { Effect } from "effect"
 import z from "zod"
 import { BusEvent } from "@/bus/bus-event"
-import { SyncEvent } from "@/sync"
 import { GlobalBus } from "@/bus/global"
 import { AppRuntime } from "@/effect/app-runtime"
 import { AsyncQueue } from "@/util/queue"
@@ -14,7 +13,6 @@ import { lazy } from "../../util/lazy"
 import { Config } from "../../config/config"
 import { errors } from "../error"
 import { EventReplayStore, type GlobalEventEnvelope, type ReplayRecord } from "../event-replay"
-import { globalEventOpenApiSchema, globalSyncEventOpenApiSchema } from "../global-openapi-schema"
 import { requestContextFromHono, withRequestContext } from "@/server/request-context"
 import { createSseResponse } from "../sse"
 
@@ -343,26 +341,7 @@ export function handleGlobalSyncEventStream(
   return streamEvents(request, subscribe, heartbeatMs)
 }
 
-export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
-  const replayBridge = options.replayBridge ?? globalEventReplay
-  const heartbeatMs = normalizeHeartbeatMs(options.heartbeatMs)
-  const syncSubscribe =
-    options.syncSubscribe ??
-    ((q: AsyncQueue<string | null>) => {
-      return SyncEvent.subscribeAll(({ def, event }) => {
-        // TODO: don't pass def, just pass the type (and it should
-        // be versioned)
-        q.push(
-          JSON.stringify({
-            payload: {
-              ...event,
-              type: SyncEvent.versionedType(def.type, def.version),
-            },
-          }),
-        )
-      })
-    })
-
+export function createGlobalRoutes() {
   return new Hono()
     .use((c, next) => withRequestContext(requestContextFromHono(c, {}), () => next()))
     .get(
@@ -384,48 +363,6 @@ export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
       }),
       async (c) => {
         return c.json({ healthy: true, version: Installation.VERSION })
-      },
-    )
-    .get(
-      "/event",
-      describeRoute({
-        summary: "Get global events",
-        description: "Subscribe to global events from the OpenCode system using server-sent events.",
-        operationId: "global.event",
-        responses: {
-          200: {
-            description: "Event stream",
-            content: {
-              "text/event-stream": {
-                schema: resolver(globalEventOpenApiSchema()),
-              },
-            },
-          },
-        },
-      }),
-      async (c) => {
-        return handleGlobalEventStream(c.req.raw, replayBridge, heartbeatMs)
-      },
-    )
-    .get(
-      "/sync-event",
-      describeRoute({
-        summary: "Subscribe to global sync events",
-        description: "Get global sync events",
-        operationId: "global.sync-event.subscribe",
-        responses: {
-          200: {
-            description: "Event stream",
-            content: {
-              "text/event-stream": {
-                schema: resolver(globalSyncEventOpenApiSchema()),
-              },
-            },
-          },
-        },
-      }),
-      async (c) => {
-        return handleGlobalSyncEventStream(c.req.raw, syncSubscribe, heartbeatMs)
       },
     )
     .get(
