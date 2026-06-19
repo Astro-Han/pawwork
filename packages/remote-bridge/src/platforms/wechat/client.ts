@@ -134,17 +134,30 @@ export class WeChatClient {
   /** Mint a login QR. No auth — this is the start of pairing. */
   async getBotQrcode(signal?: AbortSignal): Promise<WeChatQrcode> {
     const data = await this.get("/ilink/bot/get_bot_qrcode?bot_type=3", signal, REQUEST_TIMEOUT_MS)
-    return { qrcode: str(data, "qrcode"), qrcodeUrl: str(data, "qrcode_img_content") }
+    const qrcode = str(data, "qrcode")
+    const qrcodeUrl = str(data, "qrcode_img_content")
+    // A confirmed-shaped response with no QR is unusable — fail here rather than hand
+    // the pairer a blank code to render and poll forever against.
+    if (qrcode === "" || qrcodeUrl === "") {
+      throw new WeChatApiError("/ilink/bot/get_bot_qrcode", 200, undefined, "no login QR in response")
+    }
+    return { qrcode, qrcodeUrl }
   }
 
   /** Poll whether the user has scanned + confirmed. Long-polls server-side; on
    * confirm returns the bot token, base URL, and paired user id. */
   async getQrcodeStatus(qrcode: string, signal?: AbortSignal): Promise<WeChatLoginStatus> {
-    const data = await this.get(
-      `/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`,
-      signal,
-      STATUS_POLL_TIMEOUT_MS,
-    )
+    let data: Record<string, unknown>
+    try {
+      data = await this.get(`/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`, signal, STATUS_POLL_TIMEOUT_MS)
+    } catch (err) {
+      // The status call long-polls (~30s server-side); when it ends with no state
+      // change our AbortSignal.timeout fires a TimeoutError. That is the normal "still
+      // waiting, poll again" outcome, not a failure. A caller abort (AbortError) and a
+      // real API/HTTP error still propagate.
+      if (err instanceof Error && err.name === "TimeoutError") return { status: "waiting" }
+      throw err
+    }
     const status = str(data, "status")
     const botToken = str(data, "bot_token")
     const userId = str(data, "ilink_user_id")

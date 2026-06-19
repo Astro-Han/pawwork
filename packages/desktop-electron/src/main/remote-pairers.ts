@@ -6,8 +6,7 @@
 
 import { createApp } from "@opencode-ai/remote-bridge/gateway"
 import { captureFirstSender, TelegramPlatform, TelegramPoller } from "@opencode-ai/remote-bridge/platforms/telegram"
-import { WeChatClient } from "@opencode-ai/remote-bridge/platforms/wechat/client"
-import { pollWeChatLogin, startWeChatLogin } from "@opencode-ai/remote-bridge/platforms/wechat/login"
+import { WeChatApiError, WeChatClient } from "@opencode-ai/remote-bridge/platforms/wechat/client"
 import { WeChatPlatform } from "@opencode-ai/remote-bridge/platforms/wechat/platform"
 import type { Platform } from "@opencode-ai/remote-bridge/types"
 import { toDataURL } from "qrcode"
@@ -69,26 +68,49 @@ class WeChatPairer implements PlatformPairer {
     // QR login mints a bot token, the base URL for all later calls, and the paired
     // user id (ilink_user_id). The scan + confirm in WeChat IS the binding, so there
     // is no separate "message the bot" step — pair resolves straight to the account.
+    // getQrcodeStatus long-polls and maps its own timeout to "waiting"; this loop just
+    // orchestrates: confirm → account, expired → re-mint, real error → surface.
     const client = new WeChatClient()
-    let login = await startWeChatLogin({ client, signal })
-    emit({ phase: "qr", platform: "wechat", image: await qrDataUrl(login.qrcodeUrl) })
+    let qrcode = await this.mintQr(client, emit, signal)
     while (!signal.aborted) {
-      const poll = await pollWeChatLogin(login.qrcode, { client, signal })
-      if (poll.status === "done") {
-        // iLink hands back no display name, only the user id — so we set no userName
-        // and identity() falls back to showing the raw id (cosmetic; auth is the id).
-        return { platform: "wechat", botToken: poll.botToken, baseURL: poll.baseURL, allowFrom: poll.userId }
-      }
-      if (poll.status === "error") throw new Error(poll.message)
-      if (poll.status === "expired") {
-        // The QR lives ~90s; mint a fresh one and show it again rather than dead-end.
-        login = await startWeChatLogin({ client, signal })
-        emit({ phase: "qr", platform: "wechat", image: await qrDataUrl(login.qrcodeUrl) })
+      let status
+      try {
+        status = await client.getQrcodeStatus(qrcode, signal)
+      } catch (err) {
+        if (signal.aborted) return null
+        // A real API error (dead QR, bad ret) is terminal — surface it so the user
+        // isn't left scanning a code that will never confirm. A transient blip is not:
+        // keep polling rather than abort a scan that's in progress.
+        if (err instanceof WeChatApiError) throw new Error(message(err))
+        console.warn(`wechat login poll: unexpected error, retrying: ${message(err)}`)
+        await sleep(WECHAT_LOGIN_POLL_MS, signal)
         continue
       }
-      await sleep(WECHAT_LOGIN_POLL_MS, signal) // pending
+      if (status.status === "confirmed") {
+        // iLink hands back no display name, only the user id — so we set no userName
+        // and identity() falls back to showing the raw id (cosmetic; auth is the id).
+        return { platform: "wechat", botToken: status.botToken, baseURL: status.baseURL, allowFrom: status.userId }
+      }
+      if (status.status === "expired") {
+        // The QR lives ~90s; mint a fresh one and show it again rather than dead-end.
+        qrcode = await this.mintQr(client, emit, signal)
+        continue
+      }
+      await sleep(WECHAT_LOGIN_POLL_MS, signal) // waiting
     }
     return null
+  }
+
+  /** Mint a login QR and emit it for the renderer to show; returns the poll handle. */
+  private async mintQr(client: WeChatClient, emit: PairingProgress, signal: AbortSignal): Promise<string> {
+    let qr: { qrcode: string; qrcodeUrl: string }
+    try {
+      qr = await client.getBotQrcode(signal)
+    } catch (err) {
+      throw new Error(`could not reach WeChat: ${message(err)}`)
+    }
+    emit({ phase: "qr", platform: "wechat", image: await qrDataUrl(qr.qrcodeUrl) })
+    return qr.qrcode
   }
 
   makePlatform(account: RemoteAccount): Platform {

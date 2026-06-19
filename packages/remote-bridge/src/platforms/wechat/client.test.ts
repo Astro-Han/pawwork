@@ -24,6 +24,31 @@ test("getBotQrcode returns the QR handle and the login URL to encode", async () 
   }
 })
 
+test("getBotQrcode rejects a response with no QR rather than handing back a blank code", async () => {
+  const server = mockServer(() => json({ qrcode: "", qrcode_img_content: "" }))
+  try {
+    await expect(new WeChatClient({ baseURL: server.url }).getBotQrcode()).rejects.toBeInstanceOf(WeChatApiError)
+  } finally {
+    server.stop()
+  }
+})
+
+test("getQrcodeStatus maps its own long-poll timeout to still-waiting", async () => {
+  // The status call long-holds; when the client-side timeout fires (here forced via a
+  // short external AbortSignal.timeout while the server stalls) it means "no change
+  // yet, poll again" — a TimeoutError, not a failure.
+  const server = mockServer(async () => {
+    await new Promise((r) => setTimeout(r, 300))
+    return json({ status: "wait" })
+  })
+  try {
+    const status = await new WeChatClient({ baseURL: server.url }).getQrcodeStatus("QR1", AbortSignal.timeout(15))
+    expect(status).toEqual({ status: "waiting" })
+  } finally {
+    server.stop()
+  }
+})
+
 test("getQrcodeStatus reports waiting, expired, then confirmed with token + base url + user id", async () => {
   let calls = 0
   const server = mockServer(() => {
