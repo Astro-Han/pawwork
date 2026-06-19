@@ -36,6 +36,8 @@ class FakeTransport implements WeChatTransport {
   async sendMessage(toUserId: string, contextToken: string, text: string): Promise<void> {
     this.sends.push({ toUserId, contextToken, text })
   }
+  async notifyStart(): Promise<void> {}
+  async notifyStop(): Promise<void> {}
 }
 
 test("inboundMessage accepts a finished user text from the paired sender", () => {

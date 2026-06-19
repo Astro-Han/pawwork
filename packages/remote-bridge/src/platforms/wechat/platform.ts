@@ -7,11 +7,22 @@
 // reconstructReplyCtx: a delivery target can't be rebuilt from a remote key alone
 // after a restart, so a restored push is logged and skipped, not sent.
 //
+// There is no delivery window: a reply produced minutes after the inbound message
+// still lands. The one lifecycle requirement is `notifyStart` before the first poll
+// (the server otherwise treats the bot as inactive and stops delivering after the
+// first reply) and `notifyStop` on shutdown.
+//
 // iLink is a 1:1 DM channel (the user's personal WeChat talks to their bot slot),
 // so channelID and userID are the same sender id and there is no group concept.
 
 import type { Message, MessageHandler, Platform } from "../../types.ts"
-import { isFatalWeChatError, MESSAGE_STATE_FINISH, MESSAGE_TYPE_USER, type WeChatMessage, type WeChatUpdates } from "./client.ts"
+import {
+  isFatalWeChatError,
+  MESSAGE_STATE_FINISH,
+  MESSAGE_TYPE_USER,
+  type WeChatMessage,
+  type WeChatUpdates,
+} from "./client.ts"
 
 const POLL_RETRY_MS = 3_000
 const MAX_RETRY_MS = 30_000
@@ -20,6 +31,8 @@ const MAX_RETRY_MS = 30_000
 export interface WeChatTransport {
   getUpdates(cursor: string, signal?: AbortSignal): Promise<WeChatUpdates>
   sendMessage(toUserId: string, contextToken: string, text: string, signal?: AbortSignal): Promise<void>
+  notifyStart(signal?: AbortSignal): Promise<void>
+  notifyStop(signal?: AbortSignal): Promise<void>
 }
 
 export interface WeChatReplyContext {
@@ -86,6 +99,9 @@ export class WeChatPlatform implements Platform {
    * already-cursored message, so there is no Telegram-style backlog to drain.
    */
   private async runLoop(handler: MessageHandler, signal: AbortSignal, onReady?: () => void): Promise<void> {
+    // Register as online before the first poll; without it iLink delivers only the
+    // first reply per connection. Best-effort: a failed notify must not block polling.
+    await this.opts.transport.notifyStart(signal).catch(() => {})
     let cursor = ""
     let ready = false
     let backoff = this.pollRetryMs
@@ -112,12 +128,13 @@ export class WeChatPlatform implements Platform {
 
   private dispatch(handler: MessageHandler, msg: WeChatMessage): void {
     const inbound = inboundMessage(msg, this.allowFrom)
-    if (inbound) handler(this, inbound)
+    if (!inbound) return
+    handler(this, inbound)
   }
 
-  reply(replyCtx: unknown, content: string): Promise<void> {
+  async reply(replyCtx: unknown, content: string): Promise<void> {
     const ctx = replyCtx as WeChatReplyContext
-    return this.opts.transport.sendMessage(ctx.toUserId, ctx.contextToken, content)
+    await this.opts.transport.sendMessage(ctx.toUserId, ctx.contextToken, content)
   }
 
   send(replyCtx: unknown, content: string): Promise<void> {
@@ -127,6 +144,8 @@ export class WeChatPlatform implements Platform {
   async stop(): Promise<void> {
     this.ac?.abort()
     if (this.loop) await this.loop.catch(() => {})
+    // Standalone request (the poll signal is already aborted) so it can still land.
+    await this.opts.transport.notifyStop().catch(() => {})
   }
 }
 

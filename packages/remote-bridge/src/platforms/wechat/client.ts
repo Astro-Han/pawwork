@@ -14,8 +14,17 @@
 // server actually accepts.
 
 const DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com"
-// Accepted by the live server (HTTP 200); do not bump blindly.
-const CHANNEL_VERSION = "1.0.2"
+// iLink identifies the client by an app id + version, sent both as headers
+// (iLink-App-Id / iLink-App-ClientVersion) and inside every request's base_info.
+// These mirror Tencent's official bot SDK (@tencent-weixin/openclaw-weixin 2.4.4):
+// a send that omits them is accepted (ret=0) but silently dropped server-side, so
+// they are not optional. Verified against the SDK's wire format and a working client.
+const ILINK_APP_ID = "bot"
+const ILINK_APP_VERSION = "2.4.4"
+// 0x00MMNNPP from the app version: major<<16 | minor<<8 | patch.
+const ILINK_APP_CLIENT_VERSION = clientVersion(ILINK_APP_VERSION)
+// UA-style "name/version" token carried in base_info; identifies this client.
+const BOT_AGENT = "PawWork/1.0.0"
 // getupdates holds open up to ~35s server-side; the HTTP timeout must outlast it.
 const POLL_TIMEOUT_MS = 45_000
 const REQUEST_TIMEOUT_MS = 15_000
@@ -26,6 +35,9 @@ const STATUS_POLL_TIMEOUT_MS = 40_000
 
 // iLink message_type / message_state / item type enums (from the bot API spec).
 export const MESSAGE_TYPE_USER = 1
+// A bot reply is always sent FINISH; iLink has no delivery window, so a reply
+// produced minutes after the inbound message still lands (verified against the
+// official SDK, which sends FINISH fire-and-forget for multi-minute agent turns).
 export const MESSAGE_STATE_FINISH = 2
 const MESSAGE_TYPE_BOT = 2
 const ITEM_TYPE_TEXT = 1
@@ -92,6 +104,24 @@ function uin(): string {
   return btoa(String(Math.floor(Math.random() * 0xffffffff)))
 }
 
+/** Encode an app version "M.N.P" as the uint32 iLink-App-ClientVersion header wants. */
+function clientVersion(version: string): number {
+  const [major = 0, minor = 0, patch = 0] = version.split(".").map((p) => Number.parseInt(p, 10) || 0)
+  return ((major & 0xff) << 16) | ((minor & 0xff) << 8) | (patch & 0xff)
+}
+
+/** The `base_info` block every POST carries. */
+function baseInfo(): { channel_version: string; bot_agent: string } {
+  return { channel_version: ILINK_APP_VERSION, bot_agent: BOT_AGENT }
+}
+
+/** A unique client_id for one outbound message; web-crypto when present, else random
+ * (the core stays free of node: imports). */
+function makeClientId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.()
+  return uuid ?? `wx-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`
+}
+
 export class WeChatClient {
   private readonly baseURL: string
   private readonly botToken?: string
@@ -132,27 +162,25 @@ export class WeChatClient {
   /** One long-poll for new messages. `cursor` is empty on the first call, then the
    * value returned by the previous call. Holds open server-side up to ~35s. */
   async getUpdates(cursor: string, signal?: AbortSignal): Promise<WeChatUpdates> {
-    const data = await this.post(
-      "/ilink/bot/getupdates",
-      { get_updates_buf: cursor, base_info: { channel_version: CHANNEL_VERSION } },
-      signal,
-      POLL_TIMEOUT_MS,
-    )
+    const data = await this.post("/ilink/bot/getupdates", { get_updates_buf: cursor }, signal, POLL_TIMEOUT_MS)
     const rawMsgs = Array.isArray(data.msgs) ? data.msgs : []
-    return {
-      messages: rawMsgs.map(normalizeMessage).filter((m): m is WeChatMessage => m !== null),
-      cursor: str(data, "get_updates_buf"),
-    }
+    const messages = rawMsgs.map(normalizeMessage).filter((m): m is WeChatMessage => m !== null)
+    return { messages, cursor: str(data, "get_updates_buf") }
   }
 
-  /** Send `text` to `toUserId`, echoing the `contextToken` from the inbound message
-   * it answers — iLink rejects an outbound message without it. */
+  /**
+   * Send one bot reply. Always FINISH with a fresh `client_id`; `contextToken` (lifted
+   * from the inbound message) ties it to the conversation — iLink drops a send without
+   * it. `from_user_id` is empty: the server fills the bot identity from the token.
+   */
   async sendMessage(toUserId: string, contextToken: string, text: string, signal?: AbortSignal): Promise<void> {
     await this.post(
       "/ilink/bot/sendmessage",
       {
         msg: {
+          from_user_id: "",
           to_user_id: toUserId,
+          client_id: makeClientId(),
           message_type: MESSAGE_TYPE_BOT,
           message_state: MESSAGE_STATE_FINISH,
           context_token: contextToken,
@@ -164,11 +192,25 @@ export class WeChatClient {
     )
   }
 
+  /** Tell iLink this bot client is now online (and listening). The official SDK calls
+   * this before its first getupdates; without it the server treats the bot as inactive
+   * and drops replies after the first. Best-effort: errors are non-fatal. */
+  async notifyStart(signal?: AbortSignal): Promise<void> {
+    await this.post("/ilink/bot/msg/notifystart", {}, signal, REQUEST_TIMEOUT_MS)
+  }
+
+  /** Tell iLink this bot client is going offline (channel stop / shutdown). */
+  async notifyStop(signal?: AbortSignal): Promise<void> {
+    await this.post("/ilink/bot/msg/notifystop", {}, signal, REQUEST_TIMEOUT_MS)
+  }
+
   private headers(): Record<string, string> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       AuthorizationType: "ilink_bot_token",
       "X-WECHAT-UIN": uin(),
+      "iLink-App-Id": ILINK_APP_ID,
+      "iLink-App-ClientVersion": String(ILINK_APP_CLIENT_VERSION),
     }
     if (this.botToken) headers.Authorization = `Bearer ${this.botToken}`
     return headers
@@ -188,7 +230,8 @@ export class WeChatClient {
     const res = await fetch(this.baseURL + path, {
       method: "POST",
       headers: this.headers(),
-      body: JSON.stringify(body),
+      // base_info rides on every POST (the server keys routing/version off it).
+      body: JSON.stringify({ ...(body as Record<string, unknown>), base_info: baseInfo() }),
       signal: withTimeout(signal, timeoutMs),
     })
     return this.parse(path, res)
