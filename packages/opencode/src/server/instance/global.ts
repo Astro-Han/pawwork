@@ -14,6 +14,7 @@ import { lazy } from "../../util/lazy"
 import { Config } from "../../config/config"
 import { errors } from "../error"
 import { EventReplayStore, type GlobalEventEnvelope, type ReplayRecord } from "../event-replay"
+import { globalEventOpenApiSchema, globalSyncEventOpenApiSchema } from "../global-openapi-schema"
 import { requestContextFromHono, withRequestContext } from "@/server/request-context"
 import { createSseResponse } from "../sse"
 
@@ -26,29 +27,6 @@ const LifecycleCloseResult = z.object({
   lifecycleActionID: z.string(),
   affectedDirectoryKeys: z.array(z.string()),
 })
-
-export function globalEventOpenApiSchema() {
-  return z
-    .object({
-      directory: z.string(),
-      project: z.string().optional(),
-      workspace: z.string().optional(),
-      payload: BusEvent.payloads(),
-    })
-    .meta({
-      ref: "GlobalEvent",
-    })
-}
-
-export function globalSyncEventOpenApiSchema() {
-  return z
-    .object({
-      payload: SyncEvent.payloads(),
-    })
-    .meta({
-      ref: "SyncEvent",
-    })
-}
 
 function emitGlobalDisposed() {
   GlobalBus.emit("event", {
