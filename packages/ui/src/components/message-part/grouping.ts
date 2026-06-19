@@ -98,7 +98,11 @@ export function groupParts(parts: { messageID: string; part: PartType }[]) {
 export function renderable(part: PartType) {
   if (part.type === "tool") {
     if (HIDDEN_TOOLS.has(part.tool)) return false
-    if (part.tool === TOOL_QUESTION) return part.state.status !== "pending" && part.state.status !== "running"
+    if (part.tool === TOOL_QUESTION) {
+      if (part.state.status === "pending") return false
+      if (part.state.status === "running") return part.state.metadata?.externalResultReady === true
+      return true
+    }
     return true
   }
   if (part.type === "text") return !!part.text?.trim()
