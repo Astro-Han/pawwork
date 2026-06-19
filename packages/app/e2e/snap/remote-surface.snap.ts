@@ -97,10 +97,20 @@ test("remote-surface", async ({ page, project }) => {
   await dialog.getByRole("button", { name: "Close" }).click()
   await dialog.waitFor({ state: "hidden", timeout: 30_000 })
 
-  // 5) Connected page — Telegram green + paired identity.
+  // 5) Multi-provider page — the headline state: two channels at once, Telegram
+  // connected (green pill + paired identity) above WeChat degraded (red pill +
+  // error), each its own boxed row so several providers read as distinct cards.
   await page.evaluate(() =>
     (window as any).__remote.set({
-      channels: [{ platform: "telegram", state: "connected", identity: { id: "8403172", name: "yuhan" }, error: null }],
+      channels: [
+        { platform: "telegram", state: "connected", identity: { id: "8403172", name: "yuhan" }, error: null },
+        {
+          platform: "wechat",
+          state: "degraded",
+          identity: { id: "u@im.wechat", name: "雷宇涵" },
+          error: "Login session expired — scan again",
+        },
+      ],
     }),
   )
   await surface.getByText("Connected", { exact: true }).waitFor({ state: "visible", timeout: 30_000 })

@@ -4,12 +4,13 @@ import type { RemotePlatform } from "@/desktop-api-contract"
 // one-icon-DNA chrome rule (docs/DESIGN.md: app/vendor marks stay on-brand).
 // Hand-rolled (not in the Icon set). New platforms add a case to PlatformMark.
 
-export function PlatformMark(props: { platform: RemotePlatform }) {
+export function PlatformMark(props: { platform: RemotePlatform; class?: string }) {
+  const cls = props.class ?? "size-5 shrink-0"
   switch (props.platform) {
     case "telegram":
-      return <TelegramMark />
+      return <TelegramMark class={cls} />
     case "wechat":
-      return <WeChatMark />
+      return <WeChatMark class={cls} />
   }
 }
 
@@ -23,9 +24,9 @@ export function platformNameKey(platform: RemotePlatform) {
   }
 }
 
-function TelegramMark() {
+function TelegramMark(props: { class: string }) {
   return (
-    <svg viewBox="0 0 24 24" class="size-5 shrink-0" aria-hidden="true">
+    <svg viewBox="0 0 24 24" class={props.class} aria-hidden="true">
       <circle cx="12" cy="12" r="12" fill="#229ED9" />
       <path
         fill="#fff"
@@ -35,9 +36,9 @@ function TelegramMark() {
   )
 }
 
-function WeChatMark() {
+function WeChatMark(props: { class: string }) {
   return (
-    <svg viewBox="0 0 48 48" class="size-5 shrink-0" aria-hidden="true">
+    <svg viewBox="0 0 48 48" class={props.class} aria-hidden="true">
       <rect width="48" height="48" rx="10" fill="#07C160" />
       <path
         fill="#fff"
