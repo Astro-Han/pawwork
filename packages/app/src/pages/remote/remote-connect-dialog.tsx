@@ -81,12 +81,24 @@ export function DialogConnectRemote(props: {
     if (!api) return
     onCleanup(api.onPairing(handlePairing))
     // QR platforms have nothing to type — kick the flow off immediately.
-    if (isWeChat) void api.startPairing(platform)
+    if (isWeChat) void beginPairing()
   })
   onCleanup(() => {
     alive.value = false
     void remote()?.cancelPairing()
   })
+
+  // Kick off (or restart) pairing, awaiting the IPC so a rejection becomes an error
+  // step instead of leaving the dialog stuck on "Preparing…"/"Checking" forever.
+  async function beginPairing(start?: { token?: string }) {
+    const api = remote()
+    if (!api) return
+    try {
+      await api.startPairing(platform, start)
+    } catch (err) {
+      if (alive.value) setStore({ phase: "error", error: errorMessage(err), busy: false })
+    }
+  }
 
   function submitToken(event?: Event) {
     event?.preventDefault()
@@ -98,7 +110,7 @@ export function DialogConnectRemote(props: {
     // straight to bind here would tell the user to message the bot before the token
     // is even known to be good.
     setStore({ phase: "checking", error: undefined })
-    void api.startPairing(platform, { token })
+    void beginPairing({ token })
   }
 
   async function allow() {
@@ -118,7 +130,6 @@ export function DialogConnectRemote(props: {
   }
 
   function retry() {
-    const api = remote()
     setStore({ error: undefined, captured: undefined, qrImage: undefined })
     if (!isWeChat) {
       setStore("phase", "token")
@@ -126,7 +137,7 @@ export function DialogConnectRemote(props: {
     }
     // startPairing supersedes any prior attempt main-side, so a fresh call is enough.
     setStore("phase", "starting")
-    void api?.startPairing(platform)
+    void beginPairing()
   }
 
   const title = () =>

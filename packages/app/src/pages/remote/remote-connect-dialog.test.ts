@@ -83,8 +83,72 @@ assert(confirmCalls.length === 0, "telegram captured must NOT auto-confirm, got 
 disposeTelegram()
 `
 
+// A rejected startPairing (IPC error, main-side throw) must be handled, not leaked:
+// the old code void-ed the call, so the rejection went unhandled and the dialog sat on
+// "Preparing…". beginPairing awaits + catches it. The render shim here is one-shot
+// (non-reactive — it can't show the resulting phase change), so we assert the real
+// regression: startPairing was attempted on mount, and its rejection produced no
+// unhandled rejection.
+const startRejectCheck = String.raw`
+import { mock } from "bun:test"
+import { createComponent } from "solid-js"
+import { render } from "solid-js/web"
+
+const assert = (condition, message) => {
+  if (!condition) throw new Error(message)
+}
+
+let unhandled = 0
+process.on("unhandledRejection", () => {
+  unhandled++
+})
+
+globalThis.React = {
+  createElement(type, props, ...children) {
+    const kids = children.length <= 1 ? children[0] : children
+    if (typeof type === "function") return type({ ...(props ?? {}), children: kids })
+    return kids
+  },
+}
+
+let startCalled = false
+window.api = {
+  remote: {
+    onPairing: () => () => {},
+    startPairing: () => {
+      startCalled = true
+      return Promise.reject(new Error("ipc boom"))
+    },
+    confirmPairing: () => Promise.resolve(),
+    cancelPairing: () => Promise.resolve(),
+  },
+}
+
+mock.module("@opencode-ai/ui/button", () => ({ Button: (props) => props.children }))
+mock.module("@opencode-ai/ui/dialog", () => ({ Dialog: (props) => props.children }))
+mock.module("@opencode-ai/ui/icon", () => ({ Icon: () => null }))
+mock.module("@opencode-ai/ui/spinner", () => ({ Spinner: () => null }))
+mock.module("@opencode-ai/ui/text-field", () => ({ TextField: () => null }))
+mock.module("@opencode-ai/ui/context/dialog", () => ({ useDialog: () => ({ close: () => {} }) }))
+mock.module("@/context/language", () => ({ useLanguage: () => ({ t: (key) => key, intl: () => "en-US" }) }))
+mock.module("@/pages/remote/platform-marks", () => ({ PlatformMark: () => null }))
+
+const { DialogConnectRemote } = await import("./src/pages/remote/remote-connect-dialog.tsx")
+
+const root = document.createElement("div")
+render(() => createComponent(DialogConnectRemote, { platform: "wechat" }), root)
+// onMount kicks off beginPairing(); let the rejected startPairing settle.
+await new Promise((resolve) => setTimeout(resolve, 30))
+assert(startCalled, "wechat should kick off startPairing on mount")
+assert(unhandled === 0, "a rejected startPairing must be caught, not left unhandled (got " + unhandled + ")")
+`
+
 describe("DialogConnectRemote auto-approve", () => {
   test("auto-confirms WeChat on capture but holds Telegram for manual approval", () => {
     runBrowserCheck(autoApproveCheck)
+  })
+
+  test("a rejected startPairing surfaces the error step instead of hanging on Preparing", () => {
+    runBrowserCheck(startRejectCheck)
   })
 })
