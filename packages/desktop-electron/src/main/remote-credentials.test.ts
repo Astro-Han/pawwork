@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { chmodSync, mkdtempSync, statSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdtempSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import type { RemoteAccount } from "./remote-bridge"
@@ -24,6 +24,16 @@ test("round-trips a saved account list", () => {
   const accounts: RemoteAccount[] = [{ platform: "telegram", token: "123:ABC", allowFrom: "42", userName: "yuhan" }]
   store.save(accounts)
   expect(store.load()).toEqual(accounts)
+})
+
+test("clear removes the credentials file and needs no encryption", () => {
+  const env = fakeEnv()
+  safeStorageCredentialStore(env).save([{ platform: "telegram", token: "t", allowFrom: "42" }])
+  expect(existsSync(env.credentialsFile())).toBe(true)
+  // Even with encryption now unavailable, clear succeeds — it only deletes.
+  safeStorageCredentialStore({ ...env, isEncryptionAvailable: () => false }).clear()
+  expect(existsSync(env.credentialsFile())).toBe(false)
+  expect(safeStorageCredentialStore(env).load()).toEqual([])
 })
 
 test("an empty save clears the list", () => {

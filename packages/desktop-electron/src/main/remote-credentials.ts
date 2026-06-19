@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import type { CredentialStore, RemoteAccount } from "./remote-bridge"
 
@@ -88,6 +88,12 @@ export function safeStorageCredentialStore(env: CredentialStoreEnv): CredentialS
       // ever left world-readable is tightened on the next save. No-op on Windows,
       // which has no POSIX mode bits.
       chmodSync(file, 0o600)
+    },
+
+    clear(): void {
+      // A removal, not a write: no encryption needed, so disconnect can revoke
+      // access even when the keyring is locked. force ignores a missing file.
+      rmSync(env.credentialsFile(), { force: true })
     },
   }
 }

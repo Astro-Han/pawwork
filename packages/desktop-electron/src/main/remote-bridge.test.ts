@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test"
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import path from "node:path"
 import type { PlatformStatus } from "@opencode-ai/remote-bridge/gateway"
 import {
   type CredentialStore,
@@ -21,6 +24,9 @@ function memoryStore(initial: RemoteAccount[] = [], available = true): Credentia
     },
     save(accounts) {
       this.value = accounts
+    },
+    clear() {
+      this.value = []
     },
   }
 }
@@ -266,6 +272,39 @@ test("disconnecting the one channel clears it and empties the store", async () =
   await runtime.disconnect("telegram")
   expect(runtime.getStatus().channels).toEqual([])
   expect(store.value).toEqual([])
+  await runtime.stop()
+})
+
+test("disconnecting the last channel deletes the saved secret and the bridge state file", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "remote-state-"))
+  const statePath = path.join(dir, "remote-bridge-state.json")
+  // The gateway persists session pointers + the event cursor here while connected.
+  writeFileSync(statePath, JSON.stringify({ pointers: { "telegram:1:2": "sess_old" } }))
+  const store = memoryStore()
+  const runtime = new RemoteBridgeRuntime(deps({ credentials: store, statePath }))
+  await runtime.startPairing("telegram", { token: "x" })
+  await runtime.confirmPairing("telegram")
+
+  await runtime.disconnect("telegram")
+  expect(store.value).toEqual([])
+  // No stale pointers / cursor survive to be inherited on the next connect.
+  expect(existsSync(statePath)).toBe(false)
+  await runtime.stop()
+})
+
+test("disconnect revokes access even when secure storage is unavailable", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "remote-state-"))
+  const statePath = path.join(dir, "remote-bridge-state.json")
+  writeFileSync(statePath, "{}")
+  // Paired earlier, then the keyring went unavailable: revoke must still succeed,
+  // not reject on a save([]) that requires encryption.
+  const store = memoryStore([sampleAccount("telegram")], false)
+  const runtime = new RemoteBridgeRuntime(deps({ credentials: store, statePath }))
+  await runtime.startIfConfigured()
+
+  await runtime.disconnect("telegram")
+  expect(store.value).toEqual([])
+  expect(existsSync(statePath)).toBe(false)
   await runtime.stop()
 })
 

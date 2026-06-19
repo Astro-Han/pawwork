@@ -1,3 +1,4 @@
+import { rmSync } from "node:fs"
 import { normalizeLocale, type Config, type PlatformFactory, type PlatformStatus } from "@opencode-ai/remote-bridge/gateway"
 import type { Platform } from "@opencode-ai/remote-bridge/types"
 import type {
@@ -31,6 +32,10 @@ export interface CredentialStore {
   isAvailable(): boolean
   load(): RemoteAccount[]
   save(accounts: RemoteAccount[]): void
+  /** Delete the persisted accounts file. A removal needs no encryption, so a
+   * disconnect can revoke access even when the OS keyring is locked — unlike
+   * save([]), which would throw and leave the token on disk. */
+  clear(): void
 }
 
 /** The progress a pairer reports while a scan-to-connect flow runs. The terminal
@@ -209,9 +214,21 @@ export class RemoteBridgeRuntime {
     if (this.pending?.platform === platform) this.cancelPairing()
     await this.enqueue(async () => {
       this.accounts = this.accounts.filter((account) => account.platform !== platform)
-      this.deps.credentials.save(this.accounts)
       this.statusMap.delete(platform)
       this.emitStatus()
+      if (this.accounts.length === 0) {
+        // Last channel gone: delete the secret AND the bridge state file (session
+        // pointers + event cursor) so a later reconnect starts clean instead of
+        // inheriting a stale binding. Deleting needs no encryption, so revoking
+        // access works even when the keyring is locked — save([]) would throw and
+        // leave the token behind.
+        this.deps.credentials.clear()
+        rmSync(this.deps.statePath, { force: true })
+      } else {
+        // A channel remains: persist the trimmed list. (Pruning just the
+        // disconnected platform's pointers from statePath lands with the 2nd platform.)
+        this.deps.credentials.save(this.accounts)
+      }
       // startBridge tears down the live bridge and, if accounts remain, rebuilds
       // with them; with none left it stops and returns, leaving no channels.
       await this.startBridge()
