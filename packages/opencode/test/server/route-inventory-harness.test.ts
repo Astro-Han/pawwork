@@ -117,6 +117,16 @@ describe("route inventory harness", () => {
       localHttpApi: true,
       classification: "pawwork-owned",
     })
+    expect(
+      inventory.rows.find((row) => row.method === "POST" && row.path === "/mcp/:name/auth/authenticate"),
+    ).toMatchObject({
+      hono: true,
+      openapi: true,
+      legacySdk: true,
+      v2Sdk: true,
+      localHttpApi: true,
+      classification: "all-public-surfaces",
+    })
   })
 
   test("tracks local HttpApi migration coverage for ordinary JSON file, project, memory, and external-result routes", async () => {
@@ -420,6 +430,11 @@ describe("route inventory harness", () => {
       client.delete<Response>({
         url: \`/pty/{id}\`,
       })
+      client.post<Response, Error>(
+        {
+          url: "/mcp/{name}/auth/authenticate",
+        },
+      )
       `,
       "fixture.ts",
     )
@@ -427,6 +442,11 @@ describe("route inventory harness", () => {
     expect(routes).toContainEqual({ method: "GET", path: "/config", source: "fixture.ts" })
     expect(routes).toContainEqual({ method: "POST", path: "/session/:sessionID/message", source: "fixture.ts" })
     expect(routes).toContainEqual({ method: "DELETE", path: "/pty/:ptyID", source: "fixture.ts" })
+    expect(routes).toContainEqual({
+      method: "POST",
+      path: "/mcp/:name/auth/authenticate",
+      source: "fixture.ts",
+    })
   })
 
   test("distinguishes non-product Hono and v2 SDK routes from Hono-only routes", async () => {
