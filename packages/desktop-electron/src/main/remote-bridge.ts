@@ -22,7 +22,11 @@ const STOP_TIMEOUT_MS = 3_000
  * account. The secret (bot token) lives here and is never sent back over IPC.
  * A discriminated union so each new platform adds its own account shape here.
  */
-export type RemoteAccount = { platform: "telegram"; token: string; allowFrom: string; userName?: string }
+export type RemoteAccount =
+  | { platform: "telegram"; token: string; allowFrom: string; userName?: string }
+  // WeChat (iLink): the QR login mints botToken + baseURL; allowFrom is the paired
+  // user id (ilink_user_id) returned at confirm. No separate bind step.
+  | { platform: "wechat"; botToken: string; baseURL: string; allowFrom: string; userName?: string }
 
 /** Persistence seam for the secret accounts (safeStorage-backed in prod). */
 export interface CredentialStore {
@@ -38,9 +42,10 @@ export interface CredentialStore {
   clear(): void
 }
 
-/** The progress a pairer reports while a scan-to-connect flow runs. The terminal
- * phases (captured / error / cancelled) are emitted by the runtime, uniformly. */
-export type PairingProgress = (event: Extract<RemotePairingEvent, { phase: "awaitingBind" }>) => void
+/** The progress a pairer reports while a scan-to-connect flow runs: the QR to scan
+ * (WeChat) and/or the bind hint (Telegram). The terminal phases (captured / error /
+ * cancelled) are emitted by the runtime, uniformly. */
+export type PairingProgress = (event: Extract<RemotePairingEvent, { phase: "awaitingBind" | "qr" }>) => void
 
 /**
  * One platform's connect logic, isolated so the runtime stays platform-agnostic.

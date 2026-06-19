@@ -15,7 +15,7 @@ import { subscribeRemoteStatus } from "./remote-status-sync"
 type IconName = ComponentProps<typeof Icon>["name"]
 
 // The order channels render in. New platforms append here as their adapters land.
-const PLATFORMS: RemotePlatform[] = ["telegram"]
+const PLATFORMS: RemotePlatform[] = ["telegram", "wechat"]
 
 // Remote control: a top-level surface (peer of Automations) to connect a phone
 // chat app to this desktop's agent. The bridge lives in the main process; this
@@ -32,6 +32,7 @@ export function RemoteSurface(props: { onClose: () => void }) {
   const supported = !!window.api?.remote
   const [channels, setChannels] = createStore<Record<RemotePlatform, RemoteChannelStatus | undefined>>({
     telegram: undefined,
+    wechat: undefined,
   })
   // Platforms whose connect was just approved; the success toast fires only when
   // each then actually reaches "connected" (never the moment Allow returns), so a
@@ -57,7 +58,7 @@ export function RemoteSurface(props: { onClose: () => void }) {
       }
     }
     setAwaiting(stillAwaiting)
-    setChannels({ telegram: byPlatform.telegram })
+    setChannels({ telegram: byPlatform.telegram, wechat: byPlatform.wechat })
   }
 
   onMount(() => {

@@ -26,6 +26,20 @@ test("round-trips a saved account list", () => {
   expect(store.load()).toEqual(accounts)
 })
 
+test("round-trips a saved wechat account and drops a malformed one", () => {
+  const store = safeStorageCredentialStore(fakeEnv())
+  const wechat: RemoteAccount = {
+    platform: "wechat",
+    botToken: "wx-tok",
+    baseURL: "https://ilinkai.weixin.qq.com",
+    allowFrom: "u@im.wechat",
+    userName: "wx",
+  }
+  // A wechat entry missing botToken/baseURL must be rejected by the load filter.
+  store.save([wechat, { platform: "wechat", allowFrom: "x" } as unknown as RemoteAccount])
+  expect(store.load()).toEqual([wechat])
+})
+
 test("clear removes the credentials file and needs no encryption", () => {
   const env = fakeEnv()
   safeStorageCredentialStore(env).save([{ platform: "telegram", token: "t", allowFrom: "42" }])

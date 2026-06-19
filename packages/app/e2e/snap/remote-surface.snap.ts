@@ -1,17 +1,22 @@
+import { readFileSync } from "node:fs"
 import { test } from "../fixtures"
 import { openSidebar } from "../actions"
 import { composeGrid, snapOutputPath, type Shot } from "./_compose"
 
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
 
+// A sample QR (a PNG data URL) the WeChat connect dialog renders. In production the
+// main process encodes iLink's login URL into this; here the stub emits it directly.
+const WECHAT_QR = readFileSync(new URL("./wechat-qr.fixture.txt", import.meta.url), "utf8").trim()
+
 // Remote control surface + connect flow. snap runs in web Chromium, which has no
 // Electron preload, so window.api.remote is injected here as a stub: a mutable
 // per-channel status the test drives via __remote.set(...), and a pairing-event
-// emitter (__remote.emit) that walks the connect dialog through bind -> captured.
-// One run snapshots every state the user sees — the page (disconnected / connected
-// / degraded) and the connect dialog (Telegram token + message bind, captured
-// confirm, disconnect). The IPC behind that API is covered by desktop-electron +
-// remote-bridge unit tests.
+// emitter (__remote.emit) that walks each connect dialog through its phases. One run
+// snapshots every state the user sees — the page (disconnected / connected /
+// degraded, now with both Telegram and WeChat rows), the WeChat QR sign-in, and the
+// Telegram connect dialog (token + message bind, captured confirm, disconnect). The
+// IPC behind that API is covered by desktop-electron + remote-bridge unit tests.
 test("remote-surface", async ({ page, project }) => {
   test.setTimeout(180_000)
 
@@ -54,11 +59,23 @@ test("remote-surface", async ({ page, project }) => {
 
   const shots: Shot[] = []
 
-  // 1) Disconnected page — Telegram offers Connect.
+  // 1) Disconnected page — Telegram and WeChat each offer Connect.
   await surface.locator('[data-action="remote-connect-telegram"]').waitFor({ state: "visible", timeout: 30_000 })
+  await surface.locator('[data-action="remote-connect-wechat"]').waitFor({ state: "visible", timeout: 30_000 })
   shots.push({ name: "disconnected", buf: await surface.screenshot() })
 
-  // 2) Telegram — token step, then the message bind.
+  // 2) WeChat — opens straight on the QR (nothing to type). The stub emits a qr event
+  // carrying the sample image the dialog renders for the user to scan.
+  await surface.locator('[data-action="remote-connect-wechat"]').click()
+  let wechatDialog = page.getByRole("dialog")
+  await wechatDialog.waitFor({ state: "visible", timeout: 30_000 })
+  await page.evaluate((image) => (window as any).__remote.emit({ phase: "qr", platform: "wechat", image }), WECHAT_QR)
+  await wechatDialog.getByText("Scan to sign in").waitFor({ state: "visible", timeout: 30_000 })
+  shots.push({ name: "wechat-qr", buf: await wechatDialog.screenshot() })
+  await wechatDialog.getByRole("button", { name: "Close" }).click()
+  await wechatDialog.waitFor({ state: "hidden", timeout: 30_000 })
+
+  // 3) Telegram — token step, then the message bind.
   await surface.locator('[data-action="remote-connect-telegram"]').click()
   let dialog = page.getByRole("dialog")
   await dialog.waitFor({ state: "visible", timeout: 30_000 })
@@ -71,7 +88,7 @@ test("remote-surface", async ({ page, project }) => {
   await dialog.getByText("Message the bot").waitFor({ state: "visible", timeout: 30_000 })
   shots.push({ name: "telegram-bind", buf: await dialog.screenshot() })
 
-  // 3) Captured → confirm (shared across platforms).
+  // 4) Captured → confirm (Telegram's explicit approval step).
   await page.evaluate(() =>
     (window as any).__remote.emit({ phase: "captured", platform: "telegram", identity: { id: "8403172", name: "yuhan" } }),
   )
@@ -80,7 +97,7 @@ test("remote-surface", async ({ page, project }) => {
   await dialog.getByRole("button", { name: "Close" }).click()
   await dialog.waitFor({ state: "hidden", timeout: 30_000 })
 
-  // 4) Connected page — Telegram green + paired identity.
+  // 5) Connected page — Telegram green + paired identity.
   await page.evaluate(() =>
     (window as any).__remote.set({
       channels: [{ platform: "telegram", state: "connected", identity: { id: "8403172", name: "yuhan" }, error: null }],
@@ -89,7 +106,7 @@ test("remote-surface", async ({ page, project }) => {
   await surface.getByText("Connected", { exact: true }).waitFor({ state: "visible", timeout: 30_000 })
   shots.push({ name: "connected", buf: await surface.screenshot() })
 
-  // 5) Disconnect confirm — only reachable while connected.
+  // 6) Disconnect confirm — only reachable while connected.
   await surface.locator('[data-action="remote-disconnect-telegram"]').click()
   const disconnectDialog = page.getByRole("dialog")
   await disconnectDialog.waitFor({ state: "visible", timeout: 30_000 })
@@ -97,7 +114,7 @@ test("remote-surface", async ({ page, project }) => {
   await disconnectDialog.getByRole("button", { name: "Cancel" }).click()
   await disconnectDialog.waitFor({ state: "hidden", timeout: 30_000 })
 
-  // 6) Degraded page — red status rule + error detail.
+  // 7) Degraded page — red status rule + error detail.
   await page.evaluate(() =>
     (window as any).__remote.set({
       channels: [
