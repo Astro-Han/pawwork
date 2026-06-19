@@ -204,11 +204,6 @@ export class WeChatClient {
     await this.post("/ilink/bot/msg/notifystart", {}, signal, REQUEST_TIMEOUT_MS)
   }
 
-  /** Tell iLink this bot client is going offline (channel stop / shutdown). */
-  async notifyStop(signal?: AbortSignal): Promise<void> {
-    await this.post("/ilink/bot/msg/notifystop", {}, signal, REQUEST_TIMEOUT_MS)
-  }
-
   private headers(): Record<string, string> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",

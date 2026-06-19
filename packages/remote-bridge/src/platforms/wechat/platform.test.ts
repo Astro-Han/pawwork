@@ -21,7 +21,6 @@ function wxMsg(over: Partial<WeChatMessage> = {}): WeChatMessage {
 class FakeTransport implements WeChatTransport {
   sends: { toUserId: string; contextToken: string; text: string }[] = []
   notifyStarts = 0
-  notifyStops = 0
   /** Set true if a poll ever ran before notifyStart — proves the ordering is wrong. */
   polledBeforeStart = false
   /** When set, notifyStart rejects with it (to test the failure path). */
@@ -52,9 +51,6 @@ class FakeTransport implements WeChatTransport {
   async notifyStart(): Promise<void> {
     if (this.notifyStartError) throw this.notifyStartError
     this.notifyStarts++
-  }
-  async notifyStop(): Promise<void> {
-    this.notifyStops++
   }
 }
 
@@ -99,7 +95,7 @@ test("start fires onReady, routes a paired message, and replies with its context
   await run
 })
 
-test("notifyStart precedes the first poll; notifyStop runs on stop", async () => {
+test("notifyStart precedes the first poll; stop tears down without a second online signal", async () => {
   const transport = new FakeTransport()
   transport.pushBatch([wxMsg({ items: [{ type: 1, text: "hi" }] })])
   const platform = new WeChatPlatform({ transport, allowFrom: USER })
@@ -116,9 +112,12 @@ test("notifyStart precedes the first poll; notifyStop runs on stop", async () =>
   expect(transport.notifyStarts).toBe(1)
   expect(transport.polledBeforeStart).toBe(false) // online before any poll
 
+  // stop() only aborts the poll loop — no offline call. The bridge rebuilds on any
+  // channel change, so an offline signal here would fly detached from the abort and
+  // could land after the next connection's notifyStart, re-marking the bot offline.
   await platform.stop()
   await run
-  expect(transport.notifyStops).toBe(1)
+  expect(transport.notifyStarts).toBe(1) // exactly one online signal across the whole lifecycle
 })
 
 test("a fatal notifyStart error rejects start instead of polling silently", async () => {

@@ -10,7 +10,9 @@
 // There is no delivery window: a reply produced minutes after the inbound message
 // still lands. The one lifecycle requirement is `notifyStart` before the first poll
 // (the server otherwise treats the bot as inactive and stops delivering after the
-// first reply) and `notifyStop` on shutdown.
+// first reply). There is no matching notifyStop: the bridge rebuilds on any channel
+// change, so an offline call on stop would race the next connection's notifyStart for
+// the same token; iLink drops a bot that stops polling, so stop just stops polling.
 //
 // iLink is a 1:1 DM channel (the user's personal WeChat talks to their bot slot),
 // so channelID and userID are the same sender id and there is no group concept.
@@ -32,7 +34,6 @@ export interface WeChatTransport {
   getUpdates(cursor: string, signal?: AbortSignal): Promise<WeChatUpdates>
   sendMessage(toUserId: string, contextToken: string, text: string, signal?: AbortSignal): Promise<void>
   notifyStart(signal?: AbortSignal): Promise<void>
-  notifyStop(signal?: AbortSignal): Promise<void>
 }
 
 export interface WeChatReplyContext {
@@ -158,8 +159,12 @@ export class WeChatPlatform implements Platform {
   async stop(): Promise<void> {
     this.ac?.abort()
     if (this.loop) await this.loop.catch(() => {})
-    // Standalone request (the poll signal is already aborted) so it can still land.
-    await this.opts.transport.notifyStop().catch(() => {})
+    // No notifyStop: the bridge rebuilds on any channel change (connect/disconnect a
+    // *different* platform tears every channel down and back up), so a notifyStop here
+    // races the next connection's notifyStart for the same token — and since it would
+    // fly detached from the abort, an old "offline" could land after the new "online"
+    // and silently re-mark the bot offline. iLink drops a bot that stops polling on its
+    // own, so we just stop polling; notifyStart on the next start is what matters.
   }
 }
 

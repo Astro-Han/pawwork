@@ -154,18 +154,16 @@ test("sendMessage mints a fresh client_id per call", async () => {
   }
 })
 
-test("notifyStart and notifyStop POST their endpoints with base_info", async () => {
+test("notifyStart POSTs its endpoint with base_info", async () => {
   const seen: { path: string; body: any }[] = []
   const server = mockServer(async (req, url) => {
     seen.push({ path: url.pathname, body: await req.json() })
     return json({ ret: 0 })
   })
   try {
-    const client = new WeChatClient({ baseURL: server.url, botToken: "t" })
-    await client.notifyStart()
-    await client.notifyStop()
-    expect(seen.map((s) => s.path)).toEqual(["/ilink/bot/msg/notifystart", "/ilink/bot/msg/notifystop"])
-    for (const s of seen) expect(s.body.base_info).toBeDefined()
+    await new WeChatClient({ baseURL: server.url, botToken: "t" }).notifyStart()
+    expect(seen.map((s) => s.path)).toEqual(["/ilink/bot/msg/notifystart"])
+    expect(seen[0].body.base_info).toBeDefined()
   } finally {
     server.stop()
   }
