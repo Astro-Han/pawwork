@@ -15,6 +15,39 @@ const DEFAULT_CSP =
 const csp = (hash = "") =>
   `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'${hash ? ` 'sha256-${hash}'` : ""}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:`
 
+const HOP_BY_HOP_HEADERS = [
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+] as const
+
+function proxyRequestHeaders(request: Request) {
+  const headers = new Headers(request.headers)
+  headers.delete("accept-encoding")
+  for (const header of HOP_BY_HOP_HEADERS) {
+    headers.delete(header)
+  }
+  headers.set("host", "app.opencode.ai")
+  return headers
+}
+
+function proxyResponseHeaders(response: Response) {
+  const headers = new Headers(response.headers)
+  for (const header of HOP_BY_HOP_HEADERS) {
+    headers.delete(header)
+  }
+  if (headers.has("content-encoding")) {
+    headers.delete("content-encoding")
+    headers.delete("content-length")
+  }
+  return headers
+}
+
 export async function handleUIRequest(request: Request) {
   const embeddedWebUI = await embeddedUIPromise
   const path = new URL(request.url).pathname
@@ -35,11 +68,9 @@ export async function handleUIRequest(request: Request) {
     }
   }
 
-  const headers = new Headers(request.headers)
-  headers.set("host", "app.opencode.ai")
   const init: RequestInit & { duplex?: "half" } = {
     method: request.method,
-    headers,
+    headers: proxyRequestHeaders(request),
     body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
     redirect: "manual",
     signal: request.signal,
@@ -48,18 +79,18 @@ export async function handleUIRequest(request: Request) {
   const response = await fetch(
     new Request(`https://app.opencode.ai${path}`, init),
   )
-  const next = new Headers(response.headers)
   const match = response.headers.get("content-type")?.includes("text/html")
     ? (await response.clone().text()).match(
         /<script\b(?![^>]*\bsrc\s*=)[^>]*\bid=(['"])oc-theme-preload-script\1[^>]*>([\s\S]*?)<\/script>/i,
       )
     : undefined
   const hash = match ? createHash("sha256").update(match[2]).digest("base64") : ""
-  next.set("content-security-policy", csp(hash))
+  const headers = proxyResponseHeaders(response)
+  headers.set("content-security-policy", csp(hash))
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
-    headers: next,
+    headers,
   })
 }
 
