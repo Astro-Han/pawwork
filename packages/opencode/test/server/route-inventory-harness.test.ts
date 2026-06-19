@@ -405,6 +405,16 @@ describe("route inventory harness", () => {
     ).toMatchObject({ hono: true, openapi: false, v2Sdk: true, localHttpApi: true, classification: "hono-v2-sdk" })
   })
 
+  test("does not report retired question HTTP routes as OpenAPI-only residue", async () => {
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+
+    expect(
+      inventory.rows
+        .filter((row) => row.path === "/question" || row.path.startsWith("/question/"))
+        .filter((row) => row.classification === "openapi-only"),
+    ).toEqual([])
+  })
+
   test("tracks native production coverage and adapter compatibility for non-JSON HTTP surfaces", async () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
