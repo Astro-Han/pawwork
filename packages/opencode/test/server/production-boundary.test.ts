@@ -1,0 +1,97 @@
+import { describe, expect, test } from "bun:test"
+import { readFile } from "node:fs/promises"
+import path from "node:path"
+import { Instance } from "../../src/project/instance"
+import { PtyID } from "../../src/pty/schema"
+import { PtyTicket } from "../../src/pty/ticket"
+import { Server } from "../../src/server/server"
+import { tmpdir } from "../fixture/fixture"
+
+describe("production server boundary", () => {
+  test("serves ordinary JSON API requests through the production app", async () => {
+    const response = await Server.Default().app.request("/global/health")
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-type")).toContain("application/json")
+    expect(await response.json()).toEqual({ healthy: true, version: "local" })
+  })
+
+  test("serves the OpenAPI document through the production API path", async () => {
+    const response = await Server.Default().app.request("/doc")
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-type")).toContain("application/json")
+    expect(body.openapi).toBe("3.1.1")
+    expect(body.paths).toHaveProperty("/global/health")
+  })
+
+  test("keeps control-plane routes out of workspace routing", async () => {
+    const doc = await Server.Default().app.request("/doc?workspace=wrk_missing")
+    const docBody = await doc.json()
+
+    expect(doc.status).toBe(200)
+    expect(docBody.paths).toHaveProperty("/global/health")
+
+    const auth = await Server.Default().app.request("/auth/provider_missing", {
+      method: "DELETE",
+      headers: {
+        "x-opencode-workspace": "wrk_missing",
+      },
+    })
+
+    expect(auth.status).not.toBe(500)
+    expect(await auth.text()).not.toContain("Workspace not found")
+  })
+
+  test("serves local PTY websocket compatibility with production instance context", async () => {
+    if (process.platform === "win32") return
+
+    await using tmp = await tmpdir({ git: true })
+    const ptyID = PtyID.ascending()
+    const issued = PtyTicket.issue({ ptyID })
+    const response = await Server.Default().app.request(
+      `/pty/${ptyID}/connect?directory=${encodeURIComponent(tmp.path)}&ticket=${encodeURIComponent(issued.ticket)}`,
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(404)
+    expect(body.name).toBe("NotFoundError")
+  })
+
+  test("serves instance SSE compatibility with production instance context", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const response = await Server.Default().app.request(`/event?directory=${encodeURIComponent(tmp.path)}`)
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error("Expected SSE body")
+
+    try {
+      const first = await reader.read()
+      const text = new TextDecoder().decode(first.value)
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-type")).toContain("text/event-stream")
+      expect(text).toContain("server.connected")
+    } finally {
+      await reader.cancel()
+    }
+  })
+
+  test("does not mount ordinary API route trees through Hono in production", async () => {
+    const server = await readFile(path.join(import.meta.dir, "../../src/server/server.ts"), "utf8")
+
+    expect(server).not.toContain("InstanceRoutes")
+    expect(server).not.toContain("ControlPlaneRoutes")
+    expect(server).not.toContain("GlobalRoutes")
+  })
+
+  test("keeps legacy route tree usage isolated to spec generation", async () => {
+    const openapi = await readFile(path.join(import.meta.dir, "../../src/server/openapi.ts"), "utf8")
+
+    expect(openapi).toContain("serverOpenApi")
+    expect(openapi).toContain("generateSpecs")
+    expect(openapi).toContain("InstanceRoutes")
+    expect(openapi).toContain("ControlPlaneRoutes")
+    expect(openapi).toContain("GlobalRoutes")
+  })
+})

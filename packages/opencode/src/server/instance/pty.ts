@@ -318,3 +318,31 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
       }),
     )
 }
+
+export function PtyConnectCompatibilityRoutes(upgradeWebSocket: UpgradeWebSocket) {
+  return new Hono().get(
+    "/:ptyID/connect",
+    describeRoute({
+      summary: "Connect to PTY session",
+      description: "Establish a WebSocket connection to interact with a pseudo-terminal (PTY) session in real-time.",
+      operationId: "pty.connect",
+      responses: {
+        200: {
+          description: "Connected session",
+          content: {
+            "application/json": {
+              schema: resolver(z.boolean()),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    validator("param", z.object({ ptyID: PtyID.zod })),
+    validator("query", PtyConnectQuery),
+    upgradeWebSocket(async (c) => {
+      const request = c.req as unknown as PtyConnectRequest
+      return runPtyRoute(connectPtySession(request))
+    }),
+  )
+}

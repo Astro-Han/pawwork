@@ -16,6 +16,10 @@ export interface Runtime {
   listen(opts: Opts): Promise<Listener>
 }
 
+export type FetchApp = {
+  fetch: (request: Request, env?: unknown) => Response | Promise<Response>
+}
+
 export interface Adapter {
-  create(app: Hono): Runtime
+  create(app: Hono | FetchApp, websocketApp?: Hono): Runtime
 }
