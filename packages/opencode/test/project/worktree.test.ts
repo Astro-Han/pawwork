@@ -13,6 +13,7 @@ import { Git } from "../../src/git"
 import { Instance } from "../../src/project/instance"
 import { Project } from "../../src/project/project"
 import { ProjectTable } from "../../src/project/project.sql"
+import { Session } from "../../src/session"
 import { Database, eq } from "../../src/storage/db"
 import { Worktree } from "../../src/worktree"
 import { tmpdir } from "../fixture/fixture"
@@ -71,6 +72,7 @@ function worktreeLayerWithStartCommandProbe(probe: StartCommandProbe) {
   return Worktree.layer.pipe(
     Layer.provide(Git.defaultLayer),
     Layer.provide(Project.defaultLayer),
+    Layer.provide(Session.defaultLayer),
     Layer.provide(startCommandSpawnProbe(probe)),
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(NodePath.layer),
