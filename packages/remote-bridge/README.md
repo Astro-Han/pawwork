@@ -14,7 +14,7 @@ This is the design/model doc. Two companions:
 
 ## Shape
 
-```
+```text
 phone chat app ──outbound──▶ Platform adapter ─┐
                                                ├─▶ Engine ──HTTP+SSE──▶ local PawWork server
 phone chat app ──outbound──▶ Platform adapter ─┘
