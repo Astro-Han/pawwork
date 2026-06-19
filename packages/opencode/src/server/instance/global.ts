@@ -1,6 +1,5 @@
-import { Hono, type Context } from "hono"
+import { Hono } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
-import { streamSSE } from "hono/streaming"
 import { Effect } from "effect"
 import z from "zod"
 import { BusEvent } from "@/bus/bus-event"
@@ -16,6 +15,7 @@ import { Config } from "../../config/config"
 import { errors } from "../error"
 import { EventReplayStore, type GlobalEventEnvelope, type ReplayRecord } from "../event-replay"
 import { requestContextFromHono, withRequestContext } from "@/server/request-context"
+import { createSseResponse } from "../sse"
 
 const log = Log.create({ service: "server" })
 
@@ -233,104 +233,136 @@ const upgradeInstallation = Effect.fn("GlobalRoutes.upgrade")(function* (target?
   return { ...result, status: 200 } satisfies UpgradeResult
 })
 
-async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>) => () => void, heartbeatMs = 10_000) {
-  return streamSSE(c, async (stream) => {
-    const q = new AsyncQueue<string | null>()
-    let done = false
+function streamEvents(
+  request: Request,
+  subscribe: (q: AsyncQueue<string | null>) => () => void,
+  heartbeatMs = 10_000,
+) {
+  return createSseResponse({
+    signal: request.signal,
+    start(stream) {
+      const q = new AsyncQueue<string | null>()
+      let done = false
+      let cancelled = false
 
-    q.push(
-      JSON.stringify({
-        payload: {
-          type: "server.connected",
-          properties: {},
-        },
-      }),
-    )
-
-    // Send heartbeat every 10s to prevent stalled proxy streams.
-    const heartbeat = setInterval(() => {
       q.push(
         JSON.stringify({
           payload: {
-            type: "server.heartbeat",
+            type: "server.connected",
             properties: {},
           },
         }),
       )
-    }, heartbeatMs)
 
-    const stop = () => {
-      if (done) return
-      done = true
-      clearInterval(heartbeat)
-      unsub()
-      q.push(null)
-      log.info("global event disconnected")
-    }
+      // Send heartbeat every 10s to prevent stalled proxy streams.
+      const heartbeat = setInterval(() => {
+        q.push(
+          JSON.stringify({
+            payload: {
+              type: "server.heartbeat",
+              properties: {},
+            },
+          }),
+        )
+      }, heartbeatMs)
 
-    const unsub = subscribe(q)
-
-    stream.onAbort(stop)
-
-    try {
-      for await (const data of q) {
-        if (data === null) return
-        await stream.writeSSE({ data })
+      const stop = () => {
+        if (done) return
+        done = true
+        clearInterval(heartbeat)
+        unsub()
+        q.push(null)
+        log.info("global event disconnected")
       }
-    } finally {
-      stop()
-    }
+
+      const unsub = subscribe(q)
+
+      void (async () => {
+        try {
+          for await (const data of q) {
+            if (data === null) return
+            stream.write({ data })
+          }
+        } finally {
+          if (!cancelled) stream.close()
+        }
+      })()
+
+      return () => {
+        cancelled = true
+        stop()
+      }
+    },
   })
 }
 
-export async function streamGlobalEvents(
-  c: Context,
+export function handleGlobalEventStream(
+  request: Request,
   bridge: ReturnType<typeof createGlobalEventReplayBridge> = globalEventReplay,
   heartbeatMs = 10_000,
 ) {
-  const lastEventID = c.req.header("Last-Event-ID") ?? c.req.header("last-event-id") ?? undefined
+  const lastEventID = request.headers.get("Last-Event-ID") ?? request.headers.get("last-event-id") ?? undefined
+  log.info("global event connected")
 
-  return streamSSE(c, async (stream) => {
-    const q = new AsyncQueue<SsePacket | null>()
-    let done = false
-    const unsubscribe = openGlobalEventReplayConnection({
-      bridge,
-      lastEventID,
-      push: (packet) => q.push(packet),
-    })
-
-    const heartbeat = setInterval(() => {
-      q.push({
-        data: JSON.stringify({
-          payload: {
-            type: "server.heartbeat",
-            properties: {},
-          },
-        }),
+  return createSseResponse({
+    signal: request.signal,
+    start(stream) {
+      const q = new AsyncQueue<SsePacket | null>()
+      let done = false
+      let cancelled = false
+      const unsubscribe = openGlobalEventReplayConnection({
+        bridge,
+        lastEventID,
+        push: (packet) => q.push(packet),
       })
-    }, heartbeatMs)
 
-    const stop = () => {
-      if (done) return
-      done = true
-      clearInterval(heartbeat)
-      unsubscribe()
-      q.push(null)
-      log.info("global event disconnected")
-    }
+      const heartbeat = setInterval(() => {
+        q.push({
+          data: JSON.stringify({
+            payload: {
+              type: "server.heartbeat",
+              properties: {},
+            },
+          }),
+        })
+      }, heartbeatMs)
 
-    stream.onAbort(stop)
-
-    try {
-      for await (const packet of q) {
-        if (packet === null) return
-        const { replaySeq: _replaySeq, ...sse } = packet
-        await stream.writeSSE(sse)
+      const stop = () => {
+        if (done) return
+        done = true
+        clearInterval(heartbeat)
+        unsubscribe()
+        q.push(null)
+        log.info("global event disconnected")
       }
-    } finally {
-      stop()
-    }
+
+      void (async () => {
+        try {
+          for await (const packet of q) {
+            if (packet === null) return
+            const { replaySeq: _replaySeq, ...sse } = packet
+            stream.write(sse)
+          }
+        } finally {
+          if (!cancelled) stream.close()
+        }
+      })()
+
+      return () => {
+        cancelled = true
+        stop()
+      }
+    },
   })
+}
+
+export function handleGlobalSyncEventStream(
+  request: Request,
+  subscribe: (q: AsyncQueue<string | null>) => () => void,
+  heartbeatMs = 10_000,
+) {
+  log.info("global sync event connected")
+  return streamEvents(request, subscribe, heartbeatMs)
 }
 
 export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
@@ -394,12 +426,7 @@ export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
         },
       }),
       async (c) => {
-        log.info("global event connected")
-        c.header("Cache-Control", "no-cache, no-transform")
-        c.header("X-Accel-Buffering", "no")
-        c.header("X-Content-Type-Options", "nosniff")
-
-        return streamGlobalEvents(c, replayBridge, heartbeatMs)
+        return handleGlobalEventStream(c.req.raw, replayBridge, heartbeatMs)
       },
     )
     .get(
@@ -420,11 +447,7 @@ export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
         },
       }),
       async (c) => {
-        log.info("global sync event connected")
-        c.header("Cache-Control", "no-cache, no-transform")
-        c.header("X-Accel-Buffering", "no")
-        c.header("X-Content-Type-Options", "nosniff")
-        return streamEvents(c, syncSubscribe, heartbeatMs)
+        return handleGlobalSyncEventStream(c.req.raw, syncSubscribe, heartbeatMs)
       },
     )
     .get(
@@ -546,81 +569,6 @@ export function createGlobalRoutes(options: GlobalRoutesOptions = {}) {
           },
         })
         return c.json({ success: true, version: target })
-      },
-    )
-}
-
-export function createGlobalCompatibilityRoutes(options: GlobalRoutesOptions = {}) {
-  const replayBridge = options.replayBridge ?? globalEventReplay
-  const heartbeatMs = normalizeHeartbeatMs(options.heartbeatMs)
-  const syncSubscribe =
-    options.syncSubscribe ??
-    ((q: AsyncQueue<string | null>) => {
-      return SyncEvent.subscribeAll(({ def, event }) => {
-        // TODO: don't pass def, just pass the type (and it should
-        // be versioned)
-        q.push(
-          JSON.stringify({
-            payload: {
-              ...event,
-              type: SyncEvent.versionedType(def.type, def.version),
-            },
-          }),
-        )
-      })
-    })
-
-  return new Hono()
-    .use((c, next) => withRequestContext(requestContextFromHono(c, {}), () => next()))
-    .get(
-      "/event",
-      describeRoute({
-        summary: "Get global events",
-        description: "Subscribe to global events from the OpenCode system using server-sent events.",
-        operationId: "global.event",
-        responses: {
-          200: {
-            description: "Event stream",
-            content: {
-              "text/event-stream": {
-                schema: resolver(globalEventOpenApiSchema()),
-              },
-            },
-          },
-        },
-      }),
-      async (c) => {
-        log.info("global event connected")
-        c.header("Cache-Control", "no-cache, no-transform")
-        c.header("X-Accel-Buffering", "no")
-        c.header("X-Content-Type-Options", "nosniff")
-
-        return streamGlobalEvents(c, replayBridge, heartbeatMs)
-      },
-    )
-    .get(
-      "/sync-event",
-      describeRoute({
-        summary: "Subscribe to global sync events",
-        description: "Get global sync events",
-        operationId: "global.sync-event.subscribe",
-        responses: {
-          200: {
-            description: "Event stream",
-            content: {
-              "text/event-stream": {
-                schema: resolver(globalSyncEventOpenApiSchema()),
-              },
-            },
-          },
-        },
-      }),
-      async (c) => {
-        log.info("global sync event connected")
-        c.header("Cache-Control", "no-cache, no-transform")
-        c.header("X-Accel-Buffering", "no")
-        c.header("X-Content-Type-Options", "nosniff")
-        return streamEvents(c, syncSubscribe, heartbeatMs)
       },
     )
 }

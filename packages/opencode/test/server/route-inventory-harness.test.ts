@@ -405,22 +405,35 @@ describe("route inventory harness", () => {
     ).toMatchObject({ hono: true, openapi: false, v2Sdk: true, localHttpApi: true, classification: "hono-v2-sdk" })
   })
 
-  test("tracks explicit compatibility boundary coverage for non-JSON HTTP surfaces", async () => {
+  test("tracks native production coverage and adapter compatibility for non-JSON HTTP surfaces", async () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
     for (const [method, routePath, specialSurface] of [
       ["GET", "/event", "SSE/event"],
       ["GET", "/global/event", "SSE/event"],
       ["GET", "/global/sync-event", "SSE/event"],
-      ["GET", "/pty/:ptyID/connect", "PTY websocket"],
-      ["GET", "/__workspace_ws", "workspace websocket proxy"],
       ["ALL", "/*", "UI static route"],
     ] as const) {
       expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
         hono: true,
         localHttpApi: false,
+        nativeSpecial: true,
+        compatibilityBoundary: false,
+        classification: "production-native-special-surface",
+        specialSurface,
+      })
+    }
+
+    for (const [method, routePath, specialSurface] of [
+      ["GET", "/pty/:ptyID/connect", "PTY websocket"],
+      ["GET", "/__workspace_ws", "workspace websocket proxy"],
+    ] as const) {
+      expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
+        hono: true,
+        localHttpApi: false,
+        nativeSpecial: false,
         compatibilityBoundary: true,
-        classification: "compatibility-boundary",
+        classification: "adapter-compatibility-boundary",
         specialSurface,
       })
     }

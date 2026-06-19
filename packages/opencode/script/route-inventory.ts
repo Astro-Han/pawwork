@@ -20,6 +20,7 @@ export type RouteRow = {
   v2Sdk: boolean
   localHttpApi: boolean
   upstreamHttpApi: boolean
+  nativeSpecial: boolean
   compatibilityBoundary: boolean
   classification: string
   specialSurface: string
@@ -105,13 +106,16 @@ const specialSurfaces: Array<[RegExp, string]> = [
   [/^\/experimental\/workspace\b/, "workspace"],
 ]
 
-const compatibilityBoundaryRoutes = new Set([
+const nativeSpecialRoutes = new Set([
   "GET /event",
   "GET /global/event",
   "GET /global/sync-event",
+  "ALL /*",
+])
+
+const compatibilityBoundaryRoutes = new Set([
   "GET /pty/:ptyID/connect",
   "GET /__workspace_ws",
-  "ALL /*",
 ])
 
 const pawworkOwned = new Set([
@@ -426,6 +430,10 @@ function isCompatibilityBoundary(method: string, routePath: string) {
   return compatibilityBoundaryRoutes.has(`${method} ${routePath}`)
 }
 
+function isNativeSpecial(method: string, routePath: string) {
+  return nativeSpecialRoutes.has(`${method} ${routePath}`)
+}
+
 function classify(input: {
   method: string
   path: string
@@ -437,8 +445,11 @@ function classify(input: {
   upstreamHttpApi: boolean
 }) {
   const key = `${input.method} ${input.path}`
+  if (isNativeSpecial(input.method, input.path) && input.hono && !input.localHttpApi) {
+    return "production-native-special-surface"
+  }
   if (isCompatibilityBoundary(input.method, input.path) && input.hono && !input.localHttpApi) {
-    return "compatibility-boundary"
+    return "adapter-compatibility-boundary"
   }
   if (explicitlyDeferred.some((pattern) => pattern.test(key) || pattern.test(input.path))) return "explicitly-deferred"
   if (pawworkOwned.has(key) && input.hono && !input.openapi && !input.legacySdk && input.v2Sdk) {
@@ -500,6 +511,7 @@ export async function buildRouteInventory(options: BuildOptions = {}): Promise<R
       }
       return {
         ...flags,
+        nativeSpecial: isNativeSpecial(flags.method, flags.path),
         compatibilityBoundary: isCompatibilityBoundary(flags.method, flags.path),
         classification: classify(flags),
         specialSurface: specialSurfaceFor(flags.method, flags.path),
@@ -569,13 +581,13 @@ export function renderRouteInventoryReport(inventory: RouteInventory) {
     "",
     "## Main Table",
     "",
-    "| Path | Method | Hono | OpenAPI | Legacy SDK | v2 SDK | Local HttpApi | Upstream HttpApi | Compatibility Boundary | Classification | Special surface |",
-    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
+    "| Path | Method | Hono | OpenAPI | Legacy SDK | v2 SDK | Local HttpApi | Upstream HttpApi | Native Special | Compatibility Boundary | Classification | Special surface |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
   ]
 
   for (const row of inventory.rows) {
     lines.push(
-      `| \`${row.path}\` | \`${row.method}\` | ${mark(row.hono)} | ${mark(row.openapi)} | ${mark(row.legacySdk)} | ${mark(row.v2Sdk)} | ${mark(row.localHttpApi)} | ${mark(row.upstreamHttpApi)} | ${mark(row.compatibilityBoundary)} | \`${row.classification}\` | ${row.specialSurface} |`,
+      `| \`${row.path}\` | \`${row.method}\` | ${mark(row.hono)} | ${mark(row.openapi)} | ${mark(row.legacySdk)} | ${mark(row.v2Sdk)} | ${mark(row.localHttpApi)} | ${mark(row.upstreamHttpApi)} | ${mark(row.nativeSpecial)} | ${mark(row.compatibilityBoundary)} | \`${row.classification}\` | ${row.specialSurface} |`,
     )
   }
 
@@ -583,7 +595,8 @@ export function renderRouteInventoryReport(inventory: RouteInventory) {
     "",
     "## Special Surfaces",
     "",
-    "- UI static routing, workspace proxy WebSocket, SSE/event streams, and PTY WebSocket are compatibility boundaries rather than ordinary JSON route parity.",
+    "- UI static routing and SSE/event streams are native production special surfaces rather than ordinary JSON route parity.",
+    "- Workspace proxy WebSocket and PTY WebSocket remain adapter compatibility boundaries because the Node adapter still exposes Hono's `upgradeWebSocket` API.",
     "- `/doc` is tracked as an OpenAPI-source HttpApi route, not a compatibility boundary.",
     "- PawWork-owned routes must be preserved during future HttpApi migration even when they are absent upstream or absent from the checked-in OpenAPI file.",
     "- v2 SDK coverage is tracked separately from the legacy SDK because PawWork-owned app/runtime routes currently appear in the v2 generated SDK surface.",

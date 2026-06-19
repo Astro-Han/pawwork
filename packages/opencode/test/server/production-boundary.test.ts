@@ -8,6 +8,17 @@ import { Server } from "../../src/server/server"
 import { tmpdir } from "../fixture/fixture"
 
 describe("production server boundary", () => {
+  async function readFirstChunk(response: Response) {
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error("Expected response body")
+    try {
+      const first = await reader.read()
+      return new TextDecoder().decode(first.value)
+    } finally {
+      await reader.cancel()
+    }
+  }
+
   test("serves ordinary JSON API requests through the production app", async () => {
     const response = await Server.Default().app.request("/global/health")
 
@@ -62,18 +73,21 @@ describe("production server boundary", () => {
   test("serves instance SSE compatibility with production instance context", async () => {
     await using tmp = await tmpdir({ git: true })
     const response = await Server.Default().app.request(`/event?directory=${encodeURIComponent(tmp.path)}`)
-    const reader = response.body?.getReader()
-    if (!reader) throw new Error("Expected SSE body")
+    const text = await readFirstChunk(response)
 
-    try {
-      const first = await reader.read()
-      const text = new TextDecoder().decode(first.value)
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-type")).toContain("text/event-stream")
+    expect(text).toContain("server.connected")
+  })
+
+  test("serves global SSE special surfaces through the production dispatcher", async () => {
+    for (const path of ["/global/event", "/global/sync-event"] as const) {
+      const response = await Server.Default().app.request(path)
+      const text = await readFirstChunk(response)
 
       expect(response.status).toBe(200)
       expect(response.headers.get("content-type")).toContain("text/event-stream")
       expect(text).toContain("server.connected")
-    } finally {
-      await reader.cancel()
     }
   })
 
@@ -83,6 +97,13 @@ describe("production server boundary", () => {
     expect(server).not.toContain("InstanceRoutes")
     expect(server).not.toContain("ControlPlaneRoutes")
     expect(server).not.toContain("GlobalRoutes")
+  })
+
+  test("does not mount the catch-all Hono compatibility app in production", async () => {
+    const server = await readFile(path.join(import.meta.dir, "../../src/server/server.ts"), "utf8")
+
+    expect(server).not.toContain("createCompatibilityApp")
+    expect(server).not.toContain("compatibility.fetch")
   })
 
   test("keeps legacy route tree usage isolated to spec generation", async () => {

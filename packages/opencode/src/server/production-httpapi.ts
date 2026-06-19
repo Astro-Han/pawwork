@@ -17,6 +17,11 @@ import { Filesystem } from "@/util/filesystem"
 import * as Fence from "./fence"
 import { resolveWorkspaceRoute } from "./instance/workspace-routing"
 import { ServerProxy } from "./proxy"
+import {
+  isGlobalSpecialRequest,
+  isWorkspaceWebSocketSpecialRequest,
+  type ProductionSpecialHandler,
+} from "./production-special"
 import { requestContextFromRequest, withRequestContext } from "./request-context"
 import { automationHandlers } from "./routes/instance/httpapi/handlers/automation"
 import { configHandlers } from "./routes/instance/httpapi/handlers/config"
@@ -137,11 +142,9 @@ function isWebSocketUpgrade(request: Request) {
 
 export function isProductionHttpApiRequest(request: Request) {
   const pathname = pathnameOf(request)
-  if (request.method === "GET" && (pathname === "/global/event" || pathname === "/global/sync-event")) {
-    return false
-  }
+  if (isGlobalSpecialRequest(request.method, pathname)) return true
   if (request.method === "GET" && pathname === "/event") return true
-  if (request.method === "GET" && pathname === "/__workspace_ws") return false
+  if (isWorkspaceWebSocketSpecialRequest(request.method, pathname)) return true
   if (request.method === "GET" && /^\/pty\/[^/]+\/connect$/.test(pathname)) return true
   if (apiExactPaths.has(pathname)) return true
   return apiPrefixes.some((prefix) => pathname === prefix.slice(0, -1) || pathname.startsWith(prefix))
@@ -250,7 +253,7 @@ async function runWithFence(request: Request, next: () => Promise<Response>) {
 
 type ProductionHttpApiDispatcherOptions = {
   handler?: (request: Request) => Promise<Response>
-  compatibilityHandler?: (request: Request, env?: unknown) => Promise<Response>
+  specialHandler?: ProductionSpecialHandler
 }
 
 function createProductionWebHandler() {
@@ -308,11 +311,6 @@ export function createProductionHttpApiDispatcher(
     if (!context) return web.handler(request)
     return web.handler(request, context as never)
   }
-  const dispatchLocalCompatibility = (request: Request, env: unknown) => {
-    if (!options.compatibilityHandler) return dispatchLocal(request)
-    return options.compatibilityHandler(request, env)
-  }
-
   const dispatchInstance = (request: Request, env: unknown) =>
     runWithFence(request, async () => {
       const url = new URL(request.url)
@@ -336,10 +334,13 @@ export function createProductionHttpApiDispatcher(
           directory: resolution.directory,
           workspaceID: resolution.workspaceID,
           request,
-          fn: (refs) =>
-            isProductionHttpApiRequest(request) && !isInstanceCompatibilityApi(url.pathname)
-              ? dispatchLocal(request, refs)
-              : dispatchLocalCompatibility(request, env),
+          fn: async (refs) => {
+            if (isInstanceCompatibilityApi(url.pathname)) {
+              const response = await options.specialHandler?.handleInstance(request, env)
+              if (response) return response
+            }
+            return dispatchLocal(request, refs)
+          },
         })
       }
 
@@ -375,6 +376,10 @@ export function createProductionHttpApiDispatcher(
   return {
     async handle(request: Request, env?: unknown) {
       const pathname = pathnameOf(request)
+      if (isGlobalSpecialRequest(request.method, pathname) || isWorkspaceWebSocketSpecialRequest(request.method, pathname)) {
+        const response = await options.specialHandler?.handle(request, env)
+        if (response) return response
+      }
       if (isControlPlaneApi(pathname)) return dispatchLocal(request)
       if (isGlobalApi(pathname)) {
         const snapshot = requestContextFromRequest(request, {})

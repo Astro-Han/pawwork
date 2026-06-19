@@ -12,9 +12,10 @@ import { NamedError } from "@opencode-ai/util/error"
 import { AutomationScheduler } from "@/automation/scheduler"
 import { MDNS } from "./mdns"
 import { ServerAuth } from "./auth"
-import { createCompatibilityApp } from "./compatibility"
 import { initProjectors } from "./projectors"
 import { createProductionHttpApiDispatcher, isProductionHttpApiRequest } from "./production-httpapi"
+import { createProductionSpecialHandler } from "./production-special"
+import { createWebSocketCompatibilityApp } from "./websocket-compatibility"
 import { serverOpenApi } from "./openapi"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
@@ -148,7 +149,9 @@ async function maybeCompress(request: Request, response: Response) {
   const url = new URL(request.url)
   if (!request.headers.get("accept-encoding")?.includes("gzip")) return response
   if (response.headers.has("content-encoding")) return response
-  if (url.pathname === "/event" || url.pathname === "/global/event") return response
+  if (url.pathname === "/event" || url.pathname === "/global/event" || url.pathname === "/global/sync-event") {
+    return response
+  }
   if (request.method === "POST" && /\/session\/[^/]+\/(message|prompt_async)$/.test(url.pathname)) return response
   if (!response.body || !("CompressionStream" in globalThis)) return response
 
@@ -173,25 +176,25 @@ function create(opts: { cors?: string[] }) {
     },
     websocketApp,
   )
-  const compatibility = createCompatibilityApp({ ...opts, upgradeWebSocket: runtime.upgradeWebSocket })
+  const websocketCompatibility = createWebSocketCompatibilityApp(runtime.upgradeWebSocket)
+  const special = createProductionSpecialHandler({ websocketCompatibilityApp: websocketCompatibility })
   const dispatcher = createProductionHttpApiDispatcher(runtime.upgradeWebSocket, {
-    compatibilityHandler: (request, env) => Promise.resolve(compatibility.fetch(request, (env ?? {}) as never)),
+    specialHandler: special,
   })
-  websocketApp.route("/", compatibility)
+  websocketApp.route("/", websocketCompatibility)
 
   app = {
     async fetch(request, env) {
-      if (!isProductionHttpApiRequest(request)) {
-        return Promise.resolve(compatibility.fetch(request, (env ?? {}) as never))
-      }
-
       const pathname = new URL(request.url).pathname
       const skip = pathname === "/log"
       if (!skip) log.info("request", { method: request.method, path: pathname })
       const timer = log.time("request", { method: request.method, path: pathname })
       try {
         const response =
-          request.method === "OPTIONS" ? corsPreflight(request, opts) : (authorize(request) ?? (await dispatcher.handle(request, env)))
+          request.method === "OPTIONS"
+            ? corsPreflight(request, opts)
+            : (authorize(request) ??
+              (isProductionHttpApiRequest(request) ? await dispatcher.handle(request, env) : await special.handleUI(request)))
         return await maybeCompress(request, applyCors(request, response, opts))
       } catch (error) {
         return applyCors(request, errorResponse(error), opts)
