@@ -102,10 +102,29 @@ const windowsOpencodeShards = [
   {
     suffix: "opencode-server-tools",
     usesTurbo: false,
-    timeoutMinutes: 25,
+    timeoutMinutes: 50,
+    attemptTimeoutMinutes: 20,
     command:
-      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-server-tools.xml test/server test/snapshot test/browser test/mcp test/question test/effect test/agent test/git/ test/storage",
+      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-server-tools.xml test/server",
     reportPath: "packages/opencode/.artifacts/unit/junit-windows-server-tools.xml",
+  },
+  {
+    suffix: "opencode-browser-agent",
+    usesTurbo: false,
+    timeoutMinutes: 30,
+    attemptTimeoutMinutes: 10,
+    command:
+      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-browser-agent.xml test/browser test/agent test/question",
+    reportPath: "packages/opencode/.artifacts/unit/junit-windows-browser-agent.xml",
+  },
+  {
+    suffix: "opencode-server-support",
+    usesTurbo: false,
+    timeoutMinutes: 30,
+    attemptTimeoutMinutes: 10,
+    command:
+      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-server-support.xml test/snapshot test/mcp test/effect test/git/ test/storage",
+    reportPath: "packages/opencode/.artifacts/unit/junit-windows-server-support.xml",
   },
   {
     suffix: "opencode-tool-runtime",
@@ -642,9 +661,11 @@ describe("ci workflow", () => {
     // Retry budget: exactly one extra attempt (max_attempts=2).
     expect(unitRun).toContain("attempts=2")
 
-    // Each attempt runs in a subshell so `cd packages/...` in matrix.command
-    // does not leak working directory across attempts.
-    expect(unitRun).toContain("( ${{ matrix.command }} )")
+    // Each time-boxed attempt runs in a fresh shell so `cd packages/...` in
+    // matrix.command does not leak working directory across attempts.
+    expect(unitRun).toContain('attempt_timeout_minutes="${{ matrix.attempt_timeout_minutes }}"')
+    expect(unitRun).toContain('timeout "${attempt_timeout_minutes}m" bash -lc')
+    expect(unitRun).toContain("Windows unit attempt timed out")
 
     // First-attempt exit code must be exported so downstream steps and humans
     // can tell a recovered run apart from a clean-first-pass run.
@@ -672,13 +693,19 @@ describe("ci workflow", () => {
     const matrixIncludes = job?.strategy?.matrix?.include ?? []
 
     expect(matrixIncludes).toEqual(
-      windowsUnitJobs.map(({ jobName, usesTurbo, timeoutMinutes, command, reportPath }) => ({
-        package: jobName.replace("unit-windows-", ""),
-        uses_turbo: usesTurbo,
-        timeout_minutes: timeoutMinutes,
-        command,
-        report_path: reportPath,
-      })),
+      windowsUnitJobs.map((pkg) => {
+        const matrixItem: Record<string, string | number | boolean> = {
+          package: pkg.jobName.replace("unit-windows-", ""),
+          uses_turbo: pkg.usesTurbo,
+          timeout_minutes: pkg.timeoutMinutes,
+          command: pkg.command,
+          report_path: pkg.reportPath,
+        }
+        if ("attemptTimeoutMinutes" in pkg) {
+          matrixItem.attempt_timeout_minutes = pkg.attemptTimeoutMinutes
+        }
+        return matrixItem
+      }),
     )
 
     for (const { jobName, artifactName } of windowsUnitJobs) {
@@ -703,6 +730,8 @@ describe("ci workflow", () => {
       "opencode-session",
       "opencode-config-project",
       "opencode-server-tools",
+      "opencode-browser-agent",
+      "opencode-server-support",
       "opencode-tool-runtime",
       "opencode-platform",
     ])
@@ -749,6 +778,38 @@ describe("ci workflow", () => {
       extra: [],
       missing: [],
     })
+  })
+
+  test("time-boxes server-derived Windows opencode shards below the job budget", () => {
+    const parsed = parseWorkflow(windowsAdvisoryWorkflowPath)
+    const matrixIncludes = parsed.jobs?.[windowsUnitJobName]?.strategy?.matrix?.include ?? []
+    const serverDerivedShards = matrixIncludes.filter((item) =>
+      ["opencode-server-tools", "opencode-browser-agent", "opencode-server-support"].includes(String(item.package)),
+    )
+
+    expect(
+      serverDerivedShards.map((item) => ({
+        package: item.package,
+        timeout_minutes: item.timeout_minutes,
+        attempt_timeout_minutes: item.attempt_timeout_minutes,
+      })),
+    ).toEqual([
+      { package: "opencode-server-tools", timeout_minutes: 50, attempt_timeout_minutes: 20 },
+      { package: "opencode-browser-agent", timeout_minutes: 30, attempt_timeout_minutes: 10 },
+      { package: "opencode-server-support", timeout_minutes: 30, attempt_timeout_minutes: 10 },
+    ])
+
+    for (const item of serverDerivedShards) {
+      const timeoutMinutes = item.timeout_minutes
+      const attemptTimeoutMinutes = item.attempt_timeout_minutes
+
+      expect(typeof timeoutMinutes).toBe("number")
+      expect(typeof attemptTimeoutMinutes).toBe("number")
+      if (typeof timeoutMinutes !== "number" || typeof attemptTimeoutMinutes !== "number") {
+        throw new Error(`Invalid timeout shape for ${String(item.package)}`)
+      }
+      expect(timeoutMinutes).toBeGreaterThanOrEqual(attemptTimeoutMinutes * 2 + 10)
+    }
   })
 
   test("keeps Windows opencode shard paths from prefix-matching sibling test directories", () => {
