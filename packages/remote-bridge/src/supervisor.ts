@@ -77,17 +77,11 @@ async function superviseOne(
 
   while (!signal.aborted) {
     status("starting")
-    const startPromise = platform.start(handler, ready)
-    // Abort can win the race below, leaving start() in flight; keep its eventual
-    // rejection from surfacing as an unhandled rejection.
-    startPromise.catch(() => {})
-    const outcome = await Promise.race([
-      startPromise.then(
-        () => ({ failed: false as const }),
-        (err) => ({ failed: true as const, error: message(err) }),
-      ),
-      onAbort(signal).then(() => ({ failed: false as const })),
-    ])
+    // Promise.resolve().then absorbs a synchronous throw from a misbehaving
+    // adapter's start(), so it degrades and retries like an async failure rather
+    // than tearing the supervisor down.
+    const startPromise = Promise.resolve().then(() => platform.start(handler, ready))
+    const outcome = await raceStartOrAbort(startPromise, signal)
     // A requested stop is not a degradation, and a clean self-stop is not a
     // failure: in both cases end the loop without restarting.
     if (signal.aborted || !outcome.failed) return
@@ -97,9 +91,27 @@ async function superviseOne(
   }
 }
 
-function onAbort(signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return Promise.resolve()
-  return new Promise((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }))
+type StartOutcome = { failed: false } | { failed: true; error: string }
+
+// Race start() against an abort, removing the abort listener as soon as start
+// settles — otherwise a platform that keeps failing and retrying leaks one abort
+// listener per attempt. Abort is reported as a non-failure; the caller ends the
+// loop on signal.aborted. start()'s rejection is consumed here, so abort winning
+// the race never leaves a late rejection unhandled.
+function raceStartOrAbort(start: Promise<void>, signal: AbortSignal): Promise<StartOutcome> {
+  return new Promise((resolve) => {
+    if (signal.aborted) return resolve({ failed: false })
+    const onAbort = () => resolve({ failed: false })
+    signal.addEventListener("abort", onAbort, { once: true })
+    const settle = (outcome: StartOutcome) => {
+      signal.removeEventListener("abort", onAbort)
+      resolve(outcome)
+    }
+    start.then(
+      () => settle({ failed: false }),
+      (err) => settle({ failed: true, error: message(err) }),
+    )
+  })
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {

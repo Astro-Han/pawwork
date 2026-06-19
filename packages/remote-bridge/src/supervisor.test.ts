@@ -144,6 +144,80 @@ test("counts readiness once per platform even when an adapter double-fires", asy
   await supervised
 })
 
+test("a synchronous throw in start() degrades and retries instead of crashing", async () => {
+  // A misbehaving adapter whose start() throws synchronously (not a rejected
+  // promise). The supervisor must treat it like any failure: degrade and retry.
+  let starts = 0
+  let unblock: (() => void) | null = null
+  const platform: Platform = {
+    name: "sync-throw",
+    start(_handler: MessageHandler, onReady?: () => void): Promise<void> {
+      starts++
+      if (starts === 1) throw new Error("sync boom")
+      onReady?.()
+      return new Promise<void>((resolve) => {
+        unblock = resolve
+      })
+    },
+    reply: async () => {},
+    send: async () => {},
+    stop: async () => {
+      unblock?.()
+      unblock = null
+    },
+  }
+  const statuses: PlatformStatus[] = []
+  const ready: string[] = []
+  const controller = new AbortController()
+
+  const supervised = supervisePlatforms([platform], noopHandler, controller.signal, {
+    onStatus: (s) => statuses.push(s),
+    onPlatformReady: (p) => ready.push(p.name),
+    backoffMs: 5,
+    maxBackoffMs: 20,
+  })
+
+  await waitUntil(() => ready.includes("sync-throw"))
+  expect(starts).toBe(2) // first threw, retried, then served
+  expect(phasesFor(statuses, "sync-throw")).toEqual(["starting", "degraded", "starting", "serving"])
+  expect(statuses.find((s) => s.phase === "degraded")?.error).toBe("sync boom")
+
+  controller.abort()
+  await supervised
+})
+
+test("a perpetually failing platform does not accumulate abort listeners", async () => {
+  const controller = new AbortController()
+  const signal = controller.signal
+  let added = 0
+  let removed = 0
+  const realAdd = signal.addEventListener.bind(signal)
+  const realRemove = signal.removeEventListener.bind(signal)
+  ;(signal as unknown as { addEventListener: typeof signal.addEventListener }).addEventListener = ((type, ...rest) => {
+    if (type === "abort") added++
+    return (realAdd as (...a: unknown[]) => unknown)(type, ...rest)
+  }) as typeof signal.addEventListener
+  ;(signal as unknown as { removeEventListener: typeof signal.removeEventListener }).removeEventListener = ((
+    type,
+    ...rest
+  ) => {
+    if (type === "abort") removed++
+    return (realRemove as (...a: unknown[]) => unknown)(type, ...rest)
+  }) as typeof signal.removeEventListener
+
+  const bad = new ScriptedPlatform("bad", [{ kind: "reject", error: "down" }])
+  const supervised = supervisePlatforms([bad], noopHandler, signal, { backoffMs: 1, maxBackoffMs: 2 })
+
+  await waitUntil(() => bad.starts >= 6)
+  // Each attempt's race + backoff register an abort listener but clean it up, so
+  // the live count stays bounded rather than growing one-per-retry.
+  expect(added).toBeGreaterThan(5)
+  expect(added - removed).toBeLessThanOrEqual(2)
+
+  controller.abort()
+  await supervised
+})
+
 test("resolves promptly on abort even while a platform is blocked in start()", async () => {
   const serving = new ScriptedPlatform("serving", [{ kind: "serve" }])
   const statuses: PlatformStatus[] = []
