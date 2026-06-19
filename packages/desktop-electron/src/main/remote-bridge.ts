@@ -217,20 +217,21 @@ export class RemoteBridgeRuntime {
       this.statusMap.delete(platform)
       this.emitStatus()
       if (this.accounts.length === 0) {
-        // Last channel gone: delete the secret AND the bridge state file (session
-        // pointers + event cursor) so a later reconnect starts clean instead of
-        // inheriting a stale binding. Deleting needs no encryption, so revoking
-        // access works even when the keyring is locked — save([]) would throw and
-        // leave the token behind.
+        // Last channel gone. Stop the live bridge FIRST, then delete the secret
+        // AND the bridge state file (session pointers + event cursor): tearing
+        // down before the delete keeps an in-flight inbound handler from writing
+        // pointers back after the file is gone, which a reconnect would inherit.
+        // Deleting needs no encryption, so revoking works even when the keyring is
+        // locked — save([]) would throw and leave the token behind.
+        await this.stopBridge()
         this.deps.credentials.clear()
         rmSync(this.deps.statePath, { force: true })
-      } else {
-        // A channel remains: persist the trimmed list. (Pruning just the
-        // disconnected platform's pointers from statePath lands with the 2nd platform.)
-        this.deps.credentials.save(this.accounts)
+        return
       }
-      // startBridge tears down the live bridge and, if accounts remain, rebuilds
-      // with them; with none left it stops and returns, leaving no channels.
+      // A channel remains: persist the trimmed list and rebuild from the rest.
+      // (Pruning just the disconnected platform's pointers from statePath lands
+      // with the 2nd platform.)
+      this.deps.credentials.save(this.accounts)
       await this.startBridge()
     })
   }

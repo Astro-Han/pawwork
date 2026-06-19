@@ -326,6 +326,37 @@ test("disconnect revokes access even when secure storage is unavailable", async 
   await runtime.stop()
 })
 
+test("disconnecting the last channel stops the bridge before deleting state, so a late write can't resurrect it", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "remote-state-"))
+  const statePath = path.join(dir, "remote-bridge-state.json")
+  const runtime = new RemoteBridgeRuntime(
+    deps({
+      statePath,
+      buildApp: async () => ({
+        run(signal?: AbortSignal, _onReady?: () => void, onStatus?: (status: PlatformStatus) => void) {
+          onStatus?.({ name: "telegram", phase: "serving" })
+          return new Promise<void>((resolve) => {
+            const finish = () => {
+              // An in-flight handler persists pointers as the bridge tears down.
+              writeFileSync(statePath, JSON.stringify({ pointers: { "telegram:1:2": "sess" } }))
+              resolve()
+            }
+            if (signal?.aborted) return finish()
+            signal?.addEventListener("abort", finish, { once: true })
+          })
+        },
+      }),
+    }),
+  )
+  await runtime.startPairing("telegram", { token: "x" })
+  await runtime.confirmPairing("telegram")
+
+  await runtime.disconnect("telegram")
+  // stopBridge awaited the teardown (which wrote the file) before the delete ran.
+  expect(existsSync(statePath)).toBe(false)
+  await runtime.stop()
+})
+
 test("two channels run independently: one degrading or disconnecting leaves the other", async () => {
   const TG = "telegram" as RemotePlatform
   const PROBE = "probe" as RemotePlatform // a stand-in 2nd platform, cast past the union
