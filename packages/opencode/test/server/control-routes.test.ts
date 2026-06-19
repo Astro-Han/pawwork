@@ -8,6 +8,7 @@ import { Auth } from "../../src/auth"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { ControlApi } from "../../src/server/routes/instance/httpapi/groups/control"
 import { controlHandlers } from "../../src/server/routes/instance/httpapi/handlers/control"
+import { Server } from "../../src/server/server"
 
 const testProviderID = "httpapi-control-provider"
 
@@ -62,6 +63,8 @@ describe("control routes", () => {
   })
 
   test("serves the generated OpenAPI document through the HttpApi handlers", async () => {
+    await Server.openapi()
+
     const response = await requestControlHttpApi("/doc")
     const spec = await response.json()
 
