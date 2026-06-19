@@ -2,6 +2,7 @@ import { promises as fs } from "fs"
 import path from "path"
 import { NamedError } from "@opencode-ai/util/error"
 import z from "zod"
+import { Process } from "../util/process"
 
 export const GitignoreGuardError = NamedError.create(
   "WorktreeGitignoreGuardError",
@@ -13,13 +14,12 @@ export const GitignoreGuardError = NamedError.create(
 const ENTRY = ".worktrees/"
 
 async function git(root: string, args: string[]) {
-  const proc = Bun.spawn(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" })
-  const [code, stdout, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ])
-  return { code, stdout, stderr }
+  const result = await Process.text(["git", ...args], { cwd: root, nothrow: true })
+  return {
+    code: result.code,
+    stdout: result.text,
+    stderr: result.stderr.toString(),
+  }
 }
 
 function hasWorktreesIgnore(text: string) {

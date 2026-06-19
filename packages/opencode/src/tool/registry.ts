@@ -47,6 +47,7 @@ import { Automation } from "@/automation"
 import { Permission } from "../permission"
 import { Glob } from "../util/glob"
 import path from "path"
+import { readFile } from "node:fs/promises"
 import { pathToFileURL } from "url"
 import { Effect, Layer, Context, Schema } from "effect"
 import { ZodOverride } from "@/util/effect-zod"
@@ -254,7 +255,7 @@ export namespace ToolRegistry {
           const depsFailed = new Set<string>()
           for (const match of matches) {
             const namespace = path.basename(match, path.extname(match))
-            const text = yield* Effect.promise(() => Bun.file(match).text())
+            const text = yield* Effect.promise(() => readFile(match, "utf8"))
             const named = Array.from(
               text.matchAll(/export\s+(?:const|let|var|async function|function)\s+([A-Za-z_$][\w$]*)/g),
               (item) => `${namespace}_${item[1]}`,
