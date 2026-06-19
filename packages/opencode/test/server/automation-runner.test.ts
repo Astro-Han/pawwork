@@ -507,6 +507,32 @@ describe("automation runNow execution", () => {
     })
   })
 
+  test("keeps a queued run alive when its automation is deleted before the runner starts", async () => {
+    await withAutomation(async (projectID) => {
+      const definition = Automation.create(input(projectID))
+      const sessionID = SessionID.descending()
+      let entered = false
+
+      const initial = await Automation.runNowExecuting(definition.id, {
+        executor: async () => {
+          entered = true
+          return { sessionID, result: "done", cost: 0 }
+        },
+      })
+      const removed = await Automation.remove(definition.id)
+
+      expect(removed.tombstone).toEqual({ id: definition.id, deleted: true, revision: 2 })
+      expect(() => Automation.get(definition.id)).toThrow()
+      const succeeded = await waitForRunByID(initial.id, "succeeded")
+      expect(succeeded).toMatchObject({
+        state: "succeeded",
+        sessionID,
+        result: "done",
+      })
+      expect(entered).toBe(true)
+    })
+  })
+
   test("deleting an active automation lets the real session prompt finish", async () => {
     const ready = defer<void>()
     const server = Bun.serve({

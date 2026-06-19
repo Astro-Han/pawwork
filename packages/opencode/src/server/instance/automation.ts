@@ -344,7 +344,7 @@ export const AutomationRoutes = (): Hono =>
       describeRoute({
         summary: "Delete automation",
         description:
-          "Delete an automation definition, cancel future scheduling, and return a tombstone. Already-started runs continue to completion; use the run stop endpoint to cancel a run.",
+          "Delete an automation definition, cancel future scheduling, and return a tombstone. Already-started runs continue to completion.",
         operationId: "automation.delete",
         responses: {
           200: {

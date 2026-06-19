@@ -1260,6 +1260,7 @@ describe("automation routes", () => {
     const description = paths["/automation/{automationID}"].delete.description
 
     expect(description).toContain("Already-started runs continue")
+    expect(description).not.toContain("run stop endpoint")
     expect(description).not.toContain("publish the stopped run")
     expect(description).not.toContain("live run is owned by another process")
   })

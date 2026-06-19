@@ -3576,7 +3576,7 @@ export class Automation extends HeyApiClient {
   /**
    * Delete automation
    *
-   * Delete an automation definition, cancel future scheduling, and return a tombstone. Already-started runs continue to completion; use the run stop endpoint to cancel a run.
+   * Delete an automation definition, cancel future scheduling, and return a tombstone. Already-started runs continue to completion.
    */
   public delete<ThrowOnError extends boolean = false>(
     parameters: {

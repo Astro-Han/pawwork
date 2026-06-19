@@ -980,10 +980,9 @@ export namespace Automation {
     return false
   }
 
-  function hasDurableActiveWriter(run: Run, writerKey: string) {
-    const definition = get(run.automationID)
-    const projectID = definition.where.projectID
-    const ownerDirectory = Instance.directory
+  function hasDurableActiveWriter(run: Run, writerKey: string, scope: Scope) {
+    const projectID = scope.projectID
+    const ownerDirectory = scope.ownerDirectory
     return Database.transaction(
       (db) => {
         const rows = db
@@ -1155,9 +1154,10 @@ export namespace Automation {
     let current = initial
     try {
       const definition = get(initial.automationID)
+      const scope = currentScope()
       writerKey = getWriterKey(definition)
-      for (const run of await reconcileInterruptedRuns()) await publishRunUpdated(run)
-      if (data.activeWriters.has(writerKey) || hasDurableActiveWriter(initial, writerKey)) {
+      for (const run of await reconcileInterruptedRuns({ scope })) await publishRunUpdated(run)
+      if (data.activeWriters.has(writerKey) || hasDurableActiveWriter(initial, writerKey, scope)) {
         const stopped = reviseRun(initial, {
           state: "stopped",
           completedAt: Date.now(),
