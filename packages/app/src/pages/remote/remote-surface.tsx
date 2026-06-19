@@ -9,6 +9,7 @@ import { useLanguage } from "@/context/language"
 import type { RemoteChannelStatus, RemotePlatform, RemoteState, RemoteStatus } from "@/desktop-api-contract"
 import { connectToastAction } from "./connect-toast"
 import { PlatformMark, platformNameKey } from "./platform-marks"
+import { subscribeRemoteStatus } from "./remote-status-sync"
 
 type IconName = ComponentProps<typeof Icon>["name"]
 
@@ -60,10 +61,9 @@ export function RemoteSurface(props: { onClose: () => void }) {
 
   onMount(() => {
     const api = window.api?.remote
-    if (api) {
-      void api.getStatus().then(applyStatus)
-      onCleanup(api.onStatus(applyStatus))
-    }
+    // Subscribe before reading the snapshot so a slow getStatus() can't overwrite
+    // a fresher live update (see subscribeRemoteStatus).
+    if (api) onCleanup(subscribeRemoteStatus(api, applyStatus))
     // Escape closes the surface (the sidebar stays live), unless a dialog is open.
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
