@@ -52,15 +52,19 @@ test("getQrcodeStatus reports waiting, expired, then confirmed with token + base
   }
 })
 
-test("getUpdates normalizes messages and carries the auth + uin headers", async () => {
+test("getUpdates normalizes messages and carries the auth + uin + app headers", async () => {
   let authSeen = ""
   let typeSeen = ""
   let uinSeen = ""
+  let appIdSeen = ""
+  let appVerSeen = ""
   let bodySeen: any
   const server = mockServer(async (req) => {
     authSeen = req.headers.get("authorization") ?? ""
     typeSeen = req.headers.get("authorizationtype") ?? ""
     uinSeen = req.headers.get("x-wechat-uin") ?? ""
+    appIdSeen = req.headers.get("ilink-app-id") ?? ""
+    appVerSeen = req.headers.get("ilink-app-clientversion") ?? ""
     bodySeen = await req.json()
     return json({
       ret: 0,
@@ -86,13 +90,19 @@ test("getUpdates normalizes messages and carries the auth + uin headers", async 
     expect(authSeen).toBe("Bearer tok_abc")
     expect(typeSeen).toBe("ilink_bot_token")
     expect(uinSeen).not.toBe("")
+    // The app id + version (header and base_info) are what mark a send as a live bot;
+    // omitting them is the silent-drop bug, so lock them.
+    expect(appIdSeen).toBe("bot")
+    expect(appVerSeen).not.toBe("")
     expect(bodySeen.get_updates_buf).toBe("cursor-1")
+    expect(typeof bodySeen.base_info?.channel_version).toBe("string")
+    expect(typeof bodySeen.base_info?.bot_agent).toBe("string")
   } finally {
     server.stop()
   }
 })
 
-test("sendMessage posts the iLink envelope with the context token", async () => {
+test("sendMessage posts a FINISH envelope with from_user_id, context token, and base_info", async () => {
   let body: any
   const server = mockServer(async (req) => {
     body = await req.json()
@@ -100,8 +110,52 @@ test("sendMessage posts the iLink envelope with the context token", async () => 
   })
   try {
     await new WeChatClient({ baseURL: server.url, botToken: "t" }).sendMessage("u@im.wechat", "ctx-9", "done")
-    expect(body.msg).toMatchObject({ to_user_id: "u@im.wechat", message_type: 2, message_state: 2, context_token: "ctx-9" })
+    expect(body.msg).toMatchObject({
+      from_user_id: "",
+      to_user_id: "u@im.wechat",
+      message_type: 2,
+      message_state: 2,
+      context_token: "ctx-9",
+    })
     expect(body.msg.item_list[0]).toEqual({ type: 1, text_item: { text: "done" } })
+    expect(typeof body.msg.client_id).toBe("string")
+    expect(body.msg.client_id.length).toBeGreaterThan(0)
+    expect(body.base_info).toBeDefined()
+  } finally {
+    server.stop()
+  }
+})
+
+test("sendMessage mints a fresh client_id per call", async () => {
+  const ids: string[] = []
+  const server = mockServer(async (req) => {
+    const body: any = await req.json()
+    ids.push(body.msg.client_id)
+    return json({ ret: 0 })
+  })
+  try {
+    const client = new WeChatClient({ baseURL: server.url, botToken: "t" })
+    await client.sendMessage("u", "ctx", "one")
+    await client.sendMessage("u", "ctx", "two")
+    expect(ids).toHaveLength(2)
+    expect(ids[0]).not.toBe(ids[1])
+  } finally {
+    server.stop()
+  }
+})
+
+test("notifyStart and notifyStop POST their endpoints with base_info", async () => {
+  const seen: { path: string; body: any }[] = []
+  const server = mockServer(async (req, url) => {
+    seen.push({ path: url.pathname, body: await req.json() })
+    return json({ ret: 0 })
+  })
+  try {
+    const client = new WeChatClient({ baseURL: server.url, botToken: "t" })
+    await client.notifyStart()
+    await client.notifyStop()
+    expect(seen.map((s) => s.path)).toEqual(["/ilink/bot/msg/notifystart", "/ilink/bot/msg/notifystop"])
+    for (const s of seen) expect(s.body.base_info).toBeDefined()
   } finally {
     server.stop()
   }
