@@ -5,7 +5,6 @@ import * as Tool from "./tool"
 import path from "path"
 import { Log } from "../util"
 import { Instance, type InstanceContext } from "../project/instance"
-import { lazy } from "@/util/lazy"
 import { Language, type Node, type Tree } from "web-tree-sitter"
 
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
@@ -271,12 +270,6 @@ function tail(text: string, maxLines: number, maxBytes: number) {
   }
 }
 
-const parse = Effect.fn("ShellTool.parse")(function* (command: string, ps: boolean) {
-  const tree = yield* Effect.promise(() => parser().then((p) => (ps ? p.ps : p.bash).parse(command)))
-  if (!tree) throw new Error("Failed to parse command")
-  return tree
-})
-
 const ask = Effect.fn("ShellTool.ask")(function* (
   ctx: Tool.Context,
   scan: Scan,
@@ -293,13 +286,13 @@ const ask = Effect.fn("ShellTool.ask")(function* (
       permission: "external_directory",
       patterns: globs,
       always: globs,
-        metadata: {
-          command: input.command,
-          description: input.description,
-          directories: displayDirectories,
-          patterns: globs,
-        },
-      })
+      metadata: {
+        command: input.command,
+        description: input.description,
+        directories: displayDirectories,
+        patterns: globs,
+      },
+    })
   }
 
   if (scan.patterns.size === 0) return
@@ -333,26 +326,36 @@ function cmd(shell: string, name: string, command: string, cwd: string, env: Nod
   })
 }
 
-const parser = lazy(async () => {
-  const { Parser } = await import("web-tree-sitter")
-  const { default: treeWasm } = await import("web-tree-sitter/tree-sitter.wasm" as string, {
-    with: { type: "wasm" },
-  })
+const loadParser = Effect.fn("ShellTool.loadParser")(function* () {
+  const { Parser } = yield* Effect.promise(() => import("web-tree-sitter"))
+  const { default: treeWasm } = yield* Effect.promise(() =>
+    import("web-tree-sitter/tree-sitter.wasm" as string, {
+      with: { type: "wasm" },
+    }),
+  )
   const treePath = resolveWasm(treeWasm)
-  await Parser.init({
-    locateFile() {
-      return treePath
-    },
-  })
-  const { default: bashWasm } = await import("tree-sitter-bash/tree-sitter-bash.wasm" as string, {
-    with: { type: "wasm" },
-  })
-  const { default: psWasm } = await import("tree-sitter-powershell/tree-sitter-powershell.wasm" as string, {
-    with: { type: "wasm" },
-  })
+  yield* Effect.promise(() =>
+    Parser.init({
+      locateFile() {
+        return treePath
+      },
+    }),
+  )
+  const { default: bashWasm } = yield* Effect.promise(() =>
+    import("tree-sitter-bash/tree-sitter-bash.wasm" as string, {
+      with: { type: "wasm" },
+    }),
+  )
+  const { default: psWasm } = yield* Effect.promise(() =>
+    import("tree-sitter-powershell/tree-sitter-powershell.wasm" as string, {
+      with: { type: "wasm" },
+    }),
+  )
   const bashPath = resolveWasm(bashWasm)
   const psPath = resolveWasm(psWasm)
-  const [bashLanguage, psLanguage] = await Promise.all([Language.load(bashPath), Language.load(psPath)])
+  const [bashLanguage, psLanguage] = yield* Effect.promise(() =>
+    Promise.all([Language.load(bashPath), Language.load(psPath)]),
+  )
   const bash = new Parser()
   bash.setLanguage(bashLanguage)
   const ps = new Parser()
@@ -371,6 +374,14 @@ export const ShellTool = Tool.define(
     const trunc = yield* Truncate.Service
     const plugin = yield* Plugin.Service
     const turnChange = yield* TurnChange.Service
+    const cachedParser = yield* Effect.cached(loadParser())
+
+    const parse = Effect.fn("ShellTool.parse")(function* (command: string, ps: boolean) {
+      const parsers = yield* cachedParser
+      const tree = (ps ? parsers.ps : parsers.bash).parse(command)
+      if (!tree) throw new Error("Failed to parse command")
+      return tree
+    })
 
     const cygpath = Effect.fn("ShellTool.cygpath")(function* (shell: string, text: string) {
       const lines = yield* spawner
