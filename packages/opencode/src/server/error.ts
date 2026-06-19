@@ -6,7 +6,7 @@ import { NotFoundError } from "../storage/db"
 export const BadRequestErrorSchema = z
   .object({
     data: z.any(),
-    errors: z.array(z.record(z.string(), z.any())),
+    error: z.array(z.record(z.string(), z.any())),
     success: z.literal(false),
   })
   .meta({

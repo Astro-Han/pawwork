@@ -87,6 +87,8 @@ describe("control routes", () => {
     for (const ref of collectSchemaRefs(spec.paths)) {
       expect(schemas).toHaveProperty(ref.replace("#/components/schemas/", ""))
     }
+    expect(schemas.BadRequestError?.properties).toHaveProperty("error")
+    expect(schemas.BadRequestError?.properties).not.toHaveProperty("errors")
   })
 
   test("sets and removes auth credentials through the HttpApi handlers", async () => {
