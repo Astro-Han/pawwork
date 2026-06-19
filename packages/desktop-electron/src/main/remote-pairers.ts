@@ -75,6 +75,8 @@ class WeChatPairer implements PlatformPairer {
     while (!signal.aborted) {
       const poll = await pollWeChatLogin(login.qrcode, { client, signal })
       if (poll.status === "done") {
+        // iLink hands back no display name, only the user id — so we set no userName
+        // and identity() falls back to showing the raw id (cosmetic; auth is the id).
         return { platform: "wechat", botToken: poll.botToken, baseURL: poll.baseURL, allowFrom: poll.userId }
       }
       if (poll.status === "error") throw new Error(poll.message)
