@@ -1020,7 +1020,10 @@ export namespace Automation {
           if (row.id === run.id) return false
           const item = Run.parse(row.data)
           if (!isActiveRun(item)) return false
-          return writerKeys.get(item.automationID) === writerKey
+          const rowWriterKey = writerKeys.get(item.automationID)
+          // A deleted definition leaves no writer key; while its run is active,
+          // keep the writer guard conservative within this project scope.
+          return rowWriterKey === undefined || rowWriterKey === writerKey
         })
       },
       { behavior: "immediate" },
@@ -1138,8 +1141,10 @@ export namespace Automation {
     const runID = AutomationID.Run.ascending()
     const lease = await Flock.acquire(runLeaseKey(Instance.directory, runID))
     try {
-      const initial = runNow(id, { now: options.now, runID })
-      queueMicrotask(() => void executeRun(initial, options.executor, options.attendance ?? "attended", lease))
+      const scope = currentScope()
+      const definition = get(id, scope)
+      const initial = runNow(id, { now: options.now, runID, scope })
+      queueMicrotask(() => void executeRun(initial, definition, scope, options.executor, options.attendance ?? "attended", lease))
       return initial
     } catch (error) {
       await lease.release().catch(() => undefined)
@@ -1147,14 +1152,20 @@ export namespace Automation {
     }
   }
 
-  async function executeRun(initial: Run, executor: RunExecutor, attendance: AutomationRunAttendance, lease: Flock.Lease) {
+  async function executeRun(
+    initial: Run,
+    definition: Definition,
+    scope: Scope,
+    executor: RunExecutor,
+    attendance: AutomationRunAttendance,
+    lease: Flock.Lease,
+  ) {
     const data = state()
     const controller = new AbortController()
     let writerKey: string | undefined
     let current = initial
     try {
-      const definition = get(initial.automationID)
-      const scope = currentScope()
+      await internalTestHooks.beforeExecuteRun?.(initial)
       writerKey = getWriterKey(definition)
       for (const run of await reconcileInterruptedRuns({ scope })) await publishRunUpdated(run)
       if (data.activeWriters.has(writerKey) || hasDurableActiveWriter(initial, writerKey, scope)) {

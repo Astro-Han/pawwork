@@ -17,6 +17,7 @@ import { SessionID } from "../../src/session/schema"
 import { AutomationRunContext, AutomationStepCapError } from "../../src/automation/run-context"
 import { Flock } from "../../src/util/flock"
 import { Worktree } from "../../src/worktree"
+import { internalTestHooks } from "../../src/automation/__test_hooks"
 import { tmpdir } from "../fixture/fixture"
 
 const RUN_WAIT_TIMEOUT_MS = 10_000
@@ -266,6 +267,31 @@ describe("automation runNow execution", () => {
     })
   })
 
+  test("blocks a run when a deleted automation still has a durable active writer", async () => {
+    await withAutomation(async (projectID) => {
+      const first = Automation.create(input(projectID, { title: "Deleted active writer" }))
+      const second = Automation.create(input(projectID, { title: "Second automation" }))
+      const active = Automation.runNow(first.id, { now: 100 })
+      await using _ = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
+      Automation.remove(first.id)
+      let entered = false
+
+      await Automation.runNowExecuting(second.id, {
+        now: 200,
+        executor: async () => {
+          entered = true
+          return { sessionID: SessionID.descending(), result: "second", cost: 0 }
+        },
+      })
+
+      const stopped = await waitForRun(second.id, "stopped")
+      if (stopped.state !== "stopped") throw new Error("expected stopped run")
+      expect(stopped.stopReason).toBe("previous_run_awaiting_input")
+      expect(readRun(active.id)?.state).toBe("scheduled")
+      expect(entered).toBe(false)
+    })
+  })
+
   test("reconciles stale durable writers before executing a manual run", async () => {
     await withAutomation(async (projectID) => {
       const first = Automation.create(input(projectID, { title: "Stale writer" }))
@@ -507,29 +533,43 @@ describe("automation runNow execution", () => {
     })
   })
 
-  test("keeps a queued run alive when its automation is deleted before the runner starts", async () => {
+  test("keeps a queued run alive when its automation is deleted before the runner reads the definition", async () => {
     await withAutomation(async (projectID) => {
       const definition = Automation.create(input(projectID))
       const sessionID = SessionID.descending()
+      const runnerEntered = Promise.withResolvers<Automation.Run>()
+      const releaseRunner = Promise.withResolvers<void>()
       let entered = false
 
-      const initial = await Automation.runNowExecuting(definition.id, {
-        executor: async () => {
-          entered = true
-          return { sessionID, result: "done", cost: 0 }
-        },
-      })
-      const removed = await Automation.remove(definition.id)
+      internalTestHooks.beforeExecuteRun = async (run) => {
+        runnerEntered.resolve(run)
+        await releaseRunner.promise
+      }
+      try {
+        const initial = await Automation.runNowExecuting(definition.id, {
+          executor: async () => {
+            entered = true
+            return { sessionID, result: "done", cost: 0 }
+          },
+        })
+        const queued = await runnerEntered.promise
+        expect(queued.id).toBe(initial.id)
+        const removed = await Automation.remove(definition.id)
+        releaseRunner.resolve()
 
-      expect(removed.tombstone).toEqual({ id: definition.id, deleted: true, revision: 2 })
-      expect(() => Automation.get(definition.id)).toThrow()
-      const succeeded = await waitForRunByID(initial.id, "succeeded")
-      expect(succeeded).toMatchObject({
-        state: "succeeded",
-        sessionID,
-        result: "done",
-      })
-      expect(entered).toBe(true)
+        expect(removed.tombstone).toEqual({ id: definition.id, deleted: true, revision: 2 })
+        expect(() => Automation.get(definition.id)).toThrow()
+        const succeeded = await waitForRunByID(initial.id, "succeeded")
+        expect(succeeded).toMatchObject({
+          state: "succeeded",
+          sessionID,
+          result: "done",
+        })
+        expect(entered).toBe(true)
+      } finally {
+        releaseRunner.resolve()
+        delete internalTestHooks.beforeExecuteRun
+      }
     })
   })
 
