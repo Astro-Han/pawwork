@@ -114,7 +114,7 @@ jobs:
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: windows-latest
     # Windows unit jobs are advisory, package-scoped or shard-scoped. Timeout
-    # budgets are explicit per matrix child; opencode has three parallel
+    # budgets are explicit per matrix child; opencode has five parallel
     # shards, so a full stall can still consume multiple Windows runner slots.
     timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
@@ -169,11 +169,11 @@ jobs:
               test/settings
               test/settings.test.ts
             report_path: packages/opencode/.artifacts/unit/junit-windows-config-project.xml
-          # Server tools carries many smaller and faster directories, which is
-          # why it has more entries than the other two opencode shards.
+          # Server tools carries the slow HTTP/server route suite and adjacent
+          # server support tests, so it gets a little more wall-clock budget.
           - package: opencode-server-tools
             uses_turbo: false
-            timeout_minutes: 20
+            timeout_minutes: 25
             command: >-
               cd packages/opencode && bun test
               --timeout 30000
@@ -181,7 +181,6 @@ jobs:
               --reporter-outfile=.artifacts/unit/junit-windows-server-tools.xml
               test/server
               test/snapshot
-              test/tool
               test/browser
               test/mcp
               test/question
@@ -189,12 +188,31 @@ jobs:
               test/agent
               test/git/
               test/storage
+            report_path: packages/opencode/.artifacts/unit/junit-windows-server-tools.xml
+          - package: opencode-tool-runtime
+            uses_turbo: false
+            timeout_minutes: 20
+            command: >-
+              cd packages/opencode && bun test
+              --timeout 30000
+              --reporter=junit
+              --reporter-outfile=.artifacts/unit/junit-windows-tool-runtime.xml
+              test/tool
               test/provider
               test/pty
               test/share/
               test/script
               test/memory
               test/lsp
+            report_path: packages/opencode/.artifacts/unit/junit-windows-tool-runtime.xml
+          - package: opencode-platform
+            uses_turbo: false
+            timeout_minutes: 20
+            command: >-
+              cd packages/opencode && bun test
+              --timeout 30000
+              --reporter=junit
+              --reporter-outfile=.artifacts/unit/junit-windows-platform.xml
               test/fixture
               test/acp
               test/bus
@@ -210,7 +228,7 @@ jobs:
               test/installation
               test/auth
               test/automation
-            report_path: packages/opencode/.artifacts/unit/junit-windows-server-tools.xml
+            report_path: packages/opencode/.artifacts/unit/junit-windows-platform.xml
           - package: desktop
             uses_turbo: true
             timeout_minutes: 20
