@@ -74,3 +74,10 @@ test("Worktree service uses the Effect-native session active binding boundary", 
 
   expect(text).not.toContain("Session.findActiveWorktreeBinding(")
 })
+
+test("provider list route uses the ModelsDev service instead of the Promise facade", async () => {
+  const text = await readFile(path.join(srcRoot, "server/instance/provider-actions.ts"), "utf8")
+
+  expect(text).not.toContain("Effect.promise(() => ModelsDev.get())")
+  expect(text).not.toContain("ModelsDev.get()")
+})

@@ -3,17 +3,20 @@ import { mapValues } from "remeda"
 import { Config } from "../../config/config"
 import { ModelState } from "../../provider/model-state"
 import { ModelsDev } from "../../provider/models"
+import { withPawWorkProviders } from "../../provider/pawwork-providers"
 import { ProviderAuth } from "../../provider/auth"
 import { Provider } from "../../provider/provider"
 import { ModelID, ProviderID } from "../../provider/schema"
 
 export const listProviders = Effect.fn("ProviderRoutes.list")(function* () {
   const config = yield* Config.Service
+  const modelsDev = yield* ModelsDev.Service
   const provider = yield* Provider.Service
-  const [configInfo, allProviders, connected] = yield* Effect.all(
-    [config.get(), Effect.promise(() => ModelsDev.get()), provider.list()],
-    { concurrency: 3 },
+  const [configInfo, modelsDevProviders, connected] = yield* Effect.all(
+    [config.get(), modelsDev.data().pipe(Effect.orDie), provider.list()],
+    { concurrency: "unbounded" },
   )
+  const allProviders = withPawWorkProviders(modelsDevProviders)
   const disabled = new Set(configInfo.disabled_providers ?? [])
   const enabled = configInfo.enabled_providers ? new Set(configInfo.enabled_providers) : undefined
 

@@ -7,6 +7,7 @@ import { Effect, Layer } from "effect"
 import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiTest, OpenApi } from "effect/unstable/httpapi"
 import { NodeFileSystem, NodeHttpPlatform, NodePath } from "@effect/platform-node"
+import { VOLCENGINE_PLAN_DEFAULT_MODEL_ID, VOLCENGINE_PLAN_PROVIDER_ID } from "@opencode-ai/util/volcengine-plan"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { ProviderRoutes } from "../../src/server/instance/provider"
@@ -200,6 +201,8 @@ describe("provider routes", () => {
         expect(body.all).toBeArray()
         expect(body.default).toBeObject()
         expect(body.connected).toBeArray()
+        expect(body.all.some((provider: { id: string }) => provider.id === VOLCENGINE_PLAN_PROVIDER_ID)).toBe(true)
+        expect(body.default[VOLCENGINE_PLAN_PROVIDER_ID]).toBe(VOLCENGINE_PLAN_DEFAULT_MODEL_ID)
       },
     })
   })
