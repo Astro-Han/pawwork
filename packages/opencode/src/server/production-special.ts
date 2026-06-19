@@ -1,4 +1,3 @@
-import type { Hono } from "hono"
 import { AsyncQueue } from "@/util/queue"
 import { handleInstanceEventStream } from "./instance/event"
 import {
@@ -9,6 +8,7 @@ import {
 import { handleUIRequest } from "./ui"
 import { requestContextFromRequest, withRequestContext } from "./request-context"
 import { SyncEvent } from "@/sync"
+import type { WebSocketCompatibilityApp } from "./websocket-compatibility"
 
 export type ProductionSpecialHandler = {
   handle(request: Request, env?: unknown): Promise<Response | undefined>
@@ -29,7 +29,7 @@ export function isInstanceSpecialRequest(method: string, pathname: string) {
 }
 
 export function createProductionSpecialHandler(input: {
-  websocketCompatibilityApp: Hono
+  websocketCompatibilityApp: WebSocketCompatibilityApp
   globalRoutes?: GlobalRoutesOptions
 }): ProductionSpecialHandler {
   const globalRoutes = input.globalRoutes ?? {}
