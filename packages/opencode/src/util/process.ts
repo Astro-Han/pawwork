@@ -205,10 +205,8 @@ export namespace Process {
     const pending = [pid]
     while (pending.length) {
       const parent = pending.pop()!
-      const out = await Bun.$`pgrep -P ${parent}`
-        .quiet()
-        .nothrow()
-        .text()
+      const out = await text(["pgrep", "-P", String(parent)], { nothrow: true })
+        .then((result) => result.text)
         .catch((error) => {
           log.debug("failed to enumerate child processes", { pid: parent, error: errorMessage(error) })
           return ""
@@ -250,7 +248,7 @@ export namespace Process {
   }) {
     const graceMs = input.graceMs ?? TERMINATION_GRACE_MS
     if (process.platform === "win32") {
-      await Bun.$`taskkill /pid ${input.pid} /f /t`.quiet().nothrow()
+      await run(["taskkill", "/pid", String(input.pid), "/f", "/t"], { nothrow: true })
       return
     }
 
