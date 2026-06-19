@@ -465,6 +465,7 @@ function classify(input: {
   if (input.hono && input.v2Sdk && !input.openapi) return "hono-v2-sdk"
   if (input.hono && !input.openapi) return "hono-only"
   if (!input.hono && input.localHttpApi && input.upstreamHttpApi) return "local-httpapi-upstream-only"
+  if (!input.hono && input.localHttpApi) return "local-httpapi-only"
   if (!input.hono && input.upstreamHttpApi) return "onlyHttpApi"
   if (input.openapi && !input.hono) return "openapi-only"
   if (input.legacySdk || input.v2Sdk) return "sdk-only"

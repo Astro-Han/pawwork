@@ -259,11 +259,13 @@ describe("route inventory harness", () => {
       specialSurface: "PTY websocket",
       compatibilityBoundary: true,
     })
-    expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/doc")).toMatchObject({
-      hono: true,
+    const doc = inventory.rows.find((row) => row.method === "GET" && row.path === "/doc")
+    expect(doc).toMatchObject({
+      hono: false,
       localHttpApi: true,
       specialSurface: "OpenAPI source",
     })
+    expect(doc?.classification).toMatch(/^local-httpapi-(?:only|upstream-only)$/)
     expect(
       inventory.rows.find((row) => row.method === "POST" && row.path === "/permission/__e2e/ask"),
     ).toMatchObject({
