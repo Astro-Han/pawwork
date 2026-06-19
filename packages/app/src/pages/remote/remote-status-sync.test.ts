@@ -41,3 +41,39 @@ test("the initial snapshot applies when no live update has landed", async () => 
 
   expect(applied.at(-1)).toEqual(connected)
 })
+
+test("a rejected snapshot is swallowed and a later live update still applies", async () => {
+  const applied: RemoteStatus[] = []
+  const listeners = new Set<(status: RemoteStatus) => void>()
+  const source = {
+    getStatus: () => Promise.reject(new Error("ipc down")),
+    onStatus: (cb: (status: RemoteStatus) => void) => {
+      listeners.add(cb)
+      return () => listeners.delete(cb)
+    },
+  }
+
+  // A failed getStatus() IPC must not surface as an unhandled rejection...
+  subscribeRemoteStatus(source, (status) => applied.push(status))
+  await Promise.resolve()
+  // ...and the live stream still drives the page afterwards.
+  listeners.forEach((cb) => cb(connected))
+
+  expect(applied).toEqual([connected])
+})
+
+test("a snapshot resolving after unsubscribe does not apply", async () => {
+  let resolveSnapshot: (status: RemoteStatus) => void = () => {}
+  const source = {
+    getStatus: () => new Promise<RemoteStatus>((resolve) => (resolveSnapshot = resolve)),
+    onStatus: () => () => {},
+  }
+  const applied: RemoteStatus[] = []
+
+  const off = subscribeRemoteStatus(source, (status) => applied.push(status))
+  off() // unsubscribed before the snapshot resolves
+  resolveSnapshot(connected)
+  await Promise.resolve()
+
+  expect(applied).toEqual([])
+})

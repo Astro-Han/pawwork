@@ -15,12 +15,23 @@ type StatusSource = {
  */
 export function subscribeRemoteStatus(source: StatusSource, apply: (status: RemoteStatus) => void): () => void {
   let sawLive = false
+  let disposed = false
   const off = source.onStatus((status) => {
     sawLive = true
     apply(status)
   })
-  void source.getStatus().then((status) => {
-    if (!sawLive) apply(status)
-  })
-  return off
+  // The one-shot snapshot only fills the gap before the first live update: ignore
+  // it once a live update has landed or the caller unsubscribed, and swallow a
+  // rejection so a failed getStatus() IPC never surfaces as an unhandled rejection
+  // — the live stream stays the source of truth either way.
+  source.getStatus().then(
+    (status) => {
+      if (!sawLive && !disposed) apply(status)
+    },
+    () => {},
+  )
+  return () => {
+    disposed = true
+    off()
+  }
 }
