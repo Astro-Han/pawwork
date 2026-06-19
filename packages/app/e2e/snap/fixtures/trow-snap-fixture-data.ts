@@ -192,6 +192,7 @@ export const singleErrorParts = [tool("single-error", "Command blocked", "rm -rf
 export const singleRunningParts = [tool("single-running", "long command", "sleep 30", "running")]
 
 export const readyQuestionMarkerParts: Part[] = [
+  tool("ready-question-before", "prepare question", "echo before"),
   {
     id: "ready-question-marker",
     sessionID: "snap-session",

@@ -226,10 +226,9 @@ test("session-trow", async ({ page }) => {
   shots.push(await captureBlock("dismissed-question-expanded", dismissedQuestion))
 
   const readyQuestionMarker = page.locator('[data-snap="ready-question-marker"]')
-  await expect(readyQuestionMarker.locator('[data-component="question-inline-marker"]')).toContainText(
-    "在下方回答这个问题",
-    { timeout: 30_000 },
-  )
+  const readyQuestionMarkerInline = readyQuestionMarker.locator('[data-component="question-inline-marker"]')
+  await expect(readyQuestionMarkerInline).toBeVisible({ timeout: 30_000 })
+  await expect(readyQuestionMarkerInline).toContainText("在下方回答这个问题", { timeout: 30_000 })
   shots.push(await captureBlock("ready-question-marker", readyQuestionMarker))
 
   const metadataDetailCollapsed = page.locator('[data-snap="metadata-detail-collapsed"]')

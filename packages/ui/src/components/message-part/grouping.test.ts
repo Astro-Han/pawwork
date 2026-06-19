@@ -156,22 +156,25 @@ describe("message-part groupParts", () => {
     expect(result[0].type).toBe("trow")
   })
 
-  test("ready running question tools render the inline pending marker", () => {
+  test("ready running question tools split into a visible single trow marker", () => {
     const result = groupRenderable([
       toolPart("t1", "bash"),
       toolPart("q1", "question", "running", { externalResultReady: true }),
     ])
 
     expect(renderable(toolPart("q1", "question", "running", { externalResultReady: true }))).toBe(true)
-    expect(result).toHaveLength(1)
-    expect(result[0]).toEqual({
-      key: "trow:t1",
-      type: "trow",
-      refs: [
-        { messageID: "m", partID: "t1" },
-        { messageID: "m", partID: "q1" },
-      ],
-    })
+    expect(result).toEqual([
+      {
+        key: "trow:t1",
+        type: "trow",
+        refs: [{ messageID: "m", partID: "t1" }],
+      },
+      {
+        key: "trow:q1",
+        type: "trow",
+        refs: [{ messageID: "m", partID: "q1" }],
+      },
+    ])
   })
 
   test("a reasoning part folds into a trow group, not a standalone part", () => {

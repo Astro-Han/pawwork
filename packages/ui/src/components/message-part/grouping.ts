@@ -37,6 +37,15 @@ function sameGroup(a: PartGroup, b: PartGroup) {
   return a.refs.every((ref, i) => sameRef(ref, b.refs[i]!))
 }
 
+function isReadyQuestionMarker(part: PartType) {
+  return (
+    part.type === "tool" &&
+    part.tool === TOOL_QUESTION &&
+    part.state.status === "running" &&
+    part.state.metadata?.externalResultReady === true
+  )
+}
+
 export function sameGroups(a: readonly PartGroup[] | undefined, b: readonly PartGroup[] | undefined) {
   if (a === b) return true
   if (!a || !b) return false
@@ -75,6 +84,13 @@ export function groupParts(parts: { messageID: string; part: PartType }[]) {
   }
 
   parts.forEach((item, index) => {
+    if (isReadyQuestionMarker(item.part)) {
+      flush(index - 1)
+      start = index
+      flush(index)
+      return
+    }
+
     if (item.part.type === "tool" || item.part.type === "reasoning") {
       if (start < 0) start = index
       return
@@ -100,7 +116,7 @@ export function renderable(part: PartType) {
     if (HIDDEN_TOOLS.has(part.tool)) return false
     if (part.tool === TOOL_QUESTION) {
       if (part.state.status === "pending") return false
-      if (part.state.status === "running") return part.state.metadata?.externalResultReady === true
+      if (part.state.status === "running") return isReadyQuestionMarker(part)
       return true
     }
     return true
