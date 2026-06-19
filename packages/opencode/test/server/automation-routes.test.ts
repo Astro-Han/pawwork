@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
 import { NodeFileSystem, NodeHttpPlatform, NodePath } from "@effect/platform-node"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
 import { Hono } from "hono"
@@ -16,7 +16,11 @@ import { AutomationRoutes } from "../../src/server/instance/automation"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { PermissionID } from "../../src/permission/schema"
 import { SessionID } from "../../src/session/schema"
-import { AutomationApi } from "../../src/server/routes/instance/httpapi/groups/automation"
+import {
+  AutomationApi,
+  AutomationParam,
+  AutomationRunsQuery,
+} from "../../src/server/routes/instance/httpapi/groups/automation"
 import { automationHandlers } from "../../src/server/routes/instance/httpapi/handlers/automation"
 import { Database, eq } from "../../src/storage/db"
 import { Flock } from "../../src/util/flock"
@@ -241,6 +245,40 @@ describe("automation routes", () => {
     expect(spec.paths["/automation/{automationID}/pause"]).toHaveProperty("post")
     expect(spec.paths["/automation/{automationID}/resume"]).toHaveProperty("post")
     expect(spec.paths["/automation/{automationID}"]?.delete?.description).toContain("Already-started runs continue")
+  })
+
+  test("declares automation run query constraints matching runtime validators", () => {
+    const spec = OpenApi.fromApi(AutomationApi) as any
+    const parameters = spec.paths["/automation/{automationID}/runs"]?.get?.parameters as any[]
+    const parameter = (name: string) => parameters.find((item) => item.name === name)
+    const schemaClauses = (schema: any) => [schema, ...(schema?.allOf ?? [])]
+
+    expect(schemaClauses(parameter("automationID")?.schema)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ pattern: "^automation_(?!run_)" })]),
+    )
+    expect(parameter("limit")?.schema).toMatchObject({
+      type: "integer",
+      exclusiveMinimum: 0,
+      maximum: 100,
+    })
+    expect(schemaClauses(parameter("cursor")?.schema)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ pattern: "^automation_run_" })]),
+    )
+  })
+
+  test("validates automation run params and query through HttpApi schemas", () => {
+    const decodeParam = Schema.decodeUnknownSync(AutomationParam)
+    const decodeQuery = Schema.decodeUnknownSync(AutomationRunsQuery)
+    const automationID = AutomationID.Definition.ascending()
+    const runID = AutomationID.Run.ascending()
+
+    expect(decodeParam({ automationID })).toEqual({ automationID })
+    expect(() => decodeParam({ automationID: runID })).toThrow()
+    expect(decodeQuery({ limit: "100", cursor: runID })).toMatchObject({ limit: 100, cursor: runID })
+    expect(() => decodeQuery({ limit: "0" })).toThrow()
+    expect(() => decodeQuery({ limit: "101" })).toThrow()
+    expect(() => decodeQuery({ limit: "1.5" })).toThrow()
+    expect(() => decodeQuery({ cursor: automationID })).toThrow()
   })
 
   test("serves ordinary automation lifecycle routes through the HttpApi handlers", async () => {

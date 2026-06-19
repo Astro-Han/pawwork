@@ -4,15 +4,40 @@ import { BadRequestError, NotFoundError, WorkspaceRoutingQuery } from "./common"
 
 const root = "/automation"
 
-const AutomationParam = Schema.Struct({
-  automationID: Schema.String,
+const AutomationDefinitionID = Schema.String.check(Schema.isPattern(/^automation_(?!run_)/))
+const AutomationRunID = Schema.String.check(Schema.isPattern(/^automation_run_/))
+const AutomationRunsLimit = Schema.NumberFromString.pipe(
+  Schema.check(Schema.isInt()),
+  Schema.check(Schema.isGreaterThan(0)),
+  Schema.check(Schema.isLessThanOrEqualTo(100)),
+)
+
+export const AutomationParam = Schema.Struct({
+  automationID: AutomationDefinitionID,
 })
 
-const AutomationRunsQuery = Schema.Struct({
+export const AutomationRunsQuery = Schema.Struct({
   ...WorkspaceRoutingQuery.fields,
-  limit: Schema.optionalKey(Schema.NumberFromString),
-  cursor: Schema.optionalKey(Schema.String),
+  limit: Schema.optionalKey(AutomationRunsLimit),
+  cursor: Schema.optionalKey(AutomationRunID),
 })
+
+function constrainAutomationOpenApi(spec: Record<string, any>) {
+  const parameters = spec.paths?.["/automation/{automationID}/runs"]?.get?.parameters
+  if (!Array.isArray(parameters)) return spec
+
+  const limit = parameters.find((parameter) => parameter.name === "limit")
+  if (limit?.schema && typeof limit.schema === "object") {
+    limit.schema = {
+      ...limit.schema,
+      type: "integer",
+      exclusiveMinimum: 0,
+      maximum: 100,
+    }
+  }
+
+  return spec
+}
 
 const AutomationValidationError = Schema.Struct({
   error: Schema.Literal("invalid_automation"),
@@ -169,5 +194,6 @@ export const AutomationApi = HttpApi.make("automation")
       title: "opencode automation HttpApi",
       version: "0.0.1",
       description: "HttpApi surface for ordinary automation JSON routes.",
+      transform: constrainAutomationOpenApi,
     }),
   )
