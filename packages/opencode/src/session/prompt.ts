@@ -1495,10 +1495,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const shellMatches = ConfigMarkdown.shell(template)
       if (shellMatches.length > 0) {
         const sh = Shell.preferred()
-        const results = yield* Effect.promise(() =>
-          Promise.all(
-            shellMatches.map(async ([, shellCmd]) => (await Process.text([shellCmd], { shell: sh, nothrow: true })).text),
+        const results = yield* Effect.all(
+          shellMatches.map(([, shellCmd]) =>
+            Process.textEffect([shellCmd], { shell: sh, nothrow: true }).pipe(
+              Effect.map((result) => result.text),
+              Effect.orDie,
+            ),
           ),
+          { concurrency: "unbounded" },
         )
         let index = 0
         template = template.replace(bashRegex, () => results[index++])
