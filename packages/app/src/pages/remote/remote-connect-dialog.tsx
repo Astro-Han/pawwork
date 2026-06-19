@@ -28,11 +28,14 @@ export function DialogConnectRemote(props: {
   const language = useLanguage()
   const dialog = useDialog()
   const platform = props.platform
-  // QR platforms (WeChat) have nothing to type — they open straight into the flow.
-  const isQr = platform !== "telegram"
+  // WeChat has nothing to type — it opens straight into the QR flow and, because the
+  // scan + in-app confirm IS the authorization, auto-approves the captured identity.
+  // An explicit allowlist (not "≠ telegram") so a future platform defaults to the
+  // safe manual-approve path until it opts in here.
+  const isWeChat = platform === "wechat"
 
   const [store, setStore] = createStore({
-    phase: (isQr ? "starting" : "token") as Phase,
+    phase: (isWeChat ? "starting" : "token") as Phase,
     token: "",
     qrImage: undefined as string | undefined,
     captured: undefined as { id: string; name: string } | undefined,
@@ -58,7 +61,7 @@ export function DialogConnectRemote(props: {
         // WeChat's scan + in-app confirm already authorized this connection, so
         // there is no second desktop approval — wire it up automatically. Telegram
         // shows the confirm step so the user vets the captured sender first.
-        if (isQr) {
+        if (isWeChat) {
           setStore({ phase: "starting" })
           void allow()
         } else {
@@ -78,7 +81,7 @@ export function DialogConnectRemote(props: {
     if (!api) return
     onCleanup(api.onPairing(handlePairing))
     // QR platforms have nothing to type — kick the flow off immediately.
-    if (isQr) void api.startPairing(platform)
+    if (isWeChat) void api.startPairing(platform)
   })
   onCleanup(() => {
     alive.value = false
@@ -117,7 +120,7 @@ export function DialogConnectRemote(props: {
   function retry() {
     const api = remote()
     setStore({ error: undefined, captured: undefined, qrImage: undefined })
-    if (!isQr) {
+    if (!isWeChat) {
       setStore("phase", "token")
       return
     }
