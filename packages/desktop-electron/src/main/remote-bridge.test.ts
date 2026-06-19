@@ -176,6 +176,39 @@ test("cancelPairing aborts an in-flight flow and emits cancelled", async () => {
   await expect(runtime.confirmPairing("telegram")).rejects.toThrow(/no pairing/)
 })
 
+test("a superseded pairing attempt stays silent instead of emitting cancelled", async () => {
+  let calls = 0
+  const runtime = new RemoteBridgeRuntime(
+    deps({
+      pairers: [
+        fakePairer("telegram", {
+          pair: (_start, emit, signal) => {
+            calls++
+            if (calls === 1) {
+              // The first attempt parks until a newer startPairing aborts (supersedes) it.
+              return new Promise<RemoteAccount | null>((resolve) =>
+                signal.addEventListener("abort", () => resolve(null), { once: true }),
+              )
+            }
+            emit({ phase: "awaitingBind", platform: "telegram", hint: "message" })
+            return Promise.resolve(sampleAccount("telegram"))
+          },
+        }),
+      ],
+    }),
+  )
+  const events = recordPairing(runtime)
+  const first = runtime.startPairing("telegram", { token: "a" })
+  await Promise.resolve() // let the first attempt enter pair() and park on its signal
+  const second = runtime.startPairing("telegram", { token: "b" }) // supersedes the first
+  await Promise.all([first, second])
+
+  // Only the second attempt's events reach the stream; the superseded first emits
+  // nothing — no stray `cancelled` injected into the new attempt's dialog.
+  expect(events.map((event) => event.phase)).toEqual(["awaitingBind", "captured"])
+  await runtime.stop()
+})
+
 test("a pair() that resolves after cancel does not resurrect a pending pairing", async () => {
   let resolvePair: (account: RemoteAccount | null) => void = () => {}
   let entered = () => {}

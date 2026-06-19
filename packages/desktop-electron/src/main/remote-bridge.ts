@@ -165,18 +165,27 @@ export class RemoteBridgeRuntime {
     try {
       account = await pairer.pair(start, emit, ac.signal)
     } catch (err) {
-      // Cancelled / superseded while we awaited: surface a cancel and leave the
-      // current handle alone — it belongs to whoever replaced us. Otherwise the
-      // flow hit a real failure (bad credential, unreachable platform).
-      if (ac.signal.aborted || this.pairingAc !== ac) return this.emitPairing({ phase: "cancelled", platform })
+      // Cancelled / superseded while we awaited: leave the current handle alone —
+      // it belongs to whoever replaced us. Otherwise the flow hit a real failure
+      // (bad credential, unreachable platform).
+      if (ac.signal.aborted || this.pairingAc !== ac) return this.settleInactivePairing(platform)
       this.pairingAc = null
       return this.emitPairing({ phase: "error", platform, message: message(err) })
     }
-    if (ac.signal.aborted || this.pairingAc !== ac) return this.emitPairing({ phase: "cancelled", platform })
+    if (ac.signal.aborted || this.pairingAc !== ac) return this.settleInactivePairing(platform)
     this.pairingAc = null
     if (!account) return this.emitPairing({ phase: "cancelled", platform })
     this.pending = account
     this.emitPairing({ phase: "captured", platform, identity: pairer.identity(account) })
+  }
+
+  /** Report how a finished attempt settles once it is no longer the active one.
+   * A user cancel (cancelPairing cleared the handle to null) emits `cancelled`; a
+   * supersede (a newer startPairing installed its own handle) stays silent, so the
+   * stale attempt never injects a `cancelled` into the new attempt's event stream. */
+  private settleInactivePairing(platform: RemotePlatform): void {
+    if (this.pairingAc) return // superseded — the newer attempt drives its own events
+    this.emitPairing({ phase: "cancelled", platform })
   }
 
   cancelPairing(): void {
