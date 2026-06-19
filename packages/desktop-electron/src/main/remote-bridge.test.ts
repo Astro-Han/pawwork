@@ -54,6 +54,24 @@ function fakePairer(platform: RemotePlatform, over: Partial<PlatformPairer> = {}
   }
 }
 
+/** A fake pairer for an ARBITRARY platform name (cast past the single-member
+ * RemotePlatform union) so the runtime's multi-channel paths — independent
+ * per-channel status and disconnect isolation — can be exercised before a real
+ * second platform exists. */
+function genericPairer(name: RemotePlatform): PlatformPairer {
+  const account: RemoteAccount = { platform: name, token: "t", allowFrom: "1", userName: `${name}` }
+  return {
+    platform: name,
+    async pair(_start, emit) {
+      emit({ phase: "awaitingBind", platform: name, hint: "message" })
+      return account
+    },
+    makePlatform: () => ({ name, start: async () => {}, reply: async () => {}, send: async () => {}, stop: async () => {} }),
+    audience: () => ({ allow_from: "1" }),
+    identity: () => ({ id: "1", name: `${name} target` }),
+  }
+}
+
 /** A bridge App whose run() emits "serving" for every configured platform (so the
  * runtime reaches "connected") and then stays pending until aborted. */
 function servingApp(names: string[]) {
@@ -305,6 +323,43 @@ test("disconnect revokes access even when secure storage is unavailable", async 
   await runtime.disconnect("telegram")
   expect(store.value).toEqual([])
   expect(existsSync(statePath)).toBe(false)
+  await runtime.stop()
+})
+
+test("two channels run independently: one degrading or disconnecting leaves the other", async () => {
+  const TG = "telegram" as RemotePlatform
+  const PROBE = "probe" as RemotePlatform // a stand-in 2nd platform, cast past the union
+  let emitStatus: ((status: PlatformStatus) => void) | undefined
+  const runtime = new RemoteBridgeRuntime(
+    deps({
+      pairers: [genericPairer(TG), genericPairer(PROBE)],
+      buildApp: async (config) => ({
+        run(signal?: AbortSignal, _onReady?: () => void, onStatus?: (status: PlatformStatus) => void) {
+          emitStatus = onStatus
+          for (const platform of config.platforms) onStatus?.({ name: platform.name, phase: "serving" })
+          return hangUntilAbort(signal)
+        },
+      }),
+    }),
+  )
+  const stateOf = (platform: RemotePlatform) => runtime.getStatus().channels.find((c) => c.platform === platform)?.state
+
+  await runtime.startPairing(TG, { token: "x" })
+  await runtime.confirmPairing(TG)
+  await runtime.startPairing(PROBE, { token: "y" })
+  await runtime.confirmPairing(PROBE)
+  expect(stateOf(TG)).toBe("connected")
+  expect(stateOf(PROBE)).toBe("connected")
+
+  // One channel degrades — the other is untouched.
+  emitStatus?.({ name: PROBE, phase: "degraded", error: "ws closed" })
+  expect(stateOf(PROBE)).toBe("degraded")
+  expect(stateOf(TG)).toBe("connected")
+
+  // Disconnecting one channel removes only it; the other survives as its own channel.
+  await runtime.disconnect(TG)
+  expect(stateOf(TG)).toBeUndefined()
+  expect(runtime.getStatus().channels.map((c) => c.platform)).toEqual([PROBE])
   await runtime.stop()
 })
 
