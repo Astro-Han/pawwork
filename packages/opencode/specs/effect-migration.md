@@ -265,9 +265,6 @@ Individual tools, ordered by value:
 - [x] `write.ts` — MEDIUM: permission checks, diagnostics polling, Bus events
 - [x] `webfetch.ts` — MEDIUM: fetch with UA retry, size limits → HttpClient
 - [x] `websearch.ts` — MEDIUM: MCP over HTTP → HttpClient
-- [ ] `batch.ts` — MEDIUM: parallel execution, per-call error recovery → Effect.all
-- [ ] `task.ts` — MEDIUM: task state management
-- [ ] `ls.ts` — MEDIUM: bounded directory listing over ripgrep-backed traversal
 - [x] `glob.ts` — LOW: simple async generator
 - [x] `lsp.ts` — LOW: dispatch switch over LSP operations
 - [ ] `question.ts` — LOW: prompt wrapper
@@ -276,24 +273,26 @@ Individual tools, ordered by value:
 - [ ] `invalid.ts` — LOW: invalid-tool fallback
 - [ ] `plan.ts` — LOW: plan file operations
 
+Stale entries removed 2026-06-19: the current tree has no `tool/batch.ts`, `tool/task.ts`, or `tool/ls.ts` files.
+
 ## Effect service adoption in already-migrated code
 
 Some already-effectified areas still use raw `Filesystem.*` or `Process.spawn` in their implementation or helper modules. These are low-hanging fruit — the layers already exist, they just need the dependency swap.
 
 ### `Filesystem.*` → `AppFileSystem.Service` (yield in layer)
 
-- [ ] `file/index.ts` — 1 remaining `Filesystem.readText()` call in untracked diff handling
+- [x] `file/index.ts` — current tree has no remaining `Filesystem.*` calls; untracked diff handling reads through `AppFileSystem.Service`
 - [x] `config/config.ts` — `installDependencies()` now lives on `Config.Service`, uses `AppFileSystem.Service` and `EffectFlock`, and the async facade delegates through `runPromise`
-- [ ] `provider/provider.ts` — 1 remaining `Filesystem.readJson()` call for recent model state
+- [x] `provider/provider.ts` — default model state reads through `AppFileSystem.Service`; no remaining `Filesystem.*` calls in the current file
 
 ### `Process.spawn` → `ChildProcessSpawner` (yield in layer)
 
 - [x] `format/formatter.ts` — formatter discovery now uses `AppFileSystem.Service` and `ChildProcessSpawner`
-- [ ] `lsp/server.ts` — multiple `Process.spawn()` installs/download helpers
+- [x] `lsp/server.ts` — install/download/root helper IO now uses named Effect helpers backed by `AppFileSystem.Service` and `ChildProcessSpawner`; `launch.ts` remains the long-lived LSP process compatibility launcher
 
 ## Filesystem consolidation
 
-`util/filesystem.ts` (raw fs wrapper) is currently imported by **34 files**. The effectified `AppFileSystem` service (`filesystem/index.ts`) is currently imported by **15 files**. As services and tools are effectified, they should switch from `Filesystem.*` to yielding `AppFileSystem.Service` — this happens naturally during each migration, not as a separate effort.
+`util/filesystem.ts` (raw fs wrapper) still has direct callers, while the effectified `AppFileSystem` service (`filesystem/index.ts`) is now used across migrated service and tool owners. As services and tools are effectified, they should switch from `Filesystem.*` to yielding `AppFileSystem.Service` — this happens naturally during each migration, not as a separate effort.
 
 Similarly, **21 files** still import raw `fs` or `fs/promises` directly. These should migrate to `AppFileSystem` or `Filesystem.*` as they're touched.
 
@@ -397,6 +396,7 @@ Decision table for the design:
 - Small instance route owners — migrated 2026-06-18. `server/instance/file.ts`, `server/instance/project.ts`, `server/instance/memory.ts`, and `server/instance/external-result.ts` now route body work through named `Effect.fn(...)` boundaries with one route-local `AppRuntime.runPromise` bridge per owner. File/project/external-result routes yield `Ripgrep.Service`, `File.Service`, `Project.Service`, and `Session.Service` where service APIs already exist. Project init still keeps the existing `Instance.reload(...)` compatibility call inside the route effect, memory still wraps the existing `MemoryService` Promise API, and external-result still uses `MessageV2.get(...)` inside the route effect because those behaviors do not yet have suitable service APIs in this slice.
 - Global/workspace/permission/automation route boundary — migrated 2026-06-18. The current `server/instance/global.ts`, `workspace.ts`, `permission.ts`, and `automation.ts` owners now route their non-streaming service work through named `Effect.fn(...)` boundaries and shared route-local AppRuntime bridges. Global config/dispose/upgrade, workspace create/list/status/remove, permission e2e ask/reply/list, and automation list/create/get/update/pause/resume/delete/run/runs preserve their existing HTTP shapes; automation intentionally keeps its `runPromiseExit` typed error mapper so `ValidationError`, `ConflictError`, and `ActiveRunStillRunningError` still map to the same `422`/`409` responses. Global health and SSE routes stay direct because they do not cross a service runtime boundary.
 - Session route boundary — migrated 2026-06-18. The current `server/instance/session.ts` owner now routes its service-backed session CRUD, todo, share/unshare, export, diff, turn-change, artifacts, summarize, messages, message/part mutation, command/shell, revert/unrevert, and deprecated permission reply work through named `Effect.fn(...)` boundaries plus one route-local AppRuntime bridge. Streaming prompt and fire-and-forget prompt_async keep the existing Hono stream/error behavior through `runHttpPrompt`, while synchronous `MessageV2.get(...)` and the tool/respond lookup/decoder stay as route compatibility code because they do not have a suitable service boundary in this slice.
+- LSP server helper IO — migrated 2026-06-19. `packages/opencode/src/lsp/server.ts` now keeps root discovery, installer filesystem work, archive cleanup, chmod/symlink/rename, and short-lived install/build commands behind named Effect helpers. The public `LSPServer.Info.spawn(root): Promise<Handle | undefined>` shape remains as the compatibility facade, and `packages/opencode/src/lsp/launch.ts` still owns long-lived language-server process spawning.
 
 ## Route handler effectification
 
