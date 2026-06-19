@@ -64,7 +64,6 @@ export namespace Process {
   export type Child = ChildProcess & { exited: Promise<number> }
 
   export interface Interface {
-    readonly spawn: (cmd: string[], opts?: Options) => Effect.Effect<Child, unknown>
     readonly run: (cmd: string[], opts?: RunOptions) => Effect.Effect<Result, unknown>
     readonly text: (cmd: string[], opts?: RunOptions) => Effect.Effect<TextResult, unknown>
     readonly lines: (cmd: string[], opts?: RunOptions) => Effect.Effect<string[], unknown>
@@ -83,7 +82,7 @@ export namespace Process {
     findDescendants?: (pid: number) => Promise<number[]>
   }
 
-  function spawnNode(cmd: string[], opts: Options = {}): Child {
+  export function spawn(cmd: string[], opts: Options = {}): Child {
     if (cmd.length === 0) throw new Error("Command is required")
     opts.abort?.throwIfAborted()
 
@@ -151,12 +150,8 @@ export namespace Process {
     return child
   }
 
-  export function spawn(cmd: string[], opts: Options = {}): Child {
-    return spawnNode(cmd, opts)
-  }
-
   export const spawnEffect = Effect.fn("Process.spawn")(function* (cmd: string[], opts: Options = {}) {
-    return yield* Effect.sync(() => spawnNode(cmd, opts))
+    return yield* Effect.sync(() => spawn(cmd, opts))
   })
 
   export const runEffect = Effect.fn("Process.run")(function* (cmd: string[], opts: RunOptions = {}) {
@@ -342,7 +337,6 @@ export namespace Process {
   export const layer = Layer.succeed(
     Service,
     Service.of({
-      spawn: spawnEffect,
       run: runEffect,
       text: textEffect,
       lines: linesEffect,
