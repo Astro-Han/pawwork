@@ -16,12 +16,15 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { Effect, Layer, ManagedRuntime, Stream } from "effect"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
+import * as Observability from "@opencode-ai/core/effect/observability"
+import { memoMap } from "@opencode-ai/core/effect/memo-map"
 
 export namespace LSPServer {
   const log = Log.create({ service: "lsp.server" })
 
   const helperRuntime = ManagedRuntime.make(
-    Layer.mergeAll(AppFileSystem.defaultLayer, CrossSpawnSpawner.defaultLayer),
+    Layer.provideMerge(Layer.mergeAll(AppFileSystem.defaultLayer, CrossSpawnSpawner.defaultLayer), Observability.layer),
+    { memoMap },
   )
   type HelperRuntimeServices = AppFileSystem.Service | ChildProcessSpawner.ChildProcessSpawner
 
