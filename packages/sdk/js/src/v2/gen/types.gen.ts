@@ -3307,11 +3307,11 @@ export type VcsApplyErrors = {
   /**
    * Bad request | VCS patch apply failure
    */
-  400: BadRequestError | VcsApplyFailure
+  400: VcsApplyFailure
   /**
    * VCS patch apply request is too large
    */
-  413: VcsApplyTooLargeFailure
+  413: VcsApplyFailure
 }
 
 export type VcsApplyError = VcsApplyErrors[keyof VcsApplyErrors]

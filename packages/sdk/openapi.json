@@ -1577,14 +1577,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/BadRequestError"
-                    },
-                    {
-                      "$ref": "#/components/schemas/VcsApplyFailure"
-                    }
-                  ]
+                  "$ref": "#/components/schemas/VcsApplyFailure"
                 }
               }
             }
@@ -1594,7 +1587,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/VcsApplyTooLargeFailure"
+                  "$ref": "#/components/schemas/VcsApplyFailure"
                 }
               }
             }
@@ -18481,16 +18474,10 @@
         "type": "object",
         "properties": {
           "error": {
-            "type": "string",
-            "enum": [
-              "vcs_diff_raw_failed"
-            ]
+            "const": "vcs_diff_raw_failed"
           },
           "reason": {
-            "type": "string",
-            "enum": [
-              "too-large"
-            ]
+            "const": "too-large"
           },
           "message": {
             "type": "string"
@@ -18508,13 +18495,9 @@
         "type": "object",
         "properties": {
           "error": {
-            "type": "string",
-            "enum": [
-              "vcs_apply_failed"
-            ]
+            "const": "vcs_apply_failed"
           },
           "reason": {
-            "type": "string",
             "enum": [
               "non-git",
               "not-clean",

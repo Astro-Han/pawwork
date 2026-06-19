@@ -95,11 +95,11 @@ function jsonContent(schema: unknown) {
   }
 }
 
-function patchJsonResponse(document: OpenApiDocument, path: string, method: string, schema: unknown) {
+function patchJsonResponse(document: OpenApiDocument, path: string, method: string, schema: unknown, status = "200") {
   const operation = document.paths?.[path]?.[method] as
     | { responses?: Record<string, { content?: Record<string, unknown> }> }
     | undefined
-  const response = operation?.responses?.["200"]
+  const response = operation?.responses?.[status]
   if (!response) return
   response.content = jsonContent(schema)
 }
@@ -295,6 +295,12 @@ function patchAdditionalRouteSchemas(document: OpenApiDocument) {
   patchJsonResponse(document, "/file/content", "get", schemaRef("FileContent"))
 }
 
+function patchVcsFailureSchemas(document: OpenApiDocument) {
+  patchJsonResponse(document, "/vcs/apply", "post", schemaRef("VcsApplyFailure"), "400")
+  patchJsonResponse(document, "/vcs/apply", "post", schemaRef("VcsApplyFailure"), "413")
+  patchJsonResponse(document, "/vcs/diff/raw", "get", schemaRef("VcsDiffRawFailure"), "413")
+}
+
 function memoryInputSchemas() {
   return {
     MemoryRawInput: {
@@ -390,6 +396,33 @@ function pendingExternalResultSchema() {
       part: schemaRef("Part"),
     },
     required: ["session", "message", "part"],
+  }
+}
+
+function vcsFailureSchemas() {
+  return {
+    VcsApplyFailure: {
+      type: "object",
+      properties: {
+        error: { const: "vcs_apply_failed" },
+        reason: { enum: ["non-git", "not-clean", "too-large", "invalid-input"] },
+        message: { type: "string" },
+      },
+      required: ["error", "reason", "message"],
+      additionalProperties: false,
+      description: "VCS patch apply failure",
+    },
+    VcsDiffRawFailure: {
+      type: "object",
+      properties: {
+        error: { const: "vcs_diff_raw_failed" },
+        reason: { const: "too-large" },
+        message: { type: "string" },
+      },
+      required: ["error", "reason", "message"],
+      additionalProperties: false,
+      description: "Raw VCS diff is too large",
+    },
   }
 }
 
@@ -631,6 +664,7 @@ export async function controlOpenApi() {
     ...worktreeInputSchemas(),
     FileContent: fileContentSchema(),
     PendingExternalResult: pendingExternalResultSchema(),
+    ...vcsFailureSchemas(),
   }
   const sessionPatchRefs = {
     PromptBody: prompt.schema,
@@ -656,6 +690,7 @@ export async function controlOpenApi() {
   patchAutomationSchemas(document, automationPatchRefs)
   patchMemorySchemas(document)
   patchAdditionalRouteSchemas(document)
+  patchVcsFailureSchemas(document)
   mergeSchemas(document, badRequest.components?.schemas ?? {}, { override: true })
   mergeSchemas(document, config.components?.schemas ?? {}, { override: true })
   sortRefUnions(document)
