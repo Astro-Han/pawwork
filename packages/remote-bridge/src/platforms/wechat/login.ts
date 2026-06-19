@@ -62,13 +62,22 @@ export async function pollWeChatLogin(
     if (status.status === "expired") return { status: "expired" }
     return { status: "pending" }
   } catch (err) {
-    // The status call long-polls (~30s); a client-side timeout or transient network
-    // blip is expected — keep waiting. A real server-side API error (5xx / bad ret)
-    // is surfaced so the user isn't left spinning on a dead QR.
-    if (opts.signal?.aborted) return { status: "pending" }
+    // The status call long-polls (~30s); an abort or a client-side timeout is the
+    // expected way it returns, so keep waiting silently. A real server-side API error
+    // (5xx / bad ret) is surfaced so the user isn't left spinning on a dead QR.
+    if (opts.signal?.aborted || isTimeout(err)) return { status: "pending" }
     if (err instanceof WeChatApiError) return { status: "error", message: err.message }
+    // Anything else (a transient network blip, or a real bug) — keep polling, but not
+    // silently: a blanket catch-all here would spin forever on a defect with no signal.
+    console.warn(`wechat login poll: unexpected error, retrying: ${message(err)}`)
     return { status: "pending" }
   }
+}
+
+/** The long-poll's normal client-side end: AbortSignal.timeout fires a TimeoutError
+ * (or an AbortError) — distinct from a real failure, so it just means "poll again". */
+function isTimeout(err: unknown): boolean {
+  return err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")
 }
 
 function message(err: unknown): string {
