@@ -371,7 +371,7 @@ describe("pty routes", () => {
     expect(tokenResponse?.content).toBeTruthy()
 
     const parameters = spec.paths?.["/pty/{ptyID}/connect"]?.get?.parameters ?? []
-    const names = parameters.map((parameter) => ("name" in parameter ? parameter.name : undefined))
+    const names = parameters.map((parameter: { name?: string }) => parameter.name)
 
     expect(names).toContain("cursor")
     expect(names).toContain("ticket")

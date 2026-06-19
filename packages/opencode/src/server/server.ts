@@ -216,8 +216,8 @@ function create(opts: { cors?: string[] }) {
 }
 
 export async function openapi() {
-  const { serverOpenApi } = await import("./openapi")
-  return serverOpenApi()
+  const { controlOpenApi } = await import("./control-openapi")
+  return controlOpenApi()
 }
 
 export let url: URL

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { controlOpenApi } from "../../src/server/control-openapi"
+import { Server } from "../../src/server/server"
 
 const expectedProductionEventSchemaRefs = [
   "Event.automation.definition.deleted",
@@ -157,38 +158,18 @@ describe("OpenAPI generation source", () => {
     expect(JSON.stringify(schemas.Config)).toContain("#/components/schemas/AgentConfig")
   })
 
-  test("documents the remaining checked-in SDK OpenAPI drift from the production source", async () => {
+  test("keeps the public generated OpenAPI path set aligned with the production source", async () => {
     const checkedIn = JSON.parse(await readFile(path.join(import.meta.dir, "../../../sdk/openapi.json"), "utf8"))
+    const generated = await Server.openapi()
     const production = await controlOpenApi()
     const checkedInPaths = new Set(Object.keys(checkedIn.paths ?? {}))
+    const generatedPaths = new Set(Object.keys(generated.paths ?? {}))
     const productionPaths = new Set(Object.keys(production.paths ?? {}))
 
-    expect([...productionPaths].filter((routePath) => !checkedInPaths.has(routePath)).sort()).toEqual([
-      "/automation",
-      "/automation/{automationID}",
-      "/automation/{automationID}/pause",
-      "/automation/{automationID}/resume",
-      "/automation/{automationID}/run",
-      "/automation/{automationID}/runs",
-      "/external-result",
-      "/memory",
-      "/memory/disabled",
-      "/memory/entry/{id}",
-      "/memory/reset",
-      "/permission/__e2e/ask",
-      "/provider/recent",
-      "/session/__e2e/update-todos",
-      "/session/{sessionID}/tool/respond",
-      "/session/{sessionID}/turn-change/{messageID}",
-      "/session/{sessionID}/turn-change/{messageID}/redo",
-      "/session/{sessionID}/turn-change/{messageID}/undo",
-      "/session/{sessionID}/turn/{userMessageID}/changes",
-      "/session/{sessionID}/turn/{userMessageID}/changes/redo",
-      "/session/{sessionID}/turn/{userMessageID}/changes/undo",
-      "/vcs/apply",
-      "/vcs/diff/raw",
-      "/vcs/status",
-    ])
+    expect(generated.info).toEqual(production.info)
+    expect([...productionPaths].filter((routePath) => !generatedPaths.has(routePath)).sort()).toEqual([])
+    expect([...generatedPaths].filter((routePath) => !productionPaths.has(routePath)).sort()).toEqual([])
+    expect([...productionPaths].filter((routePath) => !checkedInPaths.has(routePath)).sort()).toEqual([])
     expect([...checkedInPaths].filter((routePath) => !productionPaths.has(routePath)).sort()).toEqual([])
   })
 })

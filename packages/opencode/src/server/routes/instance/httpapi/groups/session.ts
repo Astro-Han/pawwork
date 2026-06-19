@@ -189,6 +189,7 @@ export const SessionApi = HttpApi.make("session")
           success: Schema.Array(Schema.Any),
         }).annotateMerge(operation("session.list")),
         HttpApiEndpoint.post("create", SessionPaths.create, {
+          query: WorkspaceRoutingQuery,
           payload: Schema.optional(Schema.Any),
           success: Schema.Any,
           error: BadRequestError,

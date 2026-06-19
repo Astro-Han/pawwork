@@ -20,7 +20,7 @@ function hasRoute(routes: ReadonlyArray<{ method: string; path: string }>, metho
 }
 
 describe("route inventory harness", () => {
-  test("discovers PawWork-owned Hono routes that the checked-in OpenAPI surface can miss", async () => {
+  test("discovers PawWork-owned Hono routes now covered by the checked-in OpenAPI surface", async () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
     expect(hasRoute(inventory.hono.routes, "GET", "/external-result")).toBe(true)
@@ -29,7 +29,7 @@ describe("route inventory harness", () => {
     expect(hasRoute(inventory.hono.routes, "POST", "/session/:sessionID/tool/respond")).toBe(true)
     expect(hasRoute(inventory.hono.routes, "GET", "/session/:sessionID/turn/:userMessageID/changes")).toBe(true)
 
-    expect(hasRoute(inventory.openapi.routes, "GET", "/external-result")).toBe(false)
+    expect(hasRoute(inventory.openapi.routes, "GET", "/external-result")).toBe(true)
     expect(hasRoute(inventory.legacySdk.routes, "GET", "/external-result")).toBe(false)
     expect(hasRoute(inventory.v2Sdk.routes, "GET", "/external-result")).toBe(true)
   })
@@ -40,10 +40,10 @@ describe("route inventory harness", () => {
     const externalResult = inventory.rows.find((row) => row.method === "GET" && row.path === "/external-result")
     expect(externalResult).toMatchObject({
       hono: true,
-      openapi: false,
+      openapi: true,
       legacySdk: false,
       v2Sdk: true,
-      classification: "pawwork-owned-sdk-v2-only",
+      classification: "pawwork-owned",
     })
 
     expect(inventory.counts.openapi).toBeGreaterThanOrEqual(90)
@@ -101,7 +101,7 @@ describe("route inventory harness", () => {
     expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/external-result")).toMatchObject({
       hono: true,
       localHttpApi: true,
-      classification: "pawwork-owned-sdk-v2-only",
+      classification: "pawwork-owned",
     })
   })
 
@@ -133,7 +133,8 @@ describe("route inventory harness", () => {
     }
 
     expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/external-result")).toMatchObject({
-      classification: "pawwork-owned-sdk-v2-only",
+      openapi: true,
+      classification: "pawwork-owned",
     })
   })
 
@@ -402,7 +403,7 @@ describe("route inventory harness", () => {
 
     expect(
       inventory.rows.find((row) => row.method === "POST" && row.path === "/permission/__e2e/ask"),
-    ).toMatchObject({ hono: true, openapi: false, v2Sdk: true, localHttpApi: true, classification: "hono-v2-sdk" })
+    ).toMatchObject({ hono: true, openapi: true, v2Sdk: true, localHttpApi: true, classification: "openapi-v2-sdk" })
   })
 
   test("does not report retired question HTTP routes as OpenAPI-only residue", async () => {
