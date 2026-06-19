@@ -22,13 +22,16 @@ class TelegramPairer implements PlatformPairer {
     const token = (start.token ?? "").trim()
     if (token === "") throw new Error("a bot token is required")
     const poller = new TelegramPoller(token)
-    emit({ phase: "awaitingBind", platform: "telegram", hint: "message" })
     // capture drains the backlog (proving the token via a fatal 401 if it is bad)
     // before waiting for the first sender, so a message sent during pairing lands
-    // past the baseline and is captured, not mistaken for backlog.
+    // past the baseline and is captured, not mistaken for backlog. awaitingBind is
+    // emitted from onValidated — only after the token is proven — so a bad token
+    // never tells the user to message the bot before it errors.
     let captured: Awaited<ReturnType<typeof captureFirstSender>>
     try {
-      captured = await captureFirstSender(poller, signal)
+      captured = await captureFirstSender(poller, signal, () =>
+        emit({ phase: "awaitingBind", platform: "telegram", hint: "message" }),
+      )
     } catch (err) {
       if (signal.aborted) return null
       throw new Error(`could not reach Telegram with that token: ${message(err)}`)

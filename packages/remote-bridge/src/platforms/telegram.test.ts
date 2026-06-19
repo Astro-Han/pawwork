@@ -546,6 +546,42 @@ test("captureFirstSender retries a transient final ack so the pairing message is
   }
 })
 
+test("captureFirstSender signals onValidated only after the token is proven", async () => {
+  const api = fakeBotApi([[], [update(10, 42, "pair me")]])
+  try {
+    const poller = new TelegramPoller("t", api.url)
+    poller.pollRetryMs = 0
+    let getUpdatesWhenValidated = -1
+    const captured = await captureFirstSender(poller, new AbortController().signal, () => {
+      getUpdatesWhenValidated = api.calls.filter((c) => c.method === "getUpdates").length
+    })
+    expect(captured).toEqual({ userId: "42", userName: "u42", botUsername: "bot" })
+    // Fired after the proving drain ran at least once — never before any network call.
+    expect(getUpdatesWhenValidated).toBeGreaterThanOrEqual(1)
+  } finally {
+    api.stop()
+  }
+})
+
+test("captureFirstSender never signals onValidated for a bad token", async () => {
+  // A bad token fails the first getUpdates (the drain) with a fatal 401, so the
+  // bind hint must never fire — the UI can't walk the user to "message the bot".
+  const server = Bun.serve({ port: 0, fetch: () => json({ ok: false, error_code: 401, description: "Unauthorized" }) })
+  try {
+    const poller = new TelegramPoller("t", `http://localhost:${server.port}`)
+    poller.pollRetryMs = 0
+    let validated = false
+    await expect(
+      captureFirstSender(poller, new AbortController().signal, () => {
+        validated = true
+      }),
+    ).rejects.toThrow(/401/)
+    expect(validated).toBe(false)
+  } finally {
+    server.stop(true)
+  }
+})
+
 test("start() rejects on an invalid token so the gateway can surface it", async () => {
   const server = Bun.serve({
     port: 0,

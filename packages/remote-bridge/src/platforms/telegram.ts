@@ -493,8 +493,16 @@ async function drainBacklog(poller: TelegramPoller, signal: AbortSignal): Promis
  * replay it as a prompt. Returns null if the signal aborts first (the connect
  * dialog was closed). A bad token surfaces as a thrown fatal error; transient
  * failures back off and retry.
+ *
+ * `onValidated` fires once the token is proven (after the drain and getMe), just
+ * before the wait for the first message — the caller emits its "now message the
+ * bot" hint there, so a bad token never reaches that hint.
  */
-export async function captureFirstSender(poller: TelegramPoller, signal: AbortSignal): Promise<CapturedSender | null> {
+export async function captureFirstSender(
+  poller: TelegramPoller,
+  signal: AbortSignal,
+  onValidated?: () => void,
+): Promise<CapturedSender | null> {
   const drained = await drainBacklog(poller, signal)
   if (drained === null) return null // aborted while draining
   let offset = drained
@@ -508,6 +516,11 @@ export async function captureFirstSender(poller: TelegramPoller, signal: AbortSi
     if (signal.aborted) return null // aborted while fetching the bot identity
     throw err
   }
+
+  // Token proven and identity known: only now signal "act from the phone". Fired
+  // before the wait, not after capture, so the bind hint shows exactly once the
+  // token is good — never for a bad token (the drain above already threw).
+  onValidated?.()
 
   while (!signal.aborted) {
     const updates = await getUpdatesWithRetry(poller, offset, signal, POLL_TIMEOUT_S)
