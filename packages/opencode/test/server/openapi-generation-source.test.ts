@@ -1,0 +1,194 @@
+import { describe, expect, test } from "bun:test"
+import { readFile } from "node:fs/promises"
+import path from "node:path"
+import { controlOpenApi } from "../../src/server/control-openapi"
+
+const expectedProductionEventSchemaRefs = [
+  "Event.automation.definition.deleted",
+  "Event.automation.definition.updated",
+  "Event.automation.run.updated",
+  "Event.command.executed",
+  "Event.file.edited",
+  "Event.file.watcher.rescan",
+  "Event.file.watcher.updated",
+  "Event.global.disposed",
+  "Event.installation.update-available",
+  "Event.installation.updated",
+  "Event.lsp.client.diagnostics",
+  "Event.lsp.server.install.failed",
+  "Event.lsp.updated",
+  "Event.mcp.browser.open.failed",
+  "Event.mcp.tools.changed",
+  "Event.message.part.delta",
+  "Event.message.part.removed",
+  "Event.message.part.updated",
+  "Event.message.removed",
+  "Event.message.updated",
+  "Event.permission.asked",
+  "Event.permission.replied",
+  "Event.project.updated",
+  "Event.pty.created",
+  "Event.pty.deleted",
+  "Event.pty.exited",
+  "Event.pty.updated",
+  "Event.server.connected",
+  "Event.server.instance.disposed",
+  "Event.session.compacted",
+  "Event.session.created",
+  "Event.session.deleted",
+  "Event.session.diff",
+  "Event.session.error",
+  "Event.session.idle",
+  "Event.session.status",
+  "Event.session.turn_change_invalidated",
+  "Event.session.updated",
+  "Event.todo.updated",
+  "Event.vcs.branch.updated",
+  "Event.workspace.failed",
+  "Event.workspace.ready",
+  "Event.workspace.status",
+  "Event.worktree.failed",
+  "Event.worktree.ready",
+]
+
+const expectedProductionSyncEventSchemaRefs = [
+  "SyncEvent.message.part.removed",
+  "SyncEvent.message.part.updated",
+  "SyncEvent.message.removed",
+  "SyncEvent.message.updated",
+  "SyncEvent.session.created",
+  "SyncEvent.session.deleted",
+  "SyncEvent.session.updated",
+]
+
+function eventSchemaRefs(spec: Awaited<ReturnType<typeof controlOpenApi>>) {
+  const eventSchema = spec.components?.schemas?.Event as { anyOf?: Array<{ $ref?: string }> } | undefined
+  return (eventSchema?.anyOf ?? [])
+    .map((item) => item.$ref?.replace("#/components/schemas/", ""))
+    .filter((item): item is string => Boolean(item))
+}
+
+function syncEventSchemaRefs(spec: Awaited<ReturnType<typeof controlOpenApi>>) {
+  return Object.keys(spec.components?.schemas ?? {})
+    .filter((name) => name.startsWith("SyncEvent."))
+    .sort()
+}
+
+function generateAfterIsolatedEventLeak() {
+  const script = `
+    import z from "zod"
+    const { BusEvent } = await import("./src/bus/bus-event.ts")
+    const { controlOpenApi } = await import("./src/server/control-openapi.ts")
+
+    BusEvent.define("test.openapi.leak", z.object({ value: z.number() }))
+    const spec = await controlOpenApi()
+    const eventRefs = (spec.components?.schemas?.Event?.anyOf ?? [])
+      .map((item) => item.$ref?.replace("#/components/schemas/", ""))
+      .filter(Boolean)
+    const syncRefs = Object.keys(spec.components?.schemas ?? {})
+      .filter((name) => name.startsWith("SyncEvent."))
+      .sort()
+
+    console.log(JSON.stringify({ eventRefs, syncRefs }))
+  `
+  const result = Bun.spawnSync({
+    cmd: [process.execPath, "--eval", script],
+    cwd: path.join(import.meta.dir, "..", ".."),
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env },
+  })
+
+  if (result.exitCode !== 0) throw new Error(Buffer.from(result.stderr).toString())
+  return JSON.parse(Buffer.from(result.stdout).toString()) as { eventRefs: string[]; syncRefs: string[] }
+}
+
+describe("OpenAPI generation source", () => {
+  test("reuses the shared ProductionApi for dispatch and documentation", async () => {
+    const controlOpenApiSource = await readFile(path.join(import.meta.dir, "../../src/server/control-openapi.ts"), "utf8")
+    const productionHttpApiSource = await readFile(
+      path.join(import.meta.dir, "../../src/server/production-httpapi.ts"),
+      "utf8",
+    )
+
+    expect(controlOpenApiSource).toContain('import { ProductionApi } from "./production-api"')
+    expect(productionHttpApiSource).toContain('import { ProductionApi } from "./production-api"')
+    expect(productionHttpApiSource).not.toContain('HttpApi.make("production")')
+  })
+
+  test("generates the production Effect HttpApi document directly", async () => {
+    const spec = await controlOpenApi()
+
+    expect(spec.openapi).toBe("3.1.1")
+    expect(spec.paths).not.toHaveProperty("/doc")
+    expect(spec.paths).toHaveProperty("/event")
+    expect(spec.paths).toHaveProperty("/global/sync-event")
+    expect(spec.paths).toHaveProperty("/pty/{ptyID}/connect")
+    expect(spec.paths).toHaveProperty("/automation/{automationID}/run")
+    expect(spec.paths).toHaveProperty("/memory/entry/{id}")
+    expect(spec.paths).toHaveProperty("/session/{sessionID}/tool/respond")
+    expect(spec.paths).toHaveProperty("/provider/recent")
+    expect(spec.paths).not.toHaveProperty("/question")
+
+    const ptyConnectOperation = spec.paths?.["/pty/{ptyID}/connect"] as
+      | { get?: { responses?: Record<string, unknown> } }
+      | undefined
+    const ptyConnectResponses = ptyConnectOperation?.get?.responses ?? {}
+    expect(ptyConnectResponses).toHaveProperty("101")
+    expect(ptyConnectResponses).not.toHaveProperty("200")
+    expect(ptyConnectResponses["101"]).not.toHaveProperty("content")
+  })
+
+  test("generates the full production event schema without import-order dependence", async () => {
+    const spec = await controlOpenApi()
+    const isolatedLeakSpec = generateAfterIsolatedEventLeak()
+
+    expect(eventSchemaRefs(spec)).toEqual(expectedProductionEventSchemaRefs)
+    expect(syncEventSchemaRefs(spec)).toEqual(expectedProductionSyncEventSchemaRefs)
+    expect(isolatedLeakSpec.eventRefs).toEqual(expectedProductionEventSchemaRefs)
+    expect(isolatedLeakSpec.syncRefs).toEqual(expectedProductionSyncEventSchemaRefs)
+  })
+
+  test("preserves config zod override schemas in the production document", async () => {
+    const spec = await controlOpenApi()
+    const schemas = spec.components?.schemas ?? {}
+
+    expect(schemas).toHaveProperty("AgentConfig")
+    expect(JSON.stringify(schemas.Config)).toContain("#/components/schemas/AgentConfig")
+  })
+
+  test("documents the remaining checked-in SDK OpenAPI drift from the production source", async () => {
+    const checkedIn = JSON.parse(await readFile(path.join(import.meta.dir, "../../../sdk/openapi.json"), "utf8"))
+    const production = await controlOpenApi()
+    const checkedInPaths = new Set(Object.keys(checkedIn.paths ?? {}))
+    const productionPaths = new Set(Object.keys(production.paths ?? {}))
+
+    expect([...productionPaths].filter((routePath) => !checkedInPaths.has(routePath)).sort()).toEqual([
+      "/automation",
+      "/automation/{automationID}",
+      "/automation/{automationID}/pause",
+      "/automation/{automationID}/resume",
+      "/automation/{automationID}/run",
+      "/automation/{automationID}/runs",
+      "/external-result",
+      "/memory",
+      "/memory/disabled",
+      "/memory/entry/{id}",
+      "/memory/reset",
+      "/permission/__e2e/ask",
+      "/provider/recent",
+      "/session/__e2e/update-todos",
+      "/session/{sessionID}/tool/respond",
+      "/session/{sessionID}/turn-change/{messageID}",
+      "/session/{sessionID}/turn-change/{messageID}/redo",
+      "/session/{sessionID}/turn-change/{messageID}/undo",
+      "/session/{sessionID}/turn/{userMessageID}/changes",
+      "/session/{sessionID}/turn/{userMessageID}/changes/redo",
+      "/session/{sessionID}/turn/{userMessageID}/changes/undo",
+      "/vcs/apply",
+      "/vcs/diff/raw",
+      "/vcs/status",
+    ])
+    expect([...checkedInPaths].filter((routePath) => !productionPaths.has(routePath)).sort()).toEqual([])
+  })
+})
