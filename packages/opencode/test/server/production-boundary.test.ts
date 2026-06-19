@@ -107,6 +107,19 @@ describe("production server boundary", () => {
     expect(server).not.toContain("compatibility.fetch")
   })
 
+  test("keeps the production server entrypoint free of direct Hono host construction", async () => {
+    const server = await readFile(path.join(import.meta.dir, "../../src/server/server.ts"), "utf8")
+    const websocketCompatibility = await readFile(
+      path.join(import.meta.dir, "../../src/server/websocket-compatibility.ts"),
+      "utf8",
+    )
+
+    expect(server).not.toMatch(/from\s+["']hono["']/)
+    expect(server).not.toMatch(/\bnew\s+Hono\s*\(/)
+    expect(websocketCompatibility).toMatch(/from\s+["']hono["']/)
+    expect(websocketCompatibility).toMatch(/\bnew\s+Hono\s*\(/)
+  })
+
   test("does not keep a legacy Hono documentation route tree", () => {
     const openapi = path.join(import.meta.dir, "../../src/server/openapi.ts")
 
