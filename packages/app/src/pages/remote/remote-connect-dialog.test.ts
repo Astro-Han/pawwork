@@ -148,7 +148,7 @@ describe("DialogConnectRemote auto-approve", () => {
     runBrowserCheck(autoApproveCheck)
   })
 
-  test("a rejected startPairing surfaces the error step instead of hanging on Preparing", () => {
+  test("catches a rejected startPairing instead of leaking it and hanging on Preparing", () => {
     runBrowserCheck(startRejectCheck)
   })
 })
