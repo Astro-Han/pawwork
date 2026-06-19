@@ -4,27 +4,223 @@ import os from "os"
 import { Global } from "../global"
 import { Log } from "@opencode-ai/core/util/log"
 import { text } from "node:stream/consumers"
-import fs from "fs/promises"
-import { Filesystem } from "../util/filesystem"
 import { Instance } from "../project/instance"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Archive } from "../util/archive"
-import { Process } from "../util/process"
 import { which } from "../util/which"
 import { Module } from "@opencode-ai/util/module"
 import { spawn } from "./launch"
 import { Npm } from "@opencode-ai/core/npm"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { Effect, Layer, ManagedRuntime, Stream } from "effect"
+import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 
 export namespace LSPServer {
   const log = Log.create({ service: "lsp.server" })
-  const pathExists = async (p: string) =>
-    fs
-      .stat(p)
-      .then(() => true)
-      .catch(() => false)
-  const run = (cmd: string[], opts: Process.RunOptions = {}) => Process.run(cmd, { ...opts, nothrow: true })
-  const output = (cmd: string[], opts: Process.RunOptions = {}) => Process.text(cmd, { ...opts, nothrow: true })
+
+  const helperRuntime = ManagedRuntime.make(
+    Layer.mergeAll(AppFileSystem.defaultLayer, CrossSpawnSpawner.defaultLayer),
+  )
+  type HelperRuntimeServices = AppFileSystem.Service | ChildProcessSpawner.ChildProcessSpawner
+
+  type Stdio = "inherit" | "pipe" | "ignore"
+  type RunOptions = {
+    cwd?: string
+    env?: NodeJS.ProcessEnv
+    stdin?: Stdio
+    shell?: boolean | string
+    nothrow?: boolean
+  }
+  type RunResult = {
+    code: number
+    stdout: Buffer
+    stderr: Buffer
+    text: string
+  }
+
+  class RunFailedError extends Error {
+    constructor(
+      readonly cmd: string[],
+      readonly code: number,
+      readonly stdout: Buffer,
+      readonly stderr: Buffer,
+    ) {
+      const detail = stderr.toString().trim()
+      super(detail ? `Command failed with code ${code}: ${cmd.join(" ")}\n${detail}` : `Command failed with code ${code}: ${cmd.join(" ")}`)
+      this.name = "LSPServerRunFailedError"
+    }
+  }
+
+  const env = (value: NodeJS.ProcessEnv | undefined): Record<string, string> | undefined => {
+    if (!value) return undefined
+    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => entry[1] !== undefined))
+  }
+
+  const failureResult = (error: unknown): RunResult => {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      code: 1,
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.from(message),
+      text: "",
+    }
+  }
+
+  const runHelper = <A, E>(effect: Effect.Effect<A, E, HelperRuntimeServices>) =>
+    helperRuntime.runPromise(effect as Effect.Effect<A, E, never>)
+
+  const runProcessEffect = Effect.fn("LSPServer.process.run")(function* (cmd: string[], opts: RunOptions = {}) {
+    if (cmd.length === 0) return yield* Effect.fail(new Error("Command is required"))
+
+    const program = Effect.gen(function* () {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const handle = yield* spawner.spawn(
+        ChildProcess.make(cmd[0], cmd.slice(1), {
+          cwd: opts.cwd,
+          env: env(opts.env),
+          extendEnv: true,
+          shell: opts.shell,
+          stdin: opts.stdin ?? "ignore",
+        }),
+      )
+      const [stdoutText, stderrText, code] = yield* Effect.all(
+        [
+          Stream.mkString(Stream.decodeText(handle.stdout)),
+          Stream.mkString(Stream.decodeText(handle.stderr)),
+          handle.exitCode,
+        ],
+        { concurrency: "unbounded" },
+      )
+      const stdout = Buffer.from(stdoutText)
+      const stderr = Buffer.from(stderrText)
+      return { code: Number(code), stdout, stderr, text: stdoutText }
+    }).pipe(
+      Effect.scoped,
+      Effect.catch((error: unknown) => (opts.nothrow ? Effect.succeed(failureResult(error)) : Effect.fail(error))),
+    )
+
+    const result = yield* program
+    if (result.code !== 0 && !opts.nothrow) {
+      return yield* Effect.fail(new RunFailedError(cmd, result.code, result.stdout, result.stderr))
+    }
+    return result
+  })
+
+  const run = (cmd: string[], opts: RunOptions = {}) => runHelper(runProcessEffect(cmd, { ...opts, nothrow: true }))
+  const runOrThrow = (cmd: string[], opts: RunOptions = {}) => runHelper(runProcessEffect(cmd, opts))
+  const output = (cmd: string[], opts: RunOptions = {}) => run(cmd, opts)
+
+  const existsEffect = Effect.fn("LSPServer.fs.exists")(function* (target: string) {
+    const fs = yield* AppFileSystem.Service
+    return yield* fs.existsSafe(target)
+  })
+  const pathExists = (target: string) => runHelper(existsEffect(target))
+
+  const readTextEffect = Effect.fn("LSPServer.fs.readText")(function* (target: string) {
+    const fs = yield* AppFileSystem.Service
+    return yield* fs.readFileString(target)
+  })
+  const readText = (target: string) => runHelper(readTextEffect(target))
+
+  const writeBytesEffect = Effect.fn("LSPServer.fs.writeBytes")(function* (target: string, bytes: Uint8Array) {
+    const fs = yield* AppFileSystem.Service
+    yield* fs.writeWithDirs(target, bytes)
+  })
+  const writeBytes = (target: string, bytes: Uint8Array) => runHelper(writeBytesEffect(target, bytes))
+
+  const writeWebStreamEffect = Effect.fn("LSPServer.fs.writeWebStream")(function* (
+    target: string,
+    body: ReadableStream<Uint8Array>,
+  ) {
+    const fs = yield* AppFileSystem.Service
+    yield* fs.makeDirectory(path.dirname(target), { recursive: true })
+    const stream = Stream.fromReadableStream({
+      evaluate: () => body,
+      onError: (cause) => new AppFileSystem.FileSystemError({ method: "writeWebStream", cause }),
+    })
+    yield* Stream.run(stream, fs.sink(target))
+  })
+  const writeWebStream = (target: string, body: ReadableStream<Uint8Array>) => runHelper(writeWebStreamEffect(target, body))
+
+  const removePathEffect = Effect.fn("LSPServer.fs.remove")(function* (
+    target: string,
+    options?: { recursive?: boolean; force?: boolean },
+  ) {
+    const fs = yield* AppFileSystem.Service
+    yield* fs.remove(target, options)
+  })
+  const removePath = (target: string, options?: { recursive?: boolean; force?: boolean }) =>
+    runHelper(removePathEffect(target, options))
+
+  const makeDirectoryEffect = Effect.fn("LSPServer.fs.makeDirectory")(function* (
+    target: string,
+    options?: { recursive?: boolean; mode?: number },
+  ) {
+    const fs = yield* AppFileSystem.Service
+    yield* fs.makeDirectory(target, options)
+  })
+  const makeDirectory = (target: string, options?: { recursive?: boolean; mode?: number }) =>
+    runHelper(makeDirectoryEffect(target, options))
+
+  const renamePathEffect = Effect.fn("LSPServer.fs.rename")(function* (from: string, to: string) {
+    const fs = yield* AppFileSystem.Service
+    yield* fs.rename(from, to)
+  })
+  const renamePath = (from: string, to: string) => runHelper(renamePathEffect(from, to))
+
+  const readDirectoryEffect = Effect.fn("LSPServer.fs.readDirectory")(function* (target: string) {
+    const fs = yield* AppFileSystem.Service
+    return yield* fs.readDirectory(target).pipe(Effect.catch(() => Effect.succeed([] as string[])))
+  })
+  const readDirectory = (target: string) => runHelper(readDirectoryEffect(target))
+
+  const readDirectoryEntriesEffect = Effect.fn("LSPServer.fs.readDirectoryEntries")(function* (target: string) {
+    const fs = yield* AppFileSystem.Service
+    return yield* fs.readDirectoryEntries(target).pipe(Effect.catch(() => Effect.succeed([] as AppFileSystem.DirEntry[])))
+  })
+  const readDirectoryEntries = (target: string) => runHelper(readDirectoryEntriesEffect(target))
+
+  const chmodEffect = Effect.fn("LSPServer.fs.chmod")(function* (target: string, mode: number) {
+    const fs = yield* AppFileSystem.Service
+    yield* fs.chmod(target, mode)
+  })
+  const chmod = (target: string, mode: number) => runHelper(chmodEffect(target, mode))
+
+  const unlinkEffect = Effect.fn("LSPServer.fs.unlink")(function* (target: string) {
+    const fs = yield* AppFileSystem.Service
+    yield* fs.remove(target, { force: true })
+  })
+  const unlink = (target: string) => runHelper(unlinkEffect(target))
+
+  const symlinkEffect = Effect.fn("LSPServer.fs.symlink")(function* (from: string, to: string) {
+    const fs = yield* AppFileSystem.Service
+    yield* fs.symlink(from, to)
+  })
+  const symlink = (from: string, to: string) => runHelper(symlinkEffect(from, to))
+
+  const makeTempDirectoryEffect = Effect.fn("LSPServer.fs.makeTempDirectory")(function* (options?: {
+    directory?: string
+    prefix?: string
+  }) {
+    const fs = yield* AppFileSystem.Service
+    return yield* fs.makeTempDirectory(options)
+  })
+  const makeTempDirectory = (options?: { directory?: string; prefix?: string }) =>
+    runHelper(makeTempDirectoryEffect(options))
+
+  const upEffect = Effect.fn("LSPServer.fs.up")(function* (options: { targets: string[]; start: string; stop?: string }) {
+    const fs = yield* AppFileSystem.Service
+    return yield* fs.up(options)
+  })
+  const up = (options: { targets: string[]; start: string; stop?: string }) => runHelper(upEffect(options))
+
+  const findUpEffect = Effect.fn("LSPServer.fs.findUp")(function* (target: string, start: string, stop?: string) {
+    const fs = yield* AppFileSystem.Service
+    return yield* fs.findUp(target, start, stop)
+  })
+  const findUp = (target: string, start: string, stop?: string) => runHelper(findUpEffect(target, start, stop))
 
   // Surface install failures to the UI via Bus. core/npm.ts which() swallows
   // InstallFailedError; we drive add() explicitly so we can publish the event
@@ -82,47 +278,39 @@ export namespace LSPServer {
   const NearestRoot = (includePatterns: string[], excludePatterns?: string[]): RootFunction => {
     return async (file) => {
       if (excludePatterns) {
-        const excludedFiles = Filesystem.up({
+        const excludedFiles = await up({
           targets: excludePatterns,
           start: path.dirname(file),
           stop: Instance.directory,
         })
-        const excluded = await excludedFiles.next()
-        await excludedFiles.return()
-        if (excluded.value) return undefined
+        if (excludedFiles[0]) return undefined
       }
-      const files = Filesystem.up({
+      const files = await up({
         targets: includePatterns,
         start: path.dirname(file),
         stop: Instance.directory,
       })
-      const first = await files.next()
-      await files.return()
-      if (!first.value) return Instance.directory
-      return path.dirname(first.value)
+      if (!files[0]) return Instance.directory
+      return path.dirname(files[0])
     }
   }
 
   const NearestFile = (includePatterns: string[], excludePatterns?: string[]) => {
     return async (file: string) => {
       if (excludePatterns) {
-        const excludedFiles = Filesystem.up({
+        const excludedFiles = await up({
           targets: excludePatterns,
           start: path.dirname(file),
           stop: Instance.directory,
         })
-        const excluded = await excludedFiles.next()
-        await excludedFiles.return()
-        if (excluded.value) return undefined
+        if (excludedFiles[0]) return undefined
       }
-      const files = Filesystem.up({
+      const files = await up({
         targets: includePatterns,
         start: path.dirname(file),
         stop: Instance.directory,
       })
-      const first = await files.next()
-      await files.return()
-      return first.value
+      return files[0]
     }
   }
 
@@ -170,11 +358,11 @@ export namespace LSPServer {
 
   async function topmostMavenRoot(nearestPom: string) {
     let root = path.dirname(nearestPom)
-    const pomFiles = await Filesystem.findUp("pom.xml", root, Instance.directory)
+    const pomFiles = await findUp("pom.xml", root, Instance.directory)
     for (const parentPom of pomFiles.slice(1)) {
       const parentRoot = path.dirname(parentPom)
       const modulePath = path.relative(parentRoot, root)
-      const content = await fs.readFile(parentPom, "utf-8").catch(() => undefined)
+      const content = await readText(parentPom).catch(() => undefined)
       if (!content || !declaresMavenModule(content, modulePath)) break
       root = parentRoot
     }
@@ -193,15 +381,13 @@ export namespace LSPServer {
   export const Deno: Info = {
     id: "deno",
     root: async (file) => {
-      const files = Filesystem.up({
+      const files = await up({
         targets: ["deno.json", "deno.jsonc"],
         start: path.dirname(file),
         stop: Instance.directory,
       })
-      const first = await files.next()
-      await files.return()
-      if (!first.value) return undefined
-      return path.dirname(first.value)
+      if (!files[0]) return undefined
+      return path.dirname(files[0])
     },
     extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs"],
     async spawn(root) {
@@ -290,14 +476,14 @@ export namespace LSPServer {
       if (!eslint) return
       log.info("spawning eslint server")
       const serverPath = path.join(Global.Path.bin, "vscode-eslint", "server", "out", "eslintServer.js")
-      if (!(await Filesystem.exists(serverPath))) {
+      if (!(await pathExists(serverPath))) {
         if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return
         log.info("downloading and building VS Code ESLint server")
         const response = await fetch("https://github.com/microsoft/vscode-eslint/archive/refs/heads/main.zip")
         if (!response.ok) return
 
         const zipPath = path.join(Global.Path.bin, "vscode-eslint.zip")
-        if (response.body) await Filesystem.writeStream(zipPath, response.body)
+        if (response.body) await writeWebStream(zipPath, response.body)
 
         const ok = await Archive.extractZip(zipPath, Global.Path.bin)
           .then(() => true)
@@ -306,21 +492,20 @@ export namespace LSPServer {
             return false
           })
         if (!ok) return
-        await fs.rm(zipPath, { force: true })
+        await removePath(zipPath, { force: true })
 
         const extractedPath = path.join(Global.Path.bin, "vscode-eslint-main")
         const finalPath = path.join(Global.Path.bin, "vscode-eslint")
 
-        const stats = await fs.stat(finalPath).catch(() => undefined)
-        if (stats) {
+        if (await pathExists(finalPath)) {
           log.info("removing old eslint installation", { path: finalPath })
-          await fs.rm(finalPath, { force: true, recursive: true })
+          await removePath(finalPath, { force: true, recursive: true })
         }
-        await fs.rename(extractedPath, finalPath)
+        await renamePath(extractedPath, finalPath)
 
         const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm"
-        await Process.run([npmCmd, "install"], { cwd: finalPath })
-        await Process.run([npmCmd, "run", "compile"], { cwd: finalPath })
+        await runOrThrow([npmCmd, "install"], { cwd: finalPath })
+        await runOrThrow([npmCmd, "run", "compile"], { cwd: finalPath })
 
         log.info("installed VS Code ESLint server", { serverPath })
       }
@@ -358,16 +543,14 @@ export namespace LSPServer {
 
       const resolveBin = async (target: string) => {
         const localBin = path.join(root, target)
-        if (await Filesystem.exists(localBin)) return localBin
+        if (await pathExists(localBin)) return localBin
 
-        const candidates = Filesystem.up({
+        const candidates = await up({
           targets: [target],
           start: root,
           stop: Instance.worktree,
         })
-        const first = await candidates.next()
-        await candidates.return()
-        if (first.value) return first.value
+        if (candidates[0]) return candidates[0]
 
         return undefined
       }
@@ -445,7 +628,7 @@ export namespace LSPServer {
     async spawn(root) {
       const localBin = path.join(root, "node_modules", ".bin", "biome")
       let bin: string | undefined
-      if (await Filesystem.exists(localBin)) bin = localBin
+      if (await pathExists(localBin)) bin = localBin
       if (!bin) {
         const found = which("biome")
         if (found) bin = found
@@ -489,14 +672,11 @@ export namespace LSPServer {
         if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return
 
         log.info("installing gopls")
-        const proc = Process.spawn(["go", "install", "golang.org/x/tools/gopls@latest"], {
+        const result = await run(["go", "install", "golang.org/x/tools/gopls@latest"], {
           env: { ...process.env, GOBIN: Global.Path.bin },
-          stdout: "pipe",
-          stderr: "pipe",
           stdin: "pipe",
         })
-        const exit = await proc.exited
-        if (exit !== 0) {
+        if (result.code !== 0) {
           log.error("Failed to install gopls")
           return
         }
@@ -528,13 +708,10 @@ export namespace LSPServer {
         }
         if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return
         log.info("installing rubocop")
-        const proc = Process.spawn(["gem", "install", "rubocop", "--bindir", Global.Path.bin], {
-          stdout: "pipe",
-          stderr: "pipe",
+        const result = await run(["gem", "install", "rubocop", "--bindir", Global.Path.bin], {
           stdin: "pipe",
         })
-        const exit = await proc.exited
-        if (exit !== 0) {
+        if (result.code !== 0) {
           log.error("Failed to install rubocop")
           return
         }
@@ -580,7 +757,7 @@ export namespace LSPServer {
         const potentialPythonPath = isWindows
           ? path.join(venvPath, "Scripts", "python.exe")
           : path.join(venvPath, "bin", "python")
-        if (await Filesystem.exists(potentialPythonPath)) {
+        if (await pathExists(potentialPythonPath)) {
           initialization["pythonPath"] = potentialPythonPath
           break
         }
@@ -592,7 +769,7 @@ export namespace LSPServer {
           const potentialTyPath = isWindows
             ? path.join(venvPath, "Scripts", "ty.exe")
             : path.join(venvPath, "bin", "ty")
-          if (await Filesystem.exists(potentialTyPath)) {
+          if (await pathExists(potentialTyPath)) {
             binary = potentialTyPath
             break
           }
@@ -641,7 +818,7 @@ export namespace LSPServer {
         const potentialPythonPath = isWindows
           ? path.join(venvPath, "Scripts", "python.exe")
           : path.join(venvPath, "bin", "python")
-        if (await Filesystem.exists(potentialPythonPath)) {
+        if (await pathExists(potentialPythonPath)) {
           initialization["pythonPath"] = potentialPythonPath
           break
         }
@@ -675,7 +852,7 @@ export namespace LSPServer {
           process.platform === "win32" ? "language_server.bat" : "language_server.sh",
         )
 
-        if (!(await Filesystem.exists(binary))) {
+        if (!(await pathExists(binary))) {
           const elixir = which("elixir")
           if (!elixir) {
             log.error("elixir is required to run elixir-ls")
@@ -688,7 +865,7 @@ export namespace LSPServer {
           const response = await fetch("https://github.com/elixir-lsp/elixir-ls/archive/refs/heads/master.zip")
           if (!response.ok) return
           const zipPath = path.join(Global.Path.bin, "elixir-ls.zip")
-          if (response.body) await Filesystem.writeStream(zipPath, response.body)
+          if (response.body) await writeWebStream(zipPath, response.body)
 
           const ok = await Archive.extractZip(zipPath, Global.Path.bin)
             .then(() => true)
@@ -698,16 +875,16 @@ export namespace LSPServer {
             })
           if (!ok) return
 
-          await fs.rm(zipPath, {
+          await removePath(zipPath, {
             force: true,
             recursive: true,
           })
 
           const cwd = path.join(Global.Path.bin, "elixir-ls-master")
           const env = { MIX_ENV: "prod", ...process.env }
-          await Process.run(["mix", "deps.get"], { cwd, env })
-          await Process.run(["mix", "compile"], { cwd, env })
-          await Process.run(["mix", "elixir_ls.release2", "-o", "release"], { cwd, env })
+          await runOrThrow(["mix", "deps.get"], { cwd, env })
+          await runOrThrow(["mix", "compile"], { cwd, env })
+          await runOrThrow(["mix", "elixir_ls.release2", "-o", "release"], { cwd, env })
 
           log.info(`installed elixir-ls`, {
             path: elixirLsPath,
@@ -795,7 +972,7 @@ export namespace LSPServer {
         }
 
         const tempPath = path.join(Global.Path.bin, assetName)
-        if (downloadResponse.body) await Filesystem.writeStream(tempPath, downloadResponse.body)
+        if (downloadResponse.body) await writeWebStream(tempPath, downloadResponse.body)
 
         if (ext === "zip") {
           const ok = await Archive.extractZip(tempPath, Global.Path.bin)
@@ -809,17 +986,17 @@ export namespace LSPServer {
           await run(["tar", "-xf", tempPath], { cwd: Global.Path.bin })
         }
 
-        await fs.rm(tempPath, { force: true })
+        await removePath(tempPath, { force: true })
 
         bin = path.join(Global.Path.bin, "zls" + (platform === "win32" ? ".exe" : ""))
 
-        if (!(await Filesystem.exists(bin))) {
+        if (!(await pathExists(bin))) {
           log.error("Failed to extract zls binary")
           return
         }
 
         if (platform !== "win32") {
-          await fs.chmod(bin, 0o755).catch(() => {})
+          await chmod(bin, 0o755).catch(() => {})
         }
 
         log.info(`installed zls`, { bin })
@@ -847,13 +1024,10 @@ export namespace LSPServer {
 
         if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return
         log.info("installing csharp-ls via dotnet tool")
-        const proc = Process.spawn(["dotnet", "tool", "install", "csharp-ls", "--tool-path", Global.Path.bin], {
-          stdout: "pipe",
-          stderr: "pipe",
+        const result = await run(["dotnet", "tool", "install", "csharp-ls", "--tool-path", Global.Path.bin], {
           stdin: "pipe",
         })
-        const exit = await proc.exited
-        if (exit !== 0) {
+        if (result.code !== 0) {
           log.error("Failed to install csharp-ls")
           return
         }
@@ -884,13 +1058,10 @@ export namespace LSPServer {
 
         if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return
         log.info("installing fsautocomplete via dotnet tool")
-        const proc = Process.spawn(["dotnet", "tool", "install", "fsautocomplete", "--tool-path", Global.Path.bin], {
-          stdout: "pipe",
-          stderr: "pipe",
+        const result = await run(["dotnet", "tool", "install", "fsautocomplete", "--tool-path", Global.Path.bin], {
           stdin: "pipe",
         })
-        const exit = await proc.exited
-        if (exit !== 0) {
+        if (result.code !== 0) {
           log.error("Failed to install fsautocomplete")
           return
         }
@@ -954,7 +1125,7 @@ export namespace LSPServer {
         // Stop at filesystem root
         const cargoTomlPath = path.join(currentDir, "Cargo.toml")
         try {
-          const cargoTomlContent = await Filesystem.readText(cargoTomlPath)
+          const cargoTomlContent = await readText(cargoTomlPath)
           if (cargoTomlContent.includes("[workspace]")) {
             return currentDir
           }
@@ -1004,7 +1175,7 @@ export namespace LSPServer {
 
       const ext = process.platform === "win32" ? ".exe" : ""
       const direct = path.join(Global.Path.bin, "clangd" + ext)
-      if (await Filesystem.exists(direct)) {
+      if (await pathExists(direct)) {
         return {
           process: spawn(direct, args, {
             cwd: root,
@@ -1012,12 +1183,12 @@ export namespace LSPServer {
         }
       }
 
-      const entries = await fs.readdir(Global.Path.bin, { withFileTypes: true }).catch(() => [])
+      const entries = await readDirectoryEntries(Global.Path.bin)
       for (const entry of entries) {
-        if (!entry.isDirectory()) continue
+        if (entry.type !== "directory") continue
         if (!entry.name.startsWith("clangd_")) continue
         const candidate = path.join(Global.Path.bin, entry.name, "bin", "clangd" + ext)
-        if (await Filesystem.exists(candidate)) {
+        if (await pathExists(candidate)) {
           return {
             process: spawn(candidate, args, {
               cwd: root,
@@ -1087,7 +1258,7 @@ export namespace LSPServer {
         log.error("Failed to write clangd archive")
         return
       }
-      await Filesystem.write(archive, Buffer.from(buf))
+      await writeBytes(archive, Buffer.from(buf))
 
       const zip = name.endsWith(".zip")
       const tar = name.endsWith(".tar.xz")
@@ -1108,20 +1279,20 @@ export namespace LSPServer {
       if (tar) {
         await run(["tar", "-xf", archive], { cwd: Global.Path.bin })
       }
-      await fs.rm(archive, { force: true })
+      await removePath(archive, { force: true })
 
       const bin = path.join(Global.Path.bin, "clangd_" + tag, "bin", "clangd" + ext)
-      if (!(await Filesystem.exists(bin))) {
+      if (!(await pathExists(bin))) {
         log.error("Failed to extract clangd binary")
         return
       }
 
       if (platform !== "win32") {
-        await fs.chmod(bin, 0o755).catch(() => {})
+        await chmod(bin, 0o755).catch(() => {})
       }
 
-      await fs.unlink(path.join(Global.Path.bin, "clangd")).catch(() => {})
-      await fs.symlink(bin, path.join(Global.Path.bin, "clangd")).catch(() => {})
+      await unlink(path.join(Global.Path.bin, "clangd")).catch(() => {})
+      await symlink(bin, path.join(Global.Path.bin, "clangd")).catch(() => {})
 
       log.info(`installed clangd`, { bin })
 
@@ -1252,7 +1423,7 @@ export namespace LSPServer {
       if (!installed) {
         if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return
         log.info("Downloading JDTLS LSP server.")
-        await fs.mkdir(distPath, { recursive: true })
+        await makeDirectory(distPath, { recursive: true })
         const releaseURL =
           "https://www.eclipse.org/downloads/download.php?file=/jdtls/snapshots/jdt-language-server-latest.tar.gz"
         const archiveName = "release.tar.gz"
@@ -1263,7 +1434,7 @@ export namespace LSPServer {
           log.error("Failed to download JDTLS", { status: download.status, statusText: download.statusText })
           return
         }
-        await Filesystem.writeStream(path.join(distPath, archiveName), download.body)
+        await writeWebStream(path.join(distPath, archiveName), download.body)
 
         log.info("Extracting JDTLS archive")
         const tarResult = await run(["tar", "-xzf", archiveName], { cwd: distPath })
@@ -1272,11 +1443,11 @@ export namespace LSPServer {
           return
         }
 
-        await fs.rm(path.join(distPath, archiveName), { force: true })
+        await removePath(path.join(distPath, archiveName), { force: true })
         log.info("JDTLS download and extraction completed")
       }
       const jarFileName =
-        (await fs.readdir(launcherDir).catch(() => []))
+        (await readDirectory(launcherDir))
           .find((item) => /^org\.eclipse\.equinox\.launcher_.*\.jar$/.test(item))
           ?.trim() ?? ""
       const launcherJar = path.join(launcherDir, jarFileName)
@@ -1299,7 +1470,7 @@ export namespace LSPServer {
           }
         })(),
       )
-      const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-jdtls-data"))
+      const dataDir = await makeTempDirectory({ directory: os.tmpdir(), prefix: "opencode-jdtls-data" })
       return {
         process: spawn(
           java,
@@ -1346,7 +1517,7 @@ export namespace LSPServer {
       const distPath = path.join(Global.Path.bin, "kotlin-ls")
       const launcherScript =
         process.platform === "win32" ? path.join(distPath, "kotlin-lsp.cmd") : path.join(distPath, "kotlin-lsp.sh")
-      const installed = await Filesystem.exists(launcherScript)
+      const installed = await pathExists(launcherScript)
       if (!installed) {
         if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return
         log.info("Downloading Kotlin Language Server from GitHub.")
@@ -1389,7 +1560,7 @@ export namespace LSPServer {
         const assetName = `kotlin-lsp-${version}-${kotlinPlatform}-${kotlinArch}.zip`
         const releaseURL = `https://download-cdn.jetbrains.com/kotlin-lsp/${version}/${assetName}`
 
-        await fs.mkdir(distPath, { recursive: true })
+        await makeDirectory(distPath, { recursive: true })
         const archivePath = path.join(distPath, "kotlin-ls.zip")
         const download = await fetch(releaseURL)
         if (!download.ok || !download.body) {
@@ -1399,7 +1570,7 @@ export namespace LSPServer {
           })
           return
         }
-        await Filesystem.writeStream(archivePath, download.body)
+        await writeWebStream(archivePath, download.body)
         const ok = await Archive.extractZip(archivePath, distPath)
           .then(() => true)
           .catch((error) => {
@@ -1407,13 +1578,13 @@ export namespace LSPServer {
             return false
           })
         if (!ok) return
-        await fs.rm(archivePath, { force: true })
+        await removePath(archivePath, { force: true })
         if (process.platform !== "win32") {
-          await fs.chmod(launcherScript, 0o755).catch(() => {})
+          await chmod(launcherScript, 0o755).catch(() => {})
         }
         log.info("Installed Kotlin Language Server", { path: launcherScript })
       }
-      if (!(await Filesystem.exists(launcherScript))) {
+      if (!(await pathExists(launcherScript))) {
         log.error(`Failed to locate the Kotlin LS launcher script in the installed directory: ${distPath}.`)
         return
       }
@@ -1526,20 +1697,18 @@ export namespace LSPServer {
         }
 
         const tempPath = path.join(Global.Path.bin, assetName)
-        if (downloadResponse.body) await Filesystem.writeStream(tempPath, downloadResponse.body)
+        if (downloadResponse.body) await writeWebStream(tempPath, downloadResponse.body)
 
         // Unlike zls which is a single self-contained binary,
         // lua-language-server needs supporting files (meta/, locale/, etc.)
         // Extract entire archive to dedicated directory to preserve all files
         const installDir = path.join(Global.Path.bin, `lua-language-server-${lualsArch}-${lualsPlatform}`)
 
-        // Remove old installation if exists
-        const stats = await fs.stat(installDir).catch(() => undefined)
-        if (stats) {
-          await fs.rm(installDir, { force: true, recursive: true })
+        if (await pathExists(installDir)) {
+          await removePath(installDir, { force: true, recursive: true })
         }
 
-        await fs.mkdir(installDir, { recursive: true })
+        await makeDirectory(installDir, { recursive: true })
 
         if (ext === "zip") {
           const ok = await Archive.extractZip(tempPath, installDir)
@@ -1559,19 +1728,18 @@ export namespace LSPServer {
           if (!ok) return
         }
 
-        await fs.rm(tempPath, { force: true })
+        await removePath(tempPath, { force: true })
 
         // Binary is located in bin/ subdirectory within the extracted archive
         bin = path.join(installDir, "bin", "lua-language-server" + (platform === "win32" ? ".exe" : ""))
 
-        if (!(await Filesystem.exists(bin))) {
+        if (!(await pathExists(bin))) {
           log.error("Failed to extract lua-language-server binary")
           return
         }
 
         if (platform !== "win32") {
-          const ok = await fs
-            .chmod(bin, 0o755)
+          const ok = await chmod(bin, 0o755)
             .then(() => true)
             .catch((error: unknown) => {
               log.error("Failed to set executable permission for lua-language-server binary", {
@@ -1747,7 +1915,7 @@ export namespace LSPServer {
         }
 
         const tempPath = path.join(Global.Path.bin, "terraform-ls.zip")
-        if (downloadResponse.body) await Filesystem.writeStream(tempPath, downloadResponse.body)
+        if (downloadResponse.body) await writeWebStream(tempPath, downloadResponse.body)
 
         const ok = await Archive.extractZip(tempPath, Global.Path.bin)
           .then(() => true)
@@ -1756,17 +1924,17 @@ export namespace LSPServer {
             return false
           })
         if (!ok) return
-        await fs.rm(tempPath, { force: true })
+        await removePath(tempPath, { force: true })
 
         bin = path.join(Global.Path.bin, "terraform-ls" + (platform === "win32" ? ".exe" : ""))
 
-        if (!(await Filesystem.exists(bin))) {
+        if (!(await pathExists(bin))) {
           log.error("Failed to extract terraform-ls binary")
           return
         }
 
         if (platform !== "win32") {
-          await fs.chmod(bin, 0o755).catch(() => {})
+          await chmod(bin, 0o755).catch(() => {})
         }
 
         log.info(`installed terraform-ls`, { bin })
@@ -1835,7 +2003,7 @@ export namespace LSPServer {
         }
 
         const tempPath = path.join(Global.Path.bin, assetName)
-        if (downloadResponse.body) await Filesystem.writeStream(tempPath, downloadResponse.body)
+        if (downloadResponse.body) await writeWebStream(tempPath, downloadResponse.body)
 
         if (ext === "zip") {
           const ok = await Archive.extractZip(tempPath, Global.Path.bin)
@@ -1850,17 +2018,17 @@ export namespace LSPServer {
           await run(["tar", "-xzf", tempPath], { cwd: Global.Path.bin })
         }
 
-        await fs.rm(tempPath, { force: true })
+        await removePath(tempPath, { force: true })
 
         bin = path.join(Global.Path.bin, "texlab" + (platform === "win32" ? ".exe" : ""))
 
-        if (!(await Filesystem.exists(bin))) {
+        if (!(await pathExists(bin))) {
           log.error("Failed to extract texlab binary")
           return
         }
 
         if (platform !== "win32") {
-          await fs.chmod(bin, 0o755).catch(() => {})
+          await chmod(bin, 0o755).catch(() => {})
         }
 
         log.info("installed texlab", { bin })
@@ -2027,7 +2195,7 @@ export namespace LSPServer {
         }
 
         const tempPath = path.join(Global.Path.bin, assetName)
-        if (downloadResponse.body) await Filesystem.writeStream(tempPath, downloadResponse.body)
+        if (downloadResponse.body) await writeWebStream(tempPath, downloadResponse.body)
 
         if (ext === "zip") {
           const ok = await Archive.extractZip(tempPath, Global.Path.bin)
@@ -2041,17 +2209,17 @@ export namespace LSPServer {
           await run(["tar", "-xzf", tempPath, "--strip-components=1"], { cwd: Global.Path.bin })
         }
 
-        await fs.rm(tempPath, { force: true })
+        await removePath(tempPath, { force: true })
 
         bin = path.join(Global.Path.bin, "tinymist" + (platform === "win32" ? ".exe" : ""))
 
-        if (!(await Filesystem.exists(bin))) {
+        if (!(await pathExists(bin))) {
           log.error("Failed to extract tinymist binary")
           return
         }
 
         if (platform !== "win32") {
-          await fs.chmod(bin, 0o755).catch(() => {})
+          await chmod(bin, 0o755).catch(() => {})
         }
 
         log.info("installed tinymist", { bin })

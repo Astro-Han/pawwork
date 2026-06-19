@@ -25,6 +25,18 @@ describe("JavascriptPackageRoot", () => {
   )
 })
 
+describe("LSP server Effect helper boundaries", () => {
+  it.live("keeps installer IO behind Effect-native helpers", () =>
+    Effect.sync(() => {
+      const source = fs.readFileSync(path.join(import.meta.dir, "..", "..", "src", "lsp", "server.ts"), "utf8")
+      expect(source).not.toContain('from "fs/promises"')
+      expect(source).not.toContain('from "../util/filesystem"')
+      expect(source).not.toContain("Filesystem.")
+      expect(source).not.toMatch(/\bProcess\.(?:run|text|spawn)\(/)
+    }),
+  )
+})
+
 describe("Typescript root resolution", () => {
   it.live("resolves to nearest tsconfig.json, not monorepo lockfile", () =>
     provideTmpdirInstance((root) =>
