@@ -80,6 +80,7 @@ function jsonResponse<A>(effect: Effect.Effect<A, unknown, unknown>) {
 
 export const experimentalHandlers = HttpApiBuilder.group(ExperimentalApi, "experimental", (handlers) =>
   handlers
+    .handleRaw("capabilities", () => jsonResponse(Effect.succeed({ backgroundSubagents: false })))
     .handleRaw("console", () => jsonResponse(getConsoleState()))
     .handleRaw("consoleOrgs", () => jsonResponse(listConsoleOrgs()))
     .handleRaw("consoleSwitch", (ctx) =>

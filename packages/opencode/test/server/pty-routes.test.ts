@@ -54,10 +54,12 @@ describe("pty routes", () => {
   test("declares the PTY JSON route group as HttpApi endpoints", () => {
     const spec = OpenApi.fromApi(PtyApi) as any
 
+    expect(spec.paths).toHaveProperty("/pty/shells")
     expect(spec.paths).toHaveProperty("/pty")
     expect(spec.paths).toHaveProperty("/pty/{ptyID}")
     expect(spec.paths).toHaveProperty("/pty/{ptyID}/connect-token")
     expect(spec.paths).not.toHaveProperty("/pty/{ptyID}/connect")
+    expect(spec.paths["/pty/shells"]).toHaveProperty("get")
     expect(spec.paths["/pty"]).toHaveProperty("get")
     expect(spec.paths["/pty"]).toHaveProperty("post")
     expect(spec.paths["/pty/{ptyID}"]).toHaveProperty("get")
@@ -120,6 +122,25 @@ describe("pty routes", () => {
         } finally {
           await Pty.remove(created.id)
         }
+      },
+    })
+  })
+
+  test("serves available shells through the HttpApi handlers", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const response = await requestPtyHttpApi("/pty/shells")
+        expect(response.status).toBe(200)
+        const body = await response.json()
+        expect(body).toBeArray()
+        expect(body.length).toBeGreaterThan(0)
+        expect(body[0]).toMatchObject({
+          path: expect.any(String),
+          name: expect.any(String),
+          acceptable: expect.any(Boolean),
+        })
       },
     })
   })

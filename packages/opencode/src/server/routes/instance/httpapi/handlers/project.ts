@@ -66,5 +66,20 @@ export const projectHandlers = HttpApiBuilder.group(ProjectApi, "project", (hand
         if (HttpServerResponse.isHttpServerResponse(project)) return project
         return HttpServerResponse.jsonUnsafe(project)
       }),
+    )
+    .handleRaw("directories", (ctx) =>
+      Effect.gen(function* () {
+        const projectInfo = yield* Project.Service.use((svc) => svc.get(ProjectID.make(ctx.params.projectID)))
+        if (!projectInfo)
+          return yield* projectFailure(new NotFoundError({ message: `Project not found: ${ctx.params.projectID}` }))
+        const directories = yield* Project.Service.use((svc) => svc.sandboxes(projectInfo.id))
+        const result = [projectInfo.worktree, ...directories]
+          .filter((directory) => directory !== "/")
+          .map((directory) => ({ directory }))
+        return HttpServerResponse.jsonUnsafe(result)
+      }).pipe(
+        Effect.catch(projectFailure),
+        Effect.catchDefect(projectFailure),
+      ),
     ),
 )

@@ -12,6 +12,11 @@ export namespace Shell {
   const BLACKLIST = new Set(["fish", "nu"])
   const LOGIN = new Set(["bash", "dash", "fish", "ksh", "sh", "zsh"])
   const POSIX = new Set(["bash", "dash", "ksh", "sh", "zsh"])
+  export type Item = {
+    path: string
+    name: string
+    acceptable: boolean
+  }
 
   export async function killTree(proc: ChildProcess, opts?: { exited?: () => boolean }): Promise<void> {
     const pid = proc.pid
@@ -61,6 +66,46 @@ export namespace Shell {
     if (powershell) return powershell
   }
 
+  function resolved(file: string) {
+    const shell = full(file)
+    const rooted = process.platform === "win32" ? path.win32.isAbsolute(shell) : path.isAbsolute(shell)
+    if (rooted) {
+      if (Filesystem.stat(shell)?.isFile()) return shell
+      return
+    }
+    return which(shell) || undefined
+  }
+
+  function item(file: string): Item | undefined {
+    const shell = resolved(file)
+    if (!shell) return
+    return {
+      path: shell,
+      name: which(name(shell)) ? name(shell) : shell,
+      acceptable: !BLACKLIST.has(name(shell)),
+    }
+  }
+
+  function win() {
+    return Array.from(
+      new Set([which("pwsh"), which("powershell"), gitbash(), process.env.COMSPEC || "cmd.exe"].filter((x): x is string => !!x)),
+    )
+  }
+
+  async function unix() {
+    const text = await Filesystem.readText("/etc/shells").catch(() => "")
+    if (!text) return ["/bin/bash", "/bin/zsh", "/bin/sh"]
+    const shells = Array.from(
+      new Set(
+        text
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line && !line.startsWith("#")),
+      ),
+    )
+    return shells.length ? shells : ["/bin/bash", "/bin/zsh", "/bin/sh"]
+  }
+
   function select(file: string | undefined, opts?: { acceptable?: boolean }) {
     if (file && (!opts?.acceptable || !BLACKLIST.has(name(file)))) return full(file)
     if (process.platform === "win32") {
@@ -107,4 +152,9 @@ export namespace Shell {
   export const preferred = lazy(() => select(process.env.SHELL))
 
   export const acceptable = lazy(() => select(process.env.SHELL, { acceptable: true }))
+
+  export async function list(): Promise<Item[]> {
+    const shells = process.platform === "win32" ? win() : await unix()
+    return shells.map(item).filter((x): x is Item => x !== undefined)
+  }
 }

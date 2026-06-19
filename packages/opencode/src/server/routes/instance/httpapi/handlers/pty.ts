@@ -1,6 +1,7 @@
 import { Pty } from "@/pty"
 import { PtyID } from "@/pty/schema"
 import { PtyTicket } from "@/pty/ticket"
+import { Shell } from "@/shell/shell"
 import { NotFoundError } from "@/storage/db"
 import { NamedError } from "@opencode-ai/util/error"
 import { Effect } from "effect"
@@ -93,7 +94,18 @@ export const ptyHandlers = HttpApiBuilder.group(PtyApi, "pty", (handlers) =>
       return PtyTicket.issue({ ptyID: id })
     })
 
+    const shells = Effect.fn("PtyHttpApi.shells")(function* () {
+      return yield* Effect.promise(() => Shell.list())
+    })
+
     return handlers
+      .handleRaw("shells", () =>
+        shells().pipe(
+          Effect.map((items) => HttpServerResponse.jsonUnsafe(items)),
+          Effect.catch(ptyFailure),
+          Effect.catchDefect(ptyFailure),
+        ),
+      )
       .handleRaw("list", () =>
         list().pipe(
           Effect.map((sessions) => HttpServerResponse.jsonUnsafe(sessions)),
