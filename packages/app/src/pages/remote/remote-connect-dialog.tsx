@@ -4,10 +4,11 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { TextField } from "@opencode-ai/ui/text-field"
-import { Match, onCleanup, onMount, Show, Switch } from "solid-js"
+import { For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import type { RemotePairingEvent, RemotePlatform } from "@/desktop-api-contract"
+import { PlatformMark } from "./platform-marks"
 
 // The connect flow, driven by the main-process pairing event stream
 // (window.api.remote.onPairing). Telegram opens on a token field, then the phases
@@ -136,12 +137,17 @@ export function DialogConnectRemote(props: {
           </Match>
 
           <Match when={store.phase === "bind"}>
-            <div class="flex flex-col gap-3">
-              <div class="flex items-center gap-2 text-body text-fg-strong">
-                <Spinner />
-                <span>{language.t("remote.connect.bind.message.title")}</span>
+            <div class="flex flex-col gap-4">
+              <div class="flex justify-center pt-1">
+                <ListeningPulse platform={platform} />
               </div>
-              <p class="text-body text-fg-weak">{language.t("remote.connect.bind.message.body")}</p>
+              <div class="flex flex-col items-center gap-1.5 text-center">
+                <span class="text-body font-emphasis text-fg-strong">
+                  {language.t("remote.connect.bind.message.title")}
+                </span>
+                <p class="text-body text-fg-weak">{language.t("remote.connect.bind.message.body")}</p>
+                <p class="text-small text-fg-weak">{language.t("remote.connect.bind.message.note")}</p>
+              </div>
               <div class="flex justify-end">
                 <Button variant="secondary" onClick={() => dialog.close()}>
                   {language.t("common.cancel")}
@@ -192,6 +198,29 @@ export function DialogConnectRemote(props: {
         </Switch>
       </div>
     </Dialog>
+  )
+}
+
+// While the bridge long-polls for the user's first message, concentric rings
+// ripple out from the platform mark — a calm "we're listening" cue. The brand
+// blue is the sanctioned vendor-color exception (see platform-marks); when a
+// second platform lands, the accent moves there alongside the mark. With motion
+// suppressed the rings rest as a single static ring around the mark.
+function ListeningPulse(props: { platform: RemotePlatform }) {
+  return (
+    <div class="relative grid size-24 place-items-center" aria-hidden="true">
+      <For each={[0, 0.8, 1.6]}>
+        {(delay) => (
+          <span
+            class="absolute inset-0 rounded-full border-2 border-[#229ED9]"
+            style={{ animation: "var(--animate-radar)", "animation-delay": `${delay}s` }}
+          />
+        )}
+      </For>
+      <span class="relative grid size-[52px] place-items-center rounded-full bg-[#229ED9]/12">
+        <PlatformMark platform={props.platform} />
+      </span>
+    </div>
   )
 }
 

@@ -999,8 +999,9 @@ export const dict = {
     "Create a bot with @BotFather in Telegram, then paste the token it gives you. It's stored encrypted on this computer.",
   "remote.connect.checking.title": "Checking token…",
   "remote.connect.bind.message.title": "Message the bot",
-  "remote.connect.bind.message.body":
-    "Send any message to the bot from your phone. The first sender becomes the only person who can drive your agent.",
+  "remote.connect.bind.message.body": "Send any message to the bot from your phone to finish connecting.",
+  "remote.connect.bind.message.note":
+    "The first sender becomes the only person who can drive your agent.",
   "remote.connect.confirm.title": "Allow this connection?",
   "remote.connect.confirm.body":
     "{{name}} will be able to send prompts and answer permission requests in your agent sessions. Only allow yourself.",
