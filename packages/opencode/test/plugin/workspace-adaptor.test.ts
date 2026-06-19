@@ -313,7 +313,7 @@ describe("plugin.workspace", () => {
 
     await Instance.disposeAll()
 
-    await expect(getAdaptor(owner.projectID, source.extra.type, owner.owner)).rejects.toThrow(/workspace adaptor/i)
+    expect(() => getAdaptor(owner.projectID, source.extra.type, owner.owner)).toThrow(/workspace adaptor/i)
 
     await expect(
       Instance.provide({

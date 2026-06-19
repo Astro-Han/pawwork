@@ -1,4 +1,5 @@
 import z from "zod"
+import { makeRuntime } from "@/effect/run-service"
 import { Worktree } from "@/worktree"
 import { type Adaptor, WorkspaceInfo } from "../types"
 
@@ -10,9 +11,11 @@ const Config = WorkspaceInfo.extend({
 
 type Config = z.infer<typeof Config>
 
+const worktreeRuntime = makeRuntime(Worktree.Service, Worktree.defaultLayer)
+
 export const WorktreeAdaptor: Adaptor = {
   async configure(info) {
-    const worktree = await Worktree.makeWorktreeInfo(info.name ?? undefined)
+    const worktree = await worktreeRuntime.runPromise((worktrees) => worktrees.makeWorktreeInfo(info.name ?? undefined))
     return {
       ...info,
       name: worktree.name,
@@ -22,16 +25,18 @@ export const WorktreeAdaptor: Adaptor = {
   },
   async create(info) {
     const config = Config.parse(info)
-    await Worktree.createFromInfo({
-      name: config.name,
-      directory: config.directory,
-      branch: config.branch,
-      source: "created",
-    })
+    await worktreeRuntime.runPromise((worktrees) =>
+      worktrees.createFromInfo({
+        name: config.name,
+        directory: config.directory,
+        branch: config.branch,
+        source: "created",
+      }),
+    )
   },
   async remove(info) {
     const config = Config.parse(info)
-    await Worktree.remove({ directory: config.directory })
+    await worktreeRuntime.runPromise((worktrees) => worktrees.remove({ directory: config.directory }))
   },
   target(info) {
     const config = Config.parse(info)

@@ -316,8 +316,8 @@ Current raw fs users that will convert during tool migration:
   - Converted in this slice: `session/prompt.ts` inline shell expansion, `pty/index.ts` teardown cleanup, and `tool/shell.ts` abort/timeout cleanup use `Process.*Effect` directly
 - [ ] `util/lazy.ts` — sync-only route factories, shell selection, native module loading, and zod recursion stay on `lazy`; async Effect code should use `Effect.cached`
   - Converted in this slice: provider models catalog cache now uses `Effect.cached` inside `ModelsDev.Service`; `tool/shell.ts` parser initialization also uses `Effect.cached` inside the tool's Effect definition
-  - Retained async legacy boundary: control-plane built-in adaptor import still exposes a Promise facade
-  - Guardrail: `test/effect/legacy-boundaries.test.ts` keeps async `lazy` limited to the built-in adaptor import compatibility boundary
+  - Converted in this slice: control-plane built-in workspace adaptors now use a static map, and `WorktreeAdaptor` calls `Worktree.Service` through the service runtime instead of the `Worktree` Promise facade
+  - Guardrail: `test/effect/legacy-boundaries.test.ts` rejects async `lazy` in production source and keeps the worktree adaptor off the Promise facade path
 
 ## Destroying the facades
 

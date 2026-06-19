@@ -1,9 +1,9 @@
-import { lazy } from "@/util/lazy"
 import type { ProjectID } from "@/project/schema"
 import type { Adaptor } from "../types"
+import { WorktreeAdaptor } from "./worktree"
 
-const BUILTIN: Record<string, () => Promise<Adaptor>> = {
-  worktree: lazy(async () => (await import("./worktree")).WorktreeAdaptor),
+const BUILTIN: Record<string, Adaptor> = {
+  worktree: WorktreeAdaptor,
 }
 
 const CUSTOM = new Map<ProjectID, Map<string, Map<string, Adaptor>>>()
@@ -16,7 +16,7 @@ export function getBuiltinAdaptor(type: string) {
   return BUILTIN[type]
 }
 
-export async function getAdaptor(projectID: ProjectID, type: string, owner?: string): Promise<Adaptor> {
+export function getAdaptor(projectID: ProjectID, type: string, owner?: string): Adaptor {
   const project = CUSTOM.get(projectID)?.get(type)
   if (project) {
     if (owner) {
@@ -31,7 +31,7 @@ export async function getAdaptor(projectID: ProjectID, type: string, owner?: str
   }
 
   const builtin = BUILTIN[type]
-  if (builtin) return builtin()
+  if (builtin) return builtin
 
   throw new Error(`Unknown workspace adaptor: ${type}`)
 }

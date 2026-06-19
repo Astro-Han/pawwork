@@ -177,7 +177,7 @@ export namespace Workspace {
       ),
     ]
     let lastError = error
-    const resolved: { owner: string; adaptor: Awaited<ReturnType<typeof getAdaptor>> }[] = []
+    const resolved: { owner: string; adaptor: ReturnType<typeof getAdaptor> }[] = []
 
     for (const directory of candidates) {
       try {
@@ -188,7 +188,7 @@ export namespace Workspace {
             const owner = ownerKey(Instance.directory, Instance.worktree)
             return {
               owner,
-              adaptor: await getAdaptor(input.projectID, input.type, owner),
+              adaptor: getAdaptor(input.projectID, input.type, owner),
             }
           },
         })
@@ -231,14 +231,14 @@ export namespace Workspace {
 
     if (input.owner) {
       try {
-        return await getAdaptor(input.projectID, input.type, input.owner)
+        return getAdaptor(input.projectID, input.type, input.owner)
       } catch (error) {
         return bootstrapAdaptor({ ...input, hint }, error)
       }
     }
 
     const builtin = getBuiltinAdaptor(input.type)
-    if (builtin) return builtin()
+    if (builtin) return builtin
 
     const project = Project.get(input.projectID)
     if (project?.worktree === "/" && !hint) {
@@ -251,7 +251,7 @@ export namespace Workspace {
   export const create = fn(CreateInput, async (input) => {
     const id = WorkspaceID.ascending(input.id)
     const owner = ownerKey(Instance.directory, Instance.worktree)
-    const adaptor = await getAdaptor(input.projectID, input.type, owner)
+    const adaptor = getAdaptor(input.projectID, input.type, owner)
 
     const config = await adaptor.configure({ ...input, id, name: null, directory: null })
 
