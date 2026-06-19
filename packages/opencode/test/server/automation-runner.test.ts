@@ -443,6 +443,38 @@ describe("automation runNow execution", () => {
     })
   })
 
+  test("deleteBySourceSession cancels an active continue run bound to the deleted conversation", async () => {
+    await withAutomation(async (projectID) => {
+      const sourceSessionID = SessionID.descending()
+      const definition = Automation.create(input(projectID, { context: "continue" }), { sourceSessionID })
+      const started = Promise.withResolvers<void>()
+      const release = Promise.withResolvers<void>()
+      let sawAbort = false
+
+      const initial = await Automation.runNowExecuting(definition.id, {
+        executor: async ({ signal }) => {
+          signal.addEventListener("abort", () => {
+            sawAbort = true
+            release.resolve()
+          })
+          started.resolve()
+          await release.promise
+          return { sessionID: sourceSessionID, result: "done", cost: 0 }
+        },
+      })
+
+      await started.promise
+      await Automation.deleteBySourceSession(sourceSessionID)
+      release.resolve()
+
+      expect(() => Automation.get(definition.id)).toThrow()
+      const stopped = await waitForRunByID(initial.id, "stopped")
+      if (stopped.state !== "stopped") throw new Error("expected stopped run")
+      expect(stopped.stopReason).toBe("cancelled")
+      expect(sawAbort).toBe(true)
+    })
+  })
+
   test("does not revive a continue automation deleted during execution", async () => {
     await withAutomation(async (projectID) => {
       const definition = Automation.create(input(projectID, { context: "continue" }), {

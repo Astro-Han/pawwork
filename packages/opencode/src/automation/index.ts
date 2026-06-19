@@ -802,6 +802,13 @@ export namespace Automation {
     return { tombstone: { id: previous.id, deleted: true, revision: previous.revision + 1 } }
   }
 
+  async function stopLiveRunForSourceDelete(id: string) {
+    const active = state().activeRuns.get(id)
+    if (!active) return
+    const stopped = stopRunByID(active.runID, "cancelled")
+    if (stopped) await publishRunUpdated(stopped)
+  }
+
   // A continue automation lives inside the conversation it was created in
   // (sourceSessionID): every run appends to that thread. When the user deletes
   // the conversation, those automations have nowhere left to run, so they are
@@ -812,6 +819,7 @@ export namespace Automation {
     for (const definition of list()) {
       if (definition.context !== "continue" || definition.sourceSessionID !== sessionID) continue
       try {
+        await stopLiveRunForSourceDelete(definition.id)
         const removed = await remove(definition.id)
         await Bus.publish(Event.DefinitionDeleted, removed.tombstone)
       } catch (error) {
