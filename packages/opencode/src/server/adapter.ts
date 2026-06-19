@@ -1,4 +1,3 @@
-import type { Hono } from "hono"
 import type { UpgradeWebSocket } from "hono/ws"
 
 export type Opts = {
@@ -13,6 +12,7 @@ export type Listener = {
 
 export interface Runtime {
   upgradeWebSocket: UpgradeWebSocket
+  mountWebSocketApp(app: FetchApp): void
   listen(opts: Opts): Promise<Listener>
 }
 
@@ -21,6 +21,5 @@ export type FetchApp = {
 }
 
 export interface Adapter {
-  create(app: FetchApp, websocketApp: Hono): Runtime
-  create(app: Hono): Runtime
+  create(app: FetchApp): Runtime
 }
