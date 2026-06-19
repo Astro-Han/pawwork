@@ -412,6 +412,42 @@ test("two channels run independently: one degrading or disconnecting leaves the 
   await runtime.stop()
 })
 
+test("rebuilding for a new channel keeps an already-connected channel from flapping to connecting", async () => {
+  let emit: ((status: PlatformStatus) => void) | undefined
+  const runtime = new RemoteBridgeRuntime(
+    deps({
+      pairers: [fakePairer("telegram"), fakePairer("wechat")],
+      buildApp: async () => ({
+        run(signal?: AbortSignal, _onReady?: () => void, onStatus?: (status: PlatformStatus) => void) {
+          emit = onStatus
+          return hangUntilAbort(signal)
+        },
+      }),
+    }),
+  )
+  const stateOf = (platform: RemotePlatform) => runtime.getStatus().channels.find((c) => c.platform === platform)?.state
+
+  await runtime.startPairing("telegram", { token: "x" })
+  await runtime.confirmPairing("telegram")
+  emit?.({ name: "telegram", phase: "serving" })
+  expect(stateOf("telegram")).toBe("connected")
+
+  // Adding WeChat rebuilds the shared bridge. Telegram is live and must stay
+  // "connected" through it — not blink "connecting" as if the whole page broke.
+  await runtime.startPairing("wechat")
+  await runtime.confirmPairing("wechat")
+  expect(stateOf("telegram")).toBe("connected") // not flapped by the rebuild
+  expect(stateOf("wechat")).toBe("connecting") // the genuinely-new channel still shows connecting
+
+  // A supervisor re-drain (connecting) on the live channel is also suppressed...
+  emit?.({ name: "telegram", phase: "connecting" })
+  expect(stateOf("telegram")).toBe("connected")
+  // ...but a real failure still shows through.
+  emit?.({ name: "telegram", phase: "degraded", error: "ws closed" })
+  expect(stateOf("telegram")).toBe("degraded")
+  await runtime.stop()
+})
+
 test("startIfConfigured connects saved accounts; with none it stays empty", async () => {
   const runtime = new RemoteBridgeRuntime(deps({ credentials: memoryStore([sampleAccount("telegram")]) }))
   await runtime.startIfConfigured()
