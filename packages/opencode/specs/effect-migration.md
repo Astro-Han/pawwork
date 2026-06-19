@@ -304,10 +304,14 @@ Current raw fs users that will convert during tool migration:
 
 ## Primitives & utilities
 
-- [ ] `util/lock.ts` — reader-writer lock → Effect Semaphore/Permit
-- [ ] `util/flock.ts` — file-based distributed lock with heartbeat → Effect.repeat + addFinalizer
+- [x] `util/lock.ts` — removed; no production callers remained, and the only direct references were the util export plus `test/util/lock.test.ts`
+- [ ] `util/flock.ts` — `packages/core/src/util/effect-flock.ts` is the Effect-native implementation; Effect/service callers should use `EffectFlock.Service`, while legacy Promise callers still use the `packages/opencode/src/util/flock.ts` facade
+  - Converted in this slice: `Config.updateGlobal` now uses `EffectFlock.Service.withLock`
+  - Retained Promise boundary: provider models, plugin config patching/meta reads, automation run leases/scheduler ownership, and direct flock compatibility tests
 - [ ] `util/process.ts` — child process spawn wrapper → return Effect instead of Promise
-- [ ] `util/lazy.ts` — replace uses in Effect code with Effect.cached; keep for sync-only code
+- [ ] `util/lazy.ts` — sync-only route factories, shell selection, native module loading, and zod recursion stay on `lazy`; async Effect code should use `Effect.cached`
+  - Converted in this slice: `tool/shell.ts` parser initialization now uses `Effect.cached` inside the tool's Effect definition
+  - Retained async legacy boundary: provider models catalog cache and control-plane built-in adaptor import still expose Promise facades
 
 ## Destroying the facades
 
