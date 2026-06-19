@@ -68,3 +68,9 @@ test("Worktree service uses the Effect-native gitignore guard boundary", async (
   expect(text).not.toContain("Effect.promise(() => ensureWorktreesIgnored")
   expect(text).not.toContain("Effect.promise(() => restoreWorktreesIgnored")
 })
+
+test("Worktree service uses the Effect-native session active binding boundary", async () => {
+  const text = await readFile(path.join(srcRoot, "worktree/index.ts"), "utf8")
+
+  expect(text).not.toContain("Session.findActiveWorktreeBinding(")
+})

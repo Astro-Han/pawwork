@@ -179,7 +179,12 @@ export namespace Worktree {
   export const layer: Layer.Layer<
     Service,
     never,
-    AppFileSystem.Service | Path.Path | ChildProcessSpawner.ChildProcessSpawner | Git.Service | Project.Service
+    | AppFileSystem.Service
+    | Path.Path
+    | ChildProcessSpawner.ChildProcessSpawner
+    | Git.Service
+    | Project.Service
+    | Session.Service
   > = Layer.effect(
     Service,
     Effect.gen(function* () {
@@ -189,6 +194,7 @@ export namespace Worktree {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       const gitSvc = yield* Git.Service
       const project = yield* Project.Service
+      const sessions = yield* Session.Service
       const registryLocks = new Map<ProjectID, Semaphore.Semaphore>()
       const ensureIgnored = (root: string) =>
         ensureWorktreesIgnoredEffect(root).pipe(
@@ -548,7 +554,7 @@ export namespace Worktree {
         }
 
         const directory = yield* canonical(input.directory)
-        const bound = yield* Effect.promise(() => Session.findActiveWorktreeBinding(directory))
+        const bound = yield* sessions.findActiveWorktreeBinding(directory)
         if (bound) {
           throw new RemoveFailedError({
             message: `Worktree is in use by session "${bound.title}". Call ExitWorktree from that session first.`,
@@ -729,7 +735,7 @@ export namespace Worktree {
           throw new ResetFailedError({ message: "Cannot reset the primary workspace" })
         }
 
-        const bound = yield* Effect.promise(() => Session.findActiveWorktreeBinding(directory))
+        const bound = yield* sessions.findActiveWorktreeBinding(directory)
         if (bound) {
           throw new ResetFailedError({
             message: `Worktree is in use by session "${bound.title}". Call ExitWorktree from that session first.`,
@@ -832,6 +838,7 @@ export namespace Worktree {
     Layer.provide(Git.defaultLayer),
     Layer.provide(CrossSpawnSpawner.defaultLayer),
     Layer.provide(Project.defaultLayer),
+    Layer.provide(Layer.suspend(() => Session.defaultLayer)),
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(NodePath.layer),
   )
