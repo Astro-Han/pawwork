@@ -308,9 +308,9 @@ Current raw fs users that will convert during tool migration:
 
 - [x] `util/lock.ts` — removed; no production callers remained, and the only direct references were the util export plus `test/util/lock.test.ts`
 - [ ] `util/flock.ts` — `packages/core/src/util/effect-flock.ts` is the Effect-native implementation; Effect/service callers should use `EffectFlock.Service`, while legacy Promise callers still use the `packages/opencode/src/util/flock.ts` facade
-  - Converted in this slice: provider models catalog refresh now uses the injected `EffectFlock.Service`; `Config.withConfigFileLock`, plugin config patching, and plugin metadata reads still keep Promise critical sections behind `EffectFlock.withLockPromise`
+  - Converted in this slice: provider models catalog refresh, `Config.withConfigFileLock`, plugin config patching, and plugin metadata reads now run their critical sections through `EffectFlock.Service`
   - Retained Promise lease boundary: automation run leases/scheduler ownership and direct flock compatibility tests still need the legacy lease object facade
-  - Guardrail: `test/effect/legacy-boundaries.test.ts` prevents new production imports of `@/util/flock` outside the automation lease owners
+  - Guardrail: `test/effect/legacy-boundaries.test.ts` prevents new production imports of `@/util/flock` outside the automation lease owners and rejects production `EffectFlock.withLockPromise` usage
 - [x] `util/process.ts` — `Process.Service` and Effect-native `run/text/lines/stop/descendants/terminateTree` now own execution and cleanup; the async facade delegates through `runPromise`
   - Retained compatibility boundary: `Process.spawn` still returns the Node child facade because CLI pager/auth flows, long-lived LSP launch, Windows cmd script spawning, and stream ownership still depend on that shape
   - Converted in this slice: `session/prompt.ts` inline shell expansion, `pty/index.ts` teardown cleanup, and `tool/shell.ts` abort/timeout cleanup use `Process.*Effect` directly

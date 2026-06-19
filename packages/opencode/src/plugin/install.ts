@@ -6,8 +6,10 @@ import {
   parse as parseJsonc,
   printParseErrorCode,
 } from "jsonc-parser"
+import { Effect } from "effect"
 
 import { Config } from "@/config"
+import { makeRuntime } from "@/effect/run-service"
 import { ConfigPaths } from "@/config/paths"
 import { Global } from "@/global"
 import { Filesystem } from "@/util/filesystem"
@@ -89,6 +91,20 @@ const defaultPatchDeps: PatchDeps = {
   },
   exists: (file) => Filesystem.exists(file),
   files: (dir, name) => ConfigPaths.fileInDirectory(dir, name),
+}
+
+const { runPromise: runFlockPromise } = makeRuntime(EffectFlock.Service, EffectFlock.defaultLayer)
+
+function withLock<T>(key: string, fn: () => Promise<T>) {
+  return runFlockPromise((flock) =>
+    flock.withLock(
+      Effect.tryPromise({
+        try: fn,
+        catch: (error) => error,
+      }),
+      key,
+    ),
+  )
 }
 
 function pluginSpec(item: unknown) {
@@ -352,7 +368,7 @@ async function selectConfigFile(files: string[], dep: PatchDeps) {
 
 async function patchOne(dir: string, files: string[], target: Target, spec: string, force: boolean, dep: PatchDeps): Promise<PatchOne> {
   const name = Runtime.isPawWork() ? "pawwork" : "opencode"
-  return await EffectFlock.withLockPromise(`plug-config:${Filesystem.resolve(path.join(dir, name))}`, async () => {
+  return await withLock(`plug-config:${Filesystem.resolve(path.join(dir, name))}`, async () => {
     let cfg = await selectConfigFile(files, dep)
 
     return await Config.withConfigFileLock(cfg, async () => {

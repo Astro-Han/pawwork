@@ -44,10 +44,14 @@ test("async lazy stays in explicit compatibility boundaries", async () => {
   expect(hits.sort()).toEqual([])
 })
 
-test("provider models catalog cache does not use Promise flock compatibility", async () => {
-  const text = await readFile(path.join(srcRoot, "provider/models.ts"), "utf8")
+test("production source does not use Promise flock compatibility", async () => {
+  const hits: string[] = []
+  for (const file of await sourceFiles(srcRoot)) {
+    const text = await readFile(file, "utf8")
+    if (text.includes("EffectFlock.withLockPromise")) hits.push(relativeSource(file))
+  }
 
-  expect(text).not.toContain("EffectFlock.withLockPromise")
+  expect(hits.sort()).toEqual([])
 })
 
 test("worktree adaptor does not call Worktree Promise facades", async () => {
