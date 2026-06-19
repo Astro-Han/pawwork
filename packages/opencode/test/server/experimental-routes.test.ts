@@ -48,6 +48,7 @@ describe("experimental routes", () => {
     const spec = OpenApi.fromApi(ExperimentalApi) as any
 
     for (const [routePath, method] of [
+      ["/experimental/capabilities", "get"],
       ["/experimental/console", "get"],
       ["/experimental/console/orgs", "get"],
       ["/experimental/console/switch", "post"],
@@ -83,6 +84,10 @@ describe("experimental routes", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
+        const capabilities = await requestExperimentalHttpApi("/experimental/capabilities")
+        expect(capabilities.status).toBe(200)
+        expect(await capabilities.json()).toEqual({ backgroundSubagents: false })
+
         const consoleState = await requestExperimentalHttpApi("/experimental/console")
         expect(consoleState.status).toBe(200)
         expect(await consoleState.json()).toMatchObject({

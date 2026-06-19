@@ -248,6 +248,23 @@ describe("route inventory harness", () => {
     })
   })
 
+  test("tracks local HttpApi coverage for upstream-only backend JSON routes with local semantics", async () => {
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+
+    for (const [method, routePath] of [
+      ["GET", "/experimental/capabilities"],
+      ["GET", "/project/:projectID/directories"],
+      ["GET", "/pty/shells"],
+    ] as const) {
+      expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
+        hono: false,
+        localHttpApi: true,
+        upstreamHttpApi: true,
+        classification: "local-httpapi-upstream-only",
+      })
+    }
+  })
+
   test("tracks local HttpApi migration coverage for ordinary JSON session routes", async () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
@@ -461,6 +478,24 @@ describe("route inventory harness", () => {
       classification: "openapi-v2-sdk",
       specialSurface: "PTY websocket",
     })
+  })
+
+  test("classifies upstream HttpApi routes without local product semantics as deferred", async () => {
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+
+    for (const [method, routePath] of [
+      ["GET", "/formatter"],
+      ["POST", "/experimental/control-plane/move-session"],
+      ["POST", "/experimental/project/:projectID/copy/generate-name"],
+      ["POST", "/experimental/session/:sessionID/background"],
+    ] as const) {
+      expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
+        hono: false,
+        localHttpApi: false,
+        upstreamHttpApi: true,
+        classification: "explicitly-deferred",
+      })
+    }
   })
 
   test("fails when the upstream HttpApi ref is unavailable", async () => {

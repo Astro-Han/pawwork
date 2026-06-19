@@ -18,6 +18,10 @@ const ConsoleOrgList = Schema.Struct({
   orgs: Schema.Array(ConsoleOrgOption),
 })
 
+const CapabilitiesResponse = Schema.Struct({
+  backgroundSubagents: Schema.Boolean,
+})
+
 const ConsoleSwitchPayload = Schema.Struct({
   accountID: Schema.String,
   orgID: Schema.String,
@@ -70,6 +74,7 @@ const WorktreeDirectoryPayload = Schema.Struct({
 })
 
 export const ExperimentalPaths = {
+  capabilities: `${root}/capabilities`,
   console: `${root}/console`,
   consoleOrgs: `${root}/console/orgs`,
   consoleSwitch: `${root}/console/switch`,
@@ -85,6 +90,15 @@ export const ExperimentalApi = HttpApi.make("experimental")
   .add(
     HttpApiGroup.make("experimental")
       .add(
+        HttpApiEndpoint.get("capabilities", ExperimentalPaths.capabilities, {
+          success: CapabilitiesResponse,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "experimental.capabilities.get",
+            summary: "Get experimental capabilities",
+            description: "Get experimental features enabled on the local OpenCode server.",
+          }),
+        ),
         HttpApiEndpoint.get("console", ExperimentalPaths.console, {
           success: ConsoleState,
         }).annotateMerge(

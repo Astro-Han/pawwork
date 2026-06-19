@@ -149,6 +149,10 @@ const explicitlyDeferred = [
   /^GET \/api\/provider\/:providerID$/,
   /^\/tui\//,
   /^\/sync\//,
+  /^GET \/formatter$/,
+  /^POST \/experimental\/control-plane\/move-session$/,
+  /^POST \/experimental\/project\/:projectID\/copy\/generate-name$/,
+  /^POST \/experimental\/session\/:sessionID\/background$/,
   /^\/experimental\/workspace\/(?:adapter|sync-list|warp)$/,
 ]
 
@@ -459,6 +463,7 @@ function classify(input: {
   if (input.hono && input.openapi && input.v2Sdk) return input.legacySdk ? "all-public-surfaces" : "openapi-v2-sdk"
   if (input.hono && input.v2Sdk && !input.openapi) return "hono-v2-sdk"
   if (input.hono && !input.openapi) return "hono-only"
+  if (!input.hono && input.localHttpApi && input.upstreamHttpApi) return "local-httpapi-upstream-only"
   if (!input.hono && input.upstreamHttpApi) return "onlyHttpApi"
   if (input.openapi && !input.hono) return "openapi-only"
   if (input.legacySdk || input.v2Sdk) return "sdk-only"

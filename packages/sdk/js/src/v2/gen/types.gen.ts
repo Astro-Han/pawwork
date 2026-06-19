@@ -3581,6 +3581,50 @@ export type ProjectUpdateResponses = {
 
 export type ProjectUpdateResponse = ProjectUpdateResponses[keyof ProjectUpdateResponses]
 
+export type ProjectDirectoriesData = {
+  body?: never
+  path: {
+    projectID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/{projectID}/directories"
+}
+
+export type ProjectDirectoriesResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    directory: string
+    strategy?: string
+  }>
+}
+
+export type ProjectDirectoriesResponse = ProjectDirectoriesResponses[keyof ProjectDirectoriesResponses]
+
+export type PtyShellsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/pty/shells"
+}
+
+export type PtyShellsResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    path: string
+    name: string
+    acceptable: boolean
+  }>
+}
+
+export type PtyShellsResponse = PtyShellsResponses[keyof PtyShellsResponses]
+
 export type PtyListData = {
   body?: never
   path?: never
@@ -3853,6 +3897,25 @@ export type ConfigProvidersResponses = {
 }
 
 export type ConfigProvidersResponse = ConfigProvidersResponses[keyof ConfigProvidersResponses]
+
+export type ExperimentalCapabilitiesGetData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/experimental/capabilities"
+}
+
+export type ExperimentalCapabilitiesGetResponses = {
+  /**
+   * Success
+   */
+  200: {
+    backgroundSubagents: boolean
+  }
+}
+
+export type ExperimentalCapabilitiesGetResponse =
+  ExperimentalCapabilitiesGetResponses[keyof ExperimentalCapabilitiesGetResponses]
 
 export type ExperimentalConsoleGetData = {
   body?: never

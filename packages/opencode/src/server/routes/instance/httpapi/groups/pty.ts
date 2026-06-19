@@ -42,10 +42,25 @@ const ConnectToken = Schema.Struct({
   expires_in: Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThan(0)),
 })
 
+const ShellItem = Schema.Struct({
+  path: Schema.String,
+  name: Schema.String,
+  acceptable: Schema.Boolean,
+})
+
 export const PtyApi = HttpApi.make("pty")
   .add(
     HttpApiGroup.make("pty")
       .add(
+        HttpApiEndpoint.get("shells", `${root}/shells`, {
+          success: Schema.Array(ShellItem),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "pty.shells",
+            summary: "List available shells",
+            description: "Get a list of available shells on the system.",
+          }),
+        ),
         HttpApiEndpoint.get("list", root, {
           success: Schema.Array(PtyInfo),
         }).annotateMerge(

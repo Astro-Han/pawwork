@@ -37,6 +37,11 @@ const ProjectUpdatePayload = Schema.Struct({
   commands: Schema.optionalKey(ProjectCommands),
 })
 
+const ProjectDirectory = Schema.Struct({
+  directory: Schema.String,
+  strategy: Schema.optionalKey(Schema.String),
+})
+
 export const ProjectApi = HttpApi.make("project")
   .add(
     HttpApiGroup.make("project")
@@ -82,6 +87,17 @@ export const ProjectApi = HttpApi.make("project")
             identifier: "project.update",
             summary: "Update project",
             description: "Update project properties such as name, icon, and commands.",
+          }),
+        ),
+        HttpApiEndpoint.get("directories", "/project/:projectID/directories", {
+          params: ProjectIDParam,
+          query: WorkspaceRoutingQuery,
+          success: Schema.Array(ProjectDirectory),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "project.directories",
+            summary: "List project directories",
+            description: "List known local absolute directories for a project.",
           }),
         ),
       )

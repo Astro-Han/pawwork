@@ -49,6 +49,7 @@ describe("project routes", () => {
     expect(spec.paths["/project/current"]).toHaveProperty("get")
     expect(spec.paths["/project/git/init"]).toHaveProperty("post")
     expect(spec.paths["/project/{projectID}"]).toHaveProperty("patch")
+    expect(spec.paths["/project/{projectID}/directories"]).toHaveProperty("get")
     expect(spec.paths["/project/{projectID}"]?.patch?.responses?.["404"]).toMatchObject({
       description: "Not found",
       content: { "application/json": { schema: { $ref: "#/components/schemas/NotFoundError" } } },
@@ -85,7 +86,12 @@ describe("project routes", () => {
 
         const current = await requestProjectHttpApi("/project/current")
         expect(current.status).toBe(200)
-        expect(await current.json()).toMatchObject({ vcs: "git", worktree: tmp.path })
+        const currentBody = await current.json()
+        expect(currentBody).toMatchObject({ vcs: "git", worktree: tmp.path })
+
+        const directories = await requestProjectHttpApi(`/project/${currentBody.id}/directories`)
+        expect(directories.status).toBe(200)
+        expect(await directories.json()).toEqual([{ directory: tmp.path }])
 
         const missing = await requestProjectHttpApi("/project/nonexistent-project-id", {
           method: "PATCH",

@@ -40,6 +40,7 @@ import type {
   ConfigUpdateResponses,
   EventSubscribeResponse,
   EventSubscribeResponses,
+  ExperimentalCapabilitiesGetResponses,
   ExperimentalConsoleGetResponses,
   ExperimentalConsoleListOrgsResponses,
   ExperimentalConsoleSwitchOrgErrors,
@@ -113,6 +114,7 @@ import type {
   PermissionRespondResponses,
   PermissionRuleset,
   ProjectCurrentResponses,
+  ProjectDirectoriesResponses,
   ProjectInitGitResponses,
   ProjectListResponses,
   ProjectUpdateErrors,
@@ -135,6 +137,7 @@ import type {
   PtyListResponses,
   PtyRemoveErrors,
   PtyRemoveResponses,
+  PtyShellsResponses,
   PtyUpdateErrors,
   PtyUpdateResponses,
   SessionAbortErrors,
@@ -706,6 +709,20 @@ export class Workspace extends HeyApiClient {
   }
 }
 
+export class Capabilities extends HeyApiClient {
+  /**
+   * Get experimental capabilities
+   *
+   * Get experimental features enabled on the local OpenCode server.
+   */
+  public get<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<ExperimentalCapabilitiesGetResponses, unknown, ThrowOnError>({
+      url: "/experimental/capabilities",
+      ...options,
+    })
+  }
+}
+
 export class Console extends HeyApiClient {
   /**
    * Get active Console provider metadata
@@ -833,6 +850,11 @@ export class Experimental extends HeyApiClient {
   private _workspace?: Workspace
   get workspace(): Workspace {
     return (this._workspace ??= new Workspace({ client: this.client }))
+  }
+
+  private _capabilities?: Capabilities
+  get capabilities(): Capabilities {
+    return (this._capabilities ??= new Capabilities({ client: this.client }))
   }
 
   private _console?: Console
@@ -1281,9 +1303,53 @@ export class Project extends HeyApiClient {
       },
     })
   }
+
+  /**
+   * List project directories
+   *
+   * List known local absolute directories for a project.
+   */
+  public directories<ThrowOnError extends boolean = false>(
+    parameters: {
+      projectID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "projectID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ProjectDirectoriesResponses, unknown, ThrowOnError>({
+      url: "/project/{projectID}/directories",
+      ...options,
+      ...params,
+    })
+  }
 }
 
 export class Pty extends HeyApiClient {
+  /**
+   * List available shells
+   *
+   * Get a list of available shells on the system.
+   */
+  public shells<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<PtyShellsResponses, unknown, ThrowOnError>({
+      url: "/pty/shells",
+      ...options,
+    })
+  }
+
   /**
    * List PTY sessions
    *
