@@ -130,7 +130,13 @@ export class WeChatPlatform implements Platform {
         ready = true
         onReady?.()
       }
-      for (const msg of updates.messages) this.dispatch(handler, msg)
+      for (const msg of updates.messages) {
+        try {
+          this.dispatch(handler, msg)
+        } catch {
+          // a handler failure must not stall the poll loop (mirrors TelegramPoller)
+        }
+      }
     }
   }
 

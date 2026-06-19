@@ -26,12 +26,18 @@ class FakeTransport implements WeChatTransport {
   polledBeforeStart = false
   /** When set, notifyStart rejects with it (to test the failure path). */
   notifyStartError: Error | undefined
+  /** When true, the next getUpdates throws once (a transient, non-fatal blip). */
+  failGetUpdatesOnce = false
   private readonly batches: WeChatMessage[][] = []
   pushBatch(msgs: WeChatMessage[]): void {
     this.batches.push(msgs)
   }
   async getUpdates(cursor: string, signal?: AbortSignal): Promise<WeChatUpdates> {
     if (this.notifyStarts === 0) this.polledBeforeStart = true
+    if (this.failGetUpdatesOnce) {
+      this.failGetUpdatesOnce = false
+      throw new Error("transient getUpdates failure")
+    }
     const next = this.batches.shift()
     if (next) return { messages: next, cursor: "cursor-next" }
     await new Promise<void>((resolve) => {
@@ -126,6 +132,48 @@ test("a fatal notifyStart error rejects start instead of polling silently", asyn
   await expect(platform.start(() => {})).rejects.toThrow()
   expect(transport.polledBeforeStart).toBe(false) // never polled — online failed first
   expect(transport.sends).toEqual([])
+})
+
+test("a throwing handler does not stall the poll loop or kill the channel", async () => {
+  const transport = new FakeTransport()
+  transport.pushBatch([
+    wxMsg({ items: [{ type: 1, text: "boom" }] }),
+    wxMsg({ items: [{ type: 1, text: "after" }] }),
+  ])
+  const platform = new WeChatPlatform({ transport, allowFrom: USER })
+  platform.pollRetryMs = 1
+
+  const received: string[] = []
+  const run = platform.start((_p: Platform, msg) => {
+    if (msg.content === "boom") throw new Error("handler blew up")
+    received.push(msg.content)
+  })
+  await waitUntil(() => received.includes("after"))
+  expect(received).toEqual(["after"]) // the throw on "boom" didn't drop the next message
+
+  await platform.stop()
+  await run // the loop survived — start() resolved rather than rejecting
+})
+
+test("does not re-notifyStart after a transient poll failure within one connection", async () => {
+  const transport = new FakeTransport()
+  transport.failGetUpdatesOnce = true // online is asserted, then the first poll blips
+  transport.pushBatch([wxMsg({ items: [{ type: 1, text: "hi" }] })])
+  const platform = new WeChatPlatform({ transport, allowFrom: USER })
+  platform.pollRetryMs = 1
+
+  let ready = false
+  const run = platform.start(
+    () => {},
+    () => {
+      ready = true
+    },
+  )
+  await waitUntil(() => ready)
+  expect(transport.notifyStarts).toBe(1) // re-asserted on reconnect (fresh start), not on an in-loop blip
+
+  await platform.stop()
+  await run
 })
 
 async function waitUntil(cond: () => boolean, timeoutMs = 2000): Promise<void> {
