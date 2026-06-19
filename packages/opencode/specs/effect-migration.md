@@ -306,14 +306,16 @@ Current raw fs users that will convert during tool migration:
 
 - [x] `util/lock.ts` — removed; no production callers remained, and the only direct references were the util export plus `test/util/lock.test.ts`
 - [ ] `util/flock.ts` — `packages/core/src/util/effect-flock.ts` is the Effect-native implementation; Effect/service callers should use `EffectFlock.Service`, while legacy Promise callers still use the `packages/opencode/src/util/flock.ts` facade
-  - Converted in this slice: `Config.updateGlobal` now uses `EffectFlock.Service.withLock`
-  - Retained Promise boundary: provider models, plugin config patching/meta reads, automation run leases/scheduler ownership, and direct flock compatibility tests
+  - Converted in this slice: `EffectFlock.withLockPromise` now backs Promise critical sections for `Config.withConfigFileLock`, provider models catalog refresh, plugin config patching, and plugin metadata reads; `Config` service schema write-back uses the injected `EffectFlock.Service`
+  - Retained Promise lease boundary: automation run leases/scheduler ownership and direct flock compatibility tests still need the legacy lease object facade
+  - Guardrail: `test/effect/legacy-boundaries.test.ts` prevents new production imports of `@/util/flock` outside the automation lease owners
 - [x] `util/process.ts` — `Process.Service` and Effect-native `run/text/lines/stop/descendants/terminateTree` now own execution and cleanup; the async facade delegates through `runPromise`
   - Retained compatibility boundary: `Process.spawn` still returns the Node child facade because CLI pager/auth flows, long-lived LSP launch, Windows cmd script spawning, and stream ownership still depend on that shape
   - Converted in this slice: `session/prompt.ts` inline shell expansion, `pty/index.ts` teardown cleanup, and `tool/shell.ts` abort/timeout cleanup use `Process.*Effect` directly
 - [ ] `util/lazy.ts` — sync-only route factories, shell selection, native module loading, and zod recursion stay on `lazy`; async Effect code should use `Effect.cached`
   - Converted in this slice: `tool/shell.ts` parser initialization now uses `Effect.cached` inside the tool's Effect definition
   - Retained async legacy boundary: provider models catalog cache and control-plane built-in adaptor import still expose Promise facades
+  - Guardrail: `test/effect/legacy-boundaries.test.ts` keeps async `lazy` limited to the provider catalog cache and built-in adaptor import compatibility boundaries
 
 ## Destroying the facades
 

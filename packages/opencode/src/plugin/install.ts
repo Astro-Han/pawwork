@@ -11,10 +11,10 @@ import { Config } from "@/config"
 import { ConfigPaths } from "@/config/paths"
 import { Global } from "@/global"
 import { Filesystem } from "@/util/filesystem"
-import { Flock } from "@/util/flock"
 import { isRecord } from "@/util/record"
 import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { Runtime } from "@opencode-ai/core/runtime"
+import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 
 import { parsePluginSpecifier, readPluginPackage, resolvePluginTarget } from "./shared"
 
@@ -352,46 +352,65 @@ async function selectConfigFile(files: string[], dep: PatchDeps) {
 
 async function patchOne(dir: string, files: string[], target: Target, spec: string, force: boolean, dep: PatchDeps): Promise<PatchOne> {
   const name = Runtime.isPawWork() ? "pawwork" : "opencode"
-  await using _ = await Flock.acquire(`plug-config:${Filesystem.resolve(path.join(dir, name))}`)
+  return await EffectFlock.withLockPromise(`plug-config:${Filesystem.resolve(path.join(dir, name))}`, async () => {
+    let cfg = await selectConfigFile(files, dep)
 
-  let cfg = await selectConfigFile(files, dep)
-
-  return await Config.withConfigFileLock(cfg, async () => {
-    cfg = await selectConfigFile(files, dep)
-    const src = await dep.readText(cfg).catch((err: NodeJS.ErrnoException) => {
-      if (err.code === "ENOENT") return "{}"
-      return err
-    })
-    if (src instanceof Error) {
-      return {
-        ok: false,
-        code: "patch_failed",
-        kind: target.kind,
-        error: src,
+    return await Config.withConfigFileLock(cfg, async () => {
+      cfg = await selectConfigFile(files, dep)
+      const src = await dep.readText(cfg).catch((err: NodeJS.ErrnoException) => {
+        if (err.code === "ENOENT") return "{}"
+        return err
+      })
+      if (src instanceof Error) {
+        return {
+          ok: false,
+          code: "patch_failed",
+          kind: target.kind,
+          error: src,
+        }
       }
-    }
-    const text = src.trim() ? src : "{}"
+      const text = src.trim() ? src : "{}"
 
-    const errs: JsoncParseError[] = []
-    const data = parseJsonc(text, errs, { allowTrailingComma: true })
-    if (errs.length) {
-      const err = errs[0]
-      const lines = text.substring(0, err.offset).split("\n")
-      return {
-        ok: false,
-        code: "invalid_json",
-        kind: target.kind,
-        file: cfg,
-        line: lines.length,
-        col: lines[lines.length - 1].length + 1,
-        parse: printParseErrorCode(err.error),
+      const errs: JsoncParseError[] = []
+      const data = parseJsonc(text, errs, { allowTrailingComma: true })
+      if (errs.length) {
+        const err = errs[0]
+        const lines = text.substring(0, err.offset).split("\n")
+        return {
+          ok: false,
+          code: "invalid_json",
+          kind: target.kind,
+          file: cfg,
+          line: lines.length,
+          col: lines[lines.length - 1].length + 1,
+          parse: printParseErrorCode(err.error),
+        }
       }
-    }
 
-    const list = pluginList(data)
-    const item = target.opts ? ([spec, target.opts] as const) : spec
-    const out = patchPluginList(text, list, spec, item, force)
-    if (out.mode === "noop") {
+      const list = pluginList(data)
+      const item = target.opts ? ([spec, target.opts] as const) : spec
+      const out = patchPluginList(text, list, spec, item, force)
+      if (out.mode === "noop") {
+        return {
+          ok: true,
+          item: {
+            kind: target.kind,
+            mode: out.mode,
+            file: cfg,
+          },
+        }
+      }
+
+      const write = await dep.write(cfg, out.text).catch((error: unknown) => error)
+      if (write instanceof Error) {
+        return {
+          ok: false,
+          code: "patch_failed",
+          kind: target.kind,
+          error: write,
+        }
+      }
+
       return {
         ok: true,
         item: {
@@ -400,26 +419,7 @@ async function patchOne(dir: string, files: string[], target: Target, spec: stri
           file: cfg,
         },
       }
-    }
-
-    const write = await dep.write(cfg, out.text).catch((error: unknown) => error)
-    if (write instanceof Error) {
-      return {
-        ok: false,
-        code: "patch_failed",
-        kind: target.kind,
-        error: write,
-      }
-    }
-
-    return {
-      ok: true,
-      item: {
-        kind: target.kind,
-        mode: out.mode,
-        file: cfg,
-      },
-    }
+    })
   })
 }
 
