@@ -83,7 +83,6 @@ const honoRouteSources = [
 
 const supplementalHonoRouteSources = [
   "packages/opencode/src/server/ui/index.ts",
-  "packages/opencode/src/server/proxy.ts",
 ] as const
 
 const honoRouteModuleSearchRoots = [
@@ -109,13 +108,16 @@ const nativeSpecialRoutes = new Set([
   "GET /event",
   "GET /global/event",
   "GET /global/sync-event",
+  "GET /pty/:ptyID/connect",
+  "GET /__workspace_ws",
   "ALL /*",
 ])
 
-const compatibilityBoundaryRoutes = new Set([
-  "GET /pty/:ptyID/connect",
-  "GET /__workspace_ws",
-])
+const nativeSpecialRouteEntries: Route[] = [
+  { method: "GET", path: "/__workspace_ws", source: "packages/opencode/src/server/websocket-compatibility.ts" },
+]
+
+const compatibilityBoundaryRoutes = new Set<string>()
 
 const pawworkOwned = new Set([
   "GET /global/sync-event",
@@ -293,7 +295,6 @@ async function discoverHonoRoutes(root: string): Promise<Route[]> {
   }
   // These runtime routes are wired through UI/proxy setup instead of ordinary route modules.
   routes.push({ method: "ALL", path: "/*", source: "packages/opencode/src/server/ui/index.ts" })
-  routes.push({ method: "GET", path: "/__workspace_ws", source: "packages/opencode/src/server/proxy.ts" })
   return uniqueRoutes(routes)
 }
 
@@ -500,6 +501,7 @@ export async function buildRouteInventory(options: BuildOptions = {}): Promise<R
 
   const keys = new Set<string>()
   for (const set of Object.values(sets)) for (const key of set) keys.add(key)
+  for (const route of nativeSpecialRouteEntries) keys.add(routeKey(route))
 
   const rows = [...keys]
     .sort()
@@ -603,7 +605,7 @@ export function renderRouteInventoryReport(inventory: RouteInventory) {
     "## Special Surfaces",
     "",
     "- UI static routing and SSE/event streams are native production special surfaces rather than ordinary JSON route parity.",
-    "- Workspace proxy WebSocket and PTY WebSocket remain adapter compatibility boundaries because the Node adapter still exposes Hono's `upgradeWebSocket` API.",
+    "- Workspace proxy WebSocket and PTY WebSocket are native production special surfaces; adapter-specific Hono helpers stay isolated inside the adapter upgrade bridge.",
     "- `/doc` is tracked as an OpenAPI-source HttpApi route, not a compatibility boundary.",
     "- PawWork-owned routes must be preserved during future HttpApi migration even when they are absent upstream or absent from the checked-in OpenAPI file.",
     "- v2 SDK coverage is tracked separately from the legacy SDK because PawWork-owned app/runtime routes currently appear in the v2 generated SDK surface.",

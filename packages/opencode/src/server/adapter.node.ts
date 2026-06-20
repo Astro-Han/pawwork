@@ -2,18 +2,18 @@ import { createAdaptorServer, type ServerType } from "@hono/node-server"
 import { createNodeWebSocket } from "@hono/node-ws"
 import { Hono } from "hono"
 import type { Socket } from "node:net"
-import type { Adapter, FetchApp } from "./adapter"
+import type { Adapter } from "./adapter"
 
 export const adapter: Adapter = {
   create(app) {
-    let websocketApp: FetchApp | undefined
     const websocketHost = new Hono()
-    websocketHost.all("*", (c) => websocketApp?.fetch(c.req.raw, c.env) ?? c.notFound())
+    websocketHost.all("*", (c) => app.fetch(c.req.raw, c.env))
     const ws = createNodeWebSocket({ app: websocketHost })
     return {
-      upgradeWebSocket: ws.upgradeWebSocket,
-      mountWebSocketApp(app) {
-        websocketApp = app
+      upgradeWebSocket(request, env, events) {
+        const upgradeHost = new Hono()
+        upgradeHost.all("*", (c) => ws.upgradeWebSocket(c, events as never))
+        return upgradeHost.fetch(request, env as never)
       },
       async listen(opts) {
         const start = (port: number) =>

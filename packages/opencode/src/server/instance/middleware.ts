@@ -1,5 +1,6 @@
 import type { MiddlewareHandler } from "hono"
-import type { UpgradeWebSocket } from "hono/ws"
+import type { UpgradeWebSocket as HonoUpgradeWebSocket } from "hono/ws"
+import type { UpgradeWebSocket } from "../adapter"
 import { mkdirSync } from "fs"
 import os from "os"
 import path from "path"
@@ -35,7 +36,7 @@ function provideLocalWorkspaceContext<R>(input: {
   })
 }
 
-export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): MiddlewareHandler {
+export function WorkspaceRouterMiddleware(upgrade: HonoUpgradeWebSocket): MiddlewareHandler {
   return async (c, next) => {
     const pawworkDefault = path.join(os.homedir(), "PawWork")
     const raw = c.req.query("directory") || c.req.header("x-opencode-directory") || pawworkDefault
@@ -113,7 +114,8 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
     }
 
     if (decision.action === "proxy-websocket") {
-      return ServerProxy.websocket(upgrade, decision.target, c.req.raw, c.env)
+      const adapterUpgrade: UpgradeWebSocket = (_request, _env, events) => upgrade(c, events as never)
+      return ServerProxy.websocket(adapterUpgrade, decision.target, c.req.raw, c.env)
     }
 
     const headers = new Headers(c.req.raw.headers)

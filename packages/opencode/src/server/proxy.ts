@@ -1,11 +1,10 @@
 import type { Target } from "@/control-plane/types"
-import { Hono } from "hono"
-import type { UpgradeWebSocket } from "hono/ws"
 import { Log } from "@opencode-ai/core/util/log"
 import * as Fence from "./fence"
 import type { WorkspaceID } from "@/control-plane/schema"
 import { Workspace } from "@/control-plane/workspace"
 import { AppRuntime } from "@/effect/app-runtime"
+import type { UpgradeWebSocket, WebSocketEvents } from "./adapter"
 
 const hop = new Set([
   "connection",
@@ -123,27 +122,23 @@ export function createWorkspaceProxyPeer({
   }
 }
 
-export const WorkspaceWebSocketCompatibilityRoutes = (upgrade: UpgradeWebSocket) =>
-  new Hono().get(
-    "/__workspace_ws",
-    upgrade((c) => {
-      const peer = createWorkspaceProxyPeer({
-        targetUrl: c.req.header("x-opencode-proxy-url"),
-        protocols: protocols(c.req.raw),
-      })
-      return {
-        onOpen(_, ws) {
-          peer.onOpen(ws)
-        },
-        onMessage(event) {
-          peer.onMessage(event.data)
-        },
-        onClose(event) {
-          peer.onClose(event.code, event.reason)
-        },
-      }
-    }),
-  )
+export function createWorkspaceWebSocketEvents(request: Request): WebSocketEvents {
+  const peer = createWorkspaceProxyPeer({
+    targetUrl: request.headers.get("x-opencode-proxy-url") ?? undefined,
+    protocols: protocols(request),
+  })
+  return {
+    onOpen(_, ws) {
+      peer.onOpen(ws)
+    },
+    onMessage(event) {
+      peer.onMessage(event.data)
+    },
+    onClose(event) {
+      peer.onClose(event.code, event.reason)
+    },
+  }
+}
 
 const log = Log.Default.clone().tag("service", "server-proxy")
 const SENSITIVE_QUERY_KEYS = new Set(["auth_token", "ticket"])
@@ -274,14 +269,12 @@ export function websocket(
     request: redactProxyURL(req.url),
     target: redactProxyURL(target),
   })
-  return WorkspaceWebSocketCompatibilityRoutes(upgrade).fetch(
-    new Request(proxy, {
-      method: req.method,
-      headers: next,
-      signal: req.signal,
-    }),
-    env as never,
-  )
+  const proxyRequest = new Request(proxy, {
+    method: req.method,
+    headers: next,
+    signal: req.signal,
+  })
+  return upgrade(proxyRequest, env, createWorkspaceWebSocketEvents(proxyRequest))
 }
 
 export * as ServerProxy from "./proxy"

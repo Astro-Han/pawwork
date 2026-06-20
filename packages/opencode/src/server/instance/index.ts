@@ -131,7 +131,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
   new Hono()
     .use(WorkspaceRouterMiddleware(upgrade))
     .route("/project", ProjectRoutes())
-    .route("/pty", PtyRoutes(upgrade))
+    .route("/pty", PtyRoutes())
     .route("/config", ConfigRoutes())
     .route("/experimental", ExperimentalRoutes())
     .route("/session", SessionRoutes())

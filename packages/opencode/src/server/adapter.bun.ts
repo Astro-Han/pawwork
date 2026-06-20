@@ -1,12 +1,16 @@
 import { createBunWebSocket } from "hono/bun"
+import { Hono } from "hono"
 import type { Adapter } from "./adapter"
 
 export const adapter: Adapter = {
   create(app) {
     const ws = createBunWebSocket()
     return {
-      upgradeWebSocket: ws.upgradeWebSocket,
-      mountWebSocketApp() {},
+      upgradeWebSocket(request, env, events) {
+        const upgradeHost = new Hono()
+        upgradeHost.all("*", (c) => ws.upgradeWebSocket(c, events as never))
+        return upgradeHost.fetch(request, env as never)
+      },
       async listen(opts) {
         const args = {
           fetch: app.fetch,

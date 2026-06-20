@@ -4,26 +4,22 @@ import { Process } from "../../src/util/process"
 describe("node server adapter shutdown", () => {
   test("stop(true) closes upgraded websocket clients", async () => {
     const script = `
-      import { Hono } from "hono"
       import { adapter } from "./src/server/adapter.node.ts"
 
+      let runtime
       const app = {
-        fetch(request) {
+        fetch(request, env) {
+          if (new URL(request.url).pathname === "/ws") {
+            return runtime.upgradeWebSocket(request, env, {
+              onOpen(_event, ws) {
+                ws.send("ready")
+              },
+            })
+          }
           return new Response(\`main-fetch:\${new URL(request.url).pathname}\`)
         },
       }
-      const runtime = adapter.create(app)
-
-      const websocketApp = new Hono()
-      websocketApp.get(
-        "/ws",
-        runtime.upgradeWebSocket(() => ({
-          onOpen(_event, ws) {
-            ws.send("ready")
-          },
-        })),
-      )
-      runtime.mountWebSocketApp(websocketApp)
+      runtime = adapter.create(app)
 
       const listener = await runtime.listen({ port: 0, hostname: "127.0.0.1" })
       const http = await fetch(\`http://127.0.0.1:\${listener.port}/health\`)
