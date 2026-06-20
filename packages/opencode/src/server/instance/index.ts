@@ -13,7 +13,6 @@ import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { Runtime } from "@opencode-ai/core/runtime"
 import { LSP } from "../../lsp"
 import { Command } from "../../command"
-import { ExternalResultRoutes } from "./external-result"
 import { PermissionRoutes } from "./permission"
 import { ProjectRoutes } from "./project"
 import { SessionRoutes } from "./session"
@@ -23,7 +22,6 @@ import { FileRoutes } from "./file"
 import { ConfigRoutes } from "./config"
 import { ExperimentalRoutes } from "./experimental"
 import { ProviderRoutes } from "./provider"
-import { MemoryRoutes } from "./memory"
 import { AutomationRoutes } from "./automation"
 import { WorkspaceRouterMiddleware } from "./middleware"
 import { AppRuntime } from "@/effect/app-runtime"
@@ -136,9 +134,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
     .route("/experimental", ExperimentalRoutes())
     .route("/session", SessionRoutes())
     .route("/permission", PermissionRoutes())
-    .route("/external-result", ExternalResultRoutes())
     .route("/provider", ProviderRoutes())
-    .route("/memory", MemoryRoutes())
     .route("/automation", AutomationRoutes())
     .route("/", FileRoutes())
     .route("/mcp", McpRoutes())

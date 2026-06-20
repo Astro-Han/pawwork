@@ -3,10 +3,9 @@ import { NodeFileSystem, NodeHttpPlatform, NodePath } from "@effect/platform-nod
 import { Effect, Layer } from "effect"
 import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
-import { Hono } from "hono"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
-import { ExternalResultRoutes } from "../../src/server/instance/external-result"
+import { Server } from "../../src/server/server"
 import { ExternalResultApi } from "../../src/server/routes/instance/httpapi/groups/external-result"
 import { externalResultHandlers } from "../../src/server/routes/instance/httpapi/handlers/external-result"
 import { Session } from "../../src/session"
@@ -21,8 +20,10 @@ afterEach(async () => {
 })
 
 describe("external-result routes", () => {
-  function app() {
-    return new Hono().route("/external-result", ExternalResultRoutes())
+  function requestExternalResult(directory: string, routePath: string, init: RequestInit = {}) {
+    const headers = new Headers(init.headers)
+    headers.set("x-opencode-directory", directory)
+    return Server.Default().app.request(routePath, { ...init, headers })
   }
 
   function requestExternalResultHttpApi(routePath: string, init?: RequestInit) {
@@ -49,7 +50,7 @@ describe("external-result routes", () => {
     expect(spec.paths["/external-result"]).toHaveProperty("get")
   })
 
-  test("skips stale pending external-result entries through the route runtime", async () => {
+  test("skips stale pending external-result entries through the production route runtime", async () => {
     await using tmp = await tmpdir({ git: true })
     ExternalResult.__resetForTests()
 
@@ -65,14 +66,14 @@ describe("external-result routes", () => {
           }),
         )
 
-        const response = await app().request("/external-result")
+        const response = await requestExternalResult(tmp.path, "/external-result")
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual([])
       },
     })
   })
 
-  test("hydrates pending external-result tool calls through the route runtime", async () => {
+  test("hydrates pending external-result tool calls through the production route runtime", async () => {
     await using tmp = await tmpdir({ git: true })
     ExternalResult.__resetForTests()
 
@@ -153,7 +154,7 @@ describe("external-result routes", () => {
           }),
         )
 
-        const response = await app().request("/external-result")
+        const response = await requestExternalResult(tmp.path, "/external-result")
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual([
           expect.objectContaining({

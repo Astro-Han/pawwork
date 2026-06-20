@@ -179,4 +179,22 @@ describe("production server boundary", () => {
     expect(globalEvents).toContain("handleGlobalEventStream")
     expect(globalEvents).toContain("handleGlobalSyncEventStream")
   })
+
+  test("does not retain retired memory or external-result legacy Hono route sources", async () => {
+    const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
+    const memory = await readFile(path.join(import.meta.dir, "../../src/server/instance/memory.ts"), "utf8")
+    const externalResult = await readFile(
+      path.join(import.meta.dir, "../../src/server/instance/external-result.ts"),
+      "utf8",
+    )
+
+    expect(instanceRoutes).not.toContain("MemoryRoutes")
+    expect(instanceRoutes).not.toContain("ExternalResultRoutes")
+    for (const source of [memory, externalResult]) {
+      expect(source).not.toMatch(/from\s+["']hono["']/)
+      expect(source).not.toMatch(/\bnew\s+Hono\s*\(/)
+    }
+    expect(memory).not.toContain("export const MemoryRoutes")
+    expect(externalResult).not.toContain("export const ExternalResultRoutes")
+  })
 })
