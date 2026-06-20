@@ -2,6 +2,7 @@ import { GlobalBus } from "@/bus/global"
 import { Config } from "@/config/config"
 import { Installation } from "@/installation"
 import { Instance } from "@/project/instance"
+import { emitGlobalDisposed } from "@/server/instance/global"
 import { withRequestContext, type RequestContextSnapshot } from "@/server/request-context"
 import { Effect } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
@@ -66,16 +67,6 @@ function globalRequestContext(request: HttpServerRequest.HttpServerRequest): Req
     source: client_action ? "renderer" : "local_api",
     client_action,
   }
-}
-
-function emitGlobalDisposed() {
-  GlobalBus.emit("event", {
-    directory: "global",
-    payload: {
-      type: "global.disposed",
-      properties: {},
-    },
-  })
 }
 
 const upgradeInstallation = Effect.fn("GlobalHttpApi.upgrade")(function* (target?: string) {

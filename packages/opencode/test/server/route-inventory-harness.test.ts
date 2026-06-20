@@ -184,7 +184,7 @@ describe("route inventory harness", () => {
     }
   })
 
-  test("tracks local HttpApi migration coverage for root instance and global JSON routes", async () => {
+  test("tracks local HttpApi migration coverage for root instance JSON routes", async () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
     for (const [method, routePath] of [
@@ -199,6 +199,21 @@ describe("route inventory harness", () => {
       ["GET", "/agent"],
       ["GET", "/skill"],
       ["GET", "/lsp"],
+    ] as const) {
+      expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
+        hono: true,
+        localHttpApi: true,
+      })
+    }
+  })
+
+  test("keeps retired control and global JSON routes out of Hono source", async () => {
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+
+    for (const [method, routePath] of [
+      ["PUT", "/auth/:providerID"],
+      ["DELETE", "/auth/:providerID"],
+      ["POST", "/log"],
       ["GET", "/global/config"],
       ["PATCH", "/global/config"],
       ["GET", "/global/health"],
@@ -206,7 +221,7 @@ describe("route inventory harness", () => {
       ["POST", "/global/upgrade"],
     ] as const) {
       expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
-        hono: true,
+        hono: false,
         localHttpApi: true,
       })
     }
@@ -243,9 +258,6 @@ describe("route inventory harness", () => {
       ["PUT", "/pty/:ptyID"],
       ["DELETE", "/pty/:ptyID"],
       ["POST", "/pty/:ptyID/connect-token"],
-      ["PUT", "/auth/:providerID"],
-      ["DELETE", "/auth/:providerID"],
-      ["POST", "/log"],
     ] as const) {
       expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
         hono: true,
@@ -592,7 +604,7 @@ describe("route inventory harness", () => {
   test("matches discovered Hono route modules when Windows uses backslash separators", () => {
     expect(
       getMissingHonoRouteSources([
-        "packages\\opencode\\src\\server\\control\\index.ts",
+        "packages\\opencode\\src\\server\\instance\\session.ts",
         "packages\\opencode\\src\\server\\proxy.ts",
       ]),
     ).toEqual([])

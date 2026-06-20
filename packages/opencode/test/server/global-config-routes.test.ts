@@ -5,13 +5,12 @@ import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/
 import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
 import fs from "fs/promises"
 import path from "path"
-import { Hono } from "hono"
 import { Config } from "../../src/config"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { Global } from "../../src/global"
 import { Installation } from "../../src/installation"
 import { Instance } from "../../src/project/instance"
-import { GlobalRoutes } from "../../src/server/instance/global"
+import { Server } from "../../src/server/server"
 import { GlobalApi } from "../../src/server/routes/instance/httpapi/groups/global"
 import { globalHandlers } from "../../src/server/routes/instance/httpapi/handlers/global"
 import { tmpdir } from "../fixture/fixture"
@@ -83,10 +82,10 @@ describe("global config routes", () => {
     expect(spec.paths["/global/upgrade"]).toHaveProperty("post")
   })
 
-  test("gets and patches global config through the route runtime", async () => {
+  test("gets and patches global config through the production app", async () => {
     await withConfigDepsLock(async () => {
       await withIsolatedGlobalConfig(async (globalDir) => {
-        const app = new Hono().route("/global", GlobalRoutes())
+        const app = Server.Default().app
 
         const before = await app.request("/global/config")
         expect(before.status).toBe(200)

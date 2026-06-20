@@ -1,14 +1,13 @@
 import { describe, expect, spyOn, test } from "bun:test"
 import { Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
-import { Hono } from "hono"
 import { GlobalBus } from "../../src/bus/global"
 import { Config } from "../../src/config"
 import { Runner, type InterruptMeta, type Runner as RunnerInstance } from "../../src/effect/runner"
 import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
 import { registerDisposer } from "../../src/effect/instance-registry"
-import { GlobalRoutes } from "../../src/server/instance/global"
+import { Server } from "../../src/server/server"
 import {
   createLifecycleCloseAction,
   beginLifecycleClose,
@@ -464,7 +463,7 @@ describe("SessionRunState", () => {
           yield* Effect.addFinalizer(() => Effect.sync(() => GlobalBus.off("event", onEvent)))
           yield* Effect.sleep("10 millis")
           yield* Effect.promise(async () => {
-            const app = new Hono().route("/global", GlobalRoutes())
+            const app = Server.Default().app
             const response = await app.request("/global/dispose", {
               method: "POST",
               headers: {
@@ -629,7 +628,7 @@ describe("SessionRunState", () => {
 
           yield* Effect.sleep("10 millis")
           yield* Effect.promise(async () => {
-            const app = new Hono().route("/global", GlobalRoutes())
+            const app = Server.Default().app
             const response = await app.request("/global/dispose", { method: "POST" })
             expect(response.status).toBe(200)
             expect(await response.json()).toMatchObject({ status: "deferred" })

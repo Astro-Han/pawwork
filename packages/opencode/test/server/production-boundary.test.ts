@@ -162,4 +162,17 @@ describe("production server boundary", () => {
     expect(controlOpenApi).not.toContain("server/instance/global")
     expect(controlOpenApi).not.toContain("from \"hono\"")
   })
+
+  test("does not retain retired control or global legacy Hono route sources", async () => {
+    const globalEvents = await readFile(path.join(import.meta.dir, "../../src/server/instance/global.ts"), "utf8")
+
+    expect(existsSync(path.join(import.meta.dir, "../../src/server/control/index.ts"))).toBe(false)
+    expect(existsSync(path.join(import.meta.dir, "../../src/server/routes/control/index.ts"))).toBe(false)
+    expect(existsSync(path.join(import.meta.dir, "../../src/server/routes/global.ts"))).toBe(false)
+    expect(globalEvents).not.toMatch(/\bnew\s+Hono\s*\(/)
+    expect(globalEvents).not.toContain("createGlobalRoutes")
+    expect(globalEvents).not.toContain("export const GlobalRoutes")
+    expect(globalEvents).toContain("handleGlobalEventStream")
+    expect(globalEvents).toContain("handleGlobalSyncEventStream")
+  })
 })

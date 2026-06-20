@@ -3,7 +3,7 @@ import { handleInstanceEventStream } from "./instance/event"
 import {
   handleGlobalEventStream,
   handleGlobalSyncEventStream,
-  type GlobalRoutesOptions,
+  type GlobalEventStreamOptions,
 } from "./instance/global"
 import { handleUIRequest } from "./ui"
 import { requestContextFromRequest, withRequestContext } from "./request-context"
@@ -30,7 +30,7 @@ export function isInstanceSpecialRequest(method: string, pathname: string) {
 
 export function createProductionSpecialHandler(input: {
   websocketCompatibilityApp: WebSocketCompatibilityApp
-  globalRoutes?: GlobalRoutesOptions
+  globalRoutes?: GlobalEventStreamOptions
 }): ProductionSpecialHandler {
   const globalRoutes = input.globalRoutes ?? {}
   const replayBridge = globalRoutes.replayBridge
