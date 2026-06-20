@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import { Global } from "@opencode-ai/core/global"
-import { Hono } from "hono"
 import path from "path"
 import { Effect, Layer } from "effect"
 import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
@@ -10,7 +9,6 @@ import { NodeFileSystem, NodeHttpPlatform, NodePath } from "@effect/platform-nod
 import { VOLCENGINE_PLAN_DEFAULT_MODEL_ID, VOLCENGINE_PLAN_PROVIDER_ID } from "@opencode-ai/util/volcengine-plan"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
-import { ProviderRoutes } from "../../src/server/instance/provider"
 import { ProviderApi } from "../../src/server/routes/instance/httpapi/groups/provider"
 import { providerHandlers } from "../../src/server/routes/instance/httpapi/handlers/provider"
 import { tmpdir } from "../fixture/fixture"
@@ -23,10 +21,6 @@ afterEach(async () => {
 })
 
 describe("provider routes", () => {
-  function app() {
-    return new Hono().route("/provider", ProviderRoutes())
-  }
-
   type ProviderClient = {
     provider: {
       list: (input?: { query?: { directory?: string; workspace?: string } }) => Effect.Effect<
@@ -189,57 +183,6 @@ describe("provider routes", () => {
     })
   })
 
-  test("lists providers through the route runtime", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const response = await app().request("/provider")
-        const body = await response.json()
-
-        expect(response.status).toBe(200)
-        expect(body.all).toBeArray()
-        expect(body.default).toBeObject()
-        expect(body.connected).toBeArray()
-        expect(body.all.some((provider: { id: string }) => provider.id === VOLCENGINE_PLAN_PROVIDER_ID)).toBe(true)
-        expect(body.default[VOLCENGINE_PLAN_PROVIDER_ID]).toBe(VOLCENGINE_PLAN_DEFAULT_MODEL_ID)
-      },
-    })
-  })
-
-  test("runs provider auth routes through the route runtime", async () => {
-    await using tmp = await tmpdir({
-      git: true,
-      init: writeRouteAuthPlugin,
-    })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const methods = await app().request("/provider/auth")
-        const methodsBody = await methods.json()
-        const authorize = await app().request("/provider/route-auth/oauth/authorize", {
-          method: "POST",
-          body: JSON.stringify({ method: 0 }),
-          headers: { "content-type": "application/json" },
-        })
-        const authorizeBody = await authorize.json()
-        const callback = await app().request("/provider/route-auth/oauth/callback", {
-          method: "POST",
-          body: JSON.stringify({ method: 0, code: "ok" }),
-          headers: { "content-type": "application/json" },
-        })
-        const callbackBody = await callback.json()
-
-        expect(methods.status).toBe(200)
-        expect(methodsBody["route-auth"][0].label).toBe("Route OAuth")
-        expect(authorize.status).toBe(200)
-        expect(authorizeBody.url).toBe("https://example.com/oauth")
-        expect(callback.status).toBe(200)
-        expect(callbackBody).toBe(true)
-      },
-    })
-  }, 30000)
-
   test("serves provider list, auth, oauth, and recent through the HttpApi handlers", async () => {
     await fs.mkdir(Global.Path.state, { recursive: true })
     await using tmp = await tmpdir({ git: true, init: writeRouteAuthPlugin })
@@ -252,6 +195,11 @@ describe("provider routes", () => {
             expect(providers.all).toBeArray()
             expect(providers.default).toBeObject()
             expect(providers.connected).toBeArray()
+            const hasVolcenginePlan = providers.all.some(
+              (provider) => (provider as { id?: string }).id === VOLCENGINE_PLAN_PROVIDER_ID,
+            )
+            expect(hasVolcenginePlan).toBe(true)
+            expect(providers.default[VOLCENGINE_PLAN_PROVIDER_ID]).toBe(VOLCENGINE_PLAN_DEFAULT_MODEL_ID)
 
             const methods = yield* client.provider.auth({ query: {} })
             expect(methods["route-auth"][0].label).toBe("Route OAuth")

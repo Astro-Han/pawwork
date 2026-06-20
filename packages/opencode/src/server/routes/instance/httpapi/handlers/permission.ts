@@ -1,6 +1,6 @@
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
-import { e2ePermissionRoutesEnabled, E2EPermissionAskBody, seedE2EPermissionAsk } from "@/server/instance/permission"
+import { e2ePermissionRoutesEnabled, E2EPermissionAskBody, seedE2EPermissionAsk } from "@/server/instance/permission-actions"
 import { SessionLiveness } from "@/session/liveness"
 import { NotFoundError } from "@/storage/db"
 import { AppRuntime } from "@/effect/app-runtime"

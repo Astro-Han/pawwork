@@ -13,11 +13,8 @@ import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { Runtime } from "@opencode-ai/core/runtime"
 import { LSP } from "../../lsp"
 import { Command } from "../../command"
-import { PermissionRoutes } from "./permission"
 import { PtyRoutes } from "./pty"
-import { McpRoutes } from "./mcp"
 import { ExperimentalRoutes } from "./experimental"
-import { ProviderRoutes } from "./provider"
 import { WorkspaceRouterMiddleware } from "./middleware"
 import { AppRuntime } from "@/effect/app-runtime"
 import { jsonBodyLimit } from "./json-body-limit"
@@ -125,9 +122,6 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
     .use(WorkspaceRouterMiddleware(upgrade))
     .route("/pty", PtyRoutes())
     .route("/experimental", ExperimentalRoutes())
-    .route("/permission", PermissionRoutes())
-    .route("/provider", ProviderRoutes())
-    .route("/mcp", McpRoutes())
     .post(
       "/instance/dispose",
       describeRoute({

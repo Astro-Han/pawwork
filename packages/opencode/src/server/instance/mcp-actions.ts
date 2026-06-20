@@ -2,17 +2,17 @@ import { Effect } from "effect"
 import { Config } from "../../config/config"
 import { MCP } from "../../mcp"
 
-export const getMcpStatus = Effect.fn("McpRoutes.status")(function* () {
+export const getMcpStatus = Effect.fn("McpHttpApi.status")(function* () {
   const mcp = yield* MCP.Service
   return yield* mcp.status()
 })
 
-export const addMcpServer = Effect.fn("McpRoutes.add")(function* (input: { name: string; config: Config.Mcp }) {
+export const addMcpServer = Effect.fn("McpHttpApi.add")(function* (input: { name: string; config: Config.Mcp }) {
   const mcp = yield* MCP.Service
   return yield* mcp.add(input.name, input.config)
 })
 
-export const startMcpAuth = Effect.fn("McpRoutes.auth.start")(function* (name: string) {
+export const startMcpAuth = Effect.fn("McpHttpApi.auth.start")(function* (name: string) {
   const mcp = yield* MCP.Service
   const supportsOAuth = yield* mcp.supportsOAuth(name)
   if (!supportsOAuth) return { type: "unsupported" as const }
@@ -20,12 +20,12 @@ export const startMcpAuth = Effect.fn("McpRoutes.auth.start")(function* (name: s
   return { type: "started" as const, authorizationUrl, oauthState }
 })
 
-export const completeMcpAuth = Effect.fn("McpRoutes.auth.callback")(function* (input: { name: string; code: string }) {
+export const completeMcpAuth = Effect.fn("McpHttpApi.auth.callback")(function* (input: { name: string; code: string }) {
   const mcp = yield* MCP.Service
   return yield* mcp.finishAuth(input.name, input.code)
 })
 
-export const authenticateMcp = Effect.fn("McpRoutes.auth.authenticate")(function* (name: string) {
+export const authenticateMcp = Effect.fn("McpHttpApi.auth.authenticate")(function* (name: string) {
   const mcp = yield* MCP.Service
   const supportsOAuth = yield* mcp.supportsOAuth(name)
   if (!supportsOAuth) return { type: "unsupported" as const }
@@ -33,17 +33,17 @@ export const authenticateMcp = Effect.fn("McpRoutes.auth.authenticate")(function
   return { type: "authenticated" as const, status }
 })
 
-export const removeMcpAuth = Effect.fn("McpRoutes.auth.remove")(function* (name: string) {
+export const removeMcpAuth = Effect.fn("McpHttpApi.auth.remove")(function* (name: string) {
   const mcp = yield* MCP.Service
   yield* mcp.removeAuth(name)
 })
 
-export const connectMcpServer = Effect.fn("McpRoutes.connect")(function* (name: string) {
+export const connectMcpServer = Effect.fn("McpHttpApi.connect")(function* (name: string) {
   const mcp = yield* MCP.Service
   yield* mcp.connect(name)
 })
 
-export const disconnectMcpServer = Effect.fn("McpRoutes.disconnect")(function* (name: string) {
+export const disconnectMcpServer = Effect.fn("McpHttpApi.disconnect")(function* (name: string) {
   const mcp = yield* MCP.Service
   yield* mcp.disconnect(name)
 })
