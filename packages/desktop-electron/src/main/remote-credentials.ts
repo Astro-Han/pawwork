@@ -106,6 +106,12 @@ function isAccount(value: unknown): value is RemoteAccount {
   switch (account.platform) {
     case "telegram":
       return typeof account.token === "string" && typeof account.allowFrom === "string"
+    case "wechat":
+      return (
+        typeof account.botToken === "string" &&
+        typeof account.baseURL === "string" &&
+        typeof account.allowFrom === "string"
+      )
     default:
       return false
   }

@@ -82,7 +82,7 @@ export type WebSearchStatus = {
 export type RemoteState = "disconnected" | "connecting" | "connected" | "degraded"
 
 /** The chat platforms the bridge can connect. */
-export type RemotePlatform = "telegram"
+export type RemotePlatform = "telegram" | "wechat"
 
 /** Masked status of one channel — never includes a secret. */
 export type RemoteChannelStatus = {
@@ -104,17 +104,22 @@ export type RemoteStatus = { channels: RemoteChannelStatus[] }
 /**
  * A step in a scan-to-connect pairing flow, pushed to the renderer as it
  * progresses. Secrets never appear here.
+ *  - `qr` — a QR image (PNG data URL) to scan from the phone; re-emitted if the
+ *    code expires. WeChat sign-in. The image is rendered main-side so the renderer
+ *    just shows it.
  *  - `awaitingBind` — the token is validated; now act from the phone (message the bot).
- *  - `captured` — the paired identity is ready for the user to approve.
+ *  - `captured` — the paired identity is ready (Telegram: user approves; WeChat: the
+ *    scan+confirm already authorized, so the renderer approves automatically).
  *  - `error` / `cancelled` — the flow ended.
  */
 export type RemotePairingEvent =
+  | { phase: "qr"; platform: RemotePlatform; image: string }
   | { phase: "awaitingBind"; platform: RemotePlatform; hint: "message" }
   | { phase: "captured"; platform: RemotePlatform; identity: { id: string; name: string } }
   | { phase: "error"; platform: RemotePlatform; message: string }
   | { phase: "cancelled"; platform: RemotePlatform }
 
-/** Options to begin pairing. Telegram needs a bot token. */
+/** Options to begin pairing. Telegram needs a bot token; WeChat needs nothing (QR). */
 export type RemotePairingStart = { token?: string }
 
 /**

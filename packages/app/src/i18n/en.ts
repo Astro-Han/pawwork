@@ -981,6 +981,7 @@ export const dict = {
   "remote.unsupported": "Remote control requires the desktop app.",
   "remote.channels.title": "Channels",
   "remote.platform.telegram": "Telegram",
+  "remote.platform.wechat": "WeChat",
   "remote.status.disconnected": "Not connected",
   "remote.status.connecting": "Connecting…",
   "remote.status.connected": "Connected",
@@ -993,6 +994,10 @@ export const dict = {
   "remote.capabilities.permissions": "Approve or deny permission requests",
   "remote.capabilities.sessions": "Switch sessions or stop a running turn",
   "remote.connect.telegram.title": "Connect Telegram",
+  "remote.connect.wechat.title": "Connect WeChat",
+  "remote.connect.starting": "Preparing…",
+  "remote.connect.qr.wechat.title": "Scan to sign in",
+  "remote.connect.qr.wechat.body": "Open WeChat, use Scan, then confirm on your phone.",
   "remote.connect.token.label": "Bot token",
   "remote.connect.token.placeholder": "123456789:ABCdef…",
   "remote.connect.token.help":

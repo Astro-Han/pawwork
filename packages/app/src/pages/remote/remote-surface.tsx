@@ -15,14 +15,14 @@ import { subscribeRemoteStatus } from "./remote-status-sync"
 type IconName = ComponentProps<typeof Icon>["name"]
 
 // The order channels render in. New platforms append here as their adapters land.
-const PLATFORMS: RemotePlatform[] = ["telegram"]
+const PLATFORMS: RemotePlatform[] = ["telegram", "wechat"]
 
 // Remote control: a top-level surface (peer of Automations) to connect a phone
 // chat app to this desktop's agent. The bridge lives in the main process; this
 // page shows masked per-channel status, what a connection enables, and opens the
-// connect / disconnect flows. Each channel row carries a 2px status left-rule (no
-// box) per the cards rule in docs/DESIGN.md — green connected, red degraded,
-// neutral otherwise.
+// connect / disconnect flows. Each channel is its own boxed row (logo · name ·
+// status pill · paired identity · action), stacked with a gap so several
+// connected providers read as distinct cards rather than a packed hairline list.
 export function RemoteSurface(props: { onClose: () => void }) {
   const language = useLanguage()
   const dialog = useDialog()
@@ -32,6 +32,7 @@ export function RemoteSurface(props: { onClose: () => void }) {
   const supported = !!window.api?.remote
   const [channels, setChannels] = createStore<Record<RemotePlatform, RemoteChannelStatus | undefined>>({
     telegram: undefined,
+    wechat: undefined,
   })
   // Platforms whose connect was just approved; the success toast fires only when
   // each then actually reaches "connected" (never the moment Allow returns), so a
@@ -57,7 +58,7 @@ export function RemoteSurface(props: { onClose: () => void }) {
       }
     }
     setAwaiting(stillAwaiting)
-    setChannels({ telegram: byPlatform.telegram })
+    setChannels({ telegram: byPlatform.telegram, wechat: byPlatform.wechat })
   }
 
   onMount(() => {
@@ -102,8 +103,8 @@ export function RemoteSurface(props: { onClose: () => void }) {
           <p class="text-body text-fg-weak">{language.t("remote.description")}</p>
         </div>
 
-        <h3 class="mt-7 mb-1 text-small font-emphasis text-fg-weak">{language.t("remote.channels.title")}</h3>
-        <div class="flex flex-col">
+        <h3 class="mt-7 mb-2 text-small font-emphasis text-fg-weak">{language.t("remote.channels.title")}</h3>
+        <div class="flex flex-col gap-2.5">
           <For each={PLATFORMS}>
             {(platform) => (
               <ChannelRow
@@ -140,12 +141,10 @@ function ChannelRow(props: {
 }) {
   const language = useLanguage()
   const state = (): RemoteState => props.status()?.state ?? "disconnected"
-  // The 2px left-rule and the status word share one color: success connected,
-  // error degraded, neutral otherwise. Mirrors the Integrations status mapping.
+  // The status pill carries one color: success connected, error degraded, neutral
+  // otherwise. Mirrors the Integrations status mapping (dot + semantic tint).
   const live = () => props.supported && state() === "connected"
   const bad = () => props.supported && state() === "degraded"
-  const ruleClass = () => (live() ? "bg-icon-success-base" : bad() ? "bg-error" : "bg-border-weak")
-  const labelClass = () => (live() ? "text-icon-success-base" : bad() ? "text-error" : "text-fg-weak")
 
   const statusLabel = () => {
     if (!props.supported) return language.t("remote.status.disconnected")
@@ -170,15 +169,14 @@ function ChannelRow(props: {
   }
 
   return (
-    <div class="relative flex items-center gap-3 border-t border-border-weak py-3 pl-4 first:border-t-0">
-      <div class={`absolute left-0 inset-y-1.5 w-0.5 rounded-full ${ruleClass()}`} aria-hidden="true" />
-      <PlatformMark platform={props.platform} />
-      <div class="flex min-w-0 flex-1 flex-col">
-        <span class="text-body text-fg-strong">{language.t(platformNameKey(props.platform))}</span>
-        <span class="text-small">
-          <span class={labelClass()}>{statusLabel()}</span>
+    <div class="flex items-center gap-3.5 rounded-md border border-border-weak bg-surface-raised px-4 py-3.5">
+      <PlatformMark platform={props.platform} class="size-9 shrink-0" />
+      <div class="flex min-w-0 flex-1 flex-col gap-1">
+        <span class="text-body font-emphasis text-fg-strong">{language.t(platformNameKey(props.platform))}</span>
+        <span class="flex min-w-0 items-center gap-2 text-small">
+          <StatusPill label={statusLabel()} live={live()} bad={bad()} />
           <Show when={detail()}>
-            <span class="ml-3 text-fg-weak">{detail()}</span>
+            <span class="truncate text-fg-weak">{detail()}</span>
           </Show>
         </span>
       </div>
@@ -210,6 +208,21 @@ function ChannelRow(props: {
         </Match>
       </Switch>
     </div>
+  )
+}
+
+// A rounded status badge: a colored dot + word, semantic tint behind it when
+// connected (green) or degraded (red), a hairline outline otherwise.
+function StatusPill(props: { label: string; live: boolean; bad: boolean }) {
+  const tint = () =>
+    props.live ? "bg-success-bg text-success-text" : props.bad ? "bg-error-bg text-error-text" : "text-fg-weak"
+  const dot = () => (props.live ? "bg-icon-success-base" : props.bad ? "bg-error" : "bg-fg-weak")
+  const outline = () => (!props.live && !props.bad ? "border border-border-weak" : "")
+  return (
+    <span class={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 ${tint()} ${outline()}`}>
+      <span class={`size-1.5 rounded-full ${dot()}`} aria-hidden="true" />
+      {props.label}
+    </span>
   )
 }
 

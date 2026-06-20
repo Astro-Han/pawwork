@@ -22,7 +22,11 @@ const STOP_TIMEOUT_MS = 3_000
  * account. The secret (bot token) lives here and is never sent back over IPC.
  * A discriminated union so each new platform adds its own account shape here.
  */
-export type RemoteAccount = { platform: "telegram"; token: string; allowFrom: string; userName?: string }
+export type RemoteAccount =
+  | { platform: "telegram"; token: string; allowFrom: string; userName?: string }
+  // WeChat (iLink): the QR login mints botToken + baseURL; allowFrom is the paired
+  // user id (ilink_user_id) returned at confirm. No separate bind step.
+  | { platform: "wechat"; botToken: string; baseURL: string; allowFrom: string; userName?: string }
 
 /** Persistence seam for the secret accounts (safeStorage-backed in prod). */
 export interface CredentialStore {
@@ -38,9 +42,10 @@ export interface CredentialStore {
   clear(): void
 }
 
-/** The progress a pairer reports while a scan-to-connect flow runs. The terminal
- * phases (captured / error / cancelled) are emitted by the runtime, uniformly. */
-export type PairingProgress = (event: Extract<RemotePairingEvent, { phase: "awaitingBind" }>) => void
+/** The progress a pairer reports while a scan-to-connect flow runs: the QR to scan
+ * (WeChat) and/or the bind hint (Telegram). The terminal phases (captured / error /
+ * cancelled) are emitted by the runtime, uniformly. */
+export type PairingProgress = (event: Extract<RemotePairingEvent, { phase: "awaitingBind" | "qr" }>) => void
 
 /**
  * One platform's connect logic, isolated so the runtime stays platform-agnostic.
@@ -261,6 +266,11 @@ export class RemoteBridgeRuntime {
     await this.stopBridge()
     if (this.accounts.length === 0) return
     for (const account of this.accounts) {
+      // A rebuild restarts the shared stream for every channel (adding or removing
+      // one tears them all down and back up). Don't flap an already-connected channel
+      // back to "connecting" — to the user that reads as "everything just broke". Keep
+      // it as-is; only a channel that isn't connected yet shows "connecting".
+      if (this.statusMap.get(account.platform)?.state === "connected") continue
       this.putChannel({ platform: account.platform, state: "connecting", identity: this.pairerFor(account).identity(account), error: null })
     }
     let app: BridgeApp
@@ -306,6 +316,10 @@ export class RemoteBridgeRuntime {
       const account = this.accounts.find((candidate) => candidate.platform === status.name)
       if (!account) return
       const state: RemoteState = status.phase === "serving" ? "connected" : status.phase === "degraded" ? "degraded" : "connecting"
+      // Same as the pre-mark above: don't drop a live channel to "connecting" while the
+      // rebuild re-drains it. It stays connected until it's serving again (confirmed) or
+      // degraded (a real failure), so adding one channel never makes the others blink.
+      if (state === "connecting" && this.statusMap.get(account.platform)?.state === "connected") return
       this.putChannel({ platform: account.platform, state, identity: this.pairerFor(account).identity(account), error: status.error ?? null })
     }
     const run = app.run(ac.signal, undefined, onStatus)

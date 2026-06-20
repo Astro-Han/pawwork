@@ -1,12 +1,15 @@
 // The real per-platform connect logic, behind the runtime's PlatformPairer seam.
 // Each pairer is a thin wrapper over the remote-bridge pairing primitives —
 // Telegram's captureFirstSender turns a bot token + first message into a saved
-// account, and a saved account into a live Platform. New platforms register their
-// pairer in buildRemotePairers below.
+// account; WeChat's iLink QR login mints a bot token + the paired user id in one
+// scan-and-confirm. New platforms register their pairer in buildRemotePairers below.
 
 import { createApp } from "@opencode-ai/remote-bridge/gateway"
 import { captureFirstSender, TelegramPlatform, TelegramPoller } from "@opencode-ai/remote-bridge/platforms/telegram"
+import { normalizeHttpsOrigin, WeChatApiError, WeChatClient } from "@opencode-ai/remote-bridge/platforms/wechat/client"
+import { WeChatPlatform } from "@opencode-ai/remote-bridge/platforms/wechat/platform"
 import type { Platform } from "@opencode-ai/remote-bridge/types"
+import { toDataURL } from "qrcode"
 import {
   type PairingProgress,
   type PlatformPairer,
@@ -14,6 +17,10 @@ import {
   RemoteBridgeRuntime,
   type RemoteBridgeDeps,
 } from "./remote-bridge"
+
+// The QR-status poll long-holds ~30s server-side (verified live), so consecutive
+// polls already pace themselves; this just guards a fast return from hot-looping.
+const WECHAT_LOGIN_POLL_MS = 1_000
 
 class TelegramPairer implements PlatformPairer {
   readonly platform = "telegram" as const
@@ -41,7 +48,83 @@ class TelegramPairer implements PlatformPairer {
   }
 
   makePlatform(account: RemoteAccount): Platform {
-    return new TelegramPlatform({ token: account.token, allowFrom: account.allowFrom })
+    const telegram = asTelegram(account)
+    return new TelegramPlatform({ token: telegram.token, allowFrom: telegram.allowFrom })
+  }
+
+  audience(account: RemoteAccount): Record<string, unknown> {
+    return { allow_from: account.allowFrom }
+  }
+
+  identity(account: RemoteAccount): { id: string; name: string } {
+    return { id: account.allowFrom, name: account.userName ?? account.allowFrom }
+  }
+}
+
+class WeChatPairer implements PlatformPairer {
+  readonly platform = "wechat" as const
+
+  async pair(_start: { token?: string }, emit: PairingProgress, signal: AbortSignal): Promise<RemoteAccount | null> {
+    // QR login mints a bot token, the base URL for all later calls, and the paired
+    // user id (ilink_user_id). The scan + confirm in WeChat IS the binding, so there
+    // is no separate "message the bot" step — pair resolves straight to the account.
+    // getQrcodeStatus long-polls and maps its own timeout to "waiting"; this loop just
+    // orchestrates: confirm → account, expired → re-mint, real error → surface.
+    const client = new WeChatClient()
+    let qrcode = await this.mintQr(client, emit, signal)
+    while (!signal.aborted) {
+      let status
+      try {
+        status = await client.getQrcodeStatus(qrcode, signal)
+      } catch (err) {
+        if (signal.aborted) return null
+        // A real API error (dead QR, bad ret) is terminal — surface it so the user
+        // isn't left scanning a code that will never confirm. A transient blip is not:
+        // keep polling rather than abort a scan that's in progress.
+        if (err instanceof WeChatApiError) throw new Error(message(err))
+        console.warn(`wechat login poll: unexpected error, retrying: ${message(err)}`)
+        await sleep(WECHAT_LOGIN_POLL_MS, signal)
+        continue
+      }
+      if (status.status === "confirmed") {
+        // iLink hands back no display name, only the user id — so we set no userName
+        // and identity() falls back to showing the raw id (cosmetic; auth is the id).
+        return { platform: "wechat", botToken: status.botToken, baseURL: status.baseURL, allowFrom: status.userId }
+      }
+      if (status.status === "expired") {
+        // The QR lives ~90s; mint a fresh one and show it again rather than dead-end.
+        qrcode = await this.mintQr(client, emit, signal)
+        continue
+      }
+      await sleep(WECHAT_LOGIN_POLL_MS, signal) // waiting
+    }
+    return null
+  }
+
+  /** Mint a login QR and emit it for the renderer to show; returns the poll handle. */
+  private async mintQr(client: WeChatClient, emit: PairingProgress, signal: AbortSignal): Promise<string> {
+    let qr: { qrcode: string; qrcodeUrl: string }
+    try {
+      qr = await client.getBotQrcode(signal)
+    } catch (err) {
+      throw new Error(`could not reach WeChat: ${message(err)}`)
+    }
+    emit({ phase: "qr", platform: "wechat", image: await qrDataUrl(qr.qrcodeUrl) })
+    return qr.qrcode
+  }
+
+  makePlatform(account: RemoteAccount): Platform {
+    const wechat = asWeChat(account)
+    // Re-check the persisted base URL here too, not just at confirm: it's the host every
+    // token-bearing call trusts, so a tampered credentials file must not be able to
+    // redirect authenticated requests. normalizeHttpsOrigin rejects anything but a bare
+    // https origin.
+    const baseURL = normalizeHttpsOrigin(wechat.baseURL)
+    if (baseURL === null) throw new Error(`wechat account has an untrusted base URL: ${wechat.baseURL}`)
+    return new WeChatPlatform({
+      transport: new WeChatClient({ baseURL, botToken: wechat.botToken }),
+      allowFrom: wechat.allowFrom,
+    })
   }
 
   audience(account: RemoteAccount): Record<string, unknown> {
@@ -55,7 +138,7 @@ class TelegramPairer implements PlatformPairer {
 
 /** Build the production pairers. New platforms add their pairer here. */
 export function buildRemotePairers(): PlatformPairer[] {
-  return [new TelegramPairer()]
+  return [new TelegramPairer(), new WeChatPairer()]
 }
 
 /** Wire a runtime with the real bridge builder and the production pairers. */
@@ -63,6 +146,37 @@ export function createRemoteBridgeRuntime(
   deps: Pick<RemoteBridgeDeps, "credentials" | "statePath" | "serverInfo" | "locale">,
 ): RemoteBridgeRuntime {
   return new RemoteBridgeRuntime({ ...deps, buildApp: createApp, pairers: buildRemotePairers() })
+}
+
+/** Render the WeChat login URL into a scannable PNG data URL main-side, so the
+ * renderer just shows <img>. iLink's `qrcode_img_content` is a URL, not an image. */
+function qrDataUrl(url: string): Promise<string> {
+  return toDataURL(url, { margin: 1, width: 232 })
+}
+
+function asTelegram(account: RemoteAccount): Extract<RemoteAccount, { platform: "telegram" }> {
+  if (account.platform !== "telegram") throw new Error(`expected a telegram account, got ${account.platform}`)
+  return account
+}
+
+function asWeChat(account: RemoteAccount): Extract<RemoteAccount, { platform: "wechat" }> {
+  if (account.platform !== "wechat") throw new Error(`expected a wechat account, got ${account.platform}`)
+  return account
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) return resolve()
+    const onAbort = () => {
+      clearTimeout(timer)
+      resolve()
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener("abort", onAbort, { once: true })
+  })
 }
 
 function message(err: unknown): string {

@@ -11,12 +11,15 @@ import type { RemotePairingEvent, RemotePlatform } from "@/desktop-api-contract"
 import { PlatformMark } from "./platform-marks"
 
 // The connect flow, driven by the main-process pairing event stream
-// (window.api.remote.onPairing). Telegram opens on a token field, then the phases
-// run token → bind → confirm as the backend reports them. The secret never comes
-// back: confirm approves the captured identity, and the token crossed once on
-// startPairing. Built around the generic event shape so new platforms slot in.
+// (window.api.remote.onPairing). Telegram opens on a token field, then runs
+// token → checking → bind → confirm as the backend reports them. WeChat has nothing
+// to type, so it opens straight on the QR: starting → qr → (scan + confirm in WeChat
+// authorizes it, so the captured identity is approved automatically). Built around
+// the generic event shape so platforms slot in. The secret never comes back: confirm
+// approves the captured identity, the Telegram token crossed once on startPairing,
+// the WeChat creds were minted main-side.
 
-type Phase = "token" | "checking" | "bind" | "confirm" | "error"
+type Phase = "token" | "checking" | "starting" | "qr" | "bind" | "confirm" | "error"
 
 export function DialogConnectRemote(props: {
   platform: RemotePlatform
@@ -25,10 +28,16 @@ export function DialogConnectRemote(props: {
   const language = useLanguage()
   const dialog = useDialog()
   const platform = props.platform
+  // WeChat has nothing to type — it opens straight into the QR flow and, because the
+  // scan + in-app confirm IS the authorization, auto-approves the captured identity.
+  // An explicit allowlist (not "≠ telegram") so a future platform defaults to the
+  // safe manual-approve path until it opts in here.
+  const isWeChat = platform === "wechat"
 
   const [store, setStore] = createStore({
-    phase: "token" as Phase,
+    phase: (isWeChat ? "starting" : "token") as Phase,
     token: "",
+    qrImage: undefined as string | undefined,
     captured: undefined as { id: string; name: string } | undefined,
     error: undefined as string | undefined,
     busy: false,
@@ -41,11 +50,23 @@ export function DialogConnectRemote(props: {
   const handlePairing = (event: RemotePairingEvent) => {
     if (!alive.value || event.platform !== platform) return
     switch (event.phase) {
+      case "qr":
+        setStore({ phase: "qr", qrImage: event.image, error: undefined })
+        break
       case "awaitingBind":
         setStore({ phase: "bind" })
         break
       case "captured":
-        setStore({ phase: "confirm", captured: event.identity })
+        setStore({ captured: event.identity })
+        // WeChat's scan + in-app confirm already authorized this connection, so
+        // there is no second desktop approval — wire it up automatically. Telegram
+        // shows the confirm step so the user vets the captured sender first.
+        if (isWeChat) {
+          setStore({ phase: "starting" })
+          void allow()
+        } else {
+          setStore({ phase: "confirm" })
+        }
         break
       case "error":
         setStore({ phase: "error", error: event.message, busy: false })
@@ -59,11 +80,25 @@ export function DialogConnectRemote(props: {
     const api = remote()
     if (!api) return
     onCleanup(api.onPairing(handlePairing))
+    // QR platforms have nothing to type — kick the flow off immediately.
+    if (isWeChat) void beginPairing()
   })
   onCleanup(() => {
     alive.value = false
     void remote()?.cancelPairing()
   })
+
+  // Kick off (or restart) pairing, awaiting the IPC so a rejection becomes an error
+  // step instead of leaving the dialog stuck on "Preparing…"/"Checking" forever.
+  async function beginPairing(start?: { token?: string }) {
+    const api = remote()
+    if (!api) return
+    try {
+      await api.startPairing(platform, start)
+    } catch (err) {
+      if (alive.value) setStore({ phase: "error", error: errorMessage(err), busy: false })
+    }
+  }
 
   function submitToken(event?: Event) {
     event?.preventDefault()
@@ -75,7 +110,7 @@ export function DialogConnectRemote(props: {
     // straight to bind here would tell the user to message the bot before the token
     // is even known to be good.
     setStore({ phase: "checking", error: undefined })
-    void api.startPairing(platform, { token })
+    void beginPairing({ token })
   }
 
   async function allow() {
@@ -95,11 +130,21 @@ export function DialogConnectRemote(props: {
   }
 
   function retry() {
-    setStore({ error: undefined, captured: undefined, phase: "token" })
+    setStore({ error: undefined, captured: undefined, qrImage: undefined })
+    if (!isWeChat) {
+      setStore("phase", "token")
+      return
+    }
+    // startPairing supersedes any prior attempt main-side, so a fresh call is enough.
+    setStore("phase", "starting")
+    void beginPairing()
   }
 
+  const title = () =>
+    language.t(platform === "wechat" ? "remote.connect.wechat.title" : "remote.connect.telegram.title")
+
   return (
-    <Dialog title={language.t("remote.connect.telegram.title")} fit class="w-full max-w-[460px] mx-auto">
+    <Dialog title={title()} fit class="w-full max-w-[460px] mx-auto">
       <div class="px-6 pt-2 pb-6 flex flex-col gap-5">
         <Switch>
           <Match when={store.phase === "token"}>
@@ -128,6 +173,32 @@ export function DialogConnectRemote(props: {
                 <Spinner />
                 <span>{language.t("remote.connect.checking.title")}</span>
               </div>
+              <div class="flex justify-end">
+                <Button variant="secondary" onClick={() => dialog.close()}>
+                  {language.t("common.cancel")}
+                </Button>
+              </div>
+            </div>
+          </Match>
+
+          <Match when={store.phase === "starting"}>
+            <div class="flex items-center gap-2 text-body text-fg-strong">
+              <Spinner />
+              <span>{language.t("remote.connect.starting")}</span>
+            </div>
+          </Match>
+
+          <Match when={store.phase === "qr"}>
+            <div class="flex flex-col gap-3">
+              <span class="text-body text-fg-strong">{language.t("remote.connect.qr.wechat.title")}</span>
+              <p class="text-small text-fg-weak">{language.t("remote.connect.qr.wechat.body")}</p>
+              <Show when={store.qrImage}>
+                <img
+                  src={store.qrImage}
+                  alt=""
+                  class="size-[200px] self-center rounded-md border border-border-weak bg-white p-1"
+                />
+              </Show>
               <div class="flex justify-end">
                 <Button variant="secondary" onClick={() => dialog.close()}>
                   {language.t("common.cancel")}

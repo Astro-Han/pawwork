@@ -35,6 +35,8 @@ function sampleAccount(platform: RemotePlatform): RemoteAccount {
   switch (platform) {
     case "telegram":
       return { platform, token: "123:abc", allowFrom: "42", userName: "yu" }
+    case "wechat":
+      return { platform, botToken: "wx-tok", baseURL: "https://ilinkai.weixin.qq.com", allowFrom: "u@im.wechat", userName: "wx" }
   }
 }
 
@@ -51,24 +53,6 @@ function fakePairer(platform: RemotePlatform, over: Partial<PlatformPairer> = {}
     audience: () => ({ allow_from: "42" }),
     identity: () => ({ id: "42", name: `${platform} target` }),
     ...over,
-  }
-}
-
-/** A fake pairer for an ARBITRARY platform name (cast past the single-member
- * RemotePlatform union) so the runtime's multi-channel paths — independent
- * per-channel status and disconnect isolation — can be exercised before a real
- * second platform exists. */
-function genericPairer(name: RemotePlatform): PlatformPairer {
-  const account: RemoteAccount = { platform: name, token: "t", allowFrom: "1", userName: `${name}` }
-  return {
-    platform: name,
-    async pair(_start, emit) {
-      emit({ phase: "awaitingBind", platform: name, hint: "message" })
-      return account
-    },
-    makePlatform: () => ({ name, start: async () => {}, reply: async () => {}, send: async () => {}, stop: async () => {} }),
-    audience: () => ({ allow_from: "1" }),
-    identity: () => ({ id: "1", name: `${name} target` }),
   }
 }
 
@@ -391,12 +375,13 @@ test("disconnecting the last channel stops the bridge before deleting state, so 
 })
 
 test("two channels run independently: one degrading or disconnecting leaves the other", async () => {
-  const TG = "telegram" as RemotePlatform
-  const PROBE = "probe" as RemotePlatform // a stand-in 2nd platform, cast past the union
+  // Telegram + WeChat are both real platforms now, so the multi-channel paths
+  // (independent per-channel status, disconnect isolation) run against the actual
+  // RemotePlatform union — no cast-past-union stand-in needed.
   let emitStatus: ((status: PlatformStatus) => void) | undefined
   const runtime = new RemoteBridgeRuntime(
     deps({
-      pairers: [genericPairer(TG), genericPairer(PROBE)],
+      pairers: [fakePairer("telegram"), fakePairer("wechat")],
       buildApp: async (config) => ({
         run(signal?: AbortSignal, _onReady?: () => void, onStatus?: (status: PlatformStatus) => void) {
           emitStatus = onStatus
@@ -408,22 +393,58 @@ test("two channels run independently: one degrading or disconnecting leaves the 
   )
   const stateOf = (platform: RemotePlatform) => runtime.getStatus().channels.find((c) => c.platform === platform)?.state
 
-  await runtime.startPairing(TG, { token: "x" })
-  await runtime.confirmPairing(TG)
-  await runtime.startPairing(PROBE, { token: "y" })
-  await runtime.confirmPairing(PROBE)
-  expect(stateOf(TG)).toBe("connected")
-  expect(stateOf(PROBE)).toBe("connected")
+  await runtime.startPairing("telegram", { token: "x" })
+  await runtime.confirmPairing("telegram")
+  await runtime.startPairing("wechat")
+  await runtime.confirmPairing("wechat")
+  expect(stateOf("telegram")).toBe("connected")
+  expect(stateOf("wechat")).toBe("connected")
 
   // One channel degrades — the other is untouched.
-  emitStatus?.({ name: PROBE, phase: "degraded", error: "ws closed" })
-  expect(stateOf(PROBE)).toBe("degraded")
-  expect(stateOf(TG)).toBe("connected")
+  emitStatus?.({ name: "wechat", phase: "degraded", error: "connection lost" })
+  expect(stateOf("wechat")).toBe("degraded")
+  expect(stateOf("telegram")).toBe("connected")
 
   // Disconnecting one channel removes only it; the other survives as its own channel.
-  await runtime.disconnect(TG)
-  expect(stateOf(TG)).toBeUndefined()
-  expect(runtime.getStatus().channels.map((c) => c.platform)).toEqual([PROBE])
+  await runtime.disconnect("telegram")
+  expect(stateOf("telegram")).toBeUndefined()
+  expect(runtime.getStatus().channels.map((c) => c.platform)).toEqual(["wechat"])
+  await runtime.stop()
+})
+
+test("rebuilding for a new channel keeps an already-connected channel from flapping to connecting", async () => {
+  let emit: ((status: PlatformStatus) => void) | undefined
+  const runtime = new RemoteBridgeRuntime(
+    deps({
+      pairers: [fakePairer("telegram"), fakePairer("wechat")],
+      buildApp: async () => ({
+        run(signal?: AbortSignal, _onReady?: () => void, onStatus?: (status: PlatformStatus) => void) {
+          emit = onStatus
+          return hangUntilAbort(signal)
+        },
+      }),
+    }),
+  )
+  const stateOf = (platform: RemotePlatform) => runtime.getStatus().channels.find((c) => c.platform === platform)?.state
+
+  await runtime.startPairing("telegram", { token: "x" })
+  await runtime.confirmPairing("telegram")
+  emit?.({ name: "telegram", phase: "serving" })
+  expect(stateOf("telegram")).toBe("connected")
+
+  // Adding WeChat rebuilds the shared bridge. Telegram is live and must stay
+  // "connected" through it — not blink "connecting" as if the whole page broke.
+  await runtime.startPairing("wechat")
+  await runtime.confirmPairing("wechat")
+  expect(stateOf("telegram")).toBe("connected") // not flapped by the rebuild
+  expect(stateOf("wechat")).toBe("connecting") // the genuinely-new channel still shows connecting
+
+  // A supervisor re-drain (connecting) on the live channel is also suppressed...
+  emit?.({ name: "telegram", phase: "connecting" })
+  expect(stateOf("telegram")).toBe("connected")
+  // ...but a real failure still shows through.
+  emit?.({ name: "telegram", phase: "degraded", error: "ws closed" })
+  expect(stateOf("telegram")).toBe("degraded")
   await runtime.stop()
 })
 
