@@ -274,14 +274,15 @@ export class RemoteBridgeRuntime {
   async disconnect(platform: RemotePlatform): Promise<void> {
     if (this.pending?.platform === platform) this.cancelPairing()
     await this.enqueue(async () => {
-      this.accounts = this.accounts.filter((account) => account.platform !== platform)
-      if (this.accounts.length === 0) {
+      const nextAccounts = this.accounts.filter((account) => account.platform !== platform)
+      if (nextAccounts.length === 0) {
         // Last channel gone. Stop the live bridge FIRST, then delete the secret
         // AND the bridge state file (session pointers + event cursor): tearing
         // down before the delete keeps an in-flight inbound handler from writing
         // pointers back after the file is gone, which a reconnect would inherit.
         // Deleting needs no encryption, so revoking works even when the keyring is
         // locked — save([]) would throw and leave the token behind.
+        this.accounts = nextAccounts
         await this.stopBridge()
         this.statusMap.delete(platform)
         this.emitStatus()
@@ -289,8 +290,12 @@ export class RemoteBridgeRuntime {
         rmSync(this.deps.statePath, { force: true })
         return
       }
-      // A channel remains: persist the trimmed list, then drop just this one.
-      this.deps.credentials.save(this.accounts)
+      // A channel remains: prepare-first, mirroring add / re-pair. Persist the trimmed
+      // list BEFORE the channel leaves memory or the live App, so a save failure (locked
+      // keyring, unwritable file) leaves the channel connected and the disconnect
+      // retryable — never half-removed in memory with its loop still live.
+      this.deps.credentials.save(nextAccounts)
+      this.accounts = nextAccounts
       const app = this.current?.app
       // Live bridge: removePlatform stops only this channel's loop and prunes its
       // session pointers; the shared stream and the other channels keep serving.

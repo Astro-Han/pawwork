@@ -18,9 +18,10 @@ function memoryStore(
   initial: RemoteAccount[] = [],
   available = true,
   failSave = false,
-): CredentialStore & { value: RemoteAccount[] } {
+): CredentialStore & { value: RemoteAccount[]; failSave: boolean } {
   return {
     value: initial,
+    failSave,
     isAvailable() {
       return available
     },
@@ -31,7 +32,8 @@ function memoryStore(
       // The real store throws when secure storage is unavailable or the file write
       // fails. `failSave` models a save that fails even though pairing's upfront
       // availability check passed — the keyring locks or the disk errors mid-confirm.
-      if (failSave) throw new Error("secure storage is unavailable on this system, cannot save the connection")
+      // Mutable, so a test can let setup persist and then fail a later save.
+      if (this.failSave) throw new Error("secure storage is unavailable on this system, cannot save the connection")
       this.value = accounts
     },
     clear() {
@@ -660,6 +662,40 @@ test("a second channel whose credential save fails is not added and leaves the f
   expect(stateOf("wechat")).toBeUndefined()
   expect(stateOf("telegram")).toBe("connected")
   expect(store.value).toEqual([sampleAccount("telegram")]) // store still holds only telegram
+  await runtime.stop()
+})
+
+test("a non-last disconnect whose credential save fails keeps the channel and is retryable", async () => {
+  // Prepare-first on disconnect too: the trimmed list is persisted BEFORE the channel
+  // leaves memory or the live App, so a save failure leaves the channel connected and
+  // the operation retryable — never half-removed in memory with the loop still running.
+  const store = memoryStore([sampleAccount("telegram"), sampleAccount("wechat")])
+  const harness = bridgeHarness()
+  const runtime = new RemoteBridgeRuntime(
+    deps({ credentials: store, buildApp: harness.buildApp, pairers: [fakePairer("telegram"), fakePairer("wechat")] }),
+  )
+  const stateOf = (platform: RemotePlatform) => runtime.getStatus().channels.find((c) => c.platform === platform)?.state
+  await runtime.startIfConfigured()
+  expect(stateOf("telegram")).toBe("connected")
+  expect(stateOf("wechat")).toBe("connected")
+  expect(harness.state.build).toBe(1)
+
+  // The save fails before anything moves: the channel stays connected and live, its
+  // sibling is untouched, and no remove reached the App.
+  store.failSave = true
+  await expect(runtime.disconnect("telegram")).rejects.toThrow(/secure storage/)
+  expect(harness.state.events).toEqual([])
+  expect(stateOf("telegram")).toBe("connected")
+  expect(stateOf("wechat")).toBe("connected")
+  expect(store.value).toEqual([sampleAccount("telegram"), sampleAccount("wechat")])
+
+  // Retry once storage recovers: now it actually disconnects, only telegram leaving.
+  store.failSave = false
+  await runtime.disconnect("telegram")
+  expect(harness.state.events).toEqual(["remove:telegram"])
+  expect(stateOf("telegram")).toBeUndefined()
+  expect(stateOf("wechat")).toBe("connected")
+  expect(store.value).toEqual([sampleAccount("wechat")])
   await runtime.stop()
 })
 
