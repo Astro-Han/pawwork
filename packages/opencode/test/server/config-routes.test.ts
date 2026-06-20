@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { Hono } from "hono"
 import { Effect, Layer } from "effect"
 import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiTest, OpenApi } from "effect/unstable/httpapi"
@@ -9,9 +8,9 @@ import { Config } from "../../src/config/config"
 import { Instance } from "../../src/project/instance"
 import { Provider } from "../../src/provider/provider"
 import { AppRuntime } from "../../src/effect/app-runtime"
-import { ConfigRoutes } from "../../src/server/instance/config"
 import { ConfigApi } from "../../src/server/routes/instance/httpapi/groups/config"
 import { configHandlers } from "../../src/server/routes/instance/httpapi/handlers/config"
+import { Server } from "../../src/server/server"
 import { tmpdir } from "../fixture/fixture"
 
 void Log.init({ print: false })
@@ -21,8 +20,9 @@ afterEach(async () => {
 })
 
 describe("config routes", () => {
-  function app() {
-    return new Hono().route("/config", ConfigRoutes())
+  function requestProductionConfig(directory: string, path: string, init?: RequestInit) {
+    const separator = path.includes("?") ? "&" : "?"
+    return Server.Default().app.request(`${path}${separator}directory=${encodeURIComponent(directory)}`, init)
   }
 
   type ConfigClient = {
@@ -134,149 +134,109 @@ describe("config routes", () => {
 
   test("reads config through the route runtime", async () => {
     await using tmp = await tmpdir({ git: true })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const response = await app().request("/config")
-        const body = await response.json()
+    const response = await requestProductionConfig(tmp.path, "/config")
+    const body = await response.json()
 
-        expect(response.status).toBe(200)
-        expect(body).toBeObject()
-      },
-    })
+    expect(response.status).toBe(200)
+    expect(body).toBeObject()
   })
 
   test("lists configured providers through the route runtime", async () => {
     await using tmp = await tmpdir({ git: true })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const response = await app().request("/config/providers")
-        const body = await response.json()
+    const response = await requestProductionConfig(tmp.path, "/config/providers")
+    const body = await response.json()
 
-        expect(response.status).toBe(200)
-        expect(body.providers).toBeArray()
-        expect(body.default).toBeObject()
-      },
-    })
+    expect(response.status).toBe(200)
+    expect(body.providers).toBeArray()
+    expect(body.default).toBeObject()
   })
 
   test("updates config through the route runtime", async () => {
     await using tmp = await tmpdir({ git: true })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const response = await app().request("/config", {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ username: "route-runtime-tester" }),
-        })
-
-        expect(response.status).toBe(200)
-        expect(await response.json()).toMatchObject({ username: "route-runtime-tester" })
-
-        const reread = await app().request("/config")
-        expect(reread.status).toBe(200)
-        expect(await reread.json()).toMatchObject({ username: "route-runtime-tester" })
-      },
+    const response = await requestProductionConfig(tmp.path, "/config", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "route-runtime-tester" }),
     })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ username: "route-runtime-tester" })
+
+    const reread = await requestProductionConfig(tmp.path, "/config")
+    expect(reread.status).toBe(200)
+    expect(await reread.json()).toMatchObject({ username: "route-runtime-tester" })
   })
 
   test("rejects unknown config fields through the route runtime", async () => {
     await using tmp = await tmpdir({ git: true })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const response = await app().request("/config", {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ username: "route-runtime-tester", unexpected: true }),
-        })
+    const response = await requestProductionConfig(tmp.path, "/config", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "route-runtime-tester", unexpected: true }),
+    })
 
-        expect(response.status).toBe(400)
-        expect(await response.json()).toEqual({
-          data: { username: "route-runtime-tester", unexpected: true },
-          error: [
-            {
-              code: "unrecognized_keys",
-              keys: ["unexpected"],
-              path: [],
-              message: 'Unrecognized key: "unexpected"',
-            },
-          ],
-          success: false,
-        })
-      },
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      data: { username: "route-runtime-tester", unexpected: true },
+      error: [
+        {
+          code: "unrecognized_keys",
+          keys: ["unexpected"],
+          path: [],
+          message: 'Unrecognized key: "unexpected"',
+        },
+      ],
+      success: false,
     })
   })
 
   test("ignores patch bodies without a json content type through the route runtime", async () => {
     await using tmp = await tmpdir({ git: true })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const response = await app().request("/config", {
-          method: "PATCH",
-          headers: { "content-type": "text/plain" },
-          body: JSON.stringify({ username: "route-runtime-text-body" }),
-        })
-        const body = await response.json()
-
-        expect(response.status).toBe(200)
-        expect(body).toEqual({})
-      },
+    const response = await requestProductionConfig(tmp.path, "/config", {
+      method: "PATCH",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ username: "route-runtime-text-body" }),
     })
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toEqual({})
   })
 
   test("accepts vendor json patch bodies through the route runtime", async () => {
     await using tmp = await tmpdir({ git: true })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const response = await app().request("/config", {
-          method: "PATCH",
-          headers: { "content-type": "application/vnd.opencode.config+json" },
-          body: JSON.stringify({ username: "route-runtime-vendor-json" }),
-        })
-
-        expect(response.status).toBe(200)
-        expect(await response.json()).toMatchObject({ username: "route-runtime-vendor-json" })
-      },
+    const response = await requestProductionConfig(tmp.path, "/config", {
+      method: "PATCH",
+      headers: { "content-type": "application/vnd.opencode.config+json" },
+      body: JSON.stringify({ username: "route-runtime-vendor-json" }),
     })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ username: "route-runtime-vendor-json" })
   })
 
   test("accepts json patch bodies with content type parameters through the route runtime", async () => {
     await using tmp = await tmpdir({ git: true })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const response = await app().request("/config", {
-          method: "PATCH",
-          headers: { "content-type": "application/json; charset=utf-8" },
-          body: JSON.stringify({ username: "route-runtime-json-params" }),
-        })
-
-        expect(response.status).toBe(200)
-        expect(await response.json()).toMatchObject({ username: "route-runtime-json-params" })
-      },
+    const response = await requestProductionConfig(tmp.path, "/config", {
+      method: "PATCH",
+      headers: { "content-type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ username: "route-runtime-json-params" }),
     })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ username: "route-runtime-json-params" })
   })
 
   test("rejects malformed json patch bodies through the route runtime", async () => {
     await using tmp = await tmpdir({ git: true })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const response = await app().request("/config", {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: "{",
-        })
-
-        expect(response.status).toBe(400)
-        expect(await response.text()).toBe("Malformed JSON in request body")
-      },
+    const response = await requestProductionConfig(tmp.path, "/config", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: "{",
     })
+
+    expect(response.status).toBe(400)
+    expect(await response.text()).toBe("Malformed JSON in request body")
   })
 
   test("serves get, update, and providers through the HttpApi config handlers", async () => {

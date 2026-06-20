@@ -96,22 +96,28 @@ describe("route inventory harness", () => {
       })
     }
     expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/config")).toMatchObject({
-      hono: true,
+      hono: false,
       openapi: true,
+      legacySdk: true,
+      v2Sdk: true,
       localHttpApi: true,
-      classification: "all-public-surfaces",
+      classification: "local-httpapi-only",
     })
     expect(inventory.rows.find((row) => row.method === "PATCH" && row.path === "/config")).toMatchObject({
-      hono: true,
+      hono: false,
       openapi: true,
+      legacySdk: true,
+      v2Sdk: true,
       localHttpApi: true,
-      classification: "all-public-surfaces",
+      classification: "local-httpapi-only",
     })
     expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/config/providers")).toMatchObject({
-      hono: true,
+      hono: false,
       openapi: true,
+      legacySdk: true,
+      v2Sdk: true,
       localHttpApi: true,
-      classification: "all-public-surfaces",
+      classification: "local-httpapi-only",
     })
     expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/external-result")).toMatchObject({
       hono: false,
@@ -650,7 +656,6 @@ describe("route inventory harness", () => {
   test("matches discovered Hono route modules when Windows uses backslash separators", () => {
     expect(
       getMissingHonoRouteSources([
-        "packages\\opencode\\src\\server\\instance\\config.ts",
         "packages\\opencode\\src\\server\\ui\\index.ts",
       ]),
     ).toEqual([])
