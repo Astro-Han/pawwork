@@ -290,6 +290,17 @@ test("Auth and WebSearchAuth services do not expose Promise facades", async () =
   }
 })
 
+test("Permission service does not expose Promise facades", async () => {
+  const text = await readFile(path.join(srcRoot, "permission/index.ts"), "utf8")
+  const permissionTest = await readFile(path.join(testRoot, "permission/next.test.ts"), "utf8")
+  const facades = ["export async function ask", "export async function reply", "export async function list"]
+
+  expect(text).not.toMatch(/\bfrom\s+["']@\/effect\/run-service["']/)
+  expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
+  for (const facade of facades) expect(text).not.toContain(facade)
+  expect(permissionTest).not.toMatch(/\bPermission\.(ask|reply|list|runPromise)\s*\(/)
+})
+
 test("Config service does not expose Promise facades", async () => {
   const text = await readFile(path.join(srcRoot, "config/config.ts"), "utf8")
   const facades = [

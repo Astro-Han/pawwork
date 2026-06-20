@@ -3,6 +3,7 @@ import fs from "node:fs/promises"
 import os from "os"
 import path from "node:path"
 import { Bus } from "../../src/bus"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Permission } from "../../src/permission"
 import { fromDeniedRule, isPermanentDeleteRule, permanentDeleteSuggestions } from "../../src/permission/diagnostic"
 import { PermissionID } from "../../src/permission/schema"
@@ -15,9 +16,21 @@ afterEach(async () => {
   await Instance.disposeAll()
 })
 
+function askPermission(input: Permission.AskOptions, options?: Parameters<typeof AppRuntime.runPromise>[1]) {
+  return AppRuntime.runPromise(Permission.Service.use((svc) => svc.ask(input)), options)
+}
+
+function replyPermission(input: Parameters<Permission.Interface["reply"]>[0]) {
+  return AppRuntime.runPromise(Permission.Service.use((svc) => svc.reply(input)))
+}
+
+function listPermissions() {
+  return AppRuntime.runPromise(Permission.Service.use((svc) => svc.list()))
+}
+
 async function rejectAll(message?: string) {
-  for (const req of await Permission.list()) {
-    await Permission.reply({
+  for (const req of await listPermissions()) {
+    await replyPermission({
       requestID: req.id,
       reply: "reject",
       message,
@@ -27,11 +40,11 @@ async function rejectAll(message?: string) {
 
 async function waitForPending(count: number) {
   for (let i = 0; i < 20; i++) {
-    const list = await Permission.list()
+    const list = await listPermissions()
     if (list.length === count) return list
     await Bun.sleep(0)
   }
-  return Permission.list()
+  return listPermissions()
 }
 
 // fromConfig tests
@@ -609,7 +622,7 @@ test("ask - resolves immediately when action is allow", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const result = await Permission.ask({
+      const result = await askPermission({
         sessionID: SessionID.make("session_test"),
         permission: "bash",
         patterns: ["ls"],
@@ -628,7 +641,7 @@ test("ask - throws RejectedError when action is deny", async () => {
     directory: tmp.path,
     fn: async () => {
       await expect(
-        Permission.ask({
+        askPermission({
           sessionID: SessionID.make("session_test"),
           permission: "bash",
           patterns: ["rm -rf /"],
@@ -654,7 +667,7 @@ test("ask - an 'always' approval relaxes asks but never a configured deny", asyn
         { permission: "browser", pattern: "*", action: "ask" as const },
         { permission: "browser", pattern: "https://example.com/admin/*", action: "deny" as const },
       ]
-      const askPromise = Permission.ask({
+      const askPromise = askPermission({
         sessionID: SessionID.make("session_test"),
         permission: "browser",
         patterns: ["https://example.com/home"],
@@ -663,13 +676,13 @@ test("ask - an 'always' approval relaxes asks but never a configured deny", asyn
         ruleset,
       })
       const [pending] = await waitForPending(1)
-      await Permission.reply({ requestID: pending.id, reply: "always" })
+      await replyPermission({ requestID: pending.id, reply: "always" })
       await askPromise
 
       // Same origin, denied path: the recorded approval matches the URL but
       // the configured deny stays the hard boundary.
       await expect(
-        Permission.ask({
+        askPermission({
           sessionID: SessionID.make("session_test"),
           permission: "browser",
           patterns: ["https://example.com/admin/page"],
@@ -680,7 +693,7 @@ test("ask - an 'always' approval relaxes asks but never a configured deny", asyn
       ).rejects.toBeInstanceOf(Permission.DeniedError)
 
       // Elsewhere on the site the approval does its job: no further ask.
-      const ok = await Permission.ask({
+      const ok = await askPermission({
         sessionID: SessionID.make("session_test"),
         permission: "browser",
         patterns: ["https://example.com/other"],
@@ -701,7 +714,7 @@ test("reply - an 'always' grant survives an instance reload", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const askPromise = Permission.ask({
+      const askPromise = askPermission({
         sessionID: SessionID.make("session_persist"),
         permission: "browser",
         patterns: ["https://ok.example/home"],
@@ -710,7 +723,7 @@ test("reply - an 'always' grant survives an instance reload", async () => {
         ruleset,
       })
       const [pending] = await waitForPending(1)
-      await Permission.reply({ requestID: pending.id, reply: "always" })
+      await replyPermission({ requestID: pending.id, reply: "always" })
       await askPromise
     },
   })
@@ -725,7 +738,7 @@ test("reply - an 'always' grant survives an instance reload", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const result = await Permission.ask({
+      const result = await askPermission({
         sessionID: SessionID.make("session_persist_reload"),
         permission: "browser",
         patterns: ["https://ok.example/other"],
@@ -734,7 +747,7 @@ test("reply - an 'always' grant survives an instance reload", async () => {
         ruleset,
       })
       expect(result).toBeUndefined()
-      expect(await Permission.list()).toEqual([])
+      expect(await listPermissions()).toEqual([])
     },
   })
 })
@@ -753,13 +766,13 @@ test("reply - sibling instances of one project merge their 'always' grants inste
 
   // Load instance B's permission state while the project row is still empty, so
   // its in-memory `approved` is stale ([]) when it later writes. list() loads it.
-  await Instance.provide({ directory: dirB, fn: () => Permission.list() })
+  await Instance.provide({ directory: dirB, fn: () => listPermissions() })
 
   // Instance A grants "always" for `ls` and persists it to the shared row.
   await Instance.provide({
     directory: dirA,
     fn: async () => {
-      const ask = Permission.ask({
+      const ask = askPermission({
         sessionID: SessionID.make("session_merge_a"),
         permission: "bash",
         patterns: ["ls"],
@@ -768,7 +781,7 @@ test("reply - sibling instances of one project merge their 'always' grants inste
         ruleset,
       })
       const [pending] = await waitForPending(1)
-      await Permission.reply({ requestID: pending.id, reply: "always" })
+      await replyPermission({ requestID: pending.id, reply: "always" })
       await ask
     },
   })
@@ -779,7 +792,7 @@ test("reply - sibling instances of one project merge their 'always' grants inste
   await Instance.provide({
     directory: dirB,
     fn: async () => {
-      const ask = Permission.ask({
+      const ask = askPermission({
         sessionID: SessionID.make("session_merge_b"),
         permission: "bash",
         patterns: ["pwd"],
@@ -788,7 +801,7 @@ test("reply - sibling instances of one project merge their 'always' grants inste
         ruleset,
       })
       const [pending] = await waitForPending(1)
-      await Permission.reply({ requestID: pending.id, reply: "always" })
+      await replyPermission({ requestID: pending.id, reply: "always" })
       await ask
     },
   })
@@ -799,7 +812,7 @@ test("reply - sibling instances of one project merge their 'always' grants inste
   await Instance.provide({
     directory: dirA,
     fn: async () => {
-      const ls = await Permission.ask({
+      const ls = await askPermission({
         sessionID: SessionID.make("session_merge_reload_ls"),
         permission: "bash",
         patterns: ["ls"],
@@ -808,7 +821,7 @@ test("reply - sibling instances of one project merge their 'always' grants inste
         ruleset,
       })
       expect(ls).toBeUndefined()
-      const pwd = await Permission.ask({
+      const pwd = await askPermission({
         sessionID: SessionID.make("session_merge_reload_pwd"),
         permission: "bash",
         patterns: ["pwd"],
@@ -841,7 +854,7 @@ test.each(bashDeleteCases)(
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const err = await Permission.ask({
+        const err = await askPermission({
           sessionID: SessionID.make("session_test"),
           permission: "bash",
           patterns: [command],
@@ -897,7 +910,7 @@ test.each(bashGenericCases)(
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const err = await Permission.ask({
+        const err = await askPermission({
           sessionID: SessionID.make("session_test"),
           permission: "bash",
           patterns: [command],
@@ -942,7 +955,7 @@ test("ask - non-bash denied permissions keep legacy message without bash diagnos
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const err = await Permission.ask({
+      const err = await askPermission({
         sessionID: SessionID.make("session_test"),
         permission: "edit",
         patterns: ["secret.txt"],
@@ -1019,7 +1032,7 @@ test("ask - returns pending promise when action is ask", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const promise = Permission.ask({
+      const promise = askPermission({
         sessionID: SessionID.make("session_test"),
         permission: "bash",
         patterns: ["ls"],
@@ -1041,7 +1054,7 @@ test("ask - adds request to pending list", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const ask = Permission.ask({
+      const ask = askPermission({
         sessionID: SessionID.make("session_test"),
         permission: "bash",
         patterns: ["ls"],
@@ -1054,7 +1067,7 @@ test("ask - adds request to pending list", async () => {
         ruleset: [],
       })
 
-      const list = await Permission.list()
+      const list = await listPermissions()
       expect(list).toHaveLength(1)
       expect(list[0]).toMatchObject({
         sessionID: SessionID.make("session_test"),
@@ -1084,7 +1097,7 @@ test("ask - publishes asked event", async () => {
         seen = event.properties
       })
 
-      const ask = Permission.ask({
+      const ask = askPermission({
         sessionID: SessionID.make("session_test"),
         permission: "bash",
         patterns: ["ls"],
@@ -1097,7 +1110,7 @@ test("ask - publishes asked event", async () => {
         ruleset: [],
       })
 
-      expect(await Permission.list()).toHaveLength(1)
+      expect(await listPermissions()).toHaveLength(1)
       expect(seen).toBeDefined()
       expect(seen).toMatchObject({
         sessionID: SessionID.make("session_test"),
@@ -1119,7 +1132,7 @@ test("reply - once resolves the pending ask", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const askPromise = Permission.ask({
+      const askPromise = askPermission({
         id: PermissionID.make("per_test1"),
         sessionID: SessionID.make("session_test"),
         permission: "bash",
@@ -1131,7 +1144,7 @@ test("reply - once resolves the pending ask", async () => {
 
       await waitForPending(1)
 
-      await Permission.reply({
+      await replyPermission({
         requestID: PermissionID.make("per_test1"),
         reply: "once",
       })
@@ -1146,7 +1159,7 @@ test("reply - reject throws RejectedError", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const askPromise = Permission.ask({
+      const askPromise = askPermission({
         id: PermissionID.make("per_test2"),
         sessionID: SessionID.make("session_test"),
         permission: "bash",
@@ -1158,7 +1171,7 @@ test("reply - reject throws RejectedError", async () => {
 
       await waitForPending(1)
 
-      await Permission.reply({
+      await replyPermission({
         requestID: PermissionID.make("per_test2"),
         reply: "reject",
       })
@@ -1173,7 +1186,7 @@ test("reply - reject with message throws CorrectedError", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const ask = Permission.ask({
+      const ask = askPermission({
         id: PermissionID.make("per_test2b"),
         sessionID: SessionID.make("session_test"),
         permission: "bash",
@@ -1185,7 +1198,7 @@ test("reply - reject with message throws CorrectedError", async () => {
 
       await waitForPending(1)
 
-      await Permission.reply({
+      await replyPermission({
         requestID: PermissionID.make("per_test2b"),
         reply: "reject",
         message: "Use a safer command",
@@ -1203,7 +1216,7 @@ test("reply - always persists approval and resolves", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const askPromise = Permission.ask({
+      const askPromise = askPermission({
         id: PermissionID.make("per_test3"),
         sessionID: SessionID.make("session_test"),
         permission: "bash",
@@ -1215,7 +1228,7 @@ test("reply - always persists approval and resolves", async () => {
 
       await waitForPending(1)
 
-      await Permission.reply({
+      await replyPermission({
         requestID: PermissionID.make("per_test3"),
         reply: "always",
       })
@@ -1228,7 +1241,7 @@ test("reply - always persists approval and resolves", async () => {
     directory: tmp.path,
     fn: async () => {
       // Stored approval should allow without asking
-      const result = await Permission.ask({
+      const result = await askPermission({
         sessionID: SessionID.make("session_test2"),
         permission: "bash",
         patterns: ["ls"],
@@ -1246,7 +1259,7 @@ test("reply - reject cancels all pending for same session", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const askPromise1 = Permission.ask({
+      const askPromise1 = askPermission({
         id: PermissionID.make("per_test4a"),
         sessionID: SessionID.make("session_same"),
         permission: "bash",
@@ -1256,7 +1269,7 @@ test("reply - reject cancels all pending for same session", async () => {
         ruleset: [],
       })
 
-      const askPromise2 = Permission.ask({
+      const askPromise2 = askPermission({
         id: PermissionID.make("per_test4b"),
         sessionID: SessionID.make("session_same"),
         permission: "edit",
@@ -1273,7 +1286,7 @@ test("reply - reject cancels all pending for same session", async () => {
       const result2 = askPromise2.catch((e) => e)
 
       // Reject the first one
-      await Permission.reply({
+      await replyPermission({
         requestID: PermissionID.make("per_test4a"),
         reply: "reject",
       })
@@ -1290,7 +1303,7 @@ test("reply - always resolves matching pending requests in same session", async 
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const a = Permission.ask({
+      const a = askPermission({
         id: PermissionID.make("per_test5a"),
         sessionID: SessionID.make("session_same"),
         permission: "bash",
@@ -1300,7 +1313,7 @@ test("reply - always resolves matching pending requests in same session", async 
         ruleset: [],
       })
 
-      const b = Permission.ask({
+      const b = askPermission({
         id: PermissionID.make("per_test5b"),
         sessionID: SessionID.make("session_same"),
         permission: "bash",
@@ -1312,14 +1325,14 @@ test("reply - always resolves matching pending requests in same session", async 
 
       await waitForPending(2)
 
-      await Permission.reply({
+      await replyPermission({
         requestID: PermissionID.make("per_test5a"),
         reply: "always",
       })
 
       await expect(a).resolves.toBeUndefined()
       await expect(b).resolves.toBeUndefined()
-      expect(await Permission.list()).toHaveLength(0)
+      expect(await listPermissions()).toHaveLength(0)
     },
   })
 })
@@ -1329,7 +1342,7 @@ test("reply - always keeps other session pending", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const a = Permission.ask({
+      const a = askPermission({
         id: PermissionID.make("per_test6a"),
         sessionID: SessionID.make("session_a"),
         permission: "bash",
@@ -1339,7 +1352,7 @@ test("reply - always keeps other session pending", async () => {
         ruleset: [],
       })
 
-      const b = Permission.ask({
+      const b = askPermission({
         id: PermissionID.make("per_test6b"),
         sessionID: SessionID.make("session_b"),
         permission: "bash",
@@ -1351,13 +1364,13 @@ test("reply - always keeps other session pending", async () => {
 
       await waitForPending(2)
 
-      await Permission.reply({
+      await replyPermission({
         requestID: PermissionID.make("per_test6a"),
         reply: "always",
       })
 
       await expect(a).resolves.toBeUndefined()
-      expect((await Permission.list()).map((x) => x.id)).toEqual([PermissionID.make("per_test6b")])
+      expect((await listPermissions()).map((x) => x.id)).toEqual([PermissionID.make("per_test6b")])
 
       await rejectAll()
       await b.catch(() => {})
@@ -1370,7 +1383,7 @@ test("reply - publishes replied event", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const ask = Permission.ask({
+      const ask = askPermission({
         id: PermissionID.make("per_test7"),
         sessionID: SessionID.make("session_test"),
         permission: "bash",
@@ -1393,7 +1406,7 @@ test("reply - publishes replied event", async () => {
         seen = event.properties
       })
 
-      await Permission.reply({
+      await replyPermission({
         requestID: PermissionID.make("per_test7"),
         reply: "once",
       })
@@ -1416,7 +1429,7 @@ test("permission requests stay isolated by directory", async () => {
   const a = Instance.provide({
     directory: one.path,
     fn: () =>
-      Permission.ask({
+      askPermission({
         id: PermissionID.make("per_dir_a"),
         sessionID: SessionID.make("session_dir_a"),
         permission: "bash",
@@ -1430,7 +1443,7 @@ test("permission requests stay isolated by directory", async () => {
   const b = Instance.provide({
     directory: two.path,
     fn: () =>
-      Permission.ask({
+      askPermission({
         id: PermissionID.make("per_dir_b"),
         sessionID: SessionID.make("session_dir_b"),
         permission: "bash",
@@ -1457,11 +1470,11 @@ test("permission requests stay isolated by directory", async () => {
 
   await Instance.provide({
     directory: one.path,
-    fn: () => Permission.reply({ requestID: onePending[0].id, reply: "reject" }),
+    fn: () => replyPermission({ requestID: onePending[0].id, reply: "reject" }),
   })
   await Instance.provide({
     directory: two.path,
-    fn: () => Permission.reply({ requestID: twoPending[0].id, reply: "reject" }),
+    fn: () => replyPermission({ requestID: twoPending[0].id, reply: "reject" }),
   })
 
   await a.catch(() => {})
@@ -1474,7 +1487,7 @@ test("pending permission rejects on instance dispose", async () => {
   const ask = Instance.provide({
     directory: tmp.path,
     fn: () =>
-      Permission.ask({
+      askPermission({
         id: PermissionID.make("per_dispose"),
         sessionID: SessionID.make("session_dispose"),
         permission: "bash",
@@ -1507,7 +1520,7 @@ test("pending permission rejects on instance reload", async () => {
   const ask = Instance.provide({
     directory: tmp.path,
     fn: () =>
-      Permission.ask({
+      askPermission({
         id: PermissionID.make("per_reload"),
         sessionID: SessionID.make("session_reload"),
         permission: "bash",
@@ -1540,12 +1553,12 @@ test("reply - throws NotFoundError for an unknown requestID", async () => {
     directory: tmp.path,
     fn: async () => {
       await expect(
-        Permission.reply({
+        replyPermission({
           requestID: PermissionID.make("per_unknown"),
           reply: "once",
         }),
       ).rejects.toBeInstanceOf(NotFoundError)
-      expect(await Permission.list()).toHaveLength(0)
+      expect(await listPermissions()).toHaveLength(0)
     },
   })
 })
@@ -1555,7 +1568,7 @@ test("reply - is idempotent for a cascade-resolved sibling", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const a = Permission.ask({
+      const a = askPermission({
         id: PermissionID.make("per_idem_a"),
         sessionID: SessionID.make("session_same"),
         permission: "bash",
@@ -1565,7 +1578,7 @@ test("reply - is idempotent for a cascade-resolved sibling", async () => {
         ruleset: [],
       })
 
-      const b = Permission.ask({
+      const b = askPermission({
         id: PermissionID.make("per_idem_b"),
         sessionID: SessionID.make("session_same"),
         permission: "bash",
@@ -1578,14 +1591,14 @@ test("reply - is idempotent for a cascade-resolved sibling", async () => {
       await waitForPending(2)
 
       // Replying "always" to a cascade-resolves the matching sibling b.
-      await Permission.reply({ requestID: PermissionID.make("per_idem_a"), reply: "always" })
+      await replyPermission({ requestID: PermissionID.make("per_idem_a"), reply: "always" })
       await expect(a).resolves.toBeUndefined()
       await expect(b).resolves.toBeUndefined()
 
       // The client legitimately saw b and replies to it; that repeat reply must
       // be an idempotent success, not a NotFoundError.
       await expect(
-        Permission.reply({ requestID: PermissionID.make("per_idem_b"), reply: "once" }),
+        replyPermission({ requestID: PermissionID.make("per_idem_b"), reply: "once" }),
       ).resolves.toBeUndefined()
     },
   })
@@ -1597,7 +1610,7 @@ test("ask - denies when any pattern matches a deny rule", async () => {
     directory: tmp.path,
     fn: async () => {
       await expect(
-        Permission.ask({
+        askPermission({
           sessionID: SessionID.make("session_test"),
           permission: "bash",
           patterns: ["echo hello", "rm -rf /"],
@@ -1618,7 +1631,7 @@ test("ask - denial diagnostic uses the actual denied pattern in compound command
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const err = await Permission.ask({
+      const err = await askPermission({
         sessionID: SessionID.make("session_test"),
         permission: "bash",
         patterns: ["echo ok", "rm file.txt"],
@@ -1648,7 +1661,7 @@ test("ask - denial diagnostic keeps flags and multiple operands without rewritin
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const err = await Permission.ask({
+      const err = await askPermission({
         sessionID: SessionID.make("session_test"),
         permission: "bash",
         patterns: ["rm -rf dir other"],
@@ -1679,7 +1692,7 @@ test("ask - denial diagnostic summarizes additional blocked commands", async () 
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const err = await Permission.ask({
+      const err = await askPermission({
         sessionID: SessionID.make("session_test"),
         permission: "bash",
         patterns: ["rm a", "rmdir b"],
@@ -1713,7 +1726,7 @@ test("ask - permanent delete denial is primary when a generic denial comes first
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const err = await Permission.ask({
+      const err = await askPermission({
         sessionID: SessionID.make("session_test"),
         permission: "bash",
         patterns: ["dd if=/dev/zero of=disk.img", "rm file.txt"],
@@ -1762,7 +1775,7 @@ test("ask - allows all patterns when all match allow rules", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const result = await Permission.ask({
+      const result = await askPermission({
         sessionID: SessionID.make("session_test"),
         permission: "bash",
         patterns: ["echo hello", "ls -la", "pwd"],
@@ -1780,7 +1793,7 @@ test("ask - should deny even when an earlier pattern is ask", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const err = await Permission.ask({
+      const err = await askPermission({
         sessionID: SessionID.make("session_test"),
         permission: "bash",
         patterns: ["echo hello", "rm -rf /"],
@@ -1796,7 +1809,7 @@ test("ask - should deny even when an earlier pattern is ask", async () => {
       )
 
       expect(err).toBeInstanceOf(Permission.DeniedError)
-      expect(await Permission.list()).toHaveLength(0)
+      expect(await listPermissions()).toHaveLength(0)
     },
   })
 })
@@ -1807,16 +1820,15 @@ test("ask - abort should clear pending request", async () => {
     directory: tmp.path,
     fn: async () => {
       const ctl = new AbortController()
-      const ask = Permission.runPromise(
-        (svc) =>
-          svc.ask({
-            sessionID: SessionID.make("session_test"),
-            permission: "bash",
-            patterns: ["ls"],
-            metadata: {},
-            always: [],
-            ruleset: [{ permission: "bash", pattern: "*", action: "ask" }],
-          }),
+      const ask = askPermission(
+        {
+          sessionID: SessionID.make("session_test"),
+          permission: "bash",
+          patterns: ["ls"],
+          metadata: {},
+          always: [],
+          ruleset: [{ permission: "bash", pattern: "*", action: "ask" }],
+        },
         { signal: ctl.signal },
       )
 
@@ -1825,7 +1837,7 @@ test("ask - abort should clear pending request", async () => {
       await ask.catch(() => {})
 
       try {
-        expect(await Permission.list()).toHaveLength(0)
+        expect(await listPermissions()).toHaveLength(0)
       } finally {
         await rejectAll()
       }
