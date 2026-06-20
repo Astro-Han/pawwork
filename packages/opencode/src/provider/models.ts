@@ -430,7 +430,7 @@ function refreshInBackground() {
   return backgroundRuntime.runPromise(Service.use((svc) => svc.refresh()))
 }
 
-if (!Flag.OPENCODE_DISABLE_MODELS_FETCH && !process.argv.includes("--get-yargs-completions")) {
+if (!Flag.OPENCODE_DISABLE_MODELS_FETCH && !modelsPathOverride() && !process.argv.includes("--get-yargs-completions")) {
   void refreshInBackground()
   setInterval(
     async () => {
