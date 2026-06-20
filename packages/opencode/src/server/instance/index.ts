@@ -21,7 +21,6 @@ import { FileRoutes } from "./file"
 import { ConfigRoutes } from "./config"
 import { ExperimentalRoutes } from "./experimental"
 import { ProviderRoutes } from "./provider"
-import { AutomationRoutes } from "./automation"
 import { WorkspaceRouterMiddleware } from "./middleware"
 import { AppRuntime } from "@/effect/app-runtime"
 import { jsonBodyLimit } from "./json-body-limit"
@@ -133,7 +132,6 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
     .route("/experimental", ExperimentalRoutes())
     .route("/permission", PermissionRoutes())
     .route("/provider", ProviderRoutes())
-    .route("/automation", AutomationRoutes())
     .route("/", FileRoutes())
     .route("/mcp", McpRoutes())
     .post(

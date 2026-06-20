@@ -3,7 +3,6 @@ import { NodeFileSystem, NodeHttpPlatform, NodePath } from "@effect/platform-nod
 import { Effect, Layer, Schema } from "effect"
 import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
-import { Hono } from "hono"
 import { Log } from "@opencode-ai/core/util/log"
 import { Automation, AutomationID } from "../../src/automation"
 import { AutomationRunTable } from "../../src/automation/automation.sql"
@@ -11,8 +10,7 @@ import { AutomationScheduler } from "../../src/automation/scheduler"
 import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
-import { ErrorMiddleware } from "../../src/server/middleware"
-import { AutomationRoutes } from "../../src/server/instance/automation"
+import { Server } from "../../src/server/server"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { PermissionID } from "../../src/permission/schema"
 import { SessionID } from "../../src/session/schema"
@@ -44,22 +42,36 @@ afterEach(async () => {
   await Instance.disposeAll()
 })
 
+type AutomationTestApp = {
+  request(input: string | Request, init?: RequestInit): Promise<Response>
+}
+
+function automationProductionApp(directory: string): AutomationTestApp {
+  return {
+    request(input, init) {
+      const request = input instanceof Request ? input : new Request(new URL(input, "http://localhost"), init)
+      const headers = new Headers(request.headers)
+      if (!headers.has("x-opencode-directory")) headers.set("x-opencode-directory", encodeURIComponent(directory))
+      return Server.Default().app.request(new Request(request, { headers }))
+    },
+  }
+}
+
 async function withAutomationApp<T>(
-  fn: (input: { app: Hono; projectID: ProjectID }) => Promise<T>,
+  fn: (input: { app: AutomationTestApp; projectID: ProjectID }) => Promise<T>,
   options: { git?: boolean } = { git: true },
 ) {
   await using tmp = await tmpdir({ git: options.git ?? true })
   return await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const app = new Hono().route("/automation", AutomationRoutes())
-      app.onError(ErrorMiddleware)
+      const app = automationProductionApp(tmp.path)
       return fn({ app, projectID: Instance.project.id })
     },
   })
 }
 
-async function json(app: Hono, input: string, init?: RequestInit) {
+async function json(app: AutomationTestApp, input: string, init?: RequestInit) {
   const response = await app.request(input, init)
   return response.json()
 }
@@ -1043,8 +1055,7 @@ describe("automation routes", () => {
     await Instance.provide({
       directory: source.path,
       fn: async () => {
-        const app = new Hono().route("/automation", AutomationRoutes())
-        app.onError(ErrorMiddleware)
+        const app = automationProductionApp(source.path)
         const sourceProjectID = Instance.project.id
         if (!targetProjectID) throw new Error("expected target project")
         const created = Automation.create(recurringInput(sourceProjectID), { now: 100 })
@@ -1122,8 +1133,7 @@ describe("automation routes", () => {
     await Instance.provide({
       directory: source.path,
       fn: async () => {
-        const app = new Hono().route("/automation", AutomationRoutes())
-        app.onError(ErrorMiddleware)
+        const app = automationProductionApp(source.path)
         if (!targetProjectID) throw new Error("expected target project")
         const created = Automation.create(recurringInput(Instance.project.id), { now: 100 })
         const active = Automation.runNow(created.id, { now: 200 })
@@ -1160,8 +1170,7 @@ describe("automation routes", () => {
     await Instance.provide({
       directory: source.path,
       fn: async () => {
-        const app = new Hono().route("/automation", AutomationRoutes())
-        app.onError(ErrorMiddleware)
+        const app = automationProductionApp(source.path)
         if (!targetProjectID) throw new Error("expected target project")
         const created = Automation.create(recurringInput(Instance.project.id, { context: "continue" }), {
           sourceSessionID: SessionID.descending(),

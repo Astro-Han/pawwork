@@ -219,6 +219,15 @@ describe("production server boundary", () => {
     expect(externalResult).not.toContain("export const ExternalResultRoutes")
   })
 
+  test("does not retain the retired automation legacy Hono route source", async () => {
+    const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
+    const automation = path.join(import.meta.dir, "../../src/server/instance/automation.ts")
+
+    expect(existsSync(automation)).toBe(false)
+    expect(instanceRoutes).not.toContain("AutomationRoutes")
+    expect(instanceRoutes).not.toContain('.route("/automation"')
+  })
+
   test("does not retain the retired session legacy Hono route source", async () => {
     const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
     const session = await readFile(path.join(import.meta.dir, "../../src/server/instance/session.ts"), "utf8")
