@@ -554,7 +554,7 @@ describe("route inventory harness", () => {
     }
 
     expect(inventory.rows.find((row) => row.method === "ALL" && row.path === "/*")).toMatchObject({
-      hono: true,
+      hono: false,
       localHttpApi: false,
       nativeSpecial: true,
       compatibilityBoundary: false,
@@ -658,7 +658,7 @@ describe("route inventory harness", () => {
   test("matches discovered Hono route modules when Windows uses backslash separators", () => {
     expect(
       getMissingHonoRouteSources([
-        "packages\\opencode\\src\\server\\ui\\index.ts",
+        "packages\\opencode\\src\\server\\instance\\event.ts",
       ]),
     ).toEqual([])
   })
