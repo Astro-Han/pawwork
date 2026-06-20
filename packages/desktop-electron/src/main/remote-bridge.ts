@@ -83,7 +83,7 @@ interface ServerInfo {
  * tests can supply a fake bridge against the same contract. */
 export interface BridgeApp {
   run(signal?: AbortSignal, onReady?: () => void, onStatus?: (status: PlatformStatus) => void): Promise<void>
-  addPlatform(config: PlatformConfig): Promise<void>
+  addPlatform(config: PlatformConfig, beforeCommit?: () => void | Promise<void>): Promise<void>
   removePlatform(name: string): Promise<void>
 }
 
@@ -228,12 +228,13 @@ export class RemoteBridgeRuntime {
   /**
    * Approve the pending account for `platform` and connect it. On a cold bridge this
    * builds the whole bridge; on a live bridge it connects just this channel, leaving
-   * the shared event stream and the other channels running. A live re-pair is
-   * prepare-first: the new channel is built and connected before the saved credential
-   * is replaced, so a failed re-pair leaves the working channel and its stored
-   * credential exactly as they were (the in-memory account swap is rolled back and the
-   * error rethrown). The secret was captured main-side, so the renderer approves the
-   * captured identity without resending it.
+   * the shared event stream and the other channels running. A live re-pair (or adding a
+   * second channel) is prepare-first: the new channel is built and its credential saved
+   * before the old loop is swapped out, so any failure — a bad build or an unwritable
+   * credential store — leaves the working channel and its stored credential exactly as
+   * they were (the in-memory account swap is rolled back and the error rethrown). The
+   * secret was captured main-side, so the renderer approves the captured identity
+   * without resending it.
    */
   async confirmPairing(platform: RemotePlatform): Promise<void> {
     const pending = this.pending
@@ -250,16 +251,17 @@ export class RemoteBridgeRuntime {
         await this.startBridge()
         return
       }
-      // Live bridge: prepare-first. Build + connect the new channel BEFORE persisting
-      // the new credential, so a failed re-pair keeps the working channel and its
-      // saved credential intact. Swap accounts in memory first so the new channel's
-      // status renders the new identity; persist only once addPlatform succeeds, and
-      // roll the swap back (leaving the old channel untouched) on failure.
+      // Live bridge: prepare-first. addPlatform builds the new channel and runs the
+      // commit hook — which persists the credential — BEFORE it swaps out the old loop,
+      // so a save failure (locked keyring, unwritable file) aborts the swap with the old
+      // channel still serving, never a live new channel backed by a stale stored
+      // credential. Swap accounts in memory first so the hook persists the new list and
+      // the new channel's status renders the new identity; roll the swap back (leaving
+      // the old channel untouched) on any failure.
       const previousAccounts = this.accounts
       this.accounts = nextAccounts
       try {
-        await app.addPlatform(this.platformConfig(pending))
-        this.deps.credentials.save(this.accounts)
+        await app.addPlatform(this.platformConfig(pending), () => this.deps.credentials.save(this.accounts))
       } catch (err) {
         this.accounts = previousAccounts
         throw err

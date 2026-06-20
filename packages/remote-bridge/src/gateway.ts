@@ -135,22 +135,27 @@ export class App {
    * can never bypass the audience check. If a platform of the same name is already
    * live (a re-pair), the replacement is built first and the old loop retired only on
    * success — keeping its session pointers, since a re-pair continues the conversation
-   * rather than forgetting it; a failed build leaves the old channel serving.
+   * rather than forgetting it; a failed build leaves the old channel serving. The
+   * optional `beforeCommit` hook runs at that same safe point — after the build, before
+   * any live change — so a caller that must durably commit the new channel (the desktop
+   * saves its credential) can fail there and still leave the old channel serving.
    * Registered with the Engine before it is supervised, so its first inbound routes.
    */
-  async addPlatform(config: PlatformConfig): Promise<void> {
+  async addPlatform(config: PlatformConfig, beforeCommit?: () => void | Promise<void>): Promise<void> {
     if (!config.name) throw new Error("enabled platform name is required")
     const options = config.options ?? {}
     if (!hasRemoteAudience(config.name, options)) {
       throw new Error(`${config.name} platform requires a specific allow_from or Feishu/Lark allow_chat with group_only`)
     }
-    // Prepare-first / swap-after-success: validate the audience and build the
-    // replacement BEFORE touching any live same-name instance, so a failed re-pair
-    // (rejected audience or a factory throw) leaves the existing channel serving and
-    // lets the caller roll back without losing a working connection. Only once the new
-    // platform is built do we retire the old loop (keeping its session pointers, since
-    // a re-pair continues the conversation), register the new one, and supervise it.
+    // Prepare-first / swap-after-success: validate the audience, build the replacement,
+    // and run beforeCommit BEFORE touching any live same-name instance, so a failed
+    // re-pair (rejected audience, a factory throw, or a beforeCommit that can't persist)
+    // leaves the existing channel serving and lets the caller roll back without losing a
+    // working connection. Only once all three succeed do we retire the old loop (keeping
+    // its session pointers, since a re-pair continues the conversation), register the new
+    // one, and supervise it.
     const platform = await this.factory(config.name, options)
+    await beforeCommit?.()
     if (this.desiredPlatforms.has(config.name)) await this.retirePlatform(config.name)
     this.engine.registerPlatform(platform)
     this.desiredPlatforms.set(config.name, platform)

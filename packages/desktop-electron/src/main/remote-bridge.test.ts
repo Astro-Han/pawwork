@@ -14,7 +14,11 @@ import {
   type RemotePlatform,
 } from "./remote-bridge"
 
-function memoryStore(initial: RemoteAccount[] = [], available = true): CredentialStore & { value: RemoteAccount[] } {
+function memoryStore(
+  initial: RemoteAccount[] = [],
+  available = true,
+  failSave = false,
+): CredentialStore & { value: RemoteAccount[] } {
   return {
     value: initial,
     isAvailable() {
@@ -24,6 +28,10 @@ function memoryStore(initial: RemoteAccount[] = [], available = true): Credentia
       return this.value
     },
     save(accounts) {
+      // The real store throws when secure storage is unavailable or the file write
+      // fails. `failSave` models a save that fails even though pairing's upfront
+      // availability check passed — the keyring locks or the disk errors mid-confirm.
+      if (failSave) throw new Error("secure storage is unavailable on this system, cannot save the connection")
       this.value = accounts
     },
     clear() {
@@ -85,7 +93,14 @@ function servingApp(names: string[]): BridgeApp {
       for (const name of names) onStatus?.({ name, phase: "serving" })
       return hangUntilAbort(signal)
     },
-    { addPlatform: async (config) => emitStatus?.({ name: config.name, phase: "serving" }) },
+    {
+      addPlatform: async (config, beforeCommit) => {
+        // Mirror the real gateway: run the commit hook (the runtime saves its
+        // credential here) after the build, before the channel starts serving.
+        await beforeCommit?.()
+        emitStatus?.({ name: config.name, phase: "serving" })
+      },
+    },
   )
 }
 
@@ -109,7 +124,10 @@ function bridgeHarness() {
         return hangUntilAbort(signal)
       },
       {
-        addPlatform: async (added) => {
+        addPlatform: async (added, beforeCommit) => {
+          // Mirror the real gateway: the commit hook (credential save) runs after the
+          // build and before the live swap, so a hook that throws records no add.
+          await beforeCommit?.()
           state.events.push(`add:${added.name}`)
           emitStatus?.({ name: added.name, phase: "serving" })
         },
@@ -576,6 +594,72 @@ test("a failed re-pair on a live bridge keeps the working channel connected and 
   expect(build).toBe(1) // ...but the shared bridge was never rebuilt
   expect(runtime.getStatus().channels[0].state).toBe("connected") // working channel preserved
   expect(store.value).toEqual([oldAccount]) // old credential not overwritten by the new one
+  await runtime.stop()
+})
+
+test("a re-pair whose credential save fails keeps the working channel and never half-commits", async () => {
+  // Prepare-first commit hook: addPlatform persists the credential BEFORE swapping out
+  // the old loop, so a save failure (the keyring locks, the disk errors) aborts the
+  // swap with the old channel still serving — never a live new channel backed by a
+  // stale stored credential, and never an in-memory account list out of sync with disk.
+  const oldAccount = sampleAccount("telegram")
+  const store = memoryStore([oldAccount], true, true) // available so pairing proceeds; save throws
+  const harness = bridgeHarness()
+  const newAccount: RemoteAccount = { platform: "telegram", token: "999:xyz", allowFrom: "99", userName: "new" }
+  const runtime = new RemoteBridgeRuntime(
+    deps({
+      credentials: store,
+      buildApp: harness.buildApp,
+      pairers: [
+        fakePairer("telegram", {
+          pair: async (_start, emit) => {
+            emit({ phase: "awaitingBind", platform: "telegram", hint: "message" })
+            return newAccount
+          },
+        }),
+      ],
+    }),
+  )
+  await runtime.startIfConfigured() // cold start with the old account → connected
+  const channel = () => runtime.getStatus().channels.find((c) => c.platform === "telegram")
+  expect(channel()?.state).toBe("connected")
+  expect(harness.state.build).toBe(1)
+
+  await runtime.startPairing("telegram", { token: "x" })
+  await expect(runtime.confirmPairing("telegram")).rejects.toThrow(/secure storage/)
+
+  // No incremental add was committed, no rebuild, exactly one channel still serving,
+  // and neither memory nor disk took the new account.
+  expect(harness.state.build).toBe(1)
+  expect(harness.state.events).toEqual([])
+  expect(runtime.getStatus().channels).toHaveLength(1)
+  expect(channel()?.state).toBe("connected")
+  expect(store.value).toEqual([oldAccount])
+  await runtime.stop()
+})
+
+test("a second channel whose credential save fails is not added and leaves the first connected", async () => {
+  // Same commit-before-swap guard on the incremental-add path: a save failure while
+  // connecting a SECOND channel adds no orphan live channel and rolls the in-memory
+  // swap back, so the first channel keeps serving and the store holds only its account.
+  const store = memoryStore([sampleAccount("telegram")], true, true)
+  const harness = bridgeHarness()
+  const runtime = new RemoteBridgeRuntime(
+    deps({ credentials: store, buildApp: harness.buildApp, pairers: [fakePairer("telegram"), fakePairer("wechat")] }),
+  )
+  const stateOf = (platform: RemotePlatform) => runtime.getStatus().channels.find((c) => c.platform === platform)?.state
+  await runtime.startIfConfigured() // telegram connected from the saved account
+  expect(stateOf("telegram")).toBe("connected")
+  expect(harness.state.build).toBe(1)
+
+  await runtime.startPairing("wechat")
+  await expect(runtime.confirmPairing("wechat")).rejects.toThrow(/secure storage/)
+
+  expect(harness.state.events).toEqual([]) // WeChat never joined the live set
+  expect(harness.state.build).toBe(1)
+  expect(stateOf("wechat")).toBeUndefined()
+  expect(stateOf("telegram")).toBe("connected")
+  expect(store.value).toEqual([sampleAccount("telegram")]) // store still holds only telegram
   await runtime.stop()
 })
 
