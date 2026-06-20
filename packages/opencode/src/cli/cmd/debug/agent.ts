@@ -73,10 +73,14 @@ export const AgentCommand = cmd({
 
 async function getAvailableTools(agent: Agent.Info) {
   const model = agent.model ?? (await Provider.defaultModel())
-  return ToolRegistry.tools({
-    ...model,
-    agent,
-  })
+  return AppRuntime.runPromise(
+    ToolRegistry.Service.use((registry) =>
+      registry.tools({
+        ...model,
+        agent,
+      }),
+    ),
+  )
 }
 
 async function resolveTools(agent: Agent.Info, availableTools: Awaited<ReturnType<typeof getAvailableTools>>) {

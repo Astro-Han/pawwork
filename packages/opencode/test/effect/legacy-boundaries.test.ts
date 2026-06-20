@@ -297,6 +297,20 @@ test("Plugin and Skill services do not expose Promise facades", async () => {
   }
 })
 
+test("ToolRegistry service does not expose Promise facades", async () => {
+  const text = await readFile(path.join(srcRoot, "tool/registry.ts"), "utf8")
+  const facades = [
+    "export async function ids",
+    "export async function tools",
+    "export async function availableDeferred",
+    "export async function invalidate",
+  ]
+
+  expect(text).not.toMatch(/\bfrom\s+["']@\/effect\/run-service["']/)
+  expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
+  for (const facade of facades) expect(text).not.toContain(facade)
+})
+
 test("File and SessionShare services do not expose Promise facades", async () => {
   const services = {
     "file/index.ts": [
