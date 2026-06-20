@@ -67,10 +67,6 @@ const honoRouteSources = [
   ["packages/opencode/src/server/instance/event.ts", ""],
 ] as const
 
-const supplementalHonoRouteSources = [
-  "packages/opencode/src/server/ui/index.ts",
-] as const
-
 const honoRouteModuleSearchRoots = [
   "packages/opencode/src/server/control",
   "packages/opencode/src/server/instance",
@@ -101,6 +97,7 @@ const nativeSpecialRoutes = new Set([
 
 const nativeSpecialRouteEntries: Route[] = [
   { method: "GET", path: "/__workspace_ws", source: "packages/opencode/src/server/websocket-compatibility.ts" },
+  { method: "ALL", path: "/*", source: "packages/opencode/src/server/ui/index.ts" },
 ]
 
 const compatibilityBoundaryRoutes = new Set<string>()
@@ -245,9 +242,7 @@ async function discoverHonoRouteModules(root: string): Promise<string[]> {
 }
 
 export function getMissingHonoRouteSources(expected: string[]): string[] {
-  const covered = [...honoRouteSources.map(([relative]) => relative), ...supplementalHonoRouteSources].map(
-    normalizeRouteSourcePath,
-  )
+  const covered = honoRouteSources.map(([relative]) => normalizeRouteSourcePath(relative))
   const coveredSet = new Set<string>(covered)
   return expected.map(normalizeRouteSourcePath).filter((relative) => !coveredSet.has(relative))
 }
@@ -255,9 +250,7 @@ export function getMissingHonoRouteSources(expected: string[]): string[] {
 export async function getHonoRouteSourceCoverage(rootInput?: string): Promise<HonoRouteSourceCoverage> {
   const root = repoRoot(rootInput)
   const expected = await discoverHonoRouteModules(root)
-  const covered = [...honoRouteSources.map(([relative]) => relative), ...supplementalHonoRouteSources]
-    .map(normalizeRouteSourcePath)
-    .sort()
+  const covered = honoRouteSources.map(([relative]) => normalizeRouteSourcePath(relative)).sort()
   return {
     expected,
     covered,
@@ -279,8 +272,6 @@ async function discoverHonoRoutes(root: string): Promise<Route[]> {
       routes.push({ method, path: joinRoute(prefix, routePath), source: relative })
     }
   }
-  // These runtime routes are wired through UI/proxy setup instead of ordinary route modules.
-  routes.push({ method: "ALL", path: "/*", source: "packages/opencode/src/server/ui/index.ts" })
   return uniqueRoutes(routes)
 }
 

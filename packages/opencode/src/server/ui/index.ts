@@ -1,6 +1,4 @@
 import { Flag } from "@opencode-ai/core/flag/flag"
-import { Hono } from "hono"
-import { getMimeType } from "hono/utils/mime"
 import { createHash } from "node:crypto"
 import fs from "node:fs/promises"
 
@@ -25,6 +23,70 @@ const HOP_BY_HOP_HEADERS = [
   "transfer-encoding",
   "upgrade",
 ] as const
+
+const STATIC_MIME_TYPES: Record<string, string> = {
+  aac: "audio/aac",
+  avi: "video/x-msvideo",
+  avif: "image/avif",
+  av1: "video/av1",
+  bin: "application/octet-stream",
+  bmp: "image/bmp",
+  css: "text/css; charset=utf-8",
+  csv: "text/csv; charset=utf-8",
+  eot: "application/vnd.ms-fontobject",
+  epub: "application/epub+zip",
+  gif: "image/gif",
+  gz: "application/gzip",
+  htm: "text/html; charset=utf-8",
+  html: "text/html; charset=utf-8",
+  ico: "image/x-icon",
+  ics: "text/calendar; charset=utf-8",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  js: "text/javascript; charset=utf-8",
+  json: "application/json",
+  jsonld: "application/ld+json",
+  map: "application/json",
+  mid: "audio/x-midi",
+  midi: "audio/x-midi",
+  mjs: "text/javascript; charset=utf-8",
+  mp3: "audio/mpeg",
+  mp4: "video/mp4",
+  mpeg: "video/mpeg",
+  oga: "audio/ogg",
+  ogv: "video/ogg",
+  ogx: "application/ogg",
+  opus: "audio/opus",
+  otf: "font/otf",
+  pdf: "application/pdf",
+  png: "image/png",
+  rtf: "application/rtf",
+  svg: "image/svg+xml; charset=utf-8",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+  ts: "video/mp2t",
+  ttf: "font/ttf",
+  txt: "text/plain; charset=utf-8",
+  wasm: "application/wasm",
+  webm: "video/webm",
+  weba: "audio/webm",
+  webmanifest: "application/manifest+json",
+  webp: "image/webp",
+  woff: "font/woff",
+  woff2: "font/woff2",
+  xhtml: "application/xhtml+xml; charset=utf-8",
+  xml: "application/xml; charset=utf-8",
+  zip: "application/zip",
+  "3gp": "video/3gpp",
+  "3g2": "video/3gpp2",
+  gltf: "model/gltf+json",
+  glb: "model/gltf-binary",
+}
+
+function getStaticMimeType(file: string) {
+  const match = file.match(/\.([a-zA-Z0-9]+?)$/)
+  return match ? STATIC_MIME_TYPES[match[1]!.toLowerCase()] : undefined
+}
 
 function proxyRequestHeaders(request: Request) {
   const headers = new Headers(request.headers)
@@ -57,7 +119,7 @@ export async function handleUIRequest(request: Request) {
     if (!match) return Response.json({ error: "Not Found" }, { status: 404 })
 
     if (await fs.exists(match)) {
-      const mime = getMimeType(match) ?? "text/plain"
+      const mime = getStaticMimeType(match) ?? "text/plain"
       const headers = new Headers({ "content-type": mime })
       if (mime.startsWith("text/html")) {
         headers.set("content-security-policy", DEFAULT_CSP)
@@ -93,8 +155,3 @@ export async function handleUIRequest(request: Request) {
     headers,
   })
 }
-
-export const UIRoutes = (): Hono =>
-  new Hono().all("/*", async (c) => {
-    return handleUIRequest(c.req.raw)
-  })

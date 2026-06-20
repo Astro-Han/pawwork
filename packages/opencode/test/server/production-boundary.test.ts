@@ -189,6 +189,22 @@ describe("production server boundary", () => {
     expect(bunAdapter).not.toMatch(/create\(app:\s*Hono/)
   })
 
+  test("keeps UI static handling on the native Web handler boundary", async () => {
+    const ui = await readFile(path.join(import.meta.dir, "../../src/server/ui/index.ts"), "utf8")
+
+    expect(ui).not.toMatch(/from\s+["']hono["']/)
+    expect(ui).not.toMatch(/\bnew\s+Hono\s*\(/)
+    expect(ui).not.toContain("export const UIRoutes")
+    expect(existsSync(path.join(import.meta.dir, "../../src/server/routes/ui.ts"))).toBe(false)
+    expect(ui).toContain("export async function handleUIRequest")
+    expect(ui).not.toContain("mime-types")
+    expect(ui).toContain('html: "text/html; charset=utf-8"')
+    expect(ui).toContain('css: "text/css; charset=utf-8"')
+    expect(ui).toContain('js: "text/javascript; charset=utf-8"')
+    expect(ui).toContain('svg: "image/svg+xml; charset=utf-8"')
+    expect(ui).toContain('return match ? STATIC_MIME_TYPES[match[1]!.toLowerCase()] : undefined')
+  })
+
   test("does not keep a legacy Hono documentation route tree", () => {
     const openapi = path.join(import.meta.dir, "../../src/server/openapi.ts")
 
