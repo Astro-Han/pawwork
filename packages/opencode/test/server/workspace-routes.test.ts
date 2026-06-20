@@ -55,6 +55,10 @@ function requestWorkspaceHttpApi(path: string, init?: RequestInit) {
   )
 }
 
+function runPlugin<A>(fn: (plugin: Plugin.Interface) => Effect.Effect<A>) {
+  return AppRuntime.runPromise(Plugin.Service.use(fn))
+}
+
 async function workspaceProject(label: string) {
   return tmpdir({
     git: true,
@@ -152,7 +156,7 @@ describe("workspace routes", () => {
     await Instance.provide({
       directory: other.path,
       fn: async () => {
-        await Plugin.init()
+        await runPlugin((plugin) => plugin.init())
         const response = await createWorkspace(other.extra.type)
         expect(response.status).toBe(200)
         otherWorkspace = await response.json()
@@ -163,7 +167,7 @@ describe("workspace routes", () => {
     await Instance.provide({
       directory: current.path,
       fn: async () => {
-        await Plugin.init()
+        await runPlugin((plugin) => plugin.init())
 
         const createdResponse = await createWorkspace(current.extra.type)
         expect(createdResponse.status).toBe(200)
@@ -200,7 +204,7 @@ describe("workspace routes", () => {
     await Instance.provide({
       directory: other.path,
       fn: async () => {
-        await Plugin.init()
+        await runPlugin((plugin) => plugin.init())
         const response = await app().request(`/workspace/${otherWorkspace!.id}`, { method: "DELETE" })
         expect(response.status).toBe(200)
       },
@@ -213,7 +217,7 @@ describe("workspace routes", () => {
     await Instance.provide({
       directory: current.path,
       fn: async () => {
-        await Plugin.init()
+        await runPlugin((plugin) => plugin.init())
 
         const createdResponse = await createWorkspaceHttpApi(current.extra.type)
         expect(createdResponse.status).toBe(200)

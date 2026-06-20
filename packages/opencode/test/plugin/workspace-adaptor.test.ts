@@ -2,6 +2,7 @@ import { $ } from "bun"
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import { unlink } from "node:fs/promises"
 import { Effect } from "effect"
+import type { Plugin as PluginNamespace } from "../../src/plugin/index"
 import { mkdir } from "fs/promises"
 import path from "path"
 import { pathToFileURL } from "url"
@@ -20,6 +21,7 @@ const { Plugin } = await import("../../src/plugin/index")
 const { Workspace } = await import("../../src/control-plane/workspace")
 const { Instance } = await import("../../src/project/instance")
 const { getAdaptor, ownerKey } = await import("../../src/control-plane/adaptors")
+const { AppRuntime } = await import("../../src/effect/app-runtime")
 
 const experimental = Flag.OPENCODE_EXPERIMENTAL_WORKSPACES
 // @ts-expect-error test-only flag override
@@ -74,6 +76,10 @@ async function waitForCounter(file: string, min: number, timeout = 5_000) {
 }
 
 const workspaceSyncRetryTimeout = process.platform === "win32" ? 20_000 : 5_000
+
+function runPlugin<A>(fn: (plugin: PluginNamespace.Interface) => Effect.Effect<A>) {
+  return AppRuntime.runPromise(Plugin.Service.use(fn))
+}
 
 async function pluginProject() {
   return tmpdir({
@@ -410,7 +416,7 @@ describe("plugin.workspace", () => {
       const fromRoot = await Instance.provide({
         directory: root.path,
         fn: async () => {
-          await Plugin.init()
+          await runPlugin((plugin) => plugin.init())
           return Workspace.create({
             type,
             branch: null,
@@ -424,7 +430,7 @@ describe("plugin.workspace", () => {
       const fromWorktree = await Instance.provide({
         directory: worktreePath,
         fn: async () => {
-          await Plugin.init()
+          await runPlugin((plugin) => plugin.init())
           return Workspace.create({
             type,
             branch: null,
@@ -509,7 +515,7 @@ describe("plugin.workspace", () => {
     const workspace = await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        await Plugin.init()
+        await runPlugin((plugin) => plugin.init())
         return Workspace.create({
           type: tmp.extra.type,
           branch: null,
@@ -580,7 +586,7 @@ describe("plugin.workspace", () => {
     const info = await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        await Plugin.init()
+        await runPlugin((plugin) => plugin.init())
         return Workspace.create({
           type: "worktree",
           branch: null,
@@ -605,7 +611,7 @@ describe("plugin.workspace", () => {
     const workspace = await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        await Plugin.init()
+        await runPlugin((plugin) => plugin.init())
         return Workspace.create({
           type: tmp.extra.type,
           branch: null,

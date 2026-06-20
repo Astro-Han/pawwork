@@ -196,7 +196,7 @@ export namespace Workspace {
         const match = await Instance.provide({
           directory,
           fn: async () => {
-            await Plugin.init()
+            await AppRuntime.runPromise(Plugin.Service.use((plugin) => plugin.init()))
             const owner = ownerKey(Instance.directory, Instance.worktree)
             return {
               owner,
