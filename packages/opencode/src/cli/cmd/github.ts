@@ -960,41 +960,47 @@ export const GithubRunCommand = cmd({
       async function chat(message: string, files: PromptFiles = []) {
         console.log("Sending message to opencode...")
 
-        const result = await SessionPrompt.prompt({
-          sessionID: session.id,
-          messageID: MessageID.ascending(),
-          variant,
-          model: {
-            providerID,
-            modelID,
-          },
-          // agent is omitted - server will choose the default primary agent
-          parts: [
-            {
-              id: PartID.ascending(),
-              type: "text",
-              text: message,
-            },
-            ...files.flatMap((f) => [
-              {
-                id: PartID.ascending(),
-                type: "file" as const,
-                mime: f.mime,
-                url: `data:${f.mime};base64,${f.content}`,
-                filename: f.filename,
-                source: {
-                  type: "file" as const,
-                  text: {
-                    value: f.replacement,
-                    start: f.start,
-                    end: f.end,
-                  },
-                  path: f.filename,
+        const result = await AppRuntime.runPromise(
+          SessionPrompt.Service.use((prompt) =>
+            prompt.prompt(
+              SessionPrompt.PromptInput.parse({
+                sessionID: session.id,
+                messageID: MessageID.ascending(),
+                variant,
+                model: {
+                  providerID,
+                  modelID,
                 },
-              },
-            ]),
-          ],
-        })
+                // agent is omitted - server will choose the default primary agent
+                parts: [
+                  {
+                    id: PartID.ascending(),
+                    type: "text",
+                    text: message,
+                  },
+                  ...files.flatMap((f) => [
+                    {
+                      id: PartID.ascending(),
+                      type: "file" as const,
+                      mime: f.mime,
+                      url: `data:${f.mime};base64,${f.content}`,
+                      filename: f.filename,
+                      source: {
+                        type: "file" as const,
+                        text: {
+                          value: f.replacement,
+                          start: f.start,
+                          end: f.end,
+                        },
+                        path: f.filename,
+                      },
+                    },
+                  ]),
+                ],
+              }),
+            ),
+          ),
+        )
 
         if (result.info.role === "assistant" && result.info.error) {
           const err = result.info.error
@@ -1007,23 +1013,29 @@ export const GithubRunCommand = cmd({
         if (text) return text
 
         console.log("Requesting summary from agent...")
-        const summary = await SessionPrompt.prompt({
-          sessionID: session.id,
-          messageID: MessageID.ascending(),
-          variant,
-          model: {
-            providerID,
-            modelID,
-          },
-          tools: { "*": false },
-          parts: [
-            {
-              id: PartID.ascending(),
-              type: "text",
-              text: "Summarize the actions (tool calls & reasoning) you did for the user in 1-2 sentences.",
-            },
-          ],
-        })
+        const summary = await AppRuntime.runPromise(
+          SessionPrompt.Service.use((prompt) =>
+            prompt.prompt(
+              SessionPrompt.PromptInput.parse({
+                sessionID: session.id,
+                messageID: MessageID.ascending(),
+                variant,
+                model: {
+                  providerID,
+                  modelID,
+                },
+                tools: { "*": false },
+                parts: [
+                  {
+                    id: PartID.ascending(),
+                    type: "text",
+                    text: "Summarize the actions (tool calls & reasoning) you did for the user in 1-2 sentences.",
+                  },
+                ],
+              }),
+            ),
+          ),
+        )
 
         if (summary.info.role === "assistant" && summary.info.error) {
           const err = summary.info.error

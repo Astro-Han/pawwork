@@ -44,6 +44,7 @@ import { LoopRenderer } from "./loop-renderer"
 import * as Tool from "@/tool/tool"
 import { ExternalResult } from "@/tool/external-result"
 import { Permission } from "@/permission"
+import { Env } from "@/env"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
 import { Shell } from "@/shell/shell"
@@ -59,7 +60,7 @@ import { AgentTool, type AgentPromptOps } from "@/tool/agent"
 import { SessionRunState } from "./run-state"
 import { RunLifecycle } from "./run-lifecycle"
 import { EffectBridge } from "@/effect"
-import { attachWith, makeRuntime } from "@/effect/run-service"
+import { attachWith } from "@/effect/run-service"
 import { Instance } from "@/project/instance"
 import { MemoryFile } from "@/memory/memory"
 import { MemoryService } from "@/memory/service"
@@ -2849,6 +2850,7 @@ export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(()
     Layer.provide(Session.defaultLayer),
     Layer.provide(SessionRevert.defaultLayer),
     Layer.provide(SessionSummary.defaultLayer),
+    Layer.provide(Env.defaultLayer),
     Layer.provide(
       Layer.mergeAll(
         Agent.defaultLayer,
@@ -2860,7 +2862,6 @@ export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(()
     ),
   ),
 )
-const { runPromise } = makeRuntime(Service, defaultLayer)
 
 export const PromptInput = z.object({
   sessionID: SessionID.zod,
@@ -2941,35 +2942,6 @@ export const PromptInput = z.object({
 })
 export type PromptInput = z.infer<typeof PromptInput>
 
-export async function prompt(input: PromptInput) {
-  // automationID is automation-run provenance, set only by the runner through
-  // promptWithAutomationContext (which also provides the trusted
-  // AutomationRunContext). Strip any client-supplied value here so HTTP callers
-  // (POST /:sessionID/message, /prompt_async both route through this) cannot
-  // forge the "sent via automation" attribution.
-  return runPromise((svc) => svc.prompt(PromptInput.parse({ ...input, automationID: undefined })))
-}
-
-export async function promptWithAutomationContext(
-  input: PromptInput,
-  context: import("@/automation/run-context").AutomationRunContext,
-  options?: PromptRuntimeOptions,
-) {
-  return runPromise((svc) =>
-    svc
-      .prompt(PromptInput.parse(input), options)
-      .pipe(Effect.provideService(AutomationRunContext.service, context)),
-  )
-}
-
-export async function resolvePromptParts(template: string) {
-  return runPromise((svc) => svc.resolvePromptParts(z.string().parse(template)))
-}
-
-export async function cancel(sessionID: SessionID, options?: { source?: string }) {
-  return runPromise((svc) => svc.cancel(SessionID.zod.parse(sessionID), options))
-}
-
 export const LoopInput = z.object({
   sessionID: SessionID.zod,
   traceMessageID: MessageID.zod.optional(),
@@ -2989,10 +2961,6 @@ export const LoopInput = z.object({
     .optional(),
 })
 
-export async function loop(input: z.infer<typeof LoopInput>) {
-  return runPromise((svc) => svc.loop(LoopInput.parse(input)))
-}
-
 export const ShellInput = z.object({
   sessionID: SessionID.zod,
   messageID: MessageID.zod.optional(),
@@ -3006,10 +2974,6 @@ export const ShellInput = z.object({
   command: z.string(),
 })
 export type ShellInput = z.infer<typeof ShellInput>
-
-export async function shell(input: ShellInput) {
-  return runPromise((svc) => svc.shell(ShellInput.parse(input)))
-}
 
 export const CommandInput = z.object({
   messageID: MessageID.zod.optional(),
@@ -3034,10 +2998,6 @@ export const CommandInput = z.object({
     .optional(),
 })
 export type CommandInput = z.infer<typeof CommandInput>
-
-export async function command(input: CommandInput) {
-  return runPromise((svc) => svc.command(CommandInput.parse(input)))
-}
 
 type McpContentItem =
   | { type: "text"; text: string }

@@ -111,7 +111,9 @@ export const sessionPromptExecutor: Automation.RunExecutor = async ({ definition
     )
   }
   const cancelPrompt = () => {
-    void SessionPrompt.cancel(sessionID, { source: "automation.cancel" }).catch(() => undefined)
+    void AppRuntime.runPromise(
+      SessionPrompt.Service.use((prompt) => prompt.cancel(sessionID, { source: "automation.cancel" })),
+    ).catch(() => undefined)
   }
   if (signal.aborted) cancelPrompt()
   else signal.addEventListener("abort", cancelPrompt, { once: true })
@@ -136,16 +138,21 @@ export const sessionPromptExecutor: Automation.RunExecutor = async ({ definition
     }
     const scoped =
       attendance === "attended" ? AutomationRunContext.attended(handlers) : AutomationRunContext.unattended(handlers)
-    const message = await SessionPrompt.promptWithAutomationContext(
-      {
-        sessionID,
-        automationID: definition.id,
-        model: definition.model,
-        ...(definition.variant ? { variant: definition.variant } : {}),
-        parts: [{ type: "text", text: definition.prompt }],
-      },
-      scoped,
-      { abortSignal: signal },
+    const message = await AppRuntime.runPromise(
+      SessionPrompt.Service.use((prompt) =>
+        prompt
+          .prompt(
+            SessionPrompt.PromptInput.parse({
+              sessionID,
+              automationID: definition.id,
+              model: definition.model,
+              ...(definition.variant ? { variant: definition.variant } : {}),
+              parts: [{ type: "text", text: definition.prompt }],
+            }),
+            { abortSignal: signal },
+          )
+          .pipe(Effect.provideService(AutomationRunContext.service, scoped)),
+      ),
     )
     signal.throwIfAborted()
     return {

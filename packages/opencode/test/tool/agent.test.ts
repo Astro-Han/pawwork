@@ -14,6 +14,7 @@ import { AgentTool, sanitizeErrorMessage, type AgentPromptOps } from "../../src/
 import { SubagentRun } from "../../src/session/subagent-run"
 import { Truncate } from "../../src/tool/truncate"
 import { ToolRegistry } from "../../src/tool/registry"
+import { Env } from "../../src/env"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
@@ -35,6 +36,7 @@ const it = testEffect(
     SubagentRun.defaultLayer,
     Truncate.defaultLayer,
     ToolRegistry.defaultLayer,
+    Env.defaultLayer,
   ),
 )
 
@@ -94,7 +96,7 @@ function stubOps(opts?: {
   }
 }
 
-function reply(input: Parameters<typeof SessionPrompt.prompt>[0], text: string): MessageV2.WithParts {
+function reply(input: SessionPrompt.PromptInput, text: string): MessageV2.WithParts {
   const id = MessageID.ascending()
   return {
     info: {
