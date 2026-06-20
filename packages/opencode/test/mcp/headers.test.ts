@@ -46,6 +46,11 @@ beforeEach(() => {
 const { MCP } = await import("../../src/mcp/index")
 const { Instance } = await import("../../src/project/instance")
 const { tmpdir } = await import("../fixture/fixture")
+const { makeRuntime } = await import("../../src/effect/run-service")
+const mcpRuntime = makeRuntime(MCP.Service, MCP.defaultLayer)
+const MCPFacade = {
+  add: (name: string, mcpConfig: any) => mcpRuntime.runPromise((mcp) => mcp.add(name, mcpConfig)),
+}
 
 test("headers are passed to transports when oauth is enabled (default)", async () => {
   await using tmp = await tmpdir({
@@ -73,7 +78,7 @@ test("headers are passed to transports when oauth is enabled (default)", async (
     directory: tmp.path,
     fn: async () => {
       // Trigger MCP initialization - it will fail to connect but we can check the transport options
-      await MCP.add("test-server", {
+      await MCPFacade.add("test-server", {
         type: "remote",
         url: "https://example.com/mcp",
         headers: {
@@ -106,7 +111,7 @@ test("headers are passed to transports when oauth is explicitly disabled", async
     fn: async () => {
       transportCalls.length = 0
 
-      await MCP.add("test-server-no-oauth", {
+      await MCPFacade.add("test-server-no-oauth", {
         type: "remote",
         url: "https://example.com/mcp",
         oauth: false,
@@ -137,7 +142,7 @@ test("no requestInit when headers are not provided", async () => {
     fn: async () => {
       transportCalls.length = 0
 
-      await MCP.add("test-server-no-headers", {
+      await MCPFacade.add("test-server-no-headers", {
         type: "remote",
         url: "https://example.com/mcp",
       }).catch(() => {})
@@ -160,7 +165,7 @@ test("invalid remote url returns failed status without constructing transports",
     fn: async () => {
       transportCalls.length = 0
 
-      const result = await MCP.add("bad-url", {
+      const result = await MCPFacade.add("bad-url", {
         type: "remote",
         url: "not a valid url",
       })

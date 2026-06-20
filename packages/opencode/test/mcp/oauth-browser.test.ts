@@ -104,6 +104,11 @@ const { Bus } = await import("../../src/bus")
 const { McpOAuthCallback } = await import("../../src/mcp/oauth-callback")
 const { Instance } = await import("../../src/project/instance")
 const { tmpdir } = await import("../fixture/fixture")
+const { makeRuntime } = await import("../../src/effect/run-service")
+const mcpRuntime = makeRuntime(MCP.Service, MCP.defaultLayer)
+const MCPFacade = {
+  authenticate: (name: string) => mcpRuntime.runPromise((mcp) => mcp.authenticate(name)),
+}
 
 test("BrowserOpenFailed event is published when open() throws", async () => {
   await using tmp = await tmpdir({
@@ -136,7 +141,7 @@ test("BrowserOpenFailed event is published when open() throws", async () => {
       // Run authenticate with a timeout to avoid waiting forever for the callback
       // Attach a handler immediately so callback shutdown rejections
       // don't show up as unhandled between tests.
-      const authPromise = MCP.authenticate("test-oauth-server").catch(() => undefined)
+      const authPromise = MCPFacade.authenticate("test-oauth-server").catch(() => undefined)
 
       // Config.get() can be slow in tests, so give it plenty of time.
       await new Promise((resolve) => setTimeout(resolve, 2_000))
@@ -185,7 +190,7 @@ test("BrowserOpenFailed event is NOT published when open() succeeds", async () =
       })
 
       // Run authenticate with a timeout to avoid waiting forever for the callback
-      const authPromise = MCP.authenticate("test-oauth-server-2").catch(() => undefined)
+      const authPromise = MCPFacade.authenticate("test-oauth-server-2").catch(() => undefined)
 
       // Config.get() can be slow in tests; also covers the ~500ms open() error-detection window.
       await new Promise((resolve) => setTimeout(resolve, 2_000))
@@ -230,7 +235,7 @@ test("open() is called with the authorization URL", async () => {
       openCalledWith = undefined
 
       // Run authenticate with a timeout to avoid waiting forever for the callback
-      const authPromise = MCP.authenticate("test-oauth-server-3").catch(() => undefined)
+      const authPromise = MCPFacade.authenticate("test-oauth-server-3").catch(() => undefined)
 
       // Config.get() can be slow in tests; also covers the ~500ms open() error-detection window.
       await new Promise((resolve) => setTimeout(resolve, 2_000))

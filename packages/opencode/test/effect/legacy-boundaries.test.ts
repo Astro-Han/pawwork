@@ -220,6 +220,47 @@ test("Config service does not expose Promise facades", async () => {
   for (const facade of facades) expect(text).not.toContain(facade)
 })
 
+test("MCP services do not expose Promise facades", async () => {
+  const services = {
+    "mcp/index.ts": [
+      "status",
+      "tools",
+      "prompts",
+      "resources",
+      "add",
+      "connect",
+      "disconnect",
+      "startAuth",
+      "authenticate",
+      "finishAuth",
+      "removeAuth",
+      "supportsOAuth",
+      "hasStoredTokens",
+      "getAuthStatus",
+    ],
+    "mcp/auth.ts": [
+      "get",
+      "getForUrl",
+      "all",
+      "set",
+      "remove",
+      "updateTokens",
+      "updateClientInfo",
+      "updateCodeVerifier",
+      "updateOAuthState",
+    ],
+  }
+
+  for (const [file, facades] of Object.entries(services)) {
+    const text = await readFile(path.join(srcRoot, file), "utf8")
+    expect(text).not.toMatch(/\bfrom\s+["']@\/effect\/run-service["']/)
+    expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
+    for (const facade of facades) {
+      expect(text).not.toMatch(new RegExp(`\\bexport\\s+const\\s+${facade}\\b`))
+    }
+  }
+})
+
 test("Project, Vcs, and Worktree services do not expose Promise facades", async () => {
   const services = {
     "project/project.ts": [

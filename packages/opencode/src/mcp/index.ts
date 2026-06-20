@@ -28,7 +28,6 @@ import open from "open"
 import { Cause, Effect, Exit, Layer, Option, Context, Stream } from "effect"
 import { EffectBridge, type Shape as EffectBridgeShape } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
-import { makeRuntime } from "@/effect/run-service"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 
@@ -400,6 +399,7 @@ export namespace MCP {
                 log.info("oauth redirect requested", { key, url: url.toString() })
               },
             },
+            (fn) => Effect.runPromise(fn(auth)),
           )
         }
 
@@ -917,6 +917,7 @@ export namespace MCP {
               capturedUrl = url
             },
           },
+          (fn) => Effect.runPromise(fn(auth)),
         )
 
         const transport = new StreamableHTTPClientTransport(url, { authProvider })
@@ -1089,43 +1090,4 @@ export namespace MCP {
     Layer.provide(CrossSpawnSpawner.defaultLayer),
     Layer.provide(AppFileSystem.defaultLayer),
   )
-
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  // --- Async facade functions ---
-
-  export const status = async () => runPromise((svc) => svc.status())
-
-  export const tools = async () => runPromise((svc) => svc.tools())
-
-  export const prompts = async () => runPromise((svc) => svc.prompts())
-
-  export const resources = async () => runPromise((svc) => svc.resources())
-
-  export const add = async (name: string, mcp: Config.Mcp) => runPromise((svc) => svc.add(name, mcp))
-
-  export const connect = async (name: string) => runPromise((svc) => svc.connect(name))
-
-  export const disconnect = async (name: string) => runPromise((svc) => svc.disconnect(name))
-
-  export const startAuth = async (mcpName: string) => {
-    // The /:name/auth route serializes this with c.json, so the public result
-    // must stay plain data. authenticate() consumes the connected client via the
-    // internal startAuth; never expose the live (cyclic) Client here.
-    const { authorizationUrl, oauthState } = await runPromise((svc) => svc.startAuth(mcpName))
-    return { authorizationUrl, oauthState }
-  }
-
-  export const authenticate = async (mcpName: string) => runPromise((svc) => svc.authenticate(mcpName))
-
-  export const finishAuth = async (mcpName: string, authorizationCode: string) =>
-    runPromise((svc) => svc.finishAuth(mcpName, authorizationCode))
-
-  export const removeAuth = async (mcpName: string) => runPromise((svc) => svc.removeAuth(mcpName))
-
-  export const supportsOAuth = async (mcpName: string) => runPromise((svc) => svc.supportsOAuth(mcpName))
-
-  export const hasStoredTokens = async (mcpName: string) => runPromise((svc) => svc.hasStoredTokens(mcpName))
-
-  export const getAuthStatus = async (mcpName: string) => runPromise((svc) => svc.getAuthStatus(mcpName))
 }

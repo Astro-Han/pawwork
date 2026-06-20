@@ -254,6 +254,15 @@ const { NotFoundError } = await import("../../src/storage/db")
 const { tmpdir } = await import("../fixture/fixture")
 const { makeRuntime } = await import("../../src/effect/run-service")
 const mcpRuntime = makeRuntime(MCP.Service, MCP.defaultLayer)
+const MCPFacade = {
+  status: () => mcpRuntime.runPromise((mcp) => mcp.status()),
+  tools: () => mcpRuntime.runPromise((mcp) => mcp.tools()),
+  prompts: () => mcpRuntime.runPromise((mcp) => mcp.prompts()),
+  resources: () => mcpRuntime.runPromise((mcp) => mcp.resources()),
+  add: (name: string, mcpConfig: any) => mcpRuntime.runPromise((mcp) => mcp.add(name, mcpConfig)),
+  connect: (name: string) => mcpRuntime.runPromise((mcp) => mcp.connect(name)),
+  disconnect: (name: string) => mcpRuntime.runPromise((mcp) => mcp.disconnect(name)),
+}
 
 // --- Helper ---
 
@@ -297,7 +306,7 @@ test(
     ]
 
     // First: add the server successfully
-    const addResult = await MCP.add("my-server", {
+    const addResult = await MCPFacade.add("my-server", {
       type: "local",
       command: ["echo", "test"],
     })
@@ -305,8 +314,8 @@ test(
 
     expect(serverState.listToolsCalls).toBe(1)
 
-    const toolsA = await MCP.tools()
-    const toolsB = await MCP.tools()
+    const toolsA = await MCPFacade.tools()
+    const toolsB = await MCPFacade.tools()
     expect(Object.keys(toolsA).length).toBeGreaterThan(0)
     expect(Object.keys(toolsB).length).toBeGreaterThan(0)
     expect(serverState.listToolsCalls).toBe(1)
@@ -323,12 +332,12 @@ test(
     lastCreatedClientName = "status-server"
     const serverState = getOrCreateClientState("status-server")
 
-    await MCP.add("status-server", {
+    await MCPFacade.add("status-server", {
       type: "local",
       command: ["echo", "test"],
     })
 
-    const before = await MCP.tools()
+    const before = await MCPFacade.tools()
     expect(Object.keys(before).some((key) => key.includes("test_tool"))).toBe(true)
     expect(serverState.listToolsCalls).toBe(1)
 
@@ -338,7 +347,7 @@ test(
     expect(handler).toBeDefined()
     await handler?.()
 
-    const after = await MCP.tools()
+    const after = await MCPFacade.tools()
     expect(Object.keys(after).some((key) => key.includes("next_tool"))).toBe(true)
     expect(Object.keys(after).some((key) => key.includes("test_tool"))).toBe(false)
     expect(serverState.listToolsCalls).toBe(2)
@@ -353,7 +362,7 @@ test(
     serverState.capabilities = { resources: {} }
     serverState.resources = [{ name: "docs", uri: "docs://readme" }]
 
-    const addResult = await MCP.add("resource-only-server", {
+    const addResult = await MCPFacade.add("resource-only-server", {
       type: "local",
       command: ["echo", "test"],
     })
@@ -363,8 +372,8 @@ test(
     )
     expect(serverState.listToolsCalls).toBe(0)
     expect(serverState.notificationHandlers.size).toBe(0)
-    expect(await MCP.tools()).toEqual({})
-    expect(Object.keys(await MCP.resources())).toEqual(["resource-only-server:docs"])
+    expect(await MCPFacade.tools()).toEqual({})
+    expect(Object.keys(await MCPFacade.resources())).toEqual(["resource-only-server:docs"])
     expect(serverState.listResourcesCalls).toBe(1)
     expect(serverState.listPromptsCalls).toBe(0)
 
@@ -372,13 +381,13 @@ test(
     const toolsOnlyState = getOrCreateClientState("tools-only-server")
     toolsOnlyState.capabilities = { tools: {} }
 
-    await MCP.add("tools-only-server", {
+    await MCPFacade.add("tools-only-server", {
       type: "local",
       command: ["echo", "test"],
     })
 
-    expect(Object.keys(await MCP.tools())).toEqual(["tools-only-server_test_tool"])
-    expect(await MCP.prompts()).toEqual({})
+    expect(Object.keys(await MCPFacade.tools())).toEqual(["tools-only-server_test_tool"])
+    expect(await MCPFacade.prompts()).toEqual({})
     expect(toolsOnlyState.listPromptsCalls).toBe(0)
     expect(toolsOnlyState.listResourcesCalls).toBe(0)
 
@@ -387,13 +396,13 @@ test(
     nullToolsState.capabilities = { tools: null, resources: {} }
     nullToolsState.resources = [{ name: "null-docs", uri: "docs://null" }]
 
-    await MCP.add("null-tools-server", {
+    await MCPFacade.add("null-tools-server", {
       type: "local",
       command: ["echo", "test"],
     })
 
     expect(nullToolsState.listToolsCalls).toBe(0)
-    expect(Object.keys(await MCP.resources())).toContain("null-tools-server:null-docs")
+    expect(Object.keys(await MCPFacade.resources())).toContain("null-tools-server:null-docs")
   }),
 )
 
@@ -415,14 +424,14 @@ test(
       "": { resources: [{ name: "resource-two", uri: "test://two" }], nextCursor: null },
     }
 
-    await MCP.add("paged-server", {
+    await MCPFacade.add("paged-server", {
       type: "local",
       command: ["echo", "test"],
     })
 
-    expect(Object.keys(await MCP.tools())).toEqual(["paged-server_tool-one", "paged-server_tool-two"])
-    expect(Object.keys(await MCP.prompts())).toEqual(["paged-server:prompt-one", "paged-server:prompt-two"])
-    expect(Object.keys(await MCP.resources())).toEqual(["paged-server:resource-one", "paged-server:resource-two"])
+    expect(Object.keys(await MCPFacade.tools())).toEqual(["paged-server_tool-one", "paged-server_tool-two"])
+    expect(Object.keys(await MCPFacade.prompts())).toEqual(["paged-server:prompt-one", "paged-server:prompt-two"])
+    expect(Object.keys(await MCPFacade.resources())).toEqual(["paged-server:resource-one", "paged-server:resource-two"])
     expect(pagedState.listToolsCalls).toBe(2)
     expect(pagedState.listPromptsCalls).toBe(2)
     expect(pagedState.listResourcesCalls).toBe(2)
@@ -434,7 +443,7 @@ test(
       repeat: { tools: [], nextCursor: "repeat" },
     }
 
-    const addResult = await MCP.add("looping-server", {
+    const addResult = await MCPFacade.add("looping-server", {
       type: "local",
       command: ["echo", "test"],
     })
@@ -451,14 +460,14 @@ test(
     const serverState = getOrCreateClientState("defective-server")
     serverState.capabilitiesShouldThrow = true
 
-    const addResult = await MCP.add("defective-server", {
+    const addResult = await MCPFacade.add("defective-server", {
       type: "local",
       command: ["echo", "test"],
     })
 
     const serverStatus = (addResult.status as any)["defective-server"] ?? addResult.status
     expect(serverStatus).toEqual({ status: "failed", error: "capability discovery failed" })
-    expect((await MCP.status())["defective-server"]).toEqual({
+    expect((await MCPFacade.status())["defective-server"]).toEqual({
       status: "failed",
       error: "capability discovery failed",
     })
@@ -472,12 +481,12 @@ test(
     lastCreatedClientName = "abort-server"
     const serverState = getOrCreateClientState("abort-server")
 
-    await MCP.add("abort-server", {
+    await MCPFacade.add("abort-server", {
       type: "local",
       command: ["echo", "test"],
     })
 
-    const tools = await MCP.tools()
+    const tools = await MCPFacade.tools()
     const tool = tools["abort-server_test_tool"] as unknown as {
       execute: (args: unknown, options: { abortSignal: AbortSignal }) => any
     }
@@ -497,7 +506,7 @@ test(
       lastCreatedClientName = "timeout-server"
       const timeoutState = getOrCreateClientState("timeout-server")
 
-      await MCP.add("timeout-server", {
+      await MCPFacade.add("timeout-server", {
         type: "local",
         command: ["echo", "test"],
         timeout: 2500,
@@ -511,7 +520,7 @@ test(
       lastCreatedClientName = "fallback-server"
       const fallbackState = getOrCreateClientState("fallback-server")
 
-      await MCP.add("fallback-server", {
+      await MCPFacade.add("fallback-server", {
         type: "local",
         command: ["echo", "test"],
       })
@@ -535,13 +544,13 @@ test(
       timeoutState.prompts = [{ name: "prompt" }]
       timeoutState.resources = [{ name: "resource", uri: "test://resource" }]
 
-      await MCP.add("catalog-timeout-server", {
+      await MCPFacade.add("catalog-timeout-server", {
         type: "local",
         command: ["echo", "test"],
         timeout: 2500,
       })
-      await MCP.prompts()
-      await MCP.resources()
+      await MCPFacade.prompts()
+      await MCPFacade.resources()
 
       expect(timeoutState.listPromptsTimeouts).toEqual([2500])
       expect(timeoutState.listResourcesTimeouts).toEqual([2500])
@@ -560,12 +569,12 @@ test(
       timeoutState.prompts = [{ name: "prompt" }]
       timeoutState.resources = [{ name: "resource", uri: "test://resource" }]
 
-      await MCP.add("catalog-fallback-server", {
+      await MCPFacade.add("catalog-fallback-server", {
         type: "local",
         command: ["echo", "test"],
       })
-      await MCP.prompts()
-      await MCP.resources()
+      await MCPFacade.prompts()
+      await MCPFacade.resources()
 
       expect(timeoutState.listPromptsTimeouts).toEqual([5000])
       expect(timeoutState.listResourcesTimeouts).toEqual([5000])
@@ -606,7 +615,7 @@ test("tool change notification reaches the instance bus from a detached callback
       lastCreatedClientName = "notify-server"
       const serverState = getOrCreateClientState("notify-server")
 
-      await MCP.add("notify-server", { type: "local", command: ["echo", "test"] })
+      await MCPFacade.add("notify-server", { type: "local", command: ["echo", "test"] })
 
       unsubscribe = Bus.subscribe(MCP.ToolsChanged, (event) => {
         received.push(event.properties.server)
@@ -651,21 +660,21 @@ test(
       lastCreatedClientName = "disc-server"
       getOrCreateClientState("disc-server")
 
-      await MCP.add("disc-server", {
+      await MCPFacade.add("disc-server", {
         type: "local",
         command: ["echo", "test"],
       })
 
-      const statusBefore = await MCP.status()
+      const statusBefore = await MCPFacade.status()
       expect(statusBefore["disc-server"]?.status).toBe("connected")
 
-      await MCP.disconnect("disc-server")
+      await MCPFacade.disconnect("disc-server")
 
-      const statusAfter = await MCP.status()
+      const statusAfter = await MCPFacade.status()
       expect(statusAfter["disc-server"]?.status).toBe("disabled")
 
       // Tools should be empty after disconnect
-      const tools = await MCP.tools()
+      const tools = await MCPFacade.tools()
       const serverTools = Object.keys(tools).filter((k) => k.startsWith("disc-server"))
       expect(serverTools.length).toBe(0)
     },
@@ -686,19 +695,19 @@ test(
       const serverState = getOrCreateClientState("reconn-server")
       serverState.tools = [{ name: "my_tool", description: "a tool", inputSchema: { type: "object", properties: {} } }]
 
-      await MCP.add("reconn-server", {
+      await MCPFacade.add("reconn-server", {
         type: "local",
         command: ["echo", "test"],
       })
 
-      await MCP.disconnect("reconn-server")
-      expect((await MCP.status())["reconn-server"]?.status).toBe("disabled")
+      await MCPFacade.disconnect("reconn-server")
+      expect((await MCPFacade.status())["reconn-server"]?.status).toBe("disabled")
 
       // Reconnect
-      await MCP.connect("reconn-server")
-      expect((await MCP.status())["reconn-server"]?.status).toBe("connected")
+      await MCPFacade.connect("reconn-server")
+      expect((await MCPFacade.status())["reconn-server"]?.status).toBe("connected")
 
-      const tools = await MCP.tools()
+      const tools = await MCPFacade.tools()
       expect(Object.keys(tools).some((k) => k.includes("my_tool"))).toBe(true)
     },
   ),
@@ -716,7 +725,7 @@ test(
     lastCreatedClientName = "replace-server"
     const firstState = getOrCreateClientState("replace-server")
 
-    await MCP.add("replace-server", {
+    await MCPFacade.add("replace-server", {
       type: "local",
       command: ["echo", "test"],
     })
@@ -728,7 +737,7 @@ test(
     const secondState = getOrCreateClientState("replace-server")
 
     // Re-add should close the first client
-    await MCP.add("replace-server", {
+    await MCPFacade.add("replace-server", {
       type: "local",
       command: ["echo", "test"],
     })
@@ -744,32 +753,32 @@ test(
     lastCreatedClientName = "dynamic-server"
     const serverState = getOrCreateClientState("dynamic-server")
 
-    await MCP.add("dynamic-server", {
+    await MCPFacade.add("dynamic-server", {
       type: "local",
       command: ["echo", "test"],
       timeout: 1234,
     })
 
-    expect((await MCP.status())["dynamic-server"]?.status).toBe("connected")
+    expect((await MCPFacade.status())["dynamic-server"]?.status).toBe("connected")
 
-    const tools = await MCP.tools()
+    const tools = await MCPFacade.tools()
     const tool = tools["dynamic-server_test_tool"] as unknown as {
       execute: (args: unknown, options?: { abortSignal?: AbortSignal }) => any
     }
     await tool.execute({})
     expect(serverState.callToolTimeouts).toEqual([1234])
 
-    await MCP.disconnect("dynamic-server")
-    expect((await MCP.status())["dynamic-server"]?.status).toBe("disabled")
+    await MCPFacade.disconnect("dynamic-server")
+    expect((await MCPFacade.status())["dynamic-server"]?.status).toBe("disabled")
 
     clientStates.delete("dynamic-server")
     lastCreatedClientName = "dynamic-server"
     const reconnectedState = getOrCreateClientState("dynamic-server")
 
-    await MCP.connect("dynamic-server")
-    expect((await MCP.status())["dynamic-server"]?.status).toBe("connected")
+    await MCPFacade.connect("dynamic-server")
+    expect((await MCPFacade.status())["dynamic-server"]?.status).toBe("connected")
 
-    const reconnectedTools = await MCP.tools()
+    const reconnectedTools = await MCPFacade.tools()
     const reconnectedTool = reconnectedTools["dynamic-server_test_tool"] as unknown as {
       execute: (args: unknown, options?: { abortSignal?: AbortSignal }) => any
     }
@@ -806,24 +815,24 @@ test(
 
       // Add good server first
       lastCreatedClientName = "good-server"
-      await MCP.add("good-server", {
+      await MCPFacade.add("good-server", {
         type: "local",
         command: ["echo", "good"],
       })
 
       // Add bad server - should fail but not affect good server
       lastCreatedClientName = "bad-server"
-      await MCP.add("bad-server", {
+      await MCPFacade.add("bad-server", {
         type: "local",
         command: ["echo", "bad"],
       })
 
-      const status = await MCP.status()
+      const status = await MCPFacade.status()
       expect(status["good-server"]?.status).toBe("connected")
       expect(status["bad-server"]?.status).toBe("failed")
 
       // Good server's tools should still be available
-      const tools = await MCP.tools()
+      const tools = await MCPFacade.tools()
       expect(Object.keys(tools).some((k) => k.includes("good_tool"))).toBe(true)
     },
   ),
@@ -849,7 +858,7 @@ test(
       },
     ]
 
-    const addResult = await MCP.add("stitch-like-server", {
+    const addResult = await MCPFacade.add("stitch-like-server", {
       type: "local",
       command: ["echo", "test"],
     })
@@ -857,7 +866,7 @@ test(
     const serverStatus = (addResult.status as any)["stitch-like-server"] ?? addResult.status
     expect(serverStatus.status).toBe("connected")
 
-    const tools = await MCP.tools()
+    const tools = await MCPFacade.tools()
     expect(Object.keys(tools).some((key) => key.includes("render_screen"))).toBe(true)
     expect(serverState.listToolsCalls).toBe(1)
     expect(serverState.requestCalls).toBe(1)
@@ -872,7 +881,7 @@ test(
     serverState.listToolsShouldFail = true
     serverState.listToolsError = "transport closed"
 
-    const addResult = await MCP.add("broken-server", {
+    const addResult = await MCPFacade.add("broken-server", {
       type: "local",
       command: ["echo", "test"],
     })
@@ -901,7 +910,7 @@ test(
     async () => {
       const countBefore = clientCreateCount
 
-      await MCP.add("disabled-server", {
+      await MCPFacade.add("disabled-server", {
         type: "local",
         command: ["echo", "test"],
         enabled: false,
@@ -910,7 +919,7 @@ test(
       // No client should have been created
       expect(clientCreateCount).toBe(countBefore)
 
-      const status = await MCP.status()
+      const status = await MCPFacade.status()
       expect(status["disabled-server"]?.status).toBe("disabled")
     },
   ),
@@ -934,12 +943,12 @@ test(
       const serverState = getOrCreateClientState("prompt-server")
       serverState.prompts = [{ name: "my-prompt", description: "A test prompt" }]
 
-      await MCP.add("prompt-server", {
+      await MCPFacade.add("prompt-server", {
         type: "local",
         command: ["echo", "test"],
       })
 
-      const prompts = await MCP.prompts()
+      const prompts = await MCPFacade.prompts()
       expect(Object.keys(prompts).length).toBe(1)
       const key = Object.keys(prompts)[0]
       expect(key).toContain("prompt-server")
@@ -962,12 +971,12 @@ test(
       const serverState = getOrCreateClientState("resource-server")
       serverState.resources = [{ name: "my-resource", uri: "file:///test.txt", description: "A test resource" }]
 
-      await MCP.add("resource-server", {
+      await MCPFacade.add("resource-server", {
         type: "local",
         command: ["echo", "test"],
       })
 
-      const resources = await MCP.resources()
+      const resources = await MCPFacade.resources()
       expect(Object.keys(resources).length).toBe(1)
       const key = Object.keys(resources)[0]
       expect(key).toContain("resource-server")
@@ -990,14 +999,14 @@ test(
       const serverState = getOrCreateClientState("prompt-disc-server")
       serverState.prompts = [{ name: "hidden-prompt", description: "Should not appear" }]
 
-      await MCP.add("prompt-disc-server", {
+      await MCPFacade.add("prompt-disc-server", {
         type: "local",
         command: ["echo", "test"],
       })
 
-      await MCP.disconnect("prompt-disc-server")
+      await MCPFacade.disconnect("prompt-disc-server")
 
-      const prompts = await MCP.prompts()
+      const prompts = await MCPFacade.prompts()
       expect(Object.keys(prompts).length).toBe(0)
     },
   ),
@@ -1015,13 +1024,13 @@ test(
   "connect() on an unknown server name rejects with NotFoundError",
   withInstance({}, async () => {
     let caught: unknown
-    await MCP.connect("nonexistent").catch((err) => {
+    await MCPFacade.connect("nonexistent").catch((err) => {
       caught = err
     })
     expect(caught).toBeInstanceOf(NotFoundError)
 
     // The unknown server is never registered.
-    const status = await MCP.status()
+    const status = await MCPFacade.status()
     expect(status["nonexistent"]).toBeUndefined()
   }),
 )
@@ -1033,7 +1042,7 @@ test(
 test(
   "disconnect() on nonexistent server does not throw",
   withInstance({}, async () => {
-    await MCP.disconnect("nonexistent")
+    await MCPFacade.disconnect("nonexistent")
     // Should complete without error
   }),
 )
@@ -1045,7 +1054,7 @@ test(
 test(
   "tools() returns empty when no MCP servers are configured",
   withInstance({}, async () => {
-    const tools = await MCP.tools()
+    const tools = await MCPFacade.tools()
     expect(Object.keys(tools).length).toBe(0)
   }),
 )
@@ -1069,19 +1078,19 @@ test(
       connectShouldFail = true
       connectError = "Connection refused"
 
-      await MCP.add("fail-connect", {
+      await MCPFacade.add("fail-connect", {
         type: "local",
         command: ["echo", "test"],
       })
 
-      const status = await MCP.status()
+      const status = await MCPFacade.status()
       expect(status["fail-connect"]?.status).toBe("failed")
       if (status["fail-connect"]?.status === "failed") {
         expect(status["fail-connect"].error).toContain("Connection refused")
       }
 
       // No tools should be available
-      const tools = await MCP.tools()
+      const tools = await MCPFacade.tools()
       expect(Object.keys(tools).length).toBe(0)
     },
   ),
@@ -1137,12 +1146,12 @@ test(
         { name: "tool.b", description: "Tool B", inputSchema: { type: "object", properties: {} } },
       ]
 
-      await MCP.add("my.special-server", {
+      await MCPFacade.add("my.special-server", {
         type: "local",
         command: ["echo", "test"],
       })
 
-      const tools = await MCP.tools()
+      const tools = await MCPFacade.tools()
       const keys = Object.keys(tools)
 
       // Server name dots should be replaced with underscores
@@ -1165,7 +1174,7 @@ test(
     getOrCreateClientState("hanging-server")
     connectShouldHang = true
 
-    const addResult = await MCP.add("hanging-server", {
+    const addResult = await MCPFacade.add("hanging-server", {
       type: "local",
       command: ["node", "fake.js"],
       timeout: 100,
@@ -1190,7 +1199,7 @@ test(
     getOrCreateClientState("hanging-remote")
     connectShouldHang = true
 
-    const addResult = await MCP.add("hanging-remote", {
+    const addResult = await MCPFacade.add("hanging-remote", {
       type: "remote",
       url: "http://localhost:9999/mcp",
       timeout: 100,
@@ -1216,7 +1225,7 @@ test(
     connectShouldFail = true
     connectError = "Connection refused"
 
-    const addResult = await MCP.add("fail-remote", {
+    const addResult = await MCPFacade.add("fail-remote", {
       type: "remote",
       url: "http://localhost:9999/mcp",
       timeout: 5000,
