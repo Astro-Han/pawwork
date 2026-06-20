@@ -2,7 +2,7 @@ import { Auth } from "@/auth"
 import { Log } from "@opencode-ai/core/util/log"
 import { ProviderID } from "@/provider/schema"
 import { Hono } from "hono"
-import { describeRoute, resolver, validator, openAPIRouteHandler } from "hono-openapi"
+import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { errors } from "../error"
 import { GlobalRoutes } from "../instance/global"
@@ -72,19 +72,6 @@ export function ControlPlaneRoutes(): Hono {
         await Auth.remove(providerID)
         return c.json(true)
       },
-    )
-    .get(
-      "/doc",
-      openAPIRouteHandler(app, {
-        documentation: {
-          info: {
-            title: "opencode",
-            version: "0.0.3",
-            description: "opencode api",
-          },
-          openapi: "3.1.1",
-        },
-      }),
     )
     .use(
       validator(
