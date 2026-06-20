@@ -2,6 +2,7 @@ import type { ChildProcessWithoutNullStreams } from "child_process"
 import path from "path"
 import os from "os"
 import { Global } from "../global"
+import { GlobalBus } from "@/bus/global"
 import { Log } from "@opencode-ai/core/util/log"
 import { text } from "node:stream/consumers"
 import { Instance } from "../project/instance"
@@ -235,11 +236,16 @@ export namespace LSPServer {
       if (err instanceof Npm.InstallFailedError) {
         try {
           const { LSP } = await import("./index")
-          const { Bus } = await import("../bus")
-          await Bus.publish(LSP.Event.InstallFailed, {
-            add: Array.from(err.add ?? [pkg]),
-            dir: err.dir,
-            error: err.cause instanceof Error ? err.cause.message : String(err.cause),
+          GlobalBus.emit("event", {
+            directory: "global",
+            payload: {
+              type: LSP.Event.InstallFailed.type,
+              properties: {
+                add: Array.from(err.add ?? [pkg]),
+                dir: err.dir,
+                error: err.cause instanceof Error ? err.cause.message : String(err.cause),
+              },
+            },
           })
         } catch (publishErr) {
           log.warn("failed to emit lsp install failed event", { error: publishErr })

@@ -1,7 +1,6 @@
 import z from "zod"
 import { Context as EffectContext, Effect, Layer } from "effect"
-import { InstanceState } from "@/effect/instance-state"
-import { makeRuntime } from "@/effect/run-service"
+import { registerDisposer } from "@/effect/instance-registry"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { GlobalBus } from "@/bus/global"
@@ -274,10 +273,22 @@ export namespace Automation {
     activeWriters: Set<string>
     activeRuns: Map<string, { writerKey: string; controller: AbortController; runID: string }>
   }
-  // Per-directory execution state. The container lives in InstanceState (owned by the
-  // Service layer below); the sync facade reads it through a runtime bridge (see `state`).
-  function state(): State {
-    return automationRuntime.runSync((svc) => svc.activeState())
+  const activeStates = new Map<string, State>()
+  registerDisposer(async (directory) => {
+    activeStates.delete(directory)
+  })
+
+  function createState(): State {
+    return { activeWriters: new Set<string>(), activeRuns: new Map() }
+  }
+
+  function state(scope: Scope = currentScope()): State {
+    let activeState = activeStates.get(scope.ownerDirectory)
+    if (!activeState) {
+      activeState = createState()
+      activeStates.set(scope.ownerDirectory, activeState)
+    }
+    return activeState
   }
 
   export type RunExecutor = (input: {
@@ -823,7 +834,11 @@ export namespace Automation {
       try {
         await stopLiveRunForSourceDelete(definition.id)
         const removed = await remove(definition.id)
-        await Bus.publish(Event.DefinitionDeleted, removed.tombstone)
+        GlobalBus.emit("event", {
+          directory: Instance.directory,
+          project: Instance.project.id,
+          payload: { type: Event.DefinitionDeleted.type, properties: removed.tombstone },
+        })
       } catch (error) {
         if (NotFoundError.isInstance(error)) continue
         throw error
@@ -1278,7 +1293,9 @@ export namespace Automation {
     return { items, nextCursor: page.length > limit ? items.at(-1)?.id ?? null : null }
   }
 
-  export const publishDefinitionUpdated = (definition: Definition) => Bus.publish(Event.DefinitionUpdated, definition)
+  export async function publishDefinitionUpdated(definition: Definition) {
+    publishDefinitionUpdatedForScope(definition, currentScope())
+  }
   export const publishDefinitionUpdatedForScope = (definition: Definition, scope: Scope) => {
     GlobalBus.emit("event", {
       directory: scope.ownerDirectory,
@@ -1286,7 +1303,9 @@ export namespace Automation {
       payload: { type: Event.DefinitionUpdated.type, properties: definition },
     })
   }
-  export const publishRunUpdated = (run: Run) => Bus.publish(Event.RunUpdated, run)
+  export async function publishRunUpdated(run: Run) {
+    publishRunUpdatedForScope(run, currentScope())
+  }
   export const publishRunUpdatedForScope = (run: Run, scope: Scope) => {
     GlobalBus.emit("event", {
       directory: scope.ownerDirectory,
@@ -1327,12 +1346,10 @@ export namespace Automation {
 
   export class Service extends EffectContext.Service<Service, Interface>()("@opencode/Automation") {}
 
-  export const layer: Layer.Layer<Service> = Layer.effect(
+  export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
     Service,
     Effect.gen(function* () {
-      const activeStateHandle = yield* InstanceState.make<State>(() =>
-        Effect.sync(() => ({ activeWriters: new Set<string>(), activeRuns: new Map() })),
-      )
+      const bus = yield* Bus.Service
       return Service.of({
         list: () => Effect.sync(() => list()),
         get: (id) => Effect.sync(() => get(id)),
@@ -1358,18 +1375,16 @@ export namespace Automation {
           ),
         runNowExecuting: (id, options) => Effect.promise(() => runNowExecuting(id, options)),
         runs: (input) => Effect.sync(() => runs(input)),
-        publishDefinitionUpdated: (definition) => Effect.promise(() => publishDefinitionUpdated(definition)),
+        publishDefinitionUpdated: (definition) => bus.publish(Event.DefinitionUpdated, definition),
         publishDefinitionUpdatedForScope: (definition, scope) => Effect.sync(() => publishDefinitionUpdatedForScope(definition, scope)),
-        publishDefinitionDeleted: (tombstone) => Effect.promise(() => Bus.publish(Event.DefinitionDeleted, tombstone)),
-        publishRunUpdated: (run) => Effect.promise(() => publishRunUpdated(run)),
-        activeState: () => InstanceState.get(activeStateHandle),
+        publishDefinitionDeleted: (tombstone) => bus.publish(Event.DefinitionDeleted, tombstone),
+        publishRunUpdated: (run) => bus.publish(Event.RunUpdated, run),
+        activeState: () => Effect.sync(() => state()),
       })
     }),
   )
 
-  export const defaultLayer = layer
-
-  const automationRuntime = makeRuntime(Service, layer)
+  export const defaultLayer = layer.pipe(Layer.provide(Bus.defaultLayer))
 }
 
 export class ValidationError extends Error {

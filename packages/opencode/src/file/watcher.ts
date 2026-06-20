@@ -547,8 +547,11 @@ export namespace FileWatcher {
   export const layer = Layer.effect(
     Service,
     Effect.gen(function* () {
+      const bus = yield* Bus.Service
       const config = yield* Config.Service
       const git = yield* Git.Service
+      const publish = <D extends BusEvent.Definition>(def: D, properties: z.output<D["properties"]>) =>
+        Effect.runPromise(bus.publish(def, properties))
 
       const state = yield* InstanceState.make(
         Effect.fn("FileWatcher.state")(
@@ -581,7 +584,7 @@ export namespace FileWatcher {
                   subscription_dir: request.subscriptionDirectory ?? request.directory,
                   watch_scope: request.watchScope,
                 })
-                Bus.publish(Event.Rescan, { directory: request.directory }).catch((error) =>
+                publish(Event.Rescan, { directory: request.directory }).catch((error) =>
                   log.warn("failed to publish watcher rescan", { dir: request.directory, error }),
                 )
               },
@@ -618,11 +621,15 @@ export namespace FileWatcher {
                   log.error("watcher callback error", { err })
                   return
                 }
+                const publishUpdate = (event: z.output<typeof Event.Updated.properties>) =>
+                  publish(Event.Updated, event).catch((error) =>
+                    log.warn("failed to publish watcher update", { event, error }),
+                  )
                 for (const evt of evts) {
                   if (!shouldPublish(evt.path)) continue
-                  if (evt.type === "create") Bus.publish(Event.Updated, { file: evt.path, event: "add" })
-                  if (evt.type === "update") Bus.publish(Event.Updated, { file: evt.path, event: "change" })
-                  if (evt.type === "delete") Bus.publish(Event.Updated, { file: evt.path, event: "unlink" })
+                  if (evt.type === "create") void publishUpdate({ file: evt.path, event: "add" })
+                  if (evt.type === "update") void publishUpdate({ file: evt.path, event: "change" })
+                  if (evt.type === "delete") void publishUpdate({ file: evt.path, event: "unlink" })
                 }
               })
 
@@ -673,7 +680,7 @@ export namespace FileWatcher {
                 let watchPlanDisposed = false
                 const fallbackRescan = createFallbackRescanThrottle()
                 const publishWorkspaceRescan = () =>
-                  Bus.publish(Event.Rescan, { directory: ctx.directory }).catch((error) =>
+                  publish(Event.Rescan, { directory: ctx.directory }).catch((error) =>
                     log.warn("failed to publish watcher rescan", { dir: ctx.directory, error }),
                   )
                 const applyPlan = Effect.fn("FileWatcher.applyWorkspaceWatchPlan")(function* (
@@ -772,10 +779,12 @@ export namespace FileWatcher {
                           isDisposed: () => watchPlanDisposed,
                           applyPlan: (planSnapshot) => Effect.runPromise(applyPlan(planSnapshot)),
                           publishUpdate: (event) => {
-                            Bus.publish(Event.Updated, event)
+                            void publish(Event.Updated, event).catch((error) =>
+                              log.warn("failed to publish watcher update", { event, error }),
+                            )
                           },
                           publishRescan: (directory) =>
-                            Bus.publish(Event.Rescan, { directory }).catch((error) =>
+                            publish(Event.Rescan, { directory }).catch((error) =>
                               log.warn("failed to publish watcher rescan", { dir: directory, error }),
                             ),
                         }),
@@ -856,5 +865,9 @@ export namespace FileWatcher {
     }),
   )
 
-  export const defaultLayer = layer.pipe(Layer.provide(Config.defaultLayer), Layer.provide(Git.defaultLayer))
+  export const defaultLayer = layer.pipe(
+    Layer.provide(Bus.defaultLayer),
+    Layer.provide(Config.defaultLayer),
+    Layer.provide(Git.defaultLayer),
+  )
 }

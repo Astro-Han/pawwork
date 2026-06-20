@@ -174,6 +174,7 @@ export namespace LSP {
   export const layer = Layer.effect(
     Service,
     Effect.gen(function* () {
+      const bus = yield* Bus.Service
       const settings = yield* Settings.Service
 
       const state = yield* InstanceState.make<State>(
@@ -251,6 +252,7 @@ export namespace LSP {
             log.info("spawned lsp server", { serverID: server.id, root })
 
             const client = await LSPClient.create({
+              bus,
               serverID: server.id,
               server: handle,
               root,
@@ -313,7 +315,7 @@ export namespace LSP {
             if (!client) continue
 
             result.push(client)
-            Bus.publish(Event.Updated, {})
+            await Effect.runPromise(bus.publish(Event.Updated, {}))
           }
 
           return result
@@ -512,7 +514,7 @@ export namespace LSP {
         // killed clients; without this the status popover keeps showing
         // connected servers until another lsp event fires.
         if (hadClients) {
-          yield* Effect.promise(() => Bus.publish(Event.Updated, {}).catch(() => {}))
+          yield* bus.publish(Event.Updated, {}).pipe(Effect.ignore)
         }
       })
 
@@ -541,7 +543,7 @@ export namespace LSP {
     }),
   )
 
-  export const defaultLayer = layer.pipe(Layer.provide(Settings.defaultLayer))
+  export const defaultLayer = layer.pipe(Layer.provide(Bus.defaultLayer), Layer.provide(Settings.defaultLayer))
 
   export namespace Diagnostic {
     const MAX_PER_FILE = 20

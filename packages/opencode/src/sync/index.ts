@@ -1,10 +1,12 @@
 import z from "zod"
 import type { ZodObject } from "zod"
 import { EventEmitter } from "events"
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Fiber, Layer, Schema } from "effect"
 import { Database, eq } from "@/storage/db"
 import { Bus as ProjectBus } from "@/bus"
+import { GlobalBus } from "@/bus/global"
 import { BusEvent } from "@/bus/bus-event"
+import { Instance } from "@/project/instance"
 import { EventSequenceTable, EventTable } from "./event.sql"
 import { EventID } from "./schema"
 import { Flag } from "@opencode-ai/core/flag/flag"
@@ -83,6 +85,30 @@ export namespace SyncEvent {
         return Effect.die(cause)
       }
     })
+
+  function currentProjectBus(): ProjectBus.Interface | undefined {
+    const fiber = Fiber.getCurrent()
+    if (!fiber) return undefined
+    try {
+      return Context.getUnsafe(fiber.context, ProjectBus.Service)
+    } catch {
+      return undefined
+    }
+  }
+
+  function publishProjectEvent(def: Definition, data: Record<string, unknown>) {
+    const bus = currentProjectBus()
+    if (bus) {
+      Effect.runSync(bus.publish({ type: def.type, properties: def.schema }, data))
+      return
+    }
+
+    GlobalBus.emit("event", {
+      directory: Instance.directory,
+      project: Instance.project.id,
+      payload: { type: def.type, properties: data },
+    })
+  }
 
   export const layer = Layer.succeed(
     Service,
@@ -205,10 +231,10 @@ export namespace SyncEvent {
           const result = convertEvent(def.type, event.data)
           if (result instanceof Promise) {
             result.then((data) => {
-              ProjectBus.publish({ type: def.type, properties: def.schema }, data)
+              publishProjectEvent(def, data)
             })
           } else {
-            ProjectBus.publish({ type: def.type, properties: def.schema }, result)
+            publishProjectEvent(def, result)
           }
         }
       })

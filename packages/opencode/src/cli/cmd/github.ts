@@ -917,33 +917,37 @@ export const GithubRunCommand = cmd({
         }
 
         let text = ""
-        Bus.subscribe(MessageV2.Event.PartUpdated, (evt) => {
-          if (evt.properties.part.sessionID !== session.id) return
-          //if (evt.properties.part.messageID === messageID) return
-          const part = evt.properties.part
+        AppRuntime.runSync(
+          Bus.Service.use((bus) =>
+            bus.subscribeCallback(MessageV2.Event.PartUpdated, (evt) => {
+              if (evt.properties.part.sessionID !== session.id) return
+              //if (evt.properties.part.messageID === messageID) return
+              const part = evt.properties.part
 
-          if (part.type === "tool" && part.state.status === "completed") {
-            const [tool, color] = TOOL[part.tool] ?? [part.tool, UI.Style.TEXT_INFO_BOLD]
-            const title =
-              part.state.title || Object.keys(part.state.input).length > 0
-                ? JSON.stringify(part.state.input)
-                : "Unknown"
-            console.log()
-            printEvent(color, tool, title)
-          }
+              if (part.type === "tool" && part.state.status === "completed") {
+                const [tool, color] = TOOL[part.tool] ?? [part.tool, UI.Style.TEXT_INFO_BOLD]
+                const title =
+                  part.state.title || Object.keys(part.state.input).length > 0
+                    ? JSON.stringify(part.state.input)
+                    : "Unknown"
+                console.log()
+                printEvent(color, tool, title)
+              }
 
-          if (part.type === "text") {
-            text = part.text
+              if (part.type === "text") {
+                text = part.text
 
-            if (part.time?.end) {
-              UI.empty()
-              UI.println(UI.markdown(text))
-              UI.empty()
-              text = ""
-              return
-            }
-          }
-        })
+                if (part.time?.end) {
+                  UI.empty()
+                  UI.println(UI.markdown(text))
+                  UI.empty()
+                  text = ""
+                  return
+                }
+              }
+            }),
+          ),
+        )
       }
 
       async function summarize(response: string) {

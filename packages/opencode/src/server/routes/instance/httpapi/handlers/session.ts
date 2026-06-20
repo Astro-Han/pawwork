@@ -146,10 +146,13 @@ function noContentAfter(effect: Effect.Effect<unknown, unknown, unknown>) {
 
 function publishPromptAsyncError(sessionID: SessionID, error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
-  log.error("prompt_async failed", { sessionID, error })
-  void Bus.publish(SessionNs.Event.Error, {
-    sessionID,
-    error: new NamedError.Unknown({ message }).toObject(),
+  return Effect.gen(function* () {
+    const bus = yield* Bus.Service
+    log.error("prompt_async failed", { sessionID, error })
+    yield* bus.publish(SessionNs.Event.Error, {
+      sessionID,
+      error: new NamedError.Unknown({ message }).toObject(),
+    })
   })
 }
 
@@ -350,8 +353,8 @@ export const sessionHandlers = HttpApiBuilder.group(SessionApi, "session", (hand
         if (HttpServerResponse.isHttpServerResponse(body)) return body
         const sessionID = ctx.params.sessionID
         yield* SessionRouteEffects.promptSession({ ...body, sessionID }).pipe(
-          Effect.catch((error) => Effect.sync(() => publishPromptAsyncError(sessionID, error))),
-          Effect.catchDefect((error) => Effect.sync(() => publishPromptAsyncError(sessionID, error))),
+          Effect.catch((error) => publishPromptAsyncError(sessionID, error)),
+          Effect.catchDefect((error) => publishPromptAsyncError(sessionID, error)),
           Effect.forkDetach({ startImmediately: true }),
         )
         return HttpServerResponse.empty()

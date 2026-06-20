@@ -7,7 +7,7 @@ import { Automation } from "../../src/automation"
 import { sessionPromptExecutor } from "../../src/automation/runner"
 import { AutomationRunTable } from "../../src/automation/automation.sql"
 import { AppRuntime } from "../../src/effect/app-runtime"
-import { Bus } from "../../src/bus"
+import { GlobalBus } from "../../src/bus/global"
 import { Database, eq } from "../../src/storage/db"
 import { Instance } from "../../src/project/instance"
 import { Project } from "../../src/project/project"
@@ -23,6 +23,20 @@ import { tmpdir } from "../fixture/fixture"
 
 const RUN_WAIT_TIMEOUT_MS = 10_000
 const runSession = <A>(fn: (svc: Session.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Session.Service.use(fn))
+
+function subscribeAutomationEvent<D extends { type: string; properties: { parse(input: unknown): any } }>(
+  def: D,
+  callback: (event: { type: D["type"]; properties: ReturnType<D["properties"]["parse"]> }) => unknown,
+  options?: { directory?: string },
+) {
+  const listener = (event: { directory?: string; payload?: { type?: string; properties?: unknown } }) => {
+    if (options?.directory && event.directory !== options.directory) return
+    if (event.payload?.type !== def.type) return
+    callback({ type: def.type, properties: def.properties.parse(event.payload.properties) })
+  }
+  GlobalBus.on("event", listener)
+  return () => GlobalBus.off("event", listener)
+}
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -205,9 +219,9 @@ describe("automation runNow execution", () => {
       const definition = Automation.create(input(projectID))
       const sessionID = SessionID.descending()
       const runEvents: Automation.Run[] = []
-      const unsubscribeRun = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
+      const unsubscribeRun = subscribeAutomationEvent(Automation.Event.RunUpdated, (event) => {
         if (event.properties.automationID === definition.id) runEvents.push(event.properties)
-      })
+      }, { directory: Instance.directory })
 
       await Automation.runNowExecuting(definition.id, {
         executor: async ({ run }) => {
@@ -408,9 +422,9 @@ describe("automation runNow execution", () => {
       const definition = Automation.create(input(projectID))
       const runEvents: Automation.Run[] = []
       const executorFinished = defer<void>()
-      const unsubscribeRun = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
+      const unsubscribeRun = subscribeAutomationEvent(Automation.Event.RunUpdated, (event) => {
         if (event.properties.automationID === definition.id) runEvents.push(event.properties)
-      })
+      }, { directory: Instance.directory })
 
       await Automation.runNowExecuting(definition.id, {
         executor: async ({ run }) => {
@@ -439,9 +453,9 @@ describe("automation runNow execution", () => {
       const fresh = Automation.create(input(projectID, { context: "fresh" }))
 
       const deletedEvents: Automation.Tombstone[] = []
-      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionDeleted, (event) => {
+      const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionDeleted, (event) => {
         deletedEvents.push(event.properties)
-      })
+      }, { directory: Instance.directory })
 
       await Automation.deleteBySourceSession(sourceSessionID)
       unsubscribe()
@@ -494,9 +508,9 @@ describe("automation runNow execution", () => {
         sourceSessionID: SessionID.descending(),
       })
       const definitionEvents: Automation.Definition[] = []
-      const unsubscribeDefinition = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+      const unsubscribeDefinition = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         definitionEvents.push(event.properties)
-      })
+      }, { directory: Instance.directory })
       let removed!: Awaited<ReturnType<typeof Automation.remove>>
 
       const initial = await Automation.runNowExecuting(definition.id, {
@@ -543,9 +557,9 @@ describe("automation runNow execution", () => {
       const started = Promise.withResolvers<void>()
       const release = Promise.withResolvers<void>()
       const runEvents: Automation.Run[] = []
-      const unsubscribeRun = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
+      const unsubscribeRun = subscribeAutomationEvent(Automation.Event.RunUpdated, (event) => {
         if (event.properties.automationID === definition.id) runEvents.push(event.properties)
-      })
+      }, { directory: Instance.directory })
 
       const initial = await Automation.runNowExecuting(definition.id, {
         executor: async ({ run, signal }) => {
@@ -1147,10 +1161,10 @@ describe("automation runNow execution", () => {
         fn: async () => {
           const definition = Automation.create(input(Instance.project.id, { title: "Cancel before runner busy" }))
           const removed = Promise.withResolvers<Awaited<ReturnType<typeof Automation.remove>>>()
-          const unsubscribe = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
+          const unsubscribe = subscribeAutomationEvent(Automation.Event.RunUpdated, (event) => {
             if (event.properties.automationID !== definition.id || event.properties.state !== "running") return
             void Automation.remove(definition.id).then(removed.resolve, removed.reject)
-          })
+          }, { directory: Instance.directory })
 
           const initial = await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
           let result: Awaited<ReturnType<typeof Automation.remove>>

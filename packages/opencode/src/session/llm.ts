@@ -16,7 +16,6 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
 import { TOOL_INFO_ID, buildDeferredHint } from "../tool/tool-info"
-import { Bus } from "@/bus"
 import { Wildcard } from "@/util/wildcard"
 import { SessionID } from "@/session/schema"
 import { Auth } from "@/auth"
@@ -74,11 +73,7 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/LLM") {}
 
-const live: Layer.Layer<
-  Service,
-  never,
-  Auth.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service
-> = Layer.effect(
+const live: Layer.Layer<Service, never, Auth.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service> = Layer.effect(
   Service,
   Effect.gen(function* () {
     const auth = yield* Auth.Service
@@ -297,11 +292,7 @@ const live: Layer.Layer<
           }
 
           const id = PermissionID.ascending()
-          let unsub: (() => void) | undefined
           try {
-            unsub = Bus.subscribe(Permission.Event.Replied, (evt) => {
-              if (evt.properties.requestID === id) void evt.properties.reply
-            })
             const toolPatterns = approvalTools.map((t: { name: string; args: string }) => {
               try {
                 const parsed = JSON.parse(t.args) as Record<string, unknown>
@@ -328,8 +319,6 @@ const live: Layer.Layer<
             return { approved: true }
           } catch {
             return { approved: false }
-          } finally {
-            unsub?.()
           }
         })
       }

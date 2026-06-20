@@ -2,7 +2,6 @@ import { describe, test, expect, beforeEach, afterEach, afterAll } from "bun:tes
 import { Cause, Effect, Exit } from "effect"
 import { tmpdir } from "../fixture/fixture"
 import z from "zod"
-import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
 import { SyncEvent } from "../../src/sync"
 import { Database } from "../../src/storage/db"
@@ -11,6 +10,7 @@ import { Identifier } from "../../src/id/id"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { initProjectors } from "../../src/server/projectors"
 import { testEffect } from "../lib/effect"
+import { GlobalBus } from "../../src/bus/global"
 
 const original = Flag.OPENCODE_EXPERIMENTAL_WORKSPACES
 const syncIt = testEffect(SyncEvent.defaultLayer)
@@ -114,10 +114,12 @@ describe("SyncEvent", () => {
           properties: { id: string; name: string }
         }> = []
         const received = new Promise<void>((resolve) => {
-          Bus.subscribeAll((event) => {
-            events.push(event)
+          const handler = (event: { payload: { type: string; properties: { id: string; name: string } } }) => {
+            GlobalBus.off("event", handler)
+            events.push(event.payload)
             resolve()
-          })
+          }
+          GlobalBus.on("event", handler)
         })
 
         SyncEvent.run(Created, { id: "evt_1", name: "test" })

@@ -9,10 +9,10 @@ import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { SessionTable } from "../../src/session/session.sql"
 import { Database, eq } from "../../src/storage/db"
-import { Bus } from "../../src/bus"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { tmpdir } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
+import { subscribeBus } from "../lib/bus"
 
 
 const SessionNs = {
@@ -326,7 +326,7 @@ describe("TurnChange aggregate union", () => {
         const userMessageID = await makeUser(session.id, "union-invalidate-uncaptured")
         const assistantID = await makeAssistant(session.id, userMessageID, "union-invalidate-uncaptured")
         const events: string[] = []
-        const unsubscribe = Bus.subscribe(SessionNs.Event.TurnChangeInvalidated, (event) => {
+        const unsubscribe = subscribeBus(SessionNs.Event.TurnChangeInvalidated, (event) => {
           events.push(event.properties.sessionID)
         })
         try {
@@ -351,7 +351,7 @@ describe("TurnChange aggregate union", () => {
         const userMessageID = await makeUser(session.id, "union-invalidate-captured")
         const assistantID = await makeAssistant(session.id, userMessageID, "union-invalidate-captured")
         const events: string[] = []
-        const unsubscribe = Bus.subscribe(SessionNs.Event.TurnChangeInvalidated, (event) => {
+        const unsubscribe = subscribeBus(SessionNs.Event.TurnChangeInvalidated, (event) => {
           events.push(event.properties.sessionID)
         })
         try {

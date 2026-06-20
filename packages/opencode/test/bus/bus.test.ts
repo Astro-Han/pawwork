@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import z from "zod"
 import { Bus } from "../../src/bus"
 import { BusEvent } from "../../src/bus/bus-event"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 
@@ -14,6 +15,21 @@ function withInstance(directory: string, fn: () => Promise<void>) {
   return Instance.provide({ directory, fn })
 }
 
+function publish<D extends BusEvent.Definition>(def: D, properties: z.output<D["properties"]>) {
+  return AppRuntime.runPromise(Bus.Service.use((bus) => bus.publish(def, properties)))
+}
+
+function subscribe<D extends BusEvent.Definition>(
+  def: D,
+  callback: (event: { type: D["type"]; properties: z.infer<D["properties"]> }) => unknown,
+) {
+  return AppRuntime.runSync(Bus.Service.use((bus) => bus.subscribeCallback(def, callback)))
+}
+
+function subscribeAll(callback: (event: any) => unknown) {
+  return AppRuntime.runSync(Bus.Service.use((bus) => bus.subscribeAllCallback(callback)))
+}
+
 describe("Bus", () => {
   afterEach(() => Instance.disposeAll())
 
@@ -23,10 +39,10 @@ describe("Bus", () => {
       const received: number[] = []
 
       await withInstance(tmp.path, async () => {
-        Bus.subscribe(TestEvent.Ping, (evt) => {
+        subscribe(TestEvent.Ping, (evt) => {
           received.push(evt.properties.value)
         })
-        await Bus.publish(TestEvent.Ping, { value: 42 })
+        await publish(TestEvent.Ping, { value: 42 })
         await Bun.sleep(10)
       })
 
@@ -38,13 +54,13 @@ describe("Bus", () => {
       const received: number[] = []
 
       await withInstance(tmp.path, async () => {
-        Bus.subscribe(TestEvent.Ping, (evt) => {
+        subscribe(TestEvent.Ping, (evt) => {
           received.push(evt.properties.value)
         })
         // Give the subscriber fiber time to start consuming
         await Bun.sleep(10)
-        await Bus.publish(TestEvent.Ping, { value: 42 })
-        await Bus.publish(TestEvent.Ping, { value: 99 })
+        await publish(TestEvent.Ping, { value: 42 })
+        await publish(TestEvent.Ping, { value: 99 })
         // Give subscriber time to process
         await Bun.sleep(10)
       })
@@ -57,12 +73,12 @@ describe("Bus", () => {
       const pings: number[] = []
 
       await withInstance(tmp.path, async () => {
-        Bus.subscribe(TestEvent.Ping, (evt) => {
+        subscribe(TestEvent.Ping, (evt) => {
           pings.push(evt.properties.value)
         })
         await Bun.sleep(10)
-        await Bus.publish(TestEvent.Pong, { message: "hello" })
-        await Bus.publish(TestEvent.Ping, { value: 1 })
+        await publish(TestEvent.Pong, { message: "hello" })
+        await publish(TestEvent.Ping, { value: 1 })
         await Bun.sleep(10)
       })
 
@@ -73,7 +89,7 @@ describe("Bus", () => {
       await using tmp = await tmpdir()
 
       await withInstance(tmp.path, async () => {
-        await Bus.publish(TestEvent.Ping, { value: 1 })
+        await publish(TestEvent.Ping, { value: 1 })
       })
     })
   })
@@ -84,15 +100,15 @@ describe("Bus", () => {
       const received: number[] = []
 
       await withInstance(tmp.path, async () => {
-        const unsub = Bus.subscribe(TestEvent.Ping, (evt) => {
+        const unsub = subscribe(TestEvent.Ping, (evt) => {
           received.push(evt.properties.value)
         })
         await Bun.sleep(10)
-        await Bus.publish(TestEvent.Ping, { value: 1 })
+        await publish(TestEvent.Ping, { value: 1 })
         await Bun.sleep(10)
         unsub()
         await Bun.sleep(10)
-        await Bus.publish(TestEvent.Ping, { value: 2 })
+        await publish(TestEvent.Ping, { value: 2 })
         await Bun.sleep(10)
       })
 
@@ -106,10 +122,10 @@ describe("Bus", () => {
       const received: string[] = []
 
       await withInstance(tmp.path, async () => {
-        Bus.subscribeAll((evt) => {
+        subscribeAll((evt) => {
           received.push(evt.type)
         })
-        await Bus.publish(TestEvent.Ping, { value: 1 })
+        await publish(TestEvent.Ping, { value: 1 })
         await Bun.sleep(10)
       })
 
@@ -121,12 +137,12 @@ describe("Bus", () => {
       const received: string[] = []
 
       await withInstance(tmp.path, async () => {
-        Bus.subscribeAll((evt) => {
+        subscribeAll((evt) => {
           received.push(evt.type)
         })
         await Bun.sleep(10)
-        await Bus.publish(TestEvent.Ping, { value: 1 })
-        await Bus.publish(TestEvent.Pong, { message: "hi" })
+        await publish(TestEvent.Ping, { value: 1 })
+        await publish(TestEvent.Pong, { message: "hi" })
         await Bun.sleep(10)
       })
 
@@ -142,14 +158,14 @@ describe("Bus", () => {
       const b: number[] = []
 
       await withInstance(tmp.path, async () => {
-        Bus.subscribe(TestEvent.Ping, (evt) => {
+        subscribe(TestEvent.Ping, (evt) => {
           a.push(evt.properties.value)
         })
-        Bus.subscribe(TestEvent.Ping, (evt) => {
+        subscribe(TestEvent.Ping, (evt) => {
           b.push(evt.properties.value)
         })
         await Bun.sleep(10)
-        await Bus.publish(TestEvent.Ping, { value: 7 })
+        await publish(TestEvent.Ping, { value: 7 })
         await Bun.sleep(10)
       })
 
@@ -166,26 +182,26 @@ describe("Bus", () => {
       const receivedB: number[] = []
 
       await withInstance(tmpA.path, async () => {
-        Bus.subscribe(TestEvent.Ping, (evt) => {
+        subscribe(TestEvent.Ping, (evt) => {
           receivedA.push(evt.properties.value)
         })
         await Bun.sleep(10)
       })
 
       await withInstance(tmpB.path, async () => {
-        Bus.subscribe(TestEvent.Ping, (evt) => {
+        subscribe(TestEvent.Ping, (evt) => {
           receivedB.push(evt.properties.value)
         })
         await Bun.sleep(10)
       })
 
       await withInstance(tmpA.path, async () => {
-        await Bus.publish(TestEvent.Ping, { value: 1 })
+        await publish(TestEvent.Ping, { value: 1 })
         await Bun.sleep(10)
       })
 
       await withInstance(tmpB.path, async () => {
-        await Bus.publish(TestEvent.Ping, { value: 2 })
+        await publish(TestEvent.Ping, { value: 2 })
         await Bun.sleep(10)
       })
 
@@ -200,11 +216,11 @@ describe("Bus", () => {
       const received: string[] = []
 
       await withInstance(tmp.path, async () => {
-        Bus.subscribeAll((evt) => {
+        subscribeAll((evt) => {
           received.push(evt.type)
         })
         await Bun.sleep(10)
-        await Bus.publish(TestEvent.Ping, { value: 1 })
+        await publish(TestEvent.Ping, { value: 1 })
         await Bun.sleep(10)
       })
 

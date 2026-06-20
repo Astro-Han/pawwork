@@ -248,7 +248,7 @@ beforeEach(() => {
 
 // Import after mocks
 const { MCP } = await import("../../src/mcp/index")
-const { Bus } = await import("../../src/bus/index")
+const { subscribeBus } = await import("../lib/bus")
 const { Instance } = await import("../../src/project/instance")
 const { NotFoundError } = await import("../../src/storage/db")
 const { tmpdir } = await import("../fixture/fixture")
@@ -617,7 +617,7 @@ test("tool change notification reaches the instance bus from a detached callback
 
       await MCPFacade.add("notify-server", { type: "local", command: ["echo", "test"] })
 
-      unsubscribe = Bus.subscribe(MCP.ToolsChanged, (event) => {
+      unsubscribe = subscribeBus(MCP.ToolsChanged, (event) => {
         received.push(event.properties.server)
       })
 

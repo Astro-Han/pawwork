@@ -2,7 +2,6 @@ import { afterEach, test, expect } from "bun:test"
 import fs from "node:fs/promises"
 import os from "os"
 import path from "node:path"
-import { Bus } from "../../src/bus"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { Permission } from "../../src/permission"
 import { fromDeniedRule, isPermanentDeleteRule, permanentDeleteSuggestions } from "../../src/permission/diagnostic"
@@ -10,6 +9,7 @@ import { PermissionID } from "../../src/permission/schema"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import { MessageID, SessionID } from "../../src/session/schema"
+import { subscribeBus } from "../lib/bus"
 import { NotFoundError } from "../../src/storage/db"
 
 afterEach(async () => {
@@ -1093,7 +1093,7 @@ test("ask - publishes asked event", async () => {
     directory: tmp.path,
     fn: async () => {
       let seen: Permission.Request | undefined
-      const unsub = Bus.subscribe(Permission.Event.Asked, (event) => {
+      const unsub = subscribeBus(Permission.Event.Asked, (event) => {
         seen = event.properties
       })
 
@@ -1402,7 +1402,7 @@ test("reply - publishes replied event", async () => {
             reply: Permission.Reply
           }
         | undefined
-      const unsub = Bus.subscribe(Permission.Event.Replied, (event) => {
+      const unsub = subscribeBus(Permission.Event.Replied, (event) => {
         seen = event.properties
       })
 

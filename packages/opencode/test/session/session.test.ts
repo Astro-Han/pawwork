@@ -3,7 +3,6 @@ import { Effect } from "effect"
 import fs from "fs/promises"
 import path from "path"
 import { Session as SessionCore } from "../../src/session"
-import { Bus } from "../../src/bus"
 import { Log } from "@opencode-ai/core/util/log"
 import { Instance } from "../../src/project/instance"
 import { MessageV2 } from "../../src/session/message-v2"
@@ -15,6 +14,7 @@ import { MessageTable, SessionTable } from "../../src/session/session.sql"
 import { ProjectTable } from "../../src/project/project.sql"
 import { canonicalDirectory } from "../../src/session/execution-context"
 import { AppRuntime } from "../../src/effect/app-runtime"
+import { subscribeBus } from "../lib/bus"
 
 
 const SessionNs = {
@@ -621,7 +621,7 @@ describe("session.created event", () => {
         let eventReceived = false
         let receivedInfo: SessionNs.Info | undefined
 
-        const unsub = Bus.subscribe(SessionNs.Event.Created, (event) => {
+        const unsub = subscribeBus(SessionNs.Event.Created, (event) => {
           eventReceived = true
           receivedInfo = event.properties.info as SessionNs.Info
         })
@@ -648,11 +648,11 @@ describe("session.created event", () => {
       fn: async () => {
         const events: string[] = []
 
-        const unsubCreated = Bus.subscribe(SessionNs.Event.Created, () => {
+        const unsubCreated = subscribeBus(SessionNs.Event.Created, () => {
           events.push("created")
         })
 
-        const unsubUpdated = Bus.subscribe(SessionNs.Event.Updated, () => {
+        const unsubUpdated = subscribeBus(SessionNs.Event.Updated, () => {
           events.push("updated")
         })
 
@@ -746,7 +746,7 @@ describe("step-finish token propagation via Bus event", () => {
           // is the mutable domain type. Cast bridges the two — safe because the
           // test only reads the value afterwards.
           let received: MessageV2.Part | undefined
-          const unsub = Bus.subscribe(MessageV2.Event.PartUpdated, (event) => {
+          const unsub = subscribeBus(MessageV2.Event.PartUpdated, (event) => {
             received = event.properties.part as MessageV2.Part
           })
 

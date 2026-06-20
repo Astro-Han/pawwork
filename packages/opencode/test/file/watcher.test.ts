@@ -10,6 +10,7 @@ import { FileWatcher } from "../../src/file/watcher"
 import { Git } from "../../src/git"
 import { Instance } from "../../src/project/instance"
 import { shouldRunNativeWatcherTests } from "./native-watcher-ci-guard"
+import { subscribeBus } from "../lib/bus"
 
 // Native @parcel/watcher bindings aren't reliably available in CI (missing on Linux, flaky on Windows)
 const describeWatcher = shouldRunNativeWatcherTests(FileWatcher.hasNativeBinding) ? describe : describe.skip
@@ -34,6 +35,7 @@ function withWatcher<E>(directory: string, body: Effect.Effect<void, E>) {
     directory,
     fn: async () => {
       const layer: Layer.Layer<FileWatcher.Service, never, never> = FileWatcher.layer.pipe(
+        Layer.provide(Bus.defaultLayer),
         Layer.provide(Config.defaultLayer),
         Layer.provide(Git.defaultLayer),
         Layer.provide(watcherConfigLayer),
@@ -53,7 +55,7 @@ function withWatcher<E>(directory: string, body: Effect.Effect<void, E>) {
 function listen(directory: string, check: (evt: WatcherEvent) => boolean, hit: (evt: WatcherEvent) => void) {
   let done = false
 
-  const unsub = Bus.subscribe(FileWatcher.Event.Updated, (evt) => {
+  const unsub = subscribeBus(FileWatcher.Event.Updated, (evt) => {
     if (done) return
     if (!check(evt.properties)) return
     hit(evt.properties)
@@ -86,7 +88,7 @@ function waitRescan(check: (evt: RescanEvent) => boolean) {
     const deferred = yield* Deferred.make<RescanEvent>()
     const cleanup = yield* Effect.sync(() => {
       let done = false
-      const unsub = Bus.subscribe(FileWatcher.Event.Rescan, (evt) => {
+      const unsub = subscribeBus(FileWatcher.Event.Rescan, (evt) => {
         if (done) return
         if (!check(evt.properties)) return
         done = true

@@ -18,8 +18,13 @@ export async function upgrade() {
   )
   if (!latest) return
 
+  const publishInstallationEvent = (
+    def: typeof Installation.Event.UpdateAvailable | typeof Installation.Event.Updated,
+    properties: { version: string },
+  ) => AppRuntime.runPromise(Bus.Service.use((bus) => bus.publish(def, properties)))
+
   if (Flag.OPENCODE_ALWAYS_NOTIFY_UPDATE) {
-    await Bus.publish(Installation.Event.UpdateAvailable, { version: latest })
+    await publishInstallationEvent(Installation.Event.UpdateAvailable, { version: latest })
     return
   }
 
@@ -29,12 +34,12 @@ export async function upgrade() {
   const kind = Installation.getReleaseType(Installation.VERSION, latest)
 
   if (config.autoupdate === "notify" || kind !== "patch") {
-    await Bus.publish(Installation.Event.UpdateAvailable, { version: latest })
+    await publishInstallationEvent(Installation.Event.UpdateAvailable, { version: latest })
     return
   }
 
   if (method === "unknown") return
   await AppRuntime.runPromise(Installation.Service.use((svc) => svc.upgrade(method, latest)))
-    .then(() => Bus.publish(Installation.Event.Updated, { version: latest }))
+    .then(() => publishInstallationEvent(Installation.Event.Updated, { version: latest }))
     .catch(() => {})
 }

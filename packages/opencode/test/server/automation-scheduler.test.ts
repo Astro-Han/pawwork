@@ -3,7 +3,7 @@ import { Effect, ManagedRuntime } from "effect"
 import { Automation } from "../../src/automation"
 import { internalTestHooks } from "../../src/automation/__test_hooks"
 import { AutomationScheduler } from "../../src/automation/scheduler"
-import { Bus } from "../../src/bus"
+import { GlobalBus } from "../../src/bus/global"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
 import { trackActiveRun } from "../../src/session/lifecycle-provenance"
@@ -17,6 +17,14 @@ import { Flock } from "../../src/util/flock"
 // once (injected in production from AppRuntime, like provider).
 const runtime = ManagedRuntime.make(Automation.defaultLayer)
 const automation = await runtime.runPromise(Effect.gen(function* () { return yield* Automation.Service }))
+
+function publishAutomationEvent<D extends { type: string }>(def: D, properties: unknown) {
+  GlobalBus.emit("event", {
+    directory: Instance.directory,
+    project: Instance.project.id,
+    payload: { type: def.type, properties },
+  })
+}
 
 afterEach(async () => {
   AutomationScheduler.stopProcess({ stopRuns: false })
@@ -766,7 +774,7 @@ describe("automation scheduler", () => {
       const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
 
       scheduler.reschedule(definition)
-      await Bus.publish(Automation.Event.DefinitionDeleted, { id: definition.id, deleted: true, revision: 2 })
+      publishAutomationEvent(Automation.Event.DefinitionDeleted, { id: definition.id, deleted: true, revision: 2 })
       await clock.advance(1_000)
 
       expect(calls).toEqual([])

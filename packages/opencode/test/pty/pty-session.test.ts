@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
-import { Bus } from "../../src/bus"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { Pty } from "../../src/pty"
@@ -8,6 +7,7 @@ import type { PtyID } from "../../src/pty/schema"
 import { tmpdir } from "../fixture/fixture"
 import { setTimeout as sleep } from "node:timers/promises"
 import { existsSync } from "node:fs"
+import { subscribeBus } from "../lib/bus"
 
 const wait = async (fn: () => boolean, ms = 5000) => {
   const end = Date.now() + ms
@@ -37,9 +37,9 @@ describe("pty", () => {
       fn: async () => {
         const log: Array<{ type: "created" | "exited" | "deleted"; id: PtyID }> = []
         const off = [
-          Bus.subscribe(Pty.Event.Created, (evt) => log.push({ type: "created", id: evt.properties.info.id })),
-          Bus.subscribe(Pty.Event.Exited, (evt) => log.push({ type: "exited", id: evt.properties.id })),
-          Bus.subscribe(Pty.Event.Deleted, (evt) => log.push({ type: "deleted", id: evt.properties.id })),
+          subscribeBus(Pty.Event.Created, (evt) => log.push({ type: "created", id: evt.properties.info.id })),
+          subscribeBus(Pty.Event.Exited, (evt) => log.push({ type: "exited", id: evt.properties.id })),
+          subscribeBus(Pty.Event.Deleted, (evt) => log.push({ type: "deleted", id: evt.properties.id })),
         ]
 
         let id: PtyID | undefined
@@ -74,9 +74,9 @@ describe("pty", () => {
       fn: async () => {
         const log: Array<{ type: "created" | "exited" | "deleted"; id: PtyID }> = []
         const off = [
-          Bus.subscribe(Pty.Event.Created, (evt) => log.push({ type: "created", id: evt.properties.info.id })),
-          Bus.subscribe(Pty.Event.Exited, (evt) => log.push({ type: "exited", id: evt.properties.id })),
-          Bus.subscribe(Pty.Event.Deleted, (evt) => log.push({ type: "deleted", id: evt.properties.id })),
+          subscribeBus(Pty.Event.Created, (evt) => log.push({ type: "created", id: evt.properties.info.id })),
+          subscribeBus(Pty.Event.Exited, (evt) => log.push({ type: "exited", id: evt.properties.id })),
+          subscribeBus(Pty.Event.Deleted, (evt) => log.push({ type: "deleted", id: evt.properties.id })),
         ]
 
         let id: PtyID | undefined
