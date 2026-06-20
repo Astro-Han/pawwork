@@ -3,7 +3,6 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Global } from "@opencode-ai/core/global"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { Context, Effect, Layer } from "effect"
-import { makeRuntime } from "../effect/run-service"
 import { isRecord } from "../util/record"
 
 /**
@@ -87,17 +86,4 @@ export namespace ModelState {
   )
 
   export const defaultLayer = layer.pipe(Layer.provide(EffectFlock.defaultLayer), Layer.provide(AppFileSystem.defaultLayer))
-
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  /**
-   * Best-effort, locked read-modify-write. Only a missing file (ENOENT) starts
-   * from empty; any other read failure skips the write so sibling state (favorite,
-   * variant, …) is never clobbered. The temp-file + rename keeps the unlocked
-   * `defaultModel()` reader from ever seeing a half-written file, and failures
-   * never reach the caller.
-   */
-  export async function recordRecent(model: ModelRef): Promise<void> {
-    return runPromise((svc) => svc.recordRecent(model))
-  }
 }

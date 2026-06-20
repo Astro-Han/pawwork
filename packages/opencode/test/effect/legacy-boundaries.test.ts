@@ -3,6 +3,7 @@ import { readdir, readFile } from "fs/promises"
 import path from "path"
 
 const srcRoot = path.resolve(import.meta.dir, "../../src")
+const testRoot = path.resolve(import.meta.dir, "..")
 
 async function sourceFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true })
@@ -80,4 +81,13 @@ test("provider list route uses the ModelsDev service instead of the Promise faca
 
   expect(text).not.toContain("Effect.promise(() => ModelsDev.get())")
   expect(text).not.toContain("ModelsDev.get()")
+})
+
+test("ModelState recent writes stay on the Effect service boundary", async () => {
+  const service = await readFile(path.join(srcRoot, "provider/model-state.ts"), "utf8")
+  const providerTest = await readFile(path.join(testRoot, "provider/provider.test.ts"), "utf8")
+
+  expect(service).not.toContain("makeRuntime(Service, defaultLayer)")
+  expect(service).not.toContain("export async function recordRecent")
+  expect(providerTest).not.toContain("ModelState.recordRecent(")
 })
