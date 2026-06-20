@@ -52,7 +52,7 @@ describe("built node webfetch", () => {
       const script = `
         import http from "node:http"
         import https from "node:https"
-        import { Effect } from "effect"
+        import { Effect, ManagedRuntime } from "effect"
         import { FetchHttpClient } from "effect/unstable/http"
         import { Instance, Log, ToolRegistry } from ${JSON.stringify(pathToFileURL(distEntry).href)}
 
@@ -64,6 +64,9 @@ describe("built node webfetch", () => {
         if (!directory) throw new Error("missing TEST_DIRECTORY")
 
         await Log.init({ level: "DEBUG", print: false })
+        const registryRuntime = ManagedRuntime.make(ToolRegistry.defaultLayer)
+        const registryTools = (input) =>
+          registryRuntime.runPromise(ToolRegistry.Service.use((registry) => registry.tools(input)))
 
         const happyHTML = [
           "<!doctype html>",
@@ -162,7 +165,7 @@ describe("built node webfetch", () => {
           const output = await Instance.provide({
             directory,
             fn: async () => {
-              const tools = await ToolRegistry.tools({
+              const tools = await registryTools({
                 providerID: "openai",
                 modelID: "gpt-5",
                 agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -207,6 +210,7 @@ describe("built node webfetch", () => {
           console.log(JSON.stringify(output))
         } finally {
           await Instance.disposeAll()
+          await registryRuntime.dispose()
           await new Promise((resolve, reject) => {
             server.close((error) => (error ? reject(error) : resolve()))
             server.closeAllConnections?.()

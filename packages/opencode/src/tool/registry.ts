@@ -57,7 +57,6 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "../file/ripgrep"
 import { InstanceState } from "@/effect/instance-state"
 import { EffectBridge } from "@/effect"
-import { makeRuntime } from "@/effect/run-service"
 import { Env } from "../env"
 import { Todo } from "../session/todo"
 import { TurnChange } from "../session/turn-change"
@@ -544,31 +543,4 @@ export namespace ToolRegistry {
       Layer.provide(Worktree.defaultLayer),
     ),
   )
-
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export async function ids() {
-    return runPromise((svc) => svc.ids())
-  }
-
-  export async function tools(input: {
-    providerID: ProviderID
-    modelID: ModelID
-    agent: Agent.Info
-    activatedTools?: ReadonlySet<string>
-    deferredAvailable?: (id: string) => boolean
-  }): Promise<(Tool.Def & { id: string })[]> {
-    return runPromise((svc) => svc.tools(input))
-  }
-
-  export async function availableDeferred(input: {
-    activatedTools?: ReadonlySet<string>
-    deferredAvailable?: (id: string) => boolean
-  }): Promise<ReadonlySet<string>> {
-    return runPromise((svc) => svc.availableDeferred(input))
-  }
-
-  export async function invalidate() {
-    return runPromise((svc) => svc.invalidate())
-  }
 }

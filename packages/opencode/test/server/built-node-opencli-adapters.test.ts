@@ -51,19 +51,22 @@ describe("built node opencli adapters", () => {
       expectModelsSnapshotUnchanged(modelsFixture)
 
       const script = `
-        import { Effect } from "effect"
+        import { Effect, ManagedRuntime } from "effect"
         import { Instance, Log, ToolRegistry } from ${JSON.stringify(pathToFileURL(distEntry).href)}
 
         const directory = process.env.TEST_DIRECTORY
         if (!directory) throw new Error("missing TEST_DIRECTORY")
 
         await Log.init({ level: "DEBUG", print: false })
+        const registryRuntime = ManagedRuntime.make(ToolRegistry.defaultLayer)
+        const registryTools = (input) =>
+          registryRuntime.runPromise(ToolRegistry.Service.use((registry) => registry.tools(input)))
         let exitCode = 0
         try {
           const result = await Instance.provide({
             directory,
             fn: async () => {
-              const tools = await ToolRegistry.tools({
+              const tools = await registryTools({
                 providerID: "openai",
                 modelID: "gpt-5",
                 agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -98,6 +101,7 @@ describe("built node opencli adapters", () => {
           exitCode = 1
         } finally {
           await Instance.disposeAll()
+          await registryRuntime.dispose()
         }
 
         await new Promise((resolve) => setTimeout(resolve, 50))
