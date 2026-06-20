@@ -8,7 +8,7 @@ import { ProviderAuth } from "../../provider/auth"
 import { Provider } from "../../provider/provider"
 import { ModelID, ProviderID } from "../../provider/schema"
 
-export const listProviders = Effect.fn("ProviderRoutes.list")(function* () {
+export const listProviders = Effect.fn("ProviderHttpApi.list")(function* () {
   const config = yield* Config.Service
   const modelsDev = yield* ModelsDev.Service
   const provider = yield* Provider.Service
@@ -38,12 +38,12 @@ export const listProviders = Effect.fn("ProviderRoutes.list")(function* () {
   }
 })
 
-export const getAuthMethods = Effect.fn("ProviderRoutes.auth.methods")(function* () {
+export const getAuthMethods = Effect.fn("ProviderHttpApi.auth.methods")(function* () {
   const auth = yield* ProviderAuth.Service
   return yield* auth.methods()
 })
 
-export const authorizeProvider = Effect.fn("ProviderRoutes.oauth.authorize")(function* (input: {
+export const authorizeProvider = Effect.fn("ProviderHttpApi.oauth.authorize")(function* (input: {
   providerID: ProviderID
   method: number
   inputs?: Record<string, string>
@@ -52,7 +52,7 @@ export const authorizeProvider = Effect.fn("ProviderRoutes.oauth.authorize")(fun
   return yield* auth.authorize(input)
 })
 
-export const completeProviderAuth = Effect.fn("ProviderRoutes.oauth.callback")(function* (input: {
+export const completeProviderAuth = Effect.fn("ProviderHttpApi.oauth.callback")(function* (input: {
   providerID: ProviderID
   method: number
   code?: string
@@ -61,7 +61,7 @@ export const completeProviderAuth = Effect.fn("ProviderRoutes.oauth.callback")(f
   yield* auth.callback(input)
 })
 
-export const recordRecentModel = Effect.fn("ProviderRoutes.recent.record")(function* (input: ModelState.ModelRef) {
+export const recordRecentModel = Effect.fn("ProviderHttpApi.recent.record")(function* (input: ModelState.ModelRef) {
   const modelState = yield* ModelState.Service
   yield* modelState.recordRecent(input)
 })

@@ -85,6 +85,14 @@ describe("route inventory harness", () => {
       ["POST", "/mcp/:name/disconnect"],
       ["GET", "/permission"],
       ["POST", "/permission/:requestID/reply"],
+      ["POST", "/permission/__e2e/ask"],
+    ] as const) {
+      expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
+        hono: false,
+        localHttpApi: true,
+      })
+    }
+    for (const [method, routePath] of [
       ["POST", "/experimental/workspace"],
       ["GET", "/experimental/workspace"],
       ["GET", "/experimental/workspace/status"],
@@ -115,16 +123,17 @@ describe("route inventory harness", () => {
       localHttpApi: true,
       classification: "pawwork-owned",
     })
-    expect(
-      inventory.rows.find((row) => row.method === "POST" && row.path === "/mcp/:name/auth/authenticate"),
-    ).toMatchObject({
-      hono: true,
+    const mcpAuthenticate = inventory.rows.find(
+      (row) => row.method === "POST" && row.path === "/mcp/:name/auth/authenticate",
+    )
+    expect(mcpAuthenticate).toMatchObject({
+      hono: false,
       openapi: true,
       legacySdk: true,
       v2Sdk: true,
       localHttpApi: true,
-      classification: "all-public-surfaces",
     })
+    expect(mcpAuthenticate?.classification).toMatch(/^local-httpapi-(?:only|upstream-only)$/)
   })
 
   test("keeps retired file and project routes on the HttpApi production surface only", async () => {
@@ -326,7 +335,7 @@ describe("route inventory harness", () => {
     expect(
       inventory.rows.find((row) => row.method === "POST" && row.path === "/permission/__e2e/ask"),
     ).toMatchObject({
-      hono: true,
+      hono: false,
       localHttpApi: true,
     })
   })
@@ -511,9 +520,9 @@ describe("route inventory harness", () => {
   test("distinguishes non-product Hono and v2 SDK routes from Hono-only routes", async () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
-    expect(
-      inventory.rows.find((row) => row.method === "POST" && row.path === "/permission/__e2e/ask"),
-    ).toMatchObject({ hono: true, openapi: true, v2Sdk: true, localHttpApi: true, classification: "openapi-v2-sdk" })
+    const permissionE2EAsk = inventory.rows.find((row) => row.method === "POST" && row.path === "/permission/__e2e/ask")
+    expect(permissionE2EAsk).toMatchObject({ hono: false, openapi: true, v2Sdk: true, localHttpApi: true })
+    expect(permissionE2EAsk?.classification).toMatch(/^local-httpapi-(?:only|upstream-only)$/)
   })
 
   test("does not report retired question HTTP routes as OpenAPI-only residue", async () => {

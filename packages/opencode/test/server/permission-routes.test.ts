@@ -3,13 +3,10 @@ import { NodeFileSystem, NodeHttpPlatform, NodePath } from "@effect/platform-nod
 import { Deferred, Effect, Layer } from "effect"
 import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
-import { Hono } from "hono"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { Permission } from "../../src/permission"
 import { PermissionID } from "../../src/permission/schema"
 import { Instance } from "../../src/project/instance"
-import { ErrorMiddleware } from "../../src/server/middleware"
-import { PermissionRoutes } from "../../src/server/instance/permission"
 import { PermissionApi } from "../../src/server/routes/instance/httpapi/groups/permission"
 import { permissionHandlers } from "../../src/server/routes/instance/httpapi/handlers/permission"
 import { SessionApi } from "../../src/server/routes/instance/httpapi/groups/session"
@@ -23,12 +20,6 @@ afterEach(async () => {
 })
 
 describe("permission routes", () => {
-  function app() {
-    const instance = new Hono().route("/permission", PermissionRoutes())
-    instance.onError(ErrorMiddleware)
-    return instance
-  }
-
   function requestPermissionHttpApi(path: string, init?: RequestInit) {
     return AppRuntime.runPromise(
       Effect.scoped(
@@ -74,44 +65,6 @@ describe("permission routes", () => {
     expect(spec.paths["/permission"]).toHaveProperty("get")
     expect(spec.paths["/permission/{requestID}/reply"]).toHaveProperty("post")
     expect(spec.paths["/permission/__e2e/ask"]).toHaveProperty("post")
-  })
-
-  test("replies to a pending permission through the route runtime", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const session = await AppRuntime.runPromise(Session.Service.use((service) => service.create({})))
-        const requestID = PermissionID.ascending()
-        const pending = await AppRuntime.runPromise(Deferred.make<void>())
-        const asked = AppRuntime.runPromise(
-          Permission.Service.use((permission) =>
-            permission.ask({
-              id: requestID,
-              sessionID: session.id,
-              permission: "bash",
-              patterns: ["echo ok"],
-              metadata: {},
-              always: ["echo ok"],
-              ruleset: [{ permission: "bash", pattern: "echo ok", action: "ask" }],
-              onPending: () => Deferred.succeed(pending, undefined),
-            }),
-          ),
-        )
-
-        await AppRuntime.runPromise(Deferred.await(pending))
-
-        const response = await app().request(`/permission/${requestID}/reply`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ reply: "once" }),
-        })
-
-        expect(response.status).toBe(200)
-        expect(await response.json()).toBe(true)
-        await expect(asked).resolves.toBeUndefined()
-      },
-    })
   })
 
   test("lists permissions and replies to pending permissions through the HttpApi handlers", async () => {
@@ -211,7 +164,7 @@ describe("permission routes", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const response = await app().request(`/permission/${PermissionID.ascending()}/reply`, {
+        const response = await requestPermissionHttpApi(`/permission/${PermissionID.ascending()}/reply`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ reply: "once" }),

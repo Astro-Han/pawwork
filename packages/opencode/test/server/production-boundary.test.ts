@@ -237,6 +237,20 @@ describe("production server boundary", () => {
     expect(instanceRoutes).not.toContain('.route("/config"')
   })
 
+  test("does not retain retired provider, MCP, or permission legacy Hono route sources", async () => {
+    const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
+
+    expect(existsSync(path.join(import.meta.dir, "../../src/server/instance/provider.ts"))).toBe(false)
+    expect(existsSync(path.join(import.meta.dir, "../../src/server/instance/mcp.ts"))).toBe(false)
+    expect(existsSync(path.join(import.meta.dir, "../../src/server/instance/permission.ts"))).toBe(false)
+    expect(instanceRoutes).not.toContain("ProviderRoutes")
+    expect(instanceRoutes).not.toContain("McpRoutes")
+    expect(instanceRoutes).not.toContain("PermissionRoutes")
+    expect(instanceRoutes).not.toContain('.route("/provider"')
+    expect(instanceRoutes).not.toContain('.route("/mcp"')
+    expect(instanceRoutes).not.toContain('.route("/permission"')
+  })
+
   test("does not retain retired file or project legacy Hono route sources", async () => {
     const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
     const file = path.join(import.meta.dir, "../../src/server/instance/file.ts")
