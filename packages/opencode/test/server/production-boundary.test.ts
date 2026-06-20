@@ -28,6 +28,27 @@ describe("production server boundary", () => {
     expect(await response.json()).toEqual({ healthy: true, version: "local" })
   })
 
+  test("creates sessions through the production HttpApi dispatcher with header-scoped instance routing", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    try {
+      const response = await Server.Default().app.request("/session", {
+        method: "POST",
+        headers: {
+          "x-opencode-directory": encodeURIComponent(tmp.path),
+        },
+      })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-type")).toContain("application/json")
+      expect(body.id).toStartWith("ses_")
+      expect(body.directory).toBe(tmp.path)
+    } finally {
+      await Instance.disposeAll()
+    }
+  })
+
   test("serves the OpenAPI document through the production API path", async () => {
     const response = await Server.Default().app.request("/doc")
     const body = await response.json()
@@ -196,5 +217,17 @@ describe("production server boundary", () => {
     }
     expect(memory).not.toContain("export const MemoryRoutes")
     expect(externalResult).not.toContain("export const ExternalResultRoutes")
+  })
+
+  test("does not retain the retired session legacy Hono route source", async () => {
+    const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
+    const session = await readFile(path.join(import.meta.dir, "../../src/server/instance/session.ts"), "utf8")
+
+    expect(instanceRoutes).not.toContain("SessionRoutes")
+    expect(instanceRoutes).not.toContain('.route("/session"')
+    expect(session).not.toMatch(/from\s+["']hono["']/)
+    expect(session).not.toMatch(/\bnew\s+Hono\s*\(/)
+    expect(session).not.toContain("export const SessionRoutes")
+    expect(session).toContain("export const SessionRouteEffects")
   })
 })

@@ -29,9 +29,11 @@ test("@smoke home hero prompt starts a session", async ({ page, project, assista
 
   const home = page.locator('[data-component="session-new-home"]')
   const prompt = home.locator(sessionComposerDockSelector).locator(promptSelector)
+  const send = home.locator(sessionComposerDockSelector).locator('[data-action="prompt-submit"]')
   await expect(prompt).toBeVisible()
   await assistant.reply("home hero reply")
   await page.keyboard.type("Use the home hero prompt")
+  await expect(send).toBeEnabled()
   await page.keyboard.press("Enter")
 
   await expect.poll(() => page.url(), { timeout: 30_000 }).toContain("/session/")
@@ -54,9 +56,11 @@ test("@smoke home composer submits a slash-prefixed prompt via the fallback path
 
   const home = page.locator('[data-component="session-new-home"]')
   const prompt = home.locator(sessionComposerDockSelector).locator(promptSelector)
+  const send = home.locator(sessionComposerDockSelector).locator('[data-action="prompt-submit"]')
   await expect(prompt).toBeVisible()
   await assistant.reply("slash hero reply")
   await page.keyboard.type("/pr2skillcheck verify slash submit")
+  await expect(send).toBeEnabled()
   await page.keyboard.press("Enter")
 
   await expect.poll(() => page.url(), { timeout: 30_000 }).toContain("/session/")

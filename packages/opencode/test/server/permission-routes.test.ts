@@ -12,8 +12,9 @@ import { ErrorMiddleware } from "../../src/server/middleware"
 import { PermissionRoutes } from "../../src/server/instance/permission"
 import { PermissionApi } from "../../src/server/routes/instance/httpapi/groups/permission"
 import { permissionHandlers } from "../../src/server/routes/instance/httpapi/handlers/permission"
+import { SessionApi } from "../../src/server/routes/instance/httpapi/groups/session"
+import { sessionHandlers } from "../../src/server/routes/instance/httpapi/handlers/session"
 import { Session } from "../../src/session"
-import { SessionRoutes } from "../../src/server/instance/session"
 import { SessionID } from "../../src/session/schema"
 import { tmpdir } from "../fixture/fixture"
 
@@ -46,10 +47,22 @@ describe("permission routes", () => {
     )
   }
 
-  function sessionApp() {
-    const instance = new Hono().route("/session", SessionRoutes())
-    instance.onError(ErrorMiddleware)
-    return instance
+  function requestSessionHttpApi(path: string, init?: RequestInit) {
+    return AppRuntime.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const router = yield* HttpRouter.toHttpEffect(
+            HttpApiBuilder.layer(SessionApi).pipe(
+              Layer.provide(sessionHandlers),
+              Layer.provide(Layer.mergeAll(NodeFileSystem.layer, NodeHttpPlatform.layer, NodePath.layer, Etag.layer)),
+            ),
+          )
+          const request = HttpServerRequest.fromWeb(new Request(`http://localhost${path}`, init))
+          const response = yield* router.pipe(Effect.provideService(HttpServerRequest.HttpServerRequest, request), Effect.orDie)
+          return HttpServerResponse.toWeb(response)
+        }),
+      ) as Effect.Effect<Response>,
+    )
   }
 
   test("declares the permission route group as HttpApi endpoints", () => {
@@ -235,7 +248,7 @@ describe("permission routes", () => {
         await AppRuntime.runPromise(Deferred.await(pending))
 
         try {
-          const response = await sessionApp().request(`/session/${sessionID}/permissions/${requestID}`, {
+          const response = await requestSessionHttpApi(`/session/${sessionID}/permissions/${requestID}`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ response: "once" }),
