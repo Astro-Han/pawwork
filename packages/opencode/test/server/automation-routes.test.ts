@@ -7,7 +7,7 @@ import { Log } from "@opencode-ai/core/util/log"
 import { Automation, AutomationID } from "../../src/automation"
 import { AutomationRunTable } from "../../src/automation/automation.sql"
 import { AutomationScheduler } from "../../src/automation/scheduler"
-import { Bus } from "../../src/bus"
+import { GlobalBus } from "../../src/bus/global"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
 import { Server } from "../../src/server/server"
@@ -25,6 +25,18 @@ import { Flock } from "../../src/util/flock"
 import { tmpdir } from "../fixture/fixture"
 
 void Log.init({ print: false })
+
+function subscribeAutomationEvent<D extends { type: string; properties: { parse(input: unknown): any } }>(
+  def: D,
+  callback: (event: { type: D["type"]; properties: ReturnType<D["properties"]["parse"]> }) => unknown,
+) {
+  const listener = (event: { payload?: { type?: string; properties?: unknown } }) => {
+    if (event.payload?.type !== def.type) return
+    callback({ type: def.type, properties: def.properties.parse(event.payload.properties) })
+  }
+  GlobalBus.on("event", listener)
+  return () => GlobalBus.off("event", listener)
+}
 
 const previousSkipAutomationModelValidation = process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
 
@@ -667,7 +679,7 @@ describe("automation routes", () => {
       const releaseSettle = deferred<void>()
       const publication = deferred<string>()
       let publishedID: string | undefined
-      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+      const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         publishedID = event.properties.id
         publication.resolve(event.properties.id)
       })
@@ -1222,7 +1234,7 @@ describe("automation routes", () => {
         body: JSON.stringify(recurringInput(projectID)),
       })
       const revisions: number[] = []
-      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+      const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         revisions.push(event.properties.revision)
       })
 
@@ -1298,7 +1310,7 @@ describe("automation routes", () => {
       })
       expect(created).not.toHaveProperty("variant")
       const updates: number[] = []
-      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+      const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         if (event.properties.id === created.id) updates.push(event.properties.revision)
       })
       const noop = await json(app, `/automation/${created.id}`, {
@@ -1322,7 +1334,7 @@ describe("automation routes", () => {
         body: JSON.stringify(recurringInput(projectID)),
       })
       const revisions: number[] = []
-      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+      const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         revisions.push(event.properties.revision)
       })
 

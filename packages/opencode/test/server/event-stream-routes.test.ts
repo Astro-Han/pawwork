@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import z from "zod"
-import { Bus } from "../../src/bus"
 import { BusEvent } from "../../src/bus/bus-event"
 import { Instance } from "../../src/project/instance"
 import { EventReplayStore } from "../../src/server/event-replay"
@@ -12,6 +11,7 @@ import {
 } from "../../src/server/instance/global"
 import type { AsyncQueue } from "../../src/util/queue"
 import { tmpdir } from "../fixture/fixture"
+import { publishBus } from "../lib/bus"
 
 type SseFrame = {
   event?: string
@@ -264,7 +264,7 @@ describe("SSE event routes", () => {
           expect(connected.id).toBeUndefined()
           expect(connected.data).toEqual({ type: "server.connected", properties: {} })
 
-          await Bus.publish(TestEvent, { value: 7 })
+          await publishBus(TestEvent, { value: 7 })
           const [event, heartbeat] = await reader.read(2)
           expectNoSseControlFields([event, heartbeat])
           expect(event.id).toBeUndefined()

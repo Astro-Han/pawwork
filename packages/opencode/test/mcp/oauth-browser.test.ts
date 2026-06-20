@@ -100,7 +100,7 @@ beforeEach(() => {
 
 // Import modules after mocking
 const { MCP } = await import("../../src/mcp/index")
-const { Bus } = await import("../../src/bus")
+const { subscribeBus } = await import("../lib/bus")
 const { McpOAuthCallback } = await import("../../src/mcp/oauth-callback")
 const { Instance } = await import("../../src/project/instance")
 const { tmpdir } = await import("../fixture/fixture")
@@ -134,7 +134,7 @@ test("BrowserOpenFailed event is published when open() throws", async () => {
       openShouldFail = true
 
       const events: Array<{ mcpName: string; url: string }> = []
-      const unsubscribe = Bus.subscribe(MCP.BrowserOpenFailed, (evt) => {
+      const unsubscribe = subscribeBus(MCP.BrowserOpenFailed, (evt) => {
         events.push(evt.properties)
       })
 
@@ -185,7 +185,7 @@ test("BrowserOpenFailed event is NOT published when open() succeeds", async () =
       openShouldFail = false
 
       const events: Array<{ mcpName: string; url: string }> = []
-      const unsubscribe = Bus.subscribe(MCP.BrowserOpenFailed, (evt) => {
+      const unsubscribe = subscribeBus(MCP.BrowserOpenFailed, (evt) => {
         events.push(evt.properties)
       })
 

@@ -77,11 +77,12 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/LL
 const live: Layer.Layer<
   Service,
   never,
-  Auth.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service
+  Auth.Service | Bus.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
     const auth = yield* Auth.Service
+    const bus = yield* Bus.Service
     const config = yield* Config.Service
     const provider = yield* Provider.Service
     const plugin = yield* Plugin.Service
@@ -299,9 +300,11 @@ const live: Layer.Layer<
           const id = PermissionID.ascending()
           let unsub: (() => void) | undefined
           try {
-            unsub = Bus.subscribe(Permission.Event.Replied, (evt) => {
-              if (evt.properties.requestID === id) void evt.properties.reply
-            })
+            unsub = await bridge.promise(
+              bus.subscribeCallback(Permission.Event.Replied, (evt) => {
+                if (evt.properties.requestID === id) void evt.properties.reply
+              }),
+            )
             const toolPatterns = approvalTools.map((t: { name: string; args: string }) => {
               try {
                 const parsed = JSON.parse(t.args) as Record<string, unknown>
@@ -672,6 +675,7 @@ export const layer = live.pipe(Layer.provide(Permission.defaultLayer))
 export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(() =>
   layer.pipe(
     Layer.provide(Auth.defaultLayer),
+    Layer.provide(Bus.defaultLayer),
     Layer.provide(Config.defaultLayer),
     Layer.provide(Provider.defaultLayer),
     Layer.provide(Plugin.defaultLayer),

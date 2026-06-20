@@ -5,7 +5,7 @@ import { Log } from "../util"
 import { Schema } from "effect"
 import { NamedError } from "@opencode-ai/util/error"
 import { Glob } from "@opencode-ai/core/util/glob"
-import { Bus } from "@/bus"
+import { GlobalBus } from "@/bus/global"
 import { zod } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
 import { configEntryNameFromPath } from "./entry-name"
@@ -15,6 +15,14 @@ import { ConfigModelID } from "./model-id"
 
 const log = Log.create({ service: "config" })
 
+async function publishSessionError(error: { toObject(): any }) {
+  const { Session } = await import("@/session")
+  GlobalBus.emit("event", {
+    directory: "global",
+    payload: { type: Session.Event.Error.type, properties: { error: error.toObject() } },
+  })
+}
+
 function commandSourceRank(filePath: string) {
   const normalized = filePath.replaceAll("\\", "/")
   if (normalized.includes("/.opencode/command/") || normalized.includes("/command/")) return 0
@@ -22,8 +30,7 @@ function commandSourceRank(filePath: string) {
 }
 
 async function reportLoadError(error: { toObject(): any }, item: string, cause: unknown) {
-  const { Session } = await import("@/session")
-  void Bus.publish(Session.Event.Error, { error: error.toObject() })
+  void publishSessionError(error)
   log.error("failed to load command", { command: item, err: cause })
 }
 

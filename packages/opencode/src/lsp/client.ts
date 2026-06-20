@@ -1,5 +1,6 @@
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
+import { Effect } from "effect"
 import path from "path"
 import { pathToFileURL, fileURLToPath } from "url"
 import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from "vscode-jsonrpc/node"
@@ -40,13 +41,18 @@ export namespace LSPClient {
     ),
   }
 
-  export async function create(input: { serverID: string; server: LSPServer.Handle; root: string }) {
-    const l = log.clone().tag("serverID", input.serverID)
+  export async function create(options: {
+    bus: Pick<Bus.Interface, "publish" | "subscribeCallback">
+    serverID: string
+    server: LSPServer.Handle
+    root: string
+  }) {
+    const l = log.clone().tag("serverID", options.serverID)
     l.info("starting client")
 
     const connection = createMessageConnection(
-      new StreamMessageReader(input.server.process.stdout as any),
-      new StreamMessageWriter(input.server.process.stdin as any),
+      new StreamMessageReader(options.server.process.stdout as any),
+      new StreamMessageWriter(options.server.process.stdin as any),
     )
 
     const diagnostics = new Map<string, Diagnostic[]>()
@@ -58,8 +64,8 @@ export namespace LSPClient {
       })
       const exists = diagnostics.has(filePath)
       diagnostics.set(filePath, params.diagnostics)
-      if (!exists && input.serverID === "typescript") return
-      Bus.publish(Event.Diagnostics, { path: filePath, serverID: input.serverID })
+      if (!exists && options.serverID === "typescript") return
+      void Effect.runPromise(options.bus.publish(Event.Diagnostics, { path: filePath, serverID: options.serverID }))
     })
     connection.onRequest("window/workDoneProgress/create", (params) => {
       l.info("window/workDoneProgress/create", params)
@@ -67,14 +73,14 @@ export namespace LSPClient {
     })
     connection.onRequest("workspace/configuration", async () => {
       // Return server initialization options
-      return [input.server.initialization ?? {}]
+      return [options.server.initialization ?? {}]
     })
     connection.onRequest("client/registerCapability", async () => {})
     connection.onRequest("client/unregisterCapability", async () => {})
     connection.onRequest("workspace/workspaceFolders", async () => [
       {
         name: "workspace",
-        uri: pathToFileURL(input.root).href,
+        uri: pathToFileURL(options.root).href,
       },
     ])
     connection.listen()
@@ -82,16 +88,16 @@ export namespace LSPClient {
     l.info("sending initialize")
     await withTimeout(
       connection.sendRequest("initialize", {
-        rootUri: pathToFileURL(input.root).href,
-        processId: input.server.process.pid,
+        rootUri: pathToFileURL(options.root).href,
+        processId: options.server.process.pid,
         workspaceFolders: [
           {
             name: "workspace",
-            uri: pathToFileURL(input.root).href,
+            uri: pathToFileURL(options.root).href,
           },
         ],
         initializationOptions: {
-          ...input.server.initialization,
+          ...options.server.initialization,
         },
         capabilities: {
           window: {
@@ -118,7 +124,7 @@ export namespace LSPClient {
     ).catch((err) => {
       l.error("initialize error", { error: err })
       throw new InitializeError(
-        { serverID: input.serverID },
+        { serverID: options.serverID },
         {
           cause: err,
         },
@@ -127,9 +133,9 @@ export namespace LSPClient {
 
     await connection.sendNotification("initialized", {})
 
-    if (input.server.initialization) {
+    if (options.server.initialization) {
       await connection.sendNotification("workspace/didChangeConfiguration", {
-        settings: input.server.initialization,
+        settings: options.server.initialization,
       })
     }
 
@@ -138,9 +144,9 @@ export namespace LSPClient {
     } = {}
 
     const result = {
-      root: input.root,
+      root: options.root,
       get serverID() {
-        return input.serverID
+        return options.serverID
       },
       get connection() {
         return connection
@@ -216,17 +222,23 @@ export namespace LSPClient {
         let debounceTimer: ReturnType<typeof setTimeout> | undefined
         return await withTimeout(
           new Promise<void>((resolve) => {
-            unsub = Bus.subscribe(Event.Diagnostics, (event) => {
-              if (event.properties.path === normalizedPath && event.properties.serverID === result.serverID) {
-                // Debounce to allow LSP to send follow-up diagnostics (e.g., semantic after syntax)
-                if (debounceTimer) clearTimeout(debounceTimer)
-                debounceTimer = setTimeout(() => {
-                  log.info("got diagnostics", { path: normalizedPath })
-                  unsub?.()
-                  resolve()
-                }, DIAGNOSTICS_DEBOUNCE_MS)
-              }
-            })
+            try {
+              unsub = Effect.runSync(
+                options.bus.subscribeCallback(Event.Diagnostics, (event) => {
+                  if (event.properties.path === normalizedPath && event.properties.serverID === result.serverID) {
+                    // Debounce to allow LSP to send follow-up diagnostics (e.g., semantic after syntax)
+                    if (debounceTimer) clearTimeout(debounceTimer)
+                    debounceTimer = setTimeout(() => {
+                      log.info("got diagnostics", { path: normalizedPath })
+                      unsub?.()
+                      resolve()
+                    }, DIAGNOSTICS_DEBOUNCE_MS)
+                  }
+                }),
+              )
+            } catch {
+              resolve()
+            }
           }),
           3000,
         )
@@ -240,7 +252,7 @@ export namespace LSPClient {
         l.info("shutting down")
         connection.end()
         connection.dispose()
-        await Process.stop(input.server.process)
+        await Process.stop(options.server.process)
         l.info("shutdown")
       },
     }

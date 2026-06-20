@@ -1,5 +1,6 @@
 import { Log } from "@opencode-ai/core/util/log"
 import { Bus } from "@/bus"
+import { AppRuntime } from "@/effect/app-runtime"
 import { AsyncQueue } from "../../util/queue"
 import { createSseResponse } from "../sse"
 
@@ -45,12 +46,16 @@ export function handleInstanceEventStream(request: Request, options: { heartbeat
         log.info("event disconnected")
       }
 
-      const unsub = Bus.subscribeAll((event) => {
-        q.push(JSON.stringify(event))
-        if (event.type === Bus.InstanceDisposed.type) {
-          stop()
-        }
-      })
+      const unsub = AppRuntime.runSync(
+        Bus.Service.use((bus) =>
+          bus.subscribeAllCallback((event) => {
+            q.push(JSON.stringify(event))
+            if (event.type === Bus.InstanceDisposed.type) {
+              stop()
+            }
+          }),
+        ),
+      )
 
       void (async () => {
         try {

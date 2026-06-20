@@ -6,7 +6,6 @@ import { BusEvent } from "./bus-event"
 import { GlobalBus } from "./global"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
 import { InstanceState } from "@/effect/instance-state"
-import { makeRuntime } from "@/effect/run-service"
 import { LocalContext } from "@/util/local-context"
 
 export namespace Bus {
@@ -83,25 +82,33 @@ export namespace Bus {
       }
 
       function publish<D extends BusEvent.Definition>(def: D, properties: z.output<D["properties"]>) {
+        const payload: Payload = { type: def.type, properties }
         return Effect.gen(function* () {
-          const s = yield* InstanceState.get(state)
-          const payload: Payload = { type: def.type, properties }
-          log.info("publishing", { type: def.type })
+          try {
+            const s = yield* InstanceState.get(state)
+            log.info("publishing", { type: def.type })
 
-          const ps = s.typed.get(def.type)
-          if (ps) yield* PubSub.publish(ps, payload)
-          yield* PubSub.publish(s.wildcard, payload)
+            const ps = s.typed.get(def.type)
+            if (ps) yield* PubSub.publish(ps, payload)
+            yield* PubSub.publish(s.wildcard, payload)
 
-          const dir = yield* InstanceState.directory
-          const context = yield* InstanceState.context
-          const workspace = yield* InstanceState.workspaceID
+            const dir = yield* InstanceState.directory
+            const context = yield* InstanceState.context
+            const workspace = yield* InstanceState.workspaceID
 
-          GlobalBus.emit("event", {
-            directory: dir,
-            project: context.project.id,
-            workspace,
-            payload,
-          })
+            GlobalBus.emit("event", {
+              directory: dir,
+              project: context.project.id,
+              workspace,
+              payload,
+            })
+          } catch (error) {
+            if (!(error instanceof LocalContext.NotFound) || error.name !== "instance") throw error
+            GlobalBus.emit("event", {
+              directory: "global",
+              payload,
+            })
+          }
         })
       }
 
@@ -172,31 +179,4 @@ export namespace Bus {
   )
 
   export const defaultLayer = layer
-
-  const { runPromise, runSync } = makeRuntime(Service, layer)
-
-  // runSync is safe here because the subscribe chain (InstanceState.get, PubSub.subscribe,
-  // Scope.make, Effect.forkScoped) is entirely synchronous. If any step becomes async, this will throw.
-  export async function publish<D extends BusEvent.Definition>(def: D, properties: z.output<D["properties"]>) {
-    try {
-      return await runPromise((svc) => svc.publish(def, properties))
-    } catch (error) {
-      if (!(error instanceof LocalContext.NotFound) || error.name !== "instance") throw error
-      GlobalBus.emit("event", {
-        directory: "global",
-        payload: { type: def.type, properties },
-      })
-    }
-  }
-
-  export function subscribe<D extends BusEvent.Definition>(
-    def: D,
-    callback: (event: { type: D["type"]; properties: z.infer<D["properties"]> }) => unknown,
-  ) {
-    return runSync((svc) => svc.subscribeCallback(def, callback))
-  }
-
-  export function subscribeAll(callback: (event: any) => unknown) {
-    return runSync((svc) => svc.subscribeAllCallback(callback))
-  }
 }

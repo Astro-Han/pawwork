@@ -331,6 +331,23 @@ test("Config service does not expose Promise facades", async () => {
   for (const facade of facades) expect(text).not.toContain(facade)
 })
 
+test("Bus and Automation services do not expose runtime facades", async () => {
+  const services = {
+    "bus/index.ts": [
+      "export async function publish",
+      "export function subscribe",
+      "export function subscribeAll",
+    ],
+    "automation/index.ts": ["const automationRuntime = makeRuntime"],
+  }
+
+  for (const [file, facades] of Object.entries(services)) {
+    const text = await readFile(path.join(srcRoot, file), "utf8")
+    expect(text).not.toMatch(/\bfrom\s+["']@\/effect\/run-service["']/)
+    for (const facade of facades) expect(text).not.toContain(facade)
+  }
+})
+
 test("Plugin and Skill services do not expose Promise facades", async () => {
   const services = {
     "plugin/index.ts": ["export async function trigger", "export async function list", "export async function init"],

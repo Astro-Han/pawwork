@@ -3,7 +3,7 @@ import { Effect, ManagedRuntime, Schema } from "effect"
 import { Automation } from "../../src/automation"
 import { AutomationRunTable } from "../../src/automation/automation.sql"
 import { AutomationScheduler } from "../../src/automation/scheduler"
-import { Bus } from "../../src/bus"
+import { GlobalBus } from "../../src/bus/global"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
 import { MessageID, SessionID } from "../../src/session/schema"
@@ -19,6 +19,18 @@ const runtime = ManagedRuntime.make(Automation.defaultLayer)
 const automation = await runtime.runPromise(Effect.gen(function* () {
   return yield* Automation.Service
 }))
+
+function subscribeAutomationEvent<D extends { type: string; properties: { parse(input: unknown): any } }>(
+  def: D,
+  callback: (event: { type: D["type"]; properties: ReturnType<D["properties"]["parse"]> }) => unknown,
+) {
+  const listener = (event: { payload?: { type?: string; properties?: unknown } }) => {
+    if (event.payload?.type !== def.type) return
+    callback({ type: def.type, properties: def.properties.parse(event.payload.properties) })
+  }
+  GlobalBus.on("event", listener)
+  return () => GlobalBus.off("event", listener)
+}
 
 function recurring(projectID: ProjectID, title: string): Automation.CreateInput {
   return {
@@ -171,7 +183,7 @@ describe("automate_manage tool", () => {
       fn: async () => {
         const asks: unknown[] = []
         const deletedEvents: Automation.Tombstone[] = []
-        const unsubscribe = Bus.subscribe(Automation.Event.DefinitionDeleted, (event) => {
+        const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionDeleted, (event) => {
           deletedEvents.push(event.properties)
         })
         installScheduler()
@@ -275,7 +287,7 @@ describe("automate_manage tool", () => {
         installScheduler()
         const asks: unknown[] = []
         const deletedEvents: Automation.Tombstone[] = []
-        const unsubscribe = Bus.subscribe(Automation.Event.DefinitionDeleted, (event) => {
+        const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionDeleted, (event) => {
           deletedEvents.push(event.properties)
         })
         const created = Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
