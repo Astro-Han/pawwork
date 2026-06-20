@@ -60,6 +60,14 @@ async function getModel(providerID: ProviderID, modelID: ModelID) {
   return run((provider) => provider.getModel(providerID, modelID))
 }
 
+async function modelsDatabase() {
+  return AppRuntime.runPromise(
+    ModelsDev.Service.use((svc) =>
+      svc.data().pipe(Effect.map((catalog) => withPawWorkProviders(catalog as Record<string, ModelsDev.Provider>))),
+    ),
+  )
+}
+
 async function getLanguage(model: Provider.Model) {
   return run((provider) => provider.getLanguage(model))
 }
@@ -1413,7 +1421,7 @@ test("provider.sort prioritizes preferred models", () => {
 })
 
 test("includes Volcano Engine Coding Plan as a PawWork provider overlay", async () => {
-  const models = await ModelsDev.get()
+  const models = await modelsDatabase()
   const provider = models[VOLCENGINE_PLAN_PROVIDER_ID]
 
   expect(provider).toBeDefined()
@@ -1443,7 +1451,7 @@ test("includes Volcano Engine Coding Plan as a PawWork provider overlay", async 
 
 
 test("Volcano Engine Coding Plan models have correct key parameters", async () => {
-  const models = await ModelsDev.get()
+  const models = await modelsDatabase()
   const provider = models[VOLCENGINE_PLAN_PROVIDER_ID]
 
   const expected: Record<string, {
@@ -1519,7 +1527,7 @@ test("does not add OpenAI-compatible replay metadata to Kimi Coding Plan Anthrop
 })
 
 test("uses doubao-seed-2.0-code as the Volcano Coding Plan default model", async () => {
-  const models = await ModelsDev.get()
+  const models = await modelsDatabase()
   const provider = models[VOLCENGINE_PLAN_PROVIDER_ID]
 
   expect(Provider.defaultModelIDs({ [provider.id]: provider })).toEqual({

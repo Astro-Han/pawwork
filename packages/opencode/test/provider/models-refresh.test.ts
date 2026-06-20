@@ -7,10 +7,12 @@ import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { Effect, Layer } from "effect"
 import { tmpdir } from "../fixture/fixture"
 import { makeRuntime } from "../../src/effect/run-service"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Env } from "../../src/env"
 import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
 import { ModelsDev, Provider } from "../../src/provider"
+import { withPawWorkProviders } from "../../src/provider/pawwork-providers"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 
 const originalFetch = globalThis.fetch
@@ -18,11 +20,28 @@ const originalModelsPath = process.env.OPENCODE_MODELS_PATH
 const env = makeRuntime(Env.Service, Env.defaultLayer)
 const setEnv = (key: string, value: string) => env.runSync((svc) => svc.set(key, value))
 
+const runModels = <A, E>(fn: (svc: ModelsDev.Interface) => Effect.Effect<A, E, never>) =>
+  AppRuntime.runPromise(ModelsDev.Service.use(fn))
+
+const runProvider = <A, E>(fn: (svc: Provider.Interface) => Effect.Effect<A, E, never>) =>
+  AppRuntime.runPromise(Provider.Service.use(fn))
+
+const resetModels = () => runModels((svc) => svc.reset())
+const refreshModels = (force: boolean) => runModels((svc) => svc.refresh(force))
+const listProviders = () => runProvider((svc) => svc.list())
+const getProviderModel = (providerID: ProviderID, modelID: ModelID) =>
+  runProvider((svc) => svc.getModel(providerID, modelID))
+const getProviderLanguage = (model: Provider.Model) => runProvider((svc) => svc.getLanguage(model))
+const getModelsDatabase = () =>
+  runModels((svc) =>
+    svc.data().pipe(Effect.map((catalog) => withPawWorkProviders(catalog as Record<string, ModelsDev.Provider>))),
+  )
+
 afterEach(async () => {
   globalThis.fetch = originalFetch
   if (originalModelsPath === undefined) delete process.env.OPENCODE_MODELS_PATH
   else process.env.OPENCODE_MODELS_PATH = originalModelsPath
-  ModelsDev.Data.reset()
+  await resetModels()
   await rm(cachePath(), { force: true })
 })
 
@@ -94,7 +113,7 @@ test("refresh publishes a valid candidate catalog", async () => {
   mockFetchWithCatalog(catalogWithModels(["kimi-k2.5", "kimi-k2.6"]))
 
   const before = ModelsDev.version()
-  await ModelsDev.refresh(true)
+  await refreshModels(true)
 
   expect(await readCacheText()).toContain("kimi-k2.6")
   expect(ModelsDev.version()).toBe(before + 1)
@@ -107,7 +126,7 @@ test("refresh keeps existing cache when candidate JSON is invalid", async () => 
   const beforeVersion = ModelsDev.version()
   globalThis.fetch = asFetch(async () => new Response("not json", { status: 200 }))
 
-  await ModelsDev.refresh(true)
+  await refreshModels(true)
 
   expect(await readCacheText()).toBe(beforeCache)
   expect(ModelsDev.version()).toBe(beforeVersion)
@@ -122,7 +141,7 @@ test("refresh keeps existing cache when candidate catalog cannot become runtime 
   delete invalidCatalog["moonshotai-cn"].models["kimi-k2.6"].limit
   mockFetchWithCatalog(invalidCatalog)
 
-  await ModelsDev.refresh(true)
+  await refreshModels(true)
 
   expect(await readCacheText()).toBe(beforeCache)
   expect(ModelsDev.version()).toBe(beforeVersion)
@@ -137,7 +156,7 @@ test("refresh keeps existing cache when candidate catalog has invalid field type
   invalidCatalog["moonshotai-cn"].models["kimi-k2.6"].temperature = "true"
   mockFetchWithCatalog(invalidCatalog)
 
-  await ModelsDev.refresh(true)
+  await refreshModels(true)
 
   expect(await readCacheText()).toBe(beforeCache)
   expect(ModelsDev.version()).toBe(beforeVersion)
@@ -152,7 +171,7 @@ test("refresh keeps existing cache when network fetch fails", async () => {
     throw new Error("network down")
   })
 
-  await expect(ModelsDev.refresh(true)).resolves.toBeUndefined()
+  await expect(refreshModels(true)).resolves.toBeUndefined()
 
   expect(await readCacheText()).toBe(beforeCache)
   expect(ModelsDev.version()).toBe(beforeVersion)
@@ -165,7 +184,7 @@ test("refresh keeps existing cache when HTTP response is not successful", async 
   const beforeVersion = ModelsDev.version()
   globalThis.fetch = asFetch(async () => new Response("server down", { status: 500 }))
 
-  await ModelsDev.refresh(true)
+  await refreshModels(true)
 
   expect(await readCacheText()).toBe(beforeCache)
   expect(ModelsDev.version()).toBe(beforeVersion)
@@ -209,7 +228,7 @@ test("refresh does not publish to normal cache when models path override is set"
   mockFetchWithCatalog(catalogWithModels(["kimi-k2.5", "kimi-k2.6"]))
   const beforeVersion = ModelsDev.version()
 
-  await ModelsDev.refresh(true)
+  await refreshModels(true)
 
   await expect(readFile(cachePath(), "utf8")).rejects.toThrow()
   expect(ModelsDev.version()).toBe(beforeVersion + 1)
@@ -220,16 +239,16 @@ test("provider state rebuilds after models path override refresh", async () => {
   const overridePath = path.join(tmp.path, "models.json")
   await writeFile(overridePath, JSON.stringify(catalogWithModels(["kimi-k2.5"])))
   process.env.OPENCODE_MODELS_PATH = overridePath
-  ModelsDev.Data.reset()
+  await resetModels()
 
   await withTestInstance(async () => {
-    const before = await Provider.list()
+    const before = await listProviders()
     expect(before[moonshotProviderID]?.models[kimi26ModelID]).toBeUndefined()
 
     await writeFile(overridePath, JSON.stringify(catalogWithModels(["kimi-k2.5", "kimi-k2.6"])))
-    await ModelsDev.refresh(true)
+    await refreshModels(true)
 
-    const model = await Provider.getModel(moonshotProviderID, kimi26ModelID)
+    const model = await getProviderModel(moonshotProviderID, kimi26ModelID)
     expect(model.id).toBe(kimi26ModelID)
   })
 })
@@ -237,19 +256,19 @@ test("provider state rebuilds after models path override refresh", async () => {
 test("provider state rebuilds after a successful catalog refresh", async () => {
   delete process.env.OPENCODE_MODELS_PATH
   await writeCache(catalogWithModels(["kimi-k2.5"]))
-  ModelsDev.Data.reset()
+  await resetModels()
 
   await withTestInstance(async () => {
-    const before = await Provider.list()
+    const before = await listProviders()
     expect(before[moonshotProviderID]?.models[kimi26ModelID]).toBeUndefined()
 
     mockFetchWithCatalog(catalogWithModels(["kimi-k2.5", "kimi-k2.6"]))
-    await ModelsDev.refresh(true)
+    await refreshModels(true)
 
-    const model = await Provider.getModel(moonshotProviderID, kimi26ModelID)
+    const model = await getProviderModel(moonshotProviderID, kimi26ModelID)
     expect(model.id).toBe(kimi26ModelID)
 
-    const after = await Provider.list()
+    const after = await listProviders()
     expect(after[moonshotProviderID]?.models[kimi26ModelID]).toBeDefined()
   })
 })
@@ -257,16 +276,16 @@ test("provider state rebuilds after a successful catalog refresh", async () => {
 test("provider state rebuilds when refresh observes an already fresh cache from another process", async () => {
   delete process.env.OPENCODE_MODELS_PATH
   await writeCache(catalogWithModels(["kimi-k2.5"]))
-  ModelsDev.Data.reset()
+  await resetModels()
 
   await withTestInstance(async () => {
-    const before = await Provider.list()
+    const before = await listProviders()
     expect(before[moonshotProviderID]?.models[kimi26ModelID]).toBeUndefined()
 
     await writeCache(catalogWithModels(["kimi-k2.5", "kimi-k2.6"]))
-    await ModelsDev.refresh(false)
+    await refreshModels(false)
 
-    const model = await Provider.getModel(moonshotProviderID, kimi26ModelID)
+    const model = await getProviderModel(moonshotProviderID, kimi26ModelID)
     expect(model.id).toBe(kimi26ModelID)
   })
 })
@@ -274,25 +293,25 @@ test("provider state rebuilds when refresh observes an already fresh cache from 
 test("getLanguage reports ModelNotFoundError when refreshed catalog removes the provider", async () => {
   delete process.env.OPENCODE_MODELS_PATH
   await writeCache(catalogWithModels(["kimi-k2.5"]))
-  ModelsDev.Data.reset()
+  await resetModels()
 
   await withTestInstance(async () => {
-    const oldModel = await Provider.getModel(moonshotProviderID, ModelID.make("kimi-k2.5"))
+    const oldModel = await getProviderModel(moonshotProviderID, ModelID.make("kimi-k2.5"))
 
     mockFetchWithCatalog({})
-    await ModelsDev.refresh(true)
+    await refreshModels(true)
 
-    await expect(Provider.getLanguage(oldModel)).rejects.toThrow("ProviderModelNotFoundError")
+    await expect(getProviderLanguage(oldModel)).rejects.toThrow("ProviderModelNotFoundError")
   })
 })
 
 test("getLanguage reports provider suggestions after refreshed catalog replaces the provider", async () => {
   delete process.env.OPENCODE_MODELS_PATH
   await writeCache(catalogWithModels(["kimi-k2.5"]))
-  ModelsDev.Data.reset()
+  await resetModels()
 
   await withTestInstance(async () => {
-    const oldModel = await Provider.getModel(moonshotProviderID, ModelID.make("kimi-k2.5"))
+    const oldModel = await getProviderModel(moonshotProviderID, ModelID.make("kimi-k2.5"))
     mockFetchWithCatalog({
       "moonshotai-cn-next": {
         id: "moonshotai-cn-next",
@@ -305,9 +324,9 @@ test("getLanguage reports provider suggestions after refreshed catalog replaces 
         },
       },
     })
-    await ModelsDev.refresh(true)
+    await refreshModels(true)
 
-    const error = await Provider.getLanguage(oldModel).catch((error) => error)
+    const error = await getProviderLanguage(oldModel).catch((error) => error)
     expect(error.name).toBe("ProviderModelNotFoundError")
     expect(error.data).toMatchObject({
       providerID: moonshotProviderID,
@@ -320,16 +339,16 @@ test("getLanguage reports provider suggestions after refreshed catalog replaces 
 test("connected provider overlay uses refreshed provider state", async () => {
   delete process.env.OPENCODE_MODELS_PATH
   await writeCache(catalogWithModels(["kimi-k2.5"]))
-  ModelsDev.Data.reset()
+  await resetModels()
 
   await withTestInstance(async () => {
-    await Provider.list()
+    await listProviders()
 
     mockFetchWithCatalog(catalogWithModels(["kimi-k2.5", "kimi-k2.6"]))
-    await ModelsDev.refresh(true)
+    await refreshModels(true)
 
-    const allProviders = await ModelsDev.get()
-    const connected = await Provider.list()
+    const allProviders = await getModelsDatabase()
+    const connected = await listProviders()
     const merged = Object.assign(
       Object.fromEntries(
         Object.entries(allProviders).map(([id, provider]) => [id, Provider.fromModelsDevProvider(provider)]),
