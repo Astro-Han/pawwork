@@ -1,17 +1,22 @@
-import { describe, expect, test } from "bun:test"
-import { Instance } from "../../src/project/instance"
+import { describe, expect } from "bun:test"
+import { Effect, Layer } from "effect"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Session } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { SessionSummary } from "../../src/session/summary"
 import { TurnChange } from "../../src/session/turn-change"
-import { tmpdir } from "../fixture/fixture"
+import { provideTmpdirInstance } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
+import { testEffect } from "../lib/effect"
+import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 
-async function makeUser(sessionID: SessionID, suffix: string) {
+const it = testEffect(Layer.mergeAll(Session.defaultLayer, SessionSummary.defaultLayer, CrossSpawnSpawner.defaultLayer))
+
+const makeUser = Effect.fn("test.makeUser")(function* (sessionID: SessionID, suffix: string) {
+  const session = yield* Session.Service
   const id = MessageID.make(`msg_artifact_user_${suffix}`)
-  await Session.updateMessage({
+  yield* session.updateMessage({
     id,
     sessionID,
     role: "user",
@@ -21,11 +26,16 @@ async function makeUser(sessionID: SessionID, suffix: string) {
     tools: {},
   } as unknown as MessageV2.Info)
   return id
-}
+})
 
-async function makeAssistant(sessionID: SessionID, parentID: MessageID, suffix: string) {
+const makeAssistant = Effect.fn("test.makeAssistant")(function* (
+  sessionID: SessionID,
+  parentID: MessageID,
+  suffix: string,
+) {
+  const session = yield* Session.Service
   const id = MessageID.make(`msg_artifact_assistant_${suffix}`)
-  await Session.updateMessage({
+  yield* session.updateMessage({
     id,
     sessionID,
     role: "assistant",
@@ -40,65 +50,71 @@ async function makeAssistant(sessionID: SessionID, parentID: MessageID, suffix: 
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
   } as unknown as MessageV2.Info)
   return id
-}
+})
 
 describe("session artifacts", () => {
-  test("returns artifacts from captured and mixed aggregates while ignoring deleted and uncaptured-only changes", async () => {
-    await resetDatabase()
-    await using tmp = await tmpdir({ git: true })
+  it.live(
+    "returns artifacts from captured and mixed aggregates while ignoring deleted and uncaptured-only changes",
+    Effect.gen(function* () {
+      yield* Effect.promise(() => resetDatabase())
+      return yield* provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const summary = yield* SessionSummary.Service
 
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const session = await Session.create({ title: "Artifacts" })
-        const user = await makeUser(session.id, "captured")
-        const assistant = await makeAssistant(session.id, user, "captured")
+          const info = yield* session.create({ title: "Artifacts" })
+          const user = yield* makeUser(info.id, "captured")
+          const assistant = yield* makeAssistant(info.id, user, "captured")
 
-        TurnChange.recordWrite({
-          sessionID: session.id,
-          messageID: assistant,
-          path: `${tmp.path}/artifact-report.md`,
-          before: { exists: false },
-          after: { exists: true, content: "report\n" },
-        })
-        TurnChange.recordWrite({
-          sessionID: session.id,
-          messageID: assistant,
-          path: `${tmp.path}/deleted.md`,
-          before: { exists: true, content: "delete\n" },
-          after: { exists: false },
-        })
-        TurnChange.recordUncaptured({ sessionID: session.id, messageID: assistant })
-        TurnChange.finalize({ sessionID: session.id, messageID: assistant })
+          TurnChange.recordWrite({
+            sessionID: info.id,
+            messageID: assistant,
+            path: `${dir}/artifact-report.md`,
+            before: { exists: false },
+            after: { exists: true, content: "report\n" },
+          })
+          TurnChange.recordWrite({
+            sessionID: info.id,
+            messageID: assistant,
+            path: `${dir}/deleted.md`,
+            before: { exists: true, content: "delete\n" },
+            after: { exists: false },
+          })
+          TurnChange.recordUncaptured({ sessionID: info.id, messageID: assistant })
+          TurnChange.finalize({ sessionID: info.id, messageID: assistant })
 
-        const artifacts = await SessionSummary.artifacts({ sessionID: session.id })
-        expect(artifacts).toEqual([
-          {
-            file: "artifact-report.md",
-            kind: "added",
-          },
-        ])
-      },
-    })
-  })
+          const artifacts = yield* summary.artifacts({ sessionID: info.id })
+          expect(artifacts).toEqual([
+            {
+              file: "artifact-report.md",
+              kind: "added",
+            },
+          ])
+        }),
+      )
+    }),
+  )
 
-  test("returns no artifacts for empty and uncaptured-only aggregates", async () => {
-    await resetDatabase()
-    await using tmp = await tmpdir({ git: true })
+  it.live(
+    "returns no artifacts for empty and uncaptured-only aggregates",
+    Effect.gen(function* () {
+      yield* Effect.promise(() => resetDatabase())
+      return yield* provideTmpdirInstance(() =>
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const summary = yield* SessionSummary.Service
 
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const empty = await Session.create({ title: "Empty artifacts" })
-        expect(await SessionSummary.artifacts({ sessionID: empty.id })).toEqual([])
+          const empty = yield* session.create({ title: "Empty artifacts" })
+          expect(yield* summary.artifacts({ sessionID: empty.id })).toEqual([])
 
-        const uncaptured = await Session.create({ title: "Uncaptured artifacts" })
-        const user = await makeUser(uncaptured.id, "uncaptured")
-        const assistant = await makeAssistant(uncaptured.id, user, "uncaptured")
-        TurnChange.recordUncaptured({ sessionID: uncaptured.id, messageID: assistant })
-        TurnChange.finalize({ sessionID: uncaptured.id, messageID: assistant })
-        expect(await SessionSummary.artifacts({ sessionID: uncaptured.id })).toEqual([])
-      },
-    })
-  })
+          const uncaptured = yield* session.create({ title: "Uncaptured artifacts" })
+          const user = yield* makeUser(uncaptured.id, "uncaptured")
+          const assistant = yield* makeAssistant(uncaptured.id, user, "uncaptured")
+          TurnChange.recordUncaptured({ sessionID: uncaptured.id, messageID: assistant })
+          TurnChange.finalize({ sessionID: uncaptured.id, messageID: assistant })
+          expect(yield* summary.artifacts({ sessionID: uncaptured.id })).toEqual([])
+        }),
+      )
+    }),
+  )
 })
