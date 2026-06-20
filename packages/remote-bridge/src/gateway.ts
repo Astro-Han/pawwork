@@ -143,8 +143,13 @@ export class App {
     if (!hasRemoteAudience(config.name, options)) {
       throw new Error(`${config.name} platform requires a specific allow_from or Feishu/Lark allow_chat with group_only`)
     }
-    const platform = await this.factory(config.name, options)
+    // Retire any live same-name instance BEFORE building the replacement, so a
+    // factory failure can't leave the old loop serving while the caller has already
+    // switched the saved account/UI to the new identity. retirePlatform keeps the
+    // session pointers (only removePlatform prunes them), so a re-pair continues the
+    // conversation rather than forgetting it.
     if (this.desiredPlatforms.has(config.name)) await this.retirePlatform(config.name)
+    const platform = await this.factory(config.name, options)
     this.engine.registerPlatform(platform)
     this.desiredPlatforms.set(config.name, platform)
     this.supervisor?.add(platform)

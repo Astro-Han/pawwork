@@ -35,10 +35,14 @@ export interface SuperviseOptions {
   backoffMs?: number
   /** Ceiling on the restart backoff, so a permanently-dead channel idles, not spins. */
   maxBackoffMs?: number
+  /** Backstop for `remove`: the longest it waits for one platform's wind-down after
+   *  the loop is aborted, so a wedged stop() can't block a disconnect / re-pair. */
+  removeTimeoutMs?: number
 }
 
 const DEFAULT_BACKOFF_MS = 1000
 const DEFAULT_MAX_BACKOFF_MS = 60_000
+const DEFAULT_REMOVE_TIMEOUT_MS = 3000
 
 interface SupervisedEntry {
   platform: Platform
@@ -117,8 +121,17 @@ export class PlatformSupervisor {
     if (!entry) return
     this.entries.delete(name)
     entry.ac.abort()
-    await entry.platform.stop().catch(() => {})
-    await entry.done
+    // The entry is already dropped and the loop aborted, so this name's routing and
+    // status are dead the instant we return. Bound the wait for the actual wind-down:
+    // a wedged stop() (e.g. a long-poll that won't abort) must not block the caller —
+    // a disconnect or re-pair — or wedge the desktop's serial lifecycle queue. Past
+    // the backstop the detached stop() finishes (or leaks) on its own.
+    const woundDown = entry.platform
+      .stop()
+      .catch(() => {})
+      .then(() => entry.done)
+      .catch(() => {})
+    await Promise.race([woundDown, sleep(this.options.removeTimeoutMs ?? DEFAULT_REMOVE_TIMEOUT_MS, this.signal)])
   }
 
   /** Tear down every supervised platform — run shutdown / fatal-stream restart. */

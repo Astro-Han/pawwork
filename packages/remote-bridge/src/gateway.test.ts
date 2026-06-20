@@ -798,6 +798,71 @@ test("removePlatform stops only that channel, leaving the stream and the others 
   }
 })
 
+test("a re-pair whose factory throws retires the old channel instead of leaving it live", async () => {
+  // addPlatform must retire any live same-name instance BEFORE building the
+  // replacement: a factory failure must not leave the old loop serving while the
+  // caller has already committed the new identity. Without retire-first the old
+  // platform would still be running (stops === 0) and still in the live set.
+  const original = new FakePlatform("rt-repair")
+  let builds = 0
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        return openEventStream()
+    }
+    return undefined
+  })
+  const controller = new AbortController()
+  try {
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [{ name: "rt-repair", enabled: true, options: { allow_from: "U1" } }],
+      },
+      (name) => {
+        builds++
+        if (builds === 1) return original
+        throw new Error("rebuild boom") // the re-pair's build fails
+      },
+    )
+    const runPromise = app.run(controller.signal)
+    await original.started.promise
+
+    // Re-pair the same name; the second build throws.
+    await expect(
+      app.addPlatform({ name: "rt-repair", enabled: true, options: { allow_from: "U2" } }),
+    ).rejects.toThrow("rebuild boom")
+
+    // The old instance was retired first: stopped and dropped from the live set, so
+    // it is no longer serving and its late inbound is dropped by the liveness guard.
+    expect(original.stops).toBe(1)
+    expect(app.platformNames()).toEqual([])
+
+    let warned = false
+    const originalWarn = console.warn
+    console.warn = () => {
+      warned = true
+    }
+    try {
+      app.messageHandler()(original, { sessionKey: "rt-repair:dm:alice", content: "late" })
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      expect(warned).toBe(false)
+    } finally {
+      console.warn = originalWarn
+    }
+
+    controller.abort()
+    await runPromise
+  } finally {
+    server.stop()
+  }
+})
+
 test("addPlatform refuses a wildcard audience on a running app", async () => {
   const platform = new FakePlatform("rt-wildcard-add")
   const server = mockServer((_req, url) => {

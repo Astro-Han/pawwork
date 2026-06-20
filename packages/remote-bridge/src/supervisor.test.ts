@@ -72,6 +72,25 @@ class ManualPlatform implements Platform {
   }
 }
 
+/** A Platform whose stop() never resolves — models a wedged adapter (e.g. a
+ *  long-poll fetch that won't abort), used to prove remove() is time-bounded. */
+class StuckStopPlatform implements Platform {
+  starts = 0
+  stops = 0
+  constructor(readonly name: string) {}
+  async start(_handler: MessageHandler, onReady?: () => void): Promise<void> {
+    this.starts++
+    onReady?.()
+    return new Promise<void>(() => {}) // blocks until the loop is aborted
+  }
+  async reply(): Promise<void> {}
+  async send(): Promise<void> {}
+  stop(): Promise<void> {
+    this.stops++
+    return new Promise<void>(() => {}) // never resolves
+  }
+}
+
 const noopHandler: MessageHandler = () => {}
 
 async function waitUntil(cond: () => boolean, timeoutMs = 2000): Promise<void> {
@@ -310,6 +329,26 @@ test("PlatformSupervisor.remove stops only that platform, leaving the others ser
   expect(supervisor.has("keep")).toBe(true)
   expect(keep.starts).toBe(1)
   expect(keep.stops).toBe(0)
+
+  controller.abort()
+  await supervisor.stopAll()
+})
+
+test("remove is time-bounded when a platform's stop() never resolves", async () => {
+  // A wedged adapter (stop() hangs) must not block remove(): the entry is already
+  // dropped and the loop aborted, so the caller — a disconnect or re-pair — returns
+  // within the backstop instead of hanging the desktop's serial lifecycle queue.
+  const controller = new AbortController()
+  const supervisor = new PlatformSupervisor(noopHandler, controller.signal, { removeTimeoutMs: 20 })
+  const wedged = new StuckStopPlatform("wedged")
+  supervisor.add(wedged)
+  await waitUntil(() => wedged.starts === 1)
+
+  const start = performance.now()
+  await supervisor.remove("wedged")
+  expect(performance.now() - start).toBeLessThan(2000) // returned, not hung
+  expect(wedged.stops).toBe(1) // stop() was requested
+  expect(supervisor.has("wedged")).toBe(false) // and the name is free again
 
   controller.abort()
   await supervisor.stopAll()
