@@ -80,6 +80,10 @@ async function recordRecent(model: ModelState.ModelRef) {
   return AppRuntime.runPromise(ModelState.Service.use((modelState) => modelState.recordRecent(model)))
 }
 
+async function runAuth<A, E>(fn: (auth: Auth.Interface) => Effect.Effect<A, E, never>) {
+  return AppRuntime.runPromise(Auth.Service.use(fn))
+}
+
 async function readAuthSnapshot() {
   try {
     return await Filesystem.readText(path.join(Global.Path.data, "auth.json"))
@@ -3531,7 +3535,7 @@ test("multiple provider model hooks run for the same provider", async () => {
 
 test("Codex no-op hook does not block external OpenAI model hooks", async () => {
   const authSnapshot = await readAuthSnapshot()
-  await Auth.remove(ProviderID.openai)
+  await runAuth((auth) => auth.remove(ProviderID.openai))
   await using tmp = await tmpdir({
     init: async (dir) => {
       const root = path.join(dir, ".opencode", "plugin")
@@ -3582,7 +3586,7 @@ test("Codex no-op hook does not block external OpenAI model hooks", async () => 
 
 test("Codex OAuth provider hook filters OpenAI models added by config", async () => {
   const authSnapshot = await readAuthSnapshot()
-  await Auth.remove(ProviderID.openai)
+  await runAuth((auth) => auth.remove(ProviderID.openai))
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
@@ -3616,14 +3620,16 @@ test("Codex OAuth provider hook filters OpenAI models added by config", async ()
     await Instance.provide({
       directory: tmp.path,
       init: async () => {
-        await Auth.set(
-          ProviderID.openai,
-          {
-            type: "oauth",
-            access: "access",
-            refresh: "refresh",
-            expires: Date.now() + 60_000,
-          } as never,
+        await runAuth((auth) =>
+          auth.set(
+            ProviderID.openai,
+            {
+              type: "oauth",
+              access: "access",
+              refresh: "refresh",
+              expires: Date.now() + 60_000,
+            } as never,
+          ),
         )
       },
       fn: async () => {
@@ -3646,7 +3652,7 @@ test("Codex OAuth provider hook filters OpenAI models added by config", async ()
 
 test("Codex OAuth config model override survives external OpenAI model hook", async () => {
   const authSnapshot = await readAuthSnapshot()
-  await Auth.remove(ProviderID.openai)
+  await runAuth((auth) => auth.remove(ProviderID.openai))
   await using tmp = await tmpdir({
     init: async (dir) => {
       const root = path.join(dir, ".opencode", "plugin")
@@ -3699,14 +3705,16 @@ test("Codex OAuth config model override survives external OpenAI model hook", as
     await Instance.provide({
       directory: tmp.path,
       init: async () => {
-        await Auth.set(
-          ProviderID.openai,
-          {
-            type: "oauth",
-            access: "access",
-            refresh: "refresh",
-            expires: Date.now() + 60_000,
-          } as never,
+        await runAuth((auth) =>
+          auth.set(
+            ProviderID.openai,
+            {
+              type: "oauth",
+              access: "access",
+              refresh: "refresh",
+              expires: Date.now() + 60_000,
+            } as never,
+          ),
         )
       },
       fn: async () => {
@@ -3728,7 +3736,7 @@ test("Codex OAuth config model override survives external OpenAI model hook", as
 
 test("post-config OAuth rerun only reprocesses providers with config models", async () => {
   const authSnapshot = await readAuthSnapshot()
-  await Auth.remove(ProviderID.anthropic)
+  await runAuth((auth) => auth.remove(ProviderID.anthropic))
   await using tmp = await tmpdir({
     init: async (dir) => {
       const root = path.join(dir, ".opencode", "plugin")
@@ -3783,14 +3791,16 @@ test("post-config OAuth rerun only reprocesses providers with config models", as
       directory: tmp.path,
       init: async () => {
         set("ANTHROPIC_API_KEY", "test-anthropic-key")
-        await Auth.set(
-          ProviderID.anthropic,
-          {
-            type: "oauth",
-            access: "access",
-            refresh: "refresh",
-            expires: Date.now() + 60_000,
-          } as never,
+        await runAuth((auth) =>
+          auth.set(
+            ProviderID.anthropic,
+            {
+              type: "oauth",
+              access: "access",
+              refresh: "refresh",
+              expires: Date.now() + 60_000,
+            } as never,
+          ),
         )
       },
       fn: async () => {
