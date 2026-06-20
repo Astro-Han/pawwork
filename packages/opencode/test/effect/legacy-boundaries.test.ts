@@ -259,6 +259,26 @@ test("Config service does not expose Promise facades", async () => {
   for (const facade of facades) expect(text).not.toContain(facade)
 })
 
+test("File and SessionShare services do not expose Promise facades", async () => {
+  const services = {
+    "file/index.ts": [
+      "export function init",
+      "export async function status",
+      "export async function read",
+      "export async function list",
+      "export async function search",
+    ],
+    "share/session.ts": ["export const create =", "export const share =", "export const unshare ="],
+  }
+
+  for (const [file, facades] of Object.entries(services)) {
+    const text = await readFile(path.join(srcRoot, file), "utf8")
+    expect(text).not.toMatch(/\bfrom\s+["']@\/effect\/run-service["']/)
+    expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
+    for (const facade of facades) expect(text).not.toContain(facade)
+  }
+})
+
 test("MCP services do not expose Promise facades", async () => {
   const services = {
     "mcp/index.ts": [
