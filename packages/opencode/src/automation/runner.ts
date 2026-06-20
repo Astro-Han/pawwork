@@ -8,7 +8,6 @@ import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
 import { Database, NotFoundError, and, eq, sql } from "@/storage/db"
 import { AutomationRunContext, type AutomationRunBlocker } from "./run-context"
-import { Worktree } from "@/worktree"
 
 const log = Log.create({ service: "automation.runner" })
 
@@ -45,6 +44,7 @@ async function releaseAutomationWorktreeBindings(directory: string) {
 async function prepareWorktreePlacement(definition: Automation.Definition) {
   const placement = definition.where.worktree
   if (!placement) return undefined
+  const { Worktree } = await import("@/worktree")
   const existing = await AppRuntime.runPromise(Worktree.Service.use((worktree) => worktree.lookupBySlug(placement)))
   if (existing) {
     await releaseAutomationWorktreeBindings(existing.directory)
