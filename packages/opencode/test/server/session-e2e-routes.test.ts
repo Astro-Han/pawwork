@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { Instance } from "../../src/project/instance"
-import { SessionRoutes } from "../../src/server/instance/session"
+import { Server } from "../../src/server/server"
 import { tmpdir } from "../fixture/fixture"
 
 const originalE2EEnabled = process.env.OPENCODE_E2E_ENABLED
@@ -20,27 +20,22 @@ describe("session e2e routes", () => {
     delete process.env.OPENCODE_E2E_LLM_URL
 
     await using tmp = await tmpdir({ git: true })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const app = SessionRoutes()
-        const malformed = await app.request("/__e2e/update-todos", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: "{",
-        })
-        const valid = await app.request("/__e2e/update-todos", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionID: "ses_disabled",
-            todos: [],
-          }),
-        })
-
-        expect(malformed.status).toBe(404)
-        expect(valid.status).toBe(404)
-      },
+    const route = `/session/__e2e/update-todos?directory=${encodeURIComponent(tmp.path)}`
+    const malformed = await Server.Default().app.request(route, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{",
     })
+    const valid = await Server.Default().app.request(route, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionID: "ses_disabled",
+        todos: [],
+      }),
+    })
+
+    expect(malformed.status).toBe(404)
+    expect(valid.status).toBe(404)
   })
 })

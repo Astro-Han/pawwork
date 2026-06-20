@@ -40,8 +40,8 @@ describe("route inventory harness", () => {
     expect(hasRoute(inventory.hono.routes, "GET", "/external-result")).toBe(false)
     expect(hasRoute(inventory.hono.routes, "GET", "/memory")).toBe(false)
     expect(hasRoute(inventory.hono.routes, "PATCH", "/memory/disabled")).toBe(false)
-    expect(hasRoute(inventory.hono.routes, "POST", "/session/:sessionID/tool/respond")).toBe(true)
-    expect(hasRoute(inventory.hono.routes, "GET", "/session/:sessionID/turn/:userMessageID/changes")).toBe(true)
+    expect(hasRoute(inventory.hono.routes, "POST", "/session/:sessionID/tool/respond")).toBe(false)
+    expect(hasRoute(inventory.hono.routes, "GET", "/session/:sessionID/turn/:userMessageID/changes")).toBe(false)
 
     expect(hasRoute(inventory.openapi.routes, "GET", "/external-result")).toBe(true)
     expect(hasRoute(inventory.legacySdk.routes, "GET", "/external-result")).toBe(false)
@@ -238,6 +238,27 @@ describe("route inventory harness", () => {
     }
   })
 
+  test("keeps retired session JSON routes out of Hono source", async () => {
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+
+    for (const [method, routePath, classification] of [
+      ["GET", "/session", "local-httpapi-only"],
+      ["POST", "/session", "local-httpapi-only"],
+      ["GET", "/session/:sessionID/artifacts", "pawwork-owned"],
+      ["GET", "/session/:sessionID/export", "pawwork-owned"],
+      ["POST", "/session/:sessionID/tool/respond", "pawwork-owned"],
+      ["POST", "/session/:sessionID/turn-change/:messageID/undo", "pawwork-owned"],
+    ] as const) {
+      expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
+        hono: false,
+        openapi: true,
+        v2Sdk: true,
+        localHttpApi: true,
+        classification,
+      })
+    }
+  })
+
   test("tracks local HttpApi migration coverage for ordinary automation routes", async () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
@@ -359,7 +380,7 @@ describe("route inventory harness", () => {
       ["POST", "/session/:sessionID/turn/:userMessageID/changes/redo"],
     ] as const) {
       expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
-        hono: true,
+        hono: false,
         localHttpApi: true,
       })
     }
@@ -617,7 +638,7 @@ describe("route inventory harness", () => {
   test("matches discovered Hono route modules when Windows uses backslash separators", () => {
     expect(
       getMissingHonoRouteSources([
-        "packages\\opencode\\src\\server\\instance\\session.ts",
+        "packages\\opencode\\src\\server\\instance\\automation.ts",
         "packages\\opencode\\src\\server\\ui\\index.ts",
       ]),
     ).toEqual([])

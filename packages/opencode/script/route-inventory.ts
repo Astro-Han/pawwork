@@ -75,7 +75,6 @@ const honoRouteSources = [
   ["packages/opencode/src/server/instance/project.ts", "/project"],
   ["packages/opencode/src/server/instance/provider.ts", "/provider"],
   ["packages/opencode/src/server/instance/pty.ts", "/pty"],
-  ["packages/opencode/src/server/instance/session.ts", "/session"],
   ["packages/opencode/src/server/instance/workspace.ts", "/experimental/workspace"],
 ] as const
 

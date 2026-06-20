@@ -197,4 +197,16 @@ describe("production server boundary", () => {
     expect(memory).not.toContain("export const MemoryRoutes")
     expect(externalResult).not.toContain("export const ExternalResultRoutes")
   })
+
+  test("does not retain the retired session legacy Hono route source", async () => {
+    const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
+    const session = await readFile(path.join(import.meta.dir, "../../src/server/instance/session.ts"), "utf8")
+
+    expect(instanceRoutes).not.toContain("SessionRoutes")
+    expect(instanceRoutes).not.toContain('.route("/session"')
+    expect(session).not.toMatch(/from\s+["']hono["']/)
+    expect(session).not.toMatch(/\bnew\s+Hono\s*\(/)
+    expect(session).not.toContain("export const SessionRoutes")
+    expect(session).toContain("export const SessionRouteEffects")
+  })
 })
