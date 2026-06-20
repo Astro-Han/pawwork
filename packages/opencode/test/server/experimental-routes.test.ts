@@ -3,12 +3,9 @@ import { NodeFileSystem, NodeHttpPlatform, NodePath } from "@effect/platform-nod
 import { Effect, Layer } from "effect"
 import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
-import { Hono } from "hono"
 import { Log } from "@opencode-ai/core/util/log"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
-import { ExperimentalRoutes } from "../../src/server/instance/experimental"
-import { ErrorMiddleware } from "../../src/server/middleware"
 import { ExperimentalApi } from "../../src/server/routes/instance/httpapi/groups/experimental"
 import { experimentalHandlers } from "../../src/server/routes/instance/httpapi/handlers/experimental"
 import { Session } from "../../src/session"
@@ -33,10 +30,6 @@ const worktreeCreateFromInfo = (info: Worktree.Info, startCommand?: string) =>
   )
 
 describe("experimental routes", () => {
-  function app() {
-    return new Hono().route("/experimental", ExperimentalRoutes()).onError(ErrorMiddleware)
-  }
-
   function requestExperimentalHttpApi(routePath: string, init?: RequestInit) {
     return AppRuntime.runPromise(
       Effect.scoped(
@@ -76,12 +69,12 @@ describe("experimental routes", () => {
     }
   })
 
-  test("lists tool IDs through the route runtime", async () => {
+  test("lists tool IDs through the HttpApi handlers", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const response = await app().request("/experimental/tool/ids")
+        const response = await requestExperimentalHttpApi("/experimental/tool/ids")
         const body = await response.json()
 
         expect(response.status).toBe(200)
@@ -129,12 +122,12 @@ describe("experimental routes", () => {
     })
   })
 
-  test("lists worktrees through the route runtime", async () => {
+  test("lists worktrees through the HttpApi handlers", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const response = await app().request("/experimental/worktree")
+        const response = await requestExperimentalHttpApi("/experimental/worktree")
         const body = await response.json()
 
         expect(response.status).toBe(200)
@@ -143,12 +136,12 @@ describe("experimental routes", () => {
     })
   })
 
-  test("lists MCP resources through the route runtime", async () => {
+  test("lists MCP resources through the HttpApi handlers", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const response = await app().request("/experimental/resource")
+        const response = await requestExperimentalHttpApi("/experimental/resource")
         const body = await response.json()
 
         expect(response.status).toBe(200)
@@ -157,7 +150,7 @@ describe("experimental routes", () => {
     })
   })
 
-  test("DELETE /worktree returns documented 400 when bound to an active session", async () => {
+  test("DELETE /worktree returns documented 400 when bound to an active session through the HttpApi handlers", async () => {
     await using tmp = await tmpdir({ git: true })
     const info = await Instance.provide({
       directory: tmp.path,
@@ -173,7 +166,7 @@ describe("experimental routes", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const response = await app().request("/experimental/worktree", {
+        const response = await requestExperimentalHttpApi("/experimental/worktree", {
           method: "DELETE",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ directory: info.directory }),
@@ -250,7 +243,7 @@ describe("experimental routes", () => {
 
         // z.coerce.boolean() coerced "false" to true, hiding child sessions; QueryBoolean
         // must parse ?roots=false as false so the roots filter stays disabled.
-        const rootsRes = await app().request(`/experimental/session?roots=false&directory=${dir}`)
+        const rootsRes = await requestExperimentalHttpApi(`/experimental/session?roots=false&directory=${dir}`)
         expect(rootsRes.status).toBe(200)
         const rootsIds = (await rootsRes.json()).map((session: { id: string }) => session.id)
         expect(rootsIds).toContain(root.id)
@@ -258,7 +251,7 @@ describe("experimental routes", () => {
 
         // ?archived=false coerced to true would wrongly include archived sessions; it must
         // parse as false so the archived filter is applied.
-        const archivedRes = await app().request(`/experimental/session?archived=false&directory=${dir}`)
+        const archivedRes = await requestExperimentalHttpApi(`/experimental/session?archived=false&directory=${dir}`)
         expect(archivedRes.status).toBe(200)
         const archivedIds = (await archivedRes.json()).map((session: { id: string }) => session.id)
         expect(archivedIds).toContain(root.id)
