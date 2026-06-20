@@ -4,11 +4,12 @@ import { Effect, Layer } from "effect"
 import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
 import { Hono } from "hono"
-import type { UpgradeWebSocket } from "hono/ws"
+import type { UpgradeWebSocket } from "../../src/server/adapter"
 import { Log } from "@opencode-ai/core/util/log"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { assertPtyConnectTarget, PtyRoutes } from "../../src/server/instance/pty"
 import { ErrorMiddleware } from "../../src/server/middleware"
+import { handleWebSocketCompatibilityRequest } from "../../src/server/websocket-compatibility"
 import { NotFoundError } from "../../src/storage/db"
 import { Pty } from "../../src/pty"
 import { PtyID } from "../../src/pty/schema"
@@ -25,12 +26,17 @@ afterEach(async () => {
   await Instance.disposeAll()
 })
 
-const testUpgradeWebSocket = ((createEvents: (c: unknown) => unknown | Promise<unknown>) => {
-  return async (c: { text: (value: string) => Response | Promise<Response> }) => {
-    await createEvents(c)
-    return c.text("upgraded")
-  }
-}) as unknown as UpgradeWebSocket
+const testUpgradeWebSocket: UpgradeWebSocket = () => new Response("upgraded")
+
+async function requestPtyWebSocket(path: string) {
+  const response = await handleWebSocketCompatibilityRequest(
+    new Request(new URL(path, "http://localhost")),
+    undefined,
+    testUpgradeWebSocket,
+  )
+  if (!response) throw new Error(`Expected PTY websocket response for ${path}`)
+  return response
+}
 
 describe("pty routes", () => {
   function requestPtyHttpApi(path: string, init?: RequestInit) {
@@ -249,10 +255,7 @@ describe("pty routes", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const app = new Hono().route("/pty", PtyRoutes(testUpgradeWebSocket))
-        app.onError(ErrorMiddleware)
-
-        const response = await app.request(`/pty/${PtyID.ascending()}/connect`)
+        const response = await requestPtyWebSocket(`/pty/${PtyID.ascending()}/connect`)
         const body = await response.json()
 
         expect(response.status).toBe(404)
@@ -273,7 +276,7 @@ describe("pty routes", () => {
           title: "ticket",
         })
         try {
-          const app = new Hono().route("/pty", PtyRoutes(testUpgradeWebSocket))
+          const app = new Hono().route("/pty", PtyRoutes())
           app.onError(ErrorMiddleware)
 
           const response = await app.request(`/pty/${info.id}/connect-token`, { method: "POST" })
@@ -295,10 +298,7 @@ describe("pty routes", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const app = new Hono().route("/pty", PtyRoutes(testUpgradeWebSocket))
-        app.onError(ErrorMiddleware)
-
-        const response = await app.request(`/pty/${PtyID.ascending()}/connect?ticket=missing`)
+        const response = await requestPtyWebSocket(`/pty/${PtyID.ascending()}/connect?ticket=missing`)
 
         expect(response.status).toBe(401)
       },
@@ -317,12 +317,10 @@ describe("pty routes", () => {
           title: "ticket-connect",
         })
         try {
-          const app = new Hono().route("/pty", PtyRoutes(testUpgradeWebSocket))
-          app.onError(ErrorMiddleware)
           const issued = PtyTicket.issue({ ptyID: info.id })
 
-          const first = await app.request(`/pty/${info.id}/connect?ticket=${encodeURIComponent(issued.ticket)}`)
-          const second = await app.request(`/pty/${info.id}/connect?ticket=${encodeURIComponent(issued.ticket)}`)
+          const first = await requestPtyWebSocket(`/pty/${info.id}/connect?ticket=${encodeURIComponent(issued.ticket)}`)
+          const second = await requestPtyWebSocket(`/pty/${info.id}/connect?ticket=${encodeURIComponent(issued.ticket)}`)
 
           expect(first.status).toBe(200)
           expect(await first.text()).toBe("upgraded")
@@ -346,14 +344,12 @@ describe("pty routes", () => {
           title: "ticket-wrong-pty",
         })
         try {
-          const app = new Hono().route("/pty", PtyRoutes(testUpgradeWebSocket))
-          app.onError(ErrorMiddleware)
           const issued = PtyTicket.issue({ ptyID: info.id })
 
-          const wrong = await app.request(
+          const wrong = await requestPtyWebSocket(
             `/pty/${PtyID.ascending()}/connect?ticket=${encodeURIComponent(issued.ticket)}`,
           )
-          const replay = await app.request(`/pty/${info.id}/connect?ticket=${encodeURIComponent(issued.ticket)}`)
+          const replay = await requestPtyWebSocket(`/pty/${info.id}/connect?ticket=${encodeURIComponent(issued.ticket)}`)
 
           expect(wrong.status).toBe(401)
           expect(replay.status).toBe(401)
@@ -371,11 +367,8 @@ describe("pty routes", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const app = new Hono().route("/pty", PtyRoutes(testUpgradeWebSocket))
-        app.onError(ErrorMiddleware)
-
-        const missing = await app.request(`/pty/${ptyID}/connect?ticket=${encodeURIComponent(issued.ticket)}`)
-        const replay = await app.request(`/pty/${ptyID}/connect?ticket=${encodeURIComponent(issued.ticket)}`)
+        const missing = await requestPtyWebSocket(`/pty/${ptyID}/connect?ticket=${encodeURIComponent(issued.ticket)}`)
+        const replay = await requestPtyWebSocket(`/pty/${ptyID}/connect?ticket=${encodeURIComponent(issued.ticket)}`)
 
         expect(missing.status).toBe(404)
         expect(replay.status).toBe(401)
@@ -403,7 +396,7 @@ describe("pty routes", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const app = new Hono().route("/pty", PtyRoutes(testUpgradeWebSocket))
+        const app = new Hono().route("/pty", PtyRoutes())
         app.onError(ErrorMiddleware)
 
         const response = await app.request(`/pty/${PtyID.ascending()}`, {
@@ -424,7 +417,7 @@ describe("pty routes", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const app = new Hono().route("/pty", PtyRoutes(testUpgradeWebSocket))
+        const app = new Hono().route("/pty", PtyRoutes())
         app.onError(ErrorMiddleware)
 
         const response = await app.request(`/pty/${PtyID.ascending()}`, {

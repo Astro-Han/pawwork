@@ -1,7 +1,5 @@
 import { adapter } from "#hono"
 import { HTTPException } from "hono/http-exception"
-import { Option, Redacted } from "effect"
-import { Flag } from "@opencode-ai/core/flag/flag"
 import { lazy } from "@/util/lazy"
 import { Log } from "@/util"
 import { Provider } from "@/provider"
@@ -14,7 +12,6 @@ import { ServerAuth } from "./auth"
 import { initProjectors } from "./projectors"
 import { createProductionHttpApiDispatcher, isProductionHttpApiRequest } from "./production-httpapi"
 import { createProductionSpecialHandler } from "./production-special"
-import { createWebSocketCompatibilityApp } from "./websocket-compatibility"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -22,7 +19,6 @@ globalThis.AI_SDK_LOG_WARNINGS = false
 initProjectors()
 
 const log = Log.create({ service: "server" })
-const PTY_CONNECT_PATH = /^\/pty\/[^/]+\/connect$/
 const PROVIDER_AUTH_BAD_REQUEST = new Set([
   "ProviderAuthValidationFailed",
   "ProviderAuthOauthMissing",
@@ -80,46 +76,6 @@ function corsPreflight(request: Request, opts: { cors?: string[] }) {
   return new Response(null, { status: 204, headers })
 }
 
-function unauthorized() {
-  return new Response("Unauthorized", {
-    status: 401,
-    headers: {
-      "www-authenticate": 'Basic realm="opencode"',
-      "content-type": "text/plain; charset=UTF-8",
-    },
-  })
-}
-
-function authorize(request: Request) {
-  if (request.method === "OPTIONS") return
-
-  const password = Flag.OPENCODE_SERVER_PASSWORD
-  if (!password) return
-
-  const url = new URL(request.url)
-  if (request.method === "GET" && PTY_CONNECT_PATH.test(url.pathname) && url.searchParams.get("ticket")) return
-
-  const queryToken = url.searchParams.get("auth_token")
-  const authHeader = request.headers.get("authorization")
-  const header = queryToken ? "Basic " + queryToken : authHeader
-  const match = header?.match(/^Basic\s+(.+)$/i)
-  if (!match) return unauthorized()
-
-  const decoded = Buffer.from(match[1], "base64").toString("utf8")
-  const separator = decoded.indexOf(":")
-  if (separator === -1) return unauthorized()
-
-  const config = {
-    password: Option.some(password),
-    username: Flag.OPENCODE_SERVER_USERNAME ?? "opencode",
-  }
-  const credentials = {
-    username: decoded.slice(0, separator),
-    password: Redacted.make(decoded.slice(separator + 1)),
-  }
-  if (!ServerAuth.authorized(credentials, config)) return unauthorized()
-}
-
 function errorResponse(error: unknown) {
   if (error instanceof NamedError) {
     const status =
@@ -170,9 +126,7 @@ function create(opts: { cors?: string[] }) {
       return app.fetch(request, env)
     },
   })
-  const websocketCompatibility = createWebSocketCompatibilityApp(runtime.upgradeWebSocket)
-  runtime.mountWebSocketApp(websocketCompatibility)
-  const special = createProductionSpecialHandler({ websocketCompatibilityApp: websocketCompatibility })
+  const special = createProductionSpecialHandler({ upgradeWebSocket: runtime.upgradeWebSocket })
   const dispatcher = createProductionHttpApiDispatcher(runtime.upgradeWebSocket, {
     specialHandler: special,
   })
@@ -187,7 +141,7 @@ function create(opts: { cors?: string[] }) {
         const response =
           request.method === "OPTIONS"
             ? corsPreflight(request, opts)
-            : (authorize(request) ??
+            : (ServerAuth.authorizeRequest(request) ??
               (isProductionHttpApiRequest(request) ? await dispatcher.handle(request, env) : await special.handleUI(request)))
         return await maybeCompress(request, applyCors(request, response, opts))
       } catch (error) {

@@ -8,7 +8,8 @@ import {
 import { handleUIRequest } from "./ui"
 import { requestContextFromRequest, withRequestContext } from "./request-context"
 import { SyncEvent } from "@/sync"
-import type { WebSocketCompatibilityApp } from "./websocket-compatibility"
+import type { UpgradeWebSocket } from "./adapter"
+import { handleWebSocketCompatibilityRequest } from "./websocket-compatibility"
 
 export type ProductionSpecialHandler = {
   handle(request: Request, env?: unknown): Promise<Response | undefined>
@@ -29,7 +30,7 @@ export function isInstanceSpecialRequest(method: string, pathname: string) {
 }
 
 export function createProductionSpecialHandler(input: {
-  websocketCompatibilityApp: WebSocketCompatibilityApp
+  upgradeWebSocket: UpgradeWebSocket
   globalRoutes?: GlobalEventStreamOptions
 }): ProductionSpecialHandler {
   const globalRoutes = input.globalRoutes ?? {}
@@ -65,7 +66,7 @@ export function createProductionSpecialHandler(input: {
       )
     }
     if (isWorkspaceWebSocketSpecialRequest(request.method, pathname)) {
-      return Promise.resolve(input.websocketCompatibilityApp.fetch(request, (env ?? {}) as never))
+      return handleWebSocketCompatibilityRequest(request, env, input.upgradeWebSocket)
     }
     return undefined
   }
@@ -76,7 +77,7 @@ export function createProductionSpecialHandler(input: {
       const pathname = new URL(request.url).pathname
       if (request.method === "GET" && pathname === "/event") return handleInstanceEventStream(request)
       if (isInstanceSpecialRequest(request.method, pathname)) {
-        return Promise.resolve(input.websocketCompatibilityApp.fetch(request, (env ?? {}) as never))
+        return handleWebSocketCompatibilityRequest(request, env, input.upgradeWebSocket)
       }
       return undefined
     },

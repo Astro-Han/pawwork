@@ -116,8 +116,10 @@ describe("production server boundary", () => {
 
     expect(server).not.toMatch(/from\s+["']hono["']/)
     expect(server).not.toMatch(/\bnew\s+Hono\s*\(/)
-    expect(websocketCompatibility).toMatch(/from\s+["']hono["']/)
-    expect(websocketCompatibility).toMatch(/\bnew\s+Hono\s*\(/)
+    expect(server).not.toContain("createWebSocketCompatibilityApp")
+    expect(server).not.toContain("mountWebSocketApp")
+    expect(websocketCompatibility).not.toMatch(/from\s+["']hono["']/)
+    expect(websocketCompatibility).not.toMatch(/\bnew\s+Hono\s*\(/)
   })
 
   test("keeps the adapter app contract at the Web Fetch boundary", async () => {
@@ -127,12 +129,14 @@ describe("production server boundary", () => {
 
     expect(adapter).not.toMatch(/from\s+["']hono["']/)
     expect(adapter).toMatch(/create\(app:\s*FetchApp\):\s*Runtime/)
-    expect(adapter).toMatch(/mountWebSocketApp\(app:\s*FetchApp\):\s*void/)
+    expect(adapter).toMatch(/upgradeWebSocket:\s*UpgradeWebSocket/)
+    expect(adapter).not.toMatch(/mountWebSocketApp/)
     expect(adapter).not.toMatch(/create\(app:\s*Hono/)
     expect(adapter).not.toMatch(/websocketApp:\s*Hono/)
     expect(nodeAdapter).toMatch(/\bnew\s+Hono\s*\(/)
-    expect(nodeAdapter).not.toMatch(/create\(app,\s*websocketApp\?/)
-    expect(bunAdapter).not.toMatch(/from\s+["']hono["']/)
+    expect(nodeAdapter).not.toMatch(/mountWebSocketApp/)
+    expect(bunAdapter).toMatch(/\bnew\s+Hono\s*\(/)
+    expect(bunAdapter).not.toMatch(/mountWebSocketApp/)
     expect(bunAdapter).not.toMatch(/create\(app:\s*Hono/)
   })
 

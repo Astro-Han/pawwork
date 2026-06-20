@@ -266,10 +266,12 @@ describe("route inventory harness", () => {
     }
 
     expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/pty/:ptyID/connect")).toMatchObject({
-      hono: true,
+      hono: false,
       localHttpApi: false,
+      nativeSpecial: true,
       specialSurface: "PTY websocket",
-      compatibilityBoundary: true,
+      compatibilityBoundary: false,
+      classification: "production-native-special-surface",
     })
     const doc = inventory.rows.find((row) => row.method === "GET" && row.path === "/doc")
     expect(doc).toMatchObject({
@@ -513,11 +515,11 @@ describe("route inventory harness", () => {
       ["GET", "/__workspace_ws", "workspace websocket proxy"],
     ] as const) {
       expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
-        hono: true,
+        hono: false,
         localHttpApi: false,
-        nativeSpecial: false,
-        compatibilityBoundary: true,
-        classification: "adapter-compatibility-boundary",
+        nativeSpecial: true,
+        compatibilityBoundary: false,
+        classification: "production-native-special-surface",
         specialSurface,
       })
     }
@@ -605,7 +607,7 @@ describe("route inventory harness", () => {
     expect(
       getMissingHonoRouteSources([
         "packages\\opencode\\src\\server\\instance\\session.ts",
-        "packages\\opencode\\src\\server\\proxy.ts",
+        "packages\\opencode\\src\\server\\ui\\index.ts",
       ]),
     ).toEqual([])
   })

@@ -1,7 +1,6 @@
-import { Hono, type MiddlewareHandler } from "hono"
+import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import { HTTPException } from "hono/http-exception"
-import type { UpgradeWebSocket, WSEvents } from "hono/ws"
 import z from "zod"
 import { Effect } from "effect"
 import { AppRuntime } from "@/effect/app-runtime"
@@ -9,6 +8,7 @@ import { Pty } from "@/pty"
 import { PtyID } from "@/pty/schema"
 import { ConnectToken, PtyTicket } from "@/pty/ticket"
 import { NotFoundError } from "../../storage/db"
+import type { WebSocketEvents } from "../adapter"
 import { errors } from "../error"
 
 export function assertPtyConnectTarget(info: unknown) {
@@ -25,9 +25,9 @@ function assertPtyConnectTicket(input: { ptyID: PtyID; ticket?: string }) {
 
 const PtyConnectQuery = z.object({ cursor: z.string().optional(), ticket: z.string().optional() })
 type PtyConnectQuery = z.infer<typeof PtyConnectQuery>
-type PtyConnectRequest = {
-  valid(target: "param"): { ptyID: PtyID }
-  valid(target: "query"): PtyConnectQuery
+const PtyConnectParam = z.object({ ptyID: PtyID.zod })
+type PtyConnectInput = PtyConnectQuery & {
+  ptyID: PtyID
 }
 
 type PtyConnectHandler = {
@@ -50,6 +50,29 @@ const isPtyConnectSocket = (value: unknown): value is PtyConnectSocket => {
 }
 
 const runPtyRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
+
+function badRequest(data: unknown, error: z.ZodIssue[]) {
+  return Response.json({ data, error, success: false }, { status: 400 })
+}
+
+function parsePtyConnectInput(request: Request, rawPtyID: string) {
+  const params = { ptyID: rawPtyID }
+  const parsedParams = PtyConnectParam.safeParse(params)
+  if (!parsedParams.success) return badRequest(params, parsedParams.error.issues)
+
+  const url = new URL(request.url)
+  const query = {
+    cursor: url.searchParams.get("cursor") ?? undefined,
+    ticket: url.searchParams.get("ticket") ?? undefined,
+  }
+  const parsedQuery = PtyConnectQuery.safeParse(query)
+  if (!parsedQuery.success) return badRequest(query, parsedQuery.error.issues)
+
+  return {
+    ptyID: parsedParams.data.ptyID,
+    ...parsedQuery.data,
+  } satisfies PtyConnectInput
+}
 
 const listPtySessions = Effect.fn("PtyRoutes.list")(function* () {
   const pty = yield* Pty.Service
@@ -84,13 +107,12 @@ const assertPtyConnectTokenTarget = Effect.fn("PtyRoutes.connectToken")(function
   assertPtyConnectTarget(yield* pty.get(id))
 })
 
-const connectPtySession = Effect.fn("PtyRoutes.connect")(function* (request: PtyConnectRequest) {
+const connectPtySession = Effect.fn("PtyRoutes.connect")(function* (input: PtyConnectInput) {
   const pty = yield* Pty.Service
-  const id = request.valid("param").ptyID
-  const query = request.valid("query")
-  assertPtyConnectTicket({ ptyID: id, ticket: query.ticket })
+  const id = input.ptyID
+  assertPtyConnectTicket({ ptyID: id, ticket: input.ticket })
   const cursor = (() => {
-    const value = query.cursor
+    const value = input.cursor
     if (!value) return
     const parsed = Number(value)
     if (!Number.isSafeInteger(parsed) || parsed < -1) return
@@ -128,10 +150,16 @@ const connectPtySession = Effect.fn("PtyRoutes.connect")(function* (request: Pty
     onError() {
       handler?.onClose()
     },
-  } satisfies WSEvents
+  } satisfies WebSocketEvents
 })
 
-export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
+export async function createPtyConnectEvents(request: Request, rawPtyID: string) {
+  const input = parsePtyConnectInput(request, rawPtyID)
+  if (input instanceof Response) return input
+  return runPtyRoute(connectPtySession(input))
+}
+
+export function PtyRoutes() {
   return new Hono()
     .get(
       "/",
@@ -292,57 +320,4 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
         return c.json(PtyTicket.issue({ ptyID: id }))
       },
     )
-    .get(
-      "/:ptyID/connect",
-      describeRoute({
-        summary: "Connect to PTY session",
-        description: "Establish a WebSocket connection to interact with a pseudo-terminal (PTY) session in real-time.",
-        operationId: "pty.connect",
-        responses: {
-          200: {
-            description: "Connected session",
-            content: {
-              "application/json": {
-                schema: resolver(z.boolean()),
-              },
-            },
-          },
-          ...errors(404),
-        },
-      }),
-      validator("param", z.object({ ptyID: PtyID.zod })),
-      validator("query", PtyConnectQuery),
-      upgradeWebSocket(async (c) => {
-        const request = c.req as unknown as PtyConnectRequest
-        return runPtyRoute(connectPtySession(request))
-      }),
-    )
-}
-
-export function PtyConnectCompatibilityRoutes(upgradeWebSocket: UpgradeWebSocket) {
-  return new Hono().get(
-    "/:ptyID/connect",
-    describeRoute({
-      summary: "Connect to PTY session",
-      description: "Establish a WebSocket connection to interact with a pseudo-terminal (PTY) session in real-time.",
-      operationId: "pty.connect",
-      responses: {
-        200: {
-          description: "Connected session",
-          content: {
-            "application/json": {
-              schema: resolver(z.boolean()),
-            },
-          },
-        },
-        ...errors(404),
-      },
-    }),
-    validator("param", z.object({ ptyID: PtyID.zod })),
-    validator("query", PtyConnectQuery),
-    upgradeWebSocket(async (c) => {
-      const request = c.req as unknown as PtyConnectRequest
-      return runPtyRoute(connectPtySession(request))
-    }),
-  )
 }
