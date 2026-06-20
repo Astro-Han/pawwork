@@ -95,24 +95,21 @@ describe("route inventory harness", () => {
         localHttpApi: true,
       })
     }
-    expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/config")).toMatchObject({
-      hono: true,
-      openapi: true,
-      localHttpApi: true,
-      classification: "all-public-surfaces",
-    })
-    expect(inventory.rows.find((row) => row.method === "PATCH" && row.path === "/config")).toMatchObject({
-      hono: true,
-      openapi: true,
-      localHttpApi: true,
-      classification: "all-public-surfaces",
-    })
-    expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/config/providers")).toMatchObject({
-      hono: true,
-      openapi: true,
-      localHttpApi: true,
-      classification: "all-public-surfaces",
-    })
+    for (const [method, routePath] of [
+      ["GET", "/config"],
+      ["PATCH", "/config"],
+      ["GET", "/config/providers"],
+    ] as const) {
+      const row = inventory.rows.find((row) => row.method === method && row.path === routePath)
+      expect(row).toMatchObject({
+        hono: false,
+        openapi: true,
+        legacySdk: true,
+        v2Sdk: true,
+        localHttpApi: true,
+      })
+      expect(row?.classification).toBe(row?.upstreamHttpApi ? "local-httpapi-upstream-only" : "local-httpapi-only")
+    }
     expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/external-result")).toMatchObject({
       hono: false,
       localHttpApi: true,
@@ -650,7 +647,6 @@ describe("route inventory harness", () => {
   test("matches discovered Hono route modules when Windows uses backslash separators", () => {
     expect(
       getMissingHonoRouteSources([
-        "packages\\opencode\\src\\server\\instance\\config.ts",
         "packages\\opencode\\src\\server\\ui\\index.ts",
       ]),
     ).toEqual([])

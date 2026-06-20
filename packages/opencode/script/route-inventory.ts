@@ -64,7 +64,6 @@ type BuildOptions = {
 const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"])
 
 const honoRouteSources = [
-  ["packages/opencode/src/server/instance/config.ts", "/config"],
   ["packages/opencode/src/server/instance/event.ts", ""],
   ["packages/opencode/src/server/instance/experimental.ts", "/experimental"],
   ["packages/opencode/src/server/instance/file.ts", ""],
