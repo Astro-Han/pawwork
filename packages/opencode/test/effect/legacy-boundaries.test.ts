@@ -92,6 +92,25 @@ test("ModelState recent writes stay on the Effect service boundary", async () =>
   expect(providerTest).not.toContain("ModelState.recordRecent(")
 })
 
+test("Snapshot service does not expose Promise facades", async () => {
+  const service = await readFile(path.join(srcRoot, "snapshot/index.ts"), "utf8")
+  const snapshotTest = await readFile(path.join(testRoot, "snapshot/snapshot.test.ts"), "utf8")
+  const facades = [
+    "export async function init",
+    "export async function track",
+    "export async function patch",
+    "export async function restore",
+    "export async function revert",
+    "export async function diff",
+    "export async function diffFull",
+  ]
+
+  expect(service).not.toMatch(/\bfrom\s+["']@\/effect\/run-service["']/)
+  expect(service).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
+  for (const facade of facades) expect(service).not.toContain(facade)
+  expect(snapshotTest).not.toMatch(/\bSnapshot\.(init|track|patch|restore|revert|diff|diffFull)\s*\(/)
+})
+
 test("session summary/revert/compaction services do not expose Promise facades", async () => {
   const files = {
     "session/summary.ts": ["export async function diff", "export async function artifacts"],
