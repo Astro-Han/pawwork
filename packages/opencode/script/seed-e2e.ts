@@ -93,14 +93,14 @@ const seed = async () => {
           time: { start: now },
         }
         await AppRuntime.runPromise(
-          Session.Service.use((svc) =>
-            Effect.gen(function* () {
-              yield* svc.updateMessage(message)
-              yield* svc.updatePart(part)
-            }),
-          ),
+          Effect.gen(function* () {
+            const session = yield* Session.Service
+            const project = yield* Project.Service
+            yield* session.updateMessage(message)
+            yield* session.updatePart(part)
+            yield* project.update({ projectID: Instance.project.id, name: "E2E Project" })
+          }),
         )
-        await Project.update({ projectID: Instance.project.id, name: "E2E Project" })
       },
     })
   } finally {

@@ -695,7 +695,9 @@ export namespace Automation {
     const updateDetails = validateUpdateInput(previous, patch, now)
     const targetProjectID = patch.where?.projectID
     const isMove = targetProjectID !== undefined && targetProjectID !== previous.where.projectID
-    const targetProject = isMove ? Project.get(targetProjectID) : undefined
+    const targetProject = isMove
+      ? Effect.runSync(Project.Service.use((project) => project.get(targetProjectID)).pipe(Effect.provide(Project.defaultLayer)))
+      : undefined
     if (isMove) {
       if (previous.context === "continue") addDetail(updateDetails, "where.projectID", "unsupported_continue_move")
       if (hasActiveRun(previous.id)) addDetail(updateDetails, "where.projectID", "unsupported_move_with_active_run")

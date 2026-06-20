@@ -21,6 +21,9 @@ afterEach(async () => {
   await disposeAllInstances()
 })
 
+const projectGet = (id: Project.Info["id"]) =>
+  Effect.runSync(Project.Service.use((project) => project.get(id)).pipe(Effect.provide(Project.defaultLayer)))
+
 async function bootstrapFixture() {
   return tmpdir({
     init: async (dir) => {
@@ -52,7 +55,7 @@ async function bootstrapFixture() {
 
 async function waitForInitialized(projectID: Project.Info["id"]) {
   for (let i = 0; i < 20; i++) {
-    const project = Project.get(projectID)
+    const project = projectGet(projectID)
     if (project?.time.initialized) return
     await Bun.sleep(10)
   }
@@ -100,7 +103,7 @@ test("/init command event marks the bootstrapped project initialized", async () 
   await using tmp = await tmpdir({ git: true })
   const ctx = await InstanceRuntime.reloadInstance({ directory: tmp.path })
 
-  expect(Project.get(ctx.project.id)?.time.initialized).toBeUndefined()
+  expect(projectGet(ctx.project.id)?.time.initialized).toBeUndefined()
 
   await AppRuntime.runPromise(
     Bus.Service.use((bus) =>

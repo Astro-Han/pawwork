@@ -32,6 +32,7 @@ export const layer = Layer.effect(
     const fileWatcher = yield* FileWatcher.Service
     const vcs = yield* Vcs.Service
     const snapshot = yield* Snapshot.Service
+    const project = yield* Project.Service
 
     return {
       run: Effect.gen(function* () {
@@ -50,7 +51,7 @@ export const layer = Layer.effect(
         yield* plugin.init()
         const unsubscribe = yield* bus.subscribeCallback(Command.Event.Executed, (payload) => {
           if (payload.properties.name === Command.Default.INIT) {
-            Project.setInitialized(ctx.project.id)
+            Effect.runSync(project.setInitialized(ctx.project.id))
           }
         })
         yield* Effect.sync(() => {

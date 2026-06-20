@@ -28,6 +28,17 @@ afterEach(async () => {
   await Instance.disposeAll()
 })
 
+const projectUpdate = (input: Project.UpdateInput) =>
+  Effect.runPromise(Project.Service.use((project) => project.update(input)).pipe(Effect.provide(Project.defaultLayer)))
+const worktreeCreateReady = (input?: Worktree.CreateInput & { exactName?: boolean }) =>
+  Effect.runPromise(
+    Worktree.Service.use((worktree) => worktree.createReady(input)).pipe(Effect.provide(Worktree.defaultLayer)),
+  )
+const worktreeLookupBySlug = (slug: string) =>
+  Effect.runPromise(
+    Worktree.Service.use((worktree) => worktree.lookupBySlug(slug)).pipe(Effect.provide(Worktree.defaultLayer)),
+  )
+
 async function withAutomation<T>(fn: (projectID: ProjectID) => Promise<T>) {
   await using tmp = await tmpdir({ git: true })
   return await Instance.provide({
@@ -791,7 +802,7 @@ describe("automation runNow execution", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          await Project.update({
+          await projectUpdate({
             projectID: Instance.project.id,
             commands: {
               start:
@@ -811,7 +822,7 @@ describe("automation runNow execution", () => {
             Bun.sleep(RUN_WAIT_TIMEOUT_MS).then(() => ({ state: "timeout" as const })),
           ])
           if (result.state === "timeout") {
-            const worktree = await Worktree.lookupBySlug("long-start")
+            const worktree = await worktreeLookupBySlug("long-start")
             if (worktree) await Bun.write(path.join(worktree.directory, ".automation-start-release"), "done")
             throw new Error("Automation waited for the worktree start command to exit before prompting")
           }
@@ -819,7 +830,7 @@ describe("automation runNow execution", () => {
           const succeeded = result.run
           if (!succeeded.sessionID) throw new Error("expected run session")
           expect(providerCalls).toBe(1)
-          const worktree = await Worktree.lookupBySlug("long-start")
+          const worktree = await worktreeLookupBySlug("long-start")
           if (!worktree) throw new Error("expected worktree placement")
           await Bun.write(path.join(worktree.directory, ".automation-start-release"), "done")
         },
@@ -883,7 +894,7 @@ describe("automation runNow execution", () => {
 
           await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
           await waitForRun(definition.id, "succeeded")
-          const worktree = await Worktree.lookupBySlug("daily-brief")
+          const worktree = await worktreeLookupBySlug("daily-brief")
           if (!worktree) throw new Error("expected worktree placement")
           await $`git checkout -b manual-automation-branch`.cwd(worktree.directory).quiet()
           await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
@@ -949,7 +960,7 @@ describe("automation runNow execution", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const worktree = await Worktree.createReady({ name: "daily-brief" })
+          const worktree = await worktreeCreateReady({ name: "daily-brief" })
           await Bun.write(path.join(worktree.directory, "user-draft.txt"), "keep me\n")
           const userSession = await runSession((svc) => svc.create({ title: "Automation: User renamed" }))
           await runSession((svc) =>

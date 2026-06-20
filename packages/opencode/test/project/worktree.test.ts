@@ -17,6 +17,7 @@ import { Session } from "../../src/session"
 import { Database, eq } from "../../src/storage/db"
 import { Worktree } from "../../src/worktree"
 import { tmpdir } from "../fixture/fixture"
+import { AppRuntime } from "../../src/effect/app-runtime"
 
 const encoder = new TextEncoder()
 type StartCommandProbe = { spawned: boolean; released: boolean; release?: () => void }
@@ -24,6 +25,29 @@ type StartCommandProbe = { spawned: boolean; released: boolean; release?: () => 
 function withInstance(directory: string, fn: () => Promise<any>) {
   return Instance.provide({ directory, fn })
 }
+
+const worktreeMakeWorktreeInfo = (name?: string) =>
+  AppRuntime.runPromise(Worktree.Service.use((worktree) => worktree.makeWorktreeInfo(name)))
+const worktreeCreateFromInfo = (info: Worktree.Info, startCommand?: string) =>
+  AppRuntime.runPromise(Worktree.Service.use((worktree) => worktree.createFromInfo(info, startCommand)))
+const worktreeCreate = (input?: Worktree.CreateInput) =>
+  AppRuntime.runPromise(Worktree.Service.use((worktree) => worktree.create(input)))
+const worktreeCreateReady = (input?: Worktree.CreateInput & { exactName?: boolean }) =>
+  AppRuntime.runPromise(Worktree.Service.use((worktree) => worktree.createReady(input)))
+const worktreeList = () =>
+  AppRuntime.runPromise(Worktree.Service.use((worktree) => worktree.list()))
+const worktreeLookupByDirectory = (directory: string) =>
+  AppRuntime.runPromise(Worktree.Service.use((worktree) => worktree.lookupByDirectory(directory)))
+const worktreeLookupBySlug = (slug: string) =>
+  AppRuntime.runPromise(Worktree.Service.use((worktree) => worktree.lookupBySlug(slug)))
+const worktreeRegisterExistingByPath = (directory: string) =>
+  AppRuntime.runPromise(Worktree.Service.use((worktree) => worktree.registerExistingByPath(directory)))
+const worktreeRemove = (input: Worktree.RemoveInput) =>
+  AppRuntime.runPromise(Worktree.Service.use((worktree) => worktree.remove(input)))
+const worktreeReset = (input: Worktree.ResetInput) =>
+  AppRuntime.runPromise(Worktree.Service.use((worktree) => worktree.reset(input)))
+const projectUpdate = (input: Project.UpdateInput) =>
+  Effect.runPromise(Project.Service.use((project) => project.update(input)).pipe(Effect.provide(Project.defaultLayer)))
 
 function startCommandSpawnProbe(probe: StartCommandProbe) {
   return Layer.effect(
@@ -112,7 +136,7 @@ describe("Worktree", () => {
     test("returns info with name, branch, and directory", async () => {
       await using tmp = await tmpdir({ git: true })
 
-      const info = await withInstance(tmp.path, () => Worktree.makeWorktreeInfo())
+      const info = await withInstance(tmp.path, () => worktreeMakeWorktreeInfo())
 
       expect(info.name).toBeDefined()
       expect(typeof info.name).toBe("string")
@@ -124,7 +148,7 @@ describe("Worktree", () => {
     test("uses provided name as base", async () => {
       await using tmp = await tmpdir({ git: true })
 
-      const info = await withInstance(tmp.path, () => Worktree.makeWorktreeInfo("my-feature"))
+      const info = await withInstance(tmp.path, () => worktreeMakeWorktreeInfo("my-feature"))
 
       expect(info.name).toBe("my-feature")
       expect(info.branch).toBe("pawwork/my-feature")
@@ -135,7 +159,7 @@ describe("Worktree", () => {
     test("slugifies the provided name", async () => {
       await using tmp = await tmpdir({ git: true })
 
-      const info = await withInstance(tmp.path, () => Worktree.makeWorktreeInfo("My Feature Branch!"))
+      const info = await withInstance(tmp.path, () => worktreeMakeWorktreeInfo("My Feature Branch!"))
 
       expect(info.name).toBe("my-feature-branch")
     })
@@ -143,7 +167,7 @@ describe("Worktree", () => {
     test("throws NotGitError for non-git directories", async () => {
       await using tmp = await tmpdir()
 
-      await expect(withInstance(tmp.path, () => Worktree.makeWorktreeInfo())).rejects.toThrow("WorktreeNotGitError")
+      await expect(withInstance(tmp.path, () => worktreeMakeWorktreeInfo())).rejects.toThrow("WorktreeNotGitError")
     })
   })
 
@@ -151,7 +175,7 @@ describe("Worktree", () => {
     test("create returns worktree info and remove cleans up", async () => {
       await using tmp = await tmpdir({ git: true })
 
-      const info = await withInstance(tmp.path, () => Worktree.create())
+      const info = await withInstance(tmp.path, () => worktreeCreate())
 
       expect(info.name).toBeDefined()
       expect(info.branch).toStartWith("pawwork/")
@@ -161,7 +185,7 @@ describe("Worktree", () => {
       // Wait for bootstrap to complete
       await Bun.sleep(1000)
 
-      const ok = await withInstance(tmp.path, () => Worktree.remove({ directory: info.directory }))
+      const ok = await withInstance(tmp.path, () => worktreeRemove({ directory: info.directory }))
       expect(ok).toBe(true)
     })
 
@@ -169,7 +193,7 @@ describe("Worktree", () => {
       await using tmp = await tmpdir({ git: true })
       const ready = waitReady(path.join(tmp.path, ".worktrees", "pawwork"))
 
-      const info = await withInstance(tmp.path, () => Worktree.create())
+      const info = await withInstance(tmp.path, () => worktreeCreate())
 
       // create returns before bootstrap completes, but the worktree already exists
       expect(info.name).toBeDefined()
@@ -189,14 +213,14 @@ describe("Worktree", () => {
       // Cleanup
       await withInstance(info.directory, () => Instance.dispose())
       await Bun.sleep(100)
-      await withInstance(tmp.path, () => Worktree.remove({ directory: info.directory }))
+      await withInstance(tmp.path, () => worktreeRemove({ directory: info.directory }))
     })
 
     test("create with custom name", async () => {
       await using tmp = await tmpdir({ git: true })
       const ready = waitReady(path.join(tmp.path, ".worktrees", "pawwork"))
 
-      const info = await withInstance(tmp.path, () => Worktree.create({ name: "test-workspace" }))
+      const info = await withInstance(tmp.path, () => worktreeCreate({ name: "test-workspace" }))
 
       expect(info.name).toBe("test-workspace")
       expect(info.branch).toBe("pawwork/test-workspace")
@@ -207,7 +231,7 @@ describe("Worktree", () => {
       await ready
       await withInstance(info.directory, () => Instance.dispose())
       await Bun.sleep(100)
-      await withInstance(tmp.path, () => Worktree.remove({ directory: info.directory }))
+      await withInstance(tmp.path, () => worktreeRemove({ directory: info.directory }))
     })
 
     test("createReady with exact name rejects occupied managed placement", async () => {
@@ -216,7 +240,7 @@ describe("Worktree", () => {
       await fs.mkdir(occupied, { recursive: true })
 
       await expect(
-        withInstance(tmp.path, () => Worktree.createReady({ name: "daily-brief", exactName: true })),
+        withInstance(tmp.path, () => worktreeCreateReady({ name: "daily-brief", exactName: true })),
       ).rejects.toThrow("WorktreeNameGenerationFailedError")
 
       const list = await $`git worktree list --porcelain`.cwd(tmp.path).quiet().text()
@@ -226,7 +250,7 @@ describe("Worktree", () => {
     test("createReady with exact name rejects names with an empty slug", async () => {
       await using tmp = await tmpdir({ git: true })
 
-      await expect(withInstance(tmp.path, () => Worktree.createReady({ name: "!!!", exactName: true }))).rejects.toThrow(
+      await expect(withInstance(tmp.path, () => worktreeCreateReady({ name: "!!!", exactName: true }))).rejects.toThrow(
         "WorktreeNameGenerationFailedError",
       )
 
@@ -242,7 +266,7 @@ describe("Worktree", () => {
         await $`git add opencode.json`.cwd(tmp.path).quiet()
         await $`git commit -m invalid-config`.cwd(tmp.path).quiet()
 
-        await expect(Worktree.createReady({ name: "bad-config" })).rejects.toThrow("WorktreeCreateFailedError")
+        await expect(worktreeCreateReady({ name: "bad-config" })).rejects.toThrow("WorktreeCreateFailedError")
       })
     })
 
@@ -252,7 +276,7 @@ describe("Worktree", () => {
       await $`git add .gitignore && git commit -m initial-gitignore`.cwd(tmp.path).quiet()
       await Bun.write(path.join(tmp.path, ".gitignore"), "node_modules\ndist\n")
 
-      await expect(withInstance(tmp.path, () => Worktree.create({ name: "blocked" }))).rejects.toThrow(
+      await expect(withInstance(tmp.path, () => worktreeCreate({ name: "blocked" }))).rejects.toThrow(
         "WorktreeGitignoreGuardError",
       )
 
@@ -262,11 +286,11 @@ describe("Worktree", () => {
 
     test("restores .gitignore when git worktree add fails", async () => {
       await using tmp = await tmpdir({ git: true })
-      const info = await withInstance(tmp.path, () => Worktree.makeWorktreeInfo("bad-branch"))
+      const info = await withInstance(tmp.path, () => worktreeMakeWorktreeInfo("bad-branch"))
       await fs.mkdir(info.directory, { recursive: true })
       await Bun.write(path.join(info.directory, "blocker"), "already here\n")
 
-      await expect(withInstance(tmp.path, () => Worktree.createFromInfo(info))).rejects.toThrow(
+      await expect(withInstance(tmp.path, () => worktreeCreateFromInfo(info))).rejects.toThrow(
         "WorktreeCreateFailedError",
       )
 
@@ -278,9 +302,9 @@ describe("Worktree", () => {
     wintest("creates git worktree and boots asynchronously", async () => {
       await using tmp = await tmpdir({ git: true })
 
-      const info = await withInstance(tmp.path, () => Worktree.makeWorktreeInfo("from-info-test"))
+      const info = await withInstance(tmp.path, () => worktreeMakeWorktreeInfo("from-info-test"))
       const ready = waitReady(path.join(tmp.path, ".worktrees", "pawwork"))
-      await withInstance(tmp.path, () => Worktree.createFromInfo(info))
+      await withInstance(tmp.path, () => worktreeCreateFromInfo(info))
 
       // Worktree should exist in git (normalize slashes for Windows)
       const list = await $`git worktree list --porcelain`.cwd(tmp.path).quiet().text()
@@ -289,7 +313,7 @@ describe("Worktree", () => {
       expect(normalizedList).toContain(normalizedDir)
 
       await ready
-      await withInstance(tmp.path, () => Worktree.remove({ directory: info.directory }))
+      await withInstance(tmp.path, () => worktreeRemove({ directory: info.directory }))
     })
   })
 
@@ -299,8 +323,8 @@ describe("Worktree", () => {
       const probe: StartCommandProbe = { spawned: false, released: false }
 
       await withInstance(tmp.path, async () => {
-        const info = await Worktree.createReady({ name: "reset-start-spawn-probe" })
-        await Project.update({
+        const info = await worktreeCreateReady({ name: "reset-start-spawn-probe" })
+        await projectUpdate({
           projectID: Instance.project.id,
           commands: {
             start: "start-spawn-probe",
@@ -324,7 +348,7 @@ describe("Worktree", () => {
         expect(probe.spawned).toBe(true)
         expect(probe.released).toBe(false)
         probe.release?.()
-        await Worktree.remove({ directory: info.directory })
+        await worktreeRemove({ directory: info.directory })
       })
     })
 
@@ -332,14 +356,14 @@ describe("Worktree", () => {
       await using tmp = await tmpdir({ git: true })
 
       await withInstance(tmp.path, async () => {
-        const info = await Worktree.createReady({ name: "reset-branch-metadata" })
+        const info = await worktreeCreateReady({ name: "reset-branch-metadata" })
         await $`git checkout -b manual-reset-branch`.cwd(info.directory).quiet()
 
-        await Worktree.reset({ directory: info.directory })
+        await worktreeReset({ directory: info.directory })
 
-        const refreshed = await Worktree.lookupBySlug("reset-branch-metadata")
+        const refreshed = await worktreeLookupBySlug("reset-branch-metadata")
         expect(refreshed?.branch).toBe("manual-reset-branch")
-        await Worktree.remove({ directory: info.directory })
+        await worktreeRemove({ directory: info.directory })
       })
     })
   })
@@ -348,31 +372,31 @@ describe("Worktree", () => {
     test("created worktrees are slug-addressable, existing worktrees are path-addressable only", async () => {
       await using tmp = await tmpdir({ git: true })
       const ready = waitReady(path.join(tmp.path, ".worktrees", "pawwork"))
-      const created = await withInstance(tmp.path, () => Worktree.create({ name: "feature-a" }))
+      const created = await withInstance(tmp.path, () => worktreeCreate({ name: "feature-a" }))
       await ready
 
-      const bySlug = await withInstance(tmp.path, () => Worktree.lookupBySlug("feature-a"))
+      const bySlug = await withInstance(tmp.path, () => worktreeLookupBySlug("feature-a"))
       expect(bySlug?.directory).toBe(created.directory)
       expect(bySlug?.source).toBe("created")
 
-      const byRawName = await withInstance(tmp.path, () => Worktree.lookupBySlug("Feature A"))
+      const byRawName = await withInstance(tmp.path, () => worktreeLookupBySlug("Feature A"))
       expect(byRawName?.directory).toBe(created.directory)
 
       const external = path.join(tmp.path, "..", path.basename(tmp.path) + "-external")
       await $`git worktree add ${external} -b external-${Date.now()}`.cwd(tmp.path).quiet()
 
-      const registered = await withInstance(tmp.path, () => Worktree.registerExistingByPath(external))
+      const registered = await withInstance(tmp.path, () => worktreeRegisterExistingByPath(external))
       expect(registered.source).toBe("existing")
       expect(registered.name).toBe(path.basename(external))
 
-      const byDirectory = await withInstance(tmp.path, () => Worktree.lookupByDirectory(external))
+      const byDirectory = await withInstance(tmp.path, () => worktreeLookupByDirectory(external))
       expect(byDirectory?.source).toBe("existing")
 
-      const notBySlug = await withInstance(tmp.path, () => Worktree.lookupBySlug(path.basename(external)))
+      const notBySlug = await withInstance(tmp.path, () => worktreeLookupBySlug(path.basename(external)))
       expect(notBySlug).toBeUndefined()
 
-      await withInstance(tmp.path, () => Worktree.remove({ directory: created.directory }))
-      await withInstance(tmp.path, () => Worktree.remove({ directory: external }))
+      await withInstance(tmp.path, () => worktreeRemove({ directory: created.directory }))
+      await withInstance(tmp.path, () => worktreeRemove({ directory: external }))
     })
 
     test("legacy string registry entries remain slug-addressable", async () => {
@@ -389,15 +413,15 @@ describe("Worktree", () => {
             .run(),
         )
 
-        const bySlug = await Worktree.lookupBySlug(path.basename(legacy))
+        const bySlug = await worktreeLookupBySlug(path.basename(legacy))
         expect(bySlug?.directory).toBe(legacy)
         expect(bySlug?.source).toBe("created")
 
-        const listed = await Worktree.list()
+        const listed = await worktreeList()
         expect(listed.some((entry) => entry.directory === legacy)).toBe(true)
 
-        await Worktree.remove({ directory: legacy })
-        const afterRemove = await Worktree.lookupBySlug(path.basename(legacy))
+        await worktreeRemove({ directory: legacy })
+        const afterRemove = await worktreeLookupBySlug(path.basename(legacy))
         expect(afterRemove).toBeUndefined()
       })
     })
@@ -407,11 +431,11 @@ describe("Worktree", () => {
       const unrelated = path.join(tmp.path, "not-a-worktree")
       await fs.mkdir(unrelated, { recursive: true })
 
-      await expect(withInstance(tmp.path, () => Worktree.registerExistingByPath(unrelated))).rejects.toThrow(
+      await expect(withInstance(tmp.path, () => worktreeRegisterExistingByPath(unrelated))).rejects.toThrow(
         "WorktreeCreateFailedError",
       )
 
-      const entry = await withInstance(tmp.path, () => Worktree.lookupByDirectory(unrelated))
+      const entry = await withInstance(tmp.path, () => worktreeLookupByDirectory(unrelated))
       expect(entry).toBeUndefined()
     })
   })
@@ -421,7 +445,7 @@ describe("Worktree", () => {
       await using tmp = await tmpdir({ git: true })
 
       const ok = await withInstance(tmp.path, () =>
-        Worktree.remove({ directory: path.join(tmp.path, "does-not-exist") }),
+        worktreeRemove({ directory: path.join(tmp.path, "does-not-exist") }),
       )
       expect(ok).toBe(true)
     })
@@ -429,7 +453,7 @@ describe("Worktree", () => {
     test("throws NotGitError for non-git directories", async () => {
       await using tmp = await tmpdir()
 
-      await expect(withInstance(tmp.path, () => Worktree.remove({ directory: "/tmp/fake" }))).rejects.toThrow(
+      await expect(withInstance(tmp.path, () => worktreeRemove({ directory: "/tmp/fake" }))).rejects.toThrow(
         "WorktreeNotGitError",
       )
     })

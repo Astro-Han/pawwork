@@ -8,7 +8,6 @@ import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
 import { Database, NotFoundError, and, eq, sql } from "@/storage/db"
 import { AutomationRunContext, type AutomationRunBlocker } from "./run-context"
-import { Worktree } from "@/worktree"
 
 const log = Log.create({ service: "automation.runner" })
 
@@ -45,13 +44,16 @@ async function releaseAutomationWorktreeBindings(directory: string) {
 async function prepareWorktreePlacement(definition: Automation.Definition) {
   const placement = definition.where.worktree
   if (!placement) return undefined
-  const existing = await Worktree.lookupBySlug(placement)
+  const { Worktree } = await import("@/worktree")
+  const existing = await AppRuntime.runPromise(Worktree.Service.use((worktree) => worktree.lookupBySlug(placement)))
   if (existing) {
     await releaseAutomationWorktreeBindings(existing.directory)
-    await Worktree.reset({ directory: existing.directory })
-    return (await Worktree.lookupBySlug(placement)) ?? existing
+    await AppRuntime.runPromise(Worktree.Service.use((worktree) => worktree.reset({ directory: existing.directory })))
+    return (
+      (await AppRuntime.runPromise(Worktree.Service.use((worktree) => worktree.lookupBySlug(placement)))) ?? existing
+    )
   }
-  return Worktree.createReady({ name: placement, exactName: true })
+  return AppRuntime.runPromise(Worktree.Service.use((worktree) => worktree.createReady({ name: placement, exactName: true })))
 }
 
 // Continue automations append to the conversation they were created in; fresh

@@ -52,6 +52,7 @@ import { SessionStatus } from "../../src/session/status"
 import { TurnChange } from "../../src/session/turn-change"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "../../src/tool/registry"
+import { Worktree } from "../../src/worktree"
 import { Automation } from "../../src/automation"
 import { WebSearchAuth } from "../../src/tool/websearch-auth"
 import { Truncate } from "../../src/tool/truncate"
@@ -138,6 +139,7 @@ function makeHttp() {
     Layer.provide(Ripgrep.defaultLayer),
     Layer.provide(SubagentRun.defaultLayer),
     Layer.provide(Automation.defaultLayer),
+    Layer.provide(Worktree.defaultLayer),
     Layer.provideMerge(todo),
     Layer.provideMerge(deps),
   )
