@@ -34,12 +34,12 @@ function hasRoute(routes: ReadonlyArray<{ method: string; path: string }>, metho
 }
 
 describe("route inventory harness", () => {
-  test("discovers PawWork-owned Hono routes now covered by the checked-in OpenAPI surface", async () => {
+  test("tracks PawWork-owned routes covered by the checked-in OpenAPI surface", async () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
-    expect(hasRoute(inventory.hono.routes, "GET", "/external-result")).toBe(true)
-    expect(hasRoute(inventory.hono.routes, "GET", "/memory")).toBe(true)
-    expect(hasRoute(inventory.hono.routes, "PATCH", "/memory/disabled")).toBe(true)
+    expect(hasRoute(inventory.hono.routes, "GET", "/external-result")).toBe(false)
+    expect(hasRoute(inventory.hono.routes, "GET", "/memory")).toBe(false)
+    expect(hasRoute(inventory.hono.routes, "PATCH", "/memory/disabled")).toBe(false)
     expect(hasRoute(inventory.hono.routes, "POST", "/session/:sessionID/tool/respond")).toBe(true)
     expect(hasRoute(inventory.hono.routes, "GET", "/session/:sessionID/turn/:userMessageID/changes")).toBe(true)
 
@@ -48,15 +48,16 @@ describe("route inventory harness", () => {
     expect(hasRoute(inventory.v2Sdk.routes, "GET", "/external-result")).toBe(true)
   })
 
-  test("classifies compatibility gaps by source instead of treating every missing SDK route as a server gap", async () => {
+  test("classifies retired PawWork-owned routes by their remaining production sources", async () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
     const externalResult = inventory.rows.find((row) => row.method === "GET" && row.path === "/external-result")
     expect(externalResult).toMatchObject({
-      hono: true,
+      hono: false,
       openapi: true,
       legacySdk: false,
       v2Sdk: true,
+      localHttpApi: true,
       classification: "pawwork-owned",
     })
 
@@ -113,7 +114,7 @@ describe("route inventory harness", () => {
       classification: "all-public-surfaces",
     })
     expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/external-result")).toMatchObject({
-      hono: true,
+      hono: false,
       localHttpApi: true,
       classification: "pawwork-owned",
     })
@@ -129,7 +130,7 @@ describe("route inventory harness", () => {
     })
   })
 
-  test("tracks local HttpApi migration coverage for ordinary JSON file, project, memory, and external-result routes", async () => {
+  test("tracks local HttpApi migration coverage for ordinary JSON file and project routes", async () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
     for (const [method, routePath] of [
@@ -143,6 +144,18 @@ describe("route inventory harness", () => {
       ["GET", "/project/current"],
       ["POST", "/project/git/init"],
       ["PATCH", "/project/:projectID"],
+    ] as const) {
+      expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
+        hono: true,
+        localHttpApi: true,
+      })
+    }
+  })
+
+  test("keeps retired memory and external-result routes on the HttpApi production surface only", async () => {
+    const inventory = await buildRouteInventory({ root, requireUpstream: false })
+
+    for (const [method, routePath] of [
       ["GET", "/memory"],
       ["PATCH", "/memory"],
       ["POST", "/memory/reset"],
@@ -151,15 +164,13 @@ describe("route inventory harness", () => {
       ["GET", "/external-result"],
     ] as const) {
       expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
-        hono: true,
+        hono: false,
+        openapi: true,
+        v2Sdk: true,
         localHttpApi: true,
+        classification: "pawwork-owned",
       })
     }
-
-    expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/external-result")).toMatchObject({
-      openapi: true,
-      classification: "pawwork-owned",
-    })
   })
 
   test("tracks local HttpApi migration coverage for ordinary experimental JSON routes", async () => {

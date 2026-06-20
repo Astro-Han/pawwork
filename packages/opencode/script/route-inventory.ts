@@ -68,11 +68,9 @@ const honoRouteSources = [
   ["packages/opencode/src/server/instance/config.ts", "/config"],
   ["packages/opencode/src/server/instance/event.ts", ""],
   ["packages/opencode/src/server/instance/experimental.ts", "/experimental"],
-  ["packages/opencode/src/server/instance/external-result.ts", "/external-result"],
   ["packages/opencode/src/server/instance/file.ts", ""],
   ["packages/opencode/src/server/instance/index.ts", ""],
   ["packages/opencode/src/server/instance/mcp.ts", "/mcp"],
-  ["packages/opencode/src/server/instance/memory.ts", "/memory"],
   ["packages/opencode/src/server/instance/permission.ts", "/permission"],
   ["packages/opencode/src/server/instance/project.ts", "/project"],
   ["packages/opencode/src/server/instance/provider.ts", "/provider"],
@@ -456,6 +454,7 @@ function classify(input: {
     return "adapter-compatibility-boundary"
   }
   if (explicitlyDeferred.some((pattern) => pattern.test(key) || pattern.test(input.path))) return "explicitly-deferred"
+  if (pawworkOwned.has(key) && !input.hono && input.localHttpApi) return "pawwork-owned"
   if (pawworkOwned.has(key) && input.hono && !input.openapi && !input.legacySdk && input.v2Sdk) {
     return "pawwork-owned-sdk-v2-only"
   }

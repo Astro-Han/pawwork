@@ -1,14 +1,9 @@
-import { Hono } from "hono"
-import { describeRoute, resolver } from "hono-openapi"
 import { Cause, Effect } from "effect"
-import z from "zod"
 import { Session } from "@/session"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionID, MessageID } from "@/session/schema"
 import { ExternalResult } from "@/tool/external-result"
-import { lazy } from "../../util/lazy"
 import { Log } from "@opencode-ai/core/util/log"
-import { AppRuntime } from "@/effect/app-runtime"
 
 const log = Log.create({ service: "server" })
 
@@ -19,13 +14,11 @@ const log = Log.create({ service: "server" })
 // `message.part.updated` SSE event, which is intentionally not in the
 // event-replay buffer (high-volume streaming type), so any reload past the
 // SSE cursor loses the dock. Served at `GET /external-result`.
-const PendingExternalResult = z.object({
-  session: Session.Info,
-  message: MessageV2.Info,
-  part: MessageV2.Part,
-})
-
-const runExternalResultRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
+type PendingExternalResult = {
+  session: Session.Info
+  message: MessageV2.Info
+  part: MessageV2.Part
+}
 
 const readMessage = Effect.fn("ExternalResultRoutes.message.get")(function* (input: {
   sessionID: SessionID
@@ -77,12 +70,12 @@ const hydratePendingExternalResult = Effect.fn("ExternalResultRoutes.hydrate")(f
   // reducer does not upsert session info).
   const pending = yield* readMessageWithPendingToolPart({ sessionID, messageID, callID: snap.callID })
   if (!pending) return
-  return { session, message: pending.message.info, part: pending.part } satisfies z.infer<typeof PendingExternalResult>
+  return { session, message: pending.message.info, part: pending.part } satisfies PendingExternalResult
 })
 
 export const listPendingExternalResults = Effect.fn("ExternalResultRoutes.list")(function* () {
   const sessions = yield* Session.Service
-  const out: Array<z.infer<typeof PendingExternalResult>> = []
+  const out: PendingExternalResult[] = []
   for (const snap of ExternalResult.list()) {
     const result = yield* hydratePendingExternalResult(sessions, snap).pipe(
       Effect.catchCause((cause) =>
@@ -105,29 +98,3 @@ export const listPendingExternalResults = Effect.fn("ExternalResultRoutes.list")
   }
   return out
 })
-
-export const ExternalResultRoutes = lazy(() =>
-  new Hono().get(
-    "/",
-    describeRoute({
-      summary: "List pending external-result tool calls",
-      description:
-        "Return the (session, message, part) trio for every external-result Deferred currently awaiting a user response. Used by the app to hydrate the dock after reload / cold-open.",
-      operationId: "externalResult.list",
-      responses: {
-        200: {
-          description: "Pending external-result tool calls",
-          content: {
-            "application/json": {
-              schema: resolver(PendingExternalResult.array()),
-            },
-          },
-        },
-      },
-    }),
-    async (c) => {
-      const out = await runExternalResultRoute(listPendingExternalResults())
-      return c.json(out)
-    },
-  ),
-)
