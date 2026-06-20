@@ -237,6 +237,36 @@ test("state() returns existing state when one is saved", async () => {
   })
 })
 
+test("saveTokens() preserves an immediately expiring token", async () => {
+  const { McpOAuthProvider } = await import("../../src/mcp/oauth-provider")
+
+  await using tmp = await tmpdir()
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const provider = new McpOAuthProvider(
+        "test-token-expiry-zero",
+        "https://example.com/mcp",
+        {},
+        { onRedirect: async () => {} },
+      )
+
+      const before = Date.now() / 1000
+      await provider.saveTokens({
+        access_token: "access-token",
+        token_type: "Bearer",
+        expires_in: 0,
+      })
+      const after = Date.now() / 1000
+
+      const entry = await McpAuthFacade.get("test-token-expiry-zero")
+      expect(entry?.tokens?.expiresAt).toBeGreaterThanOrEqual(before)
+      expect(entry?.tokens?.expiresAt).toBeLessThanOrEqual(after)
+    },
+  })
+})
+
 test("authenticate() persists the client when OAuth completes without a redirect (#22376)", async () => {
   const { McpOAuthCallback } = await import("../../src/mcp/oauth-callback")
 
