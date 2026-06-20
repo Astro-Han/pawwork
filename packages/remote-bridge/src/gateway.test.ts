@@ -11,6 +11,7 @@ import {
   hydrateSessionLimit,
   loadConfig,
   type Config,
+  type PlatformStatus,
 } from "./gateway.ts"
 import { PawWorkClient } from "./pawwork-client.ts"
 import { SessionPointers } from "./session-pointers.ts"
@@ -53,6 +54,7 @@ class FakePlatform implements Platform {
     readonly name: string,
     private readonly opts: {
       sendErr?: Error
+      startErr?: Error
       streamConnected?: () => boolean
       startResolvesImmediately?: boolean
       readyMode?: "auto" | "double" | "manual"
@@ -62,6 +64,10 @@ class FakePlatform implements Platform {
   async start(_handler: MessageHandler, onReady?: () => void): Promise<void> {
     this.startedAfterStream = this.opts.streamConnected ? this.opts.streamConnected() : false
     this.started.resolve()
+    // A platform that connects but then fails (e.g. a revoked token rejected by the
+    // upstream after the handshake) rejects start() before reaching "serving". The
+    // supervisor degrades and retries it; it never reaches onReady.
+    if (this.opts.startErr) throw this.opts.startErr
     // A real platform signals readiness once it is past startup and serving; model
     // that here so the gateway's run-level onReady fires in tests. "double" models a
     // misbehaving adapter; "manual" lets a test drive the moment via fireReady.
@@ -886,6 +892,62 @@ test("a re-pair with an invalid audience leaves the existing channel serving (pr
     // Untouched: still serving, still the live instance.
     expect(original.stops).toBe(0)
     expect(app.platformNames()).toEqual(["rt-repair-audience"])
+
+    controller.abort()
+    await runPromise
+  } finally {
+    server.stop()
+  }
+})
+
+test("a re-pair whose new platform fails to start retires the old and surfaces the new as degraded", async () => {
+  // Build-success semantics, not connected-success: addPlatform retires the old loop and
+  // supervises the new one once it is built (and any beforeCommit persists), NOT once it
+  // is serving. So a re-pair whose new platform start() rejects replaces the old channel
+  // and shows the new one degraded (the supervisor retries it) — it does not keep the old
+  // channel serving. The pairing flow already proved the new token live, so the residual
+  // failure window is a transient the supervisor retries, not a lost working connection.
+  const original = new FakePlatform("rt-repair-start")
+  const replacement = new FakePlatform("rt-repair-start", { startErr: new Error("token revoked") })
+  let builds = 0
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        return openEventStream()
+    }
+    return undefined
+  })
+  const statuses: PlatformStatus[] = []
+  const controller = new AbortController()
+  try {
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [{ name: "rt-repair-start", enabled: true, options: { allow_from: "U1" } }],
+      },
+      () => {
+        builds++
+        return builds === 1 ? original : replacement
+      },
+    )
+    app.platformRetryDelayMs = 5 // keep the degraded retry loop tight for the test
+    const runPromise = app.run(controller.signal, undefined, (status) => statuses.push(status))
+    await original.started.promise
+
+    // Re-pair the same name; the build succeeds, so the old loop is retired and the new
+    // platform supervised — then its start() rejects.
+    await app.addPlatform({ name: "rt-repair-start", enabled: true, options: { allow_from: "U2" } })
+    await replacement.started.promise
+
+    expect(original.stops).toBe(1) // old channel retired on the successful build
+    expect(app.platformNames()).toEqual(["rt-repair-start"]) // the new platform is the live one
+    // The new channel surfaces degraded (and keeps retrying); the old one is gone.
+    await waitUntil(() => statuses.some((s) => s.name === "rt-repair-start" && s.phase === "degraded"))
 
     controller.abort()
     await runPromise
