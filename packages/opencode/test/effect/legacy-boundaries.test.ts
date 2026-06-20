@@ -219,3 +219,42 @@ test("Config service does not expose Promise facades", async () => {
   expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
   for (const facade of facades) expect(text).not.toContain(facade)
 })
+
+test("MCP services do not expose Promise facades", async () => {
+  const services = {
+    "mcp/index.ts": [
+      "export const status = async",
+      "export const tools = async",
+      "export const prompts = async",
+      "export const resources = async",
+      "export const add = async",
+      "export const connect = async",
+      "export const disconnect = async",
+      "export const startAuth = async",
+      "export const authenticate = async",
+      "export const finishAuth = async",
+      "export const removeAuth = async",
+      "export const supportsOAuth = async",
+      "export const hasStoredTokens = async",
+      "export const getAuthStatus = async",
+    ],
+    "mcp/auth.ts": [
+      "export const get = async",
+      "export const getForUrl = async",
+      "export const all = async",
+      "export const set = async",
+      "export const remove = async",
+      "export const updateTokens = async",
+      "export const updateClientInfo = async",
+      "export const updateCodeVerifier = async",
+      "export const updateOAuthState = async",
+    ],
+  }
+
+  for (const [file, facades] of Object.entries(services)) {
+    const text = await readFile(path.join(srcRoot, file), "utf8")
+    expect(text).not.toMatch(/\bfrom\s+["']@\/effect\/run-service["']/)
+    expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
+    for (const facade of facades) expect(text).not.toContain(facade)
+  }
+})
