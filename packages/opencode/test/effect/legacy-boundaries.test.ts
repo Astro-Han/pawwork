@@ -151,3 +151,27 @@ test("Agent and Settings services do not expose Promise facades", async () => {
     for (const facade of facades) expect(text).not.toContain(facade)
   }
 })
+
+test("Auth and WebSearchAuth services do not expose Promise facades", async () => {
+  const services = {
+    "auth/index.ts": [
+      "export async function get",
+      "export async function all",
+      "export async function set",
+      "export async function remove",
+    ],
+    "tool/websearch-auth.ts": [
+      "export async function status",
+      "export async function saveKey",
+      "export async function removeKey",
+    ],
+  }
+
+  for (const [file, facades] of Object.entries(services)) {
+    const text = await readFile(path.join(srcRoot, file), "utf8")
+    expect(text).not.toMatch(/\bfrom\s+["']@\/effect\/run-service["']/)
+    expect(text).not.toMatch(/\bfrom\s+["']\.\.\/effect\/run-service["']/)
+    expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
+    for (const facade of facades) expect(text).not.toContain(facade)
+  }
+})

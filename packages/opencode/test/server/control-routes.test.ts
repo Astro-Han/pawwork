@@ -12,8 +12,12 @@ import { Server } from "../../src/server/server"
 
 const testProviderID = "httpapi-control-provider"
 
+function runAuth<A, E>(fn: (auth: Auth.Interface) => Effect.Effect<A, E, never>) {
+  return AppRuntime.runPromise(Auth.Service.use(fn))
+}
+
 afterEach(async () => {
-  await Auth.remove(testProviderID).catch(() => {})
+  await runAuth((auth) => auth.remove(testProviderID)).catch(() => {})
 })
 
 describe("control routes", () => {
@@ -99,13 +103,13 @@ describe("control routes", () => {
 
     expect(setResponse.status).toBe(200)
     expect(await setResponse.json()).toBe(true)
-    expect(await Auth.get(testProviderID)).toEqual({ type: "api", key: "sk-httpapi-control" })
+    expect(await runAuth((auth) => auth.get(testProviderID))).toEqual({ type: "api", key: "sk-httpapi-control" })
 
     const removeResponse = await requestControlHttpApi(`/auth/${testProviderID}`, { method: "DELETE" })
 
     expect(removeResponse.status).toBe(200)
     expect(await removeResponse.json()).toBe(true)
-    expect(await Auth.get(testProviderID)).toBeUndefined()
+    expect(await runAuth((auth) => auth.get(testProviderID))).toBeUndefined()
   })
 
   test("writes log entries through the HttpApi handlers", async () => {
