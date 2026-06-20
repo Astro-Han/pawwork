@@ -89,11 +89,12 @@ function isConnectionLoss(err: unknown): boolean {
 async function rootSessionID(sessionID: string): Promise<string> {
   // Lazy import: session/session.ts calls releaseBrowserSession on delete and
   // archive, so a static import here would close an import cycle.
+  const { AppRuntime } = await import("@/effect/app-runtime")
   const { Session } = await import("@/session")
   let id = sessionID as import("@/session/schema").SessionID
   // Bounded walk: parent chains are shallow, and a cycle in corrupt data must not hang a tool.
   for (let i = 0; i < 16; i++) {
-    const info = await Session.get(id).catch(() => undefined)
+    const info = await AppRuntime.runPromise(Session.Service.use((svc) => svc.get(id))).catch(() => undefined)
     if (!info?.parentID) return id
     id = info.parentID
   }

@@ -17,10 +17,10 @@ function run<A, E>(fx: Effect.Effect<A, E, SessionNs.Service>) {
 
 const svc = {
   ...SessionNs,
-  create(input?: Parameters<typeof SessionNs.create>[0]) {
+  create(input?: SessionNs.CreateInput) {
     return run(SessionNs.Service.use((svc) => svc.create(input)))
   },
-  setArchived(input: Parameters<typeof SessionNs.setArchived>[0]) {
+  setArchived(input: Parameters<SessionNs.Interface["setArchived"]>[0]) {
     return run(SessionNs.Service.use((svc) => svc.setArchived(input)))
   },
   touch(sessionID: SessionID) {

@@ -40,8 +40,6 @@ import { Snapshot } from "@/snapshot"
 import { ProjectID } from "../project/schema"
 import { WorkspaceID } from "../control-plane/schema"
 import { SessionID, MessageID, PartID } from "./schema"
-import { fn } from "../util/fn"
-import { makeRuntime } from "../effect/run-service"
 import { Runtime } from "@opencode-ai/core/runtime"
 
 import type { Provider } from "@/provider"
@@ -1166,28 +1164,6 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
 export const defaultLayer: Layer.Layer<Service, never, never> = layer.pipe(
   Layer.provide(Bus.layer),
   Layer.provide(Storage.defaultLayer),
-)
-
-const { runPromise } = makeRuntime(Service, defaultLayer)
-
-export const create = fn(CreateInput, (input) => runPromise((svc) => svc.create(input)))
-export const get = fn(GetInput, (input) => runPromise((svc) => svc.get(input)))
-export const children = fn(ChildrenInput, (input) => runPromise((svc) => svc.children(input)))
-export const fork = fn(ForkInput, (input) => runPromise((svc) => svc.fork(input)))
-export const remove = fn(RemoveInput, (input) => runPromise((svc) => svc.remove(input)))
-export const setTitle = fn(SetTitleInput, (input) => runPromise((svc) => svc.setTitle(input)))
-export const setArchived = fn(SetArchivedInput, (input) => runPromise((svc) => svc.setArchived(input)))
-export const setPermission = fn(SetPermissionInput, (input) => runPromise((svc) => svc.setPermission(input)))
-export const messages = fn(MessagesInput, (input) => runPromise((svc) => svc.messages(input)))
-export const messagesPage = fn(MessagesPageInput, (input) => runPromise((svc) => svc.messagesPage(input)))
-export const removePart = fn(RemovePartInput, (input) => runPromise((svc) => svc.removePart(input)))
-export const updateMessage = fn(MessageV2.Info, (input) => runPromise((svc) => svc.updateMessage(input)))
-export const updatePart = fn(MessageV2.Part, (input) => runPromise((svc) => svc.updatePart(input)))
-export const updateExecutionContext = fn(UpdateExecutionContextInput, (input) =>
-  runPromise((svc) => svc.updateExecutionContext(input)),
-)
-export const findActiveWorktreeBinding = fn(FindActiveWorktreeBindingInput, (directory) =>
-  runPromise((svc) => svc.findActiveWorktreeBinding(directory)),
 )
 
 type SessionListSort = "updated" | "created"

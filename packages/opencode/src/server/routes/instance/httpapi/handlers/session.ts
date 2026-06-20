@@ -202,7 +202,7 @@ export const sessionHandlers = HttpApiBuilder.group(SessionApi, "session", (hand
     )
     .handleRaw("create", (ctx) =>
       Effect.gen(function* () {
-        const body = yield* parseJsonBody(ctx.request, SessionNs.create.schema.optional())
+        const body = yield* parseJsonBody(ctx.request, SessionNs.CreateInput)
         if (HttpServerResponse.isHttpServerResponse(body)) return body
         return yield* jsonResponse(SessionRouteEffects.createSession(body))
       }),
@@ -384,7 +384,7 @@ export const sessionHandlers = HttpApiBuilder.group(SessionApi, "session", (hand
     )
     .handleRaw("fork", (ctx) =>
       Effect.gen(function* () {
-        const body = yield* parseJsonBody(ctx.request, SessionNs.fork.schema.omit({ sessionID: true }))
+        const body = yield* parseJsonBody(ctx.request, SessionNs.ForkInput.omit({ sessionID: true }))
         if (HttpServerResponse.isHttpServerResponse(body)) return body
         return yield* jsonResponse(SessionRouteEffects.forkSession({ ...body, sessionID: ctx.params.sessionID }))
       }),

@@ -17,7 +17,7 @@ function run<A, E>(fx: Effect.Effect<A, E, SessionNs.Service>) {
 
 const svc = {
   ...SessionNs,
-  create(input?: Parameters<typeof SessionNs.create>[0]) {
+  create(input?: SessionNs.CreateInput) {
     return run(SessionNs.Service.use((svc) => svc.create(input)))
   },
   remove(id: SessionID) {
@@ -29,7 +29,7 @@ const svc = {
   updatePart<T extends MessageV2.Part>(part: T) {
     return run(SessionNs.Service.use((svc) => svc.updatePart(part)))
   },
-  messages(input: Parameters<typeof SessionNs.messages>[0]) {
+  messages(input: Parameters<SessionNs.Interface["messages"]>[0]) {
     return run(SessionNs.Service.use((svc) => svc.messages(input)))
   },
 }

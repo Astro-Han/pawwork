@@ -465,7 +465,7 @@ describe("workspace router", () => {
     const localWorkspace = await createLocalWorkspace({ directory: second.path, type: second.extra.type })
     const session = await Instance.provide({
       directory: first.path,
-      fn: () => Session.create({ workspaceID: remoteWorkspace.id }),
+      fn: () => AppRuntime.runPromise(Session.Service.use((svc) => svc.create({ workspaceID: remoteWorkspace.id }))),
     })
 
     await Instance.disposeAll()

@@ -2,6 +2,7 @@ import { Effect } from "effect"
 import { Log } from "@opencode-ai/core/util/log"
 import { Automation } from "."
 import { AutomationRunTable } from "./automation.sql"
+import { AppRuntime } from "@/effect/app-runtime"
 import { Instance } from "@/project/instance"
 import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
@@ -32,10 +33,12 @@ function isAutomationOwnedSession(sessionID: string) {
 
 async function releaseAutomationWorktreeBindings(directory: string) {
   for (let attempt = 0; attempt < 20; attempt++) {
-    const binding = await Session.findActiveWorktreeBinding(directory)
+    const binding = await AppRuntime.runPromise(Session.Service.use((svc) => svc.findActiveWorktreeBinding(directory)))
     if (!binding) return
     if (!isAutomationOwnedSession(binding.id)) return
-    await Session.updateExecutionContext({ sessionID: binding.id, activeWorktree: null })
+    await AppRuntime.runPromise(
+      Session.Service.use((svc) => svc.updateExecutionContext({ sessionID: binding.id, activeWorktree: null })),
+    )
   }
 }
 
@@ -60,8 +63,9 @@ async function prepareWorktreePlacement(definition: Automation.Definition) {
 // as a missing conversation.
 async function resolveRunSession(definition: Automation.Definition) {
   if (definition.context === "continue") {
-    const source = definition.sourceSessionID
-      ? await Session.get(definition.sourceSessionID).catch((error) => {
+    const sourceSessionID = definition.sourceSessionID
+    const source = sourceSessionID
+      ? await AppRuntime.runPromise(Session.Service.use((svc) => svc.get(sourceSessionID))).catch((error) => {
           if (NotFoundError.isInstance(error)) return undefined
           // A real DB/decode fault, not a deleted source. The run still ends as
           // a silent cancel downstream, so leave a trail here or the fault is
@@ -69,7 +73,7 @@ async function resolveRunSession(definition: Automation.Definition) {
           log.error("automation continue source lookup failed", {
             error,
             automationID: definition.id,
-            sourceSessionID: definition.sourceSessionID,
+            sourceSessionID,
           })
           throw error
         })
@@ -79,7 +83,9 @@ async function resolveRunSession(definition: Automation.Definition) {
     }
     return source.id
   }
-  return (await Session.create({ title: `Automation: ${definition.title}` })).id
+  return (
+    await AppRuntime.runPromise(Session.Service.use((svc) => svc.create({ title: `Automation: ${definition.title}` })))
+  ).id
 }
 
 export const sessionPromptExecutor: Automation.RunExecutor = async ({ definition, run, attendance, signal }) => {
@@ -88,15 +94,19 @@ export const sessionPromptExecutor: Automation.RunExecutor = async ({ definition
   signal.throwIfAborted()
   const sessionID = await resolveRunSession(definition)
   if (worktree) {
-    await Session.updateExecutionContext({
-      sessionID,
-      activeWorktree: {
-        directory: worktree.directory,
-        name: worktree.name,
-        branch: worktree.branch,
-        source: worktree.source,
-      },
-    })
+    await AppRuntime.runPromise(
+      Session.Service.use((svc) =>
+        svc.updateExecutionContext({
+          sessionID,
+          activeWorktree: {
+            directory: worktree.directory,
+            name: worktree.name,
+            branch: worktree.branch,
+            source: worktree.source,
+          },
+        }),
+      ),
+    )
   }
   const cancelPrompt = () => {
     void SessionPrompt.cancel(sessionID, { source: "automation.cancel" }).catch(() => undefined)

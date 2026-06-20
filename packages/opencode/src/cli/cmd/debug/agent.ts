@@ -118,7 +118,9 @@ function parseToolParams(input?: string) {
 }
 
 async function createToolContext(agent: Agent.Info) {
-  const session = await Session.create({ title: `Debug tool run (${agent.name})` })
+  const session = await AppRuntime.runPromise(
+    Session.Service.use((svc) => svc.create({ title: `Debug tool run (${agent.name})` })),
+  )
   const messageID = MessageID.ascending()
   const model = agent.model ?? (await Provider.defaultModel())
   const now = Date.now()
@@ -149,7 +151,7 @@ async function createToolContext(agent: Agent.Info) {
       },
     },
   }
-  await Session.updateMessage(message)
+  await AppRuntime.runPromise(Session.Service.use((svc) => svc.updateMessage(message)))
 
   const ruleset = Permission.merge(agent.permission, session.permission ?? [])
 
