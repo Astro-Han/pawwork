@@ -7,12 +7,11 @@ import {
 } from "./readiness"
 
 describe("promptKeyActionReady", () => {
-  test("allows keyboard stop when submit is blocked but abort is ready", () => {
+  test("gates the ESC interrupt on abort readiness while working", () => {
     expect(
       promptKeyActionReady({
         key: "Escape",
         working: true,
-        stopping: false,
         actionReady: false,
         abortReady: true,
       }),
@@ -20,25 +19,34 @@ describe("promptKeyActionReady", () => {
 
     expect(
       promptKeyActionReady({
-        key: "Enter",
+        key: "Escape",
         working: true,
-        stopping: true,
-        actionReady: false,
-        abortReady: true,
-      }),
-    ).toBe(true)
-  })
-
-  test("keeps submit keys blocked when neither submit nor abort is ready", () => {
-    expect(
-      promptKeyActionReady({
-        key: "Enter",
-        working: true,
-        stopping: true,
-        actionReady: false,
+        actionReady: true,
         abortReady: false,
       }),
     ).toBe(false)
+  })
+
+  test("gates Enter on submit readiness, never on abort readiness", () => {
+    // Enter only submits — it must not ride on abort readiness even while a
+    // task is running, so it can never interrupt that task.
+    expect(
+      promptKeyActionReady({
+        key: "Enter",
+        working: true,
+        actionReady: false,
+        abortReady: true,
+      }),
+    ).toBe(false)
+
+    expect(
+      promptKeyActionReady({
+        key: "Enter",
+        working: true,
+        actionReady: true,
+        abortReady: false,
+      }),
+    ).toBe(true)
   })
 
   test("allows local navigation while submit is blocked", () => {
@@ -46,7 +54,6 @@ describe("promptKeyActionReady", () => {
       promptKeyActionReady({
         key: "ArrowUp",
         working: false,
-        stopping: false,
         actionReady: false,
         abortReady: true,
       }),
@@ -58,7 +65,6 @@ describe("promptKeyActionReady", () => {
       promptKeyActionReady({
         key: "a",
         working: false,
-        stopping: false,
         actionReady: false,
         abortReady: true,
       }),

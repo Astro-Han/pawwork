@@ -335,7 +335,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     editorRef: () => editorRef,
     prompt,
     working,
-    stopping,
     actionReady,
     abortReady,
     selectPopoverActive,

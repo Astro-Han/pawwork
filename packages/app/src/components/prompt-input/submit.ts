@@ -120,7 +120,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const hasSkillPart = currentPrompt.some((part) => part.type === "skill")
 
     if (text.trim().length === 0 && images.length === 0 && input.commentCount() === 0) {
-      if (input.working()) abort(event instanceof KeyboardEvent ? "emptyEnter" : "stopButton")
+      // Enter never interrupts a running task — ESC does. Only the explicit Stop
+      // button (a non-keyboard submit) aborts on an empty prompt.
+      if (input.working() && !(event instanceof KeyboardEvent)) abort("stopButton")
       return
     }
     if (
