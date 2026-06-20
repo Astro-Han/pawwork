@@ -23,7 +23,7 @@ export function conflictError(error: ConflictError) {
   return Automation.ConflictErrorResponse.parse({ error: "automation_conflict", message: error.message })
 }
 
-const settleAutomationScheduler = Effect.fn("AutomationRoutes.scheduler.settle")(function* (
+const settleAutomationScheduler = Effect.fn("AutomationActions.scheduler.settle")(function* (
   scheduler: Pick<AutomationScheduler.Interface, "settleOwner"> = AutomationScheduler.current(),
 ) {
   yield* Effect.promise(() => scheduler.settleOwner())
@@ -73,14 +73,14 @@ export function validationDetailsFromIssues(
   })
 }
 
-export const listAutomations = Effect.fn("AutomationRoutes.list")(function* () {
+export const listAutomations = Effect.fn("AutomationActions.list")(function* () {
   const automation = yield* Automation.Service
   yield* settleAutomationScheduler()
   const items = yield* automation.list()
   return { items }
 })
 
-export const createAutomation = Effect.fn("AutomationRoutes.create")(function* (input: Automation.CreateInput) {
+export const createAutomation = Effect.fn("AutomationActions.create")(function* (input: Automation.CreateInput) {
   const automation = yield* Automation.Service
   yield* settleAutomationScheduler()
   const modelDetails = yield* modelValidation(input.model, input.variant)
@@ -92,7 +92,7 @@ export const createAutomation = Effect.fn("AutomationRoutes.create")(function* (
   return definition
 })
 
-export const getAutomation = Effect.fn("AutomationRoutes.get")(function* (
+export const getAutomation = Effect.fn("AutomationActions.get")(function* (
   automationID: AutomationIDParam["automationID"],
 ) {
   const automation = yield* Automation.Service
@@ -100,7 +100,7 @@ export const getAutomation = Effect.fn("AutomationRoutes.get")(function* (
   return yield* automation.get(automationID)
 })
 
-export const updateAutomation = Effect.fn("AutomationRoutes.update")(function* (
+export const updateAutomation = Effect.fn("AutomationActions.update")(function* (
   automationID: AutomationIDParam["automationID"],
   patch: Automation.UpdateInput,
 ) {
@@ -127,7 +127,7 @@ export const updateAutomation = Effect.fn("AutomationRoutes.update")(function* (
   return definition
 })
 
-export const pauseAutomation = Effect.fn("AutomationRoutes.pause")(function* (
+export const pauseAutomation = Effect.fn("AutomationActions.pause")(function* (
   automationID: AutomationIDParam["automationID"],
 ) {
   const automation = yield* Automation.Service
@@ -140,7 +140,7 @@ export const pauseAutomation = Effect.fn("AutomationRoutes.pause")(function* (
   return definition
 })
 
-export const resumeAutomation = Effect.fn("AutomationRoutes.resume")(function* (
+export const resumeAutomation = Effect.fn("AutomationActions.resume")(function* (
   automationID: AutomationIDParam["automationID"],
 ) {
   const automation = yield* Automation.Service
@@ -153,7 +153,7 @@ export const resumeAutomation = Effect.fn("AutomationRoutes.resume")(function* (
   return definition
 })
 
-export const deleteAutomation = Effect.fn("AutomationRoutes.delete")(function* (
+export const deleteAutomation = Effect.fn("AutomationActions.delete")(function* (
   automationID: AutomationIDParam["automationID"],
 ) {
   const automation = yield* Automation.Service
@@ -165,7 +165,7 @@ export const deleteAutomation = Effect.fn("AutomationRoutes.delete")(function* (
   return removed.tombstone
 })
 
-export const runAutomationNow = Effect.fn("AutomationRoutes.runNow")(function* (
+export const runAutomationNow = Effect.fn("AutomationActions.runNow")(function* (
   automationID: AutomationIDParam["automationID"],
 ) {
   const automation = yield* Automation.Service
@@ -177,7 +177,7 @@ export const runAutomationNow = Effect.fn("AutomationRoutes.runNow")(function* (
   return run
 })
 
-export const listAutomationRuns = Effect.fn("AutomationRoutes.runs")(function* (
+export const listAutomationRuns = Effect.fn("AutomationActions.runs")(function* (
   automationID: AutomationIDParam["automationID"],
   query: AutomationRunsQuery,
 ) {

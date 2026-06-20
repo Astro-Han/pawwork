@@ -284,7 +284,9 @@ describe("route inventory harness", () => {
       ["POST", "/automation/:automationID/resume"],
     ] as const) {
       expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
-        hono: true,
+        hono: false,
+        openapi: true,
+        v2Sdk: true,
         localHttpApi: true,
       })
     }
@@ -648,7 +650,7 @@ describe("route inventory harness", () => {
   test("matches discovered Hono route modules when Windows uses backslash separators", () => {
     expect(
       getMissingHonoRouteSources([
-        "packages\\opencode\\src\\server\\instance\\automation.ts",
+        "packages\\opencode\\src\\server\\instance\\config.ts",
         "packages\\opencode\\src\\server\\ui\\index.ts",
       ]),
     ).toEqual([])
