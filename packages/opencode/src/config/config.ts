@@ -22,7 +22,6 @@ import { isRecord } from "@/util/record"
 import type { ConsoleState } from "./console-state"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { InstanceState } from "@/effect"
-import { makeRuntime } from "@/effect/run-service"
 import { Context, Duration, Effect, Fiber, Layer, Option, Schema } from "effect"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { InstanceRef } from "@/effect/instance-ref"
@@ -422,17 +421,17 @@ export function configFileLockKey(file: string) {
   return `config-file:${Filesystem.resolve(file)}`
 }
 
-const { runPromise: runFlockPromise } = makeRuntime(EffectFlock.Service, EffectFlock.defaultLayer)
-
 export async function withConfigFileLock<T>(file: string, fn: () => Promise<T>) {
-  return runFlockPromise((flock) =>
-    flock.withLock(
-      Effect.tryPromise({
-        try: fn,
-        catch: (error) => error,
-      }),
-      configFileLockKey(file),
-    ),
+  return Effect.runPromise(
+    EffectFlock.Service.use((flock) =>
+      flock.withLock(
+        Effect.tryPromise({
+          try: fn,
+          catch: (error) => error,
+        }),
+        configFileLockKey(file),
+      ),
+    ).pipe(Effect.provide(EffectFlock.defaultLayer)),
   )
 }
 

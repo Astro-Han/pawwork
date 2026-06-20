@@ -10,7 +10,6 @@ import { Effect } from "effect"
 
 import { Config } from "@/config"
 import { AppRuntime } from "@/effect/app-runtime"
-import { makeRuntime } from "@/effect/run-service"
 import { ConfigPaths } from "@/config/paths"
 import { Global } from "@/global"
 import { Filesystem } from "@/util/filesystem"
@@ -94,17 +93,17 @@ const defaultPatchDeps: PatchDeps = {
   files: (dir, name) => ConfigPaths.fileInDirectory(dir, name),
 }
 
-const { runPromise: runFlockPromise } = makeRuntime(EffectFlock.Service, EffectFlock.defaultLayer)
-
 function withLock<T>(key: string, fn: () => Promise<T>) {
-  return runFlockPromise((flock) =>
-    flock.withLock(
-      Effect.tryPromise({
-        try: fn,
-        catch: (error) => error,
-      }),
-      key,
-    ),
+  return Effect.runPromise(
+    EffectFlock.Service.use((flock) =>
+      flock.withLock(
+        Effect.tryPromise({
+          try: fn,
+          catch: (error) => error,
+        }),
+        key,
+      ),
+    ).pipe(Effect.provide(EffectFlock.defaultLayer)),
   )
 }
 

@@ -4,7 +4,6 @@ import { fileURLToPath } from "url"
 import { Effect } from "effect"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
-import { makeRuntime } from "@/effect/run-service"
 import { Global } from "@/global"
 import { Filesystem } from "@/util/filesystem"
 
@@ -48,17 +47,17 @@ export namespace PluginMeta {
     return `plugin-meta:${file}`
   }
 
-  const { runPromise: runFlockPromise } = makeRuntime(EffectFlock.Service, EffectFlock.defaultLayer)
-
   function withLock<T>(key: string, fn: () => Promise<T>) {
-    return runFlockPromise((flock) =>
-      flock.withLock(
-        Effect.tryPromise({
-          try: fn,
-          catch: (error) => error,
-        }),
-        key,
-      ),
+    return Effect.runPromise(
+      EffectFlock.Service.use((flock) =>
+        flock.withLock(
+          Effect.tryPromise({
+            try: fn,
+            catch: (error) => error,
+          }),
+          key,
+        ),
+      ).pipe(Effect.provide(EffectFlock.defaultLayer)),
     )
   }
 
