@@ -35,10 +35,19 @@ declare module "virtual:opencode-server" {
   }
 
   export namespace Settings {
-    export function setLspEnabled(value: boolean): Promise<void>
-    export function lspEnabled(): Promise<boolean>
-    export function setWebSearchEnabled(value: boolean): Promise<void>
-    export function webSearchEnabled(): Promise<boolean>
+    export type ServiceApi = {
+      lspEnabled: () => unknown
+      setLspEnabled: (value: boolean) => unknown
+      webSearchEnabled: () => unknown
+      setWebSearchEnabled: (value: boolean) => unknown
+    }
+    export const Service: {
+      use: <A>(fn: (settings: ServiceApi) => A) => A
+    }
+  }
+
+  export namespace AppRuntime {
+    export function runPromise(effect: unknown, options?: unknown): Promise<unknown>
   }
 
   export namespace WebSearchAuth {

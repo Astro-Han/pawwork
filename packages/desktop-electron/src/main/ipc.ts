@@ -207,8 +207,10 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("report-ci-smoke-ready", () => deps.reportCiSmokeReady())
 
   ipcMain.handle("lsp-set-enabled", async (_event: IpcMainInvokeEvent, value: boolean) => {
-    const { Settings, LSP, ToolRegistry, Instance } = await import("virtual:opencode-server")
-    await Settings.setLspEnabled(value)
+    const { AppRuntime, Settings, LSP, ToolRegistry, Instance } = await import("virtual:opencode-server")
+    const setLspEnabled = (next: boolean) =>
+      AppRuntime.runPromise(Settings.Service.use((settings) => settings.setLspEnabled(next))) as Promise<void>
+    await setLspEnabled(value)
     // LSP.invalidate / ToolRegistry.invalidate / LSP.shutdownAll all read
     // InstanceState.directory, which requires an Instance scope. Process every
     // active instance with isolation so a single failure does not leave the
@@ -239,9 +241,13 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   ipcMain.handle("websearch-set-enabled", async (_event: IpcMainInvokeEvent, value: boolean) => {
-    const { Settings, ToolRegistry, Instance } = await import("virtual:opencode-server")
-    const previous = await Settings.webSearchEnabled()
-    await Settings.setWebSearchEnabled(value)
+    const { AppRuntime, Settings, ToolRegistry, Instance } = await import("virtual:opencode-server")
+    const readWebSearchEnabled = () =>
+      AppRuntime.runPromise(Settings.Service.use((settings) => settings.webSearchEnabled())) as Promise<boolean>
+    const setWebSearchEnabled = (next: boolean) =>
+      AppRuntime.runPromise(Settings.Service.use((settings) => settings.setWebSearchEnabled(next))) as Promise<void>
+    const previous = await readWebSearchEnabled()
+    await setWebSearchEnabled(value)
     const invalidateWebSearchTools = (targetDirectories: string[]) =>
       Promise.allSettled(
         targetDirectories.map((directory) =>
@@ -263,7 +269,7 @@ export function registerIpcHandlers(deps: Deps) {
     }
     const failures = results.filter((result) => result.status === "rejected")
     if (failures.length > 0) {
-      await Settings.setWebSearchEnabled(previous)
+      await setWebSearchEnabled(previous)
       const rollbackDirectories = Instance.directories()
       const rollbackResults = await invalidateWebSearchTools(rollbackDirectories)
       for (const [index, result] of rollbackResults.entries()) {
