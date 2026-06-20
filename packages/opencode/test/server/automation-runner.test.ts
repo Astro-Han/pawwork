@@ -27,8 +27,10 @@ const runSession = <A>(fn: (svc: Session.Interface) => Effect.Effect<A>) => AppR
 function subscribeAutomationEvent<D extends { type: string; properties: { parse(input: unknown): any } }>(
   def: D,
   callback: (event: { type: D["type"]; properties: ReturnType<D["properties"]["parse"]> }) => unknown,
+  options?: { directory?: string },
 ) {
-  const listener = (event: { payload?: { type?: string; properties?: unknown } }) => {
+  const listener = (event: { directory?: string; payload?: { type?: string; properties?: unknown } }) => {
+    if (options?.directory && event.directory !== options.directory) return
     if (event.payload?.type !== def.type) return
     callback({ type: def.type, properties: def.properties.parse(event.payload.properties) })
   }
@@ -219,7 +221,7 @@ describe("automation runNow execution", () => {
       const runEvents: Automation.Run[] = []
       const unsubscribeRun = subscribeAutomationEvent(Automation.Event.RunUpdated, (event) => {
         if (event.properties.automationID === definition.id) runEvents.push(event.properties)
-      })
+      }, { directory: Instance.directory })
 
       await Automation.runNowExecuting(definition.id, {
         executor: async ({ run }) => {
@@ -422,7 +424,7 @@ describe("automation runNow execution", () => {
       const executorFinished = defer<void>()
       const unsubscribeRun = subscribeAutomationEvent(Automation.Event.RunUpdated, (event) => {
         if (event.properties.automationID === definition.id) runEvents.push(event.properties)
-      })
+      }, { directory: Instance.directory })
 
       await Automation.runNowExecuting(definition.id, {
         executor: async ({ run }) => {
@@ -453,7 +455,7 @@ describe("automation runNow execution", () => {
       const deletedEvents: Automation.Tombstone[] = []
       const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionDeleted, (event) => {
         deletedEvents.push(event.properties)
-      })
+      }, { directory: Instance.directory })
 
       await Automation.deleteBySourceSession(sourceSessionID)
       unsubscribe()
@@ -508,7 +510,7 @@ describe("automation runNow execution", () => {
       const definitionEvents: Automation.Definition[] = []
       const unsubscribeDefinition = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         definitionEvents.push(event.properties)
-      })
+      }, { directory: Instance.directory })
       let removed!: Awaited<ReturnType<typeof Automation.remove>>
 
       const initial = await Automation.runNowExecuting(definition.id, {
@@ -557,7 +559,7 @@ describe("automation runNow execution", () => {
       const runEvents: Automation.Run[] = []
       const unsubscribeRun = subscribeAutomationEvent(Automation.Event.RunUpdated, (event) => {
         if (event.properties.automationID === definition.id) runEvents.push(event.properties)
-      })
+      }, { directory: Instance.directory })
 
       const initial = await Automation.runNowExecuting(definition.id, {
         executor: async ({ run, signal }) => {
@@ -1162,7 +1164,7 @@ describe("automation runNow execution", () => {
           const unsubscribe = subscribeAutomationEvent(Automation.Event.RunUpdated, (event) => {
             if (event.properties.automationID !== definition.id || event.properties.state !== "running") return
             void Automation.remove(definition.id).then(removed.resolve, removed.reject)
-          })
+          }, { directory: Instance.directory })
 
           const initial = await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
           let result: Awaited<ReturnType<typeof Automation.remove>>

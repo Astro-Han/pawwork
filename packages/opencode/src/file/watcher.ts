@@ -621,11 +621,15 @@ export namespace FileWatcher {
                   log.error("watcher callback error", { err })
                   return
                 }
+                const publishUpdate = (event: z.output<typeof Event.Updated.properties>) =>
+                  publish(Event.Updated, event).catch((error) =>
+                    log.warn("failed to publish watcher update", { event, error }),
+                  )
                 for (const evt of evts) {
                   if (!shouldPublish(evt.path)) continue
-                  if (evt.type === "create") void publish(Event.Updated, { file: evt.path, event: "add" })
-                  if (evt.type === "update") void publish(Event.Updated, { file: evt.path, event: "change" })
-                  if (evt.type === "delete") void publish(Event.Updated, { file: evt.path, event: "unlink" })
+                  if (evt.type === "create") void publishUpdate({ file: evt.path, event: "add" })
+                  if (evt.type === "update") void publishUpdate({ file: evt.path, event: "change" })
+                  if (evt.type === "delete") void publishUpdate({ file: evt.path, event: "unlink" })
                 }
               })
 
@@ -775,7 +779,9 @@ export namespace FileWatcher {
                           isDisposed: () => watchPlanDisposed,
                           applyPlan: (planSnapshot) => Effect.runPromise(applyPlan(planSnapshot)),
                           publishUpdate: (event) => {
-                            void publish(Event.Updated, event)
+                            void publish(Event.Updated, event).catch((error) =>
+                              log.warn("failed to publish watcher update", { event, error }),
+                            )
                           },
                           publishRescan: (directory) =>
                             publish(Event.Rescan, { directory }).catch((error) =>

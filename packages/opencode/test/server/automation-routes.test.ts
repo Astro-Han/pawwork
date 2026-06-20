@@ -29,8 +29,10 @@ void Log.init({ print: false })
 function subscribeAutomationEvent<D extends { type: string; properties: { parse(input: unknown): any } }>(
   def: D,
   callback: (event: { type: D["type"]; properties: ReturnType<D["properties"]["parse"]> }) => unknown,
+  options?: { directory?: string },
 ) {
-  const listener = (event: { payload?: { type?: string; properties?: unknown } }) => {
+  const listener = (event: { directory?: string; payload?: { type?: string; properties?: unknown } }) => {
+    if (options?.directory && event.directory !== options.directory) return
     if (event.payload?.type !== def.type) return
     callback({ type: def.type, properties: def.properties.parse(event.payload.properties) })
   }
@@ -682,7 +684,7 @@ describe("automation routes", () => {
       const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         publishedID = event.properties.id
         publication.resolve(event.properties.id)
-      })
+      }, { directory: Instance.directory })
       AutomationScheduler.install({
         stop: () => undefined,
         settleOwner: async () => {
@@ -1236,7 +1238,7 @@ describe("automation routes", () => {
       const revisions: number[] = []
       const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         revisions.push(event.properties.revision)
-      })
+      }, { directory: Instance.directory })
 
       const empty = await json(app, `/automation/${created.id}`, {
         method: "PUT",
@@ -1312,7 +1314,7 @@ describe("automation routes", () => {
       const updates: number[] = []
       const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         if (event.properties.id === created.id) updates.push(event.properties.revision)
-      })
+      }, { directory: Instance.directory })
       const noop = await json(app, `/automation/${created.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -1336,7 +1338,7 @@ describe("automation routes", () => {
       const revisions: number[] = []
       const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         revisions.push(event.properties.revision)
-      })
+      }, { directory: Instance.directory })
 
       const paused = await json(app, `/automation/${created.id}/pause`, { method: "POST" })
       const pausedAgain = await json(app, `/automation/${created.id}/pause`, { method: "POST" })

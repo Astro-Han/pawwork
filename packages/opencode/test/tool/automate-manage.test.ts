@@ -23,8 +23,10 @@ const automation = await runtime.runPromise(Effect.gen(function* () {
 function subscribeAutomationEvent<D extends { type: string; properties: { parse(input: unknown): any } }>(
   def: D,
   callback: (event: { type: D["type"]; properties: ReturnType<D["properties"]["parse"]> }) => unknown,
+  options?: { directory?: string },
 ) {
-  const listener = (event: { payload?: { type?: string; properties?: unknown } }) => {
+  const listener = (event: { directory?: string; payload?: { type?: string; properties?: unknown } }) => {
+    if (options?.directory && event.directory !== options.directory) return
     if (event.payload?.type !== def.type) return
     callback({ type: def.type, properties: def.properties.parse(event.payload.properties) })
   }
@@ -185,7 +187,7 @@ describe("automate_manage tool", () => {
         const deletedEvents: Automation.Tombstone[] = []
         const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionDeleted, (event) => {
           deletedEvents.push(event.properties)
-        })
+        }, { directory: Instance.directory })
         installScheduler()
         const created = Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
 
@@ -289,7 +291,7 @@ describe("automate_manage tool", () => {
         const deletedEvents: Automation.Tombstone[] = []
         const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionDeleted, (event) => {
           deletedEvents.push(event.properties)
-        })
+        }, { directory: Instance.directory })
         const created = Automation.create(recurring(Instance.project.id, "Daily repo brief"), { now: 100 })
         const ctx = {
           ...toolContext(asks),

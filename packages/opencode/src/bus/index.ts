@@ -22,6 +22,12 @@ export namespace Bus {
     type: D["type"]
     properties: z.infer<D["properties"]>
   }
+  type GlobalEvent = {
+    directory?: string
+    project?: string
+    workspace?: string
+    payload: Payload
+  }
 
   type State = {
     wildcard: PubSub.PubSub<Payload>
@@ -84,6 +90,7 @@ export namespace Bus {
       function publish<D extends BusEvent.Definition>(def: D, properties: z.output<D["properties"]>) {
         const payload: Payload = { type: def.type, properties }
         return Effect.gen(function* () {
+          let event: GlobalEvent
           try {
             const s = yield* InstanceState.get(state)
             log.info("publishing", { type: def.type })
@@ -96,19 +103,20 @@ export namespace Bus {
             const context = yield* InstanceState.context
             const workspace = yield* InstanceState.workspaceID
 
-            GlobalBus.emit("event", {
+            event = {
               directory: dir,
               project: context.project.id,
               workspace,
               payload,
-            })
+            }
           } catch (error) {
             if (!(error instanceof LocalContext.NotFound) || error.name !== "instance") throw error
-            GlobalBus.emit("event", {
+            event = {
               directory: "global",
               payload,
-            })
+            }
           }
+          GlobalBus.emit("event", event)
         })
       }
 

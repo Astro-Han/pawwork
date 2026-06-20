@@ -30,7 +30,9 @@ function commandSourceRank(filePath: string) {
 }
 
 async function reportLoadError(error: { toObject(): any }, item: string, cause: unknown) {
-  void publishSessionError(error)
+  void publishSessionError(error).catch((publishError) => {
+    log.error("failed to publish session error event", { command: item, err: publishError })
+  })
   log.error("failed to load command", { command: item, err: cause })
 }
 
