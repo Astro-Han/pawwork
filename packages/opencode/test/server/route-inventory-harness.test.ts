@@ -95,30 +95,21 @@ describe("route inventory harness", () => {
         localHttpApi: true,
       })
     }
-    expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/config")).toMatchObject({
-      hono: false,
-      openapi: true,
-      legacySdk: true,
-      v2Sdk: true,
-      localHttpApi: true,
-      classification: "local-httpapi-only",
-    })
-    expect(inventory.rows.find((row) => row.method === "PATCH" && row.path === "/config")).toMatchObject({
-      hono: false,
-      openapi: true,
-      legacySdk: true,
-      v2Sdk: true,
-      localHttpApi: true,
-      classification: "local-httpapi-only",
-    })
-    expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/config/providers")).toMatchObject({
-      hono: false,
-      openapi: true,
-      legacySdk: true,
-      v2Sdk: true,
-      localHttpApi: true,
-      classification: "local-httpapi-only",
-    })
+    for (const [method, routePath] of [
+      ["GET", "/config"],
+      ["PATCH", "/config"],
+      ["GET", "/config/providers"],
+    ] as const) {
+      const row = inventory.rows.find((row) => row.method === method && row.path === routePath)
+      expect(row).toMatchObject({
+        hono: false,
+        openapi: true,
+        legacySdk: true,
+        v2Sdk: true,
+        localHttpApi: true,
+      })
+      expect(row?.classification).toBe(row?.upstreamHttpApi ? "local-httpapi-upstream-only" : "local-httpapi-only")
+    }
     expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/external-result")).toMatchObject({
       hono: false,
       localHttpApi: true,
