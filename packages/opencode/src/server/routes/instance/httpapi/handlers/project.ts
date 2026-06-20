@@ -1,7 +1,6 @@
 import { Instance } from "@/project/instance"
 import { Project } from "@/project/project"
 import { ProjectID } from "@/project/schema"
-import { initGit, listProjects, updateProject } from "@/server/instance/project"
 import { NotFoundError } from "@/storage/db"
 import { NamedError } from "@opencode-ai/util/error"
 import { Effect } from "effect"
@@ -45,6 +44,31 @@ function projectFailure(error: unknown) {
     ),
   )
 }
+
+const listProjects = Effect.fn("ProjectHandlers.list")(function* () {
+  const project = yield* Project.Service
+  return yield* project.list()
+})
+
+const initGit = Effect.fn("ProjectHandlers.git.init")(function* (input: { directory: string; project: Project.Info }) {
+  const project = yield* Project.Service
+  const next = yield* project.initGit(input)
+  if (next.id === input.project.id && next.vcs === input.project.vcs && next.worktree === input.project.worktree)
+    return next
+  yield* Effect.promise(() =>
+    Instance.reload({
+      directory: input.directory,
+      worktree: input.directory,
+      project: next,
+    }),
+  )
+  return next
+})
+
+const updateProject = Effect.fn("ProjectHandlers.update")(function* (input: Project.UpdateInput) {
+  const project = yield* Project.Service
+  return yield* project.update(input)
+})
 
 export const projectHandlers = HttpApiBuilder.group(ProjectApi, "project", (handlers) =>
   handlers
