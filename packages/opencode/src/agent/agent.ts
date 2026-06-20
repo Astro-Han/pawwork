@@ -18,7 +18,6 @@ import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Plugin } from "@/plugin"
 import { Effect, Context, Layer } from "effect"
 import { InstanceState } from "@/effect/instance-state"
-import { makeRuntime } from "@/effect/run-service"
 import { Global } from "@opencode-ai/core/global"
 import { aiSdkTracer } from "@opencode-ai/core/effect/observability"
 import path from "path"
@@ -399,22 +398,4 @@ export namespace Agent {
     Layer.provide(Auth.defaultLayer),
     Layer.provide(Config.defaultLayer),
   )
-
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export async function get(agent: string) {
-    return runPromise((svc) => svc.get(agent))
-  }
-
-  export async function list() {
-    return runPromise((svc) => svc.list())
-  }
-
-  export async function defaultAgent() {
-    return runPromise((svc) => svc.defaultAgent())
-  }
-
-  export async function generate(input: { description: string; model?: { providerID: ProviderID; modelID: ModelID } }) {
-    return runPromise((svc) => svc.generate(input))
-  }
 }

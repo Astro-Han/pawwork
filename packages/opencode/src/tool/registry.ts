@@ -221,7 +221,7 @@ export namespace ToolRegistry {
                     worktree: ctx.worktree,
                   }
                   const result = yield* Effect.promise(() => def.execute(args as any, pluginCtx))
-                  const agent = yield* Effect.promise(() => Agent.get(toolCtx.agent))
+                  const agent = yield* agents.get(toolCtx.agent)
                   const out = yield* truncate.output(result, {}, agent)
                   return {
                     title: "",

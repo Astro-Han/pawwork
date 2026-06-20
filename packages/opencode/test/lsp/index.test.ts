@@ -1,17 +1,23 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
+import { Effect } from "effect"
 import path from "path"
 import * as Lsp from "../../src/lsp/index"
 import { LSPServer } from "../../src/lsp/server"
 import { Settings } from "../../src/settings"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 
+function settings<A, E>(fn: (svc: Settings.Interface) => Effect.Effect<A, E>) {
+  return AppRuntime.runPromise(Settings.Service.use(fn))
+}
+
 describe("lsp.spawn", () => {
   beforeEach(async () => {
-    await Settings.setLspEnabled(true)
+    await settings((svc) => svc.setLspEnabled(true))
   })
   afterEach(async () => {
-    await Settings.setLspEnabled(false)
+    await settings((svc) => svc.setLspEnabled(false))
   })
 
   test("does not spawn builtin LSP for files outside instance", async () => {

@@ -12,6 +12,7 @@ import { ProviderTransform } from "../../src/provider"
 import { localToolImportSpec, ToolRegistry } from "../../src/tool/registry"
 import { deferredGroupMembers } from "../../src/tool/tool-info"
 import { Settings } from "../../src/settings"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { MessageID, SessionID } from "../../src/session/schema"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { LLM } from "../../src/session/llm"
@@ -22,6 +23,10 @@ import { Permission } from "../../src/permission"
 afterEach(async () => {
   await Instance.disposeAll()
 })
+
+function settings<A, E>(fn: (svc: Settings.Interface) => Effect.Effect<A, E>) {
+  return AppRuntime.runPromise(Settings.Service.use(fn))
+}
 
 async function withMockedConfigInstall<T>(fn: () => Promise<T>): Promise<T> {
   return await withConfigDepsLock(async () => {
@@ -950,7 +955,7 @@ describe("tool.registry", () => {
 
   test("excludes lsp tool when Settings.lspEnabled=false", async () => {
     await using tmp = await tmpdir()
-    await Settings.setLspEnabled(false)
+    await settings((svc) => svc.setLspEnabled(false))
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
@@ -973,7 +978,7 @@ describe("tool.registry", () => {
 
   test("registers lsp when Settings.lspEnabled=true but defers it out of the default model surface", async () => {
     await using tmp = await tmpdir()
-    await Settings.setLspEnabled(true)
+    await settings((svc) => svc.setLspEnabled(true))
     try {
       await Instance.provide({
         directory: tmp.path,
@@ -993,7 +998,7 @@ describe("tool.registry", () => {
         },
       })
     } finally {
-      await Settings.setLspEnabled(false)
+      await settings((svc) => svc.setLspEnabled(false))
     }
   })
 
@@ -1003,31 +1008,31 @@ describe("tool.registry", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          await Settings.setLspEnabled(true)
+          await settings((svc) => svc.setLspEnabled(true))
           const before = await ToolRegistry.ids()
           expect(before).toContain("lsp")
 
-          await Settings.setLspEnabled(false)
+          await settings((svc) => svc.setLspEnabled(false))
           await ToolRegistry.invalidate()
           const off = await ToolRegistry.ids()
           expect(off).not.toContain("lsp")
 
-          await Settings.setLspEnabled(true)
+          await settings((svc) => svc.setLspEnabled(true))
           await ToolRegistry.invalidate()
           const on = await ToolRegistry.ids()
           expect(on).toContain("lsp")
         },
       })
     } finally {
-      await Settings.setLspEnabled(false)
+      await settings((svc) => svc.setLspEnabled(false))
     }
   })
 
   test("exposes websearch for non-opencode providers without codesearch", async () => {
     await using tmp = await tmpdir()
-    const previous = await Settings.webSearchEnabled()
+    const previous = await settings((svc) => svc.webSearchEnabled())
     try {
-      await Settings.setWebSearchEnabled(true)
+      await settings((svc) => svc.setWebSearchEnabled(true))
 
       await Instance.provide({
         directory: tmp.path,
@@ -1045,7 +1050,7 @@ describe("tool.registry", () => {
         },
       })
     } finally {
-      await Settings.setWebSearchEnabled(previous)
+      await settings((svc) => svc.setWebSearchEnabled(previous))
     }
   })
 
@@ -1055,7 +1060,7 @@ describe("tool.registry", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          await Settings.setWebSearchEnabled(true)
+          await settings((svc) => svc.setWebSearchEnabled(true))
           await ToolRegistry.invalidate()
 
           const visibleIds = await ToolRegistry.ids()
@@ -1068,7 +1073,7 @@ describe("tool.registry", () => {
           })
           expect(visible.map((tool) => tool.id)).toContain("websearch")
 
-          await Settings.setWebSearchEnabled(false)
+          await settings((svc) => svc.setWebSearchEnabled(false))
           await ToolRegistry.invalidate()
 
           const hiddenRegistryIds = await ToolRegistry.ids()
@@ -1085,13 +1090,13 @@ describe("tool.registry", () => {
         },
       })
     } finally {
-      await Settings.setWebSearchEnabled(true)
+      await settings((svc) => svc.setWebSearchEnabled(true))
     }
   })
 
   test("does not advertise lsp as deferred when Settings.lspEnabled=false", async () => {
     await using tmp = await tmpdir()
-    await Settings.setLspEnabled(false)
+    await settings((svc) => svc.setLspEnabled(false))
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
@@ -1159,7 +1164,7 @@ describe("tool.registry", () => {
 
   test("rejects direct tool_info activation for lsp when Settings.lspEnabled=false", async () => {
     await using tmp = await tmpdir()
-    await Settings.setLspEnabled(false)
+    await settings((svc) => svc.setLspEnabled(false))
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
@@ -1189,7 +1194,7 @@ describe("tool.registry", () => {
 
   test("omits deferred repair hint for lsp when Settings.lspEnabled=false", async () => {
     await using tmp = await tmpdir()
-    await Settings.setLspEnabled(false)
+    await settings((svc) => svc.setLspEnabled(false))
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
@@ -1217,7 +1222,7 @@ describe("tool.registry", () => {
 
   test("omits deferred repair hint for lsp after it is activated", async () => {
     await using tmp = await tmpdir()
-    await Settings.setLspEnabled(true)
+    await settings((svc) => svc.setLspEnabled(true))
     try {
       await Instance.provide({
         directory: tmp.path,
@@ -1244,13 +1249,13 @@ describe("tool.registry", () => {
         },
       })
     } finally {
-      await Settings.setLspEnabled(false)
+      await settings((svc) => svc.setLspEnabled(false))
     }
   })
 
   test("defers lsp and worktree tools until activated, and advertises them via tool_info", async () => {
     await using tmp = await tmpdir()
-    await Settings.setLspEnabled(true)
+    await settings((svc) => svc.setLspEnabled(true))
     try {
       await Instance.provide({
         directory: tmp.path,
@@ -1312,7 +1317,7 @@ describe("tool.registry", () => {
         },
       })
     } finally {
-      await Settings.setLspEnabled(false)
+      await settings((svc) => svc.setLspEnabled(false))
     }
   })
 

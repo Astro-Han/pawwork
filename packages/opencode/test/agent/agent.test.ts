@@ -5,6 +5,12 @@ import { Instance } from "../../src/project/instance"
 import { Agent } from "../../src/agent/agent"
 import { Permission } from "../../src/permission"
 import { Global } from "@opencode-ai/core/global"
+import { Effect } from "effect"
+import { AppRuntime } from "../../src/effect/app-runtime"
+
+function runAgent<A>(fn: (svc: Agent.Interface) => Effect.Effect<A>) {
+  return AppRuntime.runPromise(Agent.Service.use(fn))
+}
 
 // Helper to evaluate permission for a tool with wildcard pattern
 function evalPerm(agent: Agent.Info | undefined, permission: string): Permission.Action | undefined {
@@ -21,7 +27,7 @@ test("returns default native agents when no config", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const agents = await Agent.list()
+      const agents = await runAgent((svc) => svc.list())
       const names = agents.map((a) => a.name)
       expect(names).toContain("build")
       // plan agent removed in #239
@@ -40,7 +46,7 @@ test("build agent has correct default properties", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       expect(build).toBeDefined()
       expect(build?.mode).toBe("primary")
       expect(build?.native).toBe(true)
@@ -55,7 +61,7 @@ test("explore agent denies edit and write", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const explore = await Agent.get("explore")
+      const explore = await runAgent((svc) => svc.get("explore"))
       expect(explore).toBeDefined()
       expect(explore?.mode).toBe("subagent")
       expect(evalPerm(explore, "edit")).toBe("deny")
@@ -71,7 +77,7 @@ test("explore agent allows external directories and Truncate.GLOB", async () => 
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const explore = await Agent.get("explore")
+      const explore = await runAgent((svc) => svc.get("explore"))
       expect(explore).toBeDefined()
       expect(Permission.evaluate("external_directory", "/some/other/path", explore!.permission).action).toBe("allow")
       expect(Permission.evaluate("external_directory", Truncate.GLOB, explore!.permission).action).toBe("allow")
@@ -84,7 +90,7 @@ test("general agent denies todo tools", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const general = await Agent.get("general")
+      const general = await runAgent((svc) => svc.get("general"))
       expect(general).toBeDefined()
       expect(general?.mode).toBe("subagent")
       expect(general?.hidden).toBeUndefined()
@@ -98,7 +104,7 @@ test("compaction agent denies all permissions", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const compaction = await Agent.get("compaction")
+      const compaction = await runAgent((svc) => svc.get("compaction"))
       expect(compaction).toBeDefined()
       expect(compaction?.hidden).toBe(true)
       expect(evalPerm(compaction, "bash")).toBe("deny")
@@ -124,7 +130,7 @@ test("custom agent from config creates new agent", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const custom = await Agent.get("my_custom_agent")
+      const custom = await runAgent((svc) => svc.get("my_custom_agent"))
       expect(custom).toBeDefined()
       expect(String(custom?.model?.providerID)).toBe("openai")
       expect(String(custom?.model?.modelID)).toBe("gpt-4")
@@ -153,7 +159,7 @@ test("custom agent config overrides native agent properties", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       expect(build).toBeDefined()
       expect(String(build?.model?.providerID)).toBe("anthropic")
       expect(String(build?.model?.modelID)).toBe("claude-3")
@@ -176,9 +182,9 @@ test("agent disable removes agent from list", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const explore = await Agent.get("explore")
+      const explore = await runAgent((svc) => svc.get("explore"))
       expect(explore).toBeUndefined()
-      const agents = await Agent.list()
+      const agents = await runAgent((svc) => svc.list())
       const names = agents.map((a) => a.name)
       expect(names).not.toContain("explore")
     },
@@ -202,7 +208,7 @@ test("agent permission config merges with defaults", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       expect(build).toBeDefined()
       // Specific pattern is denied
       expect(Permission.evaluate("bash", "rm -rf *", build!.permission).action).toBe("deny")
@@ -223,7 +229,7 @@ test("global permission config applies to all agents", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       expect(build).toBeDefined()
       expect(evalPerm(build, "bash")).toBe("deny")
     },
@@ -242,8 +248,8 @@ test("agent steps/maxSteps config sets steps property", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
-      const general = await Agent.get("general")
+      const build = await runAgent((svc) => svc.get("build"))
+      const general = await runAgent((svc) => svc.get("general"))
       expect(build?.steps).toBe(50)
       expect(general?.steps).toBe(100)
     },
@@ -261,7 +267,7 @@ test("agent mode can be overridden", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const explore = await Agent.get("explore")
+      const explore = await runAgent((svc) => svc.get("explore"))
       expect(explore?.mode).toBe("primary")
     },
   })
@@ -278,7 +284,7 @@ test("agent name can be overridden", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       expect(build?.name).toBe("Builder")
     },
   })
@@ -295,7 +301,7 @@ test("agent prompt can be set from config", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       expect(build?.prompt).toBe("Custom system prompt")
     },
   })
@@ -315,7 +321,7 @@ test("unknown agent properties are placed into options", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       expect(build?.options.random_property).toBe("hello")
       expect(build?.options.another_random).toBe(123)
     },
@@ -338,7 +344,7 @@ test("agent options merge correctly", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       expect(build?.options.custom_option).toBe(true)
       expect(build?.options.another_option).toBe("value")
     },
@@ -363,8 +369,8 @@ test("multiple custom agents can be defined", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const agentA = await Agent.get("agent_a")
-      const agentB = await Agent.get("agent_b")
+      const agentA = await runAgent((svc) => svc.get("agent_a"))
+      const agentB = await runAgent((svc) => svc.get("agent_b"))
       expect(agentA?.description).toBe("Agent A")
       expect(agentA?.mode).toBe("subagent")
       expect(agentB?.description).toBe("Agent B")
@@ -378,7 +384,7 @@ test("Agent.get returns undefined for non-existent agent", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const nonExistent = await Agent.get("does_not_exist")
+      const nonExistent = await runAgent((svc) => svc.get("does_not_exist"))
       expect(nonExistent).toBeUndefined()
     },
   })
@@ -389,7 +395,7 @@ test("default permission asks for doom_loop and allows external_directory", asyn
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       expect(evalPerm(build, "doom_loop")).toBe("ask")
       expect(evalPerm(build, "external_directory")).toBe("allow")
     },
@@ -401,7 +407,7 @@ test("webfetch is allowed by default", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       expect(evalPerm(build, "webfetch")).toBe("allow")
     },
   })
@@ -412,7 +418,7 @@ test("websearch is allowed by default", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       expect(evalPerm(build, "websearch")).toBe("allow")
     },
   })
@@ -434,7 +440,7 @@ test("legacy tools config converts to permissions", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       expect(evalPerm(build, "bash")).toBe("deny")
       expect(evalPerm(build, "read")).toBe("deny")
     },
@@ -456,7 +462,7 @@ test("legacy tools.write config maps to edit permission", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       expect(evalPerm(build, "edit")).toBe("deny")
     },
   })
@@ -474,7 +480,7 @@ test("Truncate.GLOB is allowed even when user denies external_directory globally
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       expect(Permission.evaluate("external_directory", Truncate.GLOB, build!.permission).action).toBe("allow")
       expect(Permission.evaluate("external_directory", Truncate.DIR, build!.permission).action).toBe("deny")
       expect(Permission.evaluate("external_directory", "/some/other/path", build!.permission).action).toBe("deny")
@@ -498,7 +504,7 @@ test("Truncate.GLOB is allowed even when user denies external_directory per-agen
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       expect(Permission.evaluate("external_directory", Truncate.GLOB, build!.permission).action).toBe("allow")
       expect(Permission.evaluate("external_directory", Truncate.DIR, build!.permission).action).toBe("deny")
       expect(Permission.evaluate("external_directory", "/some/other/path", build!.permission).action).toBe("deny")
@@ -521,7 +527,7 @@ test("explicit Truncate.GLOB deny is respected", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       expect(Permission.evaluate("external_directory", Truncate.GLOB, build!.permission).action).toBe("deny")
       expect(Permission.evaluate("external_directory", Truncate.DIR, build!.permission).action).toBe("deny")
     },
@@ -553,7 +559,7 @@ description: Permission skill.
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const build = await Agent.get("build")
+        const build = await runAgent((svc) => svc.get("build"))
         const skillDir = path.join(tmp.path, ".opencode", "skill", "perm-skill")
         const target = path.join(skillDir, "reference", "notes.md")
         expect(Permission.evaluate("external_directory", target, build!.permission).action).toBe("allow")
@@ -577,7 +583,7 @@ test("opencode tmp directory is allowed for external_directory", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await runAgent((svc) => svc.get("build"))
       const target = path.join(Global.Path.tmp, "agent-work", "scratch.txt")
       expect(Permission.evaluate("external_directory", target, build!.permission).action).toBe("allow")
       expect(
@@ -592,7 +598,7 @@ test("defaultAgent returns build by default", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const agent = await Agent.defaultAgent()
+      const agent = await runAgent((svc) => svc.defaultAgent())
       expect(agent).toBe("build")
     },
   })
@@ -613,7 +619,7 @@ test("defaultAgent picks a custom primary when build is disabled", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const agent = await Agent.defaultAgent()
+      const agent = await runAgent((svc) => svc.defaultAgent())
       // build is disabled, the next primary visible agent is the custom one
       expect(agent).toBe("my_primary")
     },
@@ -631,7 +637,7 @@ test("defaultAgent throws when build is disabled and no other primary visible ex
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      await expect(Agent.defaultAgent()).rejects.toThrow("no primary visible agent found")
+      await expect(runAgent((svc) => svc.defaultAgent())).rejects.toThrow("no primary visible agent found")
     },
   })
 })

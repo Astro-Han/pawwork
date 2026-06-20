@@ -127,3 +127,27 @@ test("TurnChange service does not expose sync or Promise facades", async () => {
   expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
   for (const facade of facades) expect(text).not.toContain(facade)
 })
+
+test("Agent and Settings services do not expose Promise facades", async () => {
+  const services = {
+    "agent/agent.ts": [
+      "export async function get",
+      "export async function list",
+      "export async function defaultAgent",
+      "export async function generate",
+    ],
+    "settings/index.ts": [
+      "export const lspEnabled = async",
+      "export const setLspEnabled = async",
+      "export const webSearchEnabled = async",
+      "export const setWebSearchEnabled = async",
+    ],
+  }
+
+  for (const [file, facades] of Object.entries(services)) {
+    const text = await readFile(path.join(srcRoot, file), "utf8")
+    expect(text).not.toMatch(/\bfrom\s+["']@\/effect\/run-service["']/)
+    expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
+    for (const facade of facades) expect(text).not.toContain(facade)
+  }
+})

@@ -1,5 +1,4 @@
 import { Context, Effect, Layer, Ref, Semaphore } from "effect"
-import { makeRuntime } from "../effect/run-service"
 import { Storage } from "../storage/storage"
 
 export namespace Settings {
@@ -47,11 +46,4 @@ export namespace Settings {
   )
 
   export const defaultLayer = layer.pipe(Layer.provide(Storage.defaultLayer))
-
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export const lspEnabled = async () => runPromise((svc) => svc.lspEnabled())
-  export const setLspEnabled = async (value: boolean) => runPromise((svc) => svc.setLspEnabled(value))
-  export const webSearchEnabled = async () => runPromise((svc) => svc.webSearchEnabled())
-  export const setWebSearchEnabled = async (value: boolean) => runPromise((svc) => svc.setWebSearchEnabled(value))
 }
