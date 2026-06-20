@@ -173,14 +173,14 @@ export class WeChatClient {
     if (status === "confirmed") {
       const botToken = str(data, "bot_token")
       const userId = str(data, "ilink_user_id")
-      const baseURL = str(data, "baseurl") || this.baseURL
       // confirmed is terminal — the user has approved in WeChat. A confirmed response
-      // missing the token or user id, or carrying a non-https base URL (the host every
-      // later call trusts), is a broken response: fail loudly so the pairer surfaces an
-      // error. Falling through to "waiting" would poll the same bad confirm forever
-      // (the user waits with no feedback); accepting it would strand or mistrust the
-      // saved account.
-      if (botToken === "" || userId === "" || !isHttpsUrl(baseURL)) {
+      // missing the token or user id, or carrying a base URL that isn't a bare https
+      // origin (the host every later call trusts), is a broken response: fail loudly so
+      // the pairer surfaces an error. Falling through to "waiting" would poll the same
+      // bad confirm forever (the user waits with no feedback); accepting it would strand
+      // or mistrust the saved account. Persist only the normalized origin.
+      const baseURL = normalizeHttpsOrigin(str(data, "baseurl") || this.baseURL)
+      if (botToken === "" || userId === "" || baseURL === null) {
         throw new WeChatApiError("/ilink/bot/get_qrcode_status", 200, undefined, "incomplete confirm response")
       }
       return { status: "confirmed", botToken, baseURL, userId }
@@ -313,13 +313,23 @@ function str(data: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : ""
 }
 
-/** The base URL every post-pairing call trusts must be a well-formed https origin. */
-function isHttpsUrl(value: string): boolean {
+/** Validate + reduce a confirmed base URL to a bare https origin. It is persisted and
+ * every later token-bearing call is built as `baseURL + path`, so a non-https scheme,
+ * embedded credentials, or an extra path/query/fragment must never be trusted — any of
+ * them could redirect an authenticated request elsewhere. Returns the origin, or null
+ * when the value isn't a clean https origin. */
+export function normalizeHttpsOrigin(value: string): string | null {
+  let url: URL
   try {
-    return new URL(value).protocol === "https:"
+    url = new URL(value)
   } catch {
-    return false
+    return null
   }
+  if (url.protocol !== "https:") return null
+  if (url.username !== "" || url.password !== "") return null
+  if (url.pathname !== "/" && url.pathname !== "") return null
+  if (url.search !== "" || url.hash !== "") return null
+  return url.origin
 }
 
 function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {

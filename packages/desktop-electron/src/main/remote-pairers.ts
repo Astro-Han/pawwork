@@ -6,7 +6,7 @@
 
 import { createApp } from "@opencode-ai/remote-bridge/gateway"
 import { captureFirstSender, TelegramPlatform, TelegramPoller } from "@opencode-ai/remote-bridge/platforms/telegram"
-import { WeChatApiError, WeChatClient } from "@opencode-ai/remote-bridge/platforms/wechat/client"
+import { normalizeHttpsOrigin, WeChatApiError, WeChatClient } from "@opencode-ai/remote-bridge/platforms/wechat/client"
 import { WeChatPlatform } from "@opencode-ai/remote-bridge/platforms/wechat/platform"
 import type { Platform } from "@opencode-ai/remote-bridge/types"
 import { toDataURL } from "qrcode"
@@ -115,8 +115,14 @@ class WeChatPairer implements PlatformPairer {
 
   makePlatform(account: RemoteAccount): Platform {
     const wechat = asWeChat(account)
+    // Re-check the persisted base URL here too, not just at confirm: it's the host every
+    // token-bearing call trusts, so a tampered credentials file must not be able to
+    // redirect authenticated requests. normalizeHttpsOrigin rejects anything but a bare
+    // https origin.
+    const baseURL = normalizeHttpsOrigin(wechat.baseURL)
+    if (baseURL === null) throw new Error(`wechat account has an untrusted base URL: ${wechat.baseURL}`)
     return new WeChatPlatform({
-      transport: new WeChatClient({ baseURL: wechat.baseURL, botToken: wechat.botToken }),
+      transport: new WeChatClient({ baseURL, botToken: wechat.botToken }),
       allowFrom: wechat.allowFrom,
     })
   }

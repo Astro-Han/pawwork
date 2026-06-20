@@ -82,3 +82,15 @@ test("returns null when aborted before the scan confirms", async () => {
   ac.abort()
   expect(await wechatPairer().pair({}, () => {}, ac.signal)).toBeNull()
 })
+
+test("makePlatform refuses a persisted account whose base URL isn't a bare https origin", async () => {
+  const pairer = wechatPairer()
+  const base = { platform: "wechat" as const, botToken: "tok", allowFrom: "u@im.wechat" }
+  // A clean origin builds the platform without contacting anything...
+  expect(() => pairer.makePlatform({ ...base, baseURL: "https://r2.ilinkai.weixin.qq.com" })).not.toThrow()
+  // ...but a tampered credentials file (extra path, non-https) is refused before any
+  // token-bearing request can be sent to the wrong host.
+  for (const baseURL of ["https://r2.ilinkai.weixin.qq.com/evil", "http://r2.ilinkai.weixin.qq.com"]) {
+    expect(() => pairer.makePlatform({ ...base, baseURL })).toThrow("untrusted base URL")
+  }
+})

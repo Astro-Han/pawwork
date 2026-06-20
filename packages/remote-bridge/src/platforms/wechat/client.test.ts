@@ -95,10 +95,38 @@ test("getQrcodeStatus throws on a confirmed response missing the token or user i
   }
 })
 
-test("getQrcodeStatus rejects a confirmed response whose baseurl isn't a valid https origin", async () => {
-  // baseurl is persisted and trusted for every later call, so a non-https / malformed
-  // host must not be saved.
-  for (const baseurl of ["http://r2.ilinkai.weixin.qq.com", "javascript:alert(1)", "not a url", "   "]) {
+test("getQrcodeStatus normalizes a confirmed baseurl down to its origin", async () => {
+  // A clean origin is kept; a trailing slash is reduced to the bare origin.
+  for (const [baseurl, expected] of [
+    ["https://r2.ilinkai.weixin.qq.com", "https://r2.ilinkai.weixin.qq.com"],
+    ["https://r2.ilinkai.weixin.qq.com/", "https://r2.ilinkai.weixin.qq.com"],
+  ] as const) {
+    const server = mockServer(() =>
+      json({ status: "confirmed", bot_token: "tok_abc", ilink_user_id: "u@im.wechat", baseurl }),
+    )
+    try {
+      const status = await new WeChatClient({ baseURL: server.url }).getQrcodeStatus("QR123")
+      expect(status).toMatchObject({ status: "confirmed", baseURL: expected })
+    } finally {
+      server.stop()
+    }
+  }
+})
+
+test("getQrcodeStatus rejects a confirmed response whose baseurl isn't a bare https origin", async () => {
+  // baseurl is persisted and trusted for every later token-bearing call, so a non-https
+  // host, embedded credentials, or an extra path/query/fragment (which could redirect an
+  // authenticated request) must not be saved.
+  for (const baseurl of [
+    "http://r2.ilinkai.weixin.qq.com",
+    "javascript:alert(1)",
+    "not a url",
+    "   ",
+    "https://user:pass@r2.ilinkai.weixin.qq.com",
+    "https://r2.ilinkai.weixin.qq.com/evil/path",
+    "https://r2.ilinkai.weixin.qq.com?redirect=evil",
+    "https://r2.ilinkai.weixin.qq.com#frag",
+  ]) {
     const server = mockServer(() =>
       json({ status: "confirmed", bot_token: "tok_abc", ilink_user_id: "u@im.wechat", baseurl }),
     )
