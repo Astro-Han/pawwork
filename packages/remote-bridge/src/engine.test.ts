@@ -338,6 +338,27 @@ test("restores the reply target after a restart", async () => {
   expect(platform.replies).toHaveLength(0)
 })
 
+test("unregisterPlatform drops a platform's active delivery and routing on disconnect", async () => {
+  const sidecar = new FakeSidecar()
+  const platform = new FakePlatform("slack")
+  const engine = new Engine(sidecar)
+  engine.registerPlatform(platform)
+  // An inbound makes this platform the active delivery target for its session.
+  await engine.handleMessage(platform, { sessionKey: "slack:dm:alice", content: "what changed?" })
+  await engine.handleAssistantText("ses_new", "first answer")
+  expect(platform.replies).toEqual(["first answer"])
+
+  // Disconnect the channel: the active target is dropped and it is removed from the
+  // reconstruct index, so a later assistant event is not pushed to the stopped
+  // platform (neither as a live reply nor restored via reconstructReplyCtx).
+  engine.unregisterPlatform("slack")
+  platform.reconstructKey = ""
+  await engine.handleAssistantText("ses_new", "after disconnect")
+  expect(platform.replies).toEqual(["first answer"])
+  expect(platform.sends).toEqual([])
+  expect(platform.reconstructKey).toBe("")
+})
+
 test("surfaces a pending permission and answers it", async () => {
   const sidecar = new FakeSidecar()
   const platform = new FakePlatform()

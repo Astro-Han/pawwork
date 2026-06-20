@@ -1,5 +1,11 @@
 import { rmSync } from "node:fs"
-import { normalizeLocale, type Config, type PlatformFactory, type PlatformStatus } from "@opencode-ai/remote-bridge/gateway"
+import {
+  normalizeLocale,
+  type Config,
+  type PlatformConfig,
+  type PlatformFactory,
+  type PlatformStatus,
+} from "@opencode-ai/remote-bridge/gateway"
 import type { Platform } from "@opencode-ai/remote-bridge/types"
 import type {
   RemoteChannelStatus,
@@ -70,9 +76,15 @@ interface ServerInfo {
   password?: string | null
 }
 
-/** A runnable bridge, as the runtime needs it (`createApp`'s `App` satisfies it). */
-interface BridgeApp {
+/** A runnable bridge, as the runtime needs it (`createApp`'s `App` satisfies it).
+ * `run` owns the shared event stream for the bridge's life; addPlatform /
+ * removePlatform connect or disconnect a single channel on the running bridge
+ * without restarting the stream or the other channels. Exported so the runtime's
+ * tests can supply a fake bridge against the same contract. */
+export interface BridgeApp {
   run(signal?: AbortSignal, onReady?: () => void, onStatus?: (status: PlatformStatus) => void): Promise<void>
+  addPlatform(config: PlatformConfig): Promise<void>
+  removePlatform(name: string): Promise<void>
 }
 
 export interface RemoteBridgeDeps {
@@ -91,11 +103,15 @@ export interface RemoteBridgeDeps {
  * Owns the single in-process bridge for the desktop app. Several platforms can be
  * connected at once: they run under one `App` (the gateway supervises each in its
  * own restart loop) and report status independently — a dead channel shows
- * `degraded` while the others stay `connected`. Every lifecycle change (confirm /
- * disconnect / shutdown) runs through one serial queue so a double-click can never
- * start two bridges. Pairing runs off to the side on its own transport and is
- * always settled before the queue rebuilds the bridge. The bridge runs in the
- * background — its failures land in `status`, never as an unhandled rejection.
+ * `degraded` while the others stay `connected`. Once the bridge is up, connecting
+ * or disconnecting a channel adds/removes just that channel on the running `App`,
+ * leaving the shared event stream and the other channels untouched; a full rebuild
+ * is only for cold start, the last-channel teardown, and recovery after a fatal
+ * stream error. Every lifecycle change (confirm / disconnect / shutdown) runs
+ * through one serial queue so a double-click can never start two bridges. Pairing
+ * runs off to the side on its own transport and is always settled before the queue
+ * touches the bridge. The bridge runs in the background — its failures land in
+ * `status`, never as an unhandled rejection.
  */
 export class RemoteBridgeRuntime {
   private accounts: RemoteAccount[] = []
@@ -104,8 +120,10 @@ export class RemoteBridgeRuntime {
   private readonly pairingListeners = new Set<(event: RemotePairingEvent) => void>()
   private readonly pairers = new Map<RemotePlatform, PlatformPairer>()
   private queue: Promise<unknown> = Promise.resolve()
-  private ac: AbortController | null = null
-  private runPromise: Promise<void> | null = null
+  // The live bridge as one handle: "is a bridge running?" is a single null check,
+  // and a settled run (clean stop OR fatal stream) drops the whole handle at once,
+  // so a later confirm/disconnect can't add a channel onto a dead app.
+  private current: { app: BridgeApp; ac: AbortController; runPromise: Promise<void> } | null = null
   private pairingAc: AbortController | null = null
   // The captured-but-not-yet-approved account. Held main-side between the pairing
   // flow and confirmPairing so the renderer never has to resend the secret.
@@ -219,17 +237,31 @@ export class RemoteBridgeRuntime {
     await this.enqueue(async () => {
       this.accounts = [...this.accounts.filter((account) => account.platform !== platform), pending]
       this.deps.credentials.save(this.accounts)
-      await this.startBridge()
+      const app = this.current?.app
+      if (!app) {
+        // Cold start, or recovering after a fatal stream tore the bridge down:
+        // build the whole bridge from every saved account.
+        await this.startBridge()
+        return
+      }
+      // Live bridge: connect (or re-pair) just this channel, leaving the shared
+      // event stream and the other channels running. addPlatform replaces an
+      // existing same-name channel in place, keeping its conversation pointers.
+      this.putChannel({ platform, state: "connecting", identity: this.pairerFor(pending).identity(pending), error: null })
+      try {
+        await app.addPlatform(this.platformConfig(pending))
+      } catch (err) {
+        this.putChannel({ platform, state: "degraded", identity: this.pairerFor(pending).identity(pending), error: message(err) })
+      }
     })
   }
 
-  /** Remove one platform's account and rebuild the bridge from the rest. */
+  /** Disconnect one platform: stop just its channel when the bridge is live,
+   * leaving the others serving; tear the whole bridge down when it was the last. */
   async disconnect(platform: RemotePlatform): Promise<void> {
     if (this.pending?.platform === platform) this.cancelPairing()
     await this.enqueue(async () => {
       this.accounts = this.accounts.filter((account) => account.platform !== platform)
-      this.statusMap.delete(platform)
-      this.emitStatus()
       if (this.accounts.length === 0) {
         // Last channel gone. Stop the live bridge FIRST, then delete the secret
         // AND the bridge state file (session pointers + event cursor): tearing
@@ -238,15 +270,22 @@ export class RemoteBridgeRuntime {
         // Deleting needs no encryption, so revoking works even when the keyring is
         // locked — save([]) would throw and leave the token behind.
         await this.stopBridge()
+        this.statusMap.delete(platform)
+        this.emitStatus()
         this.deps.credentials.clear()
         rmSync(this.deps.statePath, { force: true })
         return
       }
-      // A channel remains: persist the trimmed list and rebuild from the rest.
-      // (Pruning just the disconnected platform's pointers from statePath lands
-      // with the 2nd platform.)
+      // A channel remains: persist the trimmed list, then drop just this one.
       this.deps.credentials.save(this.accounts)
-      await this.startBridge()
+      const app = this.current?.app
+      // Live bridge: removePlatform stops only this channel's loop and prunes its
+      // session pointers; the shared stream and the other channels keep serving.
+      // No live bridge (recovering from a fatal stream): rebuild from the rest.
+      if (app) await app.removePlatform(platform)
+      else await this.startBridge()
+      this.statusMap.delete(platform)
+      this.emitStatus()
     })
   }
 
@@ -258,19 +297,18 @@ export class RemoteBridgeRuntime {
     // sync prefix — otherwise the poll loop is still running against the sidecar
     // (the server it talks to) at the moment it is torn down. stopBridge re-aborts
     // (idempotent) and awaits the teardown.
-    this.ac?.abort()
+    this.current?.ac.abort()
     await this.enqueue(() => this.stopBridge())
   }
 
   private async startBridge(): Promise<void> {
     await this.stopBridge()
     if (this.accounts.length === 0) return
+    // A full (re)build starts every channel from "connecting". This path runs only
+    // at cold start, after the last channel is removed, or to recover from a fatal
+    // stream — never to add one channel onto a live bridge — so no channel is
+    // already connected here and there is nothing to flap.
     for (const account of this.accounts) {
-      // A rebuild restarts the shared stream for every channel (adding or removing
-      // one tears them all down and back up). Don't flap an already-connected channel
-      // back to "connecting" — to the user that reads as "everything just broke". Keep
-      // it as-is; only a channel that isn't connected yet shows "connecting".
-      if (this.statusMap.get(account.platform)?.state === "connected") continue
       this.putChannel({ platform: account.platform, state: "connecting", identity: this.pairerFor(account).identity(account), error: null })
     }
     let app: BridgeApp
@@ -284,18 +322,9 @@ export class RemoteBridgeRuntime {
         locale: normalizeLocale(this.deps.locale()),
         // Only the non-secret audience travels through config (which may be logged);
         // the secret is captured in the factory closure below, never placed here.
-        platforms: this.accounts.map((account) => ({
-          name: account.platform,
-          enabled: true,
-          options: this.pairerFor(account).audience(account),
-        })),
+        platforms: this.accounts.map((account) => this.platformConfig(account)),
       }
-      const factory: PlatformFactory = (name) => {
-        const account = this.accounts.find((candidate) => candidate.platform === name)
-        if (!account) throw new Error(`unsupported platform ${name}`)
-        return this.pairerFor(account).makePlatform(account)
-      }
-      app = await this.deps.buildApp(config, factory)
+      app = await this.deps.buildApp(config, this.buildFactory())
     } catch (err) {
       // serverInfo / buildApp failed before the bridge ran. Land every account on
       // degraded so confirmPairing/disconnect — which await this directly — can't
@@ -306,48 +335,76 @@ export class RemoteBridgeRuntime {
       throw err
     }
     const ac = new AbortController()
-    this.ac = ac
     // Per-platform status comes from the supervisor: each channel flips
     // connecting → connected as it drains its backlog and serves, or → degraded on
-    // a failure it is retrying. The `this.ac === ac` guard keeps a stale run from
-    // clobbering a newer build's status.
+    // a failure it is retrying. The `this.current?.ac === ac` guard keeps a stale
+    // run from clobbering a newer build's status.
     const onStatus = (status: PlatformStatus) => {
-      if (this.ac !== ac) return
-      const account = this.accounts.find((candidate) => candidate.platform === status.name)
-      if (!account) return
-      const state: RemoteState = status.phase === "serving" ? "connected" : status.phase === "degraded" ? "degraded" : "connecting"
-      // Same as the pre-mark above: don't drop a live channel to "connecting" while the
-      // rebuild re-drains it. It stays connected until it's serving again (confirmed) or
-      // degraded (a real failure), so adding one channel never makes the others blink.
-      if (state === "connecting" && this.statusMap.get(account.platform)?.state === "connected") return
-      this.putChannel({ platform: account.platform, state, identity: this.pairerFor(account).identity(account), error: status.error ?? null })
+      if (this.current?.ac !== ac) return
+      this.applyPlatformStatus(status)
     }
-    const run = app.run(ac.signal, undefined, onStatus)
-    this.runPromise = run
-    // run() resolves on a clean stop (an abort, handled by stopBridge / the next
-    // build) and rejects only on a fatal stream error — the shared event stream is
-    // dead, so every channel degrades. Observe it so that failure becomes status
-    // rather than an unhandled rejection.
-    run
+    // Publish the handle (with its ac) BEFORE run(), so a status the adapter emits
+    // synchronously inside run() passes the guard instead of being dropped.
+    // runPromise is filled on the same tick — no await before it — so stopBridge
+    // always sees the real promise.
+    const handle: { app: BridgeApp; ac: AbortController; runPromise: Promise<void> } = {
+      app,
+      ac,
+      runPromise: Promise.resolve(),
+    }
+    this.current = handle
+    const runPromise = app.run(ac.signal, undefined, onStatus)
+    handle.runPromise = runPromise
+    // run() resolves on a clean stop (an abort, from stopBridge / the next build)
+    // and rejects only on a fatal stream error — the shared event stream is dead,
+    // so every channel degrades. Observe it so failure becomes status, and clear
+    // the handle on any settle so a later confirm/disconnect rebuilds rather than
+    // adding a channel onto a dead app.
+    runPromise
       .then(() => {})
       .catch((err) => {
-        if (this.ac !== ac) return
+        if (this.current !== handle) return
         for (const account of this.accounts) {
           this.putChannel({ platform: account.platform, state: "degraded", identity: this.pairerFor(account).identity(account), error: message(err) })
         }
       })
+      .finally(() => {
+        if (this.current === handle) this.current = null
+      })
+  }
+
+  /** Map one supervisor status onto a channel's UI state. Skips a status whose
+   * platform is no longer a saved account (e.g. a removed channel's late event). */
+  private applyPlatformStatus(status: PlatformStatus): void {
+    const account = this.accounts.find((candidate) => candidate.platform === status.name)
+    if (!account) return
+    const state: RemoteState = status.phase === "serving" ? "connected" : status.phase === "degraded" ? "degraded" : "connecting"
+    this.putChannel({ platform: account.platform, state, identity: this.pairerFor(account).identity(account), error: status.error ?? null })
+  }
+
+  /** The non-secret config the gateway needs for one account: name + audience.
+   * The secret stays in the factory closure (buildFactory), never in config. */
+  private platformConfig(account: RemoteAccount): PlatformConfig {
+    return { name: account.platform, enabled: true, options: this.pairerFor(account).audience(account) }
+  }
+
+  /** Builds a live platform for a name by looking up its saved account, so the
+   * secret is read from `accounts` at build time (cold start or incremental add)
+   * rather than travelling through the loggable config. */
+  private buildFactory(): PlatformFactory {
+    return (name) => {
+      const account = this.accounts.find((candidate) => candidate.platform === name)
+      if (!account) throw new Error(`unsupported platform ${name}`)
+      return this.pairerFor(account).makePlatform(account)
+    }
   }
 
   private async stopBridge(): Promise<void> {
-    const ac = this.ac
-    const runPromise = this.runPromise
-    this.ac = null
-    this.runPromise = null
-    if (!ac) return
-    ac.abort()
-    if (runPromise) {
-      await Promise.race([runPromise.catch(() => {}), delay(STOP_TIMEOUT_MS)])
-    }
+    const handle = this.current
+    this.current = null
+    if (!handle) return
+    handle.ac.abort()
+    await Promise.race([handle.runPromise.catch(() => {}), delay(STOP_TIMEOUT_MS)])
   }
 
   private pairerFor(account: RemoteAccount): PlatformPairer {

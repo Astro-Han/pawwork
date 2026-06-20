@@ -102,6 +102,23 @@ export class SessionPointers {
     await this.save()
   }
 
+  /**
+   * Drop every session mapping for one platform (remote keys prefixed
+   * `<platform>:`), keeping the event cursor and other platforms' mappings. Called
+   * when a single channel disconnects, so a later reconnect of the same platform
+   * starts fresh instead of resurrecting a stale conversation (`restoreDelivery`)
+   * or colliding on a session root. Orphaned parent links are left as-is: no
+   * remaining remote key references them, so `rootSession` walks never reach them.
+   */
+  async clearPlatform(platform: string): Promise<void> {
+    if (platform === "") return
+    const prefix = `${platform}:`
+    const stale = [...this.sessions.keys()].filter((key) => key.startsWith(prefix))
+    if (stale.length === 0) return
+    for (const key of stale) this.sessions.delete(key)
+    await this.save()
+  }
+
   private save(): Promise<void> {
     if (this.path === "") return Promise.resolve()
     // Snapshot synchronously so the queued write reflects this call's state.

@@ -115,3 +115,30 @@ test("file store persists the event cursor alongside sessions", async () => {
   expect(reloaded.get("feishu:dm:alice")).toBe("ses_1")
   expect(reloaded.eventCursor()).toBe("cursor-2")
 })
+
+test("clearPlatform drops one platform's mappings but keeps the cursor and other platforms", async () => {
+  const pointers = SessionPointers.memory()
+  await pointers.set("wechat:dm:u1", "ses_wx_a")
+  await pointers.set("wechat:dm:u2", "ses_wx_b")
+  await pointers.set("telegram:dm:t1", "ses_tg")
+  await pointers.setEventCursor("cursor-123")
+
+  await pointers.clearPlatform("wechat")
+
+  expect(pointers.get("wechat:dm:u1")).toBe("")
+  expect(pointers.get("wechat:dm:u2")).toBe("")
+  expect(pointers.get("telegram:dm:t1")).toBe("ses_tg") // a sibling platform is untouched
+  expect(pointers.eventCursor()).toBe("cursor-123") // the global cursor survives
+})
+
+test("clearPlatform persists the pruned set to disk", async () => {
+  const path = await tempFile()
+  const pointers = await SessionPointers.fromFile(path)
+  await pointers.set("wechat:dm:u1", "ses_wx")
+  await pointers.set("telegram:dm:t1", "ses_tg")
+  await pointers.clearPlatform("wechat")
+
+  const reloaded = await SessionPointers.fromFile(path)
+  expect(reloaded.get("wechat:dm:u1")).toBe("")
+  expect(reloaded.get("telegram:dm:t1")).toBe("ses_tg")
+})

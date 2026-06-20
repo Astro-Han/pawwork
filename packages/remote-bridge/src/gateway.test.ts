@@ -13,6 +13,7 @@ import {
   type Config,
 } from "./gateway.ts"
 import { PawWorkClient } from "./pawwork-client.ts"
+import { SessionPointers } from "./session-pointers.ts"
 import type { Message, MessageHandler, Platform, Sidecar } from "./types.ts"
 
 // Zero the delivery backoff so the hydrate retry path runs instantly.
@@ -43,6 +44,7 @@ class FakePlatform implements Platform {
   reconstructKey = ""
   startedAfterStream = false
   readyCalls = 0
+  stops = 0
   fireReady: () => void = () => {}
   readonly started = deferred<void>()
   private readonly stopped = deferred<void>()
@@ -88,6 +90,7 @@ class FakePlatform implements Platform {
     return "restored-reply-context"
   }
   async stop(): Promise<void> {
+    this.stops++
     this.stopped.resolve()
   }
 }
@@ -653,17 +656,180 @@ test("messageHandler logs engine failures", async () => {
     warnings.push(args)
   }
   try {
+    const platform = new FakePlatform("runtime-test-message-log")
     const app = new App({
       client: undefined as unknown as PawWorkClient,
       engine: new Engine(new FailingSidecar()),
-      platforms: [],
+      pointers: SessionPointers.memory(),
+      factory: () => platform,
     })
-    const platform = new FakePlatform("runtime-test-message-log")
+    // Register the platform as the live instance, so the handler's liveness guard
+    // lets the message through to the (failing) engine.
+    await app.addPlatform({ name: platform.name, enabled: true, options: { allow_from: "U123" } })
     const msg: Message = { sessionKey: "runtime-test-message-log:dm:alice", content: "start" }
     app.messageHandler()(platform, msg)
     await waitUntil(() => warnings.length > 0)
     expect(warnings.some((args) => String(args[0]).includes("remote bridge failed to handle inbound message"))).toBe(true)
   } finally {
     console.warn = originalWarn
+  }
+})
+
+test("messageHandler drops an inbound from a platform that is no longer the live instance", async () => {
+  // A removed or replaced channel's in-flight message must not create a session or
+  // send a prompt: the gateway owns the live set, so a stale instance is ignored.
+  const platform = new FakePlatform("runtime-test-stale-inbound")
+  const app = new App({
+    client: undefined as unknown as PawWorkClient,
+    engine: new Engine(new FailingSidecar()),
+    pointers: SessionPointers.memory(),
+    factory: () => platform,
+  })
+  await app.addPlatform({ name: platform.name, enabled: true, options: { allow_from: "U123" } })
+  await app.removePlatform(platform.name)
+
+  let warned = false
+  const originalWarn = console.warn
+  console.warn = () => {
+    warned = true
+  }
+  try {
+    // The same instance delivers after removal: a live handler would hit the
+    // FailingSidecar and warn; the guard drops it, so nothing is logged.
+    app.messageHandler()(platform, { sessionKey: "runtime-test-stale-inbound:dm:alice", content: "late" })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(warned).toBe(false)
+  } finally {
+    console.warn = originalWarn
+  }
+})
+
+test("addPlatform connects a new channel without restarting the shared event stream", async () => {
+  let streamConnects = 0
+  const first = new FakePlatform("rt-add-first")
+  const second = new FakePlatform("rt-add-second")
+  const built: Record<string, FakePlatform> = { "rt-add-first": first, "rt-add-second": second }
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        streamConnects++
+        return openEventStream()
+    }
+    return undefined
+  })
+  const controller = new AbortController()
+  try {
+    const ready = deferred<void>()
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [{ name: "rt-add-first", enabled: true, options: { allow_from: "U1" } }],
+      },
+      (name) => built[name],
+    )
+    const runPromise = app.run(controller.signal, () => ready.resolve())
+    await ready.promise
+    await first.started.promise
+    expect(streamConnects).toBe(1)
+
+    // Connect a second channel on the running app: it starts, the shared stream is
+    // not restarted, and the first channel is never stopped.
+    await app.addPlatform({ name: "rt-add-second", enabled: true, options: { allow_from: "U2" } })
+    await second.started.promise
+    expect(app.platformNames().sort()).toEqual(["rt-add-first", "rt-add-second"])
+    expect(streamConnects).toBe(1)
+    expect(first.stops).toBe(0)
+    controller.abort()
+    await runPromise
+  } finally {
+    server.stop()
+  }
+})
+
+test("removePlatform stops only that channel, leaving the stream and the others up", async () => {
+  let streamConnects = 0
+  const keep = new FakePlatform("rt-keep")
+  const drop = new FakePlatform("rt-drop")
+  const built: Record<string, FakePlatform> = { "rt-keep": keep, "rt-drop": drop }
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        streamConnects++
+        return openEventStream()
+    }
+    return undefined
+  })
+  const controller = new AbortController()
+  try {
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [
+          { name: "rt-keep", enabled: true, options: { allow_from: "U1" } },
+          { name: "rt-drop", enabled: true, options: { allow_from: "U2" } },
+        ],
+      },
+      (name) => built[name],
+    )
+    const runPromise = app.run(controller.signal)
+    await keep.started.promise
+    await drop.started.promise
+    expect(streamConnects).toBe(1)
+
+    await app.removePlatform("rt-drop")
+    expect(app.platformNames()).toEqual(["rt-keep"])
+    expect(drop.stops).toBe(1) // the removed channel's loop was stopped
+    expect(keep.stops).toBe(0) // the survivor was untouched
+    expect(streamConnects).toBe(1) // shared stream never restarted
+    controller.abort()
+    await runPromise
+  } finally {
+    server.stop()
+  }
+})
+
+test("addPlatform refuses a wildcard audience on a running app", async () => {
+  const platform = new FakePlatform("rt-wildcard-add")
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        return openEventStream()
+    }
+    return undefined
+  })
+  const controller = new AbortController()
+  try {
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [{ name: "rt-wildcard-add", enabled: true, options: { allow_from: "U1" } }],
+      },
+      () => platform,
+    )
+    const runPromise = app.run(controller.signal)
+    await platform.started.promise
+    await expect(
+      app.addPlatform({ name: "rt-evil", enabled: true, options: { allow_from: "*" } }),
+    ).rejects.toThrow("specific allow_from")
+    expect(app.platformNames()).toEqual(["rt-wildcard-add"])
+    controller.abort()
+    await runPromise
+  } finally {
+    server.stop()
   }
 })
