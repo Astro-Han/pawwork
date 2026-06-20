@@ -486,7 +486,7 @@ describe("prompt submit worktree selection", () => {
       onSubmit: () => submits.push("submit"),
     })
 
-    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event, "submitButton")
 
     expect(aborts).toEqual(["called"])
     expect(abortedSessions).toEqual([{ sessionID: "session-visible", source: "renderer.stopButton" }])
@@ -520,7 +520,7 @@ describe("prompt submit worktree selection", () => {
       onAbort: () => aborts.push("called"),
     })
 
-    await submit.handleSubmit(new KeyboardEvent("keydown", { key: "Enter" }))
+    await submit.handleSubmit(new KeyboardEvent("keydown", { key: "Enter" }), "keyboard")
 
     // Interrupting a running task is ESC's job; Enter must never abort.
     expect(aborts).toEqual([])

@@ -39,7 +39,7 @@ export interface PromptKeydownDeps {
   // submit / mode / file pick
   pick: () => void
   abort: (source?: "stopButton" | "ctrlG" | "escape") => void
-  handleSubmit: (event: KeyboardEvent) => void
+  handleSubmit: (event: KeyboardEvent, trigger: "keyboard") => void
 }
 
 export function createPromptKeydownHandler(deps: PromptKeydownDeps): (event: KeyboardEvent) => void {
@@ -261,7 +261,7 @@ export function createPromptKeydownHandler(deps: PromptKeydownDeps): (event: Key
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault()
       if (event.repeat) return
-      handleSubmit(event)
+      handleSubmit(event, "keyboard")
     }
   }
 }
