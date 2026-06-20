@@ -31,9 +31,16 @@ describe("websearch IPC source contract", () => {
     expect(nodeEntry).toContain('export { WebSearchAuth } from "./tool/websearch-auth"')
   })
 
+  test("settings toggles use the Effect Settings service instead of retired facades", () => {
+    expect(mainIpc).not.toContain("Settings.setLspEnabled(")
+    expect(mainIpc).not.toContain("Settings.webSearchEnabled(")
+    expect(mainIpc).not.toContain("Settings.setWebSearchEnabled(")
+    expect(mainIpc).toContain("AppRuntime.runPromise(Settings.Service.use")
+  })
+
   test("web search toggle rejects when live tool invalidation fails", () => {
-    expect(mainIpc).toContain("const previous = await Settings.webSearchEnabled()")
-    expect(mainIpc).toContain("await Settings.setWebSearchEnabled(previous)")
+    expect(mainIpc).toContain("const previous = await readWebSearchEnabled()")
+    expect(mainIpc).toContain("await setWebSearchEnabled(previous)")
     expect(mainIpc).toContain("const rollbackDirectories = Instance.directories()")
     expect(mainIpc).toContain("const rollbackResults = await invalidateWebSearchTools(rollbackDirectories)")
     expect(mainIpc).toContain("websearch-set-enabled rollback failed for instance")
