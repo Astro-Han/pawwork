@@ -1,5 +1,6 @@
 import z from "zod"
 import { Context as EffectContext, Effect, Layer } from "effect"
+import { AppRuntime } from "@/effect/app-runtime"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { BusEvent } from "@/bus/bus-event"
@@ -695,7 +696,9 @@ export namespace Automation {
     const updateDetails = validateUpdateInput(previous, patch, now)
     const targetProjectID = patch.where?.projectID
     const isMove = targetProjectID !== undefined && targetProjectID !== previous.where.projectID
-    const targetProject = isMove ? Project.get(targetProjectID) : undefined
+    const targetProject = isMove
+      ? AppRuntime.runSync(Project.Service.use((project) => project.get(targetProjectID)))
+      : undefined
     if (isMove) {
       if (previous.context === "continue") addDetail(updateDetails, "where.projectID", "unsupported_continue_move")
       if (hasActiveRun(previous.id)) addDetail(updateDetails, "where.projectID", "unsupported_move_with_active_run")

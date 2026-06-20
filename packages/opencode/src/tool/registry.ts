@@ -69,6 +69,7 @@ import { Agent } from "../agent/agent"
 import { Skill } from "../skill"
 import { SubagentRun } from "../session/subagent-run"
 import { needsConfigDependencies, usesConfigDependencies } from "../config/dependency"
+import { Worktree } from "@/worktree"
 
 export function localToolImportSpec(input: string) {
   return input.startsWith("file://") ? input : pathToFileURL(input).href
@@ -134,6 +135,7 @@ export namespace ToolRegistry {
     | Ripgrep.Service
     | Truncate.Service
     | Automation.Service
+    | Worktree.Service
   > = Layer.effect(
     Service,
     Effect.gen(function* () {
@@ -539,6 +541,7 @@ export namespace ToolRegistry {
       Layer.provide(Ripgrep.defaultLayer),
       Layer.provide(Truncate.defaultLayer),
       Layer.provide(Automation.defaultLayer),
+      Layer.provide(Worktree.defaultLayer),
     ),
   )
 

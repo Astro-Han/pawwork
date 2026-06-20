@@ -24,6 +24,8 @@ const noopBootstrap = Layer.succeed(
 const it = testEffect(
   Layer.mergeAll(InstanceStore.defaultLayer.pipe(Layer.provide(noopBootstrap)), CrossSpawnSpawner.defaultLayer),
 )
+const projectGet = (id: Project.Info["id"]) =>
+  Effect.runSync(Project.Service.use((project) => project.get(id)).pipe(Effect.provide(Project.defaultLayer)))
 
 afterEach(async () => {
   bootstrapRun = Effect.void
@@ -346,7 +348,7 @@ describe("InstanceStore", () => {
       directory: dir.path,
       fn: () => {
         projectID = Instance.project.id
-        expect(Project.get(projectID!)).toBeDefined()
+        expect(projectGet(projectID!)).toBeDefined()
       },
     })
 
@@ -356,7 +358,7 @@ describe("InstanceStore", () => {
       directory: dir.path,
       fn: () => {
         expect(Instance.project.id).toBe(projectID!)
-        expect(Project.get(projectID!)).toBeDefined()
+        expect(projectGet(projectID!)).toBeDefined()
       },
     })
   })

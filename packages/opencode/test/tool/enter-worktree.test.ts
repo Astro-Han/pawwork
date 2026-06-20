@@ -10,6 +10,7 @@ import { EnterWorktreeTool } from "../../src/tool/enter-worktree"
 import { ExitWorktreeTool } from "../../src/tool/exit-worktree"
 import type { Context } from "../../src/tool/tool"
 import { Truncate } from "../../src/tool/truncate"
+import { Worktree } from "../../src/worktree"
 import * as EffectZod from "../../src/util/effect-zod"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { provideTmpdirInstance } from "../fixture/fixture"
@@ -22,6 +23,7 @@ const it = testEffect(
     Session.defaultLayer,
     SubagentRun.defaultLayer,
     Truncate.defaultLayer,
+    Worktree.defaultLayer,
   ),
 )
 

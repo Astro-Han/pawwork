@@ -23,6 +23,15 @@ afterEach(async () => {
   await Instance.disposeAll()
 })
 
+const worktreeMakeWorktreeInfo = (name?: string) =>
+  Effect.runPromise(Worktree.Service.use((worktree) => worktree.makeWorktreeInfo(name)).pipe(Effect.provide(Worktree.defaultLayer)))
+const worktreeCreateFromInfo = (info: Worktree.Info, startCommand?: string) =>
+  Effect.runPromise(
+    Worktree.Service.use((worktree) => worktree.createFromInfo(info, startCommand)).pipe(
+      Effect.provide(Worktree.defaultLayer),
+    ),
+  )
+
 describe("experimental routes", () => {
   function app() {
     return new Hono().route("/experimental", ExperimentalRoutes()).onError(ErrorMiddleware)
@@ -153,8 +162,8 @@ describe("experimental routes", () => {
     const info = await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const info = await Worktree.makeWorktreeInfo("bound-session")
-        await Worktree.createFromInfo(info)
+        const info = await worktreeMakeWorktreeInfo("bound-session")
+        await worktreeCreateFromInfo(info)
         const session = await runSession((svc) => svc.create({ title: "Bound session" }))
         await runSession((svc) => svc.updateExecutionContext({ sessionID: session.id, activeWorktree: info }))
         return info
@@ -183,8 +192,8 @@ describe("experimental routes", () => {
     const info = await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const info = await Worktree.makeWorktreeInfo("bound-session-httpapi")
-        await Worktree.createFromInfo(info)
+        const info = await worktreeMakeWorktreeInfo("bound-session-httpapi")
+        await worktreeCreateFromInfo(info)
         const session = await runSession((svc) => svc.create({ title: "Bound session HttpApi" }))
         await runSession((svc) => svc.updateExecutionContext({ sessionID: session.id, activeWorktree: info }))
         return info

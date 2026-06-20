@@ -43,6 +43,7 @@ import { SystemPrompt } from "../../src/session/system"
 import { Shell } from "../../src/shell/shell"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "../../src/tool/registry"
+import { Worktree } from "../../src/worktree"
 import { Automation } from "../../src/automation"
 import { AutomationScheduler } from "../../src/automation/scheduler"
 import { WebSearchAuth } from "../../src/tool/websearch-auth"
@@ -289,6 +290,7 @@ function makeHttp(httpLayer: Layer.Layer<HttpClient.HttpClient> = FetchHttpClien
     Layer.provide(Ripgrep.defaultLayer),
     Layer.provide(SubagentRun.defaultLayer),
     Layer.provide(Automation.defaultLayer),
+    Layer.provide(Worktree.defaultLayer),
     Layer.provideMerge(todo),
     Layer.provideMerge(deps),
   )
