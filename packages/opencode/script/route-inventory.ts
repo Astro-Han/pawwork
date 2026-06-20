@@ -315,7 +315,7 @@ async function readOpenApiRoutes(root: string): Promise<Route[]> {
 
 export function parseSdkRoutesFromText(text: string, source: string): Route[] {
   const routes: Route[] = []
-  const routePattern = /\.(get|post|put|patch|delete)(?:\.sse)?<[^>]*>\(\{\s*url:\s*(["'`])([^"'`]+)\2/g
+  const routePattern = /\.(get|post|put|patch|delete)(?:\.sse)?<[^>]*>\(\s*\{\s*url:\s*(["'`])([^"'`]+)\2/g
   for (const match of text.matchAll(routePattern)) {
     routes.push({ method: match[1]!.toUpperCase(), path: normalizePath(match[3]!), source })
   }
