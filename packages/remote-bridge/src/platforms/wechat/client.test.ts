@@ -244,6 +244,25 @@ test("a 2xx JSON array body raises WeChatApiError, not a fake empty success", as
   }
 })
 
+test("a body-level session-expired ret (-14) is fatal, so the poll loop stops not spins", async () => {
+  // A 200 carrying ret -14 means the login session is gone; retrying can't fix it, so it
+  // must classify as fatal (→ degraded + re-scan), not as a transient blip to retry.
+  // Same for notifyStart, which rides the same parse path.
+  for (const path of ["getUpdates", "notifyStart"] as const) {
+    const server = mockServer(() => json({ ret: -14, errmsg: "session expired" }))
+    try {
+      const client = new WeChatClient({ baseURL: server.url, botToken: "t" })
+      let caught: unknown
+      const call = path === "getUpdates" ? client.getUpdates("") : client.notifyStart()
+      await call.catch((e) => (caught = e))
+      expect(caught).toBeInstanceOf(WeChatApiError)
+      expect(isFatalWeChatError(caught)).toBe(true)
+    } finally {
+      server.stop()
+    }
+  }
+})
+
 test("a non-zero ret raises WeChatApiError; 401 is fatal", async () => {
   const server = mockServer(() => json({ ret: -2, errmsg: "rate limited" }))
   try {

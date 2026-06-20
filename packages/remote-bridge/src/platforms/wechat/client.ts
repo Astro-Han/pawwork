@@ -56,10 +56,21 @@ export class WeChatApiError extends Error {
   }
 }
 
-/** A bad/expired bot token can't be fixed by retrying — surface it so the loop
- * rejects start() instead of spinning. 401/403 is the transport signal. */
+// Body-level ret codes that retrying can't fix: the login session is gone, so the
+// channel must degrade and the user re-scan. -14 is iLink's session-expired code
+// (verified live — a token whose login session was invalidated, e.g. after a restart,
+// returns ret -14 on every call). Add new unrecoverable codes here as they're confirmed
+// against the live service; don't guess, or a transient blip gets mis-classed as fatal.
+const FATAL_RET_CODES: ReadonlySet<number> = new Set([-14])
+
+/** An error retrying can't fix, so the poll loop should reject start() and let the
+ * channel go degraded (prompting a re-scan) instead of spinning forever. A bad/expired
+ * token surfaces either at the transport (401/403) or as a body-level session-expired
+ * ret on an otherwise-200 response. */
 export function isFatalWeChatError(err: unknown): boolean {
-  return err instanceof WeChatApiError && (err.httpStatus === 401 || err.httpStatus === 403)
+  if (!(err instanceof WeChatApiError)) return false
+  if (err.httpStatus === 401 || err.httpStatus === 403) return true
+  return err.ret !== undefined && FATAL_RET_CODES.has(err.ret)
 }
 
 export interface WeChatQrcode {

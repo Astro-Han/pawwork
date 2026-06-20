@@ -27,12 +27,15 @@ class FakeTransport implements WeChatTransport {
   notifyStartError: Error | undefined
   /** When true, the next getUpdates throws once (a transient, non-fatal blip). */
   failGetUpdatesOnce = false
+  /** When set, every getUpdates throws it (e.g. a fatal session-expired ret). */
+  getUpdatesError: Error | undefined
   private readonly batches: WeChatMessage[][] = []
   pushBatch(msgs: WeChatMessage[]): void {
     this.batches.push(msgs)
   }
   async getUpdates(cursor: string, signal?: AbortSignal): Promise<WeChatUpdates> {
     if (this.notifyStarts === 0) this.polledBeforeStart = true
+    if (this.getUpdatesError) throw this.getUpdatesError
     if (this.failGetUpdatesOnce) {
       this.failGetUpdatesOnce = false
       throw new Error("transient getUpdates failure")
@@ -131,6 +134,19 @@ test("a fatal notifyStart error rejects start instead of polling silently", asyn
   await expect(platform.start(() => {})).rejects.toThrow()
   expect(transport.polledBeforeStart).toBe(false) // never polled — online failed first
   expect(transport.sends).toEqual([])
+})
+
+test("a fatal getUpdates error (expired session) rejects start instead of polling forever", async () => {
+  const transport = new FakeTransport()
+  // -14 is iLink's session-expired: retrying can't fix it, so start() must reject and
+  // let the supervisor degrade the channel (prompting a re-scan), not spin in backoff
+  // while the UI keeps claiming the bot is connected.
+  transport.getUpdatesError = new WeChatApiError("/ilink/bot/getupdates", 200, -14, "session expired")
+  const platform = new WeChatPlatform({ transport, allowFrom: USER })
+  platform.pollRetryMs = 1
+
+  await expect(platform.start(() => {})).rejects.toThrow()
+  expect(transport.notifyStarts).toBe(1) // online succeeded; the poll failed fatally
 })
 
 test("a throwing handler does not stall the poll loop or kill the channel", async () => {
