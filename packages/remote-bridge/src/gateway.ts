@@ -139,16 +139,18 @@ export class App {
    */
   async addPlatform(config: PlatformConfig): Promise<void> {
     if (!config.name) throw new Error("enabled platform name is required")
+    // Retire any live same-name instance FIRST — before the audience gate and the
+    // factory build — so that once the caller has committed the new account/identity,
+    // a failed re-pair (a rejected audience OR a factory throw) can never leave the
+    // old loop serving under the new label. A new name that fails the gate still
+    // leaves the existing channels untouched (nothing to retire). retirePlatform
+    // keeps the session pointers (only removePlatform prunes them), so a re-pair
+    // continues the conversation rather than forgetting it.
+    if (this.desiredPlatforms.has(config.name)) await this.retirePlatform(config.name)
     const options = config.options ?? {}
     if (!hasRemoteAudience(config.name, options)) {
       throw new Error(`${config.name} platform requires a specific allow_from or Feishu/Lark allow_chat with group_only`)
     }
-    // Retire any live same-name instance BEFORE building the replacement, so a
-    // factory failure can't leave the old loop serving while the caller has already
-    // switched the saved account/UI to the new identity. retirePlatform keeps the
-    // session pointers (only removePlatform prunes them), so a re-pair continues the
-    // conversation rather than forgetting it.
-    if (this.desiredPlatforms.has(config.name)) await this.retirePlatform(config.name)
     const platform = await this.factory(config.name, options)
     this.engine.registerPlatform(platform)
     this.desiredPlatforms.set(config.name, platform)

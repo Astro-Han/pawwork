@@ -863,6 +863,66 @@ test("a re-pair whose factory throws retires the old channel instead of leaving 
   }
 })
 
+test("a re-pair with an invalid audience retires the old channel instead of leaving it live", async () => {
+  // The retire-first ordering must also cover the audience-gate failure path: once
+  // the caller has committed the new account, a same-name re-pair that fails the
+  // audience gate must not leave the old loop serving under the new identity. (A
+  // *new* name that fails the gate still leaves existing channels untouched — see the
+  // next test.)
+  const original = new FakePlatform("rt-repair-audience")
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        return openEventStream()
+    }
+    return undefined
+  })
+  const controller = new AbortController()
+  try {
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [{ name: "rt-repair-audience", enabled: true, options: { allow_from: "U1" } }],
+      },
+      () => original,
+    )
+    const runPromise = app.run(controller.signal)
+    await original.started.promise
+
+    // Re-pair the same name with a wildcard audience: the gate rejects it.
+    await expect(
+      app.addPlatform({ name: "rt-repair-audience", enabled: true, options: { allow_from: "*" } }),
+    ).rejects.toThrow("specific allow_from")
+
+    // Retired first: stopped and dropped from the live set, not left serving.
+    expect(original.stops).toBe(1)
+    expect(app.platformNames()).toEqual([])
+
+    let warned = false
+    const originalWarn = console.warn
+    console.warn = () => {
+      warned = true
+    }
+    try {
+      app.messageHandler()(original, { sessionKey: "rt-repair-audience:dm:alice", content: "late" })
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      expect(warned).toBe(false)
+    } finally {
+      console.warn = originalWarn
+    }
+
+    controller.abort()
+    await runPromise
+  } finally {
+    server.stop()
+  }
+})
+
 test("addPlatform refuses a wildcard audience on a running app", async () => {
   const platform = new FakePlatform("rt-wildcard-add")
   const server = mockServer((_req, url) => {

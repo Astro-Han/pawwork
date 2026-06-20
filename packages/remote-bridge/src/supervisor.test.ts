@@ -346,7 +346,9 @@ test("remove is time-bounded when a platform's stop() never resolves", async () 
 
   const start = performance.now()
   await supervisor.remove("wedged")
-  expect(performance.now() - start).toBeLessThan(2000) // returned, not hung
+  // Tight enough to catch a hardcoded second-scale wait (it honors removeTimeoutMs:
+  // 20), loose enough for CI scheduling jitter.
+  expect(performance.now() - start).toBeLessThan(250)
   expect(wedged.stops).toBe(1) // stop() was requested
   expect(supervisor.has("wedged")).toBe(false) // and the name is free again
 
