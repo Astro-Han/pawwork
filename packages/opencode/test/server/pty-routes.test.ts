@@ -3,12 +3,10 @@ import { NodeFileSystem, NodeHttpPlatform, NodePath } from "@effect/platform-nod
 import { Effect, Layer } from "effect"
 import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
-import { Hono } from "hono"
 import type { UpgradeWebSocket } from "../../src/server/adapter"
 import { Log } from "@opencode-ai/core/util/log"
 import { AppRuntime } from "../../src/effect/app-runtime"
-import { assertPtyConnectTarget, PtyRoutes } from "../../src/server/instance/pty"
-import { ErrorMiddleware } from "../../src/server/middleware"
+import { assertPtyConnectTarget } from "../../src/server/instance/pty"
 import { handleWebSocketCompatibilityRequest } from "../../src/server/websocket-compatibility"
 import { NotFoundError } from "../../src/storage/db"
 import { Pty } from "../../src/pty"
@@ -268,7 +266,7 @@ describe("pty routes", () => {
     })
   })
 
-  test("issues a connect token for an existing PTY", async () => {
+  test("issues a connect token for an existing PTY through the HttpApi handlers", async () => {
     if (process.platform === "win32") return
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
@@ -282,10 +280,7 @@ describe("pty routes", () => {
           }),
         )
         try {
-          const app = new Hono().route("/pty", PtyRoutes())
-          app.onError(ErrorMiddleware)
-
-          const response = await app.request(`/pty/${info.id}/connect-token`, { method: "POST" })
+          const response = await requestPtyHttpApi(`/pty/${info.id}/connect-token`, { method: "POST" })
           const body = await response.json()
 
           expect(response.status).toBe(200)
@@ -401,43 +396,4 @@ describe("pty routes", () => {
     expect(names).toContain("ticket")
   })
 
-  test("maps missing update targets as not found", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const app = new Hono().route("/pty", PtyRoutes())
-        app.onError(ErrorMiddleware)
-
-        const response = await app.request(`/pty/${PtyID.ascending()}`, {
-          method: "PUT",
-          body: JSON.stringify({ title: "gone" }),
-          headers: { "content-type": "application/json" },
-        })
-        const body = await response.json()
-
-        expect(response.status).toBe(404)
-        expect(body.name).toBe("NotFoundError")
-      },
-    })
-  })
-
-  test("maps missing remove targets as not found", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const app = new Hono().route("/pty", PtyRoutes())
-        app.onError(ErrorMiddleware)
-
-        const response = await app.request(`/pty/${PtyID.ascending()}`, {
-          method: "DELETE",
-        })
-        const body = await response.json()
-
-        expect(response.status).toBe(404)
-        expect(body.name).toBe("NotFoundError")
-      },
-    })
-  })
 })

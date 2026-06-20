@@ -305,4 +305,16 @@ describe("production server boundary", () => {
     expect(session).not.toContain("export const SessionRoutes")
     expect(session).toContain("export const SessionRouteEffects")
   })
+
+  test("does not retain the retired PTY ordinary legacy Hono route source", async () => {
+    const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
+    const pty = await readFile(path.join(import.meta.dir, "../../src/server/instance/pty.ts"), "utf8")
+
+    expect(instanceRoutes).not.toContain("PtyRoutes")
+    expect(instanceRoutes).not.toContain('.route("/pty"')
+    expect(pty).not.toMatch(/from\s+["']hono["']/)
+    expect(pty).not.toMatch(/\bnew\s+Hono\s*\(/)
+    expect(pty).not.toContain("export function PtyRoutes")
+    expect(pty).toContain("createPtyConnectEvents")
+  })
 })
