@@ -1,1 +1,0 @@
-export { InstanceRoutes } from "../../instance"

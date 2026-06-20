@@ -9,6 +9,15 @@ import { Server } from "../../src/server/server"
 import { tmpdir } from "../fixture/fixture"
 
 describe("production server boundary", () => {
+  async function readIfExists(file: string) {
+    try {
+      return await readFile(file, "utf8")
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return ""
+      throw error
+    }
+  }
+
   async function readFirstChunk(response: Response) {
     const reader = response.body?.getReader()
     if (!reader) throw new Error("Expected response body")
@@ -221,7 +230,7 @@ describe("production server boundary", () => {
   })
 
   test("does not retain retired memory or external-result legacy Hono route sources", async () => {
-    const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
+    const instanceRoutes = await readIfExists(path.join(import.meta.dir, "../../src/server/instance/index.ts"))
     const memory = await readFile(path.join(import.meta.dir, "../../src/server/instance/memory.ts"), "utf8")
     const externalResult = await readFile(
       path.join(import.meta.dir, "../../src/server/instance/external-result.ts"),
@@ -239,7 +248,7 @@ describe("production server boundary", () => {
   })
 
   test("does not retain the retired automation legacy Hono route source", async () => {
-    const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
+    const instanceRoutes = await readIfExists(path.join(import.meta.dir, "../../src/server/instance/index.ts"))
     const automation = path.join(import.meta.dir, "../../src/server/instance/automation.ts")
 
     expect(existsSync(automation)).toBe(false)
@@ -248,7 +257,7 @@ describe("production server boundary", () => {
   })
 
   test("does not retain the retired config legacy Hono route source", async () => {
-    const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
+    const instanceRoutes = await readIfExists(path.join(import.meta.dir, "../../src/server/instance/index.ts"))
     const config = path.join(import.meta.dir, "../../src/server/instance/config.ts")
 
     expect(existsSync(config)).toBe(false)
@@ -257,7 +266,7 @@ describe("production server boundary", () => {
   })
 
   test("does not retain retired experimental or workspace legacy Hono route sources", async () => {
-    const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
+    const instanceRoutes = await readIfExists(path.join(import.meta.dir, "../../src/server/instance/index.ts"))
 
     expect(existsSync(path.join(import.meta.dir, "../../src/server/instance/experimental.ts"))).toBe(false)
     expect(existsSync(path.join(import.meta.dir, "../../src/server/instance/workspace.ts"))).toBe(false)
@@ -268,7 +277,7 @@ describe("production server boundary", () => {
   })
 
   test("does not retain retired provider, MCP, or permission legacy Hono route sources", async () => {
-    const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
+    const instanceRoutes = await readIfExists(path.join(import.meta.dir, "../../src/server/instance/index.ts"))
 
     expect(existsSync(path.join(import.meta.dir, "../../src/server/instance/provider.ts"))).toBe(false)
     expect(existsSync(path.join(import.meta.dir, "../../src/server/instance/mcp.ts"))).toBe(false)
@@ -282,7 +291,7 @@ describe("production server boundary", () => {
   })
 
   test("does not retain retired file or project legacy Hono route sources", async () => {
-    const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
+    const instanceRoutes = await readIfExists(path.join(import.meta.dir, "../../src/server/instance/index.ts"))
     const file = path.join(import.meta.dir, "../../src/server/instance/file.ts")
     const project = path.join(import.meta.dir, "../../src/server/instance/project.ts")
 
@@ -295,7 +304,7 @@ describe("production server boundary", () => {
   })
 
   test("does not retain the retired session legacy Hono route source", async () => {
-    const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
+    const instanceRoutes = await readIfExists(path.join(import.meta.dir, "../../src/server/instance/index.ts"))
     const session = await readFile(path.join(import.meta.dir, "../../src/server/instance/session.ts"), "utf8")
 
     expect(instanceRoutes).not.toContain("SessionRoutes")
@@ -307,7 +316,7 @@ describe("production server boundary", () => {
   })
 
   test("does not retain the retired PTY ordinary legacy Hono route source", async () => {
-    const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
+    const instanceRoutes = await readIfExists(path.join(import.meta.dir, "../../src/server/instance/index.ts"))
     const pty = await readFile(path.join(import.meta.dir, "../../src/server/instance/pty.ts"), "utf8")
 
     expect(instanceRoutes).not.toContain("PtyRoutes")
@@ -316,5 +325,13 @@ describe("production server boundary", () => {
     expect(pty).not.toMatch(/\bnew\s+Hono\s*\(/)
     expect(pty).not.toContain("export function PtyRoutes")
     expect(pty).toContain("createPtyConnectEvents")
+  })
+
+  test("does not retain the retired root instance legacy Hono route source", async () => {
+    const rootInstance = path.join(import.meta.dir, "../../src/server/instance/index.ts")
+    const rootShim = path.join(import.meta.dir, "../../src/server/routes/instance/index.ts")
+
+    expect(existsSync(rootInstance)).toBe(false)
+    expect(existsSync(rootShim)).toBe(false)
   })
 })

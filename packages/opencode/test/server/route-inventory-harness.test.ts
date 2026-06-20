@@ -220,7 +220,7 @@ describe("route inventory harness", () => {
       ["GET", "/lsp"],
     ] as const) {
       expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
-        hono: true,
+        hono: false,
         localHttpApi: true,
       })
     }
