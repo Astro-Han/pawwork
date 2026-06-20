@@ -76,6 +76,10 @@ async function defaultModel() {
   return run((provider) => provider.defaultModel())
 }
 
+async function recordRecent(model: ModelState.ModelRef) {
+  return AppRuntime.runPromise(ModelState.Service.use((modelState) => modelState.recordRecent(model)))
+}
+
 async function readAuthSnapshot() {
   try {
     return await Filesystem.readText(path.join(Global.Path.data, "auth.json"))
@@ -757,7 +761,7 @@ test("defaultModel returns a model seeded into recent via recordRecent (model.js
         const fallback = await defaultModel()
         // Seed the OTHER model — the one defaultModel would not pick on its own.
         const other = String(fallback.modelID) === "model-a" ? "model-b" : "model-a"
-        await ModelState.recordRecent({ providerID: ProviderID.make("custom-openai"), modelID: ModelID.make(other) })
+        await recordRecent({ providerID: ProviderID.make("custom-openai"), modelID: ModelID.make(other) })
         const after = await defaultModel()
         expect(String(after.providerID)).toBe("custom-openai")
         expect(String(after.modelID)).toBe(other)
