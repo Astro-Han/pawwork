@@ -49,6 +49,25 @@ describe("production server boundary", () => {
     }
   })
 
+  test("serves experimental worktree and workspace routes through the production HttpApi dispatcher", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const headers = {
+      "x-opencode-directory": encodeURIComponent(tmp.path),
+    }
+
+    try {
+      const worktrees = await Server.Default().app.request("/experimental/worktree", { headers })
+      expect(worktrees.status).toBe(200)
+      expect(await worktrees.json()).toBeArray()
+
+      const workspaces = await Server.Default().app.request("/experimental/workspace", { headers })
+      expect(workspaces.status).toBe(200)
+      expect(await workspaces.json()).toEqual([])
+    } finally {
+      await Instance.disposeAll()
+    }
+  })
+
   test("serves the OpenAPI document through the production API path", async () => {
     const response = await Server.Default().app.request("/doc")
     const body = await response.json()
@@ -235,6 +254,17 @@ describe("production server boundary", () => {
     expect(existsSync(config)).toBe(false)
     expect(instanceRoutes).not.toContain("ConfigRoutes")
     expect(instanceRoutes).not.toContain('.route("/config"')
+  })
+
+  test("does not retain retired experimental or workspace legacy Hono route sources", async () => {
+    const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
+
+    expect(existsSync(path.join(import.meta.dir, "../../src/server/instance/experimental.ts"))).toBe(false)
+    expect(existsSync(path.join(import.meta.dir, "../../src/server/instance/workspace.ts"))).toBe(false)
+    expect(existsSync(path.join(import.meta.dir, "../../src/server/routes/instance/experimental.ts"))).toBe(false)
+    expect(existsSync(path.join(import.meta.dir, "../../src/server/routes/control/workspace.ts"))).toBe(false)
+    expect(instanceRoutes).not.toContain("ExperimentalRoutes")
+    expect(instanceRoutes).not.toContain('.route("/experimental"')
   })
 
   test("does not retain retired provider, MCP, or permission legacy Hono route sources", async () => {

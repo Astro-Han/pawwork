@@ -10,7 +10,7 @@ import {
   removeWorktree,
   resetWorktree,
   switchConsoleOrg,
-} from "@/server/instance/experimental"
+} from "./experimental-actions"
 import { NamedError } from "@opencode-ai/util/error"
 import { Effect } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"

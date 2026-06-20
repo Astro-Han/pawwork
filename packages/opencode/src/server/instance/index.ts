@@ -14,7 +14,6 @@ import { Runtime } from "@opencode-ai/core/runtime"
 import { LSP } from "../../lsp"
 import { Command } from "../../command"
 import { PtyRoutes } from "./pty"
-import { ExperimentalRoutes } from "./experimental"
 import { WorkspaceRouterMiddleware } from "./middleware"
 import { AppRuntime } from "@/effect/app-runtime"
 import { jsonBodyLimit } from "./json-body-limit"
@@ -121,7 +120,6 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
   new Hono()
     .use(WorkspaceRouterMiddleware(upgrade))
     .route("/pty", PtyRoutes())
-    .route("/experimental", ExperimentalRoutes())
     .post(
       "/instance/dispose",
       describeRoute({

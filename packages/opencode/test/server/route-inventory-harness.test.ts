@@ -99,7 +99,7 @@ describe("route inventory harness", () => {
       ["DELETE", "/experimental/workspace/:id"],
     ] as const) {
       expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
-        hono: true,
+        hono: false,
         localHttpApi: true,
       })
     }
@@ -197,7 +197,7 @@ describe("route inventory harness", () => {
       ["POST", "/experimental/worktree/reset"],
     ] as const) {
       expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
-        hono: true,
+        hono: false,
         localHttpApi: true,
       })
     }
@@ -410,7 +410,7 @@ describe("route inventory harness", () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
     expect(inventory.rows.find((row) => row.method === "GET" && row.path === "/experimental/session")).toMatchObject({
-      hono: true,
+      hono: false,
       localHttpApi: true,
     })
   })

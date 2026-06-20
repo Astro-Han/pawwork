@@ -3,7 +3,6 @@ import { NodeFileSystem, NodeHttpPlatform, NodePath } from "@effect/platform-nod
 import { Effect, Layer } from "effect"
 import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
-import { Hono } from "hono"
 import path from "path"
 import { pathToFileURL } from "url"
 import { Log } from "@opencode-ai/core/util/log"
@@ -11,8 +10,6 @@ import { Workspace } from "../../src/control-plane/workspace"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { Plugin } from "../../src/plugin"
-import { ErrorMiddleware } from "../../src/server/middleware"
-import { WorkspaceRoutes } from "../../src/server/instance/workspace"
 import { WorkspaceApi } from "../../src/server/routes/instance/httpapi/groups/workspace"
 import { workspaceHandlers } from "../../src/server/routes/instance/httpapi/handlers/workspace"
 import { resetDatabase } from "../fixture/db"
@@ -32,10 +29,6 @@ afterAll(() => {
   if (disableDefault === undefined) delete process.env.OPENCODE_DISABLE_DEFAULT_PLUGINS
   else process.env.OPENCODE_DISABLE_DEFAULT_PLUGINS = disableDefault
 })
-
-function app() {
-  return new Hono().onError(ErrorMiddleware).route("/workspace", WorkspaceRoutes())
-}
 
 function requestWorkspaceHttpApi(path: string, init?: RequestInit) {
   return AppRuntime.runPromise(
@@ -103,18 +96,6 @@ async function workspaceProject(label: string) {
 }
 
 async function createWorkspace(type: string) {
-  return app().request("/workspace", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      type,
-      branch: null,
-      extra: null,
-    }),
-  })
-}
-
-async function createWorkspaceHttpApi(type: string) {
   return requestWorkspaceHttpApi("/experimental/workspace", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -148,7 +129,7 @@ describe("workspace routes", () => {
     expect(spec.paths["/experimental/workspace/{id}"]).toHaveProperty("delete")
   })
 
-  test("creates, lists, reports status, and removes workspaces through the route runtime", async () => {
+  test("creates, lists, reports status, and removes workspaces through the HttpApi handlers", async () => {
     await using current = await workspaceProject("current")
     await using other = await workspaceProject("other")
 
@@ -180,22 +161,22 @@ describe("workspace routes", () => {
           projectID: Instance.project.id,
         })
 
-        const listResponse = await app().request("/workspace")
+        const listResponse = await requestWorkspaceHttpApi("/experimental/workspace")
         expect(listResponse.status).toBe(200)
         expect(await listResponse.json()).toEqual([created])
 
         await waitForStatus(created.id)
-        const statusResponse = await app().request("/workspace/status")
+        const statusResponse = await requestWorkspaceHttpApi("/experimental/workspace/status")
         expect(statusResponse.status).toBe(200)
         const status = (await statusResponse.json()) as Workspace.ConnectionStatus[]
         expect(status.map((item) => item.workspaceID)).toContain(created.id)
         expect(status.map((item) => item.workspaceID)).not.toContain(otherWorkspace!.id)
 
-        const deleteResponse = await app().request(`/workspace/${created.id}`, { method: "DELETE" })
+        const deleteResponse = await requestWorkspaceHttpApi(`/experimental/workspace/${created.id}`, { method: "DELETE" })
         expect(deleteResponse.status).toBe(200)
         expect(await deleteResponse.json()).toEqual(created)
 
-        const listAfterDelete = await app().request("/workspace")
+        const listAfterDelete = await requestWorkspaceHttpApi("/experimental/workspace")
         expect(listAfterDelete.status).toBe(200)
         expect(await listAfterDelete.json()).toEqual([])
       },
@@ -205,13 +186,13 @@ describe("workspace routes", () => {
       directory: other.path,
       fn: async () => {
         await runPlugin((plugin) => plugin.init())
-        const response = await app().request(`/workspace/${otherWorkspace!.id}`, { method: "DELETE" })
+        const response = await requestWorkspaceHttpApi(`/experimental/workspace/${otherWorkspace!.id}`, { method: "DELETE" })
         expect(response.status).toBe(200)
       },
     })
   })
 
-  test("creates, lists, reports status, and removes workspaces through the HttpApi handlers", async () => {
+  test("creates, lists, reports status, and removes workspaces through the HttpApi handlers with a compact fixture", async () => {
     await using current = await workspaceProject("current-httpapi")
 
     await Instance.provide({
@@ -219,7 +200,7 @@ describe("workspace routes", () => {
       fn: async () => {
         await runPlugin((plugin) => plugin.init())
 
-        const createdResponse = await createWorkspaceHttpApi(current.extra.type)
+        const createdResponse = await createWorkspace(current.extra.type)
         expect(createdResponse.status).toBe(200)
         const created = (await createdResponse.json()) as Workspace.Info
         expect(created).toMatchObject({
@@ -271,7 +252,7 @@ describe("workspace routes", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const response = await createWorkspaceHttpApi("worktree")
+        const response = await createWorkspace("worktree")
         expect(response.status).toBe(400)
         expect(await response.json()).toMatchObject({
           name: "WorktreeNotGitError",
