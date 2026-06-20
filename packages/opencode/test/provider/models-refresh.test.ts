@@ -4,7 +4,7 @@ import path from "path"
 
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
-import { Effect, Layer } from "effect"
+import { Effect, Fiber, Layer } from "effect"
 import { tmpdir } from "../fixture/fixture"
 import { makeRuntime } from "../../src/effect/run-service"
 import { AppRuntime } from "../../src/effect/app-runtime"
@@ -232,6 +232,43 @@ test("refresh does not publish to normal cache when models path override is set"
 
   await expect(readFile(cachePath(), "utf8")).rejects.toThrow()
   expect(ModelsDev.version()).toBe(beforeVersion + 1)
+})
+
+test("data retries when the cached catalog load was interrupted", async () => {
+  let reads = 0
+  const interruptingFsLayer = Layer.effect(
+    AppFileSystem.Service,
+    AppFileSystem.Service.use((fs) =>
+      Effect.succeed(
+        AppFileSystem.Service.of({
+          ...fs,
+          readFileString: (target) => {
+            reads++
+            if (reads === 1) return Effect.never
+            return Effect.succeed(JSON.stringify(catalogWithModels(["kimi-k2.6"])))
+          },
+        }),
+      ),
+    ),
+  ).pipe(Layer.provide(AppFileSystem.defaultLayer))
+  const interruptingLayer = ModelsDev.layer.pipe(
+    Layer.provide(interruptingFsLayer),
+    Layer.provide(EffectFlock.defaultLayer),
+  )
+
+  const catalog = await Effect.runPromise(
+    ModelsDev.Service.use((svc) =>
+      Effect.gen(function* () {
+        const first = yield* svc.data().pipe(Effect.forkChild)
+        yield* Effect.sleep("10 millis")
+        yield* Fiber.interrupt(first)
+        return yield* svc.data()
+      }),
+    ).pipe(Effect.provide(interruptingLayer)),
+  )
+
+  expect(catalog["moonshotai-cn"]?.models["kimi-k2.6"]).toBeDefined()
+  expect(reads).toBe(2)
 })
 
 test("provider state rebuilds after models path override refresh", async () => {

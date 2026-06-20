@@ -8,7 +8,7 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { Hash } from "../util/hash"
 import { withPawWorkProviders } from "./pawwork-providers"
-import { Context, Effect, Layer, ManagedRuntime, Option } from "effect"
+import { Cause, Context, Effect, Exit, Layer, ManagedRuntime, Option } from "effect"
 import { memoMap } from "@opencode-ai/core/effect/memo-map"
 
 // Try to import bundled snapshot (generated at build time)
@@ -346,7 +346,13 @@ export const layer = Layer.effect(
     })
 
     const data = Effect.fn("ModelsDev.data")(function* () {
-      return yield* cachedData
+      const exit = yield* Effect.exit(cachedData)
+      if (Exit.isSuccess(exit)) return exit.value
+      if (Cause.hasInterruptsOnly(exit.cause)) {
+        cachedData = yield* Effect.cached(loadData())
+        return yield* cachedData
+      }
+      return yield* Effect.failCause(exit.cause)
     })
 
     const publishCandidate = Effect.fn("ModelsDev.publishCandidate")(function* (text: string) {
