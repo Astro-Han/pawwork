@@ -9,10 +9,15 @@ import { TurnChange } from "../../src/session/turn-change"
 import { MessageID, type SessionID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Log } from "@opencode-ai/core/util/log"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { tmpdir } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
 
 void Log.init({ print: false })
+const turnChange = await AppRuntime.runPromise(TurnChange.Service)
+const recordWrite = (input: Parameters<typeof turnChange.recordWrite>[0]) =>
+  AppRuntime.runSync(turnChange.recordWrite(input))
+const finalize = (input: Parameters<typeof turnChange.finalize>[0]) => AppRuntime.runSync(turnChange.finalize(input))
 
 afterEach(async () => {
   mock.restore()
@@ -66,14 +71,14 @@ describe("turn-change aggregate HTTP routes (#428)", () => {
         const file = path.join(fixture.path, "legacy.txt")
         await fs.writeFile(file, "legacy\n", "utf-8")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: assistantID,
           path: file,
           before: { exists: false },
           after: { exists: true, content: "legacy\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: assistantID })
+        finalize({ sessionID: session.id, messageID: assistantID })
 
         const app = Server.Default().app
 
@@ -107,22 +112,22 @@ describe("turn-change aggregate HTTP routes (#428)", () => {
         await fs.writeFile(fileA, "A\n", "utf-8")
         await fs.writeFile(fileB, "B\n", "utf-8")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a1,
           path: fileA,
           before: { exists: false },
           after: { exists: true, content: "A\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
-        TurnChange.recordWrite({
+        finalize({ sessionID: session.id, messageID: a1 })
+        recordWrite({
           sessionID: session.id,
           messageID: a2,
           path: fileB,
           before: { exists: false },
           after: { exists: true, content: "B\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+        finalize({ sessionID: session.id, messageID: a2 })
 
         const app = Server.Default().app
 
@@ -189,22 +194,22 @@ describe("turn-change aggregate HTTP routes (#428)", () => {
         await fs.writeFile(ok, "ok\n", "utf-8")
         await fs.writeFile(conflict, "tampered\n", "utf-8")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a1,
           path: ok,
           before: { exists: false },
           after: { exists: true, content: "ok\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
-        TurnChange.recordWrite({
+        finalize({ sessionID: session.id, messageID: a1 })
+        recordWrite({
           sessionID: session.id,
           messageID: a2,
           path: conflict,
           before: { exists: false },
           after: { exists: true, content: "expected\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+        finalize({ sessionID: session.id, messageID: a2 })
 
         const app = Server.Default().app
 
