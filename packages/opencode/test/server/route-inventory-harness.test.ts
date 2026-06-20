@@ -127,7 +127,7 @@ describe("route inventory harness", () => {
     })
   })
 
-  test("tracks local HttpApi migration coverage for ordinary JSON file and project routes", async () => {
+  test("keeps retired file and project routes on the HttpApi production surface only", async () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
     for (const [method, routePath] of [
@@ -143,7 +143,9 @@ describe("route inventory harness", () => {
       ["PATCH", "/project/:projectID"],
     ] as const) {
       expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
-        hono: true,
+        hono: false,
+        openapi: true,
+        v2Sdk: true,
         localHttpApi: true,
       })
     }

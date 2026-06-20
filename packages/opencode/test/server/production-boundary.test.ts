@@ -237,6 +237,19 @@ describe("production server boundary", () => {
     expect(instanceRoutes).not.toContain('.route("/config"')
   })
 
+  test("does not retain retired file or project legacy Hono route sources", async () => {
+    const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
+    const file = path.join(import.meta.dir, "../../src/server/instance/file.ts")
+    const project = path.join(import.meta.dir, "../../src/server/instance/project.ts")
+
+    expect(existsSync(file)).toBe(false)
+    expect(existsSync(project)).toBe(false)
+    expect(instanceRoutes).not.toContain("FileRoutes")
+    expect(instanceRoutes).not.toContain("ProjectRoutes")
+    expect(instanceRoutes).not.toContain('.route("/", FileRoutes()')
+    expect(instanceRoutes).not.toContain('.route("/project"')
+  })
+
   test("does not retain the retired session legacy Hono route source", async () => {
     const instanceRoutes = await readFile(path.join(import.meta.dir, "../../src/server/instance/index.ts"), "utf8")
     const session = await readFile(path.join(import.meta.dir, "../../src/server/instance/session.ts"), "utf8")

@@ -14,10 +14,8 @@ import { Runtime } from "@opencode-ai/core/runtime"
 import { LSP } from "../../lsp"
 import { Command } from "../../command"
 import { PermissionRoutes } from "./permission"
-import { ProjectRoutes } from "./project"
 import { PtyRoutes } from "./pty"
 import { McpRoutes } from "./mcp"
-import { FileRoutes } from "./file"
 import { ExperimentalRoutes } from "./experimental"
 import { ProviderRoutes } from "./provider"
 import { WorkspaceRouterMiddleware } from "./middleware"
@@ -125,12 +123,10 @@ const getLspStatus = Effect.fn("InstanceRoutes.lsp.status")(function* () {
 export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
   new Hono()
     .use(WorkspaceRouterMiddleware(upgrade))
-    .route("/project", ProjectRoutes())
     .route("/pty", PtyRoutes())
     .route("/experimental", ExperimentalRoutes())
     .route("/permission", PermissionRoutes())
     .route("/provider", ProviderRoutes())
-    .route("/", FileRoutes())
     .route("/mcp", McpRoutes())
     .post(
       "/instance/dispose",
