@@ -3,7 +3,7 @@ import fs from "fs/promises"
 import path from "path"
 import { Instance } from "../../src/project/instance"
 import { Server } from "../../src/server/server"
-import { Session as SessionNs } from "../../src/session"
+import { Session as SessionCore } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { TurnChange } from "../../src/session/turn-change"
 import { MessageID, type SessionID } from "../../src/session/schema"
@@ -13,6 +13,63 @@ import { AppRuntime } from "../../src/effect/app-runtime"
 import { tmpdir } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
 
+
+const SessionNs = {
+  ...SessionCore,
+  create(input?: SessionCore.CreateInput) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.create(input)))
+  },
+  get(id: Parameters<SessionCore.Interface["get"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.get(id)))
+  },
+  children(parentID: Parameters<SessionCore.Interface["children"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.children(parentID)))
+  },
+  fork(input: Parameters<SessionCore.Interface["fork"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.fork(input)))
+  },
+  remove(id: Parameters<SessionCore.Interface["remove"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.remove(id)))
+  },
+  setTitle(input: Parameters<SessionCore.Interface["setTitle"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.setTitle(input)))
+  },
+  setArchived(input: Parameters<SessionCore.Interface["setArchived"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.setArchived(input)))
+  },
+  setPermission(input: Parameters<SessionCore.Interface["setPermission"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.setPermission(input)))
+  },
+  messages(input: Parameters<SessionCore.Interface["messages"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.messages(input)))
+  },
+  messagesPage(input: Parameters<SessionCore.Interface["messagesPage"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.messagesPage(input)))
+  },
+  removePart(input: Parameters<SessionCore.Interface["removePart"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.removePart(input)))
+  },
+  updateMessage(input: Parameters<SessionCore.Interface["updateMessage"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.updateMessage(input)))
+  },
+  updatePart(input: Parameters<SessionCore.Interface["updatePart"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.updatePart(input)))
+  },
+  updateExecutionContext(input: Parameters<SessionCore.Interface["updateExecutionContext"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.updateExecutionContext(input)))
+  },
+  findActiveWorktreeBinding(directory: Parameters<SessionCore.Interface["findActiveWorktreeBinding"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.findActiveWorktreeBinding(directory)))
+  },
+}
+
+namespace SessionNs {
+  export type Info = SessionCore.Info
+  export type Interface = SessionCore.Interface
+  export type Service = SessionCore.Service
+  export type CreateInput = SessionCore.CreateInput
+  export type GlobalInfo = SessionCore.GlobalInfo
+}
 void Log.init({ print: false })
 const turnChange = await AppRuntime.runPromise(TurnChange.Service)
 const recordWrite = (input: Parameters<typeof turnChange.recordWrite>[0]) =>

@@ -6,6 +6,7 @@ import { Effect } from "effect"
 import { Automation } from "../../src/automation"
 import { sessionPromptExecutor } from "../../src/automation/runner"
 import { AutomationRunTable } from "../../src/automation/automation.sql"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Bus } from "../../src/bus"
 import { Database, eq } from "../../src/storage/db"
 import { Instance } from "../../src/project/instance"
@@ -21,6 +22,7 @@ import { internalTestHooks } from "../../src/automation/__test_hooks"
 import { tmpdir } from "../fixture/fixture"
 
 const RUN_WAIT_TIMEOUT_MS = 10_000
+const runSession = <A>(fn: (svc: Session.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Session.Service.use(fn))
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -659,7 +661,8 @@ describe("automation runNow execution", () => {
 
           const succeeded = await waitForRunByID(initial.id, "succeeded")
           if (!succeeded.sessionID) throw new Error("expected succeeded run to keep its sessionID")
-          const messages = await Session.messages({ sessionID: succeeded.sessionID })
+          const sessionID = succeeded.sessionID
+          const messages = await runSession((svc) => svc.messages({ sessionID }))
           expect(
             messages.some((message) => message.info.role === "assistant" && message.info.error?.name === "MessageAbortedError"),
           ).toBe(false)
@@ -726,7 +729,8 @@ describe("automation runNow execution", () => {
 
           const succeeded = await waitForRun(definition.id, "succeeded")
           if (!succeeded.sessionID) throw new Error("expected run session")
-          const session = await Session.get(succeeded.sessionID)
+          const sessionID = succeeded.sessionID
+          const session = await runSession((svc) => svc.get(sessionID))
           expect(session.executionContext.ownerDirectory).toBe(tmp.path)
           expect(session.executionContext.activeWorktree).toMatchObject({
             name: "daily-brief",
@@ -888,7 +892,8 @@ describe("automation runNow execution", () => {
           await waitForSucceededRunCount(definition.id, 2)
           const latest = Automation.runs({ automationID: definition.id }).items[0]
           if (!latest?.sessionID) throw new Error("expected latest run session")
-          const session = await Session.get(latest.sessionID)
+          const sessionID = latest.sessionID
+          const session = await runSession((svc) => svc.get(sessionID))
           expect(session.executionContext.activeWorktree?.branch).toBe("manual-automation-branch")
         },
       })
@@ -946,16 +951,18 @@ describe("automation runNow execution", () => {
         fn: async () => {
           const worktree = await Worktree.createReady({ name: "daily-brief" })
           await Bun.write(path.join(worktree.directory, "user-draft.txt"), "keep me\n")
-          const userSession = await Session.create({ title: "Automation: User renamed" })
-          await Session.updateExecutionContext({
-            sessionID: userSession.id,
-            activeWorktree: {
-              directory: worktree.directory,
-              name: worktree.name,
-              branch: worktree.branch,
-              source: worktree.source,
-            },
-          })
+          const userSession = await runSession((svc) => svc.create({ title: "Automation: User renamed" }))
+          await runSession((svc) =>
+            svc.updateExecutionContext({
+              sessionID: userSession.id,
+              activeWorktree: {
+                directory: worktree.directory,
+                name: worktree.name,
+                branch: worktree.branch,
+                source: worktree.source,
+              },
+            }),
+          )
           const definition = Automation.create(
             input(Instance.project.id, {
               title: "Respect user binding",
@@ -970,7 +977,7 @@ describe("automation runNow execution", () => {
           expect(terminal.stopReason).toBe("cancelled")
           expect(providerCalls).toBe(0)
           expect(await Bun.file(path.join(worktree.directory, "user-draft.txt")).text()).toBe("keep me\n")
-          const updatedUserSession = await Session.get(userSession.id)
+          const updatedUserSession = await runSession((svc) => svc.get(userSession.id))
           expect(updatedUserSession.executionContext.activeWorktree?.name).toBe("daily-brief")
         },
       })

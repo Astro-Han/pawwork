@@ -15,10 +15,10 @@ function run<A, E>(fx: Effect.Effect<A, E, SessionNs.Service>) {
 
 const svc = {
   ...SessionNs,
-  create(input?: Parameters<typeof SessionNs.create>[0]) {
+  create(input?: SessionNs.CreateInput) {
     return run(SessionNs.Service.use((svc) => svc.create(input)))
   },
-  remove(id: Parameters<typeof SessionNs.remove>[0]) {
+  remove(id: Parameters<SessionNs.Interface["remove"]>[0]) {
     return run(SessionNs.Service.use((svc) => svc.remove(id)))
   },
 }

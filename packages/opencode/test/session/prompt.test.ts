@@ -972,7 +972,7 @@ describe("session.agent-resolution", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const session = await Session.create({})
+          const session = await run(Session.Service.use((svc) => svc.create({})))
           await SessionPrompt.command({
             sessionID: session.id,
             command: "literal",
@@ -1056,7 +1056,7 @@ describe("session.agent-resolution", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const session = await Session.create({})
+          const session = await run(Session.Service.use((svc) => svc.create({})))
 
           await SessionPrompt.prompt({
             sessionID: session.id,

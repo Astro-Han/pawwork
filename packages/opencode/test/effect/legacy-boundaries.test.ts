@@ -107,6 +107,31 @@ test("session summary/revert/compaction services do not expose Promise facades",
   }
 })
 
+test("Session service does not expose Promise facades", async () => {
+  const text = await readFile(path.join(srcRoot, "session/session.ts"), "utf8")
+  const facades = [
+    "export const create =",
+    "export const get =",
+    "export const children =",
+    "export const fork =",
+    "export const remove =",
+    "export const setTitle =",
+    "export const setArchived =",
+    "export const setPermission =",
+    "export const messages =",
+    "export const messagesPage =",
+    "export const removePart =",
+    "export const updateMessage =",
+    "export const updatePart =",
+    "export const updateExecutionContext =",
+    "export const findActiveWorktreeBinding =",
+  ]
+
+  expect(text).not.toMatch(/\bfrom\s+["']\.\.\/effect\/run-service["']/)
+  expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
+  for (const facade of facades) expect(text).not.toContain(facade)
+})
+
 test("TurnChange service does not expose sync or Promise facades", async () => {
   const text = await readFile(path.join(srcRoot, "session/turn-change.ts"), "utf8")
   const facades = [

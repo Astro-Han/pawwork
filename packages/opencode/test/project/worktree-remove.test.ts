@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import { $ } from "bun"
+import { Effect } from "effect"
 import fs from "fs/promises"
 import path from "path"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { Worktree } from "../../src/worktree"
@@ -10,6 +12,7 @@ import { tmpdir } from "../fixture/fixture"
 
 const wintest = process.platform === "win32" ? test : test.skip
 const unixtest = process.platform === "win32" ? test.skip : test
+const runSession = <A>(fn: (svc: Session.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Session.Service.use(fn))
 
 describe("Worktree.remove", () => {
   test("refuses to remove a worktree bound to an active session", async () => {
@@ -21,11 +24,11 @@ describe("Worktree.remove", () => {
       fn: async () => {
         const info = await Worktree.makeWorktreeInfo("bound-session")
         await Worktree.createFromInfo(info)
-        const session = await Session.create({ title: "Bound session" })
-        await Session.updateExecutionContext({
+        const session = await runSession((svc) => svc.create({ title: "Bound session" }))
+        await runSession((svc) => svc.updateExecutionContext({
           sessionID: session.id,
           activeWorktree: info,
-        })
+        }))
         return { info, session }
       },
     })
@@ -49,8 +52,8 @@ describe("Worktree.remove", () => {
     await Instance.provide({
       directory: root,
       fn: async () => {
-        await Session.updateExecutionContext({ sessionID: session.id, activeWorktree: null })
-        await Session.remove(session.id)
+        await runSession((svc) => svc.updateExecutionContext({ sessionID: session.id, activeWorktree: null }))
+        await runSession((svc) => svc.remove(session.id))
         await Worktree.remove({ directory: info.directory })
       },
     })
@@ -206,11 +209,11 @@ describe("Worktree.reset", () => {
       directory: root,
       fn: async () => {
         const info = await Worktree.createReady({ name: "reset-bound-session" })
-        const session = await Session.create({ title: "Bound reset session" })
-        await Session.updateExecutionContext({
+        const session = await runSession((svc) => svc.create({ title: "Bound reset session" }))
+        await runSession((svc) => svc.updateExecutionContext({
           sessionID: session.id,
           activeWorktree: info,
-        })
+        }))
         return { info, session }
       },
     })
@@ -228,8 +231,8 @@ describe("Worktree.reset", () => {
     await Instance.provide({
       directory: root,
       fn: async () => {
-        await Session.updateExecutionContext({ sessionID: session.id, activeWorktree: null })
-        await Session.remove(session.id)
+        await runSession((svc) => svc.updateExecutionContext({ sessionID: session.id, activeWorktree: null }))
+        await runSession((svc) => svc.remove(session.id))
         await Worktree.remove({ directory: info.directory })
       },
     })

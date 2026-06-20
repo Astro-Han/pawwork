@@ -58,6 +58,7 @@ const seed = async () => {
   const { Instance } = await import("../src/project/instance")
   const { Config } = await import("../src/config/config")
   const { AppRuntime } = await import("../src/effect/app-runtime")
+  const { Effect } = await import("effect")
   const { Session } = await import("../src/session")
   const { MessageID, PartID } = await import("../src/session/schema")
   const { Project } = await import("../src/project/project")
@@ -69,7 +70,7 @@ const seed = async () => {
       fn: async () => {
         await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.waitForDependencies()))
 
-        const session = await Session.create({ title })
+        const session = await AppRuntime.runPromise(Session.Service.use((svc) => svc.create({ title })))
         const messageID = MessageID.ascending()
         const partID = PartID.ascending()
         const message = {
@@ -91,8 +92,14 @@ const seed = async () => {
           text,
           time: { start: now },
         }
-        await Session.updateMessage(message)
-        await Session.updatePart(part)
+        await AppRuntime.runPromise(
+          Session.Service.use((svc) =>
+            Effect.gen(function* () {
+              yield* svc.updateMessage(message)
+              yield* svc.updatePart(part)
+            }),
+          ),
+        )
         await Project.update({ projectID: Instance.project.id, name: "E2E Project" })
       },
     })

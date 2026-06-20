@@ -87,36 +87,41 @@ function wired(client: HttpClient.HttpClient) {
 
 const share = (id: SessionID) =>
   Database.use((db) => db.select().from(SessionShareTable).where(eq(SessionShareTable.session_id, id)).get())
+const runSession = <A>(fn: (svc: Session.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Session.Service.use(fn))
 
 async function makeUser(sessionID: SessionID, suffix: string) {
   const id = MessageID.make(`msg_user_${suffix}`)
-  await Session.updateMessage({
-    id,
-    sessionID,
-    role: "user",
-    time: { created: Date.now() },
-    agent: "build",
-    model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
-  } as unknown as MessageV2.Info)
+  await runSession((svc) =>
+    svc.updateMessage({
+      id,
+      sessionID,
+      role: "user",
+      time: { created: Date.now() },
+      agent: "build",
+      model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+    } as unknown as MessageV2.Info),
+  )
   return id
 }
 
 async function makeAssistant(sessionID: SessionID, parentID: MessageID, suffix: string) {
   const id = MessageID.make(`msg_assistant_${suffix}`)
-  await Session.updateMessage({
-    id,
-    sessionID,
-    role: "assistant",
-    parentID,
-    time: { created: Date.now(), completed: Date.now() },
-    modelID: ModelID.make("test"),
-    providerID: ProviderID.make("test"),
-    mode: "",
-    agent: "build",
-    path: { cwd: "/", root: "/" },
-    cost: 0,
-    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-  } as unknown as MessageV2.Info)
+  await runSession((svc) =>
+    svc.updateMessage({
+      id,
+      sessionID,
+      role: "assistant",
+      parentID,
+      time: { created: Date.now(), completed: Date.now() },
+      modelID: ModelID.make("test"),
+      providerID: ProviderID.make("test"),
+      mode: "",
+      agent: "build",
+      path: { cwd: "/", root: "/" },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    } as unknown as MessageV2.Info),
+  )
   return id
 }
 

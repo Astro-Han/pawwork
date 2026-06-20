@@ -17,6 +17,8 @@ import { tmpdir } from "../fixture/fixture"
 
 void Log.init({ print: false })
 
+const runSession = <A>(fn: (svc: Session.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Session.Service.use(fn))
+
 afterEach(async () => {
   await Instance.disposeAll()
 })
@@ -153,8 +155,8 @@ describe("experimental routes", () => {
       fn: async () => {
         const info = await Worktree.makeWorktreeInfo("bound-session")
         await Worktree.createFromInfo(info)
-        const session = await Session.create({ title: "Bound session" })
-        await Session.updateExecutionContext({ sessionID: session.id, activeWorktree: info })
+        const session = await runSession((svc) => svc.create({ title: "Bound session" }))
+        await runSession((svc) => svc.updateExecutionContext({ sessionID: session.id, activeWorktree: info }))
         return info
       },
     })
@@ -183,8 +185,8 @@ describe("experimental routes", () => {
       fn: async () => {
         const info = await Worktree.makeWorktreeInfo("bound-session-httpapi")
         await Worktree.createFromInfo(info)
-        const session = await Session.create({ title: "Bound session HttpApi" })
-        await Session.updateExecutionContext({ sessionID: session.id, activeWorktree: info })
+        const session = await runSession((svc) => svc.create({ title: "Bound session HttpApi" }))
+        await runSession((svc) => svc.updateExecutionContext({ sessionID: session.id, activeWorktree: info }))
         return info
       },
     })
@@ -228,10 +230,10 @@ describe("experimental routes", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const root = await Session.create({ title: "roots-false-root" })
-        const child = await Session.create({ title: "roots-false-child", parentID: root.id })
-        const archived = await Session.create({ title: "archived-false" })
-        await Session.setArchived({ sessionID: archived.id, time: Date.now() })
+        const root = await runSession((svc) => svc.create({ title: "roots-false-root" }))
+        const child = await runSession((svc) => svc.create({ title: "roots-false-child", parentID: root.id }))
+        const archived = await runSession((svc) => svc.create({ title: "archived-false" }))
+        await runSession((svc) => svc.setArchived({ sessionID: archived.id, time: Date.now() }))
 
         // Scope listGlobal to this tmpdir so the default 100-row window can't push the
         // seeded sessions out when the in-memory DB holds other tests' sessions.
@@ -261,7 +263,7 @@ describe("experimental routes", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const session = await Session.create({ title: "empty-cursor-httpapi" })
+        const session = await runSession((svc) => svc.create({ title: "empty-cursor-httpapi" }))
         const dir = encodeURIComponent(tmp.path)
 
         const response = await requestExperimentalHttpApi(`/experimental/session?directory=${dir}&roots=true&limit=10&cursor=`)

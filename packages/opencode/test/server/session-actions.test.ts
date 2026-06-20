@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test"
 import { Effect } from "effect"
-import { Runner, type InterruptMeta, type Runner as RunnerInstance } from "../../src/effect/runner"
 import { AppRuntime } from "../../src/effect/app-runtime"
+import { Runner, type InterruptMeta, type Runner as RunnerInstance } from "../../src/effect/runner"
 import { Instance } from "../../src/project/instance"
 import { Server } from "../../src/server/server"
 import { Session as SessionNs } from "../../src/session"
@@ -18,7 +18,7 @@ function run<A, E>(fx: Effect.Effect<A, E, SessionNs.Service>) {
 
 const svc = {
   ...SessionNs,
-  create(input?: Parameters<typeof SessionNs.create>[0]) {
+  create(input?: SessionNs.CreateInput) {
     return run(SessionNs.Service.use((svc) => svc.create(input)))
   },
   remove(id: SessionID) {
