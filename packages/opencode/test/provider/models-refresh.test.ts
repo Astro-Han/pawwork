@@ -6,7 +6,6 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { Effect, Fiber, Layer } from "effect"
 import { tmpdir } from "../fixture/fixture"
-import { makeRuntime } from "../../src/effect/run-service"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { Env } from "../../src/env"
 import { Global } from "../../src/global"
@@ -17,8 +16,7 @@ import { ModelID, ProviderID } from "../../src/provider/schema"
 
 const originalFetch = globalThis.fetch
 const originalModelsPath = process.env.OPENCODE_MODELS_PATH
-const env = makeRuntime(Env.Service, Env.defaultLayer)
-const setEnv = (key: string, value: string) => env.runSync((svc) => svc.set(key, value))
+const setEnv = (key: string, value: string) => AppRuntime.runSync(Env.Service.use((env) => env.set(key, value)))
 
 const runModels = <A, E>(fn: (svc: ModelsDev.Interface) => Effect.Effect<A, E, never>) =>
   AppRuntime.runPromise(ModelsDev.Service.use(fn))

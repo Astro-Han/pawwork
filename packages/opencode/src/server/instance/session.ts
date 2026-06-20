@@ -27,7 +27,8 @@ import { File } from "@/file"
 import { LSP } from "@/lsp"
 import { Env } from "@/env"
 
-const e2eSessionRoutesEnabled = () => Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
+const readEnv = (key: string) => AppRuntime.runSync(Env.Service.use((env) => env.get(key)))
+const e2eSessionRoutesEnabled = () => readEnv("OPENCODE_E2E_ENABLED") === "true" && !!readEnv("OPENCODE_E2E_LLM_URL")
 const runSessionRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
 
 type SessionListQuery = {

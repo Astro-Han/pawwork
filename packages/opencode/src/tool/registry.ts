@@ -135,6 +135,7 @@ export namespace ToolRegistry {
     | Truncate.Service
     | Automation.Service
     | Worktree.Service
+    | Env.Service
   > = Layer.effect(
     Service,
     Effect.gen(function* () {
@@ -143,6 +144,7 @@ export namespace ToolRegistry {
       const agents = yield* Agent.Service
       const truncate = yield* Truncate.Service
       const settings = yield* Settings.Service
+      const env = yield* Env.Service
 
       const invalid = yield* InvalidTool
       const agent = yield* AgentTool
@@ -448,12 +450,13 @@ export namespace ToolRegistry {
 
       const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
         const webSearchEnabled = yield* settings.webSearchEnabled()
+        const e2eLLMUrl = yield* env.get("OPENCODE_E2E_LLM_URL")
         const { allTools, availableDeferred, isDeferredAvailable } = yield* deferredAvailability(input)
         const filtered = allTools.filter((tool) => {
           if (tool.id === WebSearchTool.id) return webSearchEnabled
 
           const usePatch =
-            !!Env.get("OPENCODE_E2E_LLM_URL") ||
+            !!e2eLLMUrl ||
             (input.modelID.includes("gpt-") && !input.modelID.includes("oss") && !input.modelID.includes("gpt-4"))
           if (tool.id === ApplyPatchTool.id) return usePatch
           if (tool.id === EditTool.id || tool.id === WriteTool.id) return !usePatch
@@ -521,7 +524,7 @@ export namespace ToolRegistry {
 
   export const defaultLayer = Layer.suspend(() =>
     layer.pipe(
-      Layer.provide(Config.defaultLayer),
+      Layer.provide(Layer.mergeAll(Config.defaultLayer, Env.defaultLayer)),
       Layer.provide(Plugin.defaultLayer),
       Layer.provide(Layer.mergeAll(Todo.defaultLayer, TurnChange.defaultLayer)),
       Layer.provide(Skill.defaultLayer),

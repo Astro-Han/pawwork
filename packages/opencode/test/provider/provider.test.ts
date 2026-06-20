@@ -17,7 +17,6 @@ import { Filesystem } from "../../src/util/filesystem"
 import { Env } from "../../src/env"
 import { Effect } from "effect"
 import { AppRuntime } from "../../src/effect/app-runtime"
-import { makeRuntime } from "../../src/effect/run-service"
 import {
   VOLCENGINE_PLAN_DEFAULT_MODEL_ID,
   VOLCENGINE_PLAN_HIDDEN_MODEL_IDS,
@@ -25,9 +24,8 @@ import {
   VOLCENGINE_PLAN_VISIBLE_MODEL_IDS,
 } from "@opencode-ai/util/volcengine-plan"
 
-const env = makeRuntime(Env.Service, Env.defaultLayer)
-const set = (k: string, v: string) => env.runSync((svc) => svc.set(k, v))
-const unset = (k: string) => env.runSync((svc) => svc.remove(k))
+const set = (k: string, v: string) => AppRuntime.runSync(Env.Service.use((env) => env.set(k, v)))
+const unset = (k: string) => AppRuntime.runSync(Env.Service.use((env) => env.remove(k)))
 
 function clearVertexEnv() {
   unset("GOOGLE_VERTEX_PROJECT")

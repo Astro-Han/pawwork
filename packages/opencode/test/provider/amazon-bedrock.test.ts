@@ -11,10 +11,8 @@ import { Global } from "../../src/global"
 import { Filesystem } from "../../src/util/filesystem"
 import { Effect } from "effect"
 import { AppRuntime } from "../../src/effect/app-runtime"
-import { makeRuntime } from "../../src/effect/run-service"
 
-const env = makeRuntime(Env.Service, Env.defaultLayer)
-const set = (k: string, v: string) => env.runSync((svc) => svc.set(k, v))
+const set = (k: string, v: string) => AppRuntime.runSync(Env.Service.use((env) => env.set(k, v)))
 
 async function list() {
   return AppRuntime.runPromise(

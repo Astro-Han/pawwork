@@ -3,7 +3,7 @@ import path from "path"
 import { describe, expect, test } from "bun:test"
 import { NamedError } from "@opencode-ai/util/error"
 import { fileURLToPath, pathToFileURL } from "url"
-import { Effect, Layer } from "effect"
+import { Effect, Fiber, Layer } from "effect"
 import { Instance } from "../../src/project/instance"
 import { Permission } from "../../src/permission"
 import { ModelID, ProviderID } from "../../src/provider/schema"
@@ -12,13 +12,17 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { SessionPrompt } from "../../src/session/prompt"
 import { MessageID, PartID } from "../../src/session/schema"
 import { Log } from "../../src/util"
+import { Env } from "../../src/env"
 import { tmpdir } from "../fixture/fixture"
 
 void Log.init({ print: false })
 
 function run<A, E>(fx: Effect.Effect<A, E, SessionPrompt.Service | Session.Service>) {
   return Effect.runPromise(
-    fx.pipe(Effect.scoped, Effect.provide(Layer.mergeAll(SessionPrompt.defaultLayer, Session.defaultLayer))),
+    fx.pipe(
+      Effect.scoped,
+      Effect.provide(Layer.mergeAll(SessionPrompt.defaultLayer, Session.defaultLayer, Env.defaultLayer)),
+    ),
   )
 }
 
@@ -445,24 +449,23 @@ describe("session.prompt regression", () => {
               const prompt = yield* SessionPrompt.Service
               const sessions = yield* Session.Service
               const session = yield* sessions.create({ title: "Prompt cancel regression" })
-              const task = Effect.runPromise(
-                prompt.prompt({
+              const task = yield* prompt
+                .prompt({
                   sessionID: session.id,
                   agent: "build",
                   parts: [{ type: "text", text: "Cancel me" }],
-                }),
-              )
+                })
+                .pipe(Effect.forkChild)
 
               yield* Effect.promise(() => ready.promise)
               yield* prompt.cancel(session.id)
 
-              const result = yield* Effect.promise(() =>
-                Promise.race([
-                  task,
-                  new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error("timed out waiting for cancel")), 1000),
+              const result = yield* Fiber.join(task).pipe(
+                Effect.race(
+                  Effect.sleep("1 second").pipe(
+                    Effect.flatMap(() => Effect.fail(new Error("timed out waiting for cancel"))),
                   ),
-                ]),
+                ),
               )
 
               expect(result.info.role).toBe("assistant")
@@ -973,11 +976,18 @@ describe("session.agent-resolution", () => {
         directory: tmp.path,
         fn: async () => {
           const session = await run(Session.Service.use((svc) => svc.create({})))
-          await SessionPrompt.command({
-            sessionID: session.id,
-            command: "literal",
-            arguments: "$$PID $& $1",
-          })
+          await run(
+            Effect.gen(function* () {
+              const prompt = yield* SessionPrompt.Service
+              yield* prompt.command(
+                SessionPrompt.CommandInput.parse({
+                  sessionID: session.id,
+                  command: "literal",
+                  arguments: "$$PID $& $1",
+                }),
+              )
+            }),
+          )
         },
       })
 
@@ -1058,24 +1068,29 @@ describe("session.agent-resolution", () => {
         fn: async () => {
           const session = await run(Session.Service.use((svc) => svc.create({})))
 
-          await SessionPrompt.prompt({
-            sessionID: session.id,
-            agent: "build",
-            parts: [{ type: "text", text: "hello" }],
-            locale: "zh-Hans",
-            noReply: true,
-          })
-
-          await SessionPrompt.loop({
-            sessionID: session.id,
-          })
-
-          await SessionPrompt.command({
-            sessionID: session.id,
-            command: "summarize",
-            arguments: "",
-            locale: "pt-BR",
-          })
+          await run(
+            Effect.gen(function* () {
+              const prompt = yield* SessionPrompt.Service
+              yield* prompt.prompt(
+                SessionPrompt.PromptInput.parse({
+                  sessionID: session.id,
+                  agent: "build",
+                  parts: [{ type: "text", text: "hello" }],
+                  locale: "zh-Hans",
+                  noReply: true,
+                }),
+              )
+              yield* prompt.loop(SessionPrompt.LoopInput.parse({ sessionID: session.id }))
+              yield* prompt.command(
+                SessionPrompt.CommandInput.parse({
+                  sessionID: session.id,
+                  command: "summarize",
+                  arguments: "",
+                  locale: "pt-BR",
+                }),
+              )
+            }),
+          )
 
           expect(systems.some((text) => text.includes("User locale: zh-Hans"))).toBe(true)
           expect(systems.some((text) => text.includes("User locale: pt-BR"))).toBe(true)

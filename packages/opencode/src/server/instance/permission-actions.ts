@@ -1,11 +1,13 @@
 import { Env } from "@/env"
+import { AppRuntime } from "@/effect/app-runtime"
 import { Permission } from "@/permission"
 import { SessionID } from "@/session/schema"
 import { Effect } from "effect"
 import z from "zod"
 
+const readEnv = (key: string) => AppRuntime.runSync(Env.Service.use((env) => env.get(key)))
 export const e2ePermissionRoutesEnabled = () =>
-  Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
+  readEnv("OPENCODE_E2E_ENABLED") === "true" && !!readEnv("OPENCODE_E2E_LLM_URL")
 
 export const E2EPermissionAskBody = z.object({
   sessionID: SessionID.zod,
