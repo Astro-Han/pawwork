@@ -260,3 +260,48 @@ test("MCP services do not expose Promise facades", async () => {
     }
   }
 })
+
+test("Project, Vcs, and Worktree services do not expose Promise facades", async () => {
+  const services = {
+    "project/project.ts": [
+      "export function fromDirectory",
+      "export function discover",
+      "export function list",
+      "export function get",
+      "export function setInitialized",
+      "export function initGit",
+      "export function update",
+      "export function sandboxes",
+      "export function addSandbox",
+      "export function removeSandbox",
+    ],
+    "project/vcs.ts": [
+      "export async function init",
+      "export async function branch",
+      "export async function defaultBranch",
+      "export async function status",
+      "export async function diff",
+      "export async function diffRaw",
+      "export async function apply",
+    ],
+    "worktree/index.ts": [
+      "export async function makeWorktreeInfo",
+      "export async function createFromInfo",
+      "export async function create",
+      "export async function createReady",
+      "export async function list",
+      "export async function lookupByDirectory",
+      "export async function lookupBySlug",
+      "export async function registerExistingByPath",
+      "export async function remove",
+      "export async function reset",
+    ],
+  }
+
+  for (const [file, facades] of Object.entries(services)) {
+    const text = await readFile(path.join(srcRoot, file), "utf8")
+    expect(text).not.toMatch(/\bfrom\s+["']@\/effect\/run-service["']/)
+    expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
+    for (const facade of facades) expect(text).not.toContain(facade)
+  }
+})

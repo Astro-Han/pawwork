@@ -17,7 +17,6 @@ import { ensureWorktreesIgnoredEffect, restoreWorktreesIgnoredEffect } from "./g
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { NodePath } from "@effect/platform-node"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
-import { makeRuntime } from "@/effect/run-service"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { InstanceState } from "@/effect/instance-state"
 import { Session } from "../session"
@@ -163,7 +162,7 @@ export namespace Worktree {
     readonly makeWorktreeInfo: (name?: string) => Effect.Effect<Info>
     readonly createFromInfo: (info: Info, startCommand?: string) => Effect.Effect<void>
     readonly create: (input?: CreateInput) => Effect.Effect<Info>
-    readonly createReady: (input?: CreateInput) => Effect.Effect<Info>
+    readonly createReady: (input?: CreateInput & { exactName?: boolean }) => Effect.Effect<Info>
     readonly list: () => Effect.Effect<Info[]>
     readonly lookupByDirectory: (directory: string) => Effect.Effect<Info | undefined>
     readonly lookupBySlug: (slug: string) => Effect.Effect<Info | undefined>
@@ -842,45 +841,4 @@ export namespace Worktree {
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(NodePath.layer),
   )
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export async function makeWorktreeInfo(name?: string) {
-    return runPromise((svc) => svc.makeWorktreeInfo(name))
-  }
-
-  export async function createFromInfo(info: Info, startCommand?: string) {
-    return runPromise((svc) => svc.createFromInfo(info, startCommand))
-  }
-
-  export async function create(input?: CreateInput) {
-    return runPromise((svc) => svc.create(input))
-  }
-
-  export async function createReady(input?: CreateInput & { exactName?: boolean }) {
-    return runPromise((svc) => svc.createReady(input))
-  }
-
-  export async function list() {
-    return runPromise((svc) => svc.list())
-  }
-
-  export async function lookupByDirectory(directory: string) {
-    return runPromise((svc) => svc.lookupByDirectory(directory))
-  }
-
-  export async function lookupBySlug(slug: string) {
-    return runPromise((svc) => svc.lookupBySlug(slug))
-  }
-
-  export async function registerExistingByPath(directory: string) {
-    return runPromise((svc) => svc.registerExistingByPath(directory))
-  }
-
-  export async function remove(input: RemoveInput) {
-    return runPromise((svc) => svc.remove(input))
-  }
-
-  export async function reset(input: ResetInput) {
-    return runPromise((svc) => svc.reset(input))
-  }
 }

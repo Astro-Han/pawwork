@@ -71,6 +71,8 @@ const installDepsWithLayer = (dir: string, targetLayer = layer) =>
     Config.Service.use((svc) => svc.installDependencies(dir)).pipe(Effect.scoped, Effect.provide(targetLayer)),
   )
 const installDeps = (dir: string) => installDepsWithLayer(dir)
+const projectFromDirectory = (directory: string) =>
+  Effect.runPromise(Project.Service.use((project) => project.fromDirectory(directory)).pipe(Effect.provide(Project.defaultLayer)))
 
 const lockFailureLayer = Config.layer.pipe(
   Layer.provide(
@@ -130,7 +132,7 @@ async function writeConfig(dir: string, config: object, name = "opencode.json") 
 
 async function withRawInstance<R>(directory: string, fn: () => R): Promise<Awaited<R>> {
   const resolved = Filesystem.resolve(directory)
-  const { project, sandbox } = await Project.fromDirectory(resolved)
+  const { project, sandbox } = await projectFromDirectory(resolved)
   return await Instance.restore({ directory: resolved, worktree: sandbox, project }, fn)
 }
 

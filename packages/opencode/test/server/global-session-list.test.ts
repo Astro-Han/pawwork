@@ -11,6 +11,9 @@ import { testEffect } from "../lib/effect"
 
 void Log.init({ print: false })
 
+const projectGet = (id: Project.Info["id"]) =>
+  Effect.runSync(Project.Service.use((project) => project.get(id)).pipe(Effect.provide(Project.defaultLayer)))
+
 function run<A, E>(fx: Effect.Effect<A, E, SessionNs.Service>) {
   return Effect.runPromise(fx.pipe(Effect.provide(SessionNs.defaultLayer)))
 }
@@ -50,8 +53,8 @@ describe("session.listGlobal", () => {
     expect(ids).toContain(firstSession.id)
     expect(ids).toContain(secondSession.id)
 
-    const firstProject = Project.get(firstSession.projectID)
-    const secondProject = Project.get(secondSession.projectID)
+    const firstProject = projectGet(firstSession.projectID)
+    const secondProject = projectGet(secondSession.projectID)
 
     const firstItem = sessions.find((session) => session.id === firstSession.id)
     const secondItem = sessions.find((session) => session.id === secondSession.id)

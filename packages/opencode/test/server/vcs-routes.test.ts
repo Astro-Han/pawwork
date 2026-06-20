@@ -1,5 +1,5 @@
 import { $ } from "bun"
-import { afterEach, describe, expect, spyOn, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
 import { Instance } from "../../src/project/instance"
@@ -412,30 +412,24 @@ describe("VCS routes", () => {
 
   test("rejects oversized apply request bodies before JSON validation", async () => {
     await using tmp = await tmpdir()
-    const apply = spyOn(Vcs, "apply")
     const maxEncodedBodyBytes = Vcs.MAX_APPLY_PATCH_BYTES * 6 + Buffer.byteLength(JSON.stringify({ patch: "" }))
 
-    try {
-      const response = await Server.Default().app.request("/vcs/apply", {
-        method: "POST",
-        headers: {
-          "content-length": String(maxEncodedBodyBytes + 1),
-          "content-type": "application/json",
-          "x-opencode-directory": tmp.path,
-        },
-        body: JSON.stringify({ patch: "" }),
-      })
+    const response = await Server.Default().app.request("/vcs/apply", {
+      method: "POST",
+      headers: {
+        "content-length": String(maxEncodedBodyBytes + 1),
+        "content-type": "application/json",
+        "x-opencode-directory": tmp.path,
+      },
+      body: JSON.stringify({ patch: "" }),
+    })
 
-      expect(response.status).toBe(413)
-      expect(apply).not.toHaveBeenCalled()
-      expect(await response.json()).toEqual({
-        error: "vcs_apply_failed",
-        reason: "too-large",
-        message: "Patch exceeds the 10 MB input limit",
-      })
-    } finally {
-      apply.mockRestore()
-    }
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({
+      error: "vcs_apply_failed",
+      reason: "too-large",
+      message: "Patch exceeds the 10 MB input limit",
+    })
   })
 
   test("accepts escaped JSON bodies when decoded apply patches are within the byte limit", async () => {

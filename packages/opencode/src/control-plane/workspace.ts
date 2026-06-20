@@ -18,6 +18,7 @@ import { getAdaptor, getBuiltinAdaptor, ownerKey } from "./adaptors"
 import { type Adaptor, WorkspaceInfo } from "./types"
 import { WorkspaceID } from "./schema"
 import { parseSSE } from "./sse"
+import { AppRuntime } from "@/effect/app-runtime"
 
 export namespace Workspace {
   export const Info = WorkspaceInfo.meta({
@@ -176,7 +177,7 @@ export namespace Workspace {
     input: Pick<StoredInfo, "projectID" | "type" | "owner"> & { hint?: string | null },
     error: unknown,
   ) {
-    const project = Project.get(input.projectID)
+    const project = AppRuntime.runSync(Project.Service.use((project) => project.get(input.projectID)))
     if (!project) throw error
     const projectWorktree = project.worktree === "/" ? undefined : project.worktree
 
@@ -251,7 +252,7 @@ export namespace Workspace {
     const builtin = getBuiltinAdaptor(input.type)
     if (builtin) return builtin
 
-    const project = Project.get(input.projectID)
+    const project = AppRuntime.runSync(Project.Service.use((project) => project.get(input.projectID)))
     if (project?.worktree === "/" && !hint) {
       throw new Error(`Missing workspace owner for non-git adaptor: ${input.type}`)
     }

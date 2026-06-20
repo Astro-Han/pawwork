@@ -14,13 +14,16 @@ afterEach(async () => {
   await Instance.disposeAll()
 })
 
+const projectFromDirectory = (directory: string) =>
+  Effect.runPromise(Project.Service.use((project) => project.fromDirectory(directory)).pipe(Effect.provide(Project.defaultLayer)))
+
 test("File service init works with InstanceRef and no legacy ALS", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await fs.writeFile(path.join(dir, "visible.txt"), "hello", "utf-8")
     },
   })
-  const { project, sandbox } = await Project.fromDirectory(tmp.path)
+  const { project, sandbox } = await projectFromDirectory(tmp.path)
 
   await Effect.runPromise(
     Effect.scoped(
