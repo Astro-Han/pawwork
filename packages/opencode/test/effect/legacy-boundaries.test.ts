@@ -175,3 +175,22 @@ test("Auth and WebSearchAuth services do not expose Promise facades", async () =
     for (const facade of facades) expect(text).not.toContain(facade)
   }
 })
+
+test("Config service does not expose Promise facades", async () => {
+  const text = await readFile(path.join(srcRoot, "config/config.ts"), "utf8")
+  const facades = [
+    "export async function get",
+    "export async function getGlobal",
+    "export async function getConsoleState",
+    "export async function update",
+    "export async function updateGlobal",
+    "export async function seedGlobalConfig",
+    "export async function invalidate",
+    "export async function directories",
+    "export async function waitForDependencies",
+    "export async function installDependencies",
+  ]
+
+  expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
+  for (const facade of facades) expect(text).not.toContain(facade)
+})

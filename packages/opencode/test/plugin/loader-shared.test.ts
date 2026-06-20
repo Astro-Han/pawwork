@@ -12,7 +12,6 @@ const { Plugin } = await import("../../src/plugin/index")
 const { PluginLoader } = await import("../../src/plugin/loader")
 const { Instance } = await import("../../src/project/instance")
 const { Npm } = await import("@opencode-ai/core/npm")
-const { Config } = await import("../../src/config/config")
 const { writeMockConfigInstall } = await import("../shared/mock-npm-install")
 const { withConfigDepsLock } = await import("../shared/config-deps-lock")
 
@@ -738,14 +737,24 @@ describe("plugin.loader.shared", () => {
       },
     })
 
-    const wait = spyOn(Config, "waitForDependencies").mockResolvedValue()
+    const originalLoadExternal = PluginLoader.loadExternal
+    let waits = 0
+    const loadExternal = spyOn(PluginLoader, "loadExternal").mockImplementation((input) =>
+      originalLoadExternal({
+        ...input,
+        wait: async () => {
+          waits++
+          await input.wait?.()
+        },
+      }),
+    )
 
     try {
       await load(tmp.path)
-      expect(wait).not.toHaveBeenCalled()
+      expect(waits).toBe(0)
       expect(await Bun.file(tmp.extra.mark).text()).toBe("ok")
     } finally {
-      wait.mockRestore()
+      loadExternal.mockRestore()
     }
   })
 

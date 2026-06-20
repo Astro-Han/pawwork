@@ -9,6 +9,7 @@ import {
 import { Effect } from "effect"
 
 import { Config } from "@/config"
+import { AppRuntime } from "@/effect/app-runtime"
 import { makeRuntime } from "@/effect/run-service"
 import { ConfigPaths } from "@/config/paths"
 import { Global } from "@/global"
@@ -440,7 +441,9 @@ async function patchOne(dir: string, files: string[], target: Target, spec: stri
 }
 
 export async function patchPluginConfig(input: PatchInput, dep: PatchDeps = defaultPatchDeps): Promise<PatchResult> {
-  if (input.global && Runtime.isPawWork() && !input.config) await Config.seedGlobalConfig()
+  if (input.global && Runtime.isPawWork() && !input.config) {
+    await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.updateGlobal({})))
+  }
   const dir = patchDir(input)
   const files = patchFiles(input, dir, dep)
   const items: PatchItem[] = []

@@ -1514,7 +1514,7 @@ test("installDependencies bootstraps the config plugin package metadata", async 
   const install = spyOn(Npm, "install").mockResolvedValue(undefined)
 
   try {
-    await Config.installDependencies(tmp.path)
+    await installDeps(tmp.path)
 
     const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.path, "package.json"))
     const target = Installation.isLocal() ? "*" : Installation.VERSION
@@ -1610,7 +1610,7 @@ test("installDependencies does not pin config plugin metadata to a packaged app 
     ;(Installation as { VERSION: string }).VERSION = "0.0.0-prod-202605230200"
     ;(Installation as { CHANNEL: string }).CHANNEL = "prod"
 
-    await Config.installDependencies(tmp.path)
+    await installDeps(tmp.path)
 
     const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.path, "package.json"))
 
