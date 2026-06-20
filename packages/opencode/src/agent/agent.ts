@@ -74,6 +74,7 @@ export namespace Agent {
       const config = yield* Config.Service
       const auth = yield* Auth.Service
       const provider = yield* Provider.Service
+      const plugin = yield* Plugin.Service
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("Agent.state")(function* (ctx) {
@@ -326,9 +327,7 @@ export namespace Agent {
           const language = yield* provider.getLanguage(resolved)
 
           const system = [PROMPT_GENERATE]
-          yield* Effect.promise(() =>
-            Plugin.trigger("experimental.chat.system.transform", { model: resolved }, { system }),
-          )
+          yield* plugin.trigger("experimental.chat.system.transform", { model: resolved }, { system })
           const existing = yield* InstanceState.useEffect(state, (s) => s.list())
 
           // TODO: clean this up so provider specific logic doesnt bleed over
@@ -394,6 +393,7 @@ export namespace Agent {
   )
 
   export const defaultLayer = layer.pipe(
+    Layer.provide(Plugin.defaultLayer),
     Layer.provide(Provider.defaultLayer),
     Layer.provide(Auth.defaultLayer),
     Layer.provide(Config.defaultLayer),
