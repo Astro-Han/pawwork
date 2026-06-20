@@ -57,10 +57,21 @@ function fakePairer(platform: RemotePlatform, over: Partial<PlatformPairer> = {}
   }
 }
 
-/** Lift a custom run() into a full BridgeApp. add/remove default to no-ops for the
- * cold-start tests that never reach the incremental paths; override as needed. */
+/** Lift a custom run() into a full BridgeApp. add/remove default to throwing so a
+ * test that unexpectedly drives an incremental path fails loudly instead of silently
+ * passing through a no-op; incremental tests override them (see servingApp /
+ * bridgeHarness). */
 function appWith(run: BridgeApp["run"], over: Partial<BridgeApp> = {}): BridgeApp {
-  return { run, addPlatform: async () => {}, removePlatform: async () => {}, ...over }
+  return {
+    run,
+    addPlatform: async () => {
+      throw new Error("unexpected addPlatform — override appWith for incremental tests")
+    },
+    removePlatform: async () => {
+      throw new Error("unexpected removePlatform — override appWith for incremental tests")
+    },
+    ...over,
+  }
 }
 
 /** A bridge App whose run() emits "serving" for every configured platform (so the
@@ -510,6 +521,61 @@ test("after a fatal stream tears the bridge down, the next connect rebuilds it (
   expect(build).toBe(2)
   expect(stateOf("telegram")).toBe("connected") // recovered by the rebuild
   expect(stateOf("wechat")).toBe("connected")
+  await runtime.stop()
+})
+
+test("a failed re-pair on a live bridge keeps the working channel connected and its credential saved", async () => {
+  // Prepare-first: a re-pair whose incremental addPlatform rejects must not tear down
+  // the working channel or overwrite its saved credential — the user keeps the
+  // connection they had, and confirmPairing surfaces the failure by rejecting.
+  const oldAccount = sampleAccount("telegram")
+  const store = memoryStore([oldAccount])
+  let build = 0
+  let addCalls = 0
+  const buildApp: RemoteBridgeDeps["buildApp"] = async (config) => {
+    build++
+    return appWith(
+      (signal, _onReady, onStatus) => {
+        for (const platform of config.platforms) onStatus?.({ name: platform.name, phase: "serving" })
+        return hangUntilAbort(signal)
+      },
+      {
+        addPlatform: async () => {
+          addCalls++
+          throw new Error("rebuild boom")
+        },
+      },
+    )
+  }
+  // The re-pair captures a *different* telegram account, so we can tell whether the
+  // stored credential was overwritten.
+  const newAccount: RemoteAccount = { platform: "telegram", token: "999:xyz", allowFrom: "99", userName: "new" }
+  const runtime = new RemoteBridgeRuntime(
+    deps({
+      credentials: store,
+      buildApp,
+      pairers: [
+        fakePairer("telegram", {
+          pair: async (_start, emit) => {
+            emit({ phase: "awaitingBind", platform: "telegram", hint: "message" })
+            return newAccount
+          },
+        }),
+      ],
+    }),
+  )
+  await runtime.startIfConfigured() // cold start with the old account → connected
+  expect(runtime.getStatus().channels[0].state).toBe("connected")
+  expect(build).toBe(1)
+
+  // Re-pair telegram on the LIVE bridge; the incremental addPlatform rejects.
+  await runtime.startPairing("telegram", { token: "x" })
+  await expect(runtime.confirmPairing("telegram")).rejects.toThrow("rebuild boom")
+
+  expect(addCalls).toBe(1) // the incremental connect was attempted...
+  expect(build).toBe(1) // ...but the shared bridge was never rebuilt
+  expect(runtime.getStatus().channels[0].state).toBe("connected") // working channel preserved
+  expect(store.value).toEqual([oldAccount]) // old credential not overwritten by the new one
   await runtime.stop()
 })
 

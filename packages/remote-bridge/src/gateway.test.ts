@@ -798,11 +798,11 @@ test("removePlatform stops only that channel, leaving the stream and the others 
   }
 })
 
-test("a re-pair whose factory throws retires the old channel instead of leaving it live", async () => {
-  // addPlatform must retire any live same-name instance BEFORE building the
-  // replacement: a factory failure must not leave the old loop serving while the
-  // caller has already committed the new identity. Without retire-first the old
-  // platform would still be running (stops === 0) and still in the live set.
+test("a re-pair whose factory throws leaves the existing channel serving (prepare-first)", async () => {
+  // Prepare-first: the replacement is built BEFORE the old loop is retired, so a
+  // factory failure on a re-pair leaves the working channel up — not stopped, and
+  // still the live instance. The caller rolls back its saved account instead of
+  // losing the connection.
   const original = new FakePlatform("rt-repair")
   let builds = 0
   const server = mockServer((_req, url) => {
@@ -838,23 +838,9 @@ test("a re-pair whose factory throws retires the old channel instead of leaving 
       app.addPlatform({ name: "rt-repair", enabled: true, options: { allow_from: "U2" } }),
     ).rejects.toThrow("rebuild boom")
 
-    // The old instance was retired first: stopped and dropped from the live set, so
-    // it is no longer serving and its late inbound is dropped by the liveness guard.
-    expect(original.stops).toBe(1)
-    expect(app.platformNames()).toEqual([])
-
-    let warned = false
-    const originalWarn = console.warn
-    console.warn = () => {
-      warned = true
-    }
-    try {
-      app.messageHandler()(original, { sessionKey: "rt-repair:dm:alice", content: "late" })
-      await new Promise((resolve) => setTimeout(resolve, 5))
-      expect(warned).toBe(false)
-    } finally {
-      console.warn = originalWarn
-    }
+    // The old instance was never touched: still serving, still the live instance.
+    expect(original.stops).toBe(0)
+    expect(app.platformNames()).toEqual(["rt-repair"])
 
     controller.abort()
     await runPromise
@@ -863,12 +849,10 @@ test("a re-pair whose factory throws retires the old channel instead of leaving 
   }
 })
 
-test("a re-pair with an invalid audience retires the old channel instead of leaving it live", async () => {
-  // The retire-first ordering must also cover the audience-gate failure path: once
-  // the caller has committed the new account, a same-name re-pair that fails the
-  // audience gate must not leave the old loop serving under the new identity. (A
-  // *new* name that fails the gate still leaves existing channels untouched — see the
-  // next test.)
+test("a re-pair with an invalid audience leaves the existing channel serving (prepare-first)", async () => {
+  // The audience gate fails before any swap, so a same-name re-pair with a wildcard
+  // audience leaves the working channel serving and untouched. (A *new* name that
+  // fails the gate also leaves existing channels untouched — see the next test.)
   const original = new FakePlatform("rt-repair-audience")
   const server = mockServer((_req, url) => {
     switch (url.pathname) {
@@ -899,22 +883,9 @@ test("a re-pair with an invalid audience retires the old channel instead of leav
       app.addPlatform({ name: "rt-repair-audience", enabled: true, options: { allow_from: "*" } }),
     ).rejects.toThrow("specific allow_from")
 
-    // Retired first: stopped and dropped from the live set, not left serving.
-    expect(original.stops).toBe(1)
-    expect(app.platformNames()).toEqual([])
-
-    let warned = false
-    const originalWarn = console.warn
-    console.warn = () => {
-      warned = true
-    }
-    try {
-      app.messageHandler()(original, { sessionKey: "rt-repair-audience:dm:alice", content: "late" })
-      await new Promise((resolve) => setTimeout(resolve, 5))
-      expect(warned).toBe(false)
-    } finally {
-      console.warn = originalWarn
-    }
+    // Untouched: still serving, still the live instance.
+    expect(original.stops).toBe(0)
+    expect(app.platformNames()).toEqual(["rt-repair-audience"])
 
     controller.abort()
     await runPromise

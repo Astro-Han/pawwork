@@ -226,32 +226,43 @@ export class RemoteBridgeRuntime {
   }
 
   /**
-   * Approve the pending account for `platform` and (re)start the bridge with it.
-   * The secret was captured main-side, so the renderer approves the captured
-   * identity without resending it. Replaces any existing account for the platform.
+   * Approve the pending account for `platform` and connect it. On a cold bridge this
+   * builds the whole bridge; on a live bridge it connects just this channel, leaving
+   * the shared event stream and the other channels running. A live re-pair is
+   * prepare-first: the new channel is built and connected before the saved credential
+   * is replaced, so a failed re-pair leaves the working channel and its stored
+   * credential exactly as they were (the in-memory account swap is rolled back and the
+   * error rethrown). The secret was captured main-side, so the renderer approves the
+   * captured identity without resending it.
    */
   async confirmPairing(platform: RemotePlatform): Promise<void> {
     const pending = this.pending
     if (!pending || pending.platform !== platform) throw new Error("no pairing is awaiting confirmation")
     this.pending = null
     await this.enqueue(async () => {
-      this.accounts = [...this.accounts.filter((account) => account.platform !== platform), pending]
-      this.deps.credentials.save(this.accounts)
+      const nextAccounts = [...this.accounts.filter((account) => account.platform !== platform), pending]
       const app = this.current?.app
       if (!app) {
-        // Cold start, or recovering after a fatal stream tore the bridge down:
-        // build the whole bridge from every saved account.
+        // Cold start, or recovering after a fatal stream tore the bridge down: no live
+        // channel to preserve, so commit the account and build from every saved one.
+        this.accounts = nextAccounts
+        this.deps.credentials.save(this.accounts)
         await this.startBridge()
         return
       }
-      // Live bridge: connect (or re-pair) just this channel, leaving the shared
-      // event stream and the other channels running. addPlatform replaces an
-      // existing same-name channel in place, keeping its conversation pointers.
-      this.putChannel({ platform, state: "connecting", identity: this.pairerFor(pending).identity(pending), error: null })
+      // Live bridge: prepare-first. Build + connect the new channel BEFORE persisting
+      // the new credential, so a failed re-pair keeps the working channel and its
+      // saved credential intact. Swap accounts in memory first so the new channel's
+      // status renders the new identity; persist only once addPlatform succeeds, and
+      // roll the swap back (leaving the old channel untouched) on failure.
+      const previousAccounts = this.accounts
+      this.accounts = nextAccounts
       try {
         await app.addPlatform(this.platformConfig(pending))
+        this.deps.credentials.save(this.accounts)
       } catch (err) {
-        this.putChannel({ platform, state: "degraded", identity: this.pairerFor(pending).identity(pending), error: message(err) })
+        this.accounts = previousAccounts
+        throw err
       }
     })
   }

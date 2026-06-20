@@ -133,25 +133,25 @@ export class App {
    * Same gate as cold start: the audience is validated and the platform built via
    * the injected factory here in the gateway, so an incrementally-added channel
    * can never bypass the audience check. If a platform of the same name is already
-   * live (a re-pair), its loop is retired first — but its session pointers are
-   * kept, since a re-pair continues the conversation rather than forgetting it.
+   * live (a re-pair), the replacement is built first and the old loop retired only on
+   * success — keeping its session pointers, since a re-pair continues the conversation
+   * rather than forgetting it; a failed build leaves the old channel serving.
    * Registered with the Engine before it is supervised, so its first inbound routes.
    */
   async addPlatform(config: PlatformConfig): Promise<void> {
     if (!config.name) throw new Error("enabled platform name is required")
-    // Retire any live same-name instance FIRST — before the audience gate and the
-    // factory build — so that once the caller has committed the new account/identity,
-    // a failed re-pair (a rejected audience OR a factory throw) can never leave the
-    // old loop serving under the new label. A new name that fails the gate still
-    // leaves the existing channels untouched (nothing to retire). retirePlatform
-    // keeps the session pointers (only removePlatform prunes them), so a re-pair
-    // continues the conversation rather than forgetting it.
-    if (this.desiredPlatforms.has(config.name)) await this.retirePlatform(config.name)
     const options = config.options ?? {}
     if (!hasRemoteAudience(config.name, options)) {
       throw new Error(`${config.name} platform requires a specific allow_from or Feishu/Lark allow_chat with group_only`)
     }
+    // Prepare-first / swap-after-success: validate the audience and build the
+    // replacement BEFORE touching any live same-name instance, so a failed re-pair
+    // (rejected audience or a factory throw) leaves the existing channel serving and
+    // lets the caller roll back without losing a working connection. Only once the new
+    // platform is built do we retire the old loop (keeping its session pointers, since
+    // a re-pair continues the conversation), register the new one, and supervise it.
     const platform = await this.factory(config.name, options)
+    if (this.desiredPlatforms.has(config.name)) await this.retirePlatform(config.name)
     this.engine.registerPlatform(platform)
     this.desiredPlatforms.set(config.name, platform)
     this.supervisor?.add(platform)
