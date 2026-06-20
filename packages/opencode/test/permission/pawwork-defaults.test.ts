@@ -1,8 +1,14 @@
 import { afterEach, expect, test } from "bun:test"
+import { Effect } from "effect"
 import { Agent } from "../../src/agent/agent"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Permission } from "../../src/permission"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
+
+function agent<A>(fn: (svc: Agent.Interface) => Effect.Effect<A>) {
+  return AppRuntime.runPromise(Agent.Service.use(fn))
+}
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -13,7 +19,7 @@ test("build agent uses PawWork permission defaults", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await agent((svc) => svc.get("build"))
 
       expect(build).toBeDefined()
       expect(Permission.evaluate("read", "notes.txt", build!.permission).action).toBe("allow")

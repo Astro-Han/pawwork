@@ -1,10 +1,16 @@
 import { describe, expect, test, spyOn, beforeEach, afterEach } from "bun:test"
+import { Effect } from "effect"
 import path from "path"
 import * as Lsp from "../../src/lsp/index"
 import { LSPServer } from "../../src/lsp/server"
 import { Settings } from "../../src/settings"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
+
+function settings<A, E>(fn: (svc: Settings.Interface) => Effect.Effect<A, E>) {
+  return AppRuntime.runPromise(Settings.Service.use(fn))
+}
 
 function withInstance(fn: (dir: string) => Promise<void>) {
   return async () => {
@@ -24,13 +30,13 @@ describe("LSP service lifecycle", () => {
   let spawnSpy: ReturnType<typeof spyOn>
 
   beforeEach(async () => {
-    await Settings.setLspEnabled(true)
+    await settings((svc) => svc.setLspEnabled(true))
     spawnSpy = spyOn(LSPServer.Typescript, "spawn").mockResolvedValue(undefined)
   })
 
   afterEach(async () => {
     spawnSpy.mockRestore()
-    await Settings.setLspEnabled(false)
+    await settings((svc) => svc.setLspEnabled(false))
   })
 
   test(
