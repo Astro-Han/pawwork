@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { Effect } from "effect"
 import { Bus } from "../../src/bus"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { Pty } from "../../src/pty"
 import type { PtyID } from "../../src/pty/schema"
@@ -20,6 +22,10 @@ const pick = (log: Array<{ type: "created" | "exited" | "deleted"; id: PtyID }>,
   return log.filter((evt) => evt.id === id).map((evt) => evt.type)
 }
 
+function pty<A, E>(fn: (svc: Pty.Interface) => Effect.Effect<A, E>) {
+  return AppRuntime.runPromise(Pty.Service.use(fn))
+}
+
 describe("pty", () => {
   test("publishes created, exited, deleted in order for a short-lived process", async () => {
     if (process.platform === "win32") return
@@ -38,19 +44,21 @@ describe("pty", () => {
 
         let id: PtyID | undefined
         try {
-          const info = await Pty.create({
-            command: "/usr/bin/env",
-            args: ["sh", "-c", "sleep 0.1"],
-            title: "sleep",
-          })
+          const info = await pty((svc) =>
+            svc.create({
+              command: "/usr/bin/env",
+              args: ["sh", "-c", "sleep 0.1"],
+              title: "sleep",
+            }),
+          )
           id = info.id
 
           await wait(() => pick(log, id!).length >= 3)
           expect(pick(log, id!)).toEqual(["created", "exited", "deleted"])
-          expect(await Pty.get(id)).toBeUndefined()
+          expect(await pty((svc) => svc.get(id!))).toBeUndefined()
         } finally {
           off.forEach((x) => x())
-          if (id) await Pty.remove(id)
+          if (id) await pty((svc) => svc.remove(id!))
         }
       },
     })
@@ -73,21 +81,23 @@ describe("pty", () => {
 
         let id: PtyID | undefined
         try {
-          const info = await Pty.create({
-            command: "/bin/sh",
-            args: ["-c", "trap 'exit 0' TERM; while :; do sleep 1; done"],
-            title: "sh",
-          })
+          const info = await pty((svc) =>
+            svc.create({
+              command: "/bin/sh",
+              args: ["-c", "trap 'exit 0' TERM; while :; do sleep 1; done"],
+              title: "sh",
+            }),
+          )
           id = info.id
 
           await sleep(100)
 
-          await Pty.remove(id)
+          await pty((svc) => svc.remove(id!))
           await wait(() => pick(log, id!).length >= 3)
           expect(pick(log, id!)).toEqual(["created", "exited", "deleted"])
         } finally {
           off.forEach((x) => x())
-          if (id) await Pty.remove(id)
+          if (id) await pty((svc) => svc.remove(id!))
         }
       },
     })
@@ -105,18 +115,20 @@ describe("pty", () => {
         let id: PtyID | undefined
         try {
           const child = `trap '' HUP TERM; echo $$ > ${JSON.stringify(pidFile)}; while :; do sleep 1; done`
-          const info = await Pty.create({
-            command: "/bin/sh",
-            args: ["-c", `trap 'exit 0' TERM; /bin/sh -c ${JSON.stringify(child)} & wait`],
-            title: "child-tree",
-          })
+          const info = await pty((svc) =>
+            svc.create({
+              command: "/bin/sh",
+              args: ["-c", `trap 'exit 0' TERM; /bin/sh -c ${JSON.stringify(child)} & wait`],
+              title: "child-tree",
+            }),
+          )
           id = info.id
 
           await wait(() => existsSync(pidFile))
           const pid = Number((await Bun.file(pidFile).text()).trim())
           expect(pid).toBeGreaterThan(0)
 
-          await Pty.remove(id)
+          await pty((svc) => svc.remove(id!))
           await wait(() => {
             try {
               process.kill(pid, 0)
@@ -126,7 +138,7 @@ describe("pty", () => {
             }
           })
         } finally {
-          if (id) await Pty.remove(id)
+          if (id) await pty((svc) => svc.remove(id!))
         }
       },
     })
@@ -150,23 +162,28 @@ describe("pty", () => {
         fn: async () => {
           let id: PtyID | undefined
           try {
-            const info = await Pty.create({
-              command: "/usr/bin/env",
-              args: [
-                "sh",
-                "-c",
-                'printf "username=%s\\n" "${OPENCODE_SERVER_USERNAME}" && printf "password=%s\\n" "${OPENCODE_SERVER_PASSWORD}" && printf "custom=%s\\n" "${PAWWORK_E2E_CUSTOM_ENV-unset}"',
-              ],
-              title: "env",
-            })
+            const info = await pty((svc) =>
+              svc.create({
+                command: "/usr/bin/env",
+                args: [
+                  "sh",
+                  "-c",
+                  'printf "username=%s\\n" "${OPENCODE_SERVER_USERNAME}" && printf "password=%s\\n" "${OPENCODE_SERVER_PASSWORD}" && printf "custom=%s\\n" "${PAWWORK_E2E_CUSTOM_ENV-unset}"',
+                ],
+                title: "env",
+              }),
+            )
             id = info.id
 
             const output: string[] = []
-            await Pty.connect(info.id, {
-              readyState: 1,
-              send: (data: unknown) => output.push(typeof data === "string" ? data : Buffer.from(data as Uint8Array).toString("utf8")),
-              close: () => undefined,
-            } as any)
+            await pty((svc) =>
+              svc.connect(info.id, {
+                readyState: 1,
+                send: (data: unknown) =>
+                  output.push(typeof data === "string" ? data : Buffer.from(data as Uint8Array).toString("utf8")),
+                close: () => undefined,
+              } as any),
+            )
 
             await wait(() => output.join("").includes("custom="))
 
@@ -177,7 +194,7 @@ describe("pty", () => {
             expect(text).not.toContain("secret")
             expect(text).not.toContain("PawWork")
           } finally {
-            if (id) await Pty.remove(id)
+            if (id) await pty((svc) => svc.remove(id!))
           }
         },
       })
@@ -207,27 +224,32 @@ describe("pty", () => {
         fn: async () => {
           let id: PtyID | undefined
           try {
-            const info = await Pty.create({
-              command: "/usr/bin/env",
-              args: [
-                "sh",
-                "-c",
-                'printf "username=%s\\n" "${OPENCODE_SERVER_USERNAME}" && printf "password=%s\\n" "${OPENCODE_SERVER_PASSWORD}"',
-              ],
-              title: "explicit-env",
-              env: {
-                OPENCODE_SERVER_USERNAME: "explicit-user",
-                OPENCODE_SERVER_PASSWORD: "explicit-password",
-              },
-            })
+            const info = await pty((svc) =>
+              svc.create({
+                command: "/usr/bin/env",
+                args: [
+                  "sh",
+                  "-c",
+                  'printf "username=%s\\n" "${OPENCODE_SERVER_USERNAME}" && printf "password=%s\\n" "${OPENCODE_SERVER_PASSWORD}"',
+                ],
+                title: "explicit-env",
+                env: {
+                  OPENCODE_SERVER_USERNAME: "explicit-user",
+                  OPENCODE_SERVER_PASSWORD: "explicit-password",
+                },
+              }),
+            )
             id = info.id
 
             const output: string[] = []
-            await Pty.connect(info.id, {
-              readyState: 1,
-              send: (data: unknown) => output.push(typeof data === "string" ? data : Buffer.from(data as Uint8Array).toString("utf8")),
-              close: () => undefined,
-            } as any)
+            await pty((svc) =>
+              svc.connect(info.id, {
+                readyState: 1,
+                send: (data: unknown) =>
+                  output.push(typeof data === "string" ? data : Buffer.from(data as Uint8Array).toString("utf8")),
+                close: () => undefined,
+              } as any),
+            )
 
             await wait(() => output.join("").includes("password="))
 
@@ -237,7 +259,7 @@ describe("pty", () => {
             expect(text).not.toContain("secret")
             expect(text).not.toContain("PawWork")
           } finally {
-            if (id) await Pty.remove(id)
+            if (id) await pty((svc) => svc.remove(id!))
           }
         },
       })

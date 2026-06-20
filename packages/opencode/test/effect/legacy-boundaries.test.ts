@@ -177,6 +177,45 @@ test("Agent and Settings services do not expose Promise facades", async () => {
   }
 })
 
+test("LSP and Pty services do not expose Promise facades", async () => {
+  const services = {
+    "lsp/index.ts": [
+      "export const init = async",
+      "export const status = async",
+      "export const hasClients = async",
+      "export const touchFile = async",
+      "export const diagnostics = async",
+      "export const hover = async",
+      "export const definition = async",
+      "export const references = async",
+      "export const implementation = async",
+      "export const documentSymbol = async",
+      "export const workspaceSymbol = async",
+      "export const prepareCallHierarchy = async",
+      "export const incomingCalls = async",
+      "export const outgoingCalls = async",
+      "export const shutdownAll = async",
+      "export const invalidate = async",
+    ],
+    "pty/index.ts": [
+      "export async function list",
+      "export async function get",
+      "export async function write",
+      "export async function connect",
+      "export async function create",
+      "export async function update",
+      "export async function remove",
+    ],
+  }
+
+  for (const [file, facades] of Object.entries(services)) {
+    const text = await readFile(path.join(srcRoot, file), "utf8")
+    expect(text).not.toMatch(/\bfrom\s+["']@\/effect\/run-service["']/)
+    expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
+    for (const facade of facades) expect(text).not.toContain(facade)
+  }
+})
+
 test("Auth and WebSearchAuth services do not expose Promise facades", async () => {
   const services = {
     "auth/index.ts": [

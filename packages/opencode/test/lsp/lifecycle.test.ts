@@ -1,7 +1,7 @@
 import { describe, expect, test, spyOn, beforeEach, afterEach } from "bun:test"
 import { Effect } from "effect"
 import path from "path"
-import * as Lsp from "../../src/lsp/index"
+import { LSP } from "../../src/lsp"
 import { LSPServer } from "../../src/lsp/server"
 import { Settings } from "../../src/settings"
 import { AppRuntime } from "../../src/effect/app-runtime"
@@ -10,6 +10,10 @@ import { tmpdir } from "../fixture/fixture"
 
 function settings<A, E>(fn: (svc: Settings.Interface) => Effect.Effect<A, E>) {
   return AppRuntime.runPromise(Settings.Service.use(fn))
+}
+
+function lsp<A, E>(fn: (svc: LSP.Interface) => Effect.Effect<A, E>) {
+  return AppRuntime.runPromise(LSP.Service.use(fn))
 }
 
 function withInstance(fn: (dir: string) => Promise<void>) {
@@ -42,14 +46,14 @@ describe("LSP service lifecycle", () => {
   test(
     "init() completes without error",
     withInstance(async () => {
-      await Lsp.LSP.init()
+      await lsp((svc) => svc.init())
     }),
   )
 
   test(
     "status() returns empty array initially",
     withInstance(async () => {
-      const result = await Lsp.LSP.status()
+      const result = await lsp((svc) => svc.status())
       expect(Array.isArray(result)).toBe(true)
       expect(result.length).toBe(0)
     }),
@@ -58,7 +62,7 @@ describe("LSP service lifecycle", () => {
   test(
     "diagnostics() returns empty object initially",
     withInstance(async () => {
-      const result = await Lsp.LSP.diagnostics()
+      const result = await lsp((svc) => svc.diagnostics())
       expect(typeof result).toBe("object")
       expect(Object.keys(result).length).toBe(0)
     }),
@@ -67,7 +71,7 @@ describe("LSP service lifecycle", () => {
   test(
     "hasClients() returns true for .ts files in instance",
     withInstance(async (dir) => {
-      const result = await Lsp.LSP.hasClients(path.join(dir, "test.ts"))
+      const result = await lsp((svc) => svc.hasClients(path.join(dir, "test.ts")))
       expect(result).toBe(true)
     }),
   )
@@ -75,7 +79,7 @@ describe("LSP service lifecycle", () => {
   test(
     "hasClients() returns false for files outside instance",
     withInstance(async (dir) => {
-      const result = await Lsp.LSP.hasClients(path.join(dir, "..", "outside.ts"))
+      const result = await lsp((svc) => svc.hasClients(path.join(dir, "..", "outside.ts")))
       // hasClients checks servers but doesn't check containsPath — getClients does
       // So hasClients may return true even for outside files (it checks extension + root)
       // The guard is in getClients, not hasClients
@@ -86,7 +90,7 @@ describe("LSP service lifecycle", () => {
   test(
     "workspaceSymbol() returns empty array with no clients",
     withInstance(async () => {
-      const result = await Lsp.LSP.workspaceSymbol("test")
+      const result = await lsp((svc) => svc.workspaceSymbol("test"))
       expect(Array.isArray(result)).toBe(true)
       expect(result.length).toBe(0)
     }),
@@ -95,11 +99,13 @@ describe("LSP service lifecycle", () => {
   test(
     "definition() returns empty array for unknown file",
     withInstance(async (dir) => {
-      const result = await Lsp.LSP.definition({
-        file: path.join(dir, "nonexistent.ts"),
-        line: 0,
-        character: 0,
-      })
+      const result = await lsp((svc) =>
+        svc.definition({
+          file: path.join(dir, "nonexistent.ts"),
+          line: 0,
+          character: 0,
+        }),
+      )
       expect(Array.isArray(result)).toBe(true)
     }),
   )
@@ -107,11 +113,13 @@ describe("LSP service lifecycle", () => {
   test(
     "references() returns empty array for unknown file",
     withInstance(async (dir) => {
-      const result = await Lsp.LSP.references({
-        file: path.join(dir, "nonexistent.ts"),
-        line: 0,
-        character: 0,
-      })
+      const result = await lsp((svc) =>
+        svc.references({
+          file: path.join(dir, "nonexistent.ts"),
+          line: 0,
+          character: 0,
+        }),
+      )
       expect(Array.isArray(result)).toBe(true)
     }),
   )
@@ -119,9 +127,9 @@ describe("LSP service lifecycle", () => {
   test(
     "multiple init() calls are idempotent",
     withInstance(async () => {
-      await Lsp.LSP.init()
-      await Lsp.LSP.init()
-      await Lsp.LSP.init()
+      await lsp((svc) => svc.init())
+      await lsp((svc) => svc.init())
+      await lsp((svc) => svc.init())
       // Should not throw or create duplicate state
     }),
   )
@@ -129,7 +137,7 @@ describe("LSP service lifecycle", () => {
 
 describe("LSP.Diagnostic", () => {
   test("pretty() formats error diagnostic", () => {
-    const result = Lsp.LSP.Diagnostic.pretty({
+    const result = LSP.Diagnostic.pretty({
       range: { start: { line: 9, character: 4 }, end: { line: 9, character: 10 } },
       message: "Type 'string' is not assignable to type 'number'",
       severity: 1,
@@ -138,7 +146,7 @@ describe("LSP.Diagnostic", () => {
   })
 
   test("pretty() formats warning diagnostic", () => {
-    const result = Lsp.LSP.Diagnostic.pretty({
+    const result = LSP.Diagnostic.pretty({
       range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } },
       message: "Unused variable",
       severity: 2,
@@ -147,7 +155,7 @@ describe("LSP.Diagnostic", () => {
   })
 
   test("pretty() defaults to ERROR when no severity", () => {
-    const result = Lsp.LSP.Diagnostic.pretty({
+    const result = LSP.Diagnostic.pretty({
       range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
       message: "Something wrong",
     } as any)
