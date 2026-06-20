@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
 import { Effect } from "effect"
 import path from "path"
-import * as Lsp from "../../src/lsp/index"
+import { LSP } from "../../src/lsp"
 import { LSPServer } from "../../src/lsp/server"
 import { Settings } from "../../src/settings"
 import { AppRuntime } from "../../src/effect/app-runtime"
@@ -10,6 +10,10 @@ import { tmpdir } from "../fixture/fixture"
 
 function settings<A, E>(fn: (svc: Settings.Interface) => Effect.Effect<A, E>) {
   return AppRuntime.runPromise(Settings.Service.use(fn))
+}
+
+function lsp<A, E>(fn: (svc: LSP.Interface) => Effect.Effect<A, E>) {
+  return AppRuntime.runPromise(LSP.Service.use(fn))
 }
 
 describe("lsp.spawn", () => {
@@ -28,12 +32,14 @@ describe("lsp.spawn", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          await Lsp.LSP.touchFile(path.join(tmp.path, "..", "outside.ts"))
-          await Lsp.LSP.hover({
-            file: path.join(tmp.path, "..", "hover.ts"),
-            line: 0,
-            character: 0,
-          })
+          await lsp((svc) => svc.touchFile(path.join(tmp.path, "..", "outside.ts")))
+          await lsp((svc) =>
+            svc.hover({
+              file: path.join(tmp.path, "..", "hover.ts"),
+              line: 0,
+              character: 0,
+            }),
+          )
         },
       })
 
@@ -52,11 +58,13 @@ describe("lsp.spawn", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          await Lsp.LSP.hover({
-            file: path.join(tmp.path, "src", "inside.ts"),
-            line: 0,
-            character: 0,
-          })
+          await lsp((svc) =>
+            svc.hover({
+              file: path.join(tmp.path, "src", "inside.ts"),
+              line: 0,
+              character: 0,
+            }),
+          )
         },
       })
 

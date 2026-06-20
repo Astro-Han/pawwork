@@ -28,6 +28,10 @@ afterEach(async () => {
 
 const testUpgradeWebSocket: UpgradeWebSocket = () => new Response("upgraded")
 
+function pty<A, E>(fn: (svc: Pty.Interface) => Effect.Effect<A, E>) {
+  return AppRuntime.runPromise(Pty.Service.use(fn))
+}
+
 async function requestPtyWebSocket(path: string) {
   const response = await handleWebSocketCompatibilityRequest(
     new Request(new URL(path, "http://localhost")),
@@ -126,7 +130,7 @@ describe("pty routes", () => {
           expect(removeResponse.status).toBe(200)
           expect(await removeResponse.json()).toBe(true)
         } finally {
-          await Pty.remove(created.id)
+          await pty((svc) => svc.remove(created.id))
         }
       },
     })
@@ -270,11 +274,13 @@ describe("pty routes", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const info = await Pty.create({
-          command: "/bin/sh",
-          args: ["-c", "trap 'exit 0' TERM; while :; do sleep 1; done"],
-          title: "ticket",
-        })
+        const info = await pty((svc) =>
+          svc.create({
+            command: "/bin/sh",
+            args: ["-c", "trap 'exit 0' TERM; while :; do sleep 1; done"],
+            title: "ticket",
+          }),
+        )
         try {
           const app = new Hono().route("/pty", PtyRoutes())
           app.onError(ErrorMiddleware)
@@ -287,7 +293,7 @@ describe("pty routes", () => {
           expect(body.expires_in).toBe(60)
           expect(PtyTicket.consume({ ptyID: info.id, ticket: body.ticket })).toBe(true)
         } finally {
-          await Pty.remove(info.id)
+          await pty((svc) => svc.remove(info.id))
         }
       },
     })
@@ -311,11 +317,13 @@ describe("pty routes", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const info = await Pty.create({
-          command: "/bin/sh",
-          args: ["-c", "trap 'exit 0' TERM; while :; do sleep 1; done"],
-          title: "ticket-connect",
-        })
+        const info = await pty((svc) =>
+          svc.create({
+            command: "/bin/sh",
+            args: ["-c", "trap 'exit 0' TERM; while :; do sleep 1; done"],
+            title: "ticket-connect",
+          }),
+        )
         try {
           const issued = PtyTicket.issue({ ptyID: info.id })
 
@@ -326,7 +334,7 @@ describe("pty routes", () => {
           expect(await first.text()).toBe("upgraded")
           expect(second.status).toBe(401)
         } finally {
-          await Pty.remove(info.id)
+          await pty((svc) => svc.remove(info.id))
         }
       },
     })
@@ -338,11 +346,13 @@ describe("pty routes", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const info = await Pty.create({
-          command: "/bin/sh",
-          args: ["-c", "trap 'exit 0' TERM; while :; do sleep 1; done"],
-          title: "ticket-wrong-pty",
-        })
+        const info = await pty((svc) =>
+          svc.create({
+            command: "/bin/sh",
+            args: ["-c", "trap 'exit 0' TERM; while :; do sleep 1; done"],
+            title: "ticket-wrong-pty",
+          }),
+        )
         try {
           const issued = PtyTicket.issue({ ptyID: info.id })
 
@@ -354,7 +364,7 @@ describe("pty routes", () => {
           expect(wrong.status).toBe(401)
           expect(replay.status).toBe(401)
         } finally {
-          await Pty.remove(info.id)
+          await pty((svc) => svc.remove(info.id))
         }
       },
     })
