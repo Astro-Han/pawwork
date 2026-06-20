@@ -434,7 +434,7 @@ async function addMcpToConfig(name: string, mcpConfig: Config.Mcp, configPath: s
 async function seedGlobalConfigIfNeeded(configPath: string, globalConfigPath: string) {
   if (!Runtime.isPawWork() || Config.configFileLockKey(configPath) !== Config.configFileLockKey(globalConfigPath)) return true
   try {
-    await Config.seedGlobalConfig()
+    await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.updateGlobal({})))
     return true
   } catch (err) {
     prompts.log.error(errorMessage(err))

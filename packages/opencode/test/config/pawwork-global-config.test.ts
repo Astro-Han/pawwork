@@ -600,7 +600,7 @@ describe("PawWork global config isolation", () => {
       await Instance.provide({
         directory: project.path,
         fn: async () => {
-          await Config.seedGlobalConfig()
+          await saveGlobal({})
           const saved = JSON.parse(await Bun.file(path.join(home.path, ".pawwork", "pawwork.json")).text())
           expect(saved.username).toBe("legacy-user")
           expect("default_agent" in saved).toBeFalse()
@@ -640,7 +640,7 @@ describe("PawWork global config isolation", () => {
       await Instance.provide({
         directory: project.path,
         fn: async () => {
-          await Config.seedGlobalConfig()
+          await saveGlobal({})
           const saved = JSON.parse(await Bun.file(path.join(home.path, ".pawwork", "pawwork.json")).text())
           expect(saved.model).toBe("legacy/model")
           expect(saved.theme).toBeUndefined()

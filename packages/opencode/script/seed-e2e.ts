@@ -57,6 +57,7 @@ const seed = async () => {
 
   const { Instance } = await import("../src/project/instance")
   const { Config } = await import("../src/config/config")
+  const { AppRuntime } = await import("../src/effect/app-runtime")
   const { Session } = await import("../src/session")
   const { MessageID, PartID } = await import("../src/session/schema")
   const { Project } = await import("../src/project/project")
@@ -66,7 +67,7 @@ const seed = async () => {
     await Instance.provide({
       directory: dir,
       fn: async () => {
-        await Config.waitForDependencies()
+        await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.waitForDependencies()))
 
         const session = await Session.create({ title })
         const messageID = MessageID.ascending()

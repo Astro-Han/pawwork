@@ -24,6 +24,9 @@ import { testEffect } from "../lib/effect"
 
 const it = testEffect(Layer.mergeAll(CrossSpawnSpawner.defaultLayer, SessionRunState.defaultLayer))
 
+const provideConfig = <A, E>(effect: Effect.Effect<A, E, Config.Service>) =>
+  effect.pipe(Effect.scoped, Effect.provide(Config.defaultLayer))
+
 describe("SessionRunState", () => {
   const expectDirectoryIdle = (directory: string) =>
     Effect.gen(function* () {
@@ -935,7 +938,7 @@ describe("SessionRunState", () => {
             .pipe(Effect.forkChild)
 
           yield* Effect.sleep("10 millis")
-          yield* Effect.promise(() => Config.update({ username: "config-update-origin" }))
+          yield* provideConfig(Config.Service.use((cfg) => cfg.update({ username: "config-update-origin" })))
 
           yield* Effect.sleep("20 millis")
           expect(captured).toBeUndefined()
@@ -973,7 +976,9 @@ describe("SessionRunState", () => {
           yield* Effect.sync(() => GlobalBus.on("event", onEvent))
           yield* Effect.addFinalizer(() => Effect.sync(() => GlobalBus.off("event", onEvent)))
           yield* Effect.sleep("10 millis")
-          const invalidateFiber = yield* Effect.promise(() => Config.invalidate(true)).pipe(Effect.forkChild)
+          const invalidateFiber = yield* provideConfig(Config.Service.use((cfg) => cfg.invalidate(true))).pipe(
+            Effect.forkChild,
+          )
 
           yield* Effect.sleep("20 millis")
           expect(captured).toBeUndefined()
@@ -1009,12 +1014,17 @@ describe("SessionRunState", () => {
             .pipe(Effect.forkChild)
 
           yield* Effect.sleep("10 millis")
-          yield* Effect.promise(async () => {
-            await using globalTmp = await tmpdir()
+          const globalTmp = yield* Effect.acquireRelease(
+            Effect.promise(() => tmpdir()),
+            (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+          )
+          yield* Effect.gen(function* () {
             const previous = Global.Path.config
             ;(Global.Path as { config: string }).config = globalTmp.path
             try {
-              await Config.updateGlobal({ username: "config-update-global-origin" })
+              yield* provideConfig(
+                Config.Service.use((cfg) => cfg.updateGlobal({ username: "config-update-global-origin" })),
+              )
             } finally {
               ;(Global.Path as { config: string }).config = previous
             }

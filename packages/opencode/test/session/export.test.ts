@@ -20,6 +20,8 @@ import { RunLifecycle } from "../../src/session/run-lifecycle"
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
 
+const invalidateConfig = (wait = false) => AppRuntime.runPromise(Config.Service.use((svc) => svc.invalidate(wait)))
+
 type RemoveDirectory = (dir: string, options: Parameters<typeof fs.rm>[1]) => Promise<void>
 
 function isRetryableDirectoryRemovalError(error: unknown) {
@@ -370,7 +372,7 @@ describe("Export.session", () => {
         },
       })
 
-      await Config.invalidate(true)
+      await invalidateConfig(true)
       await removeLoadedSessionProjectDirectory(sessionProject.path)
       await Instance.provide({
         directory: currentProject.path,
@@ -393,7 +395,7 @@ describe("Export.session", () => {
       else process.env.GLOBAL_EXPORT_RULE = previousEnv
       if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
       else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
-      await Config.invalidate(true)
+      await invalidateConfig(true)
       if (sessionID) await SessionNs.remove(sessionID)
     }
   })
@@ -549,7 +551,7 @@ describe("Export.session", () => {
     process.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
       instructions: [localFile, url],
     })
-    await Config.invalidate(true)
+    await invalidateConfig(true)
 
     try {
       await Instance.provide({
@@ -579,7 +581,7 @@ describe("Export.session", () => {
       else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
       if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG_CONTENT
       else process.env.OPENCODE_CONFIG_CONTENT = previousConfig
-      await Config.invalidate(true)
+      await invalidateConfig(true)
     }
   })
 
@@ -603,7 +605,7 @@ describe("Export.session", () => {
     process.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
       instructions: [url],
     })
-    await Config.invalidate(true)
+    await invalidateConfig(true)
 
     try {
       await Instance.provide({
@@ -629,7 +631,7 @@ describe("Export.session", () => {
       else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
       if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG_CONTENT
       else process.env.OPENCODE_CONFIG_CONTENT = previousConfig
-      await Config.invalidate(true)
+      await invalidateConfig(true)
     }
   })
 

@@ -15,13 +15,17 @@ import { tmpdir } from "../fixture/fixture"
 
 const run = <A>(effect: Effect.Effect<A, any, Instruction.Service>) =>
   Effect.runPromise(effect.pipe(Effect.provide(Instruction.defaultLayer)))
+const invalidateConfig = (wait = false) =>
+  Effect.runPromise(
+    Config.Service.use((svc) => svc.invalidate(wait)).pipe(Effect.scoped, Effect.provide(Config.defaultLayer)),
+  )
 
 beforeEach(async () => {
-  await Config.invalidate(true)
+  await invalidateConfig(true)
 })
 
 afterEach(async () => {
-  await Config.invalidate(true)
+  await invalidateConfig(true)
 })
 
 function loaded(filepath: string): MessageV2.WithParts[] {
@@ -1283,7 +1287,7 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
     delete process.env.PAWWORK_HOME
     process.env.PAWWORK_CONFIG_DIR = pawworkConfig.path
     delete process.env.OPENCODE_CONFIG_CONTENT
-    await Config.invalidate(true)
+    await invalidateConfig(true)
     const originalGlobalConfig = Global.Path.config
     ;(Global.Path as { config: string }).config = globalTmp.path
 
@@ -1322,7 +1326,7 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
     process.env.PAWWORK_HOME = pawworkHome.path
     delete process.env.PAWWORK_CONFIG_DIR
     delete process.env.OPENCODE_CONFIG_CONTENT
-    await Config.invalidate(true)
+    await invalidateConfig(true)
 
     await Instance.provide({
       directory: projectTmp.path,
@@ -1360,7 +1364,7 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
     process.env.PAWWORK_HOME = pawworkHome.path
     process.env.PAWWORK_CONFIG_DIR = pawworkConfig.path
     delete process.env.OPENCODE_CONFIG_CONTENT
-    await Config.invalidate(true)
+    await invalidateConfig(true)
 
     await Instance.provide({
       directory: projectTmp.path,
@@ -1390,7 +1394,7 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
     process.env.PAWWORK_HOME = pawworkHome.path
     process.env.PAWWORK_CONFIG_DIR = pawworkConfig.path
     delete process.env.OPENCODE_CONFIG_CONTENT
-    await Config.invalidate(true)
+    await invalidateConfig(true)
 
     await Instance.provide({
       directory: projectTmp.path,

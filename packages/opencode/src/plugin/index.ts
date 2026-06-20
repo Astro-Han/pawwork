@@ -181,15 +181,16 @@ export namespace Plugin {
             if (!(yield* Effect.promise(() => needsConfigDependencies(fileURLToPath(spec), dependencyDir(origin.source, ctx.directory))))) {
               continue
             }
-            yield* Effect.promise(() => Config.waitForDependencies().catch(() => undefined))
+            yield* config.waitForDependencies().pipe(Effect.catch(() => Effect.void))
             break
           }
 
+          const waitForDependencies = () => Effect.runPromise(config.waitForDependencies())
           const loaded = yield* Effect.promise(() =>
             PluginLoader.loadExternal({
               items: plugins,
               kind: "server",
-              wait: () => Config.waitForDependencies(),
+              wait: waitForDependencies,
               shouldRetry: (origin) => {
                 const spec = Config.pluginSpecifier(origin.spec)
                 if (!spec.startsWith("file://")) return Promise.resolve(false)

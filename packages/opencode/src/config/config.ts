@@ -1399,70 +1399,18 @@ export const defaultLayer = layer.pipe(
   Layer.provide(Account.defaultLayer),
 )
 
-const { runPromise } = makeRuntime(Service, defaultLayer)
-
-export async function get() {
-  return runPromise((svc) => svc.get())
-}
-
-export async function getGlobal() {
-  return runPromise((svc) => svc.getGlobal())
-}
-
-export async function getConsoleState() {
-  return runPromise((svc) => svc.getConsoleState())
-}
-
-export async function update(config: Info) {
-  return runPromise((svc) => svc.update(config))
-}
-
-export async function updateGlobal(config: Info) {
-  return runPromise((svc) => svc.updateGlobal(config))
-}
-
-export async function seedGlobalConfig() {
-  await updateGlobal({})
-}
-
-export async function invalidate(wait = false) {
-  return runPromise((svc) => svc.invalidate(wait))
-}
-
-export async function directories() {
-  return runPromise((svc) => svc.directories())
-}
-
-export async function waitForDependencies() {
-  return runPromise((svc) => svc.waitForDependencies())
-}
-
-export async function installDependencies(dir: string) {
-  return runPromise((svc) => svc.installDependencies(dir))
-}
-
 const ConfigInfo = Info
 const ConfigServerZod = Server
 const ConfigLayoutZod = Layout
 const ConfigService = Service
 const ConfigLayer = layer
 const ConfigDefaultLayer = defaultLayer
-const ConfigGet = get
-const ConfigGetGlobal = getGlobal
-const ConfigGetConsoleState = getConsoleState
-const ConfigUpdate = update
-const ConfigUpdateGlobal = updateGlobal
-const ConfigSeedGlobalConfig = seedGlobalConfig
 const ConfigGlobalConfigFileForRead = globalConfigFileForRead
 const ConfigGlobalConfigFileForWrite = globalConfigFileForWrite
 const ConfigConfigFileLockKey = configFileLockKey
 const ConfigWithConfigFileLock = withConfigFileLock
 const ConfigWriteConfigTextAtomic = writeConfigTextAtomic
 const ConfigProjectConfigFileForWrite = projectConfigFileForWrite
-const ConfigInvalidate = invalidate
-const ConfigDirectories = directories
-const ConfigWaitForDependencies = waitForDependencies
-const ConfigInstallDependencies = installDependencies
 
 export namespace Config {
   export const Info = ConfigInfo
@@ -1496,20 +1444,10 @@ export namespace Config {
   export const managedConfigDir = ConfigManaged.managedConfigDir
   export const parseManagedPlist = ConfigManaged.parseManagedPlist
 
-  export const get = ConfigGet
-  export const getGlobal = ConfigGetGlobal
-  export const getConsoleState = ConfigGetConsoleState
-  export const update = ConfigUpdate
-  export const updateGlobal = ConfigUpdateGlobal
-  export const seedGlobalConfig = ConfigSeedGlobalConfig
   export const globalConfigFileForRead = ConfigGlobalConfigFileForRead
   export const globalConfigFileForWrite = ConfigGlobalConfigFileForWrite
   export const configFileLockKey = ConfigConfigFileLockKey
   export const withConfigFileLock = ConfigWithConfigFileLock
   export const writeConfigTextAtomic = ConfigWriteConfigTextAtomic
   export const projectConfigFileForWrite = ConfigProjectConfigFileForWrite
-  export const invalidate = ConfigInvalidate
-  export const directories = ConfigDirectories
-  export const waitForDependencies = ConfigWaitForDependencies
-  export const installDependencies = ConfigInstallDependencies
 }
