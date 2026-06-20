@@ -55,6 +55,15 @@ test("production source does not use Promise flock compatibility", async () => {
   expect(hits.sort()).toEqual([])
 })
 
+test("config and plugin flock locks do not create EffectFlock facade runtimes", async () => {
+  const files = ["config/config.ts", "plugin/install.ts", "plugin/meta.ts"]
+
+  for (const file of files) {
+    const text = await readFile(path.join(srcRoot, file), "utf8")
+    expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*EffectFlock\.Service\s*,\s*EffectFlock\.defaultLayer\s*\)/)
+  }
+})
+
 test("worktree adaptor does not call Worktree Promise facades", async () => {
   const text = await readFile(path.join(srcRoot, "control-plane/adaptors/worktree.ts"), "utf8")
 
