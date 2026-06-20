@@ -21,6 +21,7 @@ import { ShareRuntime } from "../../src/share/runtime"
 import { Storage } from "../../src/storage/storage"
 import { SessionShareTable } from "../../src/share/share.sql"
 import { Database, eq } from "../../src/storage/db"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
 import { testEffect } from "../lib/effect"
@@ -34,6 +35,10 @@ const env = Layer.mergeAll(
 )
 const it = testEffect(env)
 const enabledGate = Layer.succeed(ShareRuntime.CloudShareGate, { isEnabled: () => true })
+const turnChange = await AppRuntime.runPromise(TurnChange.Service)
+const recordWrite = (input: Parameters<typeof turnChange.recordWrite>[0]) =>
+  AppRuntime.runSync(turnChange.recordWrite(input))
+const finalize = (input: Parameters<typeof turnChange.finalize>[0]) => AppRuntime.runSync(turnChange.finalize(input))
 
 const json = (req: Parameters<typeof HttpClientResponse.fromWeb>[0], body: unknown, status = 200) =>
   HttpClientResponse.fromWeb(
@@ -389,22 +394,22 @@ describe("ShareNext", () => {
           )
 
           yield* Effect.sync(() => {
-            TurnChange.recordWrite({
+            recordWrite({
               sessionID: info.id,
               messageID: firstAssistant,
               path: "/repo/part-a1.txt",
               before: { exists: false },
               after: { exists: true, content: "a1\n" },
             })
-            TurnChange.finalize({ sessionID: info.id, messageID: firstAssistant })
-            TurnChange.recordWrite({
+            finalize({ sessionID: info.id, messageID: firstAssistant })
+            recordWrite({
               sessionID: info.id,
               messageID: secondAssistant,
               path: "/repo/part-a2.txt",
               before: { exists: false },
               after: { exists: true, content: "a2\n" },
             })
-            TurnChange.finalize({ sessionID: info.id, messageID: secondAssistant })
+            finalize({ sessionID: info.id, messageID: secondAssistant })
             Database.use((db) =>
               db
                 .update(SessionTable)

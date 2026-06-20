@@ -106,3 +106,24 @@ test("session summary/revert/compaction services do not expose Promise facades",
     for (const facade of facades) expect(text).not.toContain(facade)
   }
 })
+
+test("TurnChange service does not expose sync or Promise facades", async () => {
+  const text = await readFile(path.join(srcRoot, "session/turn-change.ts"), "utf8")
+  const facades = [
+    "export function recordWrite",
+    "export function recordUncaptured",
+    "export function finalize",
+    "export function get",
+    "export function aggregateTurn",
+    "export function aggregateTurnUnion",
+    "export function aggregateSessionFromTurns",
+    "export function undo",
+    "export function redo",
+    "export function aggregateTurnUndo",
+    "export function aggregateTurnRedo",
+  ]
+
+  expect(text).not.toMatch(/\bfrom\s+["']@\/effect\/run-service["']/)
+  expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
+  for (const facade of facades) expect(text).not.toContain(facade)
+})

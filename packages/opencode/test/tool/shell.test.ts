@@ -26,6 +26,7 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { resetDatabase } from "../fixture/db"
 import { testEffect } from "../lib/effect"
+import { AppRuntime } from "../../src/effect/app-runtime"
 
 const testLayer = Layer.mergeAll(
   CrossSpawnSpawner.defaultLayer,
@@ -36,6 +37,10 @@ const testLayer = Layer.mergeAll(
   TurnChange.defaultLayer,
 )
 const it = testEffect(testLayer)
+const turnChange = await AppRuntime.runPromise(TurnChange.Service)
+const finalize = (input: Parameters<typeof turnChange.finalize>[0]) => AppRuntime.runSync(turnChange.finalize(input))
+const aggregateTurnUnion = (input: Parameters<typeof turnChange.aggregateTurnUnion>[0]) =>
+  AppRuntime.runSync(turnChange.aggregateTurnUnion(input))
 
 const initBashEffect = Effect.gen(function* () {
   const info = yield* ShellTool
@@ -324,7 +329,7 @@ describe("tool.bash expected_outputs", () => {
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
 
-        const display = TurnChange.finalize(turn)
+        const display = finalize(turn)
         expect(display?.files).toEqual([
           {
             path: "report.docx",
@@ -369,7 +374,7 @@ describe("tool.bash expected_outputs", () => {
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true }])
 
-        expect(TurnChange.finalize(turn)?.files).toMatchObject([
+        expect(finalize(turn)?.files).toMatchObject([
           {
             path: "notes.txt",
             status: "added",
@@ -413,7 +418,7 @@ describe("tool.bash expected_outputs", () => {
           (result.metadata as { artifacts?: Array<{ path: string; exists: boolean; changed: boolean }> }).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true }])
 
-        expect(TurnChange.finalize(turn)?.files).toMatchObject([
+        expect(finalize(turn)?.files).toMatchObject([
           {
             path: "notes-bom.txt",
             status: "added",
@@ -453,7 +458,7 @@ describe("tool.bash expected_outputs", () => {
         )
 
         expect(result.metadata.exit).toBe(1)
-        const display = TurnChange.finalize(turn)
+        const display = finalize(turn)
         expect(display?.files[0]).toMatchObject({
           path: "partial.docx",
           status: "added",
@@ -501,7 +506,7 @@ describe("tool.bash expected_outputs", () => {
           (result.metadata as { artifacts?: Array<{ path: string; exists: boolean; changed: boolean }> }).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true }])
         expect(
-          TurnChange.finalize(turn)?.files?.some(
+          finalize(turn)?.files?.some(
             (file) => file.path === "nested/report.txt" && file.status === "added",
           ),
         ).toBe(true)
@@ -532,7 +537,7 @@ describe("tool.bash expected_outputs", () => {
           ),
         )
 
-        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(finalize(turn)).toBeUndefined()
       },
     })
   })
@@ -563,9 +568,9 @@ describe("tool.bash expected_outputs", () => {
 
         expect(result.metadata.exit).toBe(0)
         expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
-        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(finalize(turn)).toBeUndefined()
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "uncaptured",
           count: 1,
@@ -612,7 +617,7 @@ describe("tool.bash expected_outputs", () => {
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
 
-        expect(TurnChange.finalize(turn)?.files).toEqual([
+        expect(finalize(turn)?.files).toEqual([
           {
             path: "Report.DOCX",
             status: "added",
@@ -663,7 +668,7 @@ describe("tool.bash expected_outputs", () => {
             }
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
-        expect(TurnChange.finalize(turn)?.files).toEqual([
+        expect(finalize(turn)?.files).toEqual([
           {
             path: "report.docx",
             status: "modified",
@@ -706,9 +711,9 @@ describe("tool.bash expected_outputs", () => {
         )
 
         expect(result.metadata.exit).toBe(0)
-        TurnChange.finalize(turn)
+        finalize(turn)
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "mixed",
           count: 1,
@@ -763,7 +768,7 @@ describe("tool.bash expected_outputs", () => {
             }
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
-        expect(TurnChange.finalize(turn)?.files?.[0]).toMatchObject({
+        expect(finalize(turn)?.files?.[0]).toMatchObject({
           path: "nested/Report.XLSX",
           status: "added",
           binary: true,
@@ -804,9 +809,9 @@ describe("tool.bash expected_outputs", () => {
 
         expect(result.metadata.exit).toBe(0)
         expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
-        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(finalize(turn)).toBeUndefined()
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "uncaptured",
           count: 1,
@@ -848,9 +853,9 @@ describe("tool.bash expected_outputs", () => {
         expect(result.metadata.exit).toBe(0)
         expect(fs.existsSync(target)).toBe(true)
         expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
-        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(finalize(turn)).toBeUndefined()
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "uncaptured",
           count: 1,
@@ -894,9 +899,9 @@ describe("tool.bash expected_outputs", () => {
 
         expect(result.metadata.exit).toBe(0)
         expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
-        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(finalize(turn)).toBeUndefined()
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "uncaptured",
           count: 1,
@@ -971,7 +976,7 @@ describe("tool.bash expected_outputs", () => {
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "mixed",
           count: 1,
@@ -1007,7 +1012,7 @@ describe("tool.bash expected_outputs", () => {
 
         expect(result.metadata.exit).toBe(0)
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "empty",
         })
@@ -1048,9 +1053,9 @@ describe("tool.bash expected_outputs", () => {
 
         expect(result.metadata.exit).toBe(0)
         expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
-        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(finalize(turn)).toBeUndefined()
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "empty",
         })
@@ -1116,7 +1121,7 @@ describe("tool.bash expected_outputs", () => {
             }
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
-        expect(TurnChange.finalize(turn)?.files).toEqual([
+        expect(finalize(turn)?.files).toEqual([
           {
             path: "report.docx",
             status: "modified",
@@ -1190,7 +1195,7 @@ describe("tool.bash expected_outputs", () => {
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "mixed",
           count: 1,
@@ -1269,7 +1274,7 @@ describe("tool.bash expected_outputs", () => {
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "mixed",
           count: 1,
@@ -1345,7 +1350,7 @@ describe("tool.bash expected_outputs", () => {
             }
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
-        expect(TurnChange.finalize(turn)?.files).toEqual([
+        expect(finalize(turn)?.files).toEqual([
           {
             path: "report.xlsx",
             status: "modified",
@@ -1406,9 +1411,9 @@ describe("tool.bash expected_outputs", () => {
 
         expect(result.metadata.exit).toBe(0)
         expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
-        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(finalize(turn)).toBeUndefined()
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "empty",
         })
@@ -1464,7 +1469,7 @@ describe("tool.bash expected_outputs", () => {
               }
             ).artifacts,
           ).toEqual([{ path: target, exists: false, changed: false, comparable: false, errorCode: "EACCES" }])
-          expect(TurnChange.finalize(turn)).toBeUndefined()
+          expect(finalize(turn)).toBeUndefined()
         } finally {
           readSpy.mockRestore()
         }

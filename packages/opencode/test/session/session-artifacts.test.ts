@@ -6,12 +6,19 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { SessionSummary } from "../../src/session/summary"
 import { TurnChange } from "../../src/session/turn-change"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
 import { testEffect } from "../lib/effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 
 const it = testEffect(Layer.mergeAll(Session.defaultLayer, SessionSummary.defaultLayer, CrossSpawnSpawner.defaultLayer))
+const turnChange = await AppRuntime.runPromise(TurnChange.Service)
+const recordWrite = (input: Parameters<typeof turnChange.recordWrite>[0]) =>
+  AppRuntime.runSync(turnChange.recordWrite(input))
+const recordUncaptured = (input: Parameters<typeof turnChange.recordUncaptured>[0]) =>
+  AppRuntime.runSync(turnChange.recordUncaptured(input))
+const finalize = (input: Parameters<typeof turnChange.finalize>[0]) => AppRuntime.runSync(turnChange.finalize(input))
 
 const makeUser = Effect.fn("test.makeUser")(function* (sessionID: SessionID, suffix: string) {
   const session = yield* Session.Service
@@ -66,22 +73,22 @@ describe("session artifacts", () => {
           const user = yield* makeUser(info.id, "captured")
           const assistant = yield* makeAssistant(info.id, user, "captured")
 
-          TurnChange.recordWrite({
+          recordWrite({
             sessionID: info.id,
             messageID: assistant,
             path: `${dir}/artifact-report.md`,
             before: { exists: false },
             after: { exists: true, content: "report\n" },
           })
-          TurnChange.recordWrite({
+          recordWrite({
             sessionID: info.id,
             messageID: assistant,
             path: `${dir}/deleted.md`,
             before: { exists: true, content: "delete\n" },
             after: { exists: false },
           })
-          TurnChange.recordUncaptured({ sessionID: info.id, messageID: assistant })
-          TurnChange.finalize({ sessionID: info.id, messageID: assistant })
+          recordUncaptured({ sessionID: info.id, messageID: assistant })
+          finalize({ sessionID: info.id, messageID: assistant })
 
           const artifacts = yield* summary.artifacts({ sessionID: info.id })
           expect(artifacts).toEqual([
@@ -110,8 +117,8 @@ describe("session artifacts", () => {
           const uncaptured = yield* session.create({ title: "Uncaptured artifacts" })
           const user = yield* makeUser(uncaptured.id, "uncaptured")
           const assistant = yield* makeAssistant(uncaptured.id, user, "uncaptured")
-          TurnChange.recordUncaptured({ sessionID: uncaptured.id, messageID: assistant })
-          TurnChange.finalize({ sessionID: uncaptured.id, messageID: assistant })
+          recordUncaptured({ sessionID: uncaptured.id, messageID: assistant })
+          finalize({ sessionID: uncaptured.id, messageID: assistant })
           expect(yield* summary.artifacts({ sessionID: uncaptured.id })).toEqual([])
         }),
       )

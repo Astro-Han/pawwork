@@ -8,10 +8,18 @@ import { TurnChange } from "../../src/session/turn-change"
 import { MessageID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Database } from "../../src/storage/db"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { tmpdir } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
 
 const messageID = MessageID.make("msg_turn_change")
+const turnChange = await AppRuntime.runPromise(TurnChange.Service)
+const recordWrite = (input: Parameters<typeof turnChange.recordWrite>[0]) =>
+  AppRuntime.runSync(turnChange.recordWrite(input))
+const finalize = (input: Parameters<typeof turnChange.finalize>[0]) => AppRuntime.runSync(turnChange.finalize(input))
+const get = (input: Parameters<typeof turnChange.get>[0]) => AppRuntime.runSync(turnChange.get(input))
+const undo = (input: Parameters<typeof turnChange.undo>[0]) => AppRuntime.runPromise(turnChange.undo(input))
+const redo = (input: Parameters<typeof turnChange.redo>[0]) => AppRuntime.runPromise(turnChange.redo(input))
 
 async function createTurn() {
   const session = await SessionNs.create({ title: "turn change" })
@@ -43,20 +51,20 @@ describe("TurnChange", () => {
         const target = path.join(fixture.path, "file.txt")
         await fs.writeFile(target, "one\n", "utf-8")
 
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: target,
           before: { exists: true, content: "one\n" },
           after: { exists: true, content: "two\n" },
         })
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: target,
           before: { exists: true, content: "two\n" },
           after: { exists: true, content: "three\n" },
         })
 
-        const display = TurnChange.finalize(turn)
+        const display = finalize(turn)
 
         expect(display?.files).toHaveLength(1)
         expect(display?.files[0]).toMatchObject({
@@ -82,14 +90,14 @@ describe("TurnChange", () => {
         const turn = await createTurn()
         const target = path.join(fixture.path, ".env")
 
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: target,
           before: { exists: false },
           after: { exists: true, content: "TOKEN=new-secret\n" },
         })
 
-        const display = TurnChange.finalize(turn)
+        const display = finalize(turn)
         const serialized = JSON.stringify(display)
 
         expect(display?.undoAvailable).toBe(true)
@@ -117,26 +125,26 @@ describe("TurnChange", () => {
         const second = path.join(fixture.path, "second.txt")
         const first = path.join(fixture.path, "first.txt")
 
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: second,
           before: { exists: false },
           after: { exists: true, content: "second\n" },
         })
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: first,
           before: { exists: false },
           after: { exists: true, content: "first\n" },
         })
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: second,
           before: { exists: true, content: "second\n" },
           after: { exists: true, content: "second updated\n" },
         })
 
-        const display = TurnChange.finalize(turn)
+        const display = finalize(turn)
 
         expect(display?.files.map((file) => file.path)).toEqual(["second.txt", "first.txt"])
       },
@@ -152,18 +160,18 @@ describe("TurnChange", () => {
         const turn = await createTurn()
         const external = path.join(path.dirname(fixture.path), "outside-project", "external.txt")
 
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: external,
           before: { exists: false },
           after: { exists: true, content: "external\n" },
         })
 
-        const display = TurnChange.finalize(turn)
+        const display = finalize(turn)
 
         expect(display?.files[0]?.path).toBe("external.txt")
         expect(JSON.stringify(display)).not.toContain(path.dirname(fixture.path))
-        expect(TurnChange.get(turn)?.files[0]?.openPath).toBe(external)
+        expect(get(turn)?.files[0]?.openPath).toBe(external)
       },
     })
   })
@@ -177,14 +185,14 @@ describe("TurnChange", () => {
         const turn = await createTurn()
         const external = path.join(path.dirname(fixture.path), "my-secrets", "config.json")
 
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: external,
           before: { exists: false },
           after: { exists: true, content: "token=hidden\n" },
         })
 
-        const display = TurnChange.finalize(turn)
+        const display = finalize(turn)
         const serialized = JSON.stringify(display)
 
         expect(display?.files).toEqual([
@@ -212,23 +220,23 @@ describe("TurnChange", () => {
         const first = path.join(path.dirname(fixture.path), "outside-a", "config.json")
         const second = path.join(path.dirname(fixture.path), "outside-b", "config.json")
 
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: first,
           before: { exists: false },
           after: { exists: true, content: "first\n" },
         })
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: second,
           before: { exists: false },
           after: { exists: true, content: "second\n" },
         })
 
-        const display = TurnChange.finalize(turn)
+        const display = finalize(turn)
 
         expect(display?.files.map((file) => file.path)).toEqual(["config.json", "config.json · external #2"])
-        expect(TurnChange.get(turn)?.files.map((file) => file.openPath)).toEqual([first, second])
+        expect(get(turn)?.files.map((file) => file.openPath)).toEqual([first, second])
       },
     })
   })
@@ -241,7 +249,7 @@ describe("TurnChange", () => {
       fn: async () => {
         const turn = await createTurn()
         for (let index = 0; index < 201; index++) {
-          TurnChange.recordWrite({
+          recordWrite({
             ...turn,
             path: path.join(fixture.path, `file-${index}.txt`),
             before: { exists: false },
@@ -249,13 +257,13 @@ describe("TurnChange", () => {
           })
         }
 
-        const display = TurnChange.finalize(turn)
+        const display = finalize(turn)
 
         expect(display?.files).toHaveLength(200)
         expect(display?.truncated).toBe(true)
         expect(display?.omittedCount).toBe(1)
         expect(display?.undoAvailable).toBe(false)
-        expect(TurnChange.get(turn)?.undoAvailable).toBe(false)
+        expect(get(turn)?.undoAvailable).toBe(false)
       },
     })
   })
@@ -268,21 +276,21 @@ describe("TurnChange", () => {
       fn: async () => {
         const turn = await createTurn()
         for (let index = 0; index < 200; index++) {
-          TurnChange.recordWrite({
+          recordWrite({
             ...turn,
             path: path.join(fixture.path, `noop-${index}.txt`),
             before: { exists: true, content: "same\n" },
             after: { exists: true, content: "same\n" },
           })
         }
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: path.join(fixture.path, "omitted.txt"),
           before: { exists: false },
           after: { exists: true, content: "omitted\n" },
         })
 
-        const display = TurnChange.finalize(turn)
+        const display = finalize(turn)
 
         expect(display).toMatchObject({
           truncated: true,
@@ -291,7 +299,7 @@ describe("TurnChange", () => {
           redoAvailable: false,
           files: [],
         })
-        expect(TurnChange.get(turn)).toMatchObject({
+        expect(get(turn)).toMatchObject({
           truncated: true,
           omittedCount: 1,
           undoAvailable: false,
@@ -312,16 +320,16 @@ describe("TurnChange", () => {
         for (let index = 0; index < 201; index++) {
           const target = path.join(fixture.path, `file-${index}.txt`)
           await fs.writeFile(target, "after\n", "utf-8")
-          TurnChange.recordWrite({
+          recordWrite({
             ...turn,
             path: target,
             before: { exists: false },
             after: { exists: true, content: "after\n" },
           })
         }
-        TurnChange.finalize(turn)
+        finalize(turn)
 
-        const result = await TurnChange.undo(turn)
+        const result = await undo(turn)
 
         expect(result).toMatchObject({
           status: "blocked",
@@ -345,14 +353,14 @@ describe("TurnChange", () => {
         const large = "x".repeat(20 * 1024 * 1024 + 1)
         await fs.rm(target, { force: true })
 
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: target,
           before: { exists: true, content: large },
           after: { exists: false },
         })
 
-        const display = TurnChange.finalize(turn)
+        const display = finalize(turn)
         expect(display?.files).toEqual([
           {
             path: "large.txt",
@@ -363,7 +371,7 @@ describe("TurnChange", () => {
           },
         ])
 
-        const result = await TurnChange.undo(turn)
+        const result = await undo(turn)
         expect(result).toMatchObject({
           status: "blocked",
           reason: "unsupported_size",
@@ -383,13 +391,13 @@ describe("TurnChange", () => {
         const turn = await createTurn()
         const target = path.join(fixture.path, "medium.txt")
         const medium = "a".repeat(3 * 1024 * 1024)
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: target,
           before: { exists: false },
           after: { exists: true, content: medium },
         })
-        const display = TurnChange.finalize(turn)
+        const display = finalize(turn)
         expect(display?.files).toHaveLength(1)
         expect(display?.files[0]).toMatchObject({
           path: "medium.txt",
@@ -401,7 +409,7 @@ describe("TurnChange", () => {
         expect(display?.undoAvailable).toBe(true)
 
         await fs.writeFile(target, medium, "utf-8")
-        const result = await TurnChange.undo(turn)
+        const result = await undo(turn)
         expect(result.status).toBe("applied")
         await expect(fs.readFile(target, "utf-8")).rejects.toThrow()
       },
@@ -417,13 +425,13 @@ describe("TurnChange", () => {
         const turn = await createTurn()
         const target = path.join(fixture.path, "huge.txt")
         const huge = "a".repeat(20 * 1024 * 1024 + 1)
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: target,
           before: { exists: false },
           after: { exists: true, content: huge },
         })
-        const display = TurnChange.finalize(turn)
+        const display = finalize(turn)
         expect(display?.files).toHaveLength(1)
         expect(display?.files[0]).toMatchObject({
           large: true,
@@ -443,20 +451,20 @@ describe("TurnChange", () => {
         const turn = await createTurn()
         const target = path.join(fixture.path, "bom.txt")
         await fs.writeFile(target, "after\n", "utf-8")
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: target,
           before: { exists: true, content: "before\n", bom: true },
           after: { exists: true, content: "after\n", bom: false },
         })
-        TurnChange.finalize(turn)
+        finalize(turn)
 
-        expect((await TurnChange.undo(turn)).status).toBe("applied")
+        expect((await undo(turn)).status).toBe("applied")
         const bytes = await fs.readFile(target)
         expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
         expect(bytes.toString("utf-8")).toBe("\uFEFFbefore\n")
 
-        expect((await TurnChange.redo(turn)).status).toBe("applied")
+        expect((await redo(turn)).status).toBe("applied")
         const redoBytes = await fs.readFile(target)
         expect([...redoBytes.slice(0, 3)]).not.toEqual([0xef, 0xbb, 0xbf])
         expect(redoBytes.toString("utf-8")).toBe("after\n")
@@ -473,16 +481,16 @@ describe("TurnChange", () => {
         const turn = await createTurn()
         const target = path.join(fixture.path, "file.txt")
         await fs.writeFile(target, "after\n", "utf-8")
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: target,
           before: { exists: true, content: "before\n" },
           after: { exists: true, content: "after\n" },
         })
-        TurnChange.finalize(turn)
+        finalize(turn)
         await fs.writeFile(target, "user edit\n", "utf-8")
 
-        const result = await TurnChange.undo(turn)
+        const result = await undo(turn)
 
         expect(result.status).toBe("blocked")
         expect(await fs.readFile(target, "utf-8")).toBe("user edit\n")
@@ -499,18 +507,18 @@ describe("TurnChange", () => {
         const turn = await createTurn()
         const target = path.join(fixture.path, "file.txt")
         await fs.writeFile(target, "after\n", "utf-8")
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: target,
           before: { exists: true, content: "before\n" },
           after: { exists: true, content: "after\n" },
         })
-        TurnChange.finalize(turn)
+        finalize(turn)
         await fs.writeFile(target, "x".repeat(20 * 1024 * 1024 + 1), "utf-8")
 
         const readFile = spyOn(fs, "readFile")
         try {
-          const result = await TurnChange.undo(turn)
+          const result = await undo(turn)
 
           expect(result).toMatchObject({
             status: "blocked",
@@ -533,7 +541,7 @@ describe("TurnChange", () => {
       fn: async () => {
         const turn = await createTurn()
         const target = path.join(fixture.path, "file.txt")
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: target,
           before: { exists: false },
@@ -543,8 +551,8 @@ describe("TurnChange", () => {
           throw new Error("db unavailable")
         })
         try {
-          expect(() => TurnChange.finalize(turn)).not.toThrow()
-          expect(TurnChange.get(turn)).toBeUndefined()
+          expect(() => finalize(turn)).not.toThrow()
+          expect(get(turn)).toBeUndefined()
         } finally {
           transaction.mockRestore()
         }
@@ -561,13 +569,13 @@ describe("TurnChange", () => {
         const turn = await createTurn()
         const target = path.join(fixture.path, "file.txt")
         await fs.writeFile(target, "after\n", "utf-8")
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: target,
           before: { exists: true, content: "before\n" },
           after: { exists: true, content: "after\n" },
         })
-        TurnChange.finalize(turn)
+        finalize(turn)
 
         const writeFile = spyOn(fs, "writeFile").mockImplementation(() => {
           const err = new Error("permission denied") as NodeJS.ErrnoException
@@ -575,7 +583,7 @@ describe("TurnChange", () => {
           throw err
         })
         try {
-          const result = await TurnChange.undo(turn)
+          const result = await undo(turn)
 
           expect(result).toMatchObject({
             status: "blocked",
@@ -598,13 +606,13 @@ describe("TurnChange", () => {
         const turn = await createTurn()
         const target = path.join(fixture.path, "file.txt")
         await fs.writeFile(target, "after\n", "utf-8")
-        TurnChange.recordWrite({
+        recordWrite({
           ...turn,
           path: target,
           before: { exists: true, content: "before\n" },
           after: { exists: true, content: "after\n" },
         })
-        TurnChange.finalize(turn)
+        finalize(turn)
 
         const original = Database.use
         let calls = 0
@@ -614,7 +622,7 @@ describe("TurnChange", () => {
           return original(fn)
         }) as typeof Database.use)
         try {
-          const result = await TurnChange.undo(turn)
+          const result = await undo(turn)
 
           expect(result).toMatchObject({
             status: "blocked",
@@ -622,7 +630,7 @@ describe("TurnChange", () => {
             files: [{ path: "file.txt", reason: "state_persist_failed" }],
           })
           expect(await fs.readFile(target, "utf-8")).toBe("after\n")
-          expect(TurnChange.get(turn)?.undoAvailable).toBe(true)
+          expect(get(turn)?.undoAvailable).toBe(true)
         } finally {
           use.mockRestore()
         }
@@ -639,15 +647,15 @@ describe("TurnChange", () => {
         const first = await createTurn()
         const target = path.join(fixture.path, "file.txt")
         await fs.writeFile(target, "after\n", "utf-8")
-        TurnChange.recordWrite({
+        recordWrite({
           ...first,
           path: target,
           before: { exists: true, content: "before\n" },
           after: { exists: true, content: "after\n" },
         })
-        TurnChange.finalize(first)
-        expect((await TurnChange.undo(first)).status).toBe("applied")
-        expect(TurnChange.get(first)?.redoAvailable).toBe(true)
+        finalize(first)
+        expect((await undo(first)).status).toBe("applied")
+        expect(get(first)?.redoAvailable).toBe(true)
 
         const second = { sessionID: first.sessionID, messageID: MessageID.make("msg_turn_change_2") }
         await SessionNs.updateMessage({
@@ -664,15 +672,15 @@ describe("TurnChange", () => {
           cost: 0,
           tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         } as unknown as MessageV2.Info)
-        TurnChange.recordWrite({
+        recordWrite({
           ...second,
           path: target,
           before: { exists: true, content: "before\n" },
           after: { exists: true, content: "new turn\n" },
         })
-        TurnChange.finalize(second)
+        finalize(second)
 
-        expect(TurnChange.get(first)?.redoAvailable).toBe(false)
+        expect(get(first)?.redoAvailable).toBe(false)
       },
     })
   })

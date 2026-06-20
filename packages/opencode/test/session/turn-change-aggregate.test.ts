@@ -10,8 +10,27 @@ import { ModelID, ProviderID } from "../../src/provider/schema"
 import { SessionTable } from "../../src/session/session.sql"
 import { Database, eq } from "../../src/storage/db"
 import { Bus } from "../../src/bus"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { tmpdir } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
+
+const turnChange = await AppRuntime.runPromise(TurnChange.Service)
+const recordWrite = (input: Parameters<typeof turnChange.recordWrite>[0]) =>
+  AppRuntime.runSync(turnChange.recordWrite(input))
+const recordUncaptured = (input: Parameters<typeof turnChange.recordUncaptured>[0]) =>
+  AppRuntime.runSync(turnChange.recordUncaptured(input))
+const finalize = (input: Parameters<typeof turnChange.finalize>[0]) => AppRuntime.runSync(turnChange.finalize(input))
+const aggregateTurn = (input: Parameters<typeof turnChange.aggregateTurn>[0]) =>
+  AppRuntime.runSync(turnChange.aggregateTurn(input))
+const aggregateTurnUnion = (input: Parameters<typeof turnChange.aggregateTurnUnion>[0]) =>
+  AppRuntime.runSync(turnChange.aggregateTurnUnion(input))
+const aggregateSessionFromTurns = (input: Parameters<typeof turnChange.aggregateSessionFromTurns>[0]) =>
+  AppRuntime.runSync(turnChange.aggregateSessionFromTurns(input))
+const undo = (input: Parameters<typeof turnChange.undo>[0]) => AppRuntime.runPromise(turnChange.undo(input))
+const aggregateTurnUndo = (input: Parameters<typeof turnChange.aggregateTurnUndo>[0]) =>
+  AppRuntime.runPromise(turnChange.aggregateTurnUndo(input))
+const aggregateTurnRedo = (input: Parameters<typeof turnChange.aggregateTurnRedo>[0]) =>
+  AppRuntime.runPromise(turnChange.aggregateTurnRedo(input))
 
 async function makeAssistant(sessionID: SessionID, parentID: MessageID, suffix: string) {
   const id = MessageID.make(`msg_assistant_${suffix}`)
@@ -71,25 +90,25 @@ describe("TurnChange.aggregateTurn", () => {
         const a1 = await makeAssistant(session.id, userMessageID, "a1")
         const a2 = await makeAssistant(session.id, userMessageID, "a2")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a1,
           path: path.join(fixture.path, "alpha.txt"),
           before: { exists: false },
           after: { exists: true, content: "A\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
+        finalize({ sessionID: session.id, messageID: a1 })
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a2,
           path: path.join(fixture.path, "beta.txt"),
           before: { exists: false },
           after: { exists: true, content: "B\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+        finalize({ sessionID: session.id, messageID: a2 })
 
-        const display = TurnChange.aggregateTurn({ sessionID: session.id, userMessageID })
+        const display = aggregateTurn({ sessionID: session.id, userMessageID })
         expect(display?.files.map((f) => f.path)).toEqual(["alpha.txt", "beta.txt"])
         expect(display?.undoAvailable).toBe(true)
         expect(display?.turnID).toBe(userMessageID)
@@ -111,25 +130,25 @@ describe("TurnChange.aggregateTurn", () => {
         const target = path.join(fixture.path, "f.txt")
         await fs.writeFile(target, "one\n", "utf-8")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a1,
           path: target,
           before: { exists: true, content: "one\n" },
           after: { exists: true, content: "two\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
+        finalize({ sessionID: session.id, messageID: a1 })
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a2,
           path: target,
           before: { exists: true, content: "two\n" },
           after: { exists: true, content: "three\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+        finalize({ sessionID: session.id, messageID: a2 })
 
-        const display = TurnChange.aggregateTurn({ sessionID: session.id, userMessageID })
+        const display = aggregateTurn({ sessionID: session.id, userMessageID })
         expect(display?.files).toHaveLength(1)
         expect(display?.files[0].patch).toContain("-one")
         expect(display?.files[0].patch).toContain("+three")
@@ -150,25 +169,25 @@ describe("TurnChange.aggregateTurn", () => {
         const a2 = await makeAssistant(session.id, userMessageID, "wb2")
         const target = path.join(fixture.path, "ghost.txt")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a1,
           path: target,
           before: { exists: false },
           after: { exists: true, content: "g\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
+        finalize({ sessionID: session.id, messageID: a1 })
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a2,
           path: target,
           before: { exists: true, content: "g\n" },
           after: { exists: false },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+        finalize({ sessionID: session.id, messageID: a2 })
 
-        const display = TurnChange.aggregateTurn({ sessionID: session.id, userMessageID })
+        const display = aggregateTurn({ sessionID: session.id, userMessageID })
         expect(display?.files ?? []).toEqual([])
       },
     })
@@ -182,7 +201,7 @@ describe("TurnChange.aggregateTurn", () => {
       fn: async () => {
         const session = await SessionNs.create({ title: "empty" })
         const userMessageID = await makeUser(session.id, "empty")
-        const display = TurnChange.aggregateTurn({ sessionID: session.id, userMessageID })
+        const display = aggregateTurn({ sessionID: session.id, userMessageID })
         expect(display).toBeUndefined()
       },
     })
@@ -199,24 +218,24 @@ describe("TurnChange.aggregateTurn", () => {
         const userB = await makeUser(session.id, "scopeB")
         const a1 = await makeAssistant(session.id, userA, "p1")
         const a2 = await makeAssistant(session.id, userB, "p2")
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a1,
           path: path.join(fixture.path, "in.txt"),
           before: { exists: false },
           after: { exists: true, content: "in\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
-        TurnChange.recordWrite({
+        finalize({ sessionID: session.id, messageID: a1 })
+        recordWrite({
           sessionID: session.id,
           messageID: a2,
           path: path.join(fixture.path, "out.txt"),
           before: { exists: false },
           after: { exists: true, content: "out\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+        finalize({ sessionID: session.id, messageID: a2 })
 
-        const display = TurnChange.aggregateTurn({ sessionID: session.id, userMessageID: userA })
+        const display = aggregateTurn({ sessionID: session.id, userMessageID: userA })
         expect(display?.files.map((f) => f.path)).toEqual(["in.txt"])
       },
     })
@@ -233,7 +252,7 @@ describe("TurnChange aggregate union", () => {
         const session = await SessionNs.create({ title: "union-empty" })
         const userMessageID = await makeUser(session.id, "union-empty")
 
-        const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
+        const result = aggregateTurnUnion({ sessionID: session.id, userMessageID })
 
         expect(result).toMatchObject({ kind: "empty" })
       },
@@ -254,7 +273,7 @@ describe("TurnChange aggregate union", () => {
           events.push(event.properties.sessionID)
         })
         try {
-          TurnChange.recordUncaptured({ sessionID: session.id, messageID: assistantID })
+          recordUncaptured({ sessionID: session.id, messageID: assistantID })
           await new Promise((resolve) => setTimeout(resolve, 20))
 
           expect(events).toEqual([session.id])
@@ -279,14 +298,14 @@ describe("TurnChange aggregate union", () => {
           events.push(event.properties.sessionID)
         })
         try {
-          TurnChange.recordWrite({
+          recordWrite({
             sessionID: session.id,
             messageID: assistantID,
             path: path.join(fixture.path, "captured.txt"),
             before: { exists: false },
             after: { exists: true, content: "captured\n" },
           })
-          TurnChange.finalize({ sessionID: session.id, messageID: assistantID })
+          finalize({ sessionID: session.id, messageID: assistantID })
           await new Promise((resolve) => setTimeout(resolve, 20))
 
           expect(events).toEqual([session.id])
@@ -307,16 +326,16 @@ describe("TurnChange aggregate union", () => {
         const userMessageID = await makeUser(session.id, "union-captured")
         const assistantID = await makeAssistant(session.id, userMessageID, "union-captured")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: assistantID,
           path: path.join(fixture.path, "captured.txt"),
           before: { exists: false },
           after: { exists: true, content: "captured\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: assistantID })
+        finalize({ sessionID: session.id, messageID: assistantID })
 
-        const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
+        const result = aggregateTurnUnion({ sessionID: session.id, userMessageID })
 
         expect(result).toMatchObject({ kind: "captured", files: [{ path: "captured.txt", restoreState: "applied" }] })
       },
@@ -335,17 +354,17 @@ describe("TurnChange aggregate union", () => {
         const target = path.join(fixture.path, "undone.txt")
         await fs.writeFile(target, "after\n", "utf-8")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: assistantID,
           path: target,
           before: { exists: false },
           after: { exists: true, content: "after\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: assistantID })
-        await TurnChange.undo({ sessionID: session.id, messageID: assistantID })
+        finalize({ sessionID: session.id, messageID: assistantID })
+        await undo({ sessionID: session.id, messageID: assistantID })
 
-        const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
+        const result = aggregateTurnUnion({ sessionID: session.id, userMessageID })
 
         expect(result).toMatchObject({ kind: "captured", files: [{ path: "undone.txt", restoreState: "undone" }] })
       },
@@ -366,25 +385,25 @@ describe("TurnChange aggregate union", () => {
         const appliedFile = path.join(fixture.path, "applied-file.txt")
         await fs.writeFile(undoneFile, "after undone\n", "utf-8")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: undoneAssistant,
           path: undoneFile,
           before: { exists: false },
           after: { exists: true, content: "after undone\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: undoneAssistant })
-        TurnChange.recordWrite({
+        finalize({ sessionID: session.id, messageID: undoneAssistant })
+        recordWrite({
           sessionID: session.id,
           messageID: appliedAssistant,
           path: appliedFile,
           before: { exists: false },
           after: { exists: true, content: "after applied\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: appliedAssistant })
-        await TurnChange.undo({ sessionID: session.id, messageID: undoneAssistant })
+        finalize({ sessionID: session.id, messageID: appliedAssistant })
+        await undo({ sessionID: session.id, messageID: undoneAssistant })
 
-        const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
+        const result = aggregateTurnUnion({ sessionID: session.id, userMessageID })
 
         expect(result).toMatchObject({ kind: "captured" })
         if (result.kind !== "captured") return
@@ -409,7 +428,7 @@ describe("TurnChange aggregate union", () => {
         const assistantID = await makeAssistant(session.id, userMessageID, "union-truncated")
 
         for (let index = 0; index < 201; index++) {
-          TurnChange.recordWrite({
+          recordWrite({
             sessionID: session.id,
             messageID: assistantID,
             path: path.join(fixture.path, `truncated-${index}.txt`),
@@ -417,9 +436,9 @@ describe("TurnChange aggregate union", () => {
             after: { exists: true, content: `${index}\n` },
           })
         }
-        TurnChange.finalize({ sessionID: session.id, messageID: assistantID })
+        finalize({ sessionID: session.id, messageID: assistantID })
 
-        const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
+        const result = aggregateTurnUnion({ sessionID: session.id, userMessageID })
 
         expect(result).toMatchObject({ kind: "captured", truncated: true, omittedCount: 1 })
       },
@@ -444,26 +463,26 @@ describe("TurnChange aggregate union", () => {
         await fs.writeFile(target, "A\n", "utf-8")
 
         await fs.writeFile(target, "B\n", "utf-8")
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: firstAssistant,
           path: target,
           before: { exists: true, content: "A\n" },
           after: { exists: true, content: "B\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: firstAssistant })
+        finalize({ sessionID: session.id, messageID: firstAssistant })
         await fs.writeFile(target, "C\n", "utf-8")
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: secondAssistant,
           path: target,
           before: { exists: true, content: "B\n" },
           after: { exists: true, content: "C\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: secondAssistant })
-        await TurnChange.undo({ sessionID: session.id, messageID: secondAssistant })
+        finalize({ sessionID: session.id, messageID: secondAssistant })
+        await undo({ sessionID: session.id, messageID: secondAssistant })
 
-        const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
+        const result = aggregateTurnUnion({ sessionID: session.id, userMessageID })
 
         expect(await fs.readFile(target, "utf-8")).toBe("B\n")
         expect(result).toMatchObject({ kind: "captured" })
@@ -487,9 +506,9 @@ describe("TurnChange aggregate union", () => {
         const userMessageID = await makeUser(session.id, "union-uncaptured")
         const assistantID = await makeAssistant(session.id, userMessageID, "union-uncaptured")
 
-        TurnChange.recordUncaptured({ sessionID: session.id, messageID: assistantID })
+        recordUncaptured({ sessionID: session.id, messageID: assistantID })
 
-        const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
+        const result = aggregateTurnUnion({ sessionID: session.id, userMessageID })
 
         expect(result).toMatchObject({ kind: "uncaptured", count: 1 })
       },
@@ -506,17 +525,17 @@ describe("TurnChange aggregate union", () => {
         const userMessageID = await makeUser(session.id, "union-mixed")
         const assistantID = await makeAssistant(session.id, userMessageID, "union-mixed")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: assistantID,
           path: path.join(fixture.path, "mixed.txt"),
           before: { exists: false },
           after: { exists: true, content: "mixed\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: assistantID })
-        TurnChange.recordUncaptured({ sessionID: session.id, messageID: assistantID })
+        finalize({ sessionID: session.id, messageID: assistantID })
+        recordUncaptured({ sessionID: session.id, messageID: assistantID })
 
-        const result = TurnChange.aggregateTurnUnion({ sessionID: session.id, userMessageID })
+        const result = aggregateTurnUnion({ sessionID: session.id, userMessageID })
 
         expect(result).toMatchObject({
           kind: "mixed",
@@ -539,22 +558,22 @@ describe("TurnChange aggregate union", () => {
         const secondUser = await makeUser(session.id, "union-session-second")
         const secondAssistant = await makeAssistant(session.id, secondUser, "union-session-second")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: firstAssistant,
           path: path.join(fixture.path, "kept.txt"),
           before: { exists: false },
           after: { exists: true, content: "kept\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: firstAssistant })
-        TurnChange.recordWrite({
+        finalize({ sessionID: session.id, messageID: firstAssistant })
+        recordWrite({
           sessionID: session.id,
           messageID: secondAssistant,
           path: path.join(fixture.path, "reverted.txt"),
           before: { exists: false },
           after: { exists: true, content: "reverted\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: secondAssistant })
+        finalize({ sessionID: session.id, messageID: secondAssistant })
         Database.use((db) =>
           db
             .update(SessionTable)
@@ -563,7 +582,7 @@ describe("TurnChange aggregate union", () => {
             .run(),
         )
 
-        const result = TurnChange.aggregateSessionFromTurns({ sessionID: session.id })
+        const result = aggregateSessionFromTurns({ sessionID: session.id })
 
         expect(result).toMatchObject({ kind: "captured", files: [{ path: "kept.txt" }] })
         expect(
@@ -583,14 +602,14 @@ describe("TurnChange aggregate union", () => {
         const firstUser = await makeUser(session.id, "union-session-part-revert-first")
         const firstAssistant = await makeAssistant(session.id, firstUser, "union-session-part-revert-first")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: firstAssistant,
           path: path.join(fixture.path, "part-kept.txt"),
           before: { exists: false },
           after: { exists: true, content: "part kept\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: firstAssistant })
+        finalize({ sessionID: session.id, messageID: firstAssistant })
         Database.use((db) =>
           db
             .update(SessionTable)
@@ -599,7 +618,7 @@ describe("TurnChange aggregate union", () => {
             .run(),
         )
 
-        const result = TurnChange.aggregateSessionFromTurns({ sessionID: session.id })
+        const result = aggregateSessionFromTurns({ sessionID: session.id })
 
         expect(result).toMatchObject({ kind: "captured", files: [{ path: "part-kept.txt" }] })
       },
@@ -617,22 +636,22 @@ describe("TurnChange aggregate union", () => {
         const firstAssistant = await makeAssistant(session.id, userMessageID, "part-cutoff-a1")
         const secondAssistant = await makeAssistant(session.id, userMessageID, "part-cutoff-a2")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: firstAssistant,
           path: path.join(fixture.path, "part-a1.txt"),
           before: { exists: false },
           after: { exists: true, content: "a1\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: firstAssistant })
-        TurnChange.recordWrite({
+        finalize({ sessionID: session.id, messageID: firstAssistant })
+        recordWrite({
           sessionID: session.id,
           messageID: secondAssistant,
           path: path.join(fixture.path, "part-a2.txt"),
           before: { exists: false },
           after: { exists: true, content: "a2\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: secondAssistant })
+        finalize({ sessionID: session.id, messageID: secondAssistant })
         Database.use((db) =>
           db
             .update(SessionTable)
@@ -641,7 +660,7 @@ describe("TurnChange aggregate union", () => {
             .run(),
         )
 
-        const result = TurnChange.aggregateSessionFromTurns({ sessionID: session.id })
+        const result = aggregateSessionFromTurns({ sessionID: session.id })
 
         expect(result).toMatchObject({ kind: "captured", files: [{ path: "part-a1.txt" }] })
         expect(
@@ -664,24 +683,24 @@ describe("TurnChange aggregate union", () => {
         const secondAssistant = await makeAssistant(session.id, secondUser, "union-session-same-path-second")
         const target = path.join(fixture.path, "same.txt")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: firstAssistant,
           path: target,
           before: { exists: true, content: "one\n" },
           after: { exists: true, content: "two\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: firstAssistant })
-        TurnChange.recordWrite({
+        finalize({ sessionID: session.id, messageID: firstAssistant })
+        recordWrite({
           sessionID: session.id,
           messageID: secondAssistant,
           path: target,
           before: { exists: true, content: "two\n" },
           after: { exists: true, content: "three\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: secondAssistant })
+        finalize({ sessionID: session.id, messageID: secondAssistant })
 
-        const result = TurnChange.aggregateSessionFromTurns({ sessionID: session.id })
+        const result = aggregateSessionFromTurns({ sessionID: session.id })
 
         expect(result).toMatchObject({ kind: "captured" })
         if (result.kind !== "captured") return
@@ -713,26 +732,26 @@ describe("TurnChange aggregate union", () => {
         await fs.writeFile(target, "A\n", "utf-8")
 
         await fs.writeFile(target, "B\n", "utf-8")
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: firstAssistant,
           path: target,
           before: { exists: true, content: "A\n" },
           after: { exists: true, content: "B\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: firstAssistant })
+        finalize({ sessionID: session.id, messageID: firstAssistant })
         await fs.writeFile(target, "C\n", "utf-8")
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: secondAssistant,
           path: target,
           before: { exists: true, content: "B\n" },
           after: { exists: true, content: "C\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: secondAssistant })
-        await TurnChange.undo({ sessionID: session.id, messageID: secondAssistant })
+        finalize({ sessionID: session.id, messageID: secondAssistant })
+        await undo({ sessionID: session.id, messageID: secondAssistant })
 
-        const result = TurnChange.aggregateSessionFromTurns({ sessionID: session.id })
+        const result = aggregateSessionFromTurns({ sessionID: session.id })
 
         expect(await fs.readFile(target, "utf-8")).toBe("B\n")
         expect(result).toMatchObject({ kind: "captured" })
@@ -763,24 +782,24 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
         await fs.writeFile(fileA, "newA\n", "utf-8")
         await fs.writeFile(fileB, "newB\n", "utf-8")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a1,
           path: fileA,
           before: { exists: false },
           after: { exists: true, content: "newA\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
-        TurnChange.recordWrite({
+        finalize({ sessionID: session.id, messageID: a1 })
+        recordWrite({
           sessionID: session.id,
           messageID: a2,
           path: fileB,
           before: { exists: false },
           after: { exists: true, content: "newB\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+        finalize({ sessionID: session.id, messageID: a2 })
 
-        const result = await TurnChange.aggregateTurnUndo({ sessionID: session.id, userMessageID })
+        const result = await aggregateTurnUndo({ sessionID: session.id, userMessageID })
         expect(result.status).toBe("applied")
         if (result.status !== "applied") return
         expect(result.display.undoAvailable).toBe(false)
@@ -814,18 +833,18 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
         const fileA = path.join(fixture.path, "r-a.txt")
         await fs.writeFile(fileA, "newA\n", "utf-8")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a1,
           path: fileA,
           before: { exists: false },
           after: { exists: true, content: "newA\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
+        finalize({ sessionID: session.id, messageID: a1 })
 
-        const undoResult = await TurnChange.aggregateTurnUndo({ sessionID: session.id, userMessageID })
+        const undoResult = await aggregateTurnUndo({ sessionID: session.id, userMessageID })
         expect(undoResult.status).toBe("applied")
-        const redoResult = await TurnChange.aggregateTurnRedo({ sessionID: session.id, userMessageID })
+        const redoResult = await aggregateTurnRedo({ sessionID: session.id, userMessageID })
         expect(redoResult.status).toBe("applied")
         if (redoResult.status !== "applied") return
         expect(redoResult.display.undoAvailable).toBe(true)
@@ -850,24 +869,24 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
         await fs.writeFile(ok, "newOK\n", "utf-8")
         await fs.writeFile(conflict, "tampered\n", "utf-8")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a1,
           path: ok,
           before: { exists: false },
           after: { exists: true, content: "newOK\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
-        TurnChange.recordWrite({
+        finalize({ sessionID: session.id, messageID: a1 })
+        recordWrite({
           sessionID: session.id,
           messageID: a2,
           path: conflict,
           before: { exists: false },
           after: { exists: true, content: "expectedConflict\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+        finalize({ sessionID: session.id, messageID: a2 })
 
-        const result = await TurnChange.aggregateTurnUndo({ sessionID: session.id, userMessageID })
+        const result = await aggregateTurnUndo({ sessionID: session.id, userMessageID })
         expect(result.status).toBe("blocked")
         if (result.status !== "blocked") return
         expect(result.reason).toBe("conflict")
@@ -890,26 +909,26 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
         const target = path.join(fixture.path, "chain.txt")
 
         await fs.writeFile(target, "two\n", "utf-8")
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a1,
           path: target,
           before: { exists: false },
           after: { exists: true, content: "two\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
+        finalize({ sessionID: session.id, messageID: a1 })
 
         await fs.writeFile(target, "three\n", "utf-8")
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a2,
           path: target,
           before: { exists: true, content: "two\n" },
           after: { exists: true, content: "three\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+        finalize({ sessionID: session.id, messageID: a2 })
 
-        const result = await TurnChange.aggregateTurnUndo({ sessionID: session.id, userMessageID })
+        const result = await aggregateTurnUndo({ sessionID: session.id, userMessageID })
         expect(result.status).toBe("applied")
         if (result.status !== "applied") return
         expect(result.skipped ?? []).toEqual([])
@@ -920,7 +939,7 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
             .catch(() => false),
         ).toBe(false)
 
-        const redo = await TurnChange.aggregateTurnRedo({ sessionID: session.id, userMessageID })
+        const redo = await aggregateTurnRedo({ sessionID: session.id, userMessageID })
         expect(redo.status).toBe("applied")
         if (redo.status !== "applied") return
         expect(await fs.readFile(target, "utf-8")).toBe("three\n")
@@ -945,24 +964,24 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
         const fileA = path.join(dirA, "shared.txt")
         const fileB = path.join(dirB, "shared.txt")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a1,
           path: fileA,
           before: { exists: false },
           after: { exists: true, content: "A\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
-        TurnChange.recordWrite({
+        finalize({ sessionID: session.id, messageID: a1 })
+        recordWrite({
           sessionID: session.id,
           messageID: a2,
           path: fileB,
           before: { exists: false },
           after: { exists: true, content: "B\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+        finalize({ sessionID: session.id, messageID: a2 })
 
-        const display = TurnChange.aggregateTurn({ sessionID: session.id, userMessageID })
+        const display = aggregateTurn({ sessionID: session.id, userMessageID })
         expect(display?.files).toHaveLength(2)
         const openPaths = (display?.files ?? []).map((f) => f.openPath).sort()
         expect(openPaths).toEqual([fileA, fileB].sort())
@@ -985,27 +1004,27 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
         await fs.writeFile(fileA, "A\n", "utf-8")
         await fs.writeFile(fileB, "B\n", "utf-8")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a1,
           path: fileA,
           before: { exists: false },
           after: { exists: true, content: "A\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
-        TurnChange.recordWrite({
+        finalize({ sessionID: session.id, messageID: a1 })
+        recordWrite({
           sessionID: session.id,
           messageID: a2,
           path: fileB,
           before: { exists: false },
           after: { exists: true, content: "B\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+        finalize({ sessionID: session.id, messageID: a2 })
 
-        const undoSecond = await TurnChange.undo({ sessionID: session.id, messageID: a2 })
+        const undoSecond = await undo({ sessionID: session.id, messageID: a2 })
         expect(undoSecond.status).toBe("applied")
 
-        const display = TurnChange.aggregateTurn({ sessionID: session.id, userMessageID })
+        const display = aggregateTurn({ sessionID: session.id, userMessageID })
         expect(display?.undoAvailable).toBe(true)
         expect(display?.redoAvailable).toBe(true)
       },
@@ -1027,24 +1046,24 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
         await fs.writeFile(ok, "OK\n", "utf-8")
         await fs.writeFile(conflict, "tampered\n", "utf-8")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a1,
           path: ok,
           before: { exists: false },
           after: { exists: true, content: "OK\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
-        TurnChange.recordWrite({
+        finalize({ sessionID: session.id, messageID: a1 })
+        recordWrite({
           sessionID: session.id,
           messageID: a2,
           path: conflict,
           before: { exists: false },
           after: { exists: true, content: "expectedConflict\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+        finalize({ sessionID: session.id, messageID: a2 })
 
-        const result = await TurnChange.aggregateTurnUndo({
+        const result = await aggregateTurnUndo({
           sessionID: session.id,
           userMessageID,
           force: true,
@@ -1072,24 +1091,24 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
         const externalA = "/tmp/pawwork-fixture-A/config.json"
         const externalB = "/tmp/pawwork-fixture-B/config.json"
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a1,
           path: externalA,
           before: { exists: false },
           after: { exists: true, content: '{"a":1}\n' },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
-        TurnChange.recordWrite({
+        finalize({ sessionID: session.id, messageID: a1 })
+        recordWrite({
           sessionID: session.id,
           messageID: a2,
           path: externalB,
           before: { exists: false },
           after: { exists: true, content: '{"b":1}\n' },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+        finalize({ sessionID: session.id, messageID: a2 })
 
-        const display = TurnChange.aggregateTurn({ sessionID: session.id, userMessageID })
+        const display = aggregateTurn({ sessionID: session.id, userMessageID })
         expect(display?.files).toHaveLength(2)
         const paths = (display?.files ?? []).map((f) => f.path)
         // Distinct displayPaths after the second-pass disambiguation.
@@ -1115,33 +1134,33 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
         const big = path.join(fixture.path, "u-big.bin")
         await fs.writeFile(ok, "OK\n", "utf-8")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a1,
           path: ok,
           before: { exists: false },
           after: { exists: true, content: "OK\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
+        finalize({ sessionID: session.id, messageID: a1 })
         // Mark the second message's `before` as non-restorable (oversized).
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a2,
           path: big,
           before: { exists: true, restorable: false, hash: "large:99999999", large: true },
           after: { exists: true, content: "after\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+        finalize({ sessionID: session.id, messageID: a2 })
 
         // Default (force=false): fatal unsupported_size, ok file untouched.
-        const blocked = await TurnChange.aggregateTurnUndo({ sessionID: session.id, userMessageID })
+        const blocked = await aggregateTurnUndo({ sessionID: session.id, userMessageID })
         expect(blocked.status).toBe("blocked")
         if (blocked.status !== "blocked") return
         expect(blocked.reason).toBe("unsupported_size")
         expect(await fs.readFile(ok, "utf-8")).toBe("OK\n")
 
         // force=true must not partially mutate either; still fatal unsupported_size.
-        const forced = await TurnChange.aggregateTurnUndo({
+        const forced = await aggregateTurnUndo({
           sessionID: session.id,
           userMessageID,
           force: true,
@@ -1169,24 +1188,24 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
         await fs.writeFile(ok, "newOK\n", "utf-8")
         await fs.writeFile(conflict, "tampered\n", "utf-8")
 
-        TurnChange.recordWrite({
+        recordWrite({
           sessionID: session.id,
           messageID: a1,
           path: ok,
           before: { exists: false },
           after: { exists: true, content: "newOK\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
-        TurnChange.recordWrite({
+        finalize({ sessionID: session.id, messageID: a1 })
+        recordWrite({
           sessionID: session.id,
           messageID: a2,
           path: conflict,
           before: { exists: false },
           after: { exists: true, content: "expectedConflict\n" },
         })
-        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+        finalize({ sessionID: session.id, messageID: a2 })
 
-        const result = await TurnChange.aggregateTurnUndo({
+        const result = await aggregateTurnUndo({
           sessionID: session.id,
           userMessageID,
           force: true,
