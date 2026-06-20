@@ -65,13 +65,11 @@ const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"])
 
 const honoRouteSources = [
   ["packages/opencode/src/server/instance/automation.ts", "/automation"],
-  ["packages/opencode/src/server/control/index.ts", ""],
   ["packages/opencode/src/server/instance/config.ts", "/config"],
   ["packages/opencode/src/server/instance/event.ts", ""],
   ["packages/opencode/src/server/instance/experimental.ts", "/experimental"],
   ["packages/opencode/src/server/instance/external-result.ts", "/external-result"],
   ["packages/opencode/src/server/instance/file.ts", ""],
-  ["packages/opencode/src/server/instance/global.ts", "/global"],
   ["packages/opencode/src/server/instance/index.ts", ""],
   ["packages/opencode/src/server/instance/mcp.ts", "/mcp"],
   ["packages/opencode/src/server/instance/memory.ts", "/memory"],
