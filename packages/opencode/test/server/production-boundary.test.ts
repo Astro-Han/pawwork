@@ -28,6 +28,27 @@ describe("production server boundary", () => {
     expect(await response.json()).toEqual({ healthy: true, version: "local" })
   })
 
+  test("creates sessions through the production HttpApi dispatcher with header-scoped instance routing", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    try {
+      const response = await Server.Default().app.request("/session", {
+        method: "POST",
+        headers: {
+          "x-opencode-directory": encodeURIComponent(tmp.path),
+        },
+      })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-type")).toContain("application/json")
+      expect(body.id).toStartWith("ses_")
+      expect(body.directory).toBe(tmp.path)
+    } finally {
+      await Instance.disposeAll()
+    }
+  })
+
   test("serves the OpenAPI document through the production API path", async () => {
     const response = await Server.Default().app.request("/doc")
     const body = await response.json()

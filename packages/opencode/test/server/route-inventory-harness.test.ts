@@ -241,9 +241,19 @@ describe("route inventory harness", () => {
   test("keeps retired session JSON routes out of Hono source", async () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
+    for (const [method, routePath] of [
+      ["GET", "/session"],
+      ["POST", "/session"],
+    ] as const) {
+      expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
+        hono: false,
+        openapi: true,
+        v2Sdk: true,
+        localHttpApi: true,
+      })
+    }
+
     for (const [method, routePath, classification] of [
-      ["GET", "/session", "local-httpapi-only"],
-      ["POST", "/session", "local-httpapi-only"],
       ["GET", "/session/:sessionID/artifacts", "pawwork-owned"],
       ["GET", "/session/:sessionID/export", "pawwork-owned"],
       ["POST", "/session/:sessionID/tool/respond", "pawwork-owned"],
