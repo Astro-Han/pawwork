@@ -13,7 +13,6 @@ import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { Runtime } from "@opencode-ai/core/runtime"
 import { LSP } from "../../lsp"
 import { Command } from "../../command"
-import { PtyRoutes } from "./pty"
 import { WorkspaceRouterMiddleware } from "./middleware"
 import { AppRuntime } from "@/effect/app-runtime"
 import { jsonBodyLimit } from "./json-body-limit"
@@ -119,7 +118,6 @@ const getLspStatus = Effect.fn("InstanceRoutes.lsp.status")(function* () {
 export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
   new Hono()
     .use(WorkspaceRouterMiddleware(upgrade))
-    .route("/pty", PtyRoutes())
     .post(
       "/instance/dispose",
       describeRoute({

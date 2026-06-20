@@ -312,7 +312,7 @@ describe("route inventory harness", () => {
       ["POST", "/pty/:ptyID/connect-token"],
     ] as const) {
       expect(inventory.rows.find((row) => row.method === method && row.path === routePath)).toMatchObject({
-        hono: true,
+        hono: false,
         localHttpApi: true,
       })
     }
@@ -581,11 +581,11 @@ describe("route inventory harness", () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
     expect(inventory.rows.find((row) => row.method === "POST" && row.path === "/pty/:ptyID/connect-token")).toMatchObject({
-      hono: true,
+      hono: false,
       openapi: true,
       v2Sdk: true,
       localHttpApi: true,
-      classification: "openapi-v2-sdk",
+      classification: expect.stringMatching(/^local-httpapi-(?:only|upstream-only)$/),
       specialSurface: "PTY websocket",
     })
   })
