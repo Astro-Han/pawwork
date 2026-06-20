@@ -1,6 +1,5 @@
 import z from "zod"
 import { Effect, Layer, Context } from "effect"
-import { makeRuntime } from "@/effect/run-service"
 import { Snapshot } from "@/snapshot"
 import { MessageV2 } from "./message-v2"
 import { SessionID, MessageID } from "./schema"
@@ -87,8 +86,6 @@ export namespace SessionSummary {
     layer.pipe(Layer.provide(Snapshot.defaultLayer), Layer.provide(TurnChange.defaultLayer)),
   )
 
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
   export const summarize = (_input: { sessionID: SessionID; messageID: MessageID }) => undefined
 
   export const DiffInput = z.object({
@@ -99,12 +96,4 @@ export namespace SessionSummary {
   export const ArtifactsInput = z.object({
     sessionID: SessionID.zod,
   })
-
-  export async function diff(input: z.infer<typeof DiffInput>) {
-    return runPromise((svc) => svc.diff(input))
-  }
-
-  export async function artifacts(input: z.infer<typeof ArtifactsInput>) {
-    return runPromise((svc) => svc.artifacts(input))
-  }
 }
