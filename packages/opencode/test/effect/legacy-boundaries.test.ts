@@ -70,6 +70,8 @@ test("worktree adaptor does not call Worktree Promise facades", async () => {
   expect(text).not.toContain("Worktree.makeWorktreeInfo")
   expect(text).not.toContain("Worktree.createFromInfo")
   expect(text).not.toContain("Worktree.remove")
+  expect(text).not.toMatch(/\bfrom\s+["']@\/effect\/run-service["']/)
+  expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Worktree\.Service\s*,\s*Worktree\.defaultLayer\s*\)/)
 })
 
 test("Worktree service uses the Effect-native gitignore guard boundary", async () => {
