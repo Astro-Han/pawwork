@@ -486,7 +486,7 @@ describe("prompt submit worktree selection", () => {
       onSubmit: () => submits.push("submit"),
     })
 
-    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event, "submitButton")
 
     expect(aborts).toEqual(["called"])
     expect(abortedSessions).toEqual([{ sessionID: "session-visible", source: "renderer.stopButton" }])
@@ -494,9 +494,10 @@ describe("prompt submit worktree selection", () => {
     expect(promptAsyncCalls).toEqual([])
   })
 
-  test("marks keyboard empty-enter abort with caller source", async () => {
+  test("keyboard empty Enter does not interrupt a running task", async () => {
     params = { id: "session-visible" }
     promptValue = [{ type: "text", content: "", start: 0, end: 0 }]
+    const aborts: string[] = []
     const submit = createPromptSubmit({
       navigate: (path) => navigateImpl(path),
       routeParams: () => params,
@@ -516,11 +517,14 @@ describe("prompt submit worktree selection", () => {
       resetHistoryNavigation: () => undefined,
       setMode: () => undefined,
       setPopover: () => undefined,
+      onAbort: () => aborts.push("called"),
     })
 
-    await submit.handleSubmit(new KeyboardEvent("keydown", { key: "Enter" }))
+    await submit.handleSubmit(new KeyboardEvent("keydown", { key: "Enter" }), "keyboard")
 
-    expect(abortedSessions).toEqual([{ sessionID: "session-visible", source: "renderer.emptyEnter" }])
+    // Interrupting a running task is ESC's job; Enter must never abort.
+    expect(aborts).toEqual([])
+    expect(abortedSessions).toEqual([])
   })
 
   test("reads the latest worktree accessor value per submit", async () => {

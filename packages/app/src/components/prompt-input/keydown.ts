@@ -21,7 +21,6 @@ export interface PromptKeydownDeps {
   editorRef: () => HTMLDivElement
   prompt: ReturnType<typeof usePrompt>
   working: Accessor<boolean>
-  stopping: Accessor<boolean>
   actionReady: Accessor<boolean>
   abortReady: Accessor<boolean>
   // popover handlers
@@ -39,8 +38,8 @@ export interface PromptKeydownDeps {
   navigateHistory: (direction: "up" | "down") => boolean
   // submit / mode / file pick
   pick: () => void
-  abort: (source?: "stopButton" | "emptyEnter" | "ctrlG" | "escape") => void
-  handleSubmit: (event: KeyboardEvent) => void
+  abort: (source?: "stopButton" | "ctrlG" | "escape") => void
+  handleSubmit: (event: KeyboardEvent, trigger: "keyboard") => void
 }
 
 export function createPromptKeydownHandler(deps: PromptKeydownDeps): (event: KeyboardEvent) => void {
@@ -50,7 +49,6 @@ export function createPromptKeydownHandler(deps: PromptKeydownDeps): (event: Key
     editorRef,
     prompt,
     working,
-    stopping,
     actionReady,
     abortReady,
     selectPopoverActive,
@@ -72,7 +70,6 @@ export function createPromptKeydownHandler(deps: PromptKeydownDeps): (event: Key
       !promptKeyActionReady({
         key: event.key,
         working: working(),
-        stopping: stopping(),
         actionReady: actionReady(),
         abortReady: abortReady(),
       })
@@ -264,7 +261,7 @@ export function createPromptKeydownHandler(deps: PromptKeydownDeps): (event: Key
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault()
       if (event.repeat) return
-      handleSubmit(event)
+      handleSubmit(event, "keyboard")
     }
   }
 }

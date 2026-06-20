@@ -1,12 +1,12 @@
 export function promptKeyActionReady(input: {
   key: string
   working: boolean
-  stopping: boolean
   actionReady: boolean
   abortReady: boolean
 }) {
+  // ESC is the keyboard interrupt: gate it on abort readiness while working.
+  // Enter only ever submits, so it always follows submit readiness.
   if (input.key === "Escape" && input.working) return input.abortReady
-  if (input.key === "Enter" && input.stopping) return input.abortReady
   if (input.key === "Enter" || input.key === "Escape") return input.actionReady
   return true
 }
