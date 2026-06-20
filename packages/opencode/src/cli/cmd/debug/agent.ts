@@ -72,7 +72,8 @@ export const AgentCommand = cmd({
 })
 
 async function getAvailableTools(agent: Agent.Info) {
-  const model = agent.model ?? (await Provider.defaultModel())
+  const model =
+    agent.model ?? (await AppRuntime.runPromise(Provider.Service.use((provider) => provider.defaultModel())))
   return AppRuntime.runPromise(
     ToolRegistry.Service.use((registry) =>
       registry.tools({
@@ -126,7 +127,8 @@ async function createToolContext(agent: Agent.Info) {
     Session.Service.use((svc) => svc.create({ title: `Debug tool run (${agent.name})` })),
   )
   const messageID = MessageID.ascending()
-  const model = agent.model ?? (await Provider.defaultModel())
+  const model =
+    agent.model ?? (await AppRuntime.runPromise(Provider.Service.use((provider) => provider.defaultModel())))
   const now = Date.now()
   const message: MessageV2.Assistant = {
     id: messageID,

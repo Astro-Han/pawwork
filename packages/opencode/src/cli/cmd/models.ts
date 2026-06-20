@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import { Provider } from "../../provider/provider"
 import { ProviderID } from "../../provider/schema"
 import { ModelsDev } from "../../provider/models"
-import { CliError, effectCmd, fail } from "../effect-cmd"
+import { effectCmd, fail } from "../effect-cmd"
 import { UI } from "../ui"
 import { EOL } from "os"
 
@@ -28,13 +28,8 @@ export const ModelsCommand = effectCmd({
   },
   handler: Effect.fn("Cli.models")(function* (args) {
     if (args.refresh) {
-      yield* Effect.tryPromise({
-        try: () => ModelsDev.refresh(true),
-        catch: (cause) =>
-          new CliError({
-            message: `Failed to refresh models cache: ${cause instanceof Error ? cause.message : String(cause)}`,
-          }),
-      })
+      const modelsDev = yield* ModelsDev.Service
+      yield* modelsDev.refresh(true)
       UI.println(UI.Style.TEXT_SUCCESS_BOLD + "Models cache refreshed" + UI.Style.TEXT_NORMAL)
     }
 

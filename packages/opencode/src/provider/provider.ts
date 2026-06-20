@@ -28,7 +28,7 @@ import { InstanceState } from "@/effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { isRecord } from "@/util/record"
 import { withStatics } from "@/util/schema"
-import { makeRuntime } from "../effect/run-service"
+import { withPawWorkProviders } from "./pawwork-providers"
 
 import * as ProviderTransform from "./transform"
 import { ModelID, ProviderID } from "./schema"
@@ -1136,7 +1136,7 @@ export function fromModelsDevProvider(provider: ModelsDev.Provider): Info {
 const layer: Layer.Layer<
   Service,
   never,
-  Config.Service | Auth.Service | Plugin.Service | AppFileSystem.Service | Env.Service
+  Config.Service | Auth.Service | Plugin.Service | AppFileSystem.Service | Env.Service | ModelsDev.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -1145,13 +1145,27 @@ const layer: Layer.Layer<
     const auth = yield* Auth.Service
     const env = yield* Env.Service
     const plugin = yield* Plugin.Service
+    const modelsService = yield* ModelsDev.Service
 
     const state = yield* InstanceState.make<State>(() =>
       Effect.gen(function* () {
         using _ = log.time("state")
         const bridge = yield* EffectBridge.make()
         const cfg = yield* config.get()
-        const modelsDev = yield* Effect.promise(() => ModelsDev.getWithVersion())
+        const modelsDev = yield* Effect.gen(function* () {
+          while (true) {
+            const before = ModelsDev.version()
+            const result = yield* modelsService.data().pipe(Effect.orDie)
+            const after = ModelsDev.version()
+            if (before === after) {
+              return {
+                providers: withPawWorkProviders(result as Record<string, ModelsDev.Provider>),
+                version: after,
+              }
+            }
+            yield* modelsService.reset()
+          }
+        })
         const database = mapValues(modelsDev.providers, fromModelsDevProvider)
 
         const providers: Record<ProviderID, Info> = {} as Record<ProviderID, Info>
@@ -1855,38 +1869,9 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Config.defaultLayer),
     Layer.provide(Auth.defaultLayer),
     Layer.provide(Plugin.defaultLayer),
+    Layer.provide(ModelsDev.defaultLayer),
   ),
 )
-
-const { runPromise } = makeRuntime(Service, defaultLayer)
-
-export async function list() {
-  return runPromise((svc) => svc.list())
-}
-
-export async function getProvider(providerID: ProviderID) {
-  return runPromise((svc) => svc.getProvider(providerID))
-}
-
-export async function getModel(providerID: ProviderID, modelID: ModelID) {
-  return runPromise((svc) => svc.getModel(providerID, modelID))
-}
-
-export async function getLanguage(model: Model) {
-  return runPromise((svc) => svc.getLanguage(model))
-}
-
-export async function closest(providerID: ProviderID, query: string[]) {
-  return runPromise((svc) => svc.closest(providerID, query))
-}
-
-export async function getSmallModel(providerID: ProviderID) {
-  return runPromise((svc) => svc.getSmallModel(providerID))
-}
-
-export async function defaultModel() {
-  return runPromise((svc) => svc.defaultModel())
-}
 
 const priority = ["gpt-5", "claude-sonnet-4", "big-pickle", "gemini-3-pro"]
 export function sort<T extends { id: string }>(models: T[]) {
@@ -1942,13 +1927,6 @@ const ProviderConfigProvidersResultValue = ConfigProvidersResult
 const ProviderDefaultModelIDValue = defaultModelID
 const ProviderDefaultModelIDsValue = defaultModelIDs
 const ProviderFromModelsDevProviderValue = fromModelsDevProvider
-const ProviderListValue = list
-const ProviderGetProviderValue = getProvider
-const ProviderGetModelValue = getModel
-const ProviderGetLanguageValue = getLanguage
-const ProviderClosestValue = closest
-const ProviderGetSmallModelValue = getSmallModel
-const ProviderDefaultModelValue = defaultModel
 const ProviderSortValue = sort
 const ProviderParseModelValue = parseModel
 const ProviderModelNotFoundErrorValue = ModelNotFoundError
@@ -1972,13 +1950,6 @@ export namespace Provider {
   export const defaultModelID = ProviderDefaultModelIDValue
   export const defaultModelIDs = ProviderDefaultModelIDsValue
   export const fromModelsDevProvider = ProviderFromModelsDevProviderValue
-  export const list = ProviderListValue
-  export const getProvider = ProviderGetProviderValue
-  export const getModel = ProviderGetModelValue
-  export const getLanguage = ProviderGetLanguageValue
-  export const closest = ProviderClosestValue
-  export const getSmallModel = ProviderGetSmallModelValue
-  export const defaultModel = ProviderDefaultModelValue
   export const sort = ProviderSortValue
   export const parseModel = ProviderParseModelValue
   export const ModelNotFoundError = ProviderModelNotFoundErrorValue

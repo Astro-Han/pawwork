@@ -111,6 +111,37 @@ test("Snapshot service does not expose Promise facades", async () => {
   expect(snapshotTest).not.toMatch(/\bSnapshot\.(init|track|patch|restore|revert|diff|diffFull)\s*\(/)
 })
 
+test("ModelsDev service does not expose Promise facades", async () => {
+  const text = await readFile(path.join(srcRoot, "provider/models.ts"), "utf8")
+  const facades = [
+    "export const Data",
+    "export async function get",
+    "export async function getWithVersion",
+    "export async function refresh",
+  ]
+
+  expect(text).not.toMatch(/\bfrom\s+["']\.\.\/effect\/run-service["']/)
+  expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
+  for (const facade of facades) expect(text).not.toContain(facade)
+})
+
+test("Provider service does not expose Promise facades", async () => {
+  const text = await readFile(path.join(srcRoot, "provider/provider.ts"), "utf8")
+  const facades = [
+    "export async function list",
+    "export async function getProvider",
+    "export async function getModel",
+    "export async function getLanguage",
+    "export async function closest",
+    "export async function getSmallModel",
+    "export async function defaultModel",
+  ]
+
+  expect(text).not.toMatch(/\bfrom\s+["']\.\.\/effect\/run-service["']/)
+  expect(text).not.toMatch(/\bmakeRuntime\s*\(\s*Service\s*,\s*defaultLayer\s*\)/)
+  for (const facade of facades) expect(text).not.toContain(facade)
+})
+
 test("session summary/revert/compaction services do not expose Promise facades", async () => {
   const files = {
     "session/summary.ts": ["export async function diff", "export async function artifacts"],

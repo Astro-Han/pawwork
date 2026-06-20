@@ -1,5 +1,6 @@
 import path from "path"
 import { exec } from "child_process"
+import { Effect } from "effect"
 import { Filesystem } from "../../util/filesystem"
 import * as prompts from "@clack/prompts"
 import { map, pipe, sortBy, values } from "remeda"
@@ -18,6 +19,7 @@ import type {
 import { UI } from "../ui"
 import { cmd } from "./cmd"
 import { ModelsDev } from "../../provider/models"
+import { withPawWorkProviders } from "../../provider/pawwork-providers"
 import { Instance } from "@/project/instance"
 import { bootstrap } from "../bootstrap"
 import { SessionShare } from "@/share/session"
@@ -222,11 +224,19 @@ export const GithubInstallCommand = cmd({
           const app = await getAppInfo()
           await installGitHubApp()
 
-          const providers = await ModelsDev.get().then((p) => {
-            // TODO: add guide for copilot, for now just hide it
-            delete p["github-copilot"]
-            return p
-          })
+          const providers = await AppRuntime.runPromise(
+            ModelsDev.Service.use((svc) =>
+              svc.data().pipe(
+                Effect.map((catalog) => {
+                  const providers = withPawWorkProviders(catalog as Record<string, ModelsDev.Provider>)
+                  // TODO: add guide for copilot, for now just hide it
+                  delete providers["github-copilot"]
+                  return providers
+                }),
+                Effect.orDie,
+              ),
+            ),
+          )
 
           const provider = await promptProvider()
           const model = await promptModel()

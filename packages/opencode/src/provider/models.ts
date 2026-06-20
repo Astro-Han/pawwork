@@ -8,8 +8,8 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { Hash } from "../util/hash"
 import { withPawWorkProviders } from "./pawwork-providers"
-import { Context, Effect, Layer, Option } from "effect"
-import { makeRuntime } from "../effect/run-service"
+import { Cause, Context, Effect, Exit, Layer, ManagedRuntime, Option } from "effect"
+import { memoMap } from "@opencode-ai/core/effect/memo-map"
 
 // Try to import bundled snapshot (generated at build time)
 // Falls back to undefined in dev mode when snapshot doesn't exist
@@ -346,7 +346,13 @@ export const layer = Layer.effect(
     })
 
     const data = Effect.fn("ModelsDev.data")(function* () {
-      return yield* cachedData
+      const exit = yield* Effect.exit(cachedData)
+      if (Exit.isSuccess(exit)) return exit.value
+      if (Cause.hasInterruptsOnly(exit.cause)) {
+        cachedData = yield* Effect.cached(loadData())
+        return yield* cachedData
+      }
+      return yield* Effect.failCause(exit.cause)
     })
 
     const publishCandidate = Effect.fn("ModelsDev.publishCandidate")(function* (text: string) {
@@ -397,39 +403,6 @@ export const layer = Layer.effect(
 
 export const defaultLayer = layer.pipe(Layer.provide(EffectFlock.defaultLayer), Layer.provide(AppFileSystem.defaultLayer))
 
-const { runPromise, runSync } = makeRuntime(Service, defaultLayer)
-
-export const Data = Object.assign(
-  () => runPromise((svc) => svc.data()),
-  {
-    reset: () => runSync((svc) => svc.reset()),
-  },
-)
-
-export async function get() {
-  const result = await Data()
-  return withPawWorkProviders(result as Record<string, Provider>)
-}
-
-export async function getWithVersion() {
-  while (true) {
-    const before = version()
-    const result = await Data()
-    const after = version()
-    if (before === after) {
-      return {
-        providers: withPawWorkProviders(result as Record<string, Provider>),
-        version: after,
-      }
-    }
-    Data.reset()
-  }
-}
-
-export async function refresh(force = false) {
-  return runPromise((svc) => svc.refresh(force))
-}
-
 function parseCatalog(text: string): Catalog {
   const parsed = JSON.parse(text)
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -443,10 +416,6 @@ const ModelsDevProviderValue = Provider
 const ModelsDevServiceValue = Service
 const ModelsDevLayerValue = layer
 const ModelsDevDefaultLayerValue = defaultLayer
-const ModelsDevDataValue = Data
-const ModelsDevGetValue = get
-const ModelsDevGetWithVersionValue = getWithVersion
-const ModelsDevRefreshValue = refresh
 const ModelsDevVersionValue = version
 
 export namespace ModelsDev {
@@ -459,18 +428,19 @@ export namespace ModelsDev {
   export const Service = ModelsDevServiceValue
   export const layer = ModelsDevLayerValue
   export const defaultLayer = ModelsDevDefaultLayerValue
-  export const Data = ModelsDevDataValue
-  export const get = ModelsDevGetValue
-  export const getWithVersion = ModelsDevGetWithVersionValue
-  export const refresh = ModelsDevRefreshValue
   export const version = ModelsDevVersionValue
 }
 
+const backgroundRuntime = ManagedRuntime.make(defaultLayer, { memoMap })
+function refreshInBackground() {
+  return backgroundRuntime.runPromise(Service.use((svc) => svc.refresh()))
+}
+
 if (!Flag.OPENCODE_DISABLE_MODELS_FETCH && !process.argv.includes("--get-yargs-completions")) {
-  void refresh()
+  void refreshInBackground()
   setInterval(
     async () => {
-      await refresh()
+      await refreshInBackground()
     },
     60 * 1000 * 60,
   ).unref()
