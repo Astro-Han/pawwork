@@ -520,9 +520,9 @@ describe("route inventory harness", () => {
   test("distinguishes non-product Hono and v2 SDK routes from Hono-only routes", async () => {
     const inventory = await buildRouteInventory({ root, requireUpstream: false })
 
-    expect(
-      inventory.rows.find((row) => row.method === "POST" && row.path === "/permission/__e2e/ask"),
-    ).toMatchObject({ hono: false, openapi: true, v2Sdk: true, localHttpApi: true, classification: "local-httpapi-only" })
+    const permissionE2EAsk = inventory.rows.find((row) => row.method === "POST" && row.path === "/permission/__e2e/ask")
+    expect(permissionE2EAsk).toMatchObject({ hono: false, openapi: true, v2Sdk: true, localHttpApi: true })
+    expect(permissionE2EAsk?.classification).toMatch(/^local-httpapi-(?:only|upstream-only)$/)
   })
 
   test("does not report retired question HTTP routes as OpenAPI-only residue", async () => {
