@@ -784,6 +784,84 @@ test("a disconnect interrupted by a fatal stream rebuilds the surviving channels
   await runtime.stop()
 })
 
+test("a stop during an in-flight re-pair does not rebuild the bridge during shutdown", async () => {
+  // A user quit lands `stop()`'s synchronous abort on the live handle while a re-pair is parked
+  // in addPlatform. The abort makes addPlatform throw BridgeClosedError after the credential is
+  // committed. That error must NOT trigger a rebuild — the queued stop is tearing the bridge
+  // down, so rebuilding would only stand up a fresh stream just to tear it down again. The new
+  // account is persisted, so the next launch connects it.
+  const store = memoryStore([sampleAccount("telegram")])
+  let build = 0
+  let releaseAdd!: () => void
+  const addGate = new Promise<void>((resolve) => (releaseAdd = resolve))
+  const buildApp: RemoteBridgeDeps["buildApp"] = async (config) => {
+    ++build
+    return appWith(
+      (signal, _onReady, onStatus) => {
+        for (const platform of config.platforms) onStatus?.({ name: platform.name, phase: "serving" })
+        return hangUntilAbort(signal)
+      },
+      {
+        addPlatform: async (_config, beforeCommit) => {
+          await beforeCommit?.() // the credential is committed before the abort surfaces
+          await addGate // hold until the test has issued stop() (which aborts the handle)
+          throw new BridgeClosedError("telegram")
+        },
+      },
+    )
+  }
+  const runtime = new RemoteBridgeRuntime(deps({ credentials: store, buildApp }))
+  await runtime.startIfConfigured()
+  expect(build).toBe(1)
+
+  await runtime.startPairing("telegram", { token: "x" })
+  const confirming = runtime.confirmPairing("telegram") // parks in addPlatform at addGate
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const stopping = runtime.stop() // synchronously aborts the live handle
+  releaseAdd() // addPlatform now throws BridgeClosedError on the aborted handle
+  await Promise.all([confirming, stopping])
+  expect(build).toBe(1) // shutdown did not rebuild the bridge
+  expect(store.value).toEqual([{ platform: "telegram", token: "123:abc", allowFrom: "42", userName: "yu" }])
+})
+
+test("a stop during an in-flight disconnect does not rebuild the bridge during shutdown", async () => {
+  // Same shutdown race on the disconnect path: stop()'s abort makes removePlatform throw
+  // BridgeClosedError. The trimmed accounts are persisted, but the queued stop is tearing the
+  // bridge down, so the survivor must not be rebuilt only to be torn down again.
+  const store = memoryStore([sampleAccount("telegram"), sampleAccount("wechat")])
+  let build = 0
+  let releaseRemove!: () => void
+  const removeGate = new Promise<void>((resolve) => (releaseRemove = resolve))
+  const buildApp: RemoteBridgeDeps["buildApp"] = async (config) => {
+    ++build
+    return appWith(
+      (signal, _onReady, onStatus) => {
+        for (const platform of config.platforms) onStatus?.({ name: platform.name, phase: "serving" })
+        return hangUntilAbort(signal)
+      },
+      {
+        removePlatform: async () => {
+          await removeGate // hold until the test has issued stop() (which aborts the handle)
+          throw new BridgeClosedError("telegram")
+        },
+      },
+    )
+  }
+  const runtime = new RemoteBridgeRuntime(
+    deps({ credentials: store, buildApp, pairers: [fakePairer("telegram"), fakePairer("wechat")] }),
+  )
+  await runtime.startIfConfigured()
+  expect(build).toBe(1)
+
+  const disconnecting = runtime.disconnect("telegram") // parks in removePlatform at removeGate
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const stopping = runtime.stop() // synchronously aborts the live handle
+  releaseRemove() // removePlatform now throws BridgeClosedError on the aborted handle
+  await Promise.all([disconnecting, stopping])
+  expect(build).toBe(1) // shutdown did not rebuild the survivor
+  expect(store.value).toEqual([sampleAccount("wechat")]) // the trimmed accounts were persisted
+})
+
 test("startIfConfigured connects saved accounts; with none it stays empty", async () => {
   const runtime = new RemoteBridgeRuntime(deps({ credentials: memoryStore([sampleAccount("telegram")]) }))
   await runtime.startIfConfigured()

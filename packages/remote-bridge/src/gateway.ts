@@ -197,10 +197,23 @@ export class App {
    */
   async removePlatform(name: string): Promise<void> {
     await this.retirePlatform(name)
-    await this.pointers.clearPlatform(name)
-    // The channel is retired and its pointers forgotten. If the bridge tore down while we
-    // were doing it, the surviving channels went down with it — signal the caller to
-    // rebuild them from the persisted accounts (which no longer include this one).
+    // The retire is the commit: the channel has stopped serving and left routing, so the
+    // disconnect is durably done. Forgetting its session pointers is best-effort cleanup (a
+    // later reconnect starts fresh), so a failed pointer write is logged and swallowed, not
+    // thrown — a thrown cleanup error would surface as a failed disconnect and strand the
+    // caller's UI showing a channel that has already stopped. A stale on-disk pointer
+    // self-heals on the next pointer save and is never resurfaced by a live channel.
+    try {
+      await this.pointers.clearPlatform(name)
+    } catch (err) {
+      console.warn("remote bridge could not forget session pointers for a removed platform", {
+        platform: name,
+        error: message(err),
+      })
+    }
+    // If the bridge tore down while we retired, the surviving channels went down with it —
+    // signal the caller to rebuild them from the persisted accounts (which no longer include
+    // this one).
     if (this.tearingDown) throw new BridgeClosedError(name)
   }
 

@@ -805,6 +805,41 @@ test("removePlatform stops only that channel, leaving the stream and the others 
   }
 })
 
+test("removePlatform commits the retire even when forgetting session pointers fails", async () => {
+  // The live retire is the disconnect's commit: once the channel's loop is stopped and it has
+  // left routing, the disconnect is durably done. Forgetting its session pointers is best-effort
+  // cleanup, so a pointer-store write failure is logged, not thrown — otherwise the desktop would
+  // surface a failed disconnect and strand the UI showing a channel that has already stopped.
+  const platform = new FakePlatform("rt-ptr-fail")
+  const pointers = {
+    clearPlatform: async () => {
+      throw new Error("pointer store write failed")
+    },
+  } as unknown as SessionPointers
+  const warnings: string[] = []
+  const originalWarn = console.warn
+  console.warn = (...args: unknown[]) => {
+    warnings.push(String(args[0]))
+  }
+  try {
+    const app = new App({
+      client: undefined as unknown as PawWorkClient,
+      engine: new Engine(new FailingSidecar()),
+      pointers,
+      factory: () => platform,
+    })
+    await app.addPlatform({ name: platform.name, enabled: true, options: { allow_from: "U1" } })
+
+    // The pointer cleanup throws, but removePlatform must still resolve: the retire already
+    // committed, so the channel is gone and the failure is only logged.
+    await app.removePlatform(platform.name)
+    expect(app.platformNames()).toEqual([])
+    expect(warnings.some((line) => line.includes("could not forget session pointers"))).toBe(true)
+  } finally {
+    console.warn = originalWarn
+  }
+})
+
 test("a re-pair whose factory throws leaves the existing channel serving (prepare-first)", async () => {
   // Prepare-first: the replacement is built BEFORE the old loop is retired, so a
   // factory failure on a re-pair leaves the working channel up — not stopped, and

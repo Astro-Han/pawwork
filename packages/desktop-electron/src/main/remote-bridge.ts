@@ -276,6 +276,12 @@ export class RemoteBridgeRuntime {
           throw err
         }
         if (!(err instanceof BridgeClosedError)) throw err
+        // The credential is already persisted. A user-initiated stop aborts the live handle
+        // before this BridgeClosedError surfaces, so if the handle is aborted, don't rebuild
+        // a bridge the queued stop is about to tear down — let it shut down cleanly; the next
+        // launch builds from the persisted accounts. A fatal stream (handle not aborted)
+        // still rebuilds to recover the connection.
+        if (handle.ac.signal.aborted) return
         await this.startBridge()
       }
     })
@@ -318,8 +324,10 @@ export class RemoteBridgeRuntime {
       } catch (err) {
         if (!(err instanceof BridgeClosedError)) throw err
         // The shared stream went fatal mid-remove; the survivors went down with it. The
-        // trimmed accounts are already persisted, so rebuild them into a fresh bridge.
-        await this.startBridge()
+        // trimmed accounts are already persisted, so rebuild them into a fresh bridge — unless
+        // a user-initiated stop aborted the handle, in which case the queued stop is tearing
+        // the bridge down and a rebuild during shutdown would only flap it; let stop take over.
+        if (!handle?.ac.signal.aborted) await this.startBridge()
       }
       this.statusMap.delete(platform)
       this.emitStatus()
