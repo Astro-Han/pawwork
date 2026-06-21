@@ -165,25 +165,16 @@ export class App {
     if (!hasRemoteAudience(config.name, options)) {
       throw new Error(`${config.name} platform requires a specific allow_from or Feishu/Lark allow_chat with group_only`)
     }
-    // Prepare-first / swap-after-success: validate the audience, build the replacement,
-    // and run beforeCommit BEFORE touching any live same-name instance, so a failed
-    // re-pair (rejected audience, a factory throw, or a beforeCommit that can't persist)
-    // leaves the existing channel serving and lets the caller roll back without losing a
-    // working connection. Only once all three succeed do we retire the old loop (keeping
-    // its session pointers, since a re-pair continues the conversation), register the new
-    // one, and supervise it.
+    // Prepare-first (see the method doc): build the replacement and run beforeCommit before
+    // retiring the live same-name instance, so a failed re-pair leaves the existing channel
+    // serving and the caller can roll back.
     const platform = await this.factory(config.name, options)
     await beforeCommit?.()
     if (this.desiredPlatforms.has(config.name)) await this.retirePlatform(config.name)
-    // Commit point. Every await above is a yield where the shared stream can go fatal and
-    // tear the bridge down (tearingDown set, supervisor cleared). If that happened, the
-    // live supervise below would silently no-op and we'd report success for a channel that
-    // never starts — so fail loudly and let the caller rebuild from the persisted accounts.
-    // A null supervisor during STARTUP is fine (tearingDown is false): the platform sits in
-    // desiredPlatforms and run()'s initial snapshot adopts it. Since tearingDown and
-    // supervisor=null are set in one synchronous teardown step, "tearingDown false + null
-    // supervisor" only ever means startup, never teardown. No await below: the check and
-    // the live swap are one atomic step.
+    // Commit point (no await below, so the check and the live swap are atomic): an await above
+    // could have let the stream go fatal and tear the bridge down. tearingDown and supervisor=null
+    // are set together, so tearingDown distinguishes teardown — fail loudly and let the caller
+    // rebuild — from a legitimate startup null, which run()'s initial snapshot adopts.
     if (this.tearingDown) throw new BridgeClosedError(config.name)
     this.engine.registerPlatform(platform)
     this.desiredPlatforms.set(config.name, platform)
@@ -197,12 +188,10 @@ export class App {
    */
   async removePlatform(name: string): Promise<void> {
     await this.retirePlatform(name)
-    // The retire is the commit: the channel has stopped serving and left routing, so the
-    // disconnect is durably done. Forgetting its session pointers is best-effort cleanup (a
-    // later reconnect starts fresh), so a failed pointer write is logged and swallowed, not
-    // thrown — a thrown cleanup error would surface as a failed disconnect and strand the
-    // caller's UI showing a channel that has already stopped. A stale on-disk pointer
-    // self-heals on the next pointer save and is never resurfaced by a live channel.
+    // The retire is the commit; forgetting session pointers is best-effort, so a failed write is
+    // logged, not thrown (it would surface as a failed disconnect and strand the UI on an
+    // already-stopped channel). A stale write self-heals on the next save; the rare exit-before-
+    // save revival on reconnect is accepted as best-effort (see session-pointers.test.ts).
     try {
       await this.pointers.clearPlatform(name)
     } catch (err) {

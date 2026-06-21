@@ -252,14 +252,9 @@ export class RemoteBridgeRuntime {
         await this.startBridge()
         return
       }
-      // Live bridge: prepare-first. addPlatform builds the new channel and runs the commit
-      // hook — which persists the credential — BEFORE it swaps out the old loop, so a save
-      // failure (locked keyring, unwritable file) aborts the swap with the old channel
-      // still serving, never a live new channel backed by a stale stored credential.
-      // `committed` flips inside the hook: once the credential is saved the desired set is
-      // durable, so a later failure must NOT roll it back. If the shared stream goes fatal
-      // mid-add, addPlatform throws BridgeClosedError after the commit (the change never
-      // took live) — rebuild the whole bridge from the now-persisted accounts.
+      // Live bridge: prepare-first. The commit hook persists the credential after the build and
+      // before the swap, so a save failure leaves the old channel serving; `committed` flips once
+      // it lands, marking the desired set durable so a later failure must not roll it back.
       const previousAccounts = this.accounts
       this.accounts = nextAccounts
       let committed = false
@@ -276,11 +271,9 @@ export class RemoteBridgeRuntime {
           throw err
         }
         if (!(err instanceof BridgeClosedError)) throw err
-        // The credential is already persisted. A user-initiated stop aborts the live handle
-        // before this BridgeClosedError surfaces, so if the handle is aborted, don't rebuild
-        // a bridge the queued stop is about to tear down — let it shut down cleanly; the next
-        // launch builds from the persisted accounts. A fatal stream (handle not aborted)
-        // still rebuilds to recover the connection.
+        // Committed, then the bridge closed: rebuild from the persisted accounts — unless a
+        // user-initiated stop aborted the handle, in which case let the queued stop tear it down
+        // (the next launch builds from the persisted accounts).
         if (handle.ac.signal.aborted) return
         await this.startBridge()
       }
@@ -323,10 +316,8 @@ export class RemoteBridgeRuntime {
         else await this.startBridge()
       } catch (err) {
         if (!(err instanceof BridgeClosedError)) throw err
-        // The shared stream went fatal mid-remove; the survivors went down with it. The
-        // trimmed accounts are already persisted, so rebuild them into a fresh bridge — unless
-        // a user-initiated stop aborted the handle, in which case the queued stop is tearing
-        // the bridge down and a rebuild during shutdown would only flap it; let stop take over.
+        // The stream closed mid-remove; the trimmed accounts are persisted, so rebuild the
+        // survivors — unless a user-initiated stop aborted the handle (then let stop take over).
         if (!handle?.ac.signal.aborted) await this.startBridge()
       }
       this.statusMap.delete(platform)
