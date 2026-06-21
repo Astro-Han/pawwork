@@ -25,6 +25,9 @@ import {
   SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
   type RendererDiagnosticsSlice,
 } from "./renderer-diagnostics"
+// Type-only: pins each Web Search credential handler to the Status shape the
+// preload promises the renderer, so a wrong service return fails typecheck.
+import type { WebSearchAuth as WebSearchAuthApi } from "virtual:opencode-server"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -285,17 +288,17 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
-  ipcMain.handle("websearch-status", async () => {
+  ipcMain.handle("websearch-status", async (): Promise<WebSearchAuthApi.Status> => {
     const { AppRuntime, WebSearchAuth } = await import("virtual:opencode-server")
     return AppRuntime.runPromise(WebSearchAuth.Service.use((auth) => auth.status()))
   })
 
-  ipcMain.handle("websearch-save-exa-key", async (_event: IpcMainInvokeEvent, key: string) => {
+  ipcMain.handle("websearch-save-exa-key", async (_event: IpcMainInvokeEvent, key: string): Promise<WebSearchAuthApi.Status> => {
     const { AppRuntime, WebSearchAuth } = await import("virtual:opencode-server")
     return AppRuntime.runPromise(WebSearchAuth.Service.use((auth) => auth.saveKey(key)))
   })
 
-  ipcMain.handle("websearch-remove-exa-key", async () => {
+  ipcMain.handle("websearch-remove-exa-key", async (): Promise<WebSearchAuthApi.Status> => {
     const { AppRuntime, WebSearchAuth } = await import("virtual:opencode-server")
     return AppRuntime.runPromise(WebSearchAuth.Service.use((auth) => auth.removeKey()))
   })

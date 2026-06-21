@@ -9,6 +9,12 @@ interface ImportMeta {
 }
 
 declare module "virtual:opencode-server" {
+  // A typed handle for an opencode Effect crossing the virtual-module boundary.
+  // The desktop side never inspects it; AppRuntime.runPromise unwraps it to the
+  // Result type, so a handler that returns the wrong shape — or a callback that
+  // calls the wrong service method — fails typecheck instead of only at runtime.
+  export type ServerEffect<Result> = { readonly __result?: Result }
+
   export namespace Server {
     export type Listener = {
       hostname: string
@@ -36,10 +42,10 @@ declare module "virtual:opencode-server" {
 
   export namespace Settings {
     export type ServiceApi = {
-      lspEnabled: () => unknown
-      setLspEnabled: (value: boolean) => unknown
-      webSearchEnabled: () => unknown
-      setWebSearchEnabled: (value: boolean) => unknown
+      lspEnabled: () => ServerEffect<boolean>
+      setLspEnabled: (value: boolean) => ServerEffect<void>
+      webSearchEnabled: () => ServerEffect<boolean>
+      setWebSearchEnabled: (value: boolean) => ServerEffect<void>
     }
     export const Service: {
       use: <A>(fn: (settings: ServiceApi) => A) => A
@@ -47,7 +53,7 @@ declare module "virtual:opencode-server" {
   }
 
   export namespace AppRuntime {
-    export function runPromise(effect: unknown, options?: unknown): Promise<unknown>
+    export function runPromise<Result>(effect: ServerEffect<Result>, options?: unknown): Promise<Result>
   }
 
   export namespace WebSearchAuth {
@@ -58,9 +64,9 @@ declare module "virtual:opencode-server" {
       quotaExceeded: boolean
     }
     export type ServiceApi = {
-      status: () => unknown
-      saveKey: (key: string) => unknown
-      removeKey: () => unknown
+      status: () => ServerEffect<Status>
+      saveKey: (key: string) => ServerEffect<Status>
+      removeKey: () => ServerEffect<Status>
     }
     export const Service: {
       use: <A>(fn: (auth: ServiceApi) => A) => A
@@ -69,8 +75,8 @@ declare module "virtual:opencode-server" {
 
   export namespace LSP {
     export type ServiceApi = {
-      shutdownAll: () => unknown
-      invalidate: () => unknown
+      shutdownAll: () => ServerEffect<void>
+      invalidate: () => ServerEffect<void>
     }
     export const Service: {
       use: <A>(fn: (lsp: ServiceApi) => A) => A
@@ -79,7 +85,7 @@ declare module "virtual:opencode-server" {
 
   export namespace ToolRegistry {
     export type ServiceApi = {
-      invalidate: () => unknown
+      invalidate: () => ServerEffect<void>
     }
     export const Service: {
       use: <A>(fn: (registry: ServiceApi) => A) => A
