@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { deliveryConfig, Engine } from "./engine.ts"
 import {
   App,
+  BridgeClosedError,
   createApp,
   decodeConfig,
   hasRemoteAudience,
@@ -951,6 +952,57 @@ test("a re-pair whose new platform fails to start retires the old and surfaces t
 
     controller.abort()
     await runPromise
+  } finally {
+    server.stop()
+  }
+})
+
+test("addPlatform that finishes building after teardown throws BridgeClosedError, not a silent no-op", async () => {
+  // The fatal-stream race: the shared stream can die while a re-pair is still building. Once
+  // run() tears down (supervisor cleared), the live supervise would silently no-op and report
+  // a success the channel never honored. addPlatform must instead throw, so the caller rebuilds
+  // from the persisted accounts rather than trusting an add that never took effect.
+  const original = new FakePlatform("rt-teardown")
+  let releaseBuild!: () => void
+  const buildGate = new Promise<void>((resolve) => (releaseBuild = resolve))
+  let builds = 0
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        return openEventStream()
+    }
+    return undefined
+  })
+  const controller = new AbortController()
+  try {
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [{ name: "rt-teardown", enabled: true, options: { allow_from: "U1" } }],
+      },
+      () => {
+        builds++
+        // The re-pair's build blocks until the test releases it — letting us tear the bridge
+        // down while addPlatform is mid-await, exactly the window the guard must catch.
+        return builds === 1 ? original : buildGate.then(() => new FakePlatform("rt-teardown"))
+      },
+    )
+    const runPromise = app.run(controller.signal)
+    await original.started.promise
+
+    // Start a re-pair; its factory is still awaiting the build gate.
+    const repair = app.addPlatform({ name: "rt-teardown", enabled: true, options: { allow_from: "U2" } })
+    // Tear the bridge down while the build is in flight, then let the build finish.
+    controller.abort()
+    await runPromise
+    releaseBuild()
+
+    await expect(repair).rejects.toBeInstanceOf(BridgeClosedError)
   } finally {
     server.stop()
   }

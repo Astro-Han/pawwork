@@ -92,6 +92,19 @@ export async function createApp(config: Config, createPlatform: PlatformFactory)
 // most recently active sessions, not the full history.
 export const hydrateSessionLimit = 100
 
+/**
+ * Thrown by addPlatform / removePlatform when the shared event stream went fatal and the
+ * App is tearing down, so the incremental change could not be applied to a live bridge.
+ * The persisted account set is authoritative, so the caller recovers by rebuilding the
+ * bridge from it rather than trusting a change that silently did not take effect.
+ */
+export class BridgeClosedError extends Error {
+  constructor(platform: string) {
+    super(`remote bridge is closed; cannot apply change to ${platform}`)
+    this.name = "BridgeClosedError"
+  }
+}
+
 export class App {
   private readonly client: PawWorkClient
   private readonly engine: Engine
@@ -103,6 +116,11 @@ export class App {
   private readonly desiredPlatforms = new Map<string, Platform>()
   /** Set after the event stream is up; null before run() and after teardown. */
   private supervisor: PlatformSupervisor | null = null
+  /** True once run() has begun tearing down (fatal stream or abort). Distinguishes a
+   * null supervisor during teardown (incremental ops must fail) from one during startup
+   * (the platform is adopted by run()'s initial snapshot). Set in the same synchronous
+   * step as `supervisor = null`, so the two are never observed out of agreement. */
+  private tearingDown = false
   /** Base backoff between event-stream reconnect attempts; lowered in tests. */
   eventRetryDelayMs = 1000
   /** Base backoff before restarting a failed platform; lowered in tests. */
@@ -157,6 +175,16 @@ export class App {
     const platform = await this.factory(config.name, options)
     await beforeCommit?.()
     if (this.desiredPlatforms.has(config.name)) await this.retirePlatform(config.name)
+    // Commit point. Every await above is a yield where the shared stream can go fatal and
+    // tear the bridge down (tearingDown set, supervisor cleared). If that happened, the
+    // live supervise below would silently no-op and we'd report success for a channel that
+    // never starts — so fail loudly and let the caller rebuild from the persisted accounts.
+    // A null supervisor during STARTUP is fine (tearingDown is false): the platform sits in
+    // desiredPlatforms and run()'s initial snapshot adopts it. Since tearingDown and
+    // supervisor=null are set in one synchronous teardown step, "tearingDown false + null
+    // supervisor" only ever means startup, never teardown. No await below: the check and
+    // the live swap are one atomic step.
+    if (this.tearingDown) throw new BridgeClosedError(config.name)
     this.engine.registerPlatform(platform)
     this.desiredPlatforms.set(config.name, platform)
     this.supervisor?.add(platform)
@@ -170,6 +198,10 @@ export class App {
   async removePlatform(name: string): Promise<void> {
     await this.retirePlatform(name)
     await this.pointers.clearPlatform(name)
+    // The channel is retired and its pointers forgotten. If the bridge tore down while we
+    // were doing it, the surviving channels went down with it — signal the caller to
+    // rebuild them from the persisted accounts (which no longer include this one).
+    if (this.tearingDown) throw new BridgeClosedError(name)
   }
 
   /**
@@ -271,7 +303,10 @@ export class App {
       // supervisor never came up; the built-but-unstarted platforms hold no
       // resources, but stop() them too for symmetry.
       const supervisor = this.supervisor
+      // Set together, in this one synchronous step, so an incremental op awaiting across
+      // teardown sees both: tearingDown true means "fail loudly", not a startup null.
       this.supervisor = null
+      this.tearingDown = true
       if (supervisor) await supervisor.stopAll()
       else await this.stopUnstartedPlatforms()
       await streamLoop

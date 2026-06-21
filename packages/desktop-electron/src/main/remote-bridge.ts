@@ -1,5 +1,6 @@
 import { rmSync } from "node:fs"
 import {
+  BridgeClosedError,
   normalizeLocale,
   type Config,
   type PlatformConfig,
@@ -242,8 +243,8 @@ export class RemoteBridgeRuntime {
     this.pending = null
     await this.enqueue(async () => {
       const nextAccounts = [...this.accounts.filter((account) => account.platform !== platform), pending]
-      const app = this.current?.app
-      if (!app) {
+      const handle = this.current
+      if (!handle) {
         // Cold start, or recovering after a fatal stream tore the bridge down: no live
         // channel to preserve, so commit the account and build from every saved one.
         this.accounts = nextAccounts
@@ -251,20 +252,31 @@ export class RemoteBridgeRuntime {
         await this.startBridge()
         return
       }
-      // Live bridge: prepare-first. addPlatform builds the new channel and runs the
-      // commit hook — which persists the credential — BEFORE it swaps out the old loop,
-      // so a save failure (locked keyring, unwritable file) aborts the swap with the old
-      // channel still serving, never a live new channel backed by a stale stored
-      // credential. Swap accounts in memory first so the hook persists the new list and
-      // the new channel's status renders the new identity; roll the swap back (leaving
-      // the old channel untouched) on any failure.
+      // Live bridge: prepare-first. addPlatform builds the new channel and runs the commit
+      // hook — which persists the credential — BEFORE it swaps out the old loop, so a save
+      // failure (locked keyring, unwritable file) aborts the swap with the old channel
+      // still serving, never a live new channel backed by a stale stored credential.
+      // `committed` flips inside the hook: once the credential is saved the desired set is
+      // durable, so a later failure must NOT roll it back. If the shared stream goes fatal
+      // mid-add, addPlatform throws BridgeClosedError after the commit (the change never
+      // took live) — rebuild the whole bridge from the now-persisted accounts.
       const previousAccounts = this.accounts
       this.accounts = nextAccounts
+      let committed = false
       try {
-        await app.addPlatform(this.platformConfig(pending), () => this.deps.credentials.save(this.accounts))
+        await handle.app.addPlatform(this.platformConfig(pending), () => {
+          this.deps.credentials.save(this.accounts)
+          committed = true
+        })
       } catch (err) {
-        this.accounts = previousAccounts
-        throw err
+        if (!committed) {
+          // Build or save failed before the credential was persisted: nothing is durable,
+          // so restore the in-memory accounts and surface the failure.
+          this.accounts = previousAccounts
+          throw err
+        }
+        if (!(err instanceof BridgeClosedError)) throw err
+        await this.startBridge()
       }
     })
   }
@@ -296,12 +308,19 @@ export class RemoteBridgeRuntime {
       // retryable — never half-removed in memory with its loop still live.
       this.deps.credentials.save(nextAccounts)
       this.accounts = nextAccounts
-      const app = this.current?.app
-      // Live bridge: removePlatform stops only this channel's loop and prunes its
-      // session pointers; the shared stream and the other channels keep serving.
-      // No live bridge (recovering from a fatal stream): rebuild from the rest.
-      if (app) await app.removePlatform(platform)
-      else await this.startBridge()
+      const handle = this.current
+      try {
+        // Live bridge: removePlatform stops only this channel's loop and prunes its
+        // session pointers; the shared stream and the other channels keep serving.
+        // No live bridge (recovering from a fatal stream): rebuild from the rest.
+        if (handle) await handle.app.removePlatform(platform)
+        else await this.startBridge()
+      } catch (err) {
+        if (!(err instanceof BridgeClosedError)) throw err
+        // The shared stream went fatal mid-remove; the survivors went down with it. The
+        // trimmed accounts are already persisted, so rebuild them into a fresh bridge.
+        await this.startBridge()
+      }
       this.statusMap.delete(platform)
       this.emitStatus()
     })

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import type { PlatformStatus } from "@opencode-ai/remote-bridge/gateway"
+import { BridgeClosedError, type PlatformStatus } from "@opencode-ai/remote-bridge/gateway"
 import {
   type BridgeApp,
   type CredentialStore,
@@ -693,6 +693,91 @@ test("a non-last disconnect whose credential save fails keeps the channel and is
   store.failSave = false
   await runtime.disconnect("telegram")
   expect(harness.state.events).toEqual(["remove:telegram"])
+  expect(stateOf("telegram")).toBeUndefined()
+  expect(stateOf("wechat")).toBe("connected")
+  expect(store.value).toEqual([sampleAccount("wechat")])
+  await runtime.stop()
+})
+
+test("a re-pair interrupted by a fatal stream rebuilds from the persisted account", async () => {
+  // If the shared stream goes fatal mid-add, addPlatform throws BridgeClosedError AFTER the
+  // credential is saved. The new account is durable, so the runtime rebuilds the whole bridge
+  // from it rather than reporting a success for a channel that never started.
+  const store = memoryStore([sampleAccount("telegram")])
+  const newAccount: RemoteAccount = { platform: "telegram", token: "999:xyz", allowFrom: "99", userName: "new" }
+  let build = 0
+  const buildApp: RemoteBridgeDeps["buildApp"] = async (config) => {
+    const isFirst = ++build === 1
+    return appWith(
+      (signal, _onReady, onStatus) => {
+        for (const platform of config.platforms) onStatus?.({ name: platform.name, phase: "serving" })
+        return hangUntilAbort(signal)
+      },
+      isFirst
+        ? {
+            // The live bridge: the stream dies mid-add — commit the credential, then report
+            // the bridge as closed so the runtime recovers by rebuilding.
+            addPlatform: async (_config, beforeCommit) => {
+              await beforeCommit?.()
+              throw new BridgeClosedError("telegram")
+            },
+          }
+        : {}, // the rebuilt bridge serves via run(); no incremental add
+    )
+  }
+  const runtime = new RemoteBridgeRuntime(
+    deps({
+      credentials: store,
+      buildApp,
+      pairers: [
+        fakePairer("telegram", {
+          pair: async (_start, emit) => {
+            emit({ phase: "awaitingBind", platform: "telegram", hint: "message" })
+            return newAccount
+          },
+        }),
+      ],
+    }),
+  )
+  await runtime.startIfConfigured()
+  expect(build).toBe(1)
+  expect(runtime.getStatus().channels[0].state).toBe("connected")
+
+  await runtime.startPairing("telegram", { token: "x" })
+  await runtime.confirmPairing("telegram") // the fatal add is recovered by a rebuild, not surfaced
+  expect(build).toBe(2) // rebuilt from the persisted account
+  expect(runtime.getStatus().channels[0].state).toBe("connected")
+  expect(store.value).toEqual([newAccount]) // the new credential was persisted before the rebuild
+  await runtime.stop()
+})
+
+test("a disconnect interrupted by a fatal stream rebuilds the surviving channels", async () => {
+  // The stream can die while removePlatform is winding the channel down. The trimmed accounts
+  // are already saved, so the runtime rebuilds the survivors rather than leaving them dead
+  // behind a reported-success disconnect.
+  const store = memoryStore([sampleAccount("telegram"), sampleAccount("wechat")])
+  let build = 0
+  const buildApp: RemoteBridgeDeps["buildApp"] = async (config) => {
+    const isFirst = ++build === 1
+    return appWith(
+      (signal, _onReady, onStatus) => {
+        for (const platform of config.platforms) onStatus?.({ name: platform.name, phase: "serving" })
+        return hangUntilAbort(signal)
+      },
+      isFirst ? { removePlatform: async () => { throw new BridgeClosedError("telegram") } } : {},
+    )
+  }
+  const runtime = new RemoteBridgeRuntime(
+    deps({ credentials: store, buildApp, pairers: [fakePairer("telegram"), fakePairer("wechat")] }),
+  )
+  const stateOf = (platform: RemotePlatform) => runtime.getStatus().channels.find((c) => c.platform === platform)?.state
+  await runtime.startIfConfigured()
+  expect(build).toBe(1)
+  expect(stateOf("telegram")).toBe("connected")
+  expect(stateOf("wechat")).toBe("connected")
+
+  await runtime.disconnect("telegram") // the fatal remove is recovered by rebuilding the survivor
+  expect(build).toBe(2)
   expect(stateOf("telegram")).toBeUndefined()
   expect(stateOf("wechat")).toBe("connected")
   expect(store.value).toEqual([sampleAccount("wechat")])
