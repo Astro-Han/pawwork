@@ -38,6 +38,42 @@ describe("websearch IPC source contract", () => {
     expect(mainIpc).toContain("AppRuntime.runPromise(Settings.Service.use")
   })
 
+  test("credential and tool-invalidation handlers use Effect services instead of retired facades", () => {
+    // These namespaces became Effect services in the settings migration; the
+    // top-level Promise facades no longer exist and throw "is not a function"
+    // at runtime (the 2026.6.10 Settings crash). Keep every handler on
+    // AppRuntime.runPromise(<Service>.use(...)).
+    for (const deadFacade of [
+      "WebSearchAuth.status(",
+      "WebSearchAuth.saveKey(",
+      "WebSearchAuth.removeKey(",
+      "LSP.shutdownAll(",
+      "LSP.invalidate(",
+      "ToolRegistry.invalidate(",
+    ]) {
+      expect(mainIpc).not.toContain(deadFacade)
+    }
+    for (const effectCall of [
+      "AppRuntime.runPromise(WebSearchAuth.Service.use",
+      "AppRuntime.runPromise(LSP.Service.use",
+      "AppRuntime.runPromise(ToolRegistry.Service.use",
+    ]) {
+      expect(mainIpc).toContain(effectCall)
+    }
+  })
+
+  test("virtual module types expose Effect services, not retired facades", () => {
+    // env.d.ts is the only typecheck guard for the virtual:opencode-server
+    // boundary. If it keeps declaring the dead facades as functions, a handler
+    // that calls them typechecks clean and only fails at runtime.
+    for (const namespace of ["WebSearchAuth", "LSP", "ToolRegistry"]) {
+      expect(envTypes).toContain(`namespace ${namespace}`)
+    }
+    expect(envTypes).not.toContain("export function status(")
+    expect(envTypes).not.toContain("export function shutdownAll(")
+    expect(envTypes).not.toContain("export function invalidate(")
+  })
+
   test("web search toggle rejects when live tool invalidation fails", () => {
     expect(mainIpc).toContain("const previous = await readWebSearchEnabled()")
     expect(mainIpc).toContain("await setWebSearchEnabled(previous)")

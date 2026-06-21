@@ -211,10 +211,11 @@ export function registerIpcHandlers(deps: Deps) {
     const setLspEnabled = (next: boolean) =>
       AppRuntime.runPromise(Settings.Service.use((settings) => settings.setLspEnabled(next))) as Promise<void>
     await setLspEnabled(value)
-    // LSP.invalidate / ToolRegistry.invalidate / LSP.shutdownAll all read
-    // InstanceState.directory, which requires an Instance scope. Process every
-    // active instance with isolation so a single failure does not leave the
-    // remaining projects stuck on stale cache state.
+    // The LSP and ToolRegistry invalidate/shutdownAll effects all read
+    // InstanceState.directory, which resolves from the Instance scope (InstanceRef
+    // ?? Instance.current ALS). Run them inside Instance.provide so each effect
+    // sees the right directory, and process every active instance with isolation
+    // so a single failure does not leave the remaining projects on stale cache.
     const directories = Instance.directories()
     const results = await Promise.allSettled(
       directories.map((directory) =>
@@ -222,10 +223,10 @@ export function registerIpcHandlers(deps: Deps) {
           directory,
           fn: async () => {
             if (!value) {
-              await LSP.shutdownAll()
+              await AppRuntime.runPromise(LSP.Service.use((lsp) => lsp.shutdownAll()))
             }
-            await LSP.invalidate()
-            await ToolRegistry.invalidate()
+            await AppRuntime.runPromise(LSP.Service.use((lsp) => lsp.invalidate()))
+            await AppRuntime.runPromise(ToolRegistry.Service.use((registry) => registry.invalidate()))
           },
         }),
       ),
@@ -253,7 +254,7 @@ export function registerIpcHandlers(deps: Deps) {
         targetDirectories.map((directory) =>
           Instance.provide({
             directory,
-            fn: () => ToolRegistry.invalidate(),
+            fn: () => AppRuntime.runPromise(ToolRegistry.Service.use((registry) => registry.invalidate())),
           }),
         ),
       )
@@ -285,18 +286,18 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   ipcMain.handle("websearch-status", async () => {
-    const { WebSearchAuth } = await import("virtual:opencode-server")
-    return WebSearchAuth.status()
+    const { AppRuntime, WebSearchAuth } = await import("virtual:opencode-server")
+    return AppRuntime.runPromise(WebSearchAuth.Service.use((auth) => auth.status()))
   })
 
   ipcMain.handle("websearch-save-exa-key", async (_event: IpcMainInvokeEvent, key: string) => {
-    const { WebSearchAuth } = await import("virtual:opencode-server")
-    return WebSearchAuth.saveKey(key)
+    const { AppRuntime, WebSearchAuth } = await import("virtual:opencode-server")
+    return AppRuntime.runPromise(WebSearchAuth.Service.use((auth) => auth.saveKey(key)))
   })
 
   ipcMain.handle("websearch-remove-exa-key", async () => {
-    const { WebSearchAuth } = await import("virtual:opencode-server")
-    return WebSearchAuth.removeKey()
+    const { AppRuntime, WebSearchAuth } = await import("virtual:opencode-server")
+    return AppRuntime.runPromise(WebSearchAuth.Service.use((auth) => auth.removeKey()))
   })
 
   ipcMain.handle(

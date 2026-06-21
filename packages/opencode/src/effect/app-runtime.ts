@@ -42,6 +42,7 @@ import { McpAuth } from "@/mcp/auth"
 import { Command } from "@/command"
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
+import { WebSearchAuth } from "@/tool/websearch-auth"
 import { Project } from "@/project/project"
 import { Vcs } from "@/project/vcs"
 import { Worktree } from "@/worktree"
@@ -98,6 +99,10 @@ export const AppLayer = Layer.suspend(() =>
     Command.defaultLayer,
     Truncate.defaultLayer,
     ToolRegistry.defaultLayer,
+    // Desktop settings IPC drives WebSearchAuth.status/saveKey/removeKey through
+    // AppRuntime; expose the service here (Auth is shared via the memo map) so
+    // the embedded server boundary can resolve it the same way as Settings.
+    WebSearchAuth.defaultLayer,
     Project.defaultLayer,
     Vcs.defaultLayer,
     Worktree.defaultLayer,

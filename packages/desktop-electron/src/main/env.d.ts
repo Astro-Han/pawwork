@@ -57,18 +57,33 @@ declare module "virtual:opencode-server" {
       needsAttention: boolean
       quotaExceeded: boolean
     }
-    export function status(): Promise<Status>
-    export function saveKey(key: string): Promise<Status>
-    export function removeKey(): Promise<Status>
+    export type ServiceApi = {
+      status: () => unknown
+      saveKey: (key: string) => unknown
+      removeKey: () => unknown
+    }
+    export const Service: {
+      use: <A>(fn: (auth: ServiceApi) => A) => A
+    }
   }
 
   export namespace LSP {
-    export function shutdownAll(): Promise<void>
-    export function invalidate(): Promise<void>
+    export type ServiceApi = {
+      shutdownAll: () => unknown
+      invalidate: () => unknown
+    }
+    export const Service: {
+      use: <A>(fn: (lsp: ServiceApi) => A) => A
+    }
   }
 
   export namespace ToolRegistry {
-    export function invalidate(): Promise<void>
+    export type ServiceApi = {
+      invalidate: () => unknown
+    }
+    export const Service: {
+      use: <A>(fn: (registry: ServiceApi) => A) => A
+    }
   }
 
   export namespace Instance {
