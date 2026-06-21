@@ -143,33 +143,37 @@ test("clearPlatform persists the pruned set to disk", async () => {
   expect(reloaded.get("telegram:dm:t1")).toBe("ses_tg")
 })
 
-test("a clearPlatform whose disk write fails leaves the stale pointer to revive on restart", async () => {
-  // removePlatform's pointer cleanup is best-effort: clearPlatform prunes the in-memory map and
-  // then writes atomically (unique temp + rename), so a write failure leaves memory pruned but the
-  // on-disk snapshot intact. If the app exits before any later save heals the file, the next launch
-  // reloads the stale mapping — and a reconnect of the same platform (addPlatform keeps pointers)
-  // resurfaces it. This pins that accepted behavior so a future reader knows it is deliberate, not a
-  // latent bug; a self-healing tombstone is tracked as follow-up, not blocking the incremental path.
-  if (process.getuid?.() === 0) return // a read-only dir cannot block root; skip the forced failure
-  const path = await tempFile()
-  const live = await SessionPointers.fromFile(path)
-  await live.set("wechat:dm:u1", "ses_wx")
-  await live.set("telegram:dm:t1", "ses_tg")
+// Skipped on Windows (chmod cannot make a directory unwritable) and under root (a read-only dir
+// cannot block writes) — both would leave the forced-failure step unable to fail as expected.
+test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+  "a clearPlatform whose disk write fails leaves the stale pointer to revive on restart",
+  async () => {
+    // removePlatform's pointer cleanup is best-effort: clearPlatform prunes the in-memory map and
+    // then writes atomically (unique temp + rename), so a write failure leaves memory pruned but the
+    // on-disk snapshot intact. If the app exits before any later save heals the file, the next launch
+    // reloads the stale mapping — and a reconnect of the same platform (addPlatform keeps pointers)
+    // resurfaces it. This pins that accepted behavior so a future reader knows it is deliberate, not a
+    // latent bug; a self-healing tombstone is tracked as follow-up, not blocking the incremental path.
+    const path = await tempFile()
+    const live = await SessionPointers.fromFile(path)
+    await live.set("wechat:dm:u1", "ses_wx")
+    await live.set("telegram:dm:t1", "ses_tg")
 
-  // Freeze the directory so the next atomic write cannot create its temp file; the existing
-  // snapshot is left untouched (the rename never runs).
-  const dir = dirname(path)
-  await chmod(dir, 0o500)
-  try {
-    await expect(live.clearPlatform("wechat")).rejects.toBeDefined() // the write failed
-    expect(live.get("wechat:dm:u1")).toBe("") // but the in-memory map was already pruned
-  } finally {
-    await chmod(dir, 0o700) // restore so the snapshot stays intact and the dir is cleanable
-  }
+    // Freeze the directory so the next atomic write cannot create its temp file; the existing
+    // snapshot is left untouched (the rename never runs).
+    const dir = dirname(path)
+    await chmod(dir, 0o500)
+    try {
+      await expect(live.clearPlatform("wechat")).rejects.toBeDefined() // the write failed
+      expect(live.get("wechat:dm:u1")).toBe("") // but the in-memory map was already pruned
+    } finally {
+      await chmod(dir, 0o700) // restore so the snapshot stays intact and the dir is cleanable
+    }
 
-  // Restart: the on-disk snapshot never lost wechat, so reloading it (a reconnect of the same
-  // platform) revives the stale pointer.
-  const reloaded = await SessionPointers.fromFile(path)
-  expect(reloaded.get("wechat:dm:u1")).toBe("ses_wx") // stale pointer revived after restart
-  expect(reloaded.get("telegram:dm:t1")).toBe("ses_tg")
-})
+    // Restart: the on-disk snapshot never lost wechat, so reloading it (a reconnect of the same
+    // platform) revives the stale pointer.
+    const reloaded = await SessionPointers.fromFile(path)
+    expect(reloaded.get("wechat:dm:u1")).toBe("ses_wx") // stale pointer revived after restart
+    expect(reloaded.get("telegram:dm:t1")).toBe("ses_tg")
+  },
+)
