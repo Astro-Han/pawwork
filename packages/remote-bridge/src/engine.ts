@@ -55,6 +55,22 @@ export class Engine implements EventHandler {
     this.platforms.set(platform.name, platform)
   }
 
+  /**
+   * Drop a platform from routing when its channel disconnects: remove it from the
+   * reconstruct-reply index and discard any active delivery target pointing at it,
+   * so a later assistant event for one of its sessions can't push to a stopped
+   * platform. Liveness of *inbound* messages is enforced by the gateway's message
+   * handler (it owns the live platform set); the remoteKey→session pointers are
+   * pruned separately, since they outlive the live platform.
+   */
+  unregisterPlatform(name: string): void {
+    if (name.trim() === "") return
+    this.platforms.delete(name)
+    for (const [sessionID, delivery] of this.active) {
+      if (delivery.platform.name === name) this.active.delete(sessionID)
+    }
+  }
+
   async registerSession(session: Session): Promise<void> {
     if (session.id === "" || session.parentID === "") return
     await this.pointers.setParent(session.id, session.parentID)

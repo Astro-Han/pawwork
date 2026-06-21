@@ -7,7 +7,7 @@ export { normalizeLocale }
 import { isFatalStreamError, PawWorkClient } from "./pawwork-client.ts"
 import type { EventHandler } from "./pawwork-events.ts"
 import { SessionPointers } from "./session-pointers.ts"
-import { type PlatformStatus, supervisePlatforms } from "./supervisor.ts"
+import { PlatformSupervisor, type PlatformStatus } from "./supervisor.ts"
 import type { MessageHandler, Platform } from "./types.ts"
 
 // Re-exported so the desktop runtime can render per-channel connection status.
@@ -77,21 +77,14 @@ export async function createApp(config: Config, createPlatform: PlatformFactory)
   client.setEventCursorStore(pointers)
   const engine = new Engine(client, pointers, normalizeLocale(config.locale))
 
-  const platforms: Platform[] = []
+  const app = new App({ client, engine, pointers, factory: createPlatform })
   for (const item of config.platforms ?? []) {
     if (!item.enabled) continue
-    if (!item.name) throw new Error("enabled platform name is required")
-    const options = item.options ?? {}
-    if (!hasRemoteAudience(item.name, options)) {
-      throw new Error(`${item.name} platform requires a specific allow_from or Feishu/Lark allow_chat with group_only`)
-    }
-    const platform = await createPlatform(item.name, options)
-    engine.registerPlatform(platform)
-    platforms.push(platform)
+    await app.addPlatform(item)
   }
-  if (platforms.length === 0) throw new Error("at least one platform must be enabled")
+  if (app.platformNames().length === 0) throw new Error("at least one platform must be enabled")
 
-  return new App({ client, engine, platforms })
+  return app
 }
 
 // Bounds the warm-up scan on startup and reconnect. Parent links come from the
@@ -99,10 +92,35 @@ export async function createApp(config: Config, createPlatform: PlatformFactory)
 // most recently active sessions, not the full history.
 export const hydrateSessionLimit = 100
 
+/**
+ * Thrown by addPlatform / removePlatform when the shared event stream went fatal and the
+ * App is tearing down, so the incremental change could not be applied to a live bridge.
+ * The persisted account set is authoritative, so the caller recovers by rebuilding the
+ * bridge from it rather than trusting a change that silently did not take effect.
+ */
+export class BridgeClosedError extends Error {
+  constructor(platform: string) {
+    super(`remote bridge is closed; cannot apply change to ${platform}`)
+    this.name = "BridgeClosedError"
+  }
+}
+
 export class App {
   private readonly client: PawWorkClient
   private readonly engine: Engine
-  private readonly platforms: Platform[]
+  private readonly pointers: SessionPointers
+  private readonly factory: PlatformFactory
+  /** The live platform set and source of truth for "which platforms should run".
+   * Built eagerly (a constructed-but-unstarted platform holds no resources); the
+   * supervisor mirrors this set once run() brings it up. */
+  private readonly desiredPlatforms = new Map<string, Platform>()
+  /** Set after the event stream is up; null before run() and after teardown. */
+  private supervisor: PlatformSupervisor | null = null
+  /** True once run() has begun tearing down (fatal stream or abort). Distinguishes a
+   * null supervisor during teardown (incremental ops must fail) from one during startup
+   * (the platform is adopted by run()'s initial snapshot). Set in the same synchronous
+   * step as `supervisor = null`, so the two are never observed out of agreement. */
+  private tearingDown = false
   /** Base backoff between event-stream reconnect attempts; lowered in tests. */
   eventRetryDelayMs = 1000
   /** Base backoff before restarting a failed platform; lowered in tests. */
@@ -111,19 +129,94 @@ export class App {
   constructor(opts: {
     client: PawWorkClient
     engine: Engine
-    platforms: Platform[]
+    pointers: SessionPointers
+    factory: PlatformFactory
     eventRetryDelayMs?: number
     platformRetryDelayMs?: number
   }) {
     this.client = opts.client
     this.engine = opts.engine
-    this.platforms = opts.platforms
+    this.pointers = opts.pointers
+    this.factory = opts.factory
     if (opts.eventRetryDelayMs !== undefined) this.eventRetryDelayMs = opts.eventRetryDelayMs
     if (opts.platformRetryDelayMs !== undefined) this.platformRetryDelayMs = opts.platformRetryDelayMs
   }
 
   platformNames(): string[] {
-    return this.platforms.map((platform) => platform.name)
+    return [...this.desiredPlatforms.keys()]
+  }
+
+  /**
+   * Add one platform to the live set (and start it if the bridge is already up).
+   * Same gate as cold start: the audience is validated and the platform built via
+   * the injected factory here in the gateway, so an incrementally-added channel
+   * can never bypass the audience check. If a platform of the same name is already
+   * live (a re-pair), the replacement is built first and the old loop retired only on
+   * success — keeping its session pointers, since a re-pair continues the conversation
+   * rather than forgetting it; a failed build leaves the old channel serving. The
+   * optional `beforeCommit` hook runs at that same safe point — after the build, before
+   * any live change — so a caller that must durably commit the new channel (the desktop
+   * saves its credential) can fail there and still leave the old channel serving.
+   * Registered with the Engine before it is supervised, so its first inbound routes.
+   */
+  async addPlatform(config: PlatformConfig, beforeCommit?: () => void | Promise<void>): Promise<void> {
+    if (!config.name) throw new Error("enabled platform name is required")
+    const options = config.options ?? {}
+    if (!hasRemoteAudience(config.name, options)) {
+      throw new Error(`${config.name} platform requires a specific allow_from or Feishu/Lark allow_chat with group_only`)
+    }
+    // Prepare-first (see the method doc): build the replacement and run beforeCommit before
+    // retiring the live same-name instance, so a failed re-pair leaves the existing channel
+    // serving and the caller can roll back.
+    const platform = await this.factory(config.name, options)
+    await beforeCommit?.()
+    if (this.desiredPlatforms.has(config.name)) await this.retirePlatform(config.name)
+    // Commit point (no await below, so the check and the live swap are atomic): an await above
+    // could have let the stream go fatal and tear the bridge down. tearingDown and supervisor=null
+    // are set together, so tearingDown distinguishes teardown — fail loudly and let the caller
+    // rebuild — from a legitimate startup null, which run()'s initial snapshot adopts.
+    if (this.tearingDown) throw new BridgeClosedError(config.name)
+    this.engine.registerPlatform(platform)
+    this.desiredPlatforms.set(config.name, platform)
+    this.supervisor?.add(platform)
+  }
+
+  /**
+   * Disconnect one platform: retire its loop, then forget its persisted session
+   * pointers, so a later reconnect of the same platform starts fresh. The shared
+   * event stream and the other platforms keep running.
+   */
+  async removePlatform(name: string): Promise<void> {
+    await this.retirePlatform(name)
+    // The retire is the commit; forgetting session pointers is best-effort, so a failed write is
+    // logged, not thrown (it would surface as a failed disconnect and strand the UI on an
+    // already-stopped channel). A stale write self-heals on the next save; the rare exit-before-
+    // save revival on reconnect is accepted as best-effort (see session-pointers.test.ts).
+    try {
+      await this.pointers.clearPlatform(name)
+    } catch (err) {
+      console.warn("remote bridge could not forget session pointers for a removed platform", {
+        platform: name,
+        error: message(err),
+      })
+    }
+    // If the bridge tore down while we retired, the surviving channels went down with it —
+    // signal the caller to rebuild them from the persisted accounts (which no longer include
+    // this one).
+    if (this.tearingDown) throw new BridgeClosedError(name)
+  }
+
+  /**
+   * Stop one platform's loop and drop it from routing, leaving the shared event
+   * stream and siblings running. Liveness and routing are invalidated synchronously
+   * (so a late inbound from this instance is dropped before the async stop), then
+   * the loop is aborted, stopped, and awaited. Shared by disconnect (removePlatform,
+   * which also forgets pointers) and re-pair (addPlatform, which keeps them).
+   */
+  private async retirePlatform(name: string): Promise<void> {
+    this.desiredPlatforms.delete(name)
+    this.engine.unregisterPlatform(name)
+    await this.supervisor?.remove(name)
   }
 
   /**
@@ -148,7 +241,6 @@ export class App {
     failure.promise.catch(() => {})
     const ready = createDeferred<void>()
     let readyResolved = false
-    let supervised: Promise<void> = Promise.resolve()
 
     const handler = this.streamHandler(childSignal, () => {
       if (!readyResolved) {
@@ -168,27 +260,37 @@ export class App {
 
       await this.hydrate(childSignal)
 
-      // Fire onReady only once every platform has drained its backlog and is
-      // serving, so a caller's "connected" can't precede live message delivery.
-      // A platform's failure is isolated and retried by the supervisor — it never
-      // routes to `failure`, so a single dead channel cannot tear the bridge down.
-      const total = this.platforms.length
-      let readyCount = 0
+      // Fire onReady only once every platform present at cold start has drained
+      // its backlog and is serving, so a caller's "connected" can't precede live
+      // message delivery. The bar is frozen to this initial snapshot: a channel
+      // added later (incremental connect) reports its own status but never moves
+      // the cold-start gate. A platform's failure is isolated and retried by the
+      // supervisor — it never routes to `failure`, so one dead channel cannot tear
+      // the bridge down.
+      const initialPlatforms = [...this.desiredPlatforms.values()]
+      const initialNames = new Set(initialPlatforms.map((platform) => platform.name))
+      const readyNames = new Set<string>()
       const allReady = createDeferred<void>()
-      if (total === 0) allReady.resolve()
-      const onPlatformReady = () => {
-        if (++readyCount >= total) allReady.resolve()
+      if (initialNames.size === 0) allReady.resolve()
+      const onPlatformReady = (platform: Platform) => {
+        if (!initialNames.has(platform.name) || readyNames.has(platform.name)) return
+        readyNames.add(platform.name)
+        if (readyNames.size >= initialNames.size) allReady.resolve()
       }
       void Promise.race([allReady.promise, onAbort(childSignal)]).then(() => {
         if (!childSignal.aborted) onReady?.()
       })
 
-      supervised = supervisePlatforms(this.platforms, this.messageHandler(), childSignal, {
+      // Create the supervisor, then seed it synchronously from the live set — no
+      // await in between, so an incremental addPlatform can't interleave and
+      // double-add. Once it exists, add/removePlatform drive it directly.
+      const supervisor = new PlatformSupervisor(this.messageHandler(), childSignal, {
         onPlatformReady,
         onStatus,
         backoffMs: this.platformRetryDelayMs,
       })
-      supervised.catch(() => {})
+      this.supervisor = supervisor
+      for (const platform of initialPlatforms) supervisor.add(platform)
       await Promise.race([onAbort(childSignal), failure.promise])
     } catch (err) {
       // An abort is a requested stop, not a failure: any error it triggered
@@ -198,10 +300,17 @@ export class App {
     } finally {
       ac.abort()
       signal?.removeEventListener("abort", onParentAbort)
-      // Stop platforms first (unblocks any start() the supervisor is awaiting),
-      // then let the supervision loops wind down.
-      await this.stopPlatforms()
-      await supervised
+      // Stop every supervised platform (unblocks any start() its loop is awaiting)
+      // and let the loops wind down. If the run aborted during connect/hydrate the
+      // supervisor never came up; the built-but-unstarted platforms hold no
+      // resources, but stop() them too for symmetry.
+      const supervisor = this.supervisor
+      // Set together, in this one synchronous step, so an incremental op awaiting across
+      // teardown sees both: tearingDown true means "fail loudly", not a startup null.
+      this.supervisor = null
+      this.tearingDown = true
+      if (supervisor) await supervisor.stopAll()
+      else await this.stopUnstartedPlatforms()
       await streamLoop
     }
   }
@@ -240,9 +349,13 @@ export class App {
     }
   }
 
-  /** Forward inbound chat messages to the engine, logging handler failures. */
+  /** Forward inbound chat messages to the engine, logging handler failures.
+   * Drops an inbound from a platform that is no longer the live instance for its
+   * name (removed, or replaced by a re-pair): the gateway owns the live set, so a
+   * stale loop's in-flight message can't create a session or send a prompt. */
   messageHandler(): MessageHandler {
     return (platform, msg) => {
+      if (this.desiredPlatforms.get(platform.name) !== platform) return
       this.engine.handleMessage(platform, msg).catch((err) =>
         console.warn("remote bridge failed to handle inbound message", {
           platform: platform.name,
@@ -286,8 +399,8 @@ export class App {
     }
   }
 
-  private async stopPlatforms(): Promise<void> {
-    await Promise.all(this.platforms.map((platform) => platform.stop().catch(() => {})))
+  private async stopUnstartedPlatforms(): Promise<void> {
+    await Promise.all([...this.desiredPlatforms.values()].map((platform) => platform.stop().catch(() => {})))
   }
 }
 

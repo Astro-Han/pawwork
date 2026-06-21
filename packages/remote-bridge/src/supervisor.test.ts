@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { type PlatformStatus, supervisePlatforms } from "./supervisor.ts"
+import { PlatformSupervisor, type PlatformStatus, supervisePlatforms } from "./supervisor.ts"
 import type { MessageHandler, Platform } from "./types.ts"
 
 // An outcome the scripted platform replays on each successive start() call; the
@@ -15,6 +15,7 @@ type Outcome =
 class ScriptedPlatform implements Platform {
   starts = 0
   readyCalls = 0
+  stops = 0
   private unblock: (() => void) | null = null
 
   constructor(
@@ -41,8 +42,52 @@ class ScriptedPlatform implements Platform {
   async reply(): Promise<void> {}
   async send(): Promise<void> {}
   async stop(): Promise<void> {
+    this.stops++
     this.unblock?.()
     this.unblock = null
+  }
+}
+
+/** A Platform that blocks in start() until stop() and exposes its onReady so a
+ * test can fire readiness on demand (and fire a retired loop's stale callback). */
+class ManualPlatform implements Platform {
+  starts = 0
+  stops = 0
+  onReady: () => void = () => {}
+  private unblock: (() => void) | null = null
+  constructor(readonly name: string) {}
+  async start(_handler: MessageHandler, onReady?: () => void): Promise<void> {
+    this.starts++
+    this.onReady = onReady ?? (() => {})
+    return new Promise<void>((resolve) => {
+      this.unblock = resolve
+    })
+  }
+  async reply(): Promise<void> {}
+  async send(): Promise<void> {}
+  async stop(): Promise<void> {
+    this.stops++
+    this.unblock?.()
+    this.unblock = null
+  }
+}
+
+/** A Platform whose stop() never resolves — models a wedged adapter (e.g. a
+ *  long-poll fetch that won't abort), used to prove remove() is time-bounded. */
+class StuckStopPlatform implements Platform {
+  starts = 0
+  stops = 0
+  constructor(readonly name: string) {}
+  async start(_handler: MessageHandler, onReady?: () => void): Promise<void> {
+    this.starts++
+    onReady?.()
+    return new Promise<void>(() => {}) // blocks until the loop is aborted
+  }
+  async reply(): Promise<void> {}
+  async send(): Promise<void> {}
+  stop(): Promise<void> {
+    this.stops++
+    return new Promise<void>(() => {}) // never resolves
   }
 }
 
@@ -187,35 +232,44 @@ test("a synchronous throw in start() degrades and retries instead of crashing", 
 })
 
 test("a perpetually failing platform does not accumulate abort listeners", async () => {
-  const controller = new AbortController()
-  const signal = controller.signal
+  // The retry loop now runs on the platform's own child signal, so count "abort"
+  // listeners across ALL signals (patch the prototype) rather than just the run
+  // signal — the per-attempt race + backoff still register and clean up there.
   let added = 0
   let removed = 0
-  const realAdd = signal.addEventListener.bind(signal)
-  const realRemove = signal.removeEventListener.bind(signal)
-  ;(signal as unknown as { addEventListener: typeof signal.addEventListener }).addEventListener = ((type, ...rest) => {
+  const proto = AbortSignal.prototype as unknown as {
+    addEventListener: AbortSignal["addEventListener"]
+    removeEventListener: AbortSignal["removeEventListener"]
+  }
+  const realAdd = proto.addEventListener
+  const realRemove = proto.removeEventListener
+  proto.addEventListener = function (this: AbortSignal, type, ...rest) {
     if (type === "abort") added++
-    return (realAdd as (...a: unknown[]) => unknown)(type, ...rest)
-  }) as typeof signal.addEventListener
-  ;(signal as unknown as { removeEventListener: typeof signal.removeEventListener }).removeEventListener = ((
-    type,
-    ...rest
-  ) => {
+    return (realAdd as (...a: unknown[]) => unknown).call(this, type, ...rest)
+  } as AbortSignal["addEventListener"]
+  proto.removeEventListener = function (this: AbortSignal, type, ...rest) {
     if (type === "abort") removed++
-    return (realRemove as (...a: unknown[]) => unknown)(type, ...rest)
-  }) as typeof signal.removeEventListener
+    return (realRemove as (...a: unknown[]) => unknown).call(this, type, ...rest)
+  } as AbortSignal["removeEventListener"]
 
-  const bad = new ScriptedPlatform("bad", [{ kind: "reject", error: "down" }])
-  const supervised = supervisePlatforms([bad], noopHandler, signal, { backoffMs: 1, maxBackoffMs: 2 })
+  const controller = new AbortController()
+  try {
+    const bad = new ScriptedPlatform("bad", [{ kind: "reject", error: "down" }])
+    const supervised = supervisePlatforms([bad], noopHandler, controller.signal, { backoffMs: 1, maxBackoffMs: 2 })
 
-  await waitUntil(() => bad.starts >= 6)
-  // Each attempt's race + backoff register an abort listener but clean it up, so
-  // the live count stays bounded rather than growing one-per-retry.
-  expect(added).toBeGreaterThan(5)
-  expect(added - removed).toBeLessThanOrEqual(2)
+    await waitUntil(() => bad.starts >= 6)
+    // Each attempt's race + backoff register an abort listener but clean it up, so
+    // the live count stays bounded (one run-signal forwarder + the current phase),
+    // not one-per-retry.
+    expect(added).toBeGreaterThan(5)
+    expect(added - removed).toBeLessThanOrEqual(3)
 
-  controller.abort()
-  await supervised
+    controller.abort()
+    await supervised
+  } finally {
+    proto.addEventListener = realAdd
+    proto.removeEventListener = realRemove
+  }
 })
 
 test("resolves promptly on abort even while a platform is blocked in start()", async () => {
@@ -233,4 +287,100 @@ test("resolves promptly on abort even while a platform is blocked in start()", a
   await supervised
   // Abort is a requested stop, not a degradation.
   expect(statuses.some((s) => s.phase === "degraded")).toBe(false)
+})
+
+test("PlatformSupervisor.add starts a platform on an already-running supervisor", async () => {
+  const controller = new AbortController()
+  const ready: string[] = []
+  const supervisor = new PlatformSupervisor(noopHandler, controller.signal, {
+    onPlatformReady: (platform) => ready.push(platform.name),
+    backoffMs: 5,
+  })
+  supervisor.add(new ScriptedPlatform("first", [{ kind: "serve" }]))
+  await waitUntil(() => ready.includes("first"))
+
+  // A second platform added later starts on its own loop, with the first untouched.
+  supervisor.add(new ScriptedPlatform("second", [{ kind: "serve" }]))
+  await waitUntil(() => ready.includes("second"))
+  expect(supervisor.has("first")).toBe(true)
+  expect(supervisor.has("second")).toBe(true)
+
+  controller.abort()
+  await supervisor.stopAll()
+})
+
+test("PlatformSupervisor.remove stops only that platform, leaving the others serving", async () => {
+  const controller = new AbortController()
+  const ready: string[] = []
+  const supervisor = new PlatformSupervisor(noopHandler, controller.signal, {
+    onPlatformReady: (platform) => ready.push(platform.name),
+    backoffMs: 5,
+  })
+  const keep = new ScriptedPlatform("keep", [{ kind: "serve" }])
+  const drop = new ScriptedPlatform("drop", [{ kind: "serve" }])
+  supervisor.add(keep)
+  supervisor.add(drop)
+  await waitUntil(() => ready.includes("keep") && ready.includes("drop"))
+
+  await supervisor.remove("drop")
+  expect(supervisor.has("drop")).toBe(false)
+  expect(drop.stops).toBe(1) // the removed platform's loop was stopped
+  // The survivor is untouched: still supervised, started once, never stopped.
+  expect(supervisor.has("keep")).toBe(true)
+  expect(keep.starts).toBe(1)
+  expect(keep.stops).toBe(0)
+
+  controller.abort()
+  await supervisor.stopAll()
+})
+
+test("remove is time-bounded when a platform's stop() never resolves", async () => {
+  // A wedged adapter (stop() hangs) must not block remove(): the entry is already
+  // dropped and the loop aborted, so the caller — a disconnect or re-pair — returns
+  // within the backstop instead of hanging the desktop's serial lifecycle queue.
+  const controller = new AbortController()
+  const supervisor = new PlatformSupervisor(noopHandler, controller.signal, { removeTimeoutMs: 20 })
+  const wedged = new StuckStopPlatform("wedged")
+  supervisor.add(wedged)
+  await waitUntil(() => wedged.starts === 1)
+
+  const start = performance.now()
+  await supervisor.remove("wedged")
+  // Tight enough to catch a hardcoded second-scale wait (it honors removeTimeoutMs:
+  // 20), loose enough for CI scheduling jitter.
+  expect(performance.now() - start).toBeLessThan(250)
+  expect(wedged.stops).toBe(1) // stop() was requested
+  expect(supervisor.has("wedged")).toBe(false) // and the name is free again
+
+  controller.abort()
+  await supervisor.stopAll()
+})
+
+test("a retired loop's late ready cannot satisfy a replacement under the same name", async () => {
+  // Generation-token guard: after remove + a same-name add, the old loop's late
+  // ready must be dropped so it can't be counted as the new entry serving.
+  const controller = new AbortController()
+  const statuses: PlatformStatus[] = []
+  const supervisor = new PlatformSupervisor(noopHandler, controller.signal, { onStatus: (status) => statuses.push(status) })
+  const servingCount = () => statuses.filter((status) => status.name === "dupe" && status.phase === "serving").length
+
+  const retired = new ManualPlatform("dupe")
+  supervisor.add(retired)
+  await waitUntil(() => retired.starts === 1)
+  const staleReady = retired.onReady // the retired loop's ready callback
+
+  await supervisor.remove("dupe")
+  const fresh = new ManualPlatform("dupe")
+  supervisor.add(fresh) // a new entry takes the name, with a new token
+  await waitUntil(() => fresh.starts === 1)
+
+  // The replacement serves normally...
+  fresh.onReady()
+  await waitUntil(() => servingCount() === 1)
+  // ...but the retired loop's late ready is ignored, not counted as another serve.
+  staleReady()
+  expect(servingCount()).toBe(1)
+
+  controller.abort()
+  await supervisor.stopAll()
 })

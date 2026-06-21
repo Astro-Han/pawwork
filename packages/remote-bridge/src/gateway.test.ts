@@ -5,14 +5,17 @@ import { join } from "node:path"
 import { deliveryConfig, Engine } from "./engine.ts"
 import {
   App,
+  BridgeClosedError,
   createApp,
   decodeConfig,
   hasRemoteAudience,
   hydrateSessionLimit,
   loadConfig,
   type Config,
+  type PlatformStatus,
 } from "./gateway.ts"
 import { PawWorkClient } from "./pawwork-client.ts"
+import { SessionPointers } from "./session-pointers.ts"
 import type { Message, MessageHandler, Platform, Sidecar } from "./types.ts"
 
 // Zero the delivery backoff so the hydrate retry path runs instantly.
@@ -43,6 +46,7 @@ class FakePlatform implements Platform {
   reconstructKey = ""
   startedAfterStream = false
   readyCalls = 0
+  stops = 0
   fireReady: () => void = () => {}
   readonly started = deferred<void>()
   private readonly stopped = deferred<void>()
@@ -51,6 +55,7 @@ class FakePlatform implements Platform {
     readonly name: string,
     private readonly opts: {
       sendErr?: Error
+      startErr?: Error
       streamConnected?: () => boolean
       startResolvesImmediately?: boolean
       readyMode?: "auto" | "double" | "manual"
@@ -60,6 +65,10 @@ class FakePlatform implements Platform {
   async start(_handler: MessageHandler, onReady?: () => void): Promise<void> {
     this.startedAfterStream = this.opts.streamConnected ? this.opts.streamConnected() : false
     this.started.resolve()
+    // A platform that connects but then fails (e.g. a revoked token rejected by the
+    // upstream after the handshake) rejects start() before reaching "serving". The
+    // supervisor degrades and retries it; it never reaches onReady.
+    if (this.opts.startErr) throw this.opts.startErr
     // A real platform signals readiness once it is past startup and serving; model
     // that here so the gateway's run-level onReady fires in tests. "double" models a
     // misbehaving adapter; "manual" lets a test drive the moment via fireReady.
@@ -88,6 +97,7 @@ class FakePlatform implements Platform {
     return "restored-reply-context"
   }
   async stop(): Promise<void> {
+    this.stops++
     this.stopped.resolve()
   }
 }
@@ -653,17 +663,418 @@ test("messageHandler logs engine failures", async () => {
     warnings.push(args)
   }
   try {
+    const platform = new FakePlatform("runtime-test-message-log")
     const app = new App({
       client: undefined as unknown as PawWorkClient,
       engine: new Engine(new FailingSidecar()),
-      platforms: [],
+      pointers: SessionPointers.memory(),
+      factory: () => platform,
     })
-    const platform = new FakePlatform("runtime-test-message-log")
+    // Register the platform as the live instance, so the handler's liveness guard
+    // lets the message through to the (failing) engine.
+    await app.addPlatform({ name: platform.name, enabled: true, options: { allow_from: "U123" } })
     const msg: Message = { sessionKey: "runtime-test-message-log:dm:alice", content: "start" }
     app.messageHandler()(platform, msg)
     await waitUntil(() => warnings.length > 0)
     expect(warnings.some((args) => String(args[0]).includes("remote bridge failed to handle inbound message"))).toBe(true)
   } finally {
     console.warn = originalWarn
+  }
+})
+
+test("messageHandler drops an inbound from a platform that is no longer the live instance", async () => {
+  // A removed or replaced channel's in-flight message must not create a session or
+  // send a prompt: the gateway owns the live set, so a stale instance is ignored.
+  const platform = new FakePlatform("runtime-test-stale-inbound")
+  const app = new App({
+    client: undefined as unknown as PawWorkClient,
+    engine: new Engine(new FailingSidecar()),
+    pointers: SessionPointers.memory(),
+    factory: () => platform,
+  })
+  await app.addPlatform({ name: platform.name, enabled: true, options: { allow_from: "U123" } })
+  await app.removePlatform(platform.name)
+
+  let warned = false
+  const originalWarn = console.warn
+  console.warn = () => {
+    warned = true
+  }
+  try {
+    // The same instance delivers after removal: a live handler would hit the
+    // FailingSidecar and warn; the guard drops it, so nothing is logged.
+    app.messageHandler()(platform, { sessionKey: "runtime-test-stale-inbound:dm:alice", content: "late" })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(warned).toBe(false)
+  } finally {
+    console.warn = originalWarn
+  }
+})
+
+test("addPlatform connects a new channel without restarting the shared event stream", async () => {
+  let streamConnects = 0
+  const first = new FakePlatform("rt-add-first")
+  const second = new FakePlatform("rt-add-second")
+  const built: Record<string, FakePlatform> = { "rt-add-first": first, "rt-add-second": second }
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        streamConnects++
+        return openEventStream()
+    }
+    return undefined
+  })
+  const controller = new AbortController()
+  try {
+    const ready = deferred<void>()
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [{ name: "rt-add-first", enabled: true, options: { allow_from: "U1" } }],
+      },
+      (name) => built[name],
+    )
+    const runPromise = app.run(controller.signal, () => ready.resolve())
+    await ready.promise
+    await first.started.promise
+    expect(streamConnects).toBe(1)
+
+    // Connect a second channel on the running app: it starts, the shared stream is
+    // not restarted, and the first channel is never stopped.
+    await app.addPlatform({ name: "rt-add-second", enabled: true, options: { allow_from: "U2" } })
+    await second.started.promise
+    expect(app.platformNames().sort()).toEqual(["rt-add-first", "rt-add-second"])
+    expect(streamConnects).toBe(1)
+    expect(first.stops).toBe(0)
+    controller.abort()
+    await runPromise
+  } finally {
+    server.stop()
+  }
+})
+
+test("removePlatform stops only that channel, leaving the stream and the others up", async () => {
+  let streamConnects = 0
+  const keep = new FakePlatform("rt-keep")
+  const drop = new FakePlatform("rt-drop")
+  const built: Record<string, FakePlatform> = { "rt-keep": keep, "rt-drop": drop }
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        streamConnects++
+        return openEventStream()
+    }
+    return undefined
+  })
+  const controller = new AbortController()
+  try {
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [
+          { name: "rt-keep", enabled: true, options: { allow_from: "U1" } },
+          { name: "rt-drop", enabled: true, options: { allow_from: "U2" } },
+        ],
+      },
+      (name) => built[name],
+    )
+    const runPromise = app.run(controller.signal)
+    await keep.started.promise
+    await drop.started.promise
+    expect(streamConnects).toBe(1)
+
+    await app.removePlatform("rt-drop")
+    expect(app.platformNames()).toEqual(["rt-keep"])
+    expect(drop.stops).toBe(1) // the removed channel's loop was stopped
+    expect(keep.stops).toBe(0) // the survivor was untouched
+    expect(streamConnects).toBe(1) // shared stream never restarted
+    controller.abort()
+    await runPromise
+  } finally {
+    server.stop()
+  }
+})
+
+test("removePlatform commits the retire even when forgetting session pointers fails", async () => {
+  // The live retire is the disconnect's commit: once the channel's loop is stopped and it has
+  // left routing, the disconnect is durably done. Forgetting its session pointers is best-effort
+  // cleanup, so a pointer-store write failure is logged, not thrown — otherwise the desktop would
+  // surface a failed disconnect and strand the UI showing a channel that has already stopped.
+  const platform = new FakePlatform("rt-ptr-fail")
+  const pointers = {
+    clearPlatform: async () => {
+      throw new Error("pointer store write failed")
+    },
+  } as unknown as SessionPointers
+  const warnings: string[] = []
+  const originalWarn = console.warn
+  console.warn = (...args: unknown[]) => {
+    warnings.push(String(args[0]))
+  }
+  try {
+    const app = new App({
+      client: undefined as unknown as PawWorkClient,
+      engine: new Engine(new FailingSidecar()),
+      pointers,
+      factory: () => platform,
+    })
+    await app.addPlatform({ name: platform.name, enabled: true, options: { allow_from: "U1" } })
+
+    // The pointer cleanup throws, but removePlatform must still resolve: the retire already
+    // committed, so the channel is gone and the failure is only logged.
+    await app.removePlatform(platform.name)
+    expect(app.platformNames()).toEqual([])
+    expect(warnings.some((line) => line.includes("could not forget session pointers"))).toBe(true)
+  } finally {
+    console.warn = originalWarn
+  }
+})
+
+test("a re-pair whose factory throws leaves the existing channel serving (prepare-first)", async () => {
+  // Prepare-first: the replacement is built BEFORE the old loop is retired, so a
+  // factory failure on a re-pair leaves the working channel up — not stopped, and
+  // still the live instance. The caller rolls back its saved account instead of
+  // losing the connection.
+  const original = new FakePlatform("rt-repair")
+  let builds = 0
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        return openEventStream()
+    }
+    return undefined
+  })
+  const controller = new AbortController()
+  try {
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [{ name: "rt-repair", enabled: true, options: { allow_from: "U1" } }],
+      },
+      (name) => {
+        builds++
+        if (builds === 1) return original
+        throw new Error("rebuild boom") // the re-pair's build fails
+      },
+    )
+    const runPromise = app.run(controller.signal)
+    await original.started.promise
+
+    // Re-pair the same name; the second build throws.
+    await expect(
+      app.addPlatform({ name: "rt-repair", enabled: true, options: { allow_from: "U2" } }),
+    ).rejects.toThrow("rebuild boom")
+
+    // The old instance was never touched: still serving, still the live instance.
+    expect(original.stops).toBe(0)
+    expect(app.platformNames()).toEqual(["rt-repair"])
+
+    controller.abort()
+    await runPromise
+  } finally {
+    server.stop()
+  }
+})
+
+test("a re-pair with an invalid audience leaves the existing channel serving (prepare-first)", async () => {
+  // The audience gate fails before any swap, so a same-name re-pair with a wildcard
+  // audience leaves the working channel serving and untouched. (A *new* name that
+  // fails the gate also leaves existing channels untouched — see the next test.)
+  const original = new FakePlatform("rt-repair-audience")
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        return openEventStream()
+    }
+    return undefined
+  })
+  const controller = new AbortController()
+  try {
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [{ name: "rt-repair-audience", enabled: true, options: { allow_from: "U1" } }],
+      },
+      () => original,
+    )
+    const runPromise = app.run(controller.signal)
+    await original.started.promise
+
+    // Re-pair the same name with a wildcard audience: the gate rejects it.
+    await expect(
+      app.addPlatform({ name: "rt-repair-audience", enabled: true, options: { allow_from: "*" } }),
+    ).rejects.toThrow("specific allow_from")
+
+    // Untouched: still serving, still the live instance.
+    expect(original.stops).toBe(0)
+    expect(app.platformNames()).toEqual(["rt-repair-audience"])
+
+    controller.abort()
+    await runPromise
+  } finally {
+    server.stop()
+  }
+})
+
+test("a re-pair whose new platform fails to start retires the old and surfaces the new as degraded", async () => {
+  // Build-success semantics, not connected-success: addPlatform retires the old loop and
+  // supervises the new one once it is built (and any beforeCommit persists), NOT once it
+  // is serving. So a re-pair whose new platform start() rejects replaces the old channel
+  // and shows the new one degraded (the supervisor retries it) — it does not keep the old
+  // channel serving. The pairing flow already proved the new token live, so the residual
+  // failure window is a transient the supervisor retries, not a lost working connection.
+  const original = new FakePlatform("rt-repair-start")
+  const replacement = new FakePlatform("rt-repair-start", { startErr: new Error("token revoked") })
+  let builds = 0
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        return openEventStream()
+    }
+    return undefined
+  })
+  const statuses: PlatformStatus[] = []
+  const controller = new AbortController()
+  try {
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [{ name: "rt-repair-start", enabled: true, options: { allow_from: "U1" } }],
+      },
+      () => {
+        builds++
+        return builds === 1 ? original : replacement
+      },
+    )
+    app.platformRetryDelayMs = 5 // keep the degraded retry loop tight for the test
+    const runPromise = app.run(controller.signal, undefined, (status) => statuses.push(status))
+    await original.started.promise
+
+    // Re-pair the same name; the build succeeds, so the old loop is retired and the new
+    // platform supervised — then its start() rejects.
+    await app.addPlatform({ name: "rt-repair-start", enabled: true, options: { allow_from: "U2" } })
+    await replacement.started.promise
+
+    expect(original.stops).toBe(1) // old channel retired on the successful build
+    expect(app.platformNames()).toEqual(["rt-repair-start"]) // the new platform is the live one
+    // The new channel surfaces degraded (and keeps retrying); the old one is gone.
+    await waitUntil(() => statuses.some((s) => s.name === "rt-repair-start" && s.phase === "degraded"))
+
+    controller.abort()
+    await runPromise
+  } finally {
+    server.stop()
+  }
+})
+
+test("addPlatform that finishes building after teardown throws BridgeClosedError, not a silent no-op", async () => {
+  // The fatal-stream race: the shared stream can die while a re-pair is still building. Once
+  // run() tears down (supervisor cleared), the live supervise would silently no-op and report
+  // a success the channel never honored. addPlatform must instead throw, so the caller rebuilds
+  // from the persisted accounts rather than trusting an add that never took effect.
+  const original = new FakePlatform("rt-teardown")
+  let releaseBuild!: () => void
+  const buildGate = new Promise<void>((resolve) => (releaseBuild = resolve))
+  let builds = 0
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        return openEventStream()
+    }
+    return undefined
+  })
+  const controller = new AbortController()
+  try {
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [{ name: "rt-teardown", enabled: true, options: { allow_from: "U1" } }],
+      },
+      () => {
+        builds++
+        // The re-pair's build blocks until the test releases it — letting us tear the bridge
+        // down while addPlatform is mid-await, exactly the window the guard must catch.
+        return builds === 1 ? original : buildGate.then(() => new FakePlatform("rt-teardown"))
+      },
+    )
+    const runPromise = app.run(controller.signal)
+    await original.started.promise
+
+    // Start a re-pair; its factory is still awaiting the build gate.
+    const repair = app.addPlatform({ name: "rt-teardown", enabled: true, options: { allow_from: "U2" } })
+    // Tear the bridge down while the build is in flight, then let the build finish.
+    controller.abort()
+    await runPromise
+    releaseBuild()
+
+    await expect(repair).rejects.toBeInstanceOf(BridgeClosedError)
+  } finally {
+    server.stop()
+  }
+})
+
+test("addPlatform refuses a wildcard audience on a running app", async () => {
+  const platform = new FakePlatform("rt-wildcard-add")
+  const server = mockServer((_req, url) => {
+    switch (url.pathname) {
+      case "/experimental/session":
+      case "/permission":
+      case "/external-result":
+        return jsonBody([])
+      case "/global/event":
+        return openEventStream()
+    }
+    return undefined
+  })
+  const controller = new AbortController()
+  try {
+    const app = await createApp(
+      {
+        pawWorkBaseURL: server.url,
+        statePath: await tempStatePath(),
+        platforms: [{ name: "rt-wildcard-add", enabled: true, options: { allow_from: "U1" } }],
+      },
+      () => platform,
+    )
+    const runPromise = app.run(controller.signal)
+    await platform.started.promise
+    await expect(
+      app.addPlatform({ name: "rt-evil", enabled: true, options: { allow_from: "*" } }),
+    ).rejects.toThrow("specific allow_from")
+    expect(app.platformNames()).toEqual(["rt-wildcard-add"])
+    controller.abort()
+    await runPromise
+  } finally {
+    server.stop()
   }
 })
