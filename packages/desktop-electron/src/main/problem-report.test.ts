@@ -147,7 +147,13 @@ describe("problem report", () => {
       rendererError,
     })
 
-    expect(payload.rendererError).toEqual(rendererError)
+    // The full report now redacts the same secret/path shapes as the summary (PR1), so the
+    // uploaded file no longer carries raw credentials or local paths in rendererError.
+    expect(payload.rendererError?.summary).toContain("storage=[redacted]")
+    expect(payload.rendererError?.summary).toContain("key=[redacted]")
+    expect(report.markdown).not.toContain("pawwork.workspace.project.abc123.dat")
+    expect(report.markdown).not.toContain("workspace:vcs")
+    expect(report.markdown).not.toContain("/Users/test/project")
     expect(summary).toContain("Renderer error: PawWork hit a local state problem.")
     expect(summary).toContain("storage=[redacted]")
     expect(summary).toContain("key=[redacted]")
@@ -405,7 +411,9 @@ describe("problem report", () => {
       ...base,
       sessionExport: {
         status: "ok",
-        info: { size: 123n, circular },
+        // Top-level info is allowlisted: `size` is an unknown field and is dropped; the surviving
+        // executionContext still has bigint/circular values made JSON-safe and paths shape-tokened.
+        info: { id: "ses_1", size: 123n, executionContext: { activeDirectory: "/Users/x/p", build: 789n, circular } },
         messages: [{ body: 456n, circular }],
       },
     })
@@ -413,11 +421,15 @@ describe("problem report", () => {
     const payload = parseProblemReportPayload(report.markdown)
     expect(payload.sessionExport.status).toBe("ok")
     if (payload.sessionExport.status === "ok") {
-      expect(payload.sessionExport.info).toEqual({ size: "123", circular: { id: "root", self: "[Circular]" } })
-      expect(payload.sessionExport.messages[0]).toEqual({
-        body: "456",
-        circular: { id: "root", self: "[Circular]" },
+      expect(payload.sessionExport.info).toEqual({
+        id: "ses_1",
+        executionContext: { activeDirectory: "[path]", build: "789", circular: { id: "root", self: "[Circular]" } },
       })
+      // A non-{info,parts} message shape is reported, not passed through, so it cannot smuggle
+      // raw content into the report (PR1 structure-aware allowlist).
+      const message = payload.sessionExport.messages[0] as { unrecognized?: boolean; bytes?: number }
+      expect(message.unrecognized).toBe(true)
+      expect(message.bytes).toBeGreaterThan(0)
     }
   })
 
@@ -450,7 +462,9 @@ describe("problem report", () => {
         logTail: "",
         sessionExport: {
           status: "ok",
-          info: { snapshot: "z".repeat(20_000) },
+          // Bulk lives in an allowlisted field (executionContext is uncapped) so the omission ladder
+          // still has something large to drop after sanitize.
+          info: { executionContext: { activeWorktree: "z".repeat(20_000) } },
           messages: [],
         },
       },

@@ -2,6 +2,15 @@
 // Default full report payload limit: 5 MB.
 import type { RendererErrorDetails } from "@opencode-ai/app/desktop-api"
 import type { RendererDiagnosticEvent, RendererDiagnosticsSlice } from "./renderer-diagnostics"
+import {
+  type JsonValue,
+  makeRedactor,
+  type Redactor,
+  redactJsonValue,
+  sanitizeSessionInfo,
+  sanitizeSessionMessages,
+  toJsonSafe,
+} from "./problem-report-redact"
 
 export const DEFAULT_PROBLEM_REPORT_MAX_BYTES = 5 * 1024 * 1024
 const SUMMARY_ERROR_LINE_MAX_CHARS = 220
@@ -26,8 +35,6 @@ export type ProblemReportDiagnostics = {
   logPath: string
 }
 
-type JsonValue = string | number | boolean | null | { [key: string]: JsonValue } | JsonValue[]
-
 export type SessionExport =
   | { status: "none" }
   | { status: "failed"; error: string }
@@ -50,6 +57,9 @@ type Options = {
   maxBytes?: number
   reportId?: string
   generatedAt?: string
+  // Exact strings (OS username, home directory) the caller knows are sensitive at runtime but
+  // no regex can infer. Redacted verbatim wherever they appear in the report.
+  redactTerms?: string[]
 }
 
 type Payload = {
@@ -101,8 +111,8 @@ function markdown(payload: Payload) {
   ].join("\n")
 }
 
-function sessionMessages(sessionExport: SessionExport) {
-  return sessionExport.status === "ok" ? sessionExport.messages.map((message) => toJsonSafe(message)) : []
+function sessionMessages(sessionExport: SafeSessionExport): JsonValue[] {
+  return sessionExport.status === "ok" ? sessionExport.messages : []
 }
 
 function withMessages(sessionExport: SafeSessionExport, messages: JsonValue[]): SafeSessionExport {
@@ -120,33 +130,46 @@ function withFailedExportError(sessionExport: SafeSessionExport, error: string |
   return { ...sessionExport, error: error ?? "" }
 }
 
-function toJsonSafe(value: unknown, seen = new WeakSet<object>()): JsonValue {
-  if (value === null) return null
-  if (typeof value === "string" || typeof value === "boolean") return value
-  if (typeof value === "number") return Number.isFinite(value) ? value : String(value)
-  if (typeof value === "bigint") return value.toString()
-  if (typeof value === "undefined" || typeof value === "function" || typeof value === "symbol") return String(value)
-  if (typeof value !== "object") return String(value)
-  if (seen.has(value)) return "[Circular]"
-  seen.add(value)
-  if (Array.isArray(value)) {
-    const result = value.map((item) => toJsonSafe(item, seen))
-    seen.delete(value)
-    return result
-  }
-  const result: { [key: string]: JsonValue } = {}
-  for (const [key, nested] of Object.entries(value)) result[key] = toJsonSafe(nested, seen)
-  seen.delete(value)
-  return result
-}
-
-function sanitizeSessionExport(sessionExport: SessionExport): SafeSessionExport {
+function sanitizeSessionExport(sessionExport: SessionExport, redact: Redactor): SafeSessionExport {
   if (sessionExport.status === "none") return sessionExport
-  if (sessionExport.status === "failed") return sessionExport
+  if (sessionExport.status === "failed") return { status: "failed", error: redact(sessionExport.error) }
   return {
     status: "ok",
-    info: toJsonSafe(sessionExport.info),
-    messages: sessionExport.messages.map((message) => toJsonSafe(message)),
+    info: sanitizeSessionInfo(sessionExport.info, { redact }),
+    messages: sanitizeSessionMessages(sessionExport.messages, { redact }),
+  }
+}
+
+// Redact a value that should be text but, coming from the untyped IPC boundary, might not be. A
+// non-string is JSON-serialized (deep-scrubbed first) so a secret nested in a stray object value is
+// still removed rather than passed through by redact()'s non-string no-op.
+function redactField(value: unknown, redact: Redactor): string {
+  if (typeof value === "string") return redact(value)
+  return redact(JSON.stringify(redactJsonValue(toJsonSafe(value), redact)) ?? "")
+}
+
+function redactDiagnostics(diagnostics: ProblemReportDiagnostics, redact: Redactor): ProblemReportDiagnostics {
+  return {
+    ...diagnostics,
+    route: redact(diagnostics.route),
+    directory: diagnostics.directory === null ? null : redact(diagnostics.directory),
+    sessionID: diagnostics.sessionID === null ? null : redact(diagnostics.sessionID),
+    logPath: redact(diagnostics.logPath),
+  }
+}
+
+// Renderer diagnostics pass a strict upstream allowlist, but that allowlist keeps trace/session IDs
+// and `data` as plain strings without stripping emails, paths, or secrets. Run the structured
+// redactor over the WHOLE event (every top-level string field AND every data key/value), so the
+// renderer slice carries the same redaction guarantee the rest of the report has. event.name (used
+// later for incident filtering) is an enum the redactor leaves untouched.
+function redactRendererDiagnostics(slice: RendererDiagnosticsSlice, redact: Redactor): RendererDiagnosticsSlice {
+  return {
+    ...slice,
+    events: slice.events.map((event) => redactJsonValue(toJsonSafe(event), redact) as RendererDiagnosticEvent),
+    // summary.statuses is a fixed enum on the production path, but scrub it too so the guarantee
+    // covers the whole slice, not only events.
+    summary: redactJsonValue(toJsonSafe(slice.summary), redact) as RendererDiagnosticsSlice["summary"],
   }
 }
 
@@ -208,14 +231,26 @@ export function buildProblemReport(input: Input, options: Options = {}) {
   const generatedAt = options.generatedAt ?? new Date().toISOString()
   if (reportId.trim().length === 0) throw new Error("reportId must be a non-empty string")
   if (!isCanonicalIsoTimestamp(generatedAt)) throw new Error("generatedAt must be a valid ISO timestamp")
-  const sessionExport = sanitizeSessionExport(input.sessionExport)
-  let diagnostics = input.diagnostics
-  let logTail = input.logTail
+  // Redact before truncation: cutting first could split a secret across the boundary, and the
+  // ladder only ever drops or shortens already-redacted data.
+  const redact = makeRedactor(options.redactTerms)
+  const sessionExport = sanitizeSessionExport(input.sessionExport, redact)
+  const redactedDiagnostics = redactDiagnostics(input.diagnostics, redact)
+  let diagnostics = redactedDiagnostics
+  let logTail = redact(input.logTail)
   let messages = sessionMessages(sessionExport)
   let sessionInfo = sessionExport.status === "ok" ? sessionExport.info : undefined
   let failedExportError = sessionExport.status === "failed" ? sessionExport.error : undefined
   let rendererDiagnostics = input.rendererDiagnostics
+    ? redactRendererDiagnostics(input.rendererDiagnostics, redact)
+    : undefined
   let rendererError = input.rendererError
+    ? // Construct from the two known fields only — never spread the IPC input, which is untyped at
+      // the boundary and could carry extra unredacted fields. Each field is coerced through the
+      // redactor as text even when the runtime value is not a string (redact() no-ops on non-strings,
+      // so a stray object value would otherwise pass un-scrubbed).
+      { summary: redactField(input.rendererError.summary, redact), details: redactField(input.rendererError.details, redact) }
+    : undefined
   let omittedMessages = 0
   let omittedLogBytes = 0
   let omittedSessionInfoBytes = 0
@@ -314,8 +349,8 @@ export function buildProblemReport(input: Input, options: Options = {}) {
 
   let diagnosticStringLimit = 512
   while (bytes(output) > maxBytes && diagnosticStringLimit >= 0) {
-    diagnostics = truncateDiagnostics(input.diagnostics, diagnosticStringLimit)
-    omittedDiagnosticsBytes = Math.max(0, jsonBytes(input.diagnostics) - jsonBytes(diagnostics))
+    diagnostics = truncateDiagnostics(redactedDiagnostics, diagnosticStringLimit)
+    omittedDiagnosticsBytes = Math.max(0, jsonBytes(redactedDiagnostics) - jsonBytes(diagnostics))
     output = markdown(makePayload())
     if (diagnosticStringLimit === 0) break
     diagnosticStringLimit = Math.floor(diagnosticStringLimit / 2)
@@ -345,13 +380,20 @@ function oneLine(value: string) {
   return (value.split(/\r?\n/)[0] ?? "").replace(/\s+/g, " ").trim()
 }
 
+// The clipboard summary is the same outbound channel as the report file, so it gets the full
+// secret scrubber too. Path/storage fragments run first (keeps the [storage] .dat shape), then the
+// shared redactor strips tokens, Bearer/basic-auth, and emails the old summary rules missed.
+const summaryRedactor = makeRedactor()
+
 function redactLocalPathFragments(value: string) {
-  return value
-    .replace(/[A-Za-z]:\\[^\r\n]*/g, "[path]")
-    .replace(/\\\\[^\\\s]+\\[^\r\n]*/g, "[path]")
-    .replace(/\/(?:Users|home|tmp|var\/folders|private\/tmp)\/[^\r\n]*/g, "[path]")
-    .replace(/\bpawwork\.workspace\.[\w.-]+\.dat\b/gi, "[storage]")
-    .replace(/\b(storage|key)\s*=\s*[^,\s]+/gi, "$1=[redacted]")
+  return summaryRedactor(
+    value
+      .replace(/[A-Za-z]:\\[^\r\n]*/g, "[path]")
+      .replace(/\\\\[^\\\s]+\\[^\r\n]*/g, "[path]")
+      .replace(/\/(?:Users|home|tmp|var\/folders|private\/tmp)\/[^\r\n]*/g, "[path]")
+      .replace(/\bpawwork\.workspace\.[\w.-]+\.dat\b/gi, "[storage]")
+      .replace(/\b(storage|key)\s*=\s*[^,\s]+/gi, "$1=[redacted]"),
+  )
 }
 
 function truncateSummaryLine(value: string, maxChars: number) {
