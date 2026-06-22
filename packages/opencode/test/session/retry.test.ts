@@ -521,7 +521,11 @@ describe("session.message-v2.fromError", () => {
     expect(retryableRaw(result)).toBe("Server error.")
   })
 
-  test("does not convert unknown OpenAI stream error chunks to retryable APIError", () => {
+  test("classifies unknown OpenAI stream error chunks as a non-retryable APIError", () => {
+    // PR1c middle path: a typed provider error body is now surfaced as a
+    // structured APIError(kind="unknown") so the frontend gets code/responseBody
+    // instead of an opaque UnknownError. The guarantee that matters here is
+    // preserved: an unknown code is NOT retryable (classifyRetry returns nothing).
     const result = MessageV2.fromError(
       {
         message: JSON.stringify({
@@ -535,7 +539,12 @@ describe("session.message-v2.fromError", () => {
       { providerID: ProviderID.make("openai") },
     )
 
-    expect(MessageV2.APIError.isInstance(result)).toBe(false)
+    expect(MessageV2.APIError.isInstance(result)).toBe(true)
+    expect((result as MessageV2.APIError).data.providerFailure).toStrictEqual({
+      kind: "unknown",
+      code: "bad_request",
+    })
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(false)
     expect(retryableRaw(result)).toBeUndefined()
   })
 })

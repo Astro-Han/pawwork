@@ -28,6 +28,10 @@ function apiCallErrorKind(statusCode: number | undefined, code: string | undefin
   if (code === "server_error" || code === "server_is_overloaded") return "server_overload"
   if (statusCode === 401 || statusCode === 403) return "auth"
   if (statusCode === 429) return "rate_limit"
+  // 402 Payment Required = account can no longer pay for the call. Same user
+  // action as a depleted quota (top up or switch model), so it reuses
+  // quota_exhausted rather than adding a near-duplicate payment_required kind.
+  if (statusCode === 402) return "quota_exhausted"
   // 400/422 are client-side request rejections. Overflow 4xx is already routed
   // to context_overflow before this runs, so what reaches here is a genuine
   // invalid request rather than an over-long prompt.
@@ -78,6 +82,83 @@ function isOverflow(message: string) {
   return /^4(00|13)\s*(status code)?\s*\(no body\)/i.test(message)
 }
 
+// Billing/quota failures providers report under inconsistent status codes and
+// codes (e.g. DeepSeek returns 402 *or* 400 with "Insufficient Balance"). The
+// strong patterns are unambiguous and match regardless of status; the weak
+// patterns ("quota exceeded") overlap with transient rate limits, so they only
+// apply on a billing-shaped status with no rate-limit signal.
+const STRONG_BILLING_PATTERNS = [
+  /insufficient balance/i, // DeepSeek
+  /out of credits?/i, // OpenRouter and others
+  /payment required/i,
+  /in arrears/i,
+  /余额不足/, // zh: insufficient balance
+  /欠费/, // zh: in arrears
+]
+const WEAK_BILLING_PATTERNS = [
+  /quota.{0,16}(exceed|exhaust)/i,
+  /(exceed|exhaust).{0,16}quota/i,
+  /billing (issue|problem|error)/i,
+  /add (credits?|funds?|balance)/i,
+  /out of funds?/i,
+]
+// 429 is deliberately excluded: it is Too Many Requests, so even "quota
+// exceeded" wording (e.g. Google's per-minute request quota) is a retryable
+// rate limit, not a terminal billing failure. Genuine depleted-balance/hard
+// quota arrives as 402/403 or a known code (insufficient_quota) handled above.
+const WEAK_BILLING_STATUS = new Set([400, 402, 403])
+
+// opencode's free-tier limit reuses a 429 with a billing-ish marker, but it must
+// stay a retry-time free_quota_exhausted concept (countdown card), never the
+// terminal quota_exhausted kind. Excluded from billing classification here.
+function isFreeUsageLimit(text: string) {
+  return /FreeUsageLimitError/.test(text)
+}
+
+function hasRateLimitSignal(text: string, headers?: Record<string, string>) {
+  if (headers && (headers["retry-after"] || headers["retry-after-ms"])) return true
+  return /rate[ _-]?limit/i.test(text) || /too many requests/i.test(text)
+}
+
+function billingKindFor(opts: {
+  text: string
+  statusCode?: number
+  headers?: Record<string, string>
+}): ProviderFailureKind | undefined {
+  if (isFreeUsageLimit(opts.text)) return undefined
+  if (STRONG_BILLING_PATTERNS.some((p) => p.test(opts.text))) return "quota_exhausted"
+  const statusOk = opts.statusCode !== undefined && WEAK_BILLING_STATUS.has(opts.statusCode)
+  if (statusOk && !hasRateLimitSignal(opts.text, opts.headers) && WEAK_BILLING_PATTERNS.some((p) => p.test(opts.text))) {
+    return "quota_exhausted"
+  }
+  return undefined
+}
+
+// Transient signals in the provider *code* that the retry classifier treats as
+// retryable. Scans the code only, never the free-text message, so a terminal
+// error whose message merely mentions "unavailable"/"exhausted" is not wrongly
+// retried. The "exhausted" match is scoped to resource_exhausted (Google's
+// transient overload) — a terminal quota_exhausted/insufficient_quota code must
+// NOT be treated as transient.
+const TRANSIENT_CODE_PATTERN = /resource[ _-]?exhausted|unavailable|overloaded|rate[ _-]?limit|too[ _-]?many[ _-]?requests/i
+function looksTransientCode(code: string | undefined) {
+  return code !== undefined && TRANSIENT_CODE_PATTERN.test(code)
+}
+
+// Single place that pulls a provider error code out of a parsed body, covering
+// the shapes providers actually use: OpenAI-style error.code, top-level code,
+// error.type, and Google-style status (error.status / status).
+function extractProviderCode(body: unknown): string | undefined {
+  if (!isRecord(body)) return undefined
+  const error = isRecord(body.error) ? body.error : undefined
+  if (error && typeof error.code === "string") return error.code
+  if (typeof body.code === "string") return body.code
+  if (error && typeof error.type === "string") return error.type
+  if (error && typeof error.status === "string") return error.status
+  if (typeof body.status === "string") return body.status
+  return undefined
+}
+
 function message(providerID: ProviderID, e: APICallError) {
   return iife(() => {
     const msg = e.message
@@ -96,9 +177,15 @@ function message(providerID: ProviderID, e: APICallError) {
 
     try {
       const body = JSON.parse(e.responseBody)
-      // try to extract common error message fields
-      const errMsg = body.message || body.error || body.error?.message
-      if (errMsg && typeof errMsg === "string") {
+      // Prefer the nested provider message first: many providers wrap it as
+      // {error:{message}} where body.error is an object, so checking body.error
+      // before body.error.message would short-circuit on the object and dump the
+      // raw body instead of the human-readable string.
+      const nested = typeof body?.error?.message === "string" ? body.error.message : undefined
+      const top = typeof body?.message === "string" ? body.message : undefined
+      const errString = typeof body?.error === "string" ? body.error : undefined
+      const errMsg = nested ?? top ?? errString
+      if (errMsg) {
         return `${msg}: ${errMsg}`
       }
     } catch {}
@@ -177,8 +264,12 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
   const error = body.type === "error" && isRecord(body.error) ? body.error : isBareProviderError(body) ? body : undefined
   if (!error) return
 
-  const code = typeof error?.code === "string" ? error.code : undefined
-  switch (error?.code) {
+  // Read code from the resolved error only (never dig into an untyped body —
+  // that is the over-match guard `if (!error) return` above protects). Fall back
+  // to error.type so providers that put the code under `type` still classify.
+  const code =
+    typeof error.code === "string" ? error.code : typeof error.type === "string" ? error.type : undefined
+  switch (code) {
     case "context_length_exceeded":
       return {
         type: "context_overflow",
@@ -222,6 +313,64 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
         kind: "server_overload",
         code,
       }
+    case "authentication_error":
+    case "invalid_api_key":
+    case "permission_denied":
+      return {
+        type: "api_error",
+        message: typeof error.message === "string" ? error.message : "Authentication failed.",
+        isRetryable: false,
+        responseBody,
+        kind: "auth",
+        code,
+      }
+    case "rate_limit_exceeded":
+    case "too_many_requests":
+    case "rate_limited":
+      return {
+        type: "api_error",
+        message: typeof error.message === "string" ? error.message : "Rate limit exceeded.",
+        isRetryable: true,
+        responseBody,
+        kind: "rate_limit",
+        code,
+      }
+  }
+
+  const providerMessage = typeof error.message === "string" ? error.message : undefined
+  const text = `${providerMessage ?? ""}\n${responseBody}`
+  // No statusCode on the stream path, so only the unconditional strong billing
+  // patterns can match here (weak patterns are status-gated).
+  const billingKind = billingKindFor({ text })
+  if (billingKind) {
+    return {
+      type: "api_error",
+      message: providerMessage ?? "Quota exceeded. Check your plan and billing details.",
+      isRetryable: false,
+      responseBody,
+      kind: billingKind,
+      code,
+    }
+  }
+
+  // PR1c middle path: a typed provider error envelope ({type:"error"} + error
+  // object) with an unhandled code becomes a structured APIError(kind="unknown")
+  // so the frontend gets code/responseBody instead of an opaque UnknownError. A
+  // bare {code} body is intentionally NOT upgraded: it is indistinguishable from
+  // a Node runtime error (e.g. EACCES) and stays UnknownError as before, keeping
+  // its classifyRetry text-heuristic retry verdict unchanged.
+  if (body.type !== "error") return
+  return {
+    type: "api_error",
+    message: providerMessage ?? responseBody,
+    // Retry verdict from the code only (never free-text): FreeUsageLimitError is
+    // marked retryable so classifyRetry can route it to free_quota_exhausted;
+    // otherwise a transient-looking code (exhausted/unavailable/rate limit) stays
+    // retryable, matching the prior UnknownError verdict.
+    isRetryable: isFreeUsageLimit(text) ? true : looksTransientCode(code),
+    responseBody,
+    kind: "unknown",
+    code,
   }
 }
 
@@ -246,7 +395,8 @@ export type ParsedAPICallError =
 export function parseAPICallError(input: { providerID: ProviderID; error: APICallError }): ParsedAPICallError {
   const m = message(input.providerID, input.error)
   const body = json(input.error.responseBody)
-  if (isOverflow(m) || input.error.statusCode === 413 || body?.error?.code === "context_length_exceeded") {
+  const code = extractProviderCode(body)
+  if (isOverflow(m) || input.error.statusCode === 413 || code === "context_length_exceeded") {
     return {
       type: "context_overflow",
       message: m,
@@ -255,7 +405,15 @@ export function parseAPICallError(input: { providerID: ProviderID; error: APICal
   }
 
   const metadata = input.error.url ? { url: input.error.url } : undefined
-  const code = typeof body?.error?.code === "string" ? body.error.code : undefined
+  // Billing failures arrive under inconsistent statuses (DeepSeek 402 or a
+  // generic 400). The billing override runs ahead of the status/code fallback so
+  // an "Insufficient Balance" body classifies as quota_exhausted instead of the
+  // invalid_request the bare status would imply.
+  const billingKind = billingKindFor({
+    text: `${m}\n${input.error.responseBody ?? ""}`,
+    statusCode: input.error.statusCode,
+    headers: input.error.responseHeaders,
+  })
   return {
     type: "api_error",
     message: m,
@@ -264,7 +422,7 @@ export function parseAPICallError(input: { providerID: ProviderID; error: APICal
     responseHeaders: input.error.responseHeaders,
     responseBody: input.error.responseBody,
     metadata,
-    kind: apiCallErrorKind(input.error.statusCode, code),
+    kind: billingKind ?? apiCallErrorKind(input.error.statusCode, code),
     code,
   }
 }

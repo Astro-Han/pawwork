@@ -56,6 +56,17 @@ describe("classifyRetry — free_quota_exhausted positive", () => {
       expect(classification.resetAt).toBeDefined()
     }
   })
+
+  test("typed FreeUsageLimitError stream body still routes to free_quota_exhausted", () => {
+    // Real FreeUsageLimitError arrives as an APICallError 429, but the typed
+    // stream shape must classify end-to-end too: fromError keeps it kind=unknown
+    // and retryable, so classifyRetry can reach the free-quota branch.
+    const error = MessageV2.fromError(
+      { type: "error", error: { type: "FreeUsageLimitError", message: "FreeUsageLimitError" } },
+      { providerID: ProviderID.opencode },
+    )
+    expect(classifyRetry(error)?.kind).toBe("free_quota_exhausted")
+  })
 })
 
 describe("classifyRetry — reverse guards", () => {
