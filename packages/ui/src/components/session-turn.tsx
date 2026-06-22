@@ -8,6 +8,7 @@ import {
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData } from "../context"
 import { isWorkInFlightStatus } from "../util/session-status"
+import { decodeServerErrorText } from "../util/server-error"
 
 import { Binary } from "@opencode-ai/core/util/binary"
 import { createEffect, createMemo, createSignal, onCleanup, ParentProps, Show } from "solid-js"
@@ -30,59 +31,6 @@ import {
   type CompactionDividerState,
 } from "./session-turn-compaction"
 import { AssistantTurnFooter } from "./assistant-turn-footer"
-
-function record(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-}
-
-function unwrap(message: string) {
-  const text = message.replace(/^Error:\s*/, "").trim()
-
-  const parse = (value: string) => {
-    try {
-      return JSON.parse(value) as unknown
-    } catch {
-      return undefined
-    }
-  }
-
-  const read = (value: string) => {
-    const first = parse(value)
-    if (typeof first !== "string") return first
-    return parse(first.trim())
-  }
-
-  let json = read(text)
-
-  if (json === undefined) {
-    const start = text.indexOf("{")
-    const end = text.lastIndexOf("}")
-    if (start !== -1 && end > start) {
-      json = read(text.slice(start, end + 1))
-    }
-  }
-
-  if (!record(json)) return message
-
-  const err = record(json.error) ? json.error : undefined
-  if (err) {
-    const type = typeof err.type === "string" ? err.type : undefined
-    const msg = typeof err.message === "string" ? err.message : undefined
-    if (type && msg) return `${type}: ${msg}`
-    if (msg) return msg
-    if (type) return type
-    const code = typeof err.code === "string" ? err.code : undefined
-    if (code) return code
-  }
-
-  const msg = typeof json.message === "string" ? json.message : undefined
-  if (msg) return msg
-
-  const reason = typeof json.error === "string" ? json.error : undefined
-  if (reason) return reason
-
-  return message
-}
 
 function same<T>(a: readonly T[], b: readonly T[]) {
   if (a === b) return true
@@ -311,11 +259,13 @@ export function SessionTurn(
     return undefined
   })
   const errorText = createMemo(() => {
-    const msg = error()?.data?.message
-    if (typeof msg === "string") return unwrap(msg)
+    const err = error()
+    const decoded = decodeServerErrorText(err)
+    if (decoded) return decoded
+    const msg = err?.data?.message
     if (msg === undefined || msg === null) return ""
     // oxlint-disable-next-line no-base-to-string -- msg is unknown from error data, coercion is intentional
-    return unwrap(String(msg))
+    return String(msg)
   })
 
   const visibleTurnChange = createMemo(() => {
