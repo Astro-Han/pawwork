@@ -1371,7 +1371,10 @@ export function fromError(
       return new APIError(
         {
           message: (e as Error).message || "Connection interrupted",
-          isRetryable: true,
+          // Per-errno: most transport disconnects are retryable, but a permanent
+          // one (e.g. ENOTFOUND, an unresolved host) is not — classifyRetry reads
+          // this so it stops instead of retrying into a stall.
+          isRetryable: transport.retryable,
           metadata: {
             code: transport.code,
             message: (e as Error).message || "",
