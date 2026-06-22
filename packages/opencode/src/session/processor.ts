@@ -19,6 +19,7 @@ import { SessionDiagnostics } from "./diagnostics"
 import { classifyToolFailure } from "./tool-failure"
 import type { Provider } from "@/provider"
 import { ProviderTransform } from "@/provider"
+import { isProviderApiError, type ProviderFailureKind } from "@/provider/error"
 import { ExternalResult } from "@/tool/external-result"
 import { errorMessage } from "@/util/error"
 import { Log } from "@opencode-ai/core/util/log"
@@ -1728,18 +1729,35 @@ export const layer: Layer.Layer<
           if (phase) {
             return {
               retryable: true,
-              message: "Connection timed out",
-              watchdog: { phase },
+              message: "Connection timed out" as string | undefined,
+              watchdog: { phase } as { phase: "connect" | "silent_stream" | "unknown" } | undefined,
+              providerFailure: undefined as
+                | { kind: ProviderFailureKind; code?: string; statusCode?: number; hasResponseBody?: boolean }
+                | undefined,
             }
           }
+          // Parse once for the retry decision; surface providerFailure plus the
+          // HTTP evidence so the recorder routes a provider API rejection to
+          // provider_api_error instead of re-parsing or defaulting it to a
+          // transport disconnect.
           const parsed = parse(error)
+          const apiError = MessageV2.APIError.isInstance(parsed) ? parsed : undefined
+          const providerFailure = apiError?.data.providerFailure
+            ? {
+                kind: apiError.data.providerFailure.kind,
+                code: apiError.data.providerFailure.code,
+                statusCode: apiError.data.statusCode,
+                hasResponseBody:
+                  typeof apiError.data.responseBody === "string" && apiError.data.responseBody.length > 0,
+              }
+            : undefined
           const classification = SessionRetry.classifyRetry(parsed)
-          if (!classification) return { retryable: false }
+          if (!classification) return { retryable: false, message: undefined, watchdog: undefined, providerFailure }
           if (SessionRetry.retryAction(classification) === "stop") {
             ctx.terminalClassification = classification
-            return { retryable: false }
+            return { retryable: false, message: undefined, watchdog: undefined, providerFailure }
           }
-          return { retryable: true, message: classification.raw }
+          return { retryable: true, message: classification.raw, watchdog: undefined, providerFailure }
         }
 
         const removeReasoningForAttempt = Effect.fn("SessionProcessor.removeReasoningForAttempt")(function* (
@@ -1883,6 +1901,7 @@ export const layer: Layer.Layer<
               evidence: retrySignal.watchdog ? ["watchdog_fired", "iterator_error"] : ["iterator_error"],
               watchdog: retrySignal.watchdog,
               retryable: retrySignal.retryable,
+              providerFailure: retrySignal.providerFailure,
             })
             const retryDecision = buildModelRetryDecision({
               technicalRetryability: retrySignal.retryable
@@ -1997,9 +2016,16 @@ export const layer: Layer.Layer<
               break
             }
 
+            // A real provider API rejection carries its own actionable message
+            // (e.g. a 402 "Insufficient Balance"). Do not overwrite it with a
+            // generic connection-lost recovery string — that was the bug where a
+            // billing failure surfaced as "Connection lost". This only suppresses
+            // the recovery message here; lifecycle-close and user-cancel halts
+            // above keep their authoritative interruption messages.
+            const providerApiRejection = !!retrySignal.providerFailure && isProviderApiError(retrySignal.providerFailure)
             yield* halt(result.error, attemptID, {
               recordFailure: false,
-              interruptionMessage: recoveryInterruptionMessage(decision),
+              interruptionMessage: providerApiRejection ? undefined : recoveryInterruptionMessage(decision),
             })
             break
           }

@@ -734,6 +734,208 @@ describe("RunObservability", () => {
     })
   })
 
+  test("classifies a terminal provider API rejection as provider_api_error, not a transport disconnect", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_provider_api_terminal"),
+      traceID: MessageID.make("msg_provider_api_terminal"),
+      sessionID: SessionID.make("ses_provider_api_terminal"),
+      messageID: MessageID.make("msg_provider_api_terminal"),
+      providerID: "deepseek",
+      modelID: "deepseek-chat",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    const recovery = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      error: { name: "APIError", message: "402 Insufficient Balance" },
+      evidence: ["iterator_error"],
+      retryable: false,
+      providerFailure: { kind: "quota_exhausted", code: "invalid_request_error" },
+    })
+
+    expect(recovery.recommendation).toBe("do_not_retry")
+    expect(recovery.reason).toBe("provider_api_error")
+
+    const summary = recorder.finalize({ completedAt: 13, monotonicMs: 130 })
+    expect(summary.classification).toBe("provider_api_error")
+    expect(String(summary.summary_key)).toBe("provider_api_error.quota_exhausted")
+    expect(summary.retry_safety).toEqual({
+      recommendation: "do_not_auto_retry",
+      confidence: "high",
+      reason: "provider_terminal_failure",
+      safety_scope: "user_visible_and_tool_side_effects",
+    })
+    expect(summary.incident?.terminal_cause).toMatchObject({
+      category: "provider_api_error",
+      subcategory: "quota_exhausted",
+      retryable: false,
+    })
+    expect(summary.incident?.user_summary).toMatchObject({
+      title_key: "run_incident.provider_api_error",
+      body_key: "run_incident.provider_api_error.quota_exhausted",
+      severity: "error",
+    })
+  })
+
+  test("treats a retryable provider API error that exhausted its budget as side-effect-safe to retry", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_provider_api_retryable"),
+      traceID: MessageID.make("msg_provider_api_retryable"),
+      sessionID: SessionID.make("ses_provider_api_retryable"),
+      messageID: MessageID.make("msg_provider_api_retryable"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      error: { name: "APIError", message: "429 Too Many Requests" },
+      evidence: ["iterator_error"],
+      retryable: true,
+      providerFailure: { kind: "rate_limit" },
+    })
+
+    const summary = recorder.finalize({ completedAt: 13, monotonicMs: 130 })
+    expect(summary.classification).toBe("provider_api_error")
+    expect(String(summary.summary_key)).toBe("provider_api_error.rate_limit")
+    expect(summary.retry_safety).toEqual({
+      recommendation: "candidate_safe_auto_retry",
+      confidence: "medium",
+      reason: "no_visible_output_or_tool_execution",
+      safety_scope: "user_visible_and_tool_side_effects",
+    })
+  })
+
+  test("keeps a transport_disconnect providerFailure on the transport path, not provider_api_error", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_provider_api_transport"),
+      traceID: MessageID.make("msg_provider_api_transport"),
+      sessionID: SessionID.make("ses_provider_api_transport"),
+      messageID: MessageID.make("msg_provider_api_transport"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      error: { name: "APIError", message: "Connection interrupted", code: "ECONNRESET" },
+      evidence: ["iterator_error"],
+      retryable: true,
+      providerFailure: { kind: "transport_disconnect", code: "ECONNRESET" },
+    })
+
+    const summary = recorder.finalize({ completedAt: 13, monotonicMs: 130 })
+    expect(summary.classification).toBe("external_stream_disconnect")
+    expect(summary.incident?.terminal_cause.category).toBe("provider_transport_disconnect")
+  })
+
+  test("keeps a decompression providerFailure on the transport path, not provider_api_error", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_provider_api_decompression"),
+      traceID: MessageID.make("msg_provider_api_decompression"),
+      sessionID: SessionID.make("ses_provider_api_decompression"),
+      messageID: MessageID.make("msg_provider_api_decompression"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      error: { name: "APIError", message: "Response decompression failed", code: "ZlibError" },
+      evidence: ["iterator_error"],
+      retryable: true,
+      providerFailure: { kind: "decompression", code: "ZlibError" },
+    })
+
+    const summary = recorder.finalize({ completedAt: 13, monotonicMs: 130 })
+    expect(summary.classification).toBe("external_stream_disconnect")
+    expect(summary.incident?.terminal_cause.category).toBe("provider_transport_disconnect")
+  })
+
+  test("keeps an unknown-kind failure with no HTTP evidence on the transport path", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_unknown_no_evidence"),
+      traceID: MessageID.make("msg_unknown_no_evidence"),
+      sessionID: SessionID.make("ses_unknown_no_evidence"),
+      messageID: MessageID.make("msg_unknown_no_evidence"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      // A wrapped network failure (e.g. DNS ENOTFOUND) the stream classifier did
+      // not recognize: kind "unknown" with no status code and no response body.
+      error: { name: "APIError", message: "fetch failed", code: "ENOTFOUND" },
+      evidence: ["iterator_error"],
+      retryable: true,
+      providerFailure: { kind: "unknown", code: "ENOTFOUND" },
+    })
+
+    const summary = recorder.finalize({ completedAt: 13, monotonicMs: 130 })
+    expect(summary.classification).toBe("external_stream_disconnect")
+    expect(summary.incident?.terminal_cause.category).toBe("provider_transport_disconnect")
+  })
+
+  test("routes an unknown-kind failure WITH an HTTP status to provider_api_error", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_unknown_with_status"),
+      traceID: MessageID.make("msg_unknown_with_status"),
+      sessionID: SessionID.make("ses_unknown_with_status"),
+      messageID: MessageID.make("msg_unknown_with_status"),
+      providerID: "deepseek",
+      modelID: "deepseek-chat",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      // 402 Insufficient Balance before PR1 classifies it: kind "unknown" but a
+      // real HTTP response (status 402) was received, so it is a provider API error.
+      error: { name: "APIError", message: "402 Insufficient Balance" },
+      evidence: ["iterator_error"],
+      retryable: false,
+      providerFailure: { kind: "unknown", statusCode: 402, hasResponseBody: true },
+    })
+
+    const summary = recorder.finalize({ completedAt: 13, monotonicMs: 130 })
+    expect(summary.classification).toBe("provider_api_error")
+    expect(String(summary.summary_key)).toBe("provider_api_error.unknown")
+    expect(summary.incident?.terminal_cause).toMatchObject({
+      category: "provider_api_error",
+      subcategory: "unknown",
+      retryable: false,
+    })
+  })
+
   test("derives provider transport incident during partial tool input instead of tool failure", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_partial_tool_input_disconnect"),

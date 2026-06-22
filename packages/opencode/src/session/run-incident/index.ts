@@ -1,4 +1,8 @@
-import { deriveIncident as deriveRunIncident, transportCause as providerTransportCause } from "./derive"
+import {
+  deriveIncident as deriveRunIncident,
+  providerApiCause as deriveProviderApiCause,
+  transportCause as providerTransportCause,
+} from "./derive"
 import { recoveryFor as deriveRecovery } from "./policy"
 import { plainSummary as derivePlainSummary, userSummary as deriveUserSummary } from "./presentation"
 import { sanitizeIncident as sanitizeRunIncident, sanitizeLifecycleRequest } from "./sanitize"
@@ -31,6 +35,7 @@ export namespace RunIncident {
   export const SCHEMA_VERSION = VERSION
   export const derive = deriveRunIncident
   export const transportCause = providerTransportCause
+  export const providerApiCause = deriveProviderApiCause
   export const recoveryFor = deriveRecovery
   export const evaluateReplaySafety = deriveReplaySafety
   export const userSummary = deriveUserSummary

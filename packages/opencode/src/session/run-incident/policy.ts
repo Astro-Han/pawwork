@@ -17,9 +17,16 @@ export function recoveryFor(input: {
   const terminalFacts = input.terminalFacts ?? input.facts
   const noToolActivity =
     !terminalFacts.tool_input_started && !terminalFacts.tool_call_materialized && !terminalFacts.tool_execution_started
-  const retryableTransport =
+  // A failure whose retryability says auto-retry is worth attempting, subject to
+  // the side-effect-safety gates below. Includes a retryable provider API error
+  // (rate_limit / server_overload) alongside transport drops and watchdog
+  // timeouts — they all replay the same way when no visible output or tool side
+  // effect has happened yet.
+  const retryableProviderFailure =
     input.retryable === true &&
-    (input.cause.category === "provider_transport_disconnect" || input.cause.category === "watchdog_timeout")
+    (input.cause.category === "provider_transport_disconnect" ||
+      input.cause.category === "watchdog_timeout" ||
+      input.cause.category === "provider_api_error")
   if (input.cause.category === "user_cancel") {
     return { ...base, recommendation: "do_not_retry", confidence: "high", reason: "user_cancel" }
   }
@@ -31,12 +38,20 @@ export function recoveryFor(input: {
       reason: "local_lifecycle_close",
     }
   }
+  if (input.cause.category === "provider_api_error" && input.retryable !== true) {
+    // A terminal provider API rejection (auth / quota_exhausted / invalid_request,
+    // or unknown retryability) cannot be fixed by retrying and is not a connection
+    // drop. Stop, and keep the reason out of the connection-lost set so the real
+    // provider message shows. Retryable provider API errors (rate_limit /
+    // server_overload) fall through to the auto-retry tree via retryableProviderFailure.
+    return { ...base, recommendation: "do_not_retry", confidence: "high", reason: "provider_api_error" }
+  }
   if (
     canAutoRetryBeforeFirstProviderProgress({
       cause: input.cause,
       facts: input.facts,
       terminalFacts,
-      retryableTransport,
+      retryableProviderFailure,
     })
   ) {
     return {
@@ -56,7 +71,7 @@ export function recoveryFor(input: {
     }
   }
   if (
-    retryableTransport &&
+    retryableProviderFailure &&
     noToolActivity &&
     !isBeforeFirstProviderProgressCause(input.cause) &&
     terminalFacts.reasoning_output_started &&
@@ -81,7 +96,7 @@ export function recoveryFor(input: {
     }
   }
   if (
-    retryableTransport &&
+    retryableProviderFailure &&
     noToolActivity &&
     terminalFacts.reasoning_output_started &&
     !terminalFacts.text_output_started
@@ -150,7 +165,7 @@ export function recoveryFor(input: {
   if (input.facts.lifecycle_close_seen) {
     return { ...base, recommendation: "do_not_retry", confidence: "high", reason: "local_lifecycle_close" }
   }
-  if (retryableTransport) {
+  if (retryableProviderFailure) {
     return {
       ...base,
       recommendation: "auto_retry",
@@ -166,9 +181,9 @@ function canAutoRetryBeforeFirstProviderProgress(input: {
   cause: TerminalCause
   facts: IncidentFacts
   terminalFacts: IncidentFacts
-  retryableTransport: boolean
+  retryableProviderFailure: boolean
 }) {
-  if (!input.retryableTransport) return false
+  if (!input.retryableProviderFailure) return false
   if (input.facts.user_cancel_seen || input.facts.lifecycle_close_seen) return false
   if (!isBeforeFirstProviderProgressCause(input.cause)) return false
   if (input.terminalFacts.provider_progress_seen) return false
