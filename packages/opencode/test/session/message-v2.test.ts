@@ -2285,6 +2285,31 @@ describe("session.message-v2.fromError — PR1 classification completeness", () 
     expect((result as MessageV2.APIError).data.isRetryable).toBe(false)
   })
 
+  test("does not retry typed terminal codes that merely contain 'unavailable' as a substring", () => {
+    // The transient check is an exact allowlist, not a substring scan: a code
+    // like model_unavailable_for_account / feature_unavailable_for_plan is a
+    // terminal plan/account limit and must NOT be retried just because it
+    // contains "unavailable". Substring matching here caused infinite retries.
+    for (const code of ["model_unavailable_for_account", "feature_unavailable_for_plan"]) {
+      const body = { type: "error", error: { code, message: "Not available on your plan." } }
+      const result = MessageV2.fromError(body, { providerID })
+
+      expect((result as MessageV2.APIError).data.providerFailure).toStrictEqual({ kind: "unknown", code })
+      expect((result as MessageV2.APIError).data.isRetryable).toBe(false)
+    }
+  })
+
+  test("keeps an allowlisted transient code (gRPC UNAVAILABLE) retryable in the typed-unknown fallback", () => {
+    // The exact allowlist must still admit genuine transients beyond
+    // resource_exhausted. Bare gRPC UNAVAILABLE is transient and stays
+    // retryable; the case-insensitive match handles the uppercase spelling.
+    const body = { type: "error", error: { code: "UNAVAILABLE", message: "The service is currently unavailable." } }
+    const result = MessageV2.fromError(body, { providerID })
+
+    expect((result as MessageV2.APIError).data.providerFailure?.kind).toBe("unknown")
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(true)
+  })
+
   test("treats a 429 'quota exceeded' rate limit as rate_limit, not terminal quota_exhausted", () => {
     // Google reports per-minute request limits as 429 "Quota exceeded for quota
     // metric ... per minute". 429 is Too Many Requests, so it must stay a

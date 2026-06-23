@@ -134,15 +134,29 @@ function billingKindFor(opts: {
   return undefined
 }
 
-// Transient signals in the provider *code* that the retry classifier treats as
-// retryable. Scans the code only, never the free-text message, so a terminal
-// error whose message merely mentions "unavailable"/"exhausted" is not wrongly
-// retried. The "exhausted" match is scoped to resource_exhausted (Google's
-// transient overload) — a terminal quota_exhausted/insufficient_quota code must
-// NOT be treated as transient.
-const TRANSIENT_CODE_PATTERN = /resource[ _-]?exhausted|unavailable|overloaded|rate[ _-]?limit|too[ _-]?many[ _-]?requests/i
+// Provider *codes* the typed-unknown fallback treats as retryable. Deny-by-
+// default: an exact allowlist, never a substring scan. Substring matching turned
+// terminal codes like `model_unavailable_for_account` into infinite retries
+// because they contain "unavailable" — and the set of such terminal spellings
+// (`*_unavailable_for_plan`, `*_not_available`, ...) is open-ended, so the only
+// safe default for an *unrecognized* code is non-retryable (surface it, don't
+// loop). Read the code only, never the free-text message. The high-frequency
+// transients (server_error, server_is_overloaded, rate_limit, too_many_requests)
+// are already classified by the switch above and never reach here; this list is
+// just the long-tail. resource_exhausted stays retryable to preserve Google's
+// transient-overload semantics. Compared case-insensitively (gRPC uppercases).
+const TRANSIENT_CODES = new Set([
+  "resource_exhausted",
+  "unavailable",
+  "service_unavailable",
+  "server_unavailable",
+  "temporarily_unavailable",
+  "overloaded",
+  "overloaded_error",
+  "server_overloaded",
+])
 function looksTransientCode(code: string | undefined) {
-  return code !== undefined && TRANSIENT_CODE_PATTERN.test(code)
+  return code !== undefined && TRANSIENT_CODES.has(code.toLowerCase())
 }
 
 // Single place that pulls a provider error code out of a parsed body, covering
@@ -373,8 +387,9 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
     message: providerMessage ?? responseBody,
     // Retry verdict from the code only (never free-text): FreeUsageLimitError is
     // marked retryable so classifyRetry can route it to free_quota_exhausted;
-    // otherwise a transient-looking code (exhausted/unavailable/rate limit) stays
-    // retryable, matching the prior UnknownError verdict.
+    // otherwise only an allowlisted transient code stays retryable. Any
+    // unrecognized code defaults to non-retryable, so a terminal error is
+    // surfaced to the user rather than retried in a loop.
     isRetryable: isFreeUsageLimit(text) ? true : looksTransientCode(code),
     responseBody,
     kind: "unknown",
