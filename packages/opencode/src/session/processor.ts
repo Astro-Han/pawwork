@@ -1781,12 +1781,15 @@ export const layer: Layer.Layer<
               providerFailure: undefined as
                 | { kind: ProviderFailureKind; code?: string; statusCode?: number; hasResponseBody?: boolean }
                 | undefined,
+              providerMessage: undefined as string | undefined,
             }
           }
           // Parse once for the retry decision; surface providerFailure plus the
           // HTTP evidence so the recorder routes a provider API rejection to
           // provider_api_error instead of re-parsing or defaulting it to a
-          // transport disconnect.
+          // transport disconnect. The provider's own message rides along too so
+          // the halt path renders it without a second parse that could drift
+          // from this classification.
           const parsed = parse(error)
           const apiError = MessageV2.APIError.isInstance(parsed) ? parsed : undefined
           const providerFailure = apiError?.data.providerFailure
@@ -1798,13 +1801,15 @@ export const layer: Layer.Layer<
                   typeof apiError.data.responseBody === "string" && apiError.data.responseBody.length > 0,
               }
             : undefined
+          const providerMessage = apiError?.data.message
           const classification = SessionRetry.classifyRetry(parsed)
-          if (!classification) return { retryable: false, message: undefined, watchdog: undefined, providerFailure }
+          if (!classification)
+            return { retryable: false, message: undefined, watchdog: undefined, providerFailure, providerMessage }
           if (SessionRetry.retryAction(classification) === "stop") {
             ctx.terminalClassification = classification
-            return { retryable: false, message: undefined, watchdog: undefined, providerFailure }
+            return { retryable: false, message: undefined, watchdog: undefined, providerFailure, providerMessage }
           }
-          return { retryable: true, message: classification.raw, watchdog: undefined, providerFailure }
+          return { retryable: true, message: classification.raw, watchdog: undefined, providerFailure, providerMessage }
         }
 
         const removeReasoningForAttempt = Effect.fn("SessionProcessor.removeReasoningForAttempt")(function* (
@@ -2070,14 +2075,9 @@ export const layer: Layer.Layer<
             // string. Lifecycle-close and user-cancel halts above keep their own
             // authoritative interruption messages.
             const providerApiRejection = !!retrySignal.providerFailure && isProviderApiError(retrySignal.providerFailure)
-            const parsedForMessage = providerApiRejection ? parse(result.error) : undefined
-            const providerMessage =
-              parsedForMessage && isRecord(parsedForMessage.data) && typeof parsedForMessage.data.message === "string"
-                ? parsedForMessage.data.message
-                : undefined
             yield* halt(result.error, attemptID, {
               recordFailure: false,
-              interruptionMessage: haltInterruptionMessage(providerApiRejection, decision, providerMessage),
+              interruptionMessage: haltInterruptionMessage(providerApiRejection, decision, retrySignal.providerMessage),
             })
             break
           }
