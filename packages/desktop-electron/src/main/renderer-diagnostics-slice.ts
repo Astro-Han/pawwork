@@ -6,6 +6,13 @@ import type {
 } from "./renderer-diagnostics-types"
 import { jsonBytes } from "./renderer-diagnostics-sanitize"
 
+// A diagnostics package is usually prepared shortly AFTER the problem, so a moderate backward window
+// captures the incident. Both unscoped and scoped (session/trace) slices use the same bounded
+// lookback — minimal collection by default, so an old event from the same session hours ago is not
+// pulled in — and an explicit `from` opens a wider window when a reviewer needs older history.
+const SLICE_LOOKBACK_MS = 30 * 60 * 1000
+const SLICE_FORWARD_MS = 60 * 1000
+
 export function eventTime(event: RendererDiagnosticEvent) {
   const time = Date.parse(event.time)
   return Number.isFinite(time) ? time : 0
@@ -86,8 +93,8 @@ export function selectRendererDiagnosticsSlice(
   input: InternalSliceInput,
 ): RendererDiagnosticsSlice {
   const windowID = input.windowID === undefined ? undefined : String(input.windowID)
-  const from = input.from?.getTime() ?? input.now.getTime() - 5 * 60 * 1000
-  const to = input.to?.getTime() ?? input.now.getTime() + 60 * 1000
+  const from = input.from?.getTime() ?? input.now.getTime() - SLICE_LOOKBACK_MS
+  const to = input.to?.getTime() ?? input.now.getTime() + SLICE_FORWARD_MS
   const events = inputEvents
     .filter((event) => {
       const time = eventTime(event)

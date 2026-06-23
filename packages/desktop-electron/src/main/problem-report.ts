@@ -2,6 +2,7 @@
 // Default full report payload limit: 5 MB.
 import type { RendererErrorDetails } from "@opencode-ai/app/desktop-api"
 import type { RendererDiagnosticEvent, RendererDiagnosticsSlice } from "./renderer-diagnostics"
+import { capEvents, SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES } from "./renderer-diagnostics"
 import {
   type JsonValue,
   makeRedactor,
@@ -13,6 +14,28 @@ import {
 } from "./problem-report-redact"
 
 export const DEFAULT_PROBLEM_REPORT_MAX_BYTES = 5 * 1024 * 1024
+
+// Per-component byte budgets. Each source is bounded independently so one component (a giant log, a
+// long session, a huge renderer stack) can't fill the whole report and crowd out the rest. They sum
+// to well under DEFAULT_PROBLEM_REPORT_MAX_BYTES, leaving the overall maxBytes ladder below as a
+// final fallback rather than the primary bound.
+// Fixed, not configurable — there is no production caller that would tune these, so they are not a
+// public API surface. The capping logic is exercised in tests by calling the pure cap helpers
+// (capLogTailBytes / capMessageParts / capSessionMessagesBytes / headBytes / capEvents) directly with
+// small limits.
+const COMPONENT_BUDGETS = {
+  logTailBytes: 1 * 1024 * 1024,
+  sessionMessagesBytes: 1 * 1024 * 1024,
+  // Per single message, so one long turn (many tool parts) can't consume the whole session budget.
+  sessionMessageBytes: 256 * 1024,
+  // Per renderer-error text field. Bounds BOTH summary and details: summary derives from
+  // error.message, which an API error can balloon, so capping only details would leave a hole.
+  rendererErrorDetailsBytes: 64 * 1024,
+  // Renderer diagnostics are byte-capped at the source (when the slice is built), but redaction here
+  // can re-expand them, so re-bound to the same ceiling after redaction — same capEvents() ruler.
+  rendererDiagnosticsBytes: SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
+}
+
 const SUMMARY_ERROR_LINE_MAX_CHARS = 220
 const SUMMARY_FAILURE_REASON_MAX_CHARS = 80
 const SUMMARY_ROUTE_MAX_CHARS = 120
@@ -73,9 +96,11 @@ type Payload = {
   sessionExport: SafeSessionExport
   truncation: {
     omittedMessages: number
+    omittedMessagePartsBytes: number
     omittedLogBytes: number
     omittedSessionInfoBytes: number
     omittedFailedExportErrorBytes: number
+    omittedRendererErrorBytes: number
     omittedRendererDiagnosticsBytes: number
     omittedDiagnosticsBytes: number
   }
@@ -96,6 +121,122 @@ export function defaultReportId() {
 
 function jsonBytes(value: unknown) {
   return bytes(JSON.stringify(toJsonSafe(value)) ?? "")
+}
+
+// Keep the leading maxBytes bytes of a string, backing off so a multibyte char is never split.
+export function headBytes(value: string, maxBytes: number): string {
+  const buffer = Buffer.from(value, "utf8")
+  if (buffer.length <= maxBytes) return value
+  let end = maxBytes
+  // 0b10xxxxxx are UTF-8 continuation bytes; step back until end sits on a char boundary.
+  while (end > 0 && (buffer[end] & 0xc0) === 0x80) end--
+  return buffer.toString("utf8", 0, end)
+}
+
+// Keep the trailing <= maxBytes bytes of a string, advancing to the next char boundary so the result
+// never starts mid-character (which would yield a replacement char and re-encode larger than maxBytes).
+function tailBytes(value: string, maxBytes: number): string {
+  const buffer = Buffer.from(value, "utf8")
+  if (buffer.length <= maxBytes) return value
+  let start = buffer.length - maxBytes
+  while (start < buffer.length && (buffer[start] & 0xc0) === 0x80) start++
+  return buffer.toString("utf8", start)
+}
+
+// Keep the most-recent bytes of a log, cutting whole lines off the front so the top is never a
+// fragment of an older line. Falls back to a hard byte cut only for a single oversized line.
+export function capLogTailBytes(value: string, maxBytes: number): { value: string; omittedBytes: number } {
+  const total = bytes(value)
+  if (total <= maxBytes) return { value, omittedBytes: 0 }
+  const lines = value.split("\n")
+  let acc = 0
+  let startIndex = lines.length
+  for (let i = lines.length - 1; i >= 0; i--) {
+    // +1 for the "\n" joining this line to the already-kept block (every kept line except the last).
+    const add = bytes(lines[i]) + (i < lines.length - 1 ? 1 : 0)
+    if (acc + add > maxBytes && startIndex < lines.length) break
+    acc += add
+    startIndex = i
+  }
+  let out = startIndex < lines.length ? lines.slice(startIndex).join("\n") : ""
+  // Whole-line selection kept nothing useful — the most recent line alone exceeds the budget, with or
+  // without a trailing newline (which leaves an empty last "line"). Fall back to a byte-accurate tail
+  // of the original so the report still carries the most recent bytes rather than an empty string.
+  if (out === "" || bytes(out) > maxBytes) out = tailBytes(value, maxBytes)
+  return { value: out, omittedBytes: Math.max(0, total - bytes(out)) }
+}
+
+// Reduce a message whose info alone exceeds the budget to an identity stub, so even a pathological
+// message — a malformed time/tokens blob, hundreds of parts, or an oversized id — can never break the
+// session budget. id/role are byte-capped too (they are normally short, but the IPC boundary is
+// untyped), bounding the stub to a small constant. The oversized marker keeps the reduction visible.
+const STUB_IDENTITY_MAX_BYTES = 256
+function messageIdentityStub(record: { [key: string]: JsonValue }, omittedParts: number): JsonValue {
+  const info = isRecord(record.info) ? record.info : {}
+  const stub: { [key: string]: JsonValue } = {}
+  if (typeof info.id === "string") stub.id = headBytes(info.id, STUB_IDENTITY_MAX_BYTES)
+  if (typeof info.role === "string") stub.role = headBytes(info.role, STUB_IDENTITY_MAX_BYTES)
+  return { info: stub, parts: [], omittedParts, oversized: true }
+}
+
+// Trim a single message's leading parts so its JSON fits the per-message budget, leaving an
+// omittedParts marker. Keeps the message info and the LATEST parts (the end of the turn — the tool
+// output / error nearest the failure), matching the rest of the ladder, which drops oldest-first to
+// keep the most recent context. This bounds any one message so the newest message — always kept by
+// capSessionMessagesBytes below — can never blow the session budget on its own.
+export function capMessageParts(message: JsonValue, maxBytes: number): { value: JsonValue; omittedBytes: number } {
+  if (!isRecord(message)) return { value: message, omittedBytes: 0 }
+  const record = message as { [key: string]: JsonValue }
+  const original = jsonBytes(message)
+  const parts = record.parts
+  const partCount = Array.isArray(parts) ? parts.length : 0
+  if (original <= maxBytes) return { value: message, omittedBytes: 0 }
+  const done = (value: JsonValue) => ({ value, omittedBytes: Math.max(0, original - jsonBytes(value)) })
+  // No parts to trim — only the info is left, and it already overflows: stub it.
+  if (!Array.isArray(parts) || parts.length === 0) return done(messageIdentityStub(record, partCount))
+  // Binary-search the largest trailing run of parts that fits, so this stays O(log n) JSON renders.
+  let lo = 0
+  let hi = parts.length
+  let kept = 0
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2)
+    const candidate = { ...record, parts: parts.slice(parts.length - mid), omittedParts: parts.length - mid }
+    if (jsonBytes(candidate) <= maxBytes) {
+      kept = mid
+      lo = mid + 1
+    } else {
+      hi = mid - 1
+    }
+  }
+  const trimmed = { ...record, parts: parts.slice(parts.length - kept), omittedParts: parts.length - kept }
+  // Even zero parts didn't fit: the info itself is oversized. Reduce to an identity stub.
+  return done(jsonBytes(trimmed) <= maxBytes ? trimmed : messageIdentityStub(record, parts.length))
+}
+
+// Drop oldest messages (from the front) until the array's JSON fits, keeping the most recent context
+// around the failure. This is a hard cap: a message that does not fit is dropped even if it is the
+// newest, so the kept set never exceeds maxBytes. capMessageParts has already bounded each message to
+// the per-message budget (a ≤256-byte identity stub at worst), so under any realistic budget the newest
+// message always fits and the latest turn survives; only a pathologically tiny budget yields an empty
+// set — the correct outcome for a near-zero budget.
+export function capSessionMessagesBytes(
+  messages: JsonValue[],
+  maxBytes: number,
+): { messages: JsonValue[]; omittedMessages: number } {
+  if (jsonBytes(messages) <= maxBytes) return { messages, omittedMessages: 0 }
+  const sizes = messages.map((message) => jsonBytes(message))
+  let acc = 2 // "[]" framing
+  let keptCount = 0
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const add = sizes[i] + (keptCount > 0 ? 1 : 0) // +1 for the joining comma
+    if (acc + add > maxBytes) break
+    acc += add
+    keptCount++
+  }
+  return {
+    messages: messages.slice(messages.length - keptCount),
+    omittedMessages: messages.length - keptCount,
+  }
 }
 
 function markdown(payload: Payload) {
@@ -176,10 +317,6 @@ function redactRendererDiagnostics(slice: RendererDiagnosticsSlice, redact: Reda
   }
 }
 
-function isProtectedRendererDiagnosticEvent(event: RendererDiagnosticEvent) {
-  return event["event.name"].startsWith("incident.") || event["event.name"] === "session.identity.transition"
-}
-
 function withRendererDiagnosticsEvents(
   rendererDiagnostics: RendererDiagnosticsSlice,
   events: RendererDiagnosticEvent[],
@@ -247,6 +384,9 @@ export function buildProblemReport(input: Input, options: Options = {}) {
   let rendererDiagnostics = input.rendererDiagnostics
     ? redactRendererDiagnostics(input.rendererDiagnostics, redact)
     : undefined
+  // Immutable post-redaction baseline. Every renderer-diagnostics cap (the component budget below and
+  // the overall ladder) re-derives from this, so the omitted ledger stays correct across stages.
+  const redactedRendererDiagnostics = rendererDiagnostics
   let rendererError = input.rendererError
     ? // Construct from the two known fields only — never spread the IPC input, which is untyped at
       // the boundary and could carry extra unredacted fields. Each field is coerced through the
@@ -254,12 +394,74 @@ export function buildProblemReport(input: Input, options: Options = {}) {
       // so a stray object value would otherwise pass un-scrubbed).
       { summary: redactField(input.rendererError.summary, redact), details: redactField(input.rendererError.details, redact) }
     : undefined
+  // Baseline of the redacted renderer-error text (summary + details) before any capping.
+  // omittedRendererErrorBytes is derived from this in makePayload, so it stays correct no matter which
+  // stage (component budget, overall ladder truncation, or full removal) shrinks either field.
+  const rendererErrorBaseline = rendererError ? bytes(rendererError.summary) + bytes(rendererError.details) : 0
   let omittedMessages = 0
+  // Bytes removed from WITHIN surviving messages by capMessageParts — trailing parts trimmed, or an
+  // oversized message reduced to an identity stub (which also drops its parts). Distinct from
+  // omittedMessages, which counts whole messages dropped to fit the session budget.
+  let omittedMessagePartsBytes = 0
   let omittedLogBytes = 0
   let omittedSessionInfoBytes = 0
   let omittedFailedExportErrorBytes = 0
   let omittedRendererDiagnosticsBytes = 0
   let omittedDiagnosticsBytes = 0
+
+  // Bound the renderer-diagnostics events to a byte budget using the same capEvents() as the source
+  // slice (drops non-incident events first, then incidents only if a single payload still overflows).
+  // Re-derives from the redacted baseline each call, so it is idempotent across the component-budget
+  // pass and the overall ladder, and the omitted ledger always reflects the total dropped from baseline.
+  const baselineRendererEvents = redactedRendererDiagnostics?.events ?? []
+  const baselineRendererEventsBytes = jsonBytes(baselineRendererEvents)
+  const capRendererDiagnostics = (maxEventBytes: number) => {
+    if (!redactedRendererDiagnostics) return
+    const capped = capEvents(baselineRendererEvents, maxEventBytes)
+    omittedRendererDiagnosticsBytes = Math.max(0, baselineRendererEventsBytes - jsonBytes(capped.events))
+    rendererDiagnostics =
+      capped.omittedEventCount > 0
+        ? withRendererDiagnosticsEvents(redactedRendererDiagnostics, capped.events, omittedRendererDiagnosticsBytes)
+        : redactedRendererDiagnostics
+  }
+
+  // Per-component budgets: bound each source independently so one can't dominate the report. Runs
+  // after redaction (cuts never split a secret) and before the overall maxBytes ladder, which is now
+  // the fallback. Keeps the most recent context (log tail, latest messages) around the failure.
+  const budgets = COMPONENT_BUDGETS
+  const cappedLog = capLogTailBytes(logTail, budgets.logTailBytes)
+  logTail = cappedLog.value
+  omittedLogBytes += cappedLog.omittedBytes
+  // Bound each message first (trim parts of an oversized single turn), then drop oldest whole messages
+  // to the total budget — so neither one huge message nor many messages can dominate. The per-message
+  // budget never exceeds the total, so the kept set honors the session budget. survivorPartTrimBytes
+  // stays aligned with `messages` (oldest first) as both the session cap here and the overall ladder
+  // below drop from the front, so omittedMessagePartsBytes counts only part-trim of messages that
+  // actually remain — a message dropped whole is represented by omittedMessages, never double-counted.
+  const perMessageBudget = Math.min(budgets.sessionMessageBytes, budgets.sessionMessagesBytes)
+  const partTrimBytes: number[] = []
+  messages = messages.map((message) => {
+    const capped = capMessageParts(message, perMessageBudget)
+    partTrimBytes.push(capped.omittedBytes)
+    return capped.value
+  })
+  const cappedMessages = capSessionMessagesBytes(messages, budgets.sessionMessagesBytes)
+  messages = cappedMessages.messages
+  omittedMessages += cappedMessages.omittedMessages
+  let survivorPartTrimBytes = partTrimBytes.slice(cappedMessages.omittedMessages)
+  const sumPartTrim = () => survivorPartTrimBytes.reduce((total, value) => total + value, 0)
+  omittedMessagePartsBytes = sumPartTrim()
+  if (rendererError) {
+    // Cap both text fields: summary (from error.message) is as untrusted as details.
+    const summary = headBytes(rendererError.summary, budgets.rendererErrorDetailsBytes)
+    const details = headBytes(rendererError.details, budgets.rendererErrorDetailsBytes)
+    if (summary.length < rendererError.summary.length || details.length < rendererError.details.length) {
+      rendererError = { ...rendererError, summary, details }
+    }
+  }
+  // Re-bound renderer diagnostics post-redaction to their component budget, so a redaction that
+  // re-expanded the source-capped slice can't ride into the report above its per-component ceiling.
+  if (redactedRendererDiagnostics) capRendererDiagnostics(budgets.rendererDiagnosticsBytes)
 
   const makePayload = (): Payload => ({
     reportVersion: 1,
@@ -275,9 +477,16 @@ export function buildProblemReport(input: Input, options: Options = {}) {
     ),
     truncation: {
       omittedMessages,
+      omittedMessagePartsBytes,
       omittedLogBytes,
       omittedSessionInfoBytes,
       omittedFailedExportErrorBytes,
+      // Derived: whatever the renderer-error text (summary + details) lost across every truncation
+      // stage, including full removal.
+      omittedRendererErrorBytes: Math.max(
+        0,
+        rendererErrorBaseline - (rendererError ? bytes(rendererError.summary) + bytes(rendererError.details) : 0),
+      ),
       omittedRendererDiagnosticsBytes,
       omittedDiagnosticsBytes,
     },
@@ -290,6 +499,9 @@ export function buildProblemReport(input: Input, options: Options = {}) {
     const remove = Math.max(1, Math.ceil(messages.length / 2))
     omittedMessages += remove
     messages = messages.slice(remove)
+    // Keep the part-trim ledger consistent: the dropped messages are no longer in the report.
+    survivorPartTrimBytes = survivorPartTrimBytes.slice(remove)
+    omittedMessagePartsBytes = sumPartTrim()
     output = markdown(makePayload())
   }
 
@@ -337,16 +549,16 @@ export function buildProblemReport(input: Input, options: Options = {}) {
     output = markdown(makePayload())
   }
 
-  if (bytes(output) > maxBytes && rendererDiagnostics) {
-    const original = rendererDiagnostics
-    let events = [...original.events]
-    while (bytes(output) > maxBytes && events.length > 0) {
-      const removeIndex = events.findIndex((event) => !isProtectedRendererDiagnosticEvent(event))
-      if (removeIndex < 0) break
-      events.splice(removeIndex, 1)
-      omittedRendererDiagnosticsBytes = Math.max(0, jsonBytes(original.events) - jsonBytes(events))
-      rendererDiagnostics = withRendererDiagnosticsEvents(original, events, omittedRendererDiagnosticsBytes)
+  // Final backstop: halve the renderer-diagnostics event budget until the report fits. Uses the same
+  // capEvents() ruler as above, which can drop even incident events once a tight maxBytes leaves no
+  // alternative — so an all-protected oversized slice drains to empty rather than overflowing.
+  if (bytes(output) > maxBytes && rendererDiagnostics && rendererDiagnostics.events.length > 0) {
+    let limit = Math.max(0, Math.floor(jsonBytes(rendererDiagnostics.events) / 2))
+    while (bytes(output) > maxBytes && limit >= 0) {
+      capRendererDiagnostics(limit)
       output = markdown(makePayload())
+      if (limit === 0) break
+      limit = Math.floor(limit / 2)
     }
   }
 
@@ -540,9 +752,11 @@ function isTruncation(value: unknown): value is Payload["truncation"] {
   if (!isRecord(value)) return false
   return (
     isFiniteNumber(value.omittedMessages) &&
+    isFiniteNumber(value.omittedMessagePartsBytes) &&
     isFiniteNumber(value.omittedLogBytes) &&
     isFiniteNumber(value.omittedSessionInfoBytes) &&
     isFiniteNumber(value.omittedFailedExportErrorBytes) &&
+    isFiniteNumber(value.omittedRendererErrorBytes) &&
     isFiniteNumber(value.omittedRendererDiagnosticsBytes) &&
     isFiniteNumber(value.omittedDiagnosticsBytes)
   )
