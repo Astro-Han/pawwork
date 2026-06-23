@@ -137,11 +137,14 @@ export function makeRedactor(extraTerms: string[] = []): Redactor {
     new Set(extraTerms.map((term) => (typeof term === "string" ? term.trim() : "")).filter((term) => term.length >= 1)),
   )
   // Case-insensitive so a username cased differently in a path than in os.userInfo() still matches.
-  // Short terms (a 1–2 char OS username) match only as whole words: this still redacts a bare
-  // standalone username while sparing single letters embedded in other tokens (hex, identifiers).
+  // A short (1–2 char) ASCII-word username matches only as a whole word, sparing single letters
+  // embedded in other tokens (the "x" in "0x1f", the "yu" in "yuan"). But JS `\b` is an ASCII word
+  // boundary: a short non-ASCII username ("张"/"山田") has no `\b` next to it and would leak, so it
+  // is redacted as an exact term instead. (Terms of length >2 were always exact.)
   const termPatterns = terms.map((term) => {
     const escaped = escapeRegExp(term)
-    return new RegExp(term.length <= 2 ? `\\b${escaped}\\b` : escaped, "gi")
+    const shortAsciiWord = /^[A-Za-z0-9_]{1,2}$/.test(term)
+    return new RegExp(shortAsciiWord ? `\\b${escaped}\\b` : escaped, "gi")
   })
   return (value: string) => {
     if (typeof value !== "string" || value.length === 0) return value

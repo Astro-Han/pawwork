@@ -208,6 +208,17 @@ describe("makeRedactor", () => {
     const empty = makeRedactor(["", "   "])
     expect(empty("grab a cab")).toBe("grab a cab")
   })
+
+  test("redacts short non-ASCII usernames that JS \\b word boundaries miss", () => {
+    // JS \b is an ASCII word boundary: \b张\b never matches, so a 1–2 char CJK/JP username would
+    // leak. These must be redacted as exact terms instead.
+    expect(makeRedactor(["山田"])("user 山田 failed")).toBe("user [user] failed")
+    expect(makeRedactor(["张"])("user 张 failed")).toBe("user [user] failed")
+    expect(makeRedactor(["张三"])("at /home/张三/x and 张三 again")).not.toContain("张三")
+    // The ASCII whole-word sparing still holds (regression guard for the boundary split).
+    expect(makeRedactor(["x"])("0x1f and example")).toBe("0x1f and example")
+    expect(makeRedactor(["yu"])("the yuan dropped")).toBe("the yuan dropped")
+  })
 })
 
 describe("sanitizeSessionMessages", () => {

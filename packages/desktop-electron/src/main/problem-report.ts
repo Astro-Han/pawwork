@@ -444,8 +444,10 @@ export function buildProblemReportSummary(input: ProblemReportSummaryInput) {
     input.fullReportStatus === "ready"
       ? [
           "Full report: ready for manual upload",
-          `Report file: ${input.reportFileName ?? "unknown"}`,
-          `Report location: ${input.reportLocationHint ?? "unknown"}`,
+          // saveReport's filename/hint are not trusted to be identity-free — run them through the
+          // same path-fragment + term scrubber as the rest of the summary, not raw into the clipboard.
+          `Report file: ${redactLocalPathFragments(input.reportFileName ?? "unknown", redact)}`,
+          `Report location: ${redactLocalPathFragments(input.reportLocationHint ?? "unknown", redact)}`,
         ]
       : [
           "Full report: not generated",

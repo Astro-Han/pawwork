@@ -331,6 +331,25 @@ describe("problem report", () => {
     expect(summary).not.toContain("/customroot/zoe")
   })
 
+  test("summary redacts a short non-ASCII username and identity-bearing report metadata", () => {
+    // A 1–2 char CJK username slips past JS \b word boundaries, and the report file/location were
+    // inserted raw — both must be scrubbed before the summary hits the clipboard.
+    const summary = buildProblemReportSummary({
+      reportId: "pwr_cjk",
+      generatedAt: "2026-04-23T01:02:03.004Z",
+      diagnostics: base.diagnostics,
+      reportFileName: "problem.md",
+      reportLocationHint: "/customroot/山田/problem-reports/problem.md",
+      fullReportStatus: "ready",
+      recentErrors: ["[error] failed for user 山田"],
+      rendererError: { summary: "crash for 山田", details: "" },
+      redactTerms: ["山田"],
+    })
+
+    expect(summary).not.toContain("山田")
+    expect(summary).not.toContain("/customroot/山田")
+  })
+
   test("keeps no-session reports useful", () => {
     const report = buildProblemReport({
       ...base,
