@@ -534,6 +534,8 @@ export const dict = {
     "PawWork could not prepare the diagnostics package. Use the technical details below when reporting this.",
   "error.page.report.copiedFallback":
     "PawWork could not prepare the diagnostics package. The current error details were copied instead.",
+  "error.page.report.summaryCopied":
+    "PawWork couldn't save the full diagnostics package, but a redacted summary was copied to your clipboard. Paste it when reporting on GitHub.",
   "error.page.report.unavailable":
     "Diagnostics packages are not available in this build. Use the GitHub link or the technical details below.",
 

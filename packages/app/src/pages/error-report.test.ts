@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   buildErrorReportDetails,
+  diagnosticsFailureState,
   formatError,
   summarizeKnownError,
   type ErrorReportTranslator,
@@ -100,5 +101,25 @@ describe("error page reporting helpers", () => {
     expect(formatted).toContain("Error: loop")
     expect(formatted).toContain("Caused by")
     expect(formatted).toContain("[Circular]")
+  })
+})
+
+describe("diagnosticsFailureState", () => {
+  test("points the user at the copied summary when the clipboard write succeeds", () => {
+    // A failed preparation must not open a review; the redacted summary is the user's
+    // degraded submit material, so once it is copied the page confirms the fallback.
+    expect(diagnosticsFailureState(true, t)).toEqual({
+      review: undefined,
+      actionError: undefined,
+      actionMessage: "error.page.report.summaryCopied",
+    })
+  })
+
+  test("falls back to the prepare-failed error when the summary could not be copied", () => {
+    expect(diagnosticsFailureState(false, t)).toEqual({
+      review: undefined,
+      actionError: "diagnostics.review.prepareFailed",
+      actionMessage: undefined,
+    })
   })
 })

@@ -7,7 +7,7 @@ import { useLanguage } from "@/context/language"
 import type { E2EWindow } from "@/testing/terminal"
 import { updateErrorPageState } from "./error-update"
 import { PAWWORK_GITHUB_ISSUE_URL } from "@/utils/support-links"
-import { buildErrorReportDetails, formatError, summarizeKnownError } from "./error-report"
+import { buildErrorReportDetails, diagnosticsFailureState, formatError, summarizeKnownError } from "./error-report"
 import { DiagnosticsReviewBody, reviewActionsFrom } from "@/components/diagnostics-review"
 import type { PrepareReportResult } from "@/desktop-api-contract"
 export type { InitError } from "./error-report"
@@ -52,10 +52,10 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
     console.error(`[e2e:error-boundary] ${window.location.pathname}\n${detail}`)
   })
 
-  async function copyCurrentErrorDetails() {
-    if (!navigator.clipboard?.writeText) return false
+  async function copyText(text: string) {
+    if (!text || !navigator.clipboard?.writeText) return false
     try {
-      await navigator.clipboard.writeText(errorDetails())
+      await navigator.clipboard.writeText(text)
     } catch {
       return false
     }
@@ -100,15 +100,19 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
     setStore({ reporting: true, actionError: undefined, actionMessage: undefined })
     await platform
       .prepareReport({ rendererError: reportDetails() })
-      .then((result) => {
+      .then(async (result) => {
         if (result.status === "ready") {
           setStore({ review: result, actionError: undefined, actionMessage: undefined })
           return
         }
-        setStore({ review: undefined, actionError: language.t("diagnostics.review.prepareFailed"), actionMessage: undefined })
+        // The package couldn't be saved, but the main process still returns the redacted summary —
+        // copy it as degraded submit material (mirroring the menu's copy-fallback toast) instead of
+        // dropping it for a bare error. Clears any prior review so stale content can't linger.
+        const copied = await copyText(result.summary)
+        setStore(diagnosticsFailureState(copied, language.t))
       })
       .catch(async () => {
-        const copied = await copyCurrentErrorDetails()
+        const copied = await copyText(errorDetails())
         setStore({
           // Clear any prior successful review so a failed re-prepare can't leave stale content visible.
           review: undefined,

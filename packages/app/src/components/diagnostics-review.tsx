@@ -77,28 +77,28 @@ export function DiagnosticsReviewBody(props: {
   const [submitting, setSubmitting] = createSignal(false)
   const [fallback, setFallback] = createSignal<{ feedbackUrl: string; summary: string }>()
   const [copied, setCopied] = createSignal(false)
-  const [stale, setStale] = createSignal(false)
-  const [failed, setFailed] = createSignal(false)
+  // One recoverable notice at a time. Every reveal/submit attempt starts by clearing it, so a
+  // stale reveal followed by a failed submit shows only the latest reason — never both at once.
+  const [notice, setNotice] = createSignal<"stale" | "failed">()
 
   const reveal = async () => {
     // Reveal can fail invisibly in the main process (stale id, or the OS handler declines), so it
     // returns an explicit result — surface stale/failed in the notice area instead of a silent no-op.
     // A rare IPC-layer rejection is caught here too so it never becomes an unhandled rejection.
-    setFailed(false)
-    setStale(false)
+    setNotice(undefined)
     try {
       const result = await props.actions.revealReport(props.result.reportId)
-      if (result.status === "stale") setStale(true)
-      else if (result.status === "failed") setFailed(true)
+      if (result.status === "stale") setNotice("stale")
+      else if (result.status === "failed") setNotice("failed")
     } catch {
-      setFailed(true)
+      setNotice("failed")
     }
   }
 
   const submit = async () => {
     if (submitting()) return
     setSubmitting(true)
-    setFailed(false)
+    setNotice(undefined)
     try {
       const result = await props.actions.submitReport(props.result.reportId)
       if (result.status === "form-fallback") {
@@ -108,13 +108,13 @@ export function DiagnosticsReviewBody(props: {
       if (result.status === "stale") {
         // A newer prepare replaced this package; keep the surface open with a
         // clear notice instead of silently closing the submit entry.
-        setStale(true)
+        setNotice("stale")
         return
       }
       props.onDone()
     } catch {
       // IPC rejected — keep the dialog open with a recoverable notice rather than failing silently.
-      setFailed(true)
+      setNotice("failed")
     } finally {
       setSubmitting(false)
     }
@@ -143,11 +143,12 @@ export function DiagnosticsReviewBody(props: {
         when={fallback()}
         fallback={
           <div class="flex flex-col gap-2.5">
-            <Show when={stale()}>
-              <p class="text-body text-error leading-relaxed">{t("diagnostics.review.stale")}</p>
-            </Show>
-            <Show when={failed()}>
-              <p class="text-body text-error leading-relaxed">{t("diagnostics.review.actionFailed")}</p>
+            <Show when={notice()}>
+              {(kind) => (
+                <p class="text-body text-error leading-relaxed">
+                  {t(kind() === "stale" ? "diagnostics.review.stale" : "diagnostics.review.actionFailed")}
+                </p>
+              )}
             </Show>
             <div class="flex justify-end gap-2">
               <Show when={props.result.hasForm} fallback={<Button variant="ghost" onClick={() => props.onDone()}>{t("diagnostics.review.action.done")}</Button>}>

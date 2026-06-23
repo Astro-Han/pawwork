@@ -283,6 +283,23 @@ for (const status of ["stale", "failed"]) {
   assert(unhandled === 0, "a rejected reveal must be caught, got " + unhandled)
   dispose()
 }
+
+// Sequence: a stale reveal then a rejected submit. The single notice signal means submit
+// clears the prior stale notice before setting its own — so only the latest reason can show,
+// never a mixed stale+failed pair. The surface stays open and neither failure leaks.
+{
+  let done = 0
+  const dispose = mount(
+    acts({ revealReport: async () => ({ status: "stale" }), submitReport: async () => { throw new Error("ipc boom") } }),
+    () => { done++ },
+  )
+  await clickByText(reveal)
+  await clickByText(submit)
+  await new Promise((r) => setTimeout(r, 10))
+  assert(done === 0, "stale-then-failed sequence must keep the surface open, got " + done)
+  assert(unhandled === 0, "sequence failures must be caught, got " + unhandled)
+  dispose()
+}
 `
 
 describe("DiagnosticsReviewBody", () => {

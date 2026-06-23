@@ -513,6 +513,7 @@ export const dict = {
   "error.page.report.githubFallback": "也可以在 GitHub 反馈。",
   "error.page.report.failed": "爪印无法准备诊断包。反馈时请使用下面的技术详情。",
   "error.page.report.copiedFallback": "爪印无法准备诊断包。已改为复制当前错误详情。",
+  "error.page.report.summaryCopied": "爪印没能保存完整诊断包，但已把脱敏摘要复制到剪贴板。在 GitHub 反馈时粘贴即可。",
   "error.page.report.unavailable": "当前构建不支持诊断包。请使用 GitHub 链接，或复制下面的技术详情。",
 
   "diagnostics.review.title.ready": "提交前确认",
