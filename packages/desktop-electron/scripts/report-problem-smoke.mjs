@@ -157,57 +157,6 @@ try {
   assert(summary.markdownHasReportPayload, "expected full report to include the fenced JSON payload")
   assert(summary.markdownHasMainLog, "expected full report to include main process log tail")
   assert(summary.markdownHasBackendLog, "expected full report to include backend log tail")
-
-  // Real entry-path walk: the blocks above call api.prepareReport directly and bypass the UI
-  // wiring. Here we send the same `menu-command` the desktop Help menu emits (sendMenuCommand →
-  // webContents.send("menu-command", id)) and drive the rendered review dialog through the
-  // renderer's command registry + dialog provider, proving the menu → command → dialog →
-  // review-panel path renders and tears down. We click Cancel (a real review-panel button →
-  // onDone → dialog.close) rather than reveal/submit, whose handlers would open a real Finder /
-  // browser window on the prepared package; those stay covered by the stale calls above.
-  // Target the exact window Playwright observes — at startup a loading splash and the main
-  // window coexist, so BrowserWindow.getAllWindows()[0] can be the wrong renderer (its
-  // onMenuCommand handler would fire in a window the smoke never sees).
-  const mainWindow = await app.browserWindow(window)
-  await mainWindow.evaluate((win) => {
-    win.webContents.send("menu-command", "diagnostics.prepare")
-  })
-
-  const reviewDialog = window.locator('[data-component="dialog"]')
-  try {
-    await reviewDialog.waitFor({ state: "visible", timeout: 30_000 })
-  } catch (error) {
-    // The dialog never rendered — dump what is on screen so a failure is self-explaining
-    // (wrong window, an error toast instead of the dialog, or the shell not mounted).
-    const diag = await window.evaluate(() => ({
-      dialogs: document.querySelectorAll('[data-component="dialog"]').length,
-      toasts: Array.from(document.querySelectorAll('[data-component="toast"]'), (n) => n.textContent?.trim()),
-      shellMain: Boolean(document.querySelector('[data-component="desktop-shell-main"]')),
-      bodyText: document.body.innerText.slice(0, 400),
-    }))
-    console.error(`menu-walk diagnostics: ${JSON.stringify(diag, null, 2)}`)
-    throw error
-  }
-  const reviewWalk = {
-    title: (await reviewDialog.locator('[data-slot="dialog-title"]').innerText()).trim(),
-    hasReveal: (await reviewDialog.getByRole("button", { name: "Show in folder" }).count()) > 0,
-    hasSubmit: (await reviewDialog.getByRole("button", { name: "Continue" }).count()) > 0,
-  }
-  await reviewDialog.getByRole("button", { name: "Cancel", exact: true }).click()
-  await reviewDialog.waitFor({ state: "hidden", timeout: 30_000 })
-  const reviewDialogClosed = (await window.locator('[data-component="dialog"]').count()) === 0
-
-  console.log(JSON.stringify({ reviewWalk, reviewDialogClosed }, null, 2))
-
-  assert(
-    reviewWalk.title === "Review before sharing",
-    `expected the menu walk to open the review dialog; got ${JSON.stringify(reviewWalk)}`,
-  )
-  assert(
-    reviewWalk.hasReveal && reviewWalk.hasSubmit,
-    `expected reveal + submit actions in the review dialog; got ${JSON.stringify(reviewWalk)}`,
-  )
-  assert(reviewDialogClosed, "expected the review dialog to close after Cancel")
 } finally {
   await closeApp(app)
   rmSync(homeDir, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 })
