@@ -84,7 +84,7 @@ describe("problem report", () => {
     expect(report.json).not.toContain("# PawWork Problem Report")
     expect(report.json).not.toContain("```json")
     const payload = parseProblemReportPayload(report.json)
-    expect(payload.meta.reportVersion).toBe(1)
+    expect(payload.meta.reportVersion).toBe(2)
     expect(payload.meta.reportId).toBe(report.reportId)
     expect(payload.environment.sessionID).toBe("ses_1")
     expect(payload.session.status).toBe("ok")
@@ -657,7 +657,7 @@ describe("problem report", () => {
 
   test("rejects JSON that is not a valid problem report payload", () => {
     const report = JSON.stringify({
-      meta: { reportVersion: 1, reportId: "pwr_invalid" },
+      meta: { reportVersion: 2, reportId: "pwr_invalid" },
       environment: base.diagnostics,
       error: null,
       recentErrors: [],

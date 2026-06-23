@@ -12,6 +12,7 @@ import {
   buildProblemReportSummary,
   DEFAULT_PROBLEM_REPORT_MAX_BYTES,
   defaultReportId,
+  recentKeyErrors,
   type ProblemReportDiagnostics,
   type SessionExport,
 } from "./problem-report"
@@ -116,15 +117,6 @@ function localRedactTerms(): string[] {
     // ignore — no username term
   }
   return terms
-}
-
-function recentKeyErrors(logTail: string) {
-  return logTail
-    .split(/\r?\n/)
-    .filter((line) => /\b(error|warn|warning|failed|exception)\b/i.test(line))
-    .map((line) => line.replace(/\s+/g, " ").trim())
-    .filter(Boolean)
-    .slice(-10)
 }
 
 async function sessionExportWithTimeout(deps: FeedbackDeps, context: unknown) {

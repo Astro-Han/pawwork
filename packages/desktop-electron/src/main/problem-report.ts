@@ -14,6 +14,7 @@ import {
 } from "./problem-report-redact"
 
 export const DEFAULT_PROBLEM_REPORT_MAX_BYTES = 5 * 1024 * 1024
+const PROBLEM_REPORT_VERSION = 2
 
 // Per-component byte budgets. Each source is bounded independently so one component (a giant log, a
 // long session, a huge renderer stack) can't fill the whole report and crowd out the rest. They sum
@@ -87,7 +88,7 @@ type Options = {
 
 type Payload = {
   meta: {
-    reportVersion: 1
+    reportVersion: typeof PROBLEM_REPORT_VERSION
     reportId: string
     generatedAt: string
     truncation: {
@@ -250,7 +251,7 @@ function logLines(value: string) {
   return value.length > 0 ? value.split(/\r?\n/) : []
 }
 
-function recentKeyErrors(value: string) {
+export function recentKeyErrors(value: string) {
   return logLines(value)
     .filter((line) => /\b(error|warn|warning|failed|exception)\b/i.test(line))
     .map((line) => line.replace(/\s+/g, " ").trim())
@@ -471,7 +472,7 @@ export function buildProblemReport(input: Input, options: Options = {}) {
 
   const makePayload = (): Payload => ({
     meta: {
-      reportVersion: 1,
+      reportVersion: PROBLEM_REPORT_VERSION,
       reportId,
       generatedAt,
       truncation: {
@@ -779,7 +780,7 @@ function isProblemReportPayload(value: unknown): value is Payload {
   if (!isRecord(value)) return false
   return (
     isRecord(value.meta) &&
-    value.meta.reportVersion === 1 &&
+    value.meta.reportVersion === PROBLEM_REPORT_VERSION &&
     typeof value.meta.reportId === "string" &&
     value.meta.reportId.length > 0 &&
     typeof value.meta.generatedAt === "string" &&

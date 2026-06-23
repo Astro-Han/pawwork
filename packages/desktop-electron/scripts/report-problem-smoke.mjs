@@ -139,7 +139,7 @@ try {
       report.payload?.error?.summary === rendererError.summary &&
       report.payload?.error?.details?.includes('"kind":"manual-smoke"'),
     jsonHasAgentReadableSections:
-      report.payload?.meta?.reportVersion === 1 &&
+      report.payload?.meta?.reportVersion === 2 &&
       report.payload?.environment &&
       Array.isArray(report.payload?.recentErrors) &&
       Array.isArray(report.payload?.logTail),

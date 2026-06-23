@@ -2,6 +2,7 @@ import { link, lstat, mkdir, readdir, rm, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
 
 const REPORT_FILE_PATTERN = /^pawwork-problem-report-\d{8}-\d{6}-\d{3}-[a-zA-Z0-9_]+\.json$/
+const CLEANUP_REPORT_FILE_PATTERN = /^pawwork-problem-report-\d{8}-\d{6}-\d{3}-[a-zA-Z0-9_]+\.(json|md)$/
 const REPORT_ID_PATTERN = /^[a-zA-Z0-9_]+$/
 
 function isCanonicalIsoTimestamp(value: string) {
@@ -73,7 +74,7 @@ export async function cleanupProblemReports(input: { root: string; keep: number;
   try {
     const names = await readdir(input.root)
     for (const name of names) {
-      if (!REPORT_FILE_PATTERN.test(name)) continue
+      if (!CLEANUP_REPORT_FILE_PATTERN.test(name)) continue
       const path = join(input.root, name)
       if (path === input.currentPath) continue
       try {

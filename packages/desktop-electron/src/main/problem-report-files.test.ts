@@ -163,4 +163,24 @@ describe("problem report files", () => {
     expect(existsSync(newestArchived)).toBe(true)
     expect(existsSync(oldestArchived)).toBe(false)
   })
+
+  test("cleanup removes legacy Markdown reports without matching ordinary Markdown files", async () => {
+    const root = await tempRoot()
+    const current = await writeProblemReportFile({
+      root,
+      reportId: "pwr_current",
+      generatedAt: "2026-04-23T01:02:03.004Z",
+      json: "current",
+    })
+    const legacyReport = join(root, "pawwork-problem-report-20260423-010203-004-pwr_legacy.md")
+    const ordinaryMarkdown = join(root, "notes.md")
+    await writeFile(legacyReport, "legacy")
+    await writeFile(ordinaryMarkdown, "notes")
+
+    await cleanupProblemReports({ root, keep: 1, currentPath: current.path })
+
+    expect(existsSync(current.path)).toBe(true)
+    expect(existsSync(legacyReport)).toBe(false)
+    expect(existsSync(ordinaryMarkdown)).toBe(true)
+  })
 })

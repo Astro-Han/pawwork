@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { createFeedbackHandler } from "./feedback"
+import { parseProblemReportPayload } from "./problem-report"
 
 const diagnostics = {
   appVersion: "0.2.4",
@@ -145,6 +146,33 @@ describe("prepareReport", () => {
       rendererError: true,
     })
     expect(subject.calls.savedJson).toContain("ChildStoreError: Failed to create persisted cache")
+  })
+
+  test("uses the same recent error selection for the saved JSON and fallback summary", async () => {
+    const subject = setup({
+      logTail: () =>
+        [
+          "plain boot line",
+          "[warn] retry started",
+          "[error] launch failed",
+          "details without keyword",
+          "[exception] renderer crashed",
+        ].join("\n"),
+      openExternal: async () => {
+        throw new Error("browser unavailable")
+      },
+    })
+    const prepared = await subject.handler.prepareReport()
+    expect(prepared.status).toBe("ready")
+    if (prepared.status !== "ready") throw new Error("expected ready")
+
+    const payload = parseProblemReportPayload(subject.calls.savedJson)
+    const submitted = await subject.handler.submitReport(prepared.reportId)
+
+    expect(payload.recentErrors).toEqual(["[warn] retry started", "[error] launch failed", "[exception] renderer crashed"])
+    expect(submitted.status).toBe("form-fallback")
+    if (submitted.status !== "form-fallback") throw new Error("expected form fallback")
+    for (const line of payload.recentErrors) expect(submitted.summary).toContain(`- ${line}`)
   })
 
   test("hasForm is false when no feedback URL is configured", async () => {
