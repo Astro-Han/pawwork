@@ -6,7 +6,7 @@ import { createServer } from "node:net"
 import os, { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import type { Event } from "electron"
-import { app, BrowserWindow, clipboard, dialog, safeStorage, shell } from "electron"
+import { app, BrowserWindow, dialog, safeStorage, shell } from "electron"
 import pkg from "electron-updater"
 import { buildDesktopContext } from "@opencode-ai/app/desktop-api"
 
@@ -73,7 +73,7 @@ import {
 } from "./constants"
 import { normalizeDesktopContextPayload, syncWindowTitleForDesktopContext } from "./desktop-context-window"
 import { createDesktopContextStore } from "./desktop-context-store"
-import { createFeedbackHandler, feedbackDialogLabels } from "./feedback"
+import { createFeedbackHandler } from "./feedback"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { registerAboutIpc, triggerAbout } from "./ipc/about"
 import { registerBrowserIpc } from "./ipc/browser"
@@ -322,36 +322,12 @@ function feedbackContext(context: unknown): DesktopContext {
   return feedbackRuntimeContext(context).desktop
 }
 
-const reportProblem = createFeedbackHandler({
+const feedback = createFeedbackHandler({
   feedbackUrl: FEEDBACK_FORM_URL,
   reportRoot: problemReportRoot,
   context: currentFeedbackRuntimeContext,
-  confirm: async (context) => {
-    const labels = feedbackDialogLabels(context === undefined ? menuLocale : feedbackContext(context).locale, {
-      withForm: Boolean(FEEDBACK_FORM_URL),
-    })
-    const response = await dialog.showMessageBox({
-      type: "warning",
-      title: labels.title,
-      message: labels.message,
-      buttons: [labels.confirm, labels.cancel],
-      defaultId: 0,
-      cancelId: 1,
-    })
-    return response.response === 0
-  },
-  copy: (value) => clipboard.writeText(value),
   openExternal: (url) => {
     return shell.openExternal(url).then(() => undefined)
-  },
-  showFeedbackUrlFallback: async (url) => {
-    const labels = feedbackDialogLabels(currentDesktopContext().locale)
-    await dialog.showMessageBox({
-      type: "warning",
-      title: labels.formOpenFailedTitle,
-      message: labels.formOpenFailedMessage,
-      detail: url,
-    })
   },
   showItemInFolder: (path) => shell.showItemInFolder(path),
   openPath: (path) => shell.openPath(path),
@@ -370,15 +346,8 @@ const reportProblem = createFeedbackHandler({
     })
   },
   onHandledError: (message, error) => logger.error(message, error),
-  onError: async (error) => {
-    logger.error("problem report failed", error)
-    const labels = feedbackDialogLabels(currentDesktopContext().locale)
-    await dialog.showMessageBox({
-      type: "error",
-      title: labels.failedTitle,
-      message: labels.failedMessage,
-    })
-  },
+  // The review dialog surfaces a failed preparation to the user; here we only log.
+  onError: async (error) => logger.error("problem report failed", error),
 })
 
 logger.log("app starting", {
@@ -624,7 +593,10 @@ function wireMenu() {
     },
     newWindow: () => openMainWindow(),
     reportProblem: () => {
-      void reportProblem()
+      // The review now lives in the renderer (a themed dialog showing what the
+      // package contains). The menu just asks the focused window to open it.
+      const win = commandWindow()
+      if (win) sendMenuCommand(win, "diagnostics.prepare")
     },
     exportDiagnosticsLog: () => {
       void exportDiagnosticsFromMenu()
@@ -667,7 +639,9 @@ registerIpcHandlers({
   loadingWindowComplete: () => loadingComplete.resolve(),
   runUpdater: async (alertOnFail) => checkForUpdates(alertOnFail),
   checkUpdate: async () => checkUpdate(),
-  reportProblem: (input, context) => reportProblem(input, context),
+  prepareReport: (input, context) => feedback.prepareReport(input, context),
+  revealReport: (reportId) => feedback.revealReport(reportId),
+  submitReport: (reportId) => feedback.submitReport(reportId),
   recordRendererDiagnostic: (event, context) => rendererDiagnostics.record(event, context),
   exportRendererDiagnostics: exportDiagnosticsFromMenu,
   rendererDiagnosticsSlice: ({ sessionID, windowID, maxBytes }) =>

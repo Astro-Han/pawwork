@@ -72,6 +72,7 @@ import { createCurrentProjectMemo } from "./layout/layout-current-project"
 import { createNavigateProjectByOffset } from "./layout/layout-navigate-project"
 import { sessionNotificationHref, useSDKNotificationToasts } from "./layout/layout-sdk-event-effects"
 import { registerLayoutCommands } from "./layout/layout-commands"
+import { openDiagnosticsReview } from "@/components/diagnostics-review"
 import { LayoutShellFrame } from "./layout/layout-shell-frame"
 import { createPawworkSessionPrefetch } from "./layout/pawwork-session-prefetch"
 import { createPawworkSessionController } from "./layout/pawwork-session-controller"
@@ -1015,6 +1016,10 @@ export default function Layout(props: ParentProps) {
     systemActions: {
       connectProvider,
       switchServer: openServer,
+    },
+    diagnosticsActions: {
+      prepare: () => void openDiagnosticsReview({ platform, dialog, language }),
+      canPrepare: () => Boolean(platform.prepareReport),
     },
   })
 

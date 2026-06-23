@@ -16,6 +16,7 @@ export const dict = {
   "command.category.permissions": "Permissions",
   "command.category.workspace": "Workspace",
   "command.category.settings": "Settings",
+  "command.category.help": "Help",
 
   "theme.scheme.system": "System",
   "theme.scheme.light": "Light",
@@ -29,6 +30,7 @@ export const dict = {
   "command.server.switch": "Switch server",
   "command.settings.open": "Open settings",
   "command.settings.openGlobalConfigFolder": "Open global config folder",
+  "command.diagnostics.prepare": "Prepare diagnostics package",
   "toast.settings.openGlobalConfigFolderFailed.title": "Could not open global config folder",
   "command.session.previous": "Previous session",
   "command.session.next": "Next session",
@@ -528,29 +530,39 @@ export const dict = {
   "error.page.report.action": "Prepare diagnostics package",
   "error.page.report.preparing": "Preparing diagnostics package...",
   "error.page.report.githubFallback": "You can also report this on GitHub.",
-  "error.page.report.formFallbackAction": "Open the feedback form manually.",
-  "error.page.report.confirm.description": "PawWork will prepare one diagnostics package and open the feedback form.",
-  "error.page.report.confirm.privacy":
-    "The package can include conversation content, app logs, local paths, and environment details. It will not automatically upload your original project files.",
-  "error.page.report.confirm.details": "See what is included",
-  "error.page.report.confirm.item.error": "Error summary and full error details",
-  "error.page.report.confirm.item.app": "App version, system information, and environment details",
-  "error.page.report.confirm.item.logs": "Recent diagnostic logs",
-  "error.page.report.confirm.item.context": "Current page, workspace path, and session context",
-  "error.page.report.confirm.continue": "Prepare package and open form",
-  "error.page.report.success":
-    "The feedback form is open. A short summary was copied, and the diagnostics package was saved locally for manual upload.",
-  "error.page.report.summaryOnly": "The current error summary was copied. Paste it into the feedback form.",
-  "error.page.report.formFallback":
-    "The feedback form did not open automatically. Open the link manually, then paste the copied summary.",
-  "error.page.report.packageOnly":
-    "The diagnostics package was saved locally. This build does not have a feedback form configured, so attach the package when reporting this.",
   "error.page.report.failed":
     "PawWork could not prepare the diagnostics package. Use the technical details below when reporting this.",
   "error.page.report.copiedFallback":
     "PawWork could not prepare the diagnostics package. The current error details were copied instead.",
+  "error.page.report.summaryCopied":
+    "PawWork couldn't save the full diagnostics package, but a redacted summary was copied to your clipboard. Paste it when reporting on GitHub.",
   "error.page.report.unavailable":
     "Diagnostics packages are not available in this build. Use the GitHub link or the technical details below.",
+
+  "diagnostics.review.title.ready": "Review before sharing",
+  "diagnostics.review.title.saved": "Diagnostics package saved",
+  "diagnostics.review.contents.environment": "App version & environment",
+  "diagnostics.review.contents.logs": "Recent logs",
+  "diagnostics.review.contents.logs.value": "{{count}} lines",
+  "diagnostics.review.contents.session": "Conversation",
+  "diagnostics.review.contents.session.value": "{{count}} messages",
+  "diagnostics.review.contents.renderer": "Recent UI events",
+  "diagnostics.review.contents.renderer.value": "{{count}} events",
+  "diagnostics.review.contents.error": "Error details",
+  "diagnostics.review.contents.error.value": "Included",
+  "diagnostics.review.notice.upload":
+    "The package can include conversation content, local paths, and environment details. Your original project files are not uploaded automatically.",
+  "diagnostics.review.notice.share":
+    "Saved locally so you can attach it when reporting. It can include conversation content, local paths, and environment details.",
+  "diagnostics.review.action.reveal": "Show in folder",
+  "diagnostics.review.action.submit": "Continue",
+  "diagnostics.review.action.done": "Done",
+  "diagnostics.review.formFallback": "The feedback form didn't open. Copy the summary and open the form manually.",
+  "diagnostics.review.formFallback.copy": "Copy summary",
+  "diagnostics.review.formFallback.copied": "Copied",
+  "diagnostics.review.stale": "This package was replaced by a newer one. Close this and prepare it again.",
+  "diagnostics.review.actionFailed": "Something went wrong. Please try again.",
+  "diagnostics.review.prepareFailed": "Couldn't prepare the diagnostics package.",
   "error.page.version": "Version: {{version}}",
 
   "error.dev.rootNotFound":

@@ -1,4 +1,4 @@
-import type { RendererErrorDetails, ReportProblemResult } from "@/context/platform"
+import type { RendererErrorDetails } from "@/context/platform"
 import { ChildStoreError } from "@/context/global-sync/child-store-error"
 
 export type InitError = {
@@ -7,6 +7,22 @@ export type InitError = {
 }
 
 export type ErrorReportTranslator = (key: string, vars?: Record<string, string | number | boolean>) => string
+
+/**
+ * The error page's store patch after a *failed* diagnostics preparation. The package could
+ * not be saved, so the redacted summary is the user's degraded submit material — the caller
+ * copies it to the clipboard first (mirroring the menu's copy-fallback toast). `summaryCopied`
+ * says whether that write succeeded, which decides whether we point the user at the clipboard
+ * copy or fall back to the bare "couldn't prepare" error.
+ */
+export function diagnosticsFailureState(summaryCopied: boolean, t: ErrorReportTranslator) {
+  return {
+    review: undefined,
+    actionError: summaryCopied ? undefined : t("diagnostics.review.prepareFailed"),
+    actionMessage: summaryCopied ? t("error.page.report.summaryCopied") : undefined,
+  }
+}
+
 const CHAIN_SEPARATOR = "\n" + "─".repeat(40) + "\n"
 
 type ErrorLike = {
@@ -260,14 +276,4 @@ export function buildErrorReportDetails(error: unknown, t: ErrorReportTranslator
     summary,
     details: formatError(error, t),
   }
-}
-
-export function errorReportStatusMessage(result: ReportProblemResult, t: ErrorReportTranslator) {
-  if (result.status === "ready") return t("error.page.report.success")
-  if (result.status === "summary-only") return t("error.page.report.summaryOnly")
-  if (result.status === "form-fallback") return t("error.page.report.formFallback", { url: result.feedbackUrl })
-  if (result.status === "package-only") return t("error.page.report.packageOnly")
-  if (result.status === "cancelled") return undefined
-  if (result.status === "unavailable") return t("error.page.report.unavailable")
-  return t("error.page.report.failed")
 }

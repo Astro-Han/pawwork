@@ -12,9 +12,13 @@ describe("desktop startup IPC", () => {
     expect(source).toContain("consumeInitialDeepLinks")
   })
 
-  test("registers problem report channel for renderer error pages", () => {
-    expect(source).toContain('"report-problem"')
-    expect(source).toContain("reportProblem")
+  test("registers diagnostics package channels for the renderer review flow", () => {
+    expect(source).toContain('"prepare-report"')
+    expect(source).toContain('"reveal-report"')
+    expect(source).toContain('"submit-report"')
+    expect(source).toContain("prepareReport")
+    expect(source).toContain("revealReport")
+    expect(source).toContain("submitReport")
   })
 
   test("registers renderer diagnostics channels for sandboxed renderers", () => {
