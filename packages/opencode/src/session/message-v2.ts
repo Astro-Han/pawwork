@@ -19,7 +19,7 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import { Effect } from "effect"
 import { EffectLogger } from "@/effect"
 import { isMedia } from "@/util/media"
-import { classifyStreamFailure } from "./stream-failure-classifier"
+import { classifyStreamFailure, classifyBareTransportMessage, type TransportDisconnect } from "./stream-failure-classifier"
 import { LLMTrace } from "./llm-trace"
 import { RunObservability } from "./run-observability"
 import { RunLifecycle } from "./run-lifecycle"
@@ -1344,6 +1344,25 @@ export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: Ses
   return filterCompacted(stream(sessionID))
 })
 
+// Build the transport-disconnect APIError from a classified disconnect. Shared
+// by the errno-code path (high priority, ahead of stream parsing) and the
+// bare-message fallback (last resort, after stream parsing fails).
+function transportDisconnectError(e: unknown, transport: TransportDisconnect) {
+  const message = (e as Error).message || ""
+  return new APIError(
+    {
+      // Per-errno: most transport disconnects are retryable, but a permanent one
+      // (e.g. ENOTFOUND, an unresolved host) is not — classifyRetry reads this so
+      // it stops instead of retrying into a stall.
+      message: message || "Connection interrupted",
+      isRetryable: transport.retryable,
+      metadata: { code: transport.code, message },
+      providerFailure: { kind: "transport_disconnect", code: transport.code },
+    },
+    { cause: e },
+  ).toObject()
+}
+
 export function fromError(
   e: unknown,
   ctx: { providerID: ProviderID; aborted?: boolean },
@@ -1366,21 +1385,12 @@ export function fromError(
         },
         { cause: e },
       ).toObject()
-    case classifyStreamFailure(e) !== undefined: {
-      const transport = classifyStreamFailure(e)!
-      return new APIError(
-        {
-          message: (e as Error).message || "Connection interrupted",
-          isRetryable: true,
-          metadata: {
-            code: transport.code,
-            message: (e as Error).message || "",
-          },
-          providerFailure: { kind: "transport_disconnect", code: transport.code },
-        },
-        { cause: e },
-      ).toObject()
-    }
+    // Errno-coded transport disconnect (top-level or in the cause chain) is a
+    // definitive signal, so it runs ahead of stream parsing. The bare-message
+    // fallback does NOT run here — it is demoted below parseStreamError so a
+    // structured error carrying a transport phrase is not mis-grabbed.
+    case classifyStreamFailure(e) !== undefined:
+      return transportDisconnectError(e, classifyStreamFailure(e)!)
     case e instanceof Error && (e as FetchDecompressionError).code === "ZlibError":
       if (ctx.aborted) {
         return new AbortedError({ message: e.message }, { cause: e }).toObject()
@@ -1425,7 +1435,7 @@ export function fromError(
         },
         { cause: e },
       ).toObject()
-    default:
+    default: {
       // A provider error can arrive raw or wrapped in an Error (the stream
       // "error" part throws value.error; the iterator-throw mapper hands back a
       // value). Run the stream parser for both before falling back to Unknown so
@@ -1456,10 +1466,15 @@ export function fromError(
           ).toObject()
         }
       } catch {}
+      // Last resort: a bare connection-dropped message (no errno code, not a
+      // structured stream error) is still a retryable transport disconnect.
+      const bareTransport = classifyBareTransportMessage(e)
+      if (bareTransport) return transportDisconnectError(e, bareTransport)
       return new NamedError.Unknown(
         { message: e instanceof Error ? errorMessage(e) : JSON.stringify(e) },
         { cause: e },
       ).toObject()
+    }
   }
 }
 

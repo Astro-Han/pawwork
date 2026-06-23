@@ -2037,6 +2037,83 @@ describe("session.message-v2.fromError", () => {
     })
   })
 
+  test("classifies ENOTFOUND as a non-retryable transport disconnect", () => {
+    const error = Object.assign(new Error("getaddrinfo ENOTFOUND api.wrong-host.invalid"), {
+      code: "ENOTFOUND",
+      syscall: "getaddrinfo",
+    })
+
+    const result = MessageV2.fromError(error, { providerID })
+
+    expect(MessageV2.APIError.isInstance(result)).toBe(true)
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(false)
+    expect((result as MessageV2.APIError).data.providerFailure).toStrictEqual({
+      kind: "transport_disconnect",
+      code: "ENOTFOUND",
+    })
+  })
+
+  test("classifies EAI_AGAIN as a retryable transport disconnect", () => {
+    const error = Object.assign(new Error("getaddrinfo EAI_AGAIN api.example.com"), {
+      code: "EAI_AGAIN",
+      syscall: "getaddrinfo",
+    })
+
+    const result = MessageV2.fromError(error, { providerID })
+
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(true)
+    expect((result as MessageV2.APIError).data.providerFailure).toStrictEqual({
+      kind: "transport_disconnect",
+      code: "EAI_AGAIN",
+    })
+  })
+
+  test("a structured stream error in cause.body wins over a bare transport message", () => {
+    // Regression (review P2): the bare-message transport fallback runs only after
+    // structured stream parsing. An Error whose message is "socket hang up" but
+    // whose cause.body is a structured invalid_prompt must classify as
+    // invalid_request (non-retryable), not a retryable transport disconnect.
+    const error = Object.assign(new Error("socket hang up"), {
+      cause: { body: { type: "error", error: { code: "invalid_prompt", message: "bad prompt" } } },
+    })
+
+    const result = MessageV2.fromError(error, { providerID })
+
+    expect((result as MessageV2.APIError).data.providerFailure?.kind).toBe("invalid_request")
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(false)
+  })
+
+  test("a bare 'socket hang up' (no code, no structure) is still a retryable transport disconnect", () => {
+    const result = MessageV2.fromError(new Error("socket hang up"), { providerID })
+
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(true)
+    expect((result as MessageV2.APIError).data.providerFailure).toStrictEqual({
+      kind: "transport_disconnect",
+      code: "SOCKET_HANG_UP",
+    })
+  })
+
+  test("does not let a transport phrase or transport cause on an APICallError hijack status classification", () => {
+    // A 400 invalid_request whose message echoes "socket hang up" AND whose cause
+    // carries a transport code must stay invalid_request, not be reclassified as
+    // a retryable transport disconnect (statusCode present = HTTP response).
+    const cause = Object.assign(new Error("socket hang up"), { code: "UND_ERR_SOCKET" })
+    const error = new APICallError({
+      message: "400 invalid request: socket hang up is not allowed",
+      url: "https://example.com",
+      requestBodyValues: {},
+      statusCode: 400,
+      responseHeaders: { "content-type": "application/json" },
+      responseBody: JSON.stringify({ error: { code: "invalid_prompt", message: "socket hang up is not allowed" } }),
+      isRetryable: false,
+      cause,
+    })
+
+    const result = MessageV2.fromError(error, { providerID })
+
+    expect((result as MessageV2.APIError).data.providerFailure?.kind).toBe("invalid_request")
+  })
+
   test("populates providerFailure for decompression failures", () => {
     const zlibError = Object.assign(
       new Error('ZlibError fetching "https://opencode.cloudflare.dev/anthropic/messages".'),

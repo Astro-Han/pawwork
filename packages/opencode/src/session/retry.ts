@@ -16,13 +16,10 @@ export type { RetryAction } from "./retry-classification"
 // always retry. classifyRetry reads these so the retry decision follows the
 // canonical classification instead of re-deriving it from the provider SDK's
 // isRetryable flag; `unknown` or absent kinds fall back to that legacy signal.
+// transport_disconnect is handled separately: it honors the per-errno
+// isRetryable the stream classifier set (most errnos transient, ENOTFOUND not).
 const RETRY_TERMINAL_KINDS = new Set<ProviderFailureKind>(["auth", "invalid_request", "quota_exhausted"])
-const RETRY_TRANSIENT_KINDS = new Set<ProviderFailureKind>([
-  "rate_limit",
-  "server_overload",
-  "transport_disconnect",
-  "decompression",
-])
+const RETRY_TRANSIENT_KINDS = new Set<ProviderFailureKind>(["rate_limit", "server_overload", "decompression"])
 
 export const RETRY_INITIAL_DELAY = 2000
 export const RETRY_BACKOFF_FACTOR = 2
@@ -85,16 +82,19 @@ export function classifyRetry(error: Err): RetryClassification | undefined {
     const status = error.data.statusCode
     const kind = error.data.providerFailure?.kind
     // Retry/stop gate. Prefer the canonical providerFailure.kind: terminal kinds
-    // never retry, transient kinds always do. When the kind is `unknown` or the
-    // row predates providerFailure, fall back to the legacy signal — isRetryable,
-    // or a 5xx the provider SDK didn't explicitly mark retryable. The two agree
-    // for every classified kind today.
+    // never retry, transient kinds always do. transport_disconnect honors the
+    // per-errno isRetryable the stream classifier set (most errnos transient,
+    // ENOTFOUND not). When the kind is `unknown` or the row predates
+    // providerFailure, fall back to the legacy signal — isRetryable, or a 5xx the
+    // provider SDK didn't explicitly mark retryable.
     const retryable =
       kind && RETRY_TERMINAL_KINDS.has(kind)
         ? false
-        : kind && RETRY_TRANSIENT_KINDS.has(kind)
-          ? true
-          : error.data.isRetryable || (status !== undefined && status >= 500)
+        : kind === "transport_disconnect"
+          ? error.data.isRetryable
+          : kind && RETRY_TRANSIENT_KINDS.has(kind)
+            ? true
+            : error.data.isRetryable || (status !== undefined && status >= 500)
     if (!retryable) return undefined
 
     // Strict 3-way AND: opencode provider + FreeUsageLimitError marker in body
