@@ -171,24 +171,32 @@ function message(providerID: ProviderID, e: APICallError) {
       return "Unknown error"
     }
 
+    // Surface the provider's nested reason from a structured body first — even
+    // when the SDK message is a custom string rather than the bare HTTP reason
+    // phrase. Otherwise a message like "API call failed" would early-return and
+    // suppress the real {error:{message}} reason (e.g. DeepSeek's "Insufficient
+    // Balance"). Many providers wrap it as {error:{message}} where body.error is
+    // an object, so checking body.error before body.error.message would
+    // short-circuit on the object and dump the raw body instead of the string.
+    if (e.responseBody) {
+      try {
+        const body = JSON.parse(e.responseBody)
+        const nested = typeof body?.error?.message === "string" ? body.error.message : undefined
+        const top = typeof body?.message === "string" ? body.message : undefined
+        const errString = typeof body?.error === "string" ? body.error : undefined
+        const errMsg = nested ?? top ?? errString
+        if (errMsg) {
+          // Avoid "msg: msg" duplication when the SDK message already carries it.
+          return msg.includes(errMsg) ? msg : `${msg}: ${errMsg}`
+        }
+      } catch {}
+    }
+
+    // No structured reason to surface. A non-reason-phrase SDK message stands on
+    // its own; a bare reason phrase with a body falls through to HTML/raw below.
     if (!e.responseBody || (e.statusCode && msg !== STATUS_CODES[e.statusCode])) {
       return msg
     }
-
-    try {
-      const body = JSON.parse(e.responseBody)
-      // Prefer the nested provider message first: many providers wrap it as
-      // {error:{message}} where body.error is an object, so checking body.error
-      // before body.error.message would short-circuit on the object and dump the
-      // raw body instead of the human-readable string.
-      const nested = typeof body?.error?.message === "string" ? body.error.message : undefined
-      const top = typeof body?.message === "string" ? body.message : undefined
-      const errString = typeof body?.error === "string" ? body.error : undefined
-      const errMsg = nested ?? top ?? errString
-      if (errMsg) {
-        return `${msg}: ${errMsg}`
-      }
-    } catch {}
 
     // If responseBody is HTML (e.g. from a gateway or proxy error page),
     // provide a human-readable message instead of dumping raw markup

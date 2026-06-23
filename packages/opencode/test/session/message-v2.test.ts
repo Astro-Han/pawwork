@@ -2113,6 +2113,22 @@ describe("session.message-v2.fromError — PR1 classification completeness", () 
     expect(data.message).not.toContain("invalid_request_error")
   })
 
+  test("surfaces the nested balance reason even when the SDK message is not the HTTP reason phrase", () => {
+    // Regression guard: message() used to early-return whenever the SDK message
+    // differed from the bare status phrase, which dropped the nested
+    // {error:{message}} reason for any provider/SDK that sets a custom message
+    // (e.g. "API call failed"). The real reason must still reach the user.
+    const result = MessageV2.fromError(
+      makeApiError({ message: "API call failed", statusCode: 402, responseBody: deepseekBalanceBody }),
+      { providerID },
+    )
+
+    expect(MessageV2.APIError.isInstance(result)).toBe(true)
+    const data = (result as MessageV2.APIError).data
+    expect(data.message).toContain("Insufficient Balance")
+    expect(data.providerFailure?.kind).toBe("quota_exhausted")
+  })
+
   test("classifies a DeepSeek balance error as quota_exhausted even when it arrives as 400", () => {
     // Some providers return billing failures under a generic 400. The strong
     // billing pattern must override apiCallErrorKind's invalid_request verdict.
