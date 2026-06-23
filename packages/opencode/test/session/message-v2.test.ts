@@ -2141,6 +2141,44 @@ describe("session.message-v2.fromError — PR1 classification completeness", () 
     expect((result as MessageV2.APIError).data.providerFailure?.kind).toBe("rate_limit")
   })
 
+  test("does not let a rate-limit signal on a billing-shaped status become terminal quota_exhausted", () => {
+    // The weak billing patterns ("quota exceeded") fire only on a 400/402/403
+    // with no rate-limit signal. A Retry-After header means the provider is
+    // asking us to back off, not that the account is out of money — so the
+    // incidental "quota" wording must not flip the rejection into terminal
+    // quota_exhausted (which would wrongly prompt a top-up). It stays the base
+    // status kind.
+    const result = MessageV2.fromError(
+      makeApiError({
+        message: "Bad Request",
+        statusCode: 400,
+        responseBody: JSON.stringify({ error: { message: "Quota exceeded for this request window." } }),
+        responseHeaders: { "content-type": "application/json", "retry-after": "30" },
+      }),
+      { providerID },
+    )
+
+    expect((result as MessageV2.APIError).data.providerFailure?.kind).toBe("invalid_request")
+  })
+
+  test("does not let weak billing wording override a 5xx server error", () => {
+    // WEAK_BILLING_STATUS is {400,402,403}; a 5xx stays server_overload (and
+    // retryable). Incidental "quota exceeded" wording in a transient 503 must
+    // not be read as a terminal billing failure, which would stop retries on a
+    // recoverable error.
+    const result = MessageV2.fromError(
+      makeApiError({
+        message: "Service Unavailable",
+        statusCode: 503,
+        responseBody: JSON.stringify({ error: { message: "Service temporarily unavailable; quota exceeded." } }),
+        isRetryable: true,
+      }),
+      { providerID },
+    )
+
+    expect((result as MessageV2.APIError).data.providerFailure?.kind).toBe("server_overload")
+  })
+
   test("classifies stream authentication errors as auth (non-retryable)", () => {
     const body = { code: "authentication_error", message: "Invalid API key provided." }
     const result = MessageV2.fromError(body, { providerID })
