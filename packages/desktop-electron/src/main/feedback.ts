@@ -27,7 +27,7 @@ type SavedReport = {
 type SaveReportInput = {
   reportId: string
   generatedAt: string
-  markdown: string
+  json: string
 }
 
 type FeedbackContextOverride = {
@@ -216,7 +216,7 @@ export function createFeedbackHandler(deps: FeedbackDeps): FeedbackHandler {
           { diagnostics, logTail, sessionExport, rendererDiagnostics, rendererError: input.rendererError },
           { reportId: id, generatedAt, maxBytes: DEFAULT_PROBLEM_REPORT_MAX_BYTES, redactTerms },
         )
-        savedReport = await deps.saveReport({ reportId: id, generatedAt, markdown: report.markdown })
+        savedReport = await deps.saveReport({ reportId: id, generatedAt, json: report.json })
       } catch (error) {
         fullReportFailure = safeFailureReason(error)
       }

@@ -1,7 +1,7 @@
 import { link, lstat, mkdir, readdir, rm, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
 
-const REPORT_FILE_PATTERN = /^pawwork-problem-report-\d{8}-\d{6}-\d{3}-[a-zA-Z0-9_]+\.md$/
+const REPORT_FILE_PATTERN = /^pawwork-problem-report-\d{8}-\d{6}-\d{3}-[a-zA-Z0-9_]+\.json$/
 const REPORT_ID_PATTERN = /^[a-zA-Z0-9_]+$/
 
 function isCanonicalIsoTimestamp(value: string) {
@@ -24,7 +24,7 @@ export function problemReportFileName(input: { reportId: string; generatedAt: st
     "-",
     String(date.getMilliseconds()).padStart(3, "0"),
   ].join("")
-  return `pawwork-problem-report-${stamp}-${input.reportId}.md`
+  return `pawwork-problem-report-${stamp}-${input.reportId}.json`
 }
 
 export function problemReportsRoot(userDataPath: string) {
@@ -40,7 +40,7 @@ export async function writeProblemReportFile(input: {
   root: string
   reportId: string
   generatedAt: string
-  markdown: string
+  json: string
   removeTemp?: (path: string) => Promise<void>
 }) {
   await mkdir(input.root, { recursive: true })
@@ -49,7 +49,7 @@ export async function writeProblemReportFile(input: {
   const tempPath = join(input.root, `.${fileName}.${process.pid}.${Date.now()}.tmp`)
   const removeTemp = input.removeTemp ?? ((path: string) => rm(path, { force: true }))
   try {
-    await writeFile(tempPath, input.markdown, { encoding: "utf8", flag: "wx", mode: 0o600 })
+    await writeFile(tempPath, input.json, { encoding: "utf8", flag: "wx", mode: 0o600 })
     try {
       await link(tempPath, path)
     } catch (error) {
