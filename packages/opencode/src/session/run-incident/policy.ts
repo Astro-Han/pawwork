@@ -41,10 +41,25 @@ export function recoveryFor(input: {
   if (input.cause.category === "provider_api_error" && input.retryable !== true) {
     // A terminal provider API rejection (auth / quota_exhausted / invalid_request,
     // or unknown retryability) cannot be fixed by retrying and is not a connection
-    // drop. Stop, and keep the reason out of the connection-lost set so the real
-    // provider message shows. Retryable provider API errors (rate_limit /
-    // server_overload) fall through to the auto-retry tree via retryableProviderFailure.
-    return { ...base, recommendation: "do_not_retry", confidence: "high", reason: "provider_api_error" }
+    // drop, so always stop (do_not_retry). Retryable provider API errors
+    // (rate_limit / server_overload) fall through to the auto-retry tree via
+    // retryableProviderFailure.
+    //
+    // With no side-effect risk we keep the reason out of the connection-lost set
+    // ("provider_api_error"), so the renderer shows the real provider message
+    // verbatim. But if a tool already ran, an unsafe side effect started, or
+    // side-effect facts are incomplete, we surface that side-effect reason instead
+    // (still do_not_retry): the renderer then keeps the "check external state"
+    // safety hint alongside the provider message, so a user who fixes their
+    // balance/auth and resends does not silently re-run a side-effecting operation.
+    const reason = terminalFacts.unsafe_side_effect_started
+      ? "unsafe_side_effect_started"
+      : terminalFacts.tool_execution_started
+        ? "tool_execution_started"
+        : !terminalFacts.side_effect_facts_complete
+          ? "side_effect_facts_incomplete"
+          : "provider_api_error"
+    return { ...base, recommendation: "do_not_retry", confidence: "high", reason }
   }
   if (
     canAutoRetryBeforeFirstProviderProgress({

@@ -213,6 +213,12 @@ function retryTimeoutPolicyFor(
   })
 }
 
+// Appended whenever a side effect may already have run, so the user verifies
+// external state before resending. Kept separate from the "Connection lost."
+// framing so a provider rejection (billing / auth) can reuse the bare hint
+// without being mislabelled as a dropped connection.
+const SIDE_EFFECT_SAFETY_HINT = "Please check whether the last operation completed before resending."
+
 function recoveryInterruptionMessage(recovery: NonNullable<RunObservability.Summary["incident"]>["recovery"] | undefined) {
   switch (recovery?.reason) {
     case "no_visible_output_or_tool_execution":
@@ -225,7 +231,7 @@ function recoveryInterruptionMessage(recovery: NonNullable<RunObservability.Summ
     case "tool_execution_started":
     case "unsafe_side_effect_started":
     case "side_effect_facts_incomplete":
-      return "Connection lost. Please check whether the last operation completed before resending."
+      return `Connection lost. ${SIDE_EFFECT_SAFETY_HINT}`
     case "local_lifecycle_close":
       return LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE
     case "user_cancel":
@@ -237,26 +243,42 @@ function recoveryInterruptionMessage(recovery: NonNullable<RunObservability.Summ
 
 // Chooses the interruption message for a halted attempt.
 //
-// A *terminal* provider API rejection (do-not-retry: a 402 "Insufficient
-// Balance", auth failure, invalid_request, …) carries its own actionable
-// message, so we return undefined and let it show through — overwriting it with
-// a generic recovery string was the bug where a billing failure surfaced as
-// "Connection lost". The policy marks only terminal rejections reason
-// "provider_api_error"; retryable provider errors never get that reason (see
-// run-incident/policy.ts), so they fall through to recoveryInterruptionMessage.
+// A provider API rejection (a 402 "Insufficient Balance", auth failure,
+// invalid_request, rate_limit, …) carries its own actionable message. How that
+// message is treated depends on the recovery reason the policy derived:
 //
-// That fall-through matters for safety: a retryable provider error (rate_limit /
-// server_overload) that exhausts its retries *after a tool ran or a side effect
-// started* gets a safety reason (tool_execution_started / unsafe_side_effect_started
-// / side_effect_facts_incomplete), whose recovery message warns the user to check
-// whether the last operation completed before resending. Suppressing it just
-// because rate_limit is a provider-API kind would swallow that warning and risk a
-// repeated side-effecting operation.
+//   - reason "provider_api_error" — a *terminal* rejection with no side-effect
+//     risk. Return undefined so halt() leaves the provider's own message intact;
+//     overwriting it with a generic recovery string was the bug where a billing
+//     failure surfaced as "Connection lost".
+//   - a side-effect safety reason (tool_execution_started / unsafe_side_effect_started
+//     / side_effect_facts_incomplete) — a tool already ran or a side effect may
+//     have started (be it a terminal rejection after a tool ran, or a retryable
+//     rate_limit / server_overload that exhausted its retries). Keep BOTH: the
+//     provider's real reason AND the safety hint, so a user who fixes the
+//     provider problem still checks external state before resending. The bare
+//     hint is used (not the "Connection lost." string) so the rejection is not
+//     mislabelled.
+//
+// Everything else (real transport drops, lifecycle close, user cancel) uses the
+// recovery message as-is.
 export function haltInterruptionMessage(
   providerApiRejection: boolean,
   recovery: NonNullable<RunObservability.Summary["incident"]>["recovery"] | undefined,
+  providerMessage?: string,
 ): string | undefined {
-  if (providerApiRejection && recovery?.reason === "provider_api_error") return undefined
+  if (providerApiRejection) {
+    const reason = recovery?.reason
+    if (reason === "provider_api_error") return undefined
+    if (
+      providerMessage &&
+      (reason === "tool_execution_started" ||
+        reason === "unsafe_side_effect_started" ||
+        reason === "side_effect_facts_incomplete")
+    ) {
+      return `${providerMessage} ${SIDE_EFFECT_SAFETY_HINT}`
+    }
+  }
   return recoveryInterruptionMessage(recovery)
 }
 
@@ -2041,15 +2063,21 @@ export const layer: Layer.Layer<
               break
             }
 
-            // Pick the halt message: a terminal provider API rejection keeps its
-            // own actionable text; everything else (including retryable provider
-            // errors after a side effect) keeps the recovery safety hint. See
-            // haltInterruptionMessage. Lifecycle-close and user-cancel halts above
-            // keep their own authoritative interruption messages.
+            // Pick the halt message (see haltInterruptionMessage): a terminal
+            // provider API rejection with no side-effect risk keeps its own
+            // actionable text; a provider rejection after a side effect keeps both
+            // that text and the safety hint; transport drops keep the recovery
+            // string. Lifecycle-close and user-cancel halts above keep their own
+            // authoritative interruption messages.
             const providerApiRejection = !!retrySignal.providerFailure && isProviderApiError(retrySignal.providerFailure)
+            const parsedForMessage = providerApiRejection ? parse(result.error) : undefined
+            const providerMessage =
+              parsedForMessage && isRecord(parsedForMessage.data) && typeof parsedForMessage.data.message === "string"
+                ? parsedForMessage.data.message
+                : undefined
             yield* halt(result.error, attemptID, {
               recordFailure: false,
-              interruptionMessage: haltInterruptionMessage(providerApiRejection, decision),
+              interruptionMessage: haltInterruptionMessage(providerApiRejection, decision, providerMessage),
             })
             break
           }

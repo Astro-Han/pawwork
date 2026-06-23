@@ -1828,6 +1828,56 @@ describe("RunObservability", () => {
     })
   })
 
+  describe("recoveryFor — terminal provider API rejection", () => {
+    const terminalProviderCause = {
+      category: "provider_api_error",
+      subcategory: "quota_exhausted",
+      confidence: "high",
+    } satisfies RunIncident.TerminalCause
+
+    // retryable=false → a terminal (do-not-retry) provider rejection, e.g. a 402
+    // "Insufficient Balance". It always stops; the reason reflects side-effect risk.
+    function terminalProviderRecovery(overrides: Partial<RunIncident.Facts>) {
+      return RunIncident.recoveryFor({ cause: terminalProviderCause, facts: beforeProgressFacts(overrides), retryable: false })
+    }
+
+    test("with no side-effect risk it stays a pure provider passthrough", () => {
+      // No tool ran, no unsafe side effect, side-effect facts complete: keep
+      // reason "provider_api_error" so the renderer shows the real provider text.
+      expect(
+        terminalProviderRecovery({
+          tool_execution_started: false,
+          unsafe_side_effect_started: false,
+          side_effect_facts_complete: true,
+        }),
+      ).toMatchObject({ recommendation: "do_not_retry", reason: "provider_api_error" })
+    })
+
+    test("after a tool ran it surfaces the tool_execution_started safety reason (still do_not_retry)", () => {
+      expect(terminalProviderRecovery({ tool_execution_started: true, side_effect_facts_complete: true })).toMatchObject({
+        recommendation: "do_not_retry",
+        reason: "tool_execution_started",
+      })
+    })
+
+    test("after an unsafe side effect it surfaces the unsafe_side_effect_started safety reason (precedence over tool)", () => {
+      expect(
+        terminalProviderRecovery({
+          unsafe_side_effect_started: true,
+          tool_execution_started: true,
+          side_effect_facts_complete: true,
+        }),
+      ).toMatchObject({ recommendation: "do_not_retry", reason: "unsafe_side_effect_started" })
+    })
+
+    test("with incomplete side-effect facts it surfaces the side_effect_facts_incomplete safety reason", () => {
+      expect(terminalProviderRecovery({ side_effect_facts_complete: false })).toMatchObject({
+        recommendation: "do_not_retry",
+        reason: "side_effect_facts_incomplete",
+      })
+    })
+  })
+
   test("transport failure after tool input end is not classified as text generation", () => {
     const recorder = RunObservability.createRecorder({
       runID: RunObservability.RunID.make("run_after_tool_input_end"),
