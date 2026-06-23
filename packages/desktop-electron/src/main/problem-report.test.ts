@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test"
-import { buildProblemReport, buildProblemReportSummary, parseProblemReportPayload } from "./problem-report"
+import {
+  buildProblemReport,
+  buildProblemReportSummary,
+  capLogTailBytes,
+  capMessageParts,
+  capSessionMessagesBytes,
+  headBytes,
+  parseProblemReportPayload,
+} from "./problem-report"
 
 const base = {
   diagnostics: {
@@ -684,104 +692,111 @@ describe("problem report", () => {
   })
 })
 
-describe("component budgets", () => {
-  test("caps the log tail to its component budget even under a large overall limit", () => {
+// The size caps live in pure, exported helpers so their small-budget edge cases can be exercised
+// directly with tiny inputs, instead of forcing a production `budgets` override that only tests used.
+describe("component budgets — pure helpers", () => {
+  test("capLogTailBytes keeps the most recent lines and drops the oldest", () => {
     const lines = ["OLDEST_LINE", ...Array.from({ length: 500 }, (_, i) => `log line ${i}`), "NEWEST_LINE"]
-    const report = buildProblemReport(
-      { ...base, logTail: lines.join("\n") },
-      { budgets: { logTailBytes: 200 } },
-    )
+    const result = capLogTailBytes(lines.join("\n"), 200)
+    expect(Buffer.byteLength(result.value, "utf8")).toBeLessThanOrEqual(200)
+    expect(result.omittedBytes).toBeGreaterThan(0)
+    expect(result.value).toContain("NEWEST_LINE")
+    expect(result.value).not.toContain("OLDEST_LINE")
+  })
 
-    const payload = parseProblemReportPayload(report.markdown)
-    expect(Buffer.byteLength(payload.logTail, "utf8")).toBeLessThanOrEqual(200)
+  test("capLogTailBytes keeps the recent tail of an oversized single line that ends in a newline", () => {
+    // A trailing newline leaves an empty last "line"; the byte-accurate fallback must still keep bytes.
+    const result = capLogTailBytes(`${"X".repeat(2_000)}\n`, 1_000)
+    expect(result.value.length).toBeGreaterThan(0)
+    expect(Buffer.byteLength(result.value, "utf8")).toBeLessThanOrEqual(1_000)
+    expect(result.omittedBytes).toBeGreaterThan(0)
+  })
+
+  test("capLogTailBytes byte-bounds a single oversized line without splitting a multibyte char", () => {
+    const result = capLogTailBytes("é".repeat(5_000), 999)
+    expect(Buffer.byteLength(result.value, "utf8")).toBeLessThanOrEqual(999)
+    expect(result.value).not.toContain("�")
+    expect(result.omittedBytes).toBeGreaterThan(0)
+  })
+
+  test("headBytes keeps the head within the byte budget without splitting a multibyte char", () => {
+    const head = headBytes("é".repeat(5_000), 999)
+    expect(Buffer.byteLength(head, "utf8")).toBeLessThanOrEqual(999)
+    expect(head).not.toContain("�")
+    expect(head.startsWith("é")).toBe(true)
+  })
+
+  test("capMessageParts keeps the LATEST parts of an oversized message, trimming the oldest", () => {
+    const parts = Array.from({ length: 200 }, (_, i) => ({ id: `p_${i}`, type: "text", text: `part ${i} ${"x".repeat(500)}` }))
+    const message = { info: { id: "msg_big", role: "assistant" }, parts }
+    const result = capMessageParts(message, 4_000)
+    expect(Buffer.byteLength(JSON.stringify(result.value), "utf8")).toBeLessThanOrEqual(4_000)
+    expect(result.omittedBytes).toBeGreaterThan(0)
+    expect((result.value as { omittedParts?: number }).omittedParts).toBeGreaterThan(0)
+    // Keeps the end of the turn (the tool output / error nearest the failure), trimming the start.
+    expect(JSON.stringify(result.value)).toContain("part 199 ")
+    expect(JSON.stringify(result.value)).not.toContain("part 0 ")
+  })
+
+  test("capMessageParts reduces a message whose info alone overflows to an identity stub", () => {
+    const message = { info: { id: "msg_big", role: "user", time: { created: 1, blob: "z".repeat(40_000) } }, parts: [] }
+    const result = capMessageParts(message, 2_000)
+    expect(Buffer.byteLength(JSON.stringify(result.value), "utf8")).toBeLessThanOrEqual(2_000)
+    // The oversized info was reduced to a stub rather than smuggled past the budget.
+    expect(JSON.stringify(result.value)).not.toContain("z".repeat(100))
+    expect((result.value as { oversized?: boolean }).oversized).toBe(true)
+  })
+
+  test("capSessionMessagesBytes drops the oldest messages, keeping the most recent", () => {
+    const messages = Array.from({ length: 30 }, (_, i) => ({
+      info: { id: `msg_${i}`, role: "user", time: { created: i } },
+      parts: [{ type: "text", text: `${i === 0 ? "OLDESTMSG " : i === 29 ? "NEWESTMSG " : ""}body ${"x".repeat(200)}` }],
+    }))
+    const result = capSessionMessagesBytes(messages, 1_500)
+    expect(result.omittedMessages).toBeGreaterThan(0)
+    expect(Buffer.byteLength(JSON.stringify(result.messages), "utf8")).toBeLessThanOrEqual(1_500)
+    expect(JSON.stringify(result.messages)).toContain("NEWESTMSG")
+    expect(JSON.stringify(result.messages)).not.toContain("OLDESTMSG")
+  })
+
+  test("capSessionMessagesBytes is a hard cap: drops even the newest message that does not fit", () => {
+    const messages = Array.from({ length: 5 }, (_, i) => ({
+      info: { id: `msg_${i}`, role: "user", time: { created: i } },
+      parts: [{ type: "text", text: `body ${i}` }],
+    }))
+    const result = capSessionMessagesBytes(messages, 10)
+    expect(Buffer.byteLength(JSON.stringify(result.messages), "utf8")).toBeLessThanOrEqual(10)
+    expect(result.omittedMessages).toBe(5)
+  })
+})
+
+// A few end-to-end checks that the helpers above are actually wired into buildProblemReport with the
+// real default budgets (1 MB log / 1 MB session / 256 KB per message / 64 KB per renderer-error field).
+describe("component budgets — wired into buildProblemReport", () => {
+  test("caps the log tail to the default budget, keeping the most recent lines", () => {
+    const lines = ["OLDEST_LINE", ...Array.from({ length: 150_000 }, () => "log line"), "NEWEST_LINE"]
+    const payload = parseProblemReportPayload(buildProblemReport({ ...base, logTail: lines.join("\n") }).markdown)
+    expect(Buffer.byteLength(payload.logTail, "utf8")).toBeLessThanOrEqual(1024 * 1024)
     expect(payload.truncation.omittedLogBytes).toBeGreaterThan(0)
-    // Keeps the most recent lines, drops the oldest.
     expect(payload.logTail).toContain("NEWEST_LINE")
     expect(payload.logTail).not.toContain("OLDEST_LINE")
   })
 
-  test("drops oldest session messages to honor the session budget under a large overall limit", () => {
-    const messages = Array.from({ length: 30 }, (_, i) => ({
-      info: { id: `msg_${i}`, sessionID: "ses_1", role: "user", time: { created: i } },
-      parts: [
-        {
-          id: `p_${i}`,
-          sessionID: "ses_1",
-          messageID: `msg_${i}`,
-          type: "text",
-          text: `${i === 0 ? "OLDESTMSG " : i === 29 ? "NEWESTMSG " : ""}body ${"x".repeat(200)}`,
-        },
-      ],
-    }))
-    const report = buildProblemReport(
-      { ...base, sessionExport: { status: "ok", info: { id: "ses_1", title: "t" }, messages } },
-      { budgets: { sessionMessagesBytes: 1_500 } },
-    )
-
-    const payload = parseProblemReportPayload(report.markdown)
-    expect(payload.truncation.omittedMessages).toBeGreaterThan(0)
-    const kept = payload.sessionExport.status === "ok" ? JSON.stringify(payload.sessionExport.messages) : ""
-    expect(kept).toContain("NEWESTMSG")
-    expect(kept).not.toContain("OLDESTMSG")
-  })
-
-  test("trims parts of a single oversized message so one turn can't blow the session budget", () => {
-    const parts = Array.from({ length: 200 }, (_, i) => ({
-      id: `p_${i}`,
-      sessionID: "ses_1",
-      messageID: "msg_big",
-      type: "text",
-      text: `part ${i} ${"x".repeat(500)}`,
-    }))
+  test("part-trims a single oversized message to the per-message budget, keeping its latest parts", () => {
+    const parts = Array.from({ length: 200 }, (_, i) => ({ id: `p_${i}`, type: "text", text: `part ${i} ${"x".repeat(2_000)}` }))
     const messages = [{ info: { id: "msg_big", sessionID: "ses_1", role: "assistant", time: { created: 1 } }, parts }]
-    const report = buildProblemReport(
-      { ...base, sessionExport: { status: "ok", info: { id: "ses_1", title: "t" }, messages } },
-      { budgets: { sessionMessageBytes: 4_000 } },
+    const payload = parseProblemReportPayload(
+      buildProblemReport({ ...base, sessionExport: { status: "ok", info: { id: "ses_1", title: "t" }, messages } }).markdown,
     )
-
-    const payload = parseProblemReportPayload(report.markdown)
     const kept = payload.sessionExport.status === "ok" ? payload.sessionExport.messages : []
     expect(kept.length).toBe(1)
     const message = kept[0] as { omittedParts?: number }
     expect(message.omittedParts).toBeGreaterThan(0)
-    expect(Buffer.byteLength(JSON.stringify(message), "utf8")).toBeLessThanOrEqual(4_000)
-    // Keeps the earliest parts (the start of the turn).
-    expect(JSON.stringify(message)).toContain("part 0 ")
-    // The in-message trim is also reflected in the top-level ledger.
+    expect(Buffer.byteLength(JSON.stringify(message), "utf8")).toBeLessThanOrEqual(256 * 1024)
+    // The latest parts (nearest the failure) survive; the start of the turn is trimmed.
+    expect(JSON.stringify(message)).toContain("part 199 ")
+    expect(JSON.stringify(message)).not.toContain("part 0 ")
     expect(payload.truncation.omittedMessagePartsBytes).toBeGreaterThan(0)
-  })
-
-  test("keeps the recent tail of an oversized log line that ends in a newline", () => {
-    const report = buildProblemReport(
-      { ...base, logTail: `${"X".repeat(2_000)}\n` },
-      { budgets: { logTailBytes: 1_000 } },
-    )
-
-    const payload = parseProblemReportPayload(report.markdown)
-    // A trailing newline must not collapse the result to an empty string; the recent bytes survive.
-    expect(payload.logTail.length).toBeGreaterThan(0)
-    expect(Buffer.byteLength(payload.logTail, "utf8")).toBeLessThanOrEqual(1_000)
-    expect(payload.truncation.omittedLogBytes).toBeGreaterThan(0)
-  })
-
-  test("bounds a single message with no parts but oversized info (true session cap)", () => {
-    const messages = [
-      {
-        info: { id: "msg_big", sessionID: "ses_1", role: "user", time: { created: 1, blob: "z".repeat(40_000) } },
-        parts: [],
-      },
-    ]
-    const report = buildProblemReport(
-      { ...base, sessionExport: { status: "ok", info: { id: "ses_1", title: "t" }, messages } },
-      { budgets: { sessionMessageBytes: 2_000, sessionMessagesBytes: 2_000 } },
-    )
-
-    const payload = parseProblemReportPayload(report.markdown)
-    const kept = payload.sessionExport.status === "ok" ? payload.sessionExport.messages : []
-    expect(Buffer.byteLength(JSON.stringify(kept), "utf8")).toBeLessThanOrEqual(2_000)
-    // The oversized info was reduced to a stub rather than smuggled past the budget.
-    expect(JSON.stringify(kept)).not.toContain("z".repeat(100))
-    expect((kept[0] as { oversized?: boolean }).oversized).toBe(true)
   })
 
   test("byte-caps the stub identity so an oversized id can't escape under default budgets", () => {
@@ -800,77 +815,20 @@ describe("component budgets", () => {
     expect((kept[0] as { oversized?: boolean }).oversized).toBe(true)
   })
 
-  test("byte-bounds a single oversized log line without splitting a multibyte char", () => {
-    const report = buildProblemReport(
-      { ...base, logTail: "é".repeat(5_000) },
-      { budgets: { logTailBytes: 999 } },
-    )
+  test("caps both the renderer error summary and details to the default budget", () => {
+    // summary derives from error.message, which an API error can balloon, so both fields are budgeted.
+    const report = buildProblemReport({
+      ...base,
+      rendererError: { summary: `boom ${"S".repeat(100_000)}`, details: "stack frame\n".repeat(20_000) },
+    })
 
     const payload = parseProblemReportPayload(report.markdown)
-    expect(Buffer.byteLength(payload.logTail, "utf8")).toBeLessThanOrEqual(999)
-    expect(payload.logTail).not.toContain("�")
-    expect(payload.truncation.omittedLogBytes).toBeGreaterThan(0)
-  })
-
-  test("caps renderer error details to its component budget under a large overall limit", () => {
-    const details = "stack frame\n".repeat(10_000)
-    const report = buildProblemReport(
-      { ...base, rendererError: { summary: "boom", details } },
-      { budgets: { rendererErrorDetailsBytes: 1_024 } },
-    )
-
-    const payload = parseProblemReportPayload(report.markdown)
-    expect(payload.rendererError?.summary).toBe("boom")
-    expect(Buffer.byteLength(payload.rendererError?.details ?? "", "utf8")).toBeLessThanOrEqual(1_024)
-    expect(payload.truncation.omittedRendererErrorBytes).toBeGreaterThan(0)
-    // Keeps the head (error message + top of the stack), the useful part of an error.
-    expect(payload.rendererError?.details.startsWith("stack frame")).toBe(true)
-  })
-
-  test("caps an oversized renderer error summary, not just details", () => {
-    // summary derives from error.message, which an API error can balloon; it must be budgeted too.
-    const summary = `boom ${"S".repeat(50_000)}`
-    const report = buildProblemReport(
-      { ...base, rendererError: { summary, details: "short" } },
-      { budgets: { rendererErrorDetailsBytes: 1_024 } },
-    )
-
-    const payload = parseProblemReportPayload(report.markdown)
-    expect(Buffer.byteLength(payload.rendererError?.summary ?? "", "utf8")).toBeLessThanOrEqual(1_024)
+    expect(Buffer.byteLength(payload.rendererError?.summary ?? "", "utf8")).toBeLessThanOrEqual(64 * 1024)
+    expect(Buffer.byteLength(payload.rendererError?.details ?? "", "utf8")).toBeLessThanOrEqual(64 * 1024)
+    // Both keep the head (the error message + top of the stack), the useful part of an error.
     expect(payload.rendererError?.summary.startsWith("boom ")).toBe(true)
+    expect(payload.rendererError?.details.startsWith("stack frame")).toBe(true)
     expect(payload.truncation.omittedRendererErrorBytes).toBeGreaterThan(0)
-  })
-
-  test("ignores a non-finite budget override instead of disabling the cap", () => {
-    const lines = ["OLDEST_LINE", ...Array.from({ length: 500 }, (_, i) => `log line ${i}`), "NEWEST_LINE"]
-    const report = buildProblemReport(
-      { ...base, logTail: lines.join("\n") },
-      { budgets: { logTailBytes: Number.NaN } },
-    )
-
-    const payload = parseProblemReportPayload(report.markdown)
-    // NaN falls back to the 1 MB default, which leaves this small log untouched (no silent disable).
-    expect(payload.logTail).toContain("OLDEST_LINE")
-    expect(payload.logTail).toContain("NEWEST_LINE")
-    expect(payload.truncation.omittedLogBytes).toBe(0)
-  })
-
-  test("honors the session budget as a hard cap even when the newest message does not fit", () => {
-    const messages = Array.from({ length: 5 }, (_, i) => ({
-      info: { id: `msg_${i}`, sessionID: "ses_1", role: "user", time: { created: i } },
-      parts: [{ id: `p_${i}`, sessionID: "ses_1", messageID: `msg_${i}`, type: "text", text: `body ${i}` }],
-    }))
-    const report = buildProblemReport(
-      { ...base, sessionExport: { status: "ok", info: { id: "ses_1", title: "t" }, messages } },
-      // A near-zero session budget that even a single identity stub overflows.
-      { budgets: { sessionMessagesBytes: 10 } },
-    )
-
-    const payload = parseProblemReportPayload(report.markdown)
-    const kept = payload.sessionExport.status === "ok" ? payload.sessionExport.messages : []
-    // Hard cap: the message array fits the budget, dropping the newest rather than overflowing.
-    expect(Buffer.byteLength(JSON.stringify(kept), "utf8")).toBeLessThanOrEqual(10)
-    expect(payload.truncation.omittedMessages).toBe(5)
   })
 
   test("does not count part-trim bytes for a message the overall ladder later drops whole", () => {
@@ -879,7 +837,7 @@ describe("component budgets", () => {
       sessionID: "ses_1",
       messageID: "msg_old",
       type: "text",
-      text: `part ${i} ${"x".repeat(1000)}`,
+      text: `part ${i} ${"x".repeat(2_000)}`,
     }))
     const messages = [
       { info: { id: "msg_old", sessionID: "ses_1", role: "assistant", time: { created: 1 } }, parts: bigParts },
@@ -887,9 +845,9 @@ describe("component budgets", () => {
     ]
     const report = buildProblemReport(
       { ...base, sessionExport: { status: "ok", info: { id: "ses_1", title: "t" }, messages } },
-      // The old message is part-trimmed (to 50 KB) but survives the session cap; a small overall maxBytes
-      // then drops it whole in the fallback ladder. Its trimmed bytes must not stay in the ledger.
-      { maxBytes: 10_000, budgets: { sessionMessageBytes: 50_000, sessionMessagesBytes: 500_000 } },
+      // msg_old is part-trimmed to the 256 KB per-message default but survives the session cap; a small
+      // overall maxBytes then drops it whole in the fallback ladder. Its trimmed bytes must leave the ledger.
+      { maxBytes: 10_000 },
     )
 
     const payload = parseProblemReportPayload(report.markdown)

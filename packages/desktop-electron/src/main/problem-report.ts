@@ -19,7 +19,10 @@ export const DEFAULT_PROBLEM_REPORT_MAX_BYTES = 5 * 1024 * 1024
 // to well under DEFAULT_PROBLEM_REPORT_MAX_BYTES, leaving the overall maxBytes ladder below as a
 // final fallback rather than the primary bound. (Renderer diagnostics carry their own upstream byte
 // cap when the slice is built, so they are budgeted at the source, not here.)
-export const DEFAULT_COMPONENT_BUDGETS = {
+// Fixed, not configurable — there is no production caller that would tune these, so they are not a
+// public API surface. The capping logic is exercised in tests by calling the pure cap helpers
+// (capLogTailBytes / capMessageParts / capSessionMessagesBytes / headBytes) directly with small limits.
+const COMPONENT_BUDGETS = {
   logTailBytes: 1 * 1024 * 1024,
   sessionMessagesBytes: 1 * 1024 * 1024,
   // Per single message, so one long turn (many tool parts) can't consume the whole session budget.
@@ -27,24 +30,6 @@ export const DEFAULT_COMPONENT_BUDGETS = {
   // Per renderer-error text field. Bounds BOTH summary and details: summary derives from
   // error.message, which an API error can balloon, so capping only details would leave a hole.
   rendererErrorDetailsBytes: 64 * 1024,
-}
-export type ComponentBudgets = typeof DEFAULT_COMPONENT_BUDGETS
-
-// Apply overrides on top of the defaults, ignoring any non-finite or non-positive value. Budgets are
-// a hard floor; a bad override (NaN, undefined, 0) must fall back to the default, never silently
-// disable a cap — e.g. a NaN budget would make every size comparison false and keep everything. A tiny
-// but positive override is honored as far as the format allows: an empty message array is already 2
-// bytes of JSON framing and a retained message can be no smaller than its identity stub, so a budget
-// below those representational floors yields the minimal output, not a smaller one. No production
-// caller sets budgets (the defaults are sized for the report); overrides exist for tests.
-function resolveBudgets(overrides: Partial<ComponentBudgets> | undefined): ComponentBudgets {
-  const resolved = { ...DEFAULT_COMPONENT_BUDGETS }
-  if (!overrides) return resolved
-  for (const key of Object.keys(resolved) as (keyof ComponentBudgets)[]) {
-    const value = overrides[key]
-    if (typeof value === "number" && Number.isFinite(value) && value >= 1) resolved[key] = Math.floor(value)
-  }
-  return resolved
 }
 
 const SUMMARY_ERROR_LINE_MAX_CHARS = 220
@@ -94,8 +79,6 @@ type Options = {
   // Exact strings (OS username, home directory) the caller knows are sensitive at runtime but
   // no regex can infer. Redacted verbatim wherever they appear in the report.
   redactTerms?: string[]
-  // Override per-component byte budgets (mainly for tests). Missing keys fall back to defaults.
-  budgets?: Partial<ComponentBudgets>
 }
 
 type Payload = {
@@ -137,7 +120,7 @@ function jsonBytes(value: unknown) {
 }
 
 // Keep the leading maxBytes bytes of a string, backing off so a multibyte char is never split.
-function headBytes(value: string, maxBytes: number): string {
+export function headBytes(value: string, maxBytes: number): string {
   const buffer = Buffer.from(value, "utf8")
   if (buffer.length <= maxBytes) return value
   let end = maxBytes
@@ -158,7 +141,7 @@ function tailBytes(value: string, maxBytes: number): string {
 
 // Keep the most-recent bytes of a log, cutting whole lines off the front so the top is never a
 // fragment of an older line. Falls back to a hard byte cut only for a single oversized line.
-function capLogTailBytes(value: string, maxBytes: number): { value: string; omittedBytes: number } {
+export function capLogTailBytes(value: string, maxBytes: number): { value: string; omittedBytes: number } {
   const total = bytes(value)
   if (total <= maxBytes) return { value, omittedBytes: 0 }
   const lines = value.split("\n")
@@ -192,11 +175,12 @@ function messageIdentityStub(record: { [key: string]: JsonValue }, omittedParts:
   return { info: stub, parts: [], omittedParts, oversized: true }
 }
 
-// Trim a single message's trailing parts so its JSON fits the per-message budget, leaving an
-// omittedParts marker. Keeps the message info and the earliest parts (the start of the turn). This
-// bounds any one message so the newest message — always kept by capSessionMessagesBytes below — can
-// never blow the session budget on its own.
-function capMessageParts(message: JsonValue, maxBytes: number): { value: JsonValue; omittedBytes: number } {
+// Trim a single message's leading parts so its JSON fits the per-message budget, leaving an
+// omittedParts marker. Keeps the message info and the LATEST parts (the end of the turn — the tool
+// output / error nearest the failure), matching the rest of the ladder, which drops oldest-first to
+// keep the most recent context. This bounds any one message so the newest message — always kept by
+// capSessionMessagesBytes below — can never blow the session budget on its own.
+export function capMessageParts(message: JsonValue, maxBytes: number): { value: JsonValue; omittedBytes: number } {
   if (!isRecord(message)) return { value: message, omittedBytes: 0 }
   const record = message as { [key: string]: JsonValue }
   const original = jsonBytes(message)
@@ -206,13 +190,13 @@ function capMessageParts(message: JsonValue, maxBytes: number): { value: JsonVal
   const done = (value: JsonValue) => ({ value, omittedBytes: Math.max(0, original - jsonBytes(value)) })
   // No parts to trim — only the info is left, and it already overflows: stub it.
   if (!Array.isArray(parts) || parts.length === 0) return done(messageIdentityStub(record, partCount))
-  // Binary-search the largest leading run of parts that fits, so this stays O(log n) JSON renders.
+  // Binary-search the largest trailing run of parts that fits, so this stays O(log n) JSON renders.
   let lo = 0
   let hi = parts.length
   let kept = 0
   while (lo <= hi) {
     const mid = Math.floor((lo + hi) / 2)
-    const candidate = { ...record, parts: parts.slice(0, mid), omittedParts: parts.length - mid }
+    const candidate = { ...record, parts: parts.slice(parts.length - mid), omittedParts: parts.length - mid }
     if (jsonBytes(candidate) <= maxBytes) {
       kept = mid
       lo = mid + 1
@@ -220,7 +204,7 @@ function capMessageParts(message: JsonValue, maxBytes: number): { value: JsonVal
       hi = mid - 1
     }
   }
-  const trimmed = { ...record, parts: parts.slice(0, kept), omittedParts: parts.length - kept }
+  const trimmed = { ...record, parts: parts.slice(parts.length - kept), omittedParts: parts.length - kept }
   // Even zero parts didn't fit: the info itself is oversized. Reduce to an identity stub.
   return done(jsonBytes(trimmed) <= maxBytes ? trimmed : messageIdentityStub(record, parts.length))
 }
@@ -229,9 +213,9 @@ function capMessageParts(message: JsonValue, maxBytes: number): { value: JsonVal
 // around the failure. This is a hard cap: a message that does not fit is dropped even if it is the
 // newest, so the kept set never exceeds maxBytes. capMessageParts has already bounded each message to
 // the per-message budget (a ≤256-byte identity stub at worst), so under any realistic budget the newest
-// message always fits and the latest turn survives; only a pathologically tiny override yields an empty
+// message always fits and the latest turn survives; only a pathologically tiny budget yields an empty
 // set — the correct outcome for a near-zero budget.
-function capSessionMessagesBytes(
+export function capSessionMessagesBytes(
   messages: JsonValue[],
   maxBytes: number,
 ): { messages: JsonValue[]; omittedMessages: number } {
@@ -428,7 +412,7 @@ export function buildProblemReport(input: Input, options: Options = {}) {
   // Renderer diagnostics aren't re-budgeted here: their events array is bounded where the slice is
   // built (capEvents, ~1 MB at the call site) — modulo a small fixed envelope — and the overall
   // ladder below trims renderer events as the final backstop.
-  const budgets = resolveBudgets(options.budgets)
+  const budgets = COMPONENT_BUDGETS
   const cappedLog = capLogTailBytes(logTail, budgets.logTailBytes)
   logTail = cappedLog.value
   omittedLogBytes += cappedLog.omittedBytes

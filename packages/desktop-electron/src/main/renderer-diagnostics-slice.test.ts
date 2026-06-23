@@ -78,10 +78,10 @@ describe("renderer diagnostics slices", () => {
     expect(JSON.stringify(slice)).not.toContain("x".repeat(1000))
   })
 
-  test("keeps a hours-old scoped incident with no implicit lower time bound", () => {
-    // Manual diagnostics triggers usually happen well after the incident. Scoped by session, there is
-    // no lower time bound: retention (events older than ~24h are already off disk) plus maxBytes bound
-    // the result, so a 7-hour-old incident — beyond any short lookback window — is still included.
+  test("bounds a scoped slice to the default lookback, and an explicit `from` widens it", () => {
+    // Manual diagnostics triggers usually happen shortly after the incident, so both scoped and unscoped
+    // slices use the same bounded ~30-min lookback for minimal collection: a 7-hour-old incident from the
+    // same session is NOT pulled in by default, but an explicit `from` opens a wider window when needed.
     const olderIncident = {
       time: "2026-05-02T10:00:00.000Z",
       level: "warn" as const,
@@ -91,16 +91,19 @@ describe("renderer diagnostics slices", () => {
       visible_session_id: "ses_target",
       data: { timeline_mount_count: 2, timeline_unmount_count: 1 },
     }
-
-    const slice = selectRendererDiagnosticsSlice([olderIncident], {
+    const input = {
       sessionID: "ses_target",
       windowID: "1",
       appLaunchID: "launch_1",
       maxBytes: 10_000,
-      now: new Date("2026-05-02T17:00:00.000Z"), // 7h after the event, beyond any short lookback window
-    })
+      now: new Date("2026-05-02T17:00:00.000Z"), // 7h after the event, beyond the default lookback window
+    }
 
-    expect(slice.events.map((event) => event["event.name"])).toContain("incident.session_timeline_remount")
+    const bounded = selectRendererDiagnosticsSlice([olderIncident], input)
+    expect(bounded.events).toHaveLength(0)
+
+    const widened = selectRendererDiagnosticsSlice([olderIncident], { ...input, from: new Date("2026-05-02T09:00:00.000Z") })
+    expect(widened.events.map((event) => event["event.name"])).toContain("incident.session_timeline_remount")
   })
 
   test("global export wraps diagnostics as JSON and caps old events", async () => {
