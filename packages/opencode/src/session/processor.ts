@@ -235,6 +235,31 @@ function recoveryInterruptionMessage(recovery: NonNullable<RunObservability.Summ
   }
 }
 
+// Chooses the interruption message for a halted attempt.
+//
+// A *terminal* provider API rejection (do-not-retry: a 402 "Insufficient
+// Balance", auth failure, invalid_request, …) carries its own actionable
+// message, so we return undefined and let it show through — overwriting it with
+// a generic recovery string was the bug where a billing failure surfaced as
+// "Connection lost". The policy marks only terminal rejections reason
+// "provider_api_error"; retryable provider errors never get that reason (see
+// run-incident/policy.ts), so they fall through to recoveryInterruptionMessage.
+//
+// That fall-through matters for safety: a retryable provider error (rate_limit /
+// server_overload) that exhausts its retries *after a tool ran or a side effect
+// started* gets a safety reason (tool_execution_started / unsafe_side_effect_started
+// / side_effect_facts_incomplete), whose recovery message warns the user to check
+// whether the last operation completed before resending. Suppressing it just
+// because rate_limit is a provider-API kind would swallow that warning and risk a
+// repeated side-effecting operation.
+export function haltInterruptionMessage(
+  providerApiRejection: boolean,
+  recovery: NonNullable<RunObservability.Summary["incident"]>["recovery"] | undefined,
+): string | undefined {
+  if (providerApiRejection && recovery?.reason === "provider_api_error") return undefined
+  return recoveryInterruptionMessage(recovery)
+}
+
 type PendingLoopAction = {
   loopAction: "block" | "stop"
   tool: string
@@ -2016,16 +2041,15 @@ export const layer: Layer.Layer<
               break
             }
 
-            // A real provider API rejection carries its own actionable message
-            // (e.g. a 402 "Insufficient Balance"). Do not overwrite it with a
-            // generic connection-lost recovery string — that was the bug where a
-            // billing failure surfaced as "Connection lost". This only suppresses
-            // the recovery message here; lifecycle-close and user-cancel halts
-            // above keep their authoritative interruption messages.
+            // Pick the halt message: a terminal provider API rejection keeps its
+            // own actionable text; everything else (including retryable provider
+            // errors after a side effect) keeps the recovery safety hint. See
+            // haltInterruptionMessage. Lifecycle-close and user-cancel halts above
+            // keep their own authoritative interruption messages.
             const providerApiRejection = !!retrySignal.providerFailure && isProviderApiError(retrySignal.providerFailure)
             yield* halt(result.error, attemptID, {
               recordFailure: false,
-              interruptionMessage: providerApiRejection ? undefined : recoveryInterruptionMessage(decision),
+              interruptionMessage: haltInterruptionMessage(providerApiRejection, decision),
             })
             break
           }
