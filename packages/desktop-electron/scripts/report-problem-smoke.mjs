@@ -165,14 +165,29 @@ try {
   // review-panel path renders and tears down. We click Cancel (a real review-panel button →
   // onDone → dialog.close) rather than reveal/submit, whose handlers would open a real Finder /
   // browser window on the prepared package; those stay covered by the stale calls above.
-  await app.evaluate(({ BrowserWindow }) => {
-    const [win] = BrowserWindow.getAllWindows()
-    if (!win) throw new Error("no browser window for the menu-command walk")
+  // Target the exact window Playwright observes — at startup a loading splash and the main
+  // window coexist, so BrowserWindow.getAllWindows()[0] can be the wrong renderer (its
+  // onMenuCommand handler would fire in a window the smoke never sees).
+  const mainWindow = await app.browserWindow(window)
+  await mainWindow.evaluate((win) => {
     win.webContents.send("menu-command", "diagnostics.prepare")
   })
 
   const reviewDialog = window.locator('[data-component="dialog"]')
-  await reviewDialog.waitFor({ state: "visible", timeout: 30_000 })
+  try {
+    await reviewDialog.waitFor({ state: "visible", timeout: 30_000 })
+  } catch (error) {
+    // The dialog never rendered — dump what is on screen so a failure is self-explaining
+    // (wrong window, an error toast instead of the dialog, or the shell not mounted).
+    const diag = await window.evaluate(() => ({
+      dialogs: document.querySelectorAll('[data-component="dialog"]').length,
+      toasts: Array.from(document.querySelectorAll('[data-component="toast"]'), (n) => n.textContent?.trim()),
+      shellMain: Boolean(document.querySelector('[data-component="desktop-shell-main"]')),
+      bodyText: document.body.innerText.slice(0, 400),
+    }))
+    console.error(`menu-walk diagnostics: ${JSON.stringify(diag, null, 2)}`)
+    throw error
+  }
   const reviewWalk = {
     title: (await reviewDialog.locator('[data-slot="dialog-title"]').innerText()).trim(),
     hasReveal: (await reviewDialog.getByRole("button", { name: "Show in folder" }).count()) > 0,
