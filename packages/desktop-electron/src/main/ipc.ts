@@ -9,7 +9,8 @@ import type {
   DesktopContext,
   InitStep,
   ReportProblemInput,
-  ReportProblemResult,
+  PrepareReportResult,
+  SubmitReportResult,
   ServerReadyData,
   SqliteMigrationProgress,
   UpdateInfo,
@@ -72,7 +73,9 @@ type Deps = {
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void> | void
   checkUpdate: () => Promise<UpdateInfo>
-  reportProblem: (input?: ReportProblemInput, context?: { windowID?: number }) => Promise<ReportProblemResult>
+  prepareReport: (input?: ReportProblemInput, context?: { windowID?: number }) => Promise<PrepareReportResult>
+  revealReport: (reportId: string) => Promise<void>
+  submitReport: (reportId: string) => Promise<SubmitReportResult>
   installUpdate: () => Promise<boolean> | boolean
   setBackgroundColor: (color: string) => void
   reportDeepLinkReady: (win: BrowserWindow | null) => void
@@ -160,10 +163,12 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.on("loading-window-complete", () => deps.loadingWindowComplete())
   ipcMain.handle("run-updater", (_event: IpcMainInvokeEvent, alertOnFail: boolean) => deps.runUpdater(alertOnFail))
   ipcMain.handle("check-update", () => deps.checkUpdate())
-  ipcMain.handle("report-problem", (event: IpcMainInvokeEvent, input?: ReportProblemInput) => {
+  ipcMain.handle("prepare-report", (event: IpcMainInvokeEvent, input?: ReportProblemInput) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    return deps.reportProblem(input, { windowID: win?.id })
+    return deps.prepareReport(input, { windowID: win?.id })
   })
+  ipcMain.handle("reveal-report", (_event: IpcMainInvokeEvent, reportId: string) => deps.revealReport(reportId))
+  ipcMain.handle("submit-report", (_event: IpcMainInvokeEvent, reportId: string) => deps.submitReport(reportId))
   ipcMain.handle("renderer-diagnostics:record", (event: IpcMainInvokeEvent, input: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return

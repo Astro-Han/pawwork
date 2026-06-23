@@ -1,4 +1,4 @@
-import type { RendererErrorDetails, ReportProblemResult } from "@/context/platform"
+import type { RendererErrorDetails } from "@/context/platform"
 import { ChildStoreError } from "@/context/global-sync/child-store-error"
 
 export type InitError = {
@@ -260,14 +260,4 @@ export function buildErrorReportDetails(error: unknown, t: ErrorReportTranslator
     summary,
     details: formatError(error, t),
   }
-}
-
-export function errorReportStatusMessage(result: ReportProblemResult, t: ErrorReportTranslator) {
-  if (result.status === "ready") return t("error.page.report.success")
-  if (result.status === "summary-only") return t("error.page.report.summaryOnly")
-  if (result.status === "form-fallback") return t("error.page.report.formFallback", { url: result.feedbackUrl })
-  if (result.status === "package-only") return t("error.page.report.packageOnly")
-  if (result.status === "cancelled") return undefined
-  if (result.status === "unavailable") return t("error.page.report.unavailable")
-  return t("error.page.report.failed")
 }

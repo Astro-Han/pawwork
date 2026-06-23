@@ -12,7 +12,9 @@ export type {
   RendererDiagnosticsExportResult,
   RendererErrorDetails,
   ReportProblemInput,
-  ReportProblemResult,
+  PrepareReportResult,
+  SubmitReportResult,
+  DiagnosticsReviewContents,
   UpdateInfo,
   WebSearchStatus,
 } from "./desktop-api-contract"

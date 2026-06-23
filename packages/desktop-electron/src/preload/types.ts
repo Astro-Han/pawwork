@@ -6,13 +6,21 @@ import type {
   RendererDiagnosticInput,
   RendererDiagnosticsExportResult,
   ReportProblemInput,
-  ReportProblemResult,
+  PrepareReportResult,
+  SubmitReportResult,
   UpdateInfo,
   WebSearchStatus,
 } from "@opencode-ai/app/desktop-api"
 
 export type { AboutInfo, DesktopContext, WebSearchStatus }
-export type { RendererDiagnosticInput, RendererDiagnosticsExportResult, ReportProblemInput, ReportProblemResult, UpdateInfo }
+export type {
+  RendererDiagnosticInput,
+  RendererDiagnosticsExportResult,
+  ReportProblemInput,
+  PrepareReportResult,
+  SubmitReportResult,
+  UpdateInfo,
+}
 
 export type InitStep = { phase: "server_waiting" } | { phase: "sqlite_waiting" } | { phase: "done" }
 
@@ -103,7 +111,9 @@ export type ElectronAPI = {
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void>
   checkUpdate: () => Promise<UpdateInfo>
-  reportProblem: (input?: ReportProblemInput) => Promise<ReportProblemResult>
+  prepareReport: (input?: ReportProblemInput) => Promise<PrepareReportResult>
+  revealReport: (reportId: string) => Promise<void>
+  submitReport: (reportId: string) => Promise<SubmitReportResult>
   emitRendererDiagnostic: (event: RendererDiagnosticInput) => Promise<void>
   exportDiagnosticsLog: () => Promise<RendererDiagnosticsExportResult>
   installUpdate: () => Promise<void>

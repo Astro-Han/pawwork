@@ -66,6 +66,9 @@ function layoutCommandCatalog(input?: {
       connectProvider: () => undefined,
       switchServer: () => undefined,
     },
+    diagnosticsActions: {
+      prepare: () => undefined,
+    },
   })
   return catalog
 }
@@ -85,6 +88,7 @@ describe("registerLayoutCommands", () => {
       "server.switch",
       "settings.open",
       "settings.openGlobalConfigFolder",
+      "diagnostics.prepare",
       "session.previous",
       "session.next",
       "session.previous.unseen",

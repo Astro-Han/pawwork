@@ -18,43 +18,55 @@ export type RendererErrorDetails = {
 }
 
 export type ReportProblemInput = {
-  confirm?: boolean
   rendererError?: RendererErrorDetails
 }
 
-export type ReportProblemResult =
+/**
+ * What the prepared diagnostics package contains, surfaced in the review dialog
+ * so the user sees the real shape before sharing. Counts are `null` when that
+ * component is absent or failed to collect (a missing count reads as "not
+ * included", never as zero diagnostic value). `environment` is always present
+ * when the package is ready, so it carries no count.
+ */
+export type DiagnosticsReviewContents = {
+  logLines: number | null
+  sessionMessages: number | null
+  rendererEvents: number | null
+  rendererError: boolean
+}
+
+/**
+ * Result of preparing (generating + redacting + saving) a diagnostics package.
+ * Preparation has no side effects beyond writing the local file — it never
+ * copies to the clipboard, reveals the file, or opens the feedback form. Those
+ * are explicit follow-up actions the user takes from the review dialog
+ * (`revealReport` / `submitReport`).
+ */
+export type PrepareReportResult =
   | {
       status: "ready"
-      summaryCopied: true
-      feedbackOpened: true
-      fullReport: { status: "ready"; fileName: string; locationHint: string }
+      reportId: string
+      fileName: string
+      locationHint: string
+      hasForm: boolean
+      contents: DiagnosticsReviewContents
     }
-  | {
-      status: "summary-only"
-      summaryCopied: true
-      feedbackOpened: true
-      fullReport: { status: "failed" }
-    }
-  | {
-      status: "form-fallback"
-      summaryCopied: true
-      feedbackOpened: false
-      feedbackUrl: string
-      fullReport:
-        | { status: "ready"; fileName: string; locationHint: string }
-        | { status: "failed" }
-    }
-  | {
-      status: "package-only"
-      summaryCopied: true
-      feedbackOpened: false
-      fullReport:
-        | { status: "ready"; fileName: string; locationHint: string }
-        | { status: "failed" }
-    }
-  | { status: "cancelled"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "none" } }
-  | { status: "unavailable"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "none" } }
-  | { status: "failed"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "failed" } }
+  | { status: "failed"; reason: string; summary: string }
+
+/**
+ * Result of opening the external feedback form after review.
+ *  - `opened` — the form opened in the browser.
+ *  - `form-fallback` — the form could not open; the URL and a redacted summary
+ *    are returned so the dialog can offer the URL plus an optional copy.
+ *  - `no-form` — this build has no feedback form configured (package-only).
+ *  - `stale` — the reportId is not the pending package (a newer prepare replaced
+ *    it); submission is a no-op so a stale review surface cannot act.
+ */
+export type SubmitReportResult =
+  | { status: "opened" }
+  | { status: "form-fallback"; feedbackUrl: string; summary: string }
+  | { status: "no-form" }
+  | { status: "stale" }
 
 export type RendererDiagnosticInput = {
   name: string

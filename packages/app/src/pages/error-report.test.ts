@@ -1,34 +1,21 @@
 import { describe, expect, test } from "bun:test"
-import type { ReportProblemResult } from "@/context/platform"
 import {
   buildErrorReportDetails,
-  errorReportStatusMessage,
   formatError,
   summarizeKnownError,
   type ErrorReportTranslator,
 } from "./error-report"
 import { ChildStoreError } from "@/context/global-sync/child-store-error"
 
-const t: ErrorReportTranslator = (key, vars) => {
+const t: ErrorReportTranslator = (key) => {
   const dict: Record<string, string> = {
     "error.page.known.localState.title": "Local state problem",
     "error.page.known.localState.description":
       "PawWork had trouble reading local state for this workspace. Your original project files are usually not affected.",
-    "error.page.report.success":
-      "The feedback form is open. A short summary was copied, and the diagnostics package was saved locally for manual upload.",
-    "error.page.report.summaryOnly": "The current error summary was copied. Paste it into the feedback form.",
-    "error.page.report.formFallback":
-      "The feedback form did not open automatically. Open the link manually, then paste the copied summary.",
-    "error.page.report.packageOnly":
-      "The diagnostics package was saved locally. This build does not have a feedback form configured.",
-    "error.page.report.failed":
-      "PawWork could not prepare the diagnostics package. Use the technical details below when reporting this.",
-    "error.page.report.unavailable":
-      "Diagnostics packages are not available in this build. Use the GitHub link or the technical details below.",
     "error.chain.causedBy": "Caused by",
     "error.page.circular": "[Circular]",
   }
-  return dict[key]?.replace("{{url}}", String(vars?.url ?? "")) ?? key
+  return dict[key] ?? key
 }
 
 describe("error page reporting helpers", () => {
@@ -113,83 +100,5 @@ describe("error page reporting helpers", () => {
     expect(formatted).toContain("Error: loop")
     expect(formatted).toContain("Caused by")
     expect(formatted).toContain("[Circular]")
-  })
-
-  test("maps report results to user-facing next steps", () => {
-    const ready: ReportProblemResult = {
-      status: "ready",
-      summaryCopied: true,
-      feedbackOpened: true,
-      fullReport: {
-        status: "ready",
-        fileName: "pawwork-problem-report.md",
-        locationHint: "PawWork app data/.../problem-reports/pawwork-problem-report.md",
-      },
-    }
-    const summaryOnly: ReportProblemResult = {
-      status: "summary-only",
-      summaryCopied: true,
-      feedbackOpened: true,
-      fullReport: { status: "failed" },
-    }
-    const fallback: ReportProblemResult = {
-      status: "form-fallback",
-      summaryCopied: true,
-      feedbackOpened: false,
-      feedbackUrl: "https://example.com/form",
-      fullReport: {
-        status: "ready",
-        fileName: "pawwork-problem-report.md",
-        locationHint: "PawWork app data/.../problem-reports/pawwork-problem-report.md",
-      },
-    }
-    const packageOnly: ReportProblemResult = {
-      status: "package-only",
-      summaryCopied: true,
-      feedbackOpened: false,
-      fullReport: {
-        status: "ready",
-        fileName: "pawwork-problem-report.md",
-        locationHint: "PawWork app data/.../problem-reports/pawwork-problem-report.md",
-      },
-    }
-    const failed: ReportProblemResult = {
-      status: "failed",
-      summaryCopied: false,
-      feedbackOpened: false,
-      fullReport: { status: "failed" },
-    }
-    const cancelled: ReportProblemResult = {
-      status: "cancelled",
-      summaryCopied: false,
-      feedbackOpened: false,
-      fullReport: { status: "none" },
-    }
-    const unavailable: ReportProblemResult = {
-      status: "unavailable",
-      summaryCopied: false,
-      feedbackOpened: false,
-      fullReport: { status: "none" },
-    }
-
-    expect(errorReportStatusMessage(ready, t)).toBe(
-      "The feedback form is open. A short summary was copied, and the diagnostics package was saved locally for manual upload.",
-    )
-    expect(errorReportStatusMessage(summaryOnly, t)).toBe(
-      "The current error summary was copied. Paste it into the feedback form.",
-    )
-    expect(errorReportStatusMessage(fallback, t)).toBe(
-      "The feedback form did not open automatically. Open the link manually, then paste the copied summary.",
-    )
-    expect(errorReportStatusMessage(packageOnly, t)).toBe(
-      "The diagnostics package was saved locally. This build does not have a feedback form configured.",
-    )
-    expect(errorReportStatusMessage(failed, t)).toBe(
-      "PawWork could not prepare the diagnostics package. Use the technical details below when reporting this.",
-    )
-    expect(errorReportStatusMessage(cancelled, t)).toBeUndefined()
-    expect(errorReportStatusMessage(unavailable, t)).toBe(
-      "Diagnostics packages are not available in this build. Use the GitHub link or the technical details below.",
-    )
   })
 })
