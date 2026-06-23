@@ -1858,16 +1858,24 @@ describe("session.message-v2.fromError", () => {
     })
   })
 
-  test("leaves Error-wrapped payloads with unhandled codes as UnknownError", () => {
-    // Guard against the stream parser over-matching: an Error whose JSON message
-    // carries a code the parser does not handle must stay Unknown, not become a
-    // mislabeled APIError.
+  test("upgrades typed Error-wrapped payloads with unhandled codes to APIError(unknown)", () => {
+    // A typed provider error body (type:"error" + error object) is a recognized
+    // failure shape, so even an unhandled code becomes a structured APIError that
+    // preserves code/responseBody for the frontend — rather than an opaque
+    // UnknownError blob. The code is unknown (not transient), so it stays
+    // non-retryable, matching the prior Unknown -> classifyRetry verdict.
     const payload = JSON.stringify({ type: "error", error: { code: "bad_request" } })
     const result = MessageV2.fromError(new Error(payload), { providerID })
 
     expect(result).toStrictEqual({
-      name: "UnknownError",
-      data: { message: payload },
+      name: "APIError",
+      data: {
+        message: payload,
+        isRetryable: false,
+        responseBody: payload,
+        providerID,
+        providerFailure: { kind: "unknown", code: "bad_request" },
+      },
     })
   })
 
@@ -2047,6 +2055,7 @@ describe("session.message-v2.fromError", () => {
     const cases = [
       { statusCode: 400, kind: "invalid_request" },
       { statusCode: 401, kind: "auth" },
+      { statusCode: 402, kind: "quota_exhausted" },
       { statusCode: 403, kind: "auth" },
       { statusCode: 422, kind: "invalid_request" },
       { statusCode: 429, kind: "rate_limit" },
@@ -2069,6 +2078,287 @@ describe("session.message-v2.fromError", () => {
         kind,
         code: undefined,
       })
+    })
+  })
+})
+
+describe("session.message-v2.fromError — PR1 classification completeness", () => {
+  const deepseekBalanceBody = JSON.stringify({
+    error: { message: "Insufficient Balance", code: "invalid_request_error", type: "unknown_error" },
+  })
+
+  const makeApiError = (overrides: Partial<ConstructorParameters<typeof APICallError>[0]>) =>
+    new APICallError({
+      message: "",
+      url: "https://api.deepseek.com/chat/completions",
+      requestBodyValues: {},
+      responseHeaders: { "content-type": "application/json" },
+      isRetryable: false,
+      ...overrides,
+    })
+
+  test("classifies a DeepSeek 402 balance error as quota_exhausted and surfaces the real reason", () => {
+    // 402 + nested {error:{message}} is the reported bug: it was shown as
+    // "Connection lost". The nested provider message must be extracted (not the
+    // raw responseBody dump) and the kind must be quota_exhausted.
+    const result = MessageV2.fromError(
+      makeApiError({ message: "Payment Required", statusCode: 402, responseBody: deepseekBalanceBody }),
+      { providerID },
+    )
+
+    expect(MessageV2.APIError.isInstance(result)).toBe(true)
+    const data = (result as MessageV2.APIError).data
+    expect(data.providerFailure?.kind).toBe("quota_exhausted")
+    expect(data.message).toContain("Insufficient Balance")
+    expect(data.message).not.toContain("invalid_request_error")
+  })
+
+  test("surfaces the nested balance reason even when the SDK message is not the HTTP reason phrase", () => {
+    // Regression guard: message() used to early-return whenever the SDK message
+    // differed from the bare status phrase, which dropped the nested
+    // {error:{message}} reason for any provider/SDK that sets a custom message
+    // (e.g. "API call failed"). The real reason must still reach the user.
+    const result = MessageV2.fromError(
+      makeApiError({ message: "API call failed", statusCode: 402, responseBody: deepseekBalanceBody }),
+      { providerID },
+    )
+
+    expect(MessageV2.APIError.isInstance(result)).toBe(true)
+    const data = (result as MessageV2.APIError).data
+    expect(data.message).toContain("Insufficient Balance")
+    expect(data.providerFailure?.kind).toBe("quota_exhausted")
+  })
+
+  test("classifies a DeepSeek balance error as quota_exhausted even when it arrives as 400", () => {
+    // Some providers return billing failures under a generic 400. The strong
+    // billing pattern must override apiCallErrorKind's invalid_request verdict.
+    const result = MessageV2.fromError(
+      makeApiError({ message: "Bad Request", statusCode: 400, responseBody: deepseekBalanceBody }),
+      { providerID },
+    )
+
+    expect((result as MessageV2.APIError).data.providerFailure?.kind).toBe("quota_exhausted")
+  })
+
+  test("does not reclassify opencode FreeUsageLimitError 429 as quota_exhausted", () => {
+    // Invariant: FreeUsageLimitError must keep flowing to free_quota_exhausted ->
+    // rate_limit_blocked. quota_exhausted is terminal and would stop classifyRetry
+    // before the free-quota branch, breaking the countdown card.
+    const result = MessageV2.fromError(
+      makeApiError({
+        message: "Too Many Requests",
+        statusCode: 429,
+        responseBody: '{"error":{"type":"FreeUsageLimitError"}}',
+        responseHeaders: { "retry-after": "70" },
+      }),
+      { providerID: ProviderID.opencode },
+    )
+
+    expect((result as MessageV2.APIError).data.providerFailure?.kind).toBe("rate_limit")
+  })
+
+  test("does not let a rate-limit signal on a billing-shaped status become terminal quota_exhausted", () => {
+    // The weak billing patterns ("quota exceeded") fire only on a 400/402/403
+    // with no rate-limit signal. A Retry-After header means the provider is
+    // asking us to back off, not that the account is out of money — so the
+    // incidental "quota" wording must not flip the rejection into terminal
+    // quota_exhausted (which would wrongly prompt a top-up). It stays the base
+    // status kind.
+    const result = MessageV2.fromError(
+      makeApiError({
+        message: "Bad Request",
+        statusCode: 400,
+        responseBody: JSON.stringify({ error: { message: "Quota exceeded for this request window." } }),
+        responseHeaders: { "content-type": "application/json", "retry-after": "30" },
+      }),
+      { providerID },
+    )
+
+    expect((result as MessageV2.APIError).data.providerFailure?.kind).toBe("invalid_request")
+  })
+
+  test("does not let weak billing wording override a 5xx server error", () => {
+    // WEAK_BILLING_STATUS is {400,402,403}; a 5xx stays server_overload (and
+    // retryable). Incidental "quota exceeded" wording in a transient 503 must
+    // not be read as a terminal billing failure, which would stop retries on a
+    // recoverable error.
+    const result = MessageV2.fromError(
+      makeApiError({
+        message: "Service Unavailable",
+        statusCode: 503,
+        responseBody: JSON.stringify({ error: { message: "Service temporarily unavailable; quota exceeded." } }),
+        isRetryable: true,
+      }),
+      { providerID },
+    )
+
+    expect((result as MessageV2.APIError).data.providerFailure?.kind).toBe("server_overload")
+  })
+
+  test("classifies stream authentication errors as auth (non-retryable)", () => {
+    const body = { code: "authentication_error", message: "Invalid API key provided." }
+    const result = MessageV2.fromError(body, { providerID })
+
+    expect(result).toStrictEqual({
+      name: "APIError",
+      data: {
+        message: body.message,
+        isRetryable: false,
+        responseBody: JSON.stringify(body),
+        providerID,
+        providerFailure: { kind: "auth", code: "authentication_error" },
+      },
+    })
+  })
+
+  test("classifies stream rate-limit errors as rate_limit (retryable)", () => {
+    const body = { code: "rate_limit_exceeded", message: "Rate limit reached for requests." }
+    const result = MessageV2.fromError(body, { providerID })
+
+    expect(result).toStrictEqual({
+      name: "APIError",
+      data: {
+        message: body.message,
+        isRetryable: true,
+        responseBody: JSON.stringify(body),
+        providerID,
+        providerFailure: { kind: "rate_limit", code: "rate_limit_exceeded" },
+      },
+    })
+  })
+
+  test("classifies a stream billing message as quota_exhausted regardless of code", () => {
+    const body = { code: "some_provider_code", message: "Insufficient Balance" }
+    const result = MessageV2.fromError(body, { providerID })
+
+    expect((result as MessageV2.APIError).data.providerFailure?.kind).toBe("quota_exhausted")
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(false)
+  })
+
+  test("upgrades a typed stream body with an unknown code to APIError(unknown)", () => {
+    const body = { type: "error", error: { code: "teapot_error", message: "I am a teapot." } }
+    const result = MessageV2.fromError(body, { providerID })
+
+    expect(result).toStrictEqual({
+      name: "APIError",
+      data: {
+        message: "I am a teapot.",
+        isRetryable: false,
+        responseBody: JSON.stringify(body),
+        providerID,
+        providerFailure: { kind: "unknown", code: "teapot_error" },
+      },
+    })
+  })
+
+  test("keeps a typed resource_exhausted body retryable when upgraded to APIError(unknown)", () => {
+    // resource_exhausted stays unchanged in PR1: it keeps its retryable
+    // "overloaded" semantics. The middle-path upgrade derives retryability from
+    // the transient-looking code, so it stays retryable.
+    const body = { type: "error", error: { code: "resource_exhausted", message: "Resource has been exhausted." } }
+    const result = MessageV2.fromError(body, { providerID })
+
+    expect((result as MessageV2.APIError).data.providerFailure).toStrictEqual({
+      kind: "unknown",
+      code: "resource_exhausted",
+    })
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(true)
+  })
+
+  test("does not treat a typed terminal quota_exhausted code as retryable", () => {
+    // The transient-code heuristic must not match a terminal quota code just
+    // because it contains "exhausted" — only resource_exhausted is transient.
+    const body = { type: "error", error: { code: "quota_exhausted", message: "Your quota has been exhausted." } }
+    const result = MessageV2.fromError(body, { providerID })
+
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(false)
+  })
+
+  test("does not retry a typed unknown error whose message merely mentions 'unavailable'", () => {
+    // Regression: retryability is read from the code only. A terminal error
+    // (code bad_request) whose free-text message says "unavailable" must NOT be
+    // upgraded to retryable.
+    const body = { type: "error", error: { code: "bad_request", message: "Model unavailable for your account." } }
+    const result = MessageV2.fromError(body, { providerID })
+
+    expect((result as MessageV2.APIError).data.providerFailure?.kind).toBe("unknown")
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(false)
+  })
+
+  test("does not retry typed terminal codes that merely contain 'unavailable' as a substring", () => {
+    // The transient check is an exact allowlist, not a substring scan: a code
+    // like model_unavailable_for_account / feature_unavailable_for_plan is a
+    // terminal plan/account limit and must NOT be retried just because it
+    // contains "unavailable". Substring matching here caused infinite retries.
+    for (const code of ["model_unavailable_for_account", "feature_unavailable_for_plan"]) {
+      const body = { type: "error", error: { code, message: "Not available on your plan." } }
+      const result = MessageV2.fromError(body, { providerID })
+
+      expect((result as MessageV2.APIError).data.providerFailure).toStrictEqual({ kind: "unknown", code })
+      expect((result as MessageV2.APIError).data.isRetryable).toBe(false)
+    }
+  })
+
+  test("keeps an allowlisted transient code (gRPC UNAVAILABLE) retryable in the typed-unknown fallback", () => {
+    // The exact allowlist must still admit genuine transients beyond
+    // resource_exhausted. Bare gRPC UNAVAILABLE is transient and stays
+    // retryable; the case-insensitive match handles the uppercase spelling.
+    const body = { type: "error", error: { code: "UNAVAILABLE", message: "The service is currently unavailable." } }
+    const result = MessageV2.fromError(body, { providerID })
+
+    expect((result as MessageV2.APIError).data.providerFailure?.kind).toBe("unknown")
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(true)
+  })
+
+  test("treats a 429 'quota exceeded' rate limit as rate_limit, not terminal quota_exhausted", () => {
+    // Google reports per-minute request limits as 429 "Quota exceeded for quota
+    // metric ... per minute". 429 is Too Many Requests, so it must stay a
+    // retryable rate_limit rather than a terminal billing failure.
+    const responseBody = JSON.stringify({
+      error: { message: "Quota exceeded for quota metric 'GenerateContent request limit per minute'." },
+    })
+    const result = MessageV2.fromError(
+      makeApiError({
+        message: "Too Many Requests",
+        statusCode: 429,
+        responseBody,
+        isRetryable: true,
+      }),
+      { providerID },
+    )
+
+    expect((result as MessageV2.APIError).data.providerFailure?.kind).toBe("rate_limit")
+  })
+
+  test("leaves a bare {code} body (e.g. a Node EACCES error) as UnknownError", () => {
+    // A bare top-level code is indistinguishable from a Node runtime error, so
+    // the middle path must not wrap it as a provider APIError.
+    const nodeError = Object.assign(new Error("permission denied reading local config"), { code: "EACCES" })
+    const result = MessageV2.fromError(nodeError, { providerID })
+
+    expect(result.name).toBe("UnknownError")
+  })
+
+  test("marks a typed opencode FreeUsageLimitError stream body retryable for free-quota routing", () => {
+    // Real FreeUsageLimitError arrives as an APICallError (429); this guards the
+    // typed-stream shape too: it must stay kind=unknown (not quota_exhausted) and
+    // retryable so classifyRetry can reach the free_quota_exhausted branch.
+    const body = { type: "error", error: { type: "FreeUsageLimitError", message: "FreeUsageLimitError" } }
+    const result = MessageV2.fromError(body, { providerID: ProviderID.opencode })
+
+    expect((result as MessageV2.APIError).data.providerFailure?.kind).toBe("unknown")
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(true)
+  })
+
+  test("leaves untyped nested error envelopes as UnknownError (over-match guard)", () => {
+    // A body with no top-level type/code is not a recognized provider error
+    // shape, so it must stay Unknown.
+    const body = { error: { code: "teapot_error", message: "nope" } }
+    const result = MessageV2.fromError(body, { providerID })
+
+    expect(result).toStrictEqual({
+      name: "UnknownError",
+      data: { message: JSON.stringify(body) },
     })
   })
 })
