@@ -152,9 +152,12 @@ function redactDiagnostics(diagnostics: ProblemReportDiagnostics, redact: Redact
   return {
     ...diagnostics,
     route: redact(diagnostics.route),
-    directory: diagnostics.directory === null ? null : redact(diagnostics.directory),
+    // directory and logPath are known to be filesystem paths: shape-token them wholesale instead of
+    // letting the free-text scrubber guess (it only catches allowlisted roots, so a path under a
+    // non-listed root would leak the project/dir name). Empty/null stay as-is so "no path" reads true.
+    directory: diagnostics.directory ? "[path]" : diagnostics.directory,
     sessionID: diagnostics.sessionID === null ? null : redact(diagnostics.sessionID),
-    logPath: redact(diagnostics.logPath),
+    logPath: diagnostics.logPath ? "[path]" : diagnostics.logPath,
   }
 }
 
@@ -374,6 +377,10 @@ type ProblemReportSummaryInput = {
   recentErrors: string[]
   rendererError?: RendererErrorDetails
   rendererDiagnostics?: RendererDiagnosticsSlice
+  // Exact strings (OS username, home directory) the caller knows are sensitive at runtime but no
+  // regex can infer. The summary is the same outbound channel as the full report, so it must share
+  // these terms — otherwise a bare username or non-allowlisted home leaks through recentErrors.
+  redactTerms?: string[]
 }
 
 function oneLine(value: string) {
@@ -382,11 +389,10 @@ function oneLine(value: string) {
 
 // The clipboard summary is the same outbound channel as the report file, so it gets the full
 // secret scrubber too. Path/storage fragments run first (keeps the [storage] .dat shape), then the
-// shared redactor strips tokens, Bearer/basic-auth, and emails the old summary rules missed.
-const summaryRedactor = makeRedactor()
-
-function redactLocalPathFragments(value: string) {
-  return summaryRedactor(
+// caller's redactor strips tokens, Bearer/basic-auth, emails, AND the exact runtime terms (OS
+// username, home directory) the old module-level redactor missed.
+function redactLocalPathFragments(value: string, redact: Redactor) {
+  return redact(
     value
       .replace(/[A-Za-z]:\\[^\r\n]*/g, "[path]")
       .replace(/\\\\[^\\\s]+\\[^\r\n]*/g, "[path]")
@@ -400,39 +406,40 @@ function truncateSummaryLine(value: string, maxChars: number) {
   return value.length > maxChars ? `${value.slice(0, maxChars)}...` : value
 }
 
-function safeSummaryRoute(route: string) {
+function safeSummaryRoute(route: string, redact: Redactor) {
   const pathOnly = oneLine(route).split(/[?#]/)[0] || "/"
-  return truncateSummaryLine(redactLocalPathFragments(pathOnly), SUMMARY_ROUTE_MAX_CHARS)
+  return truncateSummaryLine(redactLocalPathFragments(pathOnly, redact), SUMMARY_ROUTE_MAX_CHARS)
 }
 
-function safeSummarySession(sessionID: string | null) {
+function safeSummarySession(sessionID: string | null, redact: Redactor) {
   if (sessionID === null) return "none"
-  return truncateSummaryLine(oneLine(redactLocalPathFragments(sessionID)), SUMMARY_SESSION_MAX_CHARS)
+  return truncateSummaryLine(oneLine(redactLocalPathFragments(sessionID, redact)), SUMMARY_SESSION_MAX_CHARS)
 }
 
-function safeFailureReason(value: string | undefined) {
+function safeFailureReason(value: string | undefined, redact: Redactor) {
   if (!value) return "unknown"
-  return truncateSummaryLine(oneLine(redactLocalPathFragments(value)), SUMMARY_FAILURE_REASON_MAX_CHARS)
+  return truncateSummaryLine(oneLine(redactLocalPathFragments(value, redact)), SUMMARY_FAILURE_REASON_MAX_CHARS)
 }
 
-function summaryRecentErrors(recentErrors: string[]) {
+function summaryRecentErrors(recentErrors: string[], redact: Redactor) {
   const lines = recentErrors
-    .map((line) => truncateSummaryLine(oneLine(redactLocalPathFragments(line)), SUMMARY_ERROR_LINE_MAX_CHARS))
+    .map((line) => truncateSummaryLine(oneLine(redactLocalPathFragments(line, redact)), SUMMARY_ERROR_LINE_MAX_CHARS))
     .filter(Boolean)
     .slice(0, 10)
   return lines.length > 0 ? lines : ["No recent errors found"]
 }
 
-function safeRendererErrorSummary(rendererError: RendererErrorDetails | undefined) {
+function safeRendererErrorSummary(rendererError: RendererErrorDetails | undefined, redact: Redactor) {
   if (!rendererError?.summary) return
   return truncateSummaryLine(
-    oneLine(redactLocalPathFragments(rendererError.summary)),
+    oneLine(redactLocalPathFragments(rendererError.summary, redact)),
     SUMMARY_RENDERER_ERROR_MAX_CHARS,
   )
 }
 
 export function buildProblemReportSummary(input: ProblemReportSummaryInput) {
-  const rendererError = safeRendererErrorSummary(input.rendererError)
+  const redact = makeRedactor(input.redactTerms)
+  const rendererError = safeRendererErrorSummary(input.rendererError, redact)
   const fullReportLines =
     input.fullReportStatus === "ready"
       ? [
@@ -442,7 +449,7 @@ export function buildProblemReportSummary(input: ProblemReportSummaryInput) {
         ]
       : [
           "Full report: not generated",
-          `Full report failure: ${safeFailureReason(input.failureReason)}`,
+          `Full report failure: ${safeFailureReason(input.failureReason, redact)}`,
           "Submit this summary without an attachment if needed.",
         ]
 
@@ -454,8 +461,8 @@ export function buildProblemReportSummary(input: ProblemReportSummaryInput) {
     `PawWork: ${input.diagnostics.appVersion} (${input.diagnostics.channel})`,
     `Platform: ${input.diagnostics.platform} ${input.diagnostics.osVersion} ${input.diagnostics.arch}`,
     `Electron: ${input.diagnostics.electronVersion}`,
-    `Route: ${safeSummaryRoute(input.diagnostics.route)}`,
-    `Session: ${safeSummarySession(input.diagnostics.sessionID)}`,
+    `Route: ${safeSummaryRoute(input.diagnostics.route, redact)}`,
+    `Session: ${safeSummarySession(input.diagnostics.sessionID, redact)}`,
     ...(input.rendererDiagnostics
       ? [
           `Renderer diagnostics: ${input.rendererDiagnostics.status}, events=${input.rendererDiagnostics.summary.event_count}, incidents=${input.rendererDiagnostics.summary.incident_count}`,
@@ -465,7 +472,7 @@ export function buildProblemReportSummary(input: ProblemReportSummaryInput) {
     ...fullReportLines,
     "",
     "Recent key errors:",
-    ...summaryRecentErrors(input.recentErrors).map((line) => `- ${line}`),
+    ...summaryRecentErrors(input.recentErrors, redact).map((line) => `- ${line}`),
     "",
   ].join("\n")
 }

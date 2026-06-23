@@ -308,6 +308,29 @@ describe("problem report", () => {
     expect(summary).not.toContain("secret.log")
   })
 
+  test("summary scrubs the bare OS username and non-allowlisted home via shared redactTerms", () => {
+    // The summary is the same outbound channel as the full report, so it must apply the caller's
+    // exact runtime terms. Under a non-allowlisted root, only the exact term catches the leak — the
+    // path regex (allowlisted roots only) does not, and the username is a bare word no regex infers.
+    const summary = buildProblemReportSummary({
+      reportId: "pwr_terms",
+      generatedAt: "2026-04-23T01:02:03.004Z",
+      diagnostics: base.diagnostics,
+      reportFileName: "r.md",
+      reportLocationHint: "hint",
+      fullReportStatus: "ready",
+      recentErrors: [
+        "[error] failed reading /customroot/zoe/project/app.ts",
+        "[warn] user zoe could not write cache",
+      ],
+      rendererError: { summary: "crash under /customroot/zoe/project", details: "" },
+      redactTerms: ["/customroot/zoe", "zoe"],
+    })
+
+    expect(summary).not.toContain("zoe")
+    expect(summary).not.toContain("/customroot/zoe")
+  })
+
   test("keeps no-session reports useful", () => {
     const report = buildProblemReport({
       ...base,
@@ -411,8 +434,8 @@ describe("problem report", () => {
       ...base,
       sessionExport: {
         status: "ok",
-        // Top-level info is allowlisted: `size` is an unknown field and is dropped; the surviving
-        // executionContext still has bigint/circular values made JSON-safe and paths shape-tokened.
+        // Both info and executionContext are field allowlists: top-level `size` and executionContext's
+        // `build`/`circular` are unknown fields and dropped; the kept `activeDirectory` is shape-tokened.
         info: { id: "ses_1", size: 123n, executionContext: { activeDirectory: "/Users/x/p", build: 789n, circular } },
         messages: [{ body: 456n, circular }],
       },
@@ -423,7 +446,7 @@ describe("problem report", () => {
     if (payload.sessionExport.status === "ok") {
       expect(payload.sessionExport.info).toEqual({
         id: "ses_1",
-        executionContext: { activeDirectory: "[path]", build: "789", circular: { id: "root", self: "[Circular]" } },
+        executionContext: { activeDirectory: "[path]" },
       })
       // A non-{info,parts} message shape is reported, not passed through, so it cannot smuggle
       // raw content into the report (PR1 structure-aware allowlist).
@@ -462,13 +485,13 @@ describe("problem report", () => {
         logTail: "",
         sessionExport: {
           status: "ok",
-          // Bulk lives in an allowlisted field (executionContext is uncapped) so the omission ladder
-          // still has something large to drop after sanitize.
-          info: { executionContext: { activeWorktree: "z".repeat(20_000) } },
+          // Bulk lives in the capped title: even after the per-field cap it stays large enough to
+          // exceed this small budget, so the omission ladder still has session info to drop.
+          info: { title: "z".repeat(20_000) },
           messages: [],
         },
       },
-      { maxBytes: 5_000 },
+      { maxBytes: 3_000 },
     )
 
     expect(Buffer.byteLength(report.markdown, "utf8")).toBeLessThanOrEqual(5_000)

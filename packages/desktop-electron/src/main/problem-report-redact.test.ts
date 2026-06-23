@@ -364,6 +364,21 @@ describe("sanitizeSessionMessages", () => {
     expect(JSON.stringify(message)).not.toContain("raw leak")
     expect(JSON.stringify(message)).not.toContain(TOKENS.github)
   })
+
+  test("shape-tokens a file part source path even under a non-allowlisted root", () => {
+    const [message] = sanitizeSessionMessages(
+      [
+        {
+          info: { role: "user" },
+          parts: [{ type: "file", source: { type: "file", path: "/customroot/alice/secret-plan.pdf" } }],
+        },
+      ],
+      { redact: makeRedactor([]) },
+    ) as Array<{ parts: Array<{ source_path?: string }> }>
+    expect(message.parts[0].source_path).toBe("[path]")
+    expect(JSON.stringify(message)).not.toContain("customroot")
+    expect(JSON.stringify(message)).not.toContain("secret-plan")
+  })
 })
 
 describe("sanitizeSessionInfo", () => {
@@ -399,6 +414,40 @@ describe("sanitizeSessionInfo", () => {
     expect(serialized).not.toContain("REVERT_DIFF_CONTENT")
     expect(serialized).not.toContain("SECRET_RULE")
     expect(serialized).not.toContain("DROP_ME")
+  })
+
+  test("allowlists executionContext: shape-tokens every path, keeps worktree name/branch, drops unknown", () => {
+    const info = sanitizeSessionInfo(
+      {
+        id: "ses_1",
+        executionContext: {
+          ownerDirectory: "/customroot/alice/owner",
+          activeDirectory: "/customroot/alice/active",
+          activeWorktree: {
+            directory: "/customroot/alice/wt",
+            name: "acme-worktree",
+            branch: "main",
+            source: "created",
+            extra: "DROP_WT_FIELD",
+          },
+          lastChangedAt: 123,
+          build: "DROP_BUILD",
+          nested: { leak: "/customroot/alice/leak" },
+        },
+      },
+      { redact: makeRedactor([]) },
+    ) as Record<string, unknown>
+
+    expect(info.executionContext).toEqual({
+      ownerDirectory: "[path]",
+      activeDirectory: "[path]",
+      activeWorktree: { directory: "[path]", name: "acme-worktree", branch: "main", source: "created" },
+      lastChangedAt: 123,
+    })
+    const serialized = JSON.stringify(info)
+    expect(serialized).not.toContain("customroot")
+    expect(serialized).not.toContain("DROP_BUILD")
+    expect(serialized).not.toContain("DROP_WT_FIELD")
   })
 })
 
@@ -500,6 +549,27 @@ describe("buildProblemReport redaction gate", () => {
     // The report is still a valid, parseable payload after redaction.
     const payload = parseProblemReportPayload(report.markdown)
     expect(payload.sessionExport.status).toBe("ok")
+  })
+
+  test("shape-tokens diagnostics directory and logPath even under a non-allowlisted root", () => {
+    // The path regex only catches allowlisted roots; a project under a custom mount would otherwise
+    // leak its directory/project name. These fields are known paths, so they map to [path] wholesale.
+    const report = buildProblemReport(
+      {
+        diagnostics: validDiagnostics({
+          directory: "/customroot/alice/project",
+          logPath: "/customroot/alice/logs/main.log",
+        }),
+        logTail: "",
+        sessionExport: { status: "none" },
+      },
+      { reportId: "pwr_custompath", generatedAt: "2026-06-22T01:02:03.004Z" },
+    )
+
+    const payload = parseProblemReportPayload(report.markdown)
+    expect(payload.diagnostics.directory).toBe("[path]")
+    expect(payload.diagnostics.logPath).toBe("[path]")
+    expect(report.markdown).not.toContain("customroot")
   })
 
   test("scrubs a non-string rendererError field arriving from the untyped IPC boundary", () => {

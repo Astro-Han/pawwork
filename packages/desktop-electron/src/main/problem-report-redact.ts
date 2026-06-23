@@ -249,7 +249,9 @@ function sanitizePart(part: unknown, ctx: SanitizeContext): JsonValue {
       const source = isObject(part.source) ? part.source : undefined
       const sourceText = isObject(source?.text) ? stringField(source.text.value) : undefined
       out.bytes = byteLength(stringField(part.url) ?? "") + byteLength(sourceText ?? "")
-      if (source && source.path !== undefined) out.source_path = ctx.redact(String(source.path))
+      // A file source path is a known filesystem path: shape-token it wholesale rather than letting
+      // the free-text scrubber guess (it only catches allowlisted roots, so a non-listed root leaks).
+      if (source && source.path !== undefined) out.source_path = "[path]"
       break
     }
     case "subtask": {
@@ -329,6 +331,28 @@ function sanitizeMessageInfo(info: unknown, ctx: SanitizeContext): JsonValue {
   return out
 }
 
+// Structure-aware allowlist for the session executionContext object. Every directory/worktree field
+// is a known path, so paths map to the [path] shape token wholesale — never guessed by the free-text
+// scrubber, which only catches allowlisted roots and would leak a path under a non-listed root or a
+// newly added field. Unknown fields are dropped, not spread through. Worktree name/branch are kept
+// (capped + scrubbed) as low-risk diagnostic identifiers.
+function sanitizeExecutionContext(value: Record<string, unknown>, ctx: SanitizeContext): JsonValue {
+  const out: { [key: string]: JsonValue } = {}
+  if (value.ownerDirectory !== undefined) out.ownerDirectory = "[path]"
+  if (value.activeDirectory !== undefined) out.activeDirectory = "[path]"
+  if (isObject(value.activeWorktree)) {
+    const worktree = value.activeWorktree
+    const worktreeOut: { [key: string]: JsonValue } = {}
+    if (worktree.directory !== undefined) worktreeOut.directory = "[path]"
+    if (worktree.name !== undefined) worktreeOut.name = redactCap(String(worktree.name), ctx)
+    if (worktree.branch !== undefined) worktreeOut.branch = redactCap(String(worktree.branch), ctx)
+    if (worktree.source !== undefined) worktreeOut.source = stringField(worktree.source) ?? null
+    out.activeWorktree = worktreeOut
+  }
+  if (typeof value.lastChangedAt === "number") out.lastChangedAt = value.lastChangedAt
+  return out
+}
+
 // Structure-aware allowlist for the top-level session info object, mirroring the message-info
 // discipline: keep metadata scalars, cap the user-authored title, map working directories to a
 // shape token, and drop content-heavy fields (diffs, revert diff/snapshot, permission ruleset, the
@@ -354,8 +378,7 @@ export function sanitizeSessionInfo(info: unknown, options: { redact: Redactor; 
     }
   }
   if (isObject(info.executionContext)) {
-    // Every field here is a directory/worktree path; redactJsonValue maps them to [path].
-    out.executionContext = redactJsonValue(toJsonSafe(info.executionContext), ctx.redact)
+    out.executionContext = sanitizeExecutionContext(info.executionContext, ctx)
   }
   if (isObject(info.revert) && typeof info.revert.messageID === "string") {
     out.revert = { messageID: info.revert.messageID }
