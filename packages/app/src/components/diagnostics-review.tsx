@@ -1,6 +1,7 @@
 import { Show, createSignal } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
+import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
 import type { useDialog } from "@opencode-ai/ui/context/dialog"
 import type { useLanguage } from "@/context/language"
@@ -11,42 +12,6 @@ type ReadyReport = Extract<PrepareReportResult, { status: "ready" }>
 type Language = Pick<ReturnType<typeof useLanguage>, "t">
 type ReviewPlatform = Pick<Platform, "prepareReport" | "revealReport" | "submitReport">
 type DialogControl = Pick<ReturnType<typeof useDialog>, "show" | "close">
-
-/** Stroked shield-check — DESIGN.md: info context is a stroked icon plus ink text, never a flood. */
-function ShieldCheck() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      class="size-[15px] shrink-0 mt-0.5 text-fg-weak"
-      aria-hidden="true"
-    >
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
-      <path d="m9 12 2 2 4-4" />
-    </svg>
-  )
-}
-
-function FolderIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      class="size-3.5"
-      aria-hidden="true"
-    >
-      <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
-    </svg>
-  )
-}
 
 function Row(props: { label: string; value?: string }) {
   return (
@@ -147,7 +112,9 @@ export function DiagnosticsReviewBody(props: {
       <ContentsList result={props.result} language={props.language} />
 
       <div class="flex items-start gap-2.5">
-        <ShieldCheck />
+        <span class="mt-0.5 shrink-0">
+          <Icon name="lock" class="text-fg-weak" />
+        </span>
         <p class="text-body text-fg-weak leading-relaxed">
           {t(props.result.hasForm ? "diagnostics.review.notice.upload" : "diagnostics.review.notice.share")}
         </p>
@@ -170,7 +137,7 @@ export function DiagnosticsReviewBody(props: {
                 </Button>
               </Show>
               <Button variant={props.result.hasForm ? "secondary" : "primary"} onClick={reveal}>
-                <FolderIcon />
+                <Icon name="folder" />
                 {t("diagnostics.review.action.reveal")}
               </Button>
               <Show when={props.result.hasForm}>

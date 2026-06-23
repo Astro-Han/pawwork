@@ -143,6 +143,7 @@ mock.module("@opencode-ai/ui/button", () => ({
   Button: (props) => { buttons.push(props); return props.children },
 }))
 mock.module("@opencode-ai/ui/dialog", () => ({ Dialog: (props) => props.children }))
+mock.module("@opencode-ai/ui/icon", () => ({ Icon: () => null }))
 mock.module("@opencode-ai/ui/toast", () => ({ showToast: () => 0 }))
 
 const { DiagnosticsReviewBody } = await import("./src/components/diagnostics-review.tsx")
