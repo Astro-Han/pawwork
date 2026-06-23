@@ -406,6 +406,8 @@ describe("problem report", () => {
     const payload = parseProblemReportPayload(report.markdown)
     expect(payload.rendererError?.summary).toBe("large renderer error")
     expect(payload.rendererError?.details.length).toBeLessThan(details.length)
+    // The ledger reflects what the overall ladder removed too, not only the component-budget cut.
+    expect(payload.truncation.omittedRendererErrorBytes).toBeGreaterThan(0)
   })
 
   test("truncates renderer diagnostics events to honor max bytes", () => {
@@ -551,9 +553,11 @@ describe("problem report", () => {
         sessionExport: { status: "none" },
         truncation: {
           omittedMessages: 0,
+          omittedMessagePartsBytes: 0,
           omittedLogBytes: 0,
           omittedSessionInfoBytes: 0,
           omittedFailedExportErrorBytes: 0,
+          omittedRendererErrorBytes: 0,
           omittedRendererDiagnosticsBytes: 0,
           omittedDiagnosticsBytes: 0,
         },
@@ -580,9 +584,11 @@ describe("problem report", () => {
         sessionExport: { status: "none" },
         truncation: {
           omittedMessages: 0,
+          omittedMessagePartsBytes: 0,
           omittedLogBytes: 0,
           omittedSessionInfoBytes: 0,
           omittedFailedExportErrorBytes: 0,
+          omittedRendererErrorBytes: 0,
           omittedRendererDiagnosticsBytes: 0,
           omittedDiagnosticsBytes: 0,
         },
@@ -608,9 +614,11 @@ describe("problem report", () => {
         sessionExport: { status: "none" },
         truncation: {
           omittedMessages: 0,
+          omittedMessagePartsBytes: 0,
           omittedLogBytes: 0,
           omittedSessionInfoBytes: 0,
           omittedFailedExportErrorBytes: 0,
+          omittedRendererErrorBytes: 0,
           omittedRendererDiagnosticsBytes: 0,
           omittedDiagnosticsBytes: 0,
         },
@@ -634,9 +642,11 @@ describe("problem report", () => {
         sessionExport: { status: "none" },
         truncation: {
           omittedMessages: 0,
+          omittedMessagePartsBytes: 0,
           omittedLogBytes: 0,
           omittedSessionInfoBytes: 0,
           omittedFailedExportErrorBytes: 0,
+          omittedRendererErrorBytes: 0,
           omittedRendererDiagnosticsBytes: 0,
           omittedDiagnosticsBytes: 0,
         },
@@ -658,9 +668,11 @@ describe("problem report", () => {
         sessionExport: { status: "none" },
         truncation: {
           omittedMessages: 0,
+          omittedMessagePartsBytes: 0,
           omittedLogBytes: 0,
           omittedSessionInfoBytes: 0,
           omittedFailedExportErrorBytes: 0,
+          omittedRendererErrorBytes: 0,
           omittedRendererDiagnosticsBytes: 0,
           omittedDiagnosticsBytes: 0,
         },
@@ -669,5 +681,230 @@ describe("problem report", () => {
     ].join("\n")
 
     expect(() => parseProblemReportPayload(report)).toThrow("Problem report JSON block not found")
+  })
+})
+
+describe("component budgets", () => {
+  test("caps the log tail to its component budget even under a large overall limit", () => {
+    const lines = ["OLDEST_LINE", ...Array.from({ length: 500 }, (_, i) => `log line ${i}`), "NEWEST_LINE"]
+    const report = buildProblemReport(
+      { ...base, logTail: lines.join("\n") },
+      { budgets: { logTailBytes: 200 } },
+    )
+
+    const payload = parseProblemReportPayload(report.markdown)
+    expect(Buffer.byteLength(payload.logTail, "utf8")).toBeLessThanOrEqual(200)
+    expect(payload.truncation.omittedLogBytes).toBeGreaterThan(0)
+    // Keeps the most recent lines, drops the oldest.
+    expect(payload.logTail).toContain("NEWEST_LINE")
+    expect(payload.logTail).not.toContain("OLDEST_LINE")
+  })
+
+  test("drops oldest session messages to honor the session budget under a large overall limit", () => {
+    const messages = Array.from({ length: 30 }, (_, i) => ({
+      info: { id: `msg_${i}`, sessionID: "ses_1", role: "user", time: { created: i } },
+      parts: [
+        {
+          id: `p_${i}`,
+          sessionID: "ses_1",
+          messageID: `msg_${i}`,
+          type: "text",
+          text: `${i === 0 ? "OLDESTMSG " : i === 29 ? "NEWESTMSG " : ""}body ${"x".repeat(200)}`,
+        },
+      ],
+    }))
+    const report = buildProblemReport(
+      { ...base, sessionExport: { status: "ok", info: { id: "ses_1", title: "t" }, messages } },
+      { budgets: { sessionMessagesBytes: 1_500 } },
+    )
+
+    const payload = parseProblemReportPayload(report.markdown)
+    expect(payload.truncation.omittedMessages).toBeGreaterThan(0)
+    const kept = payload.sessionExport.status === "ok" ? JSON.stringify(payload.sessionExport.messages) : ""
+    expect(kept).toContain("NEWESTMSG")
+    expect(kept).not.toContain("OLDESTMSG")
+  })
+
+  test("trims parts of a single oversized message so one turn can't blow the session budget", () => {
+    const parts = Array.from({ length: 200 }, (_, i) => ({
+      id: `p_${i}`,
+      sessionID: "ses_1",
+      messageID: "msg_big",
+      type: "text",
+      text: `part ${i} ${"x".repeat(500)}`,
+    }))
+    const messages = [{ info: { id: "msg_big", sessionID: "ses_1", role: "assistant", time: { created: 1 } }, parts }]
+    const report = buildProblemReport(
+      { ...base, sessionExport: { status: "ok", info: { id: "ses_1", title: "t" }, messages } },
+      { budgets: { sessionMessageBytes: 4_000 } },
+    )
+
+    const payload = parseProblemReportPayload(report.markdown)
+    const kept = payload.sessionExport.status === "ok" ? payload.sessionExport.messages : []
+    expect(kept.length).toBe(1)
+    const message = kept[0] as { omittedParts?: number }
+    expect(message.omittedParts).toBeGreaterThan(0)
+    expect(Buffer.byteLength(JSON.stringify(message), "utf8")).toBeLessThanOrEqual(4_000)
+    // Keeps the earliest parts (the start of the turn).
+    expect(JSON.stringify(message)).toContain("part 0 ")
+    // The in-message trim is also reflected in the top-level ledger.
+    expect(payload.truncation.omittedMessagePartsBytes).toBeGreaterThan(0)
+  })
+
+  test("keeps the recent tail of an oversized log line that ends in a newline", () => {
+    const report = buildProblemReport(
+      { ...base, logTail: `${"X".repeat(2_000)}\n` },
+      { budgets: { logTailBytes: 1_000 } },
+    )
+
+    const payload = parseProblemReportPayload(report.markdown)
+    // A trailing newline must not collapse the result to an empty string; the recent bytes survive.
+    expect(payload.logTail.length).toBeGreaterThan(0)
+    expect(Buffer.byteLength(payload.logTail, "utf8")).toBeLessThanOrEqual(1_000)
+    expect(payload.truncation.omittedLogBytes).toBeGreaterThan(0)
+  })
+
+  test("bounds a single message with no parts but oversized info (true session cap)", () => {
+    const messages = [
+      {
+        info: { id: "msg_big", sessionID: "ses_1", role: "user", time: { created: 1, blob: "z".repeat(40_000) } },
+        parts: [],
+      },
+    ]
+    const report = buildProblemReport(
+      { ...base, sessionExport: { status: "ok", info: { id: "ses_1", title: "t" }, messages } },
+      { budgets: { sessionMessageBytes: 2_000, sessionMessagesBytes: 2_000 } },
+    )
+
+    const payload = parseProblemReportPayload(report.markdown)
+    const kept = payload.sessionExport.status === "ok" ? payload.sessionExport.messages : []
+    expect(Buffer.byteLength(JSON.stringify(kept), "utf8")).toBeLessThanOrEqual(2_000)
+    // The oversized info was reduced to a stub rather than smuggled past the budget.
+    expect(JSON.stringify(kept)).not.toContain("z".repeat(100))
+    expect((kept[0] as { oversized?: boolean }).oversized).toBe(true)
+  })
+
+  test("byte-caps the stub identity so an oversized id can't escape under default budgets", () => {
+    const messages = [
+      { info: { id: `msg_${"x".repeat(1_200_000)}`, sessionID: "ses_1", role: "user" }, parts: [{ type: "text", text: "b" }] },
+    ]
+    const report = buildProblemReport({
+      ...base,
+      sessionExport: { status: "ok", info: { id: "ses_1", title: "t" }, messages },
+    })
+
+    const payload = parseProblemReportPayload(report.markdown)
+    const kept = payload.sessionExport.status === "ok" ? payload.sessionExport.messages : []
+    // Even the stub's id is byte-capped, so the whole session stays well under the default budget.
+    expect(Buffer.byteLength(JSON.stringify(kept), "utf8")).toBeLessThanOrEqual(4_096)
+    expect((kept[0] as { oversized?: boolean }).oversized).toBe(true)
+  })
+
+  test("byte-bounds a single oversized log line without splitting a multibyte char", () => {
+    const report = buildProblemReport(
+      { ...base, logTail: "é".repeat(5_000) },
+      { budgets: { logTailBytes: 999 } },
+    )
+
+    const payload = parseProblemReportPayload(report.markdown)
+    expect(Buffer.byteLength(payload.logTail, "utf8")).toBeLessThanOrEqual(999)
+    expect(payload.logTail).not.toContain("�")
+    expect(payload.truncation.omittedLogBytes).toBeGreaterThan(0)
+  })
+
+  test("caps renderer error details to its component budget under a large overall limit", () => {
+    const details = "stack frame\n".repeat(10_000)
+    const report = buildProblemReport(
+      { ...base, rendererError: { summary: "boom", details } },
+      { budgets: { rendererErrorDetailsBytes: 1_024 } },
+    )
+
+    const payload = parseProblemReportPayload(report.markdown)
+    expect(payload.rendererError?.summary).toBe("boom")
+    expect(Buffer.byteLength(payload.rendererError?.details ?? "", "utf8")).toBeLessThanOrEqual(1_024)
+    expect(payload.truncation.omittedRendererErrorBytes).toBeGreaterThan(0)
+    // Keeps the head (error message + top of the stack), the useful part of an error.
+    expect(payload.rendererError?.details.startsWith("stack frame")).toBe(true)
+  })
+
+  test("caps an oversized renderer error summary, not just details", () => {
+    // summary derives from error.message, which an API error can balloon; it must be budgeted too.
+    const summary = `boom ${"S".repeat(50_000)}`
+    const report = buildProblemReport(
+      { ...base, rendererError: { summary, details: "short" } },
+      { budgets: { rendererErrorDetailsBytes: 1_024 } },
+    )
+
+    const payload = parseProblemReportPayload(report.markdown)
+    expect(Buffer.byteLength(payload.rendererError?.summary ?? "", "utf8")).toBeLessThanOrEqual(1_024)
+    expect(payload.rendererError?.summary.startsWith("boom ")).toBe(true)
+    expect(payload.truncation.omittedRendererErrorBytes).toBeGreaterThan(0)
+  })
+
+  test("ignores a non-finite budget override instead of disabling the cap", () => {
+    const lines = ["OLDEST_LINE", ...Array.from({ length: 500 }, (_, i) => `log line ${i}`), "NEWEST_LINE"]
+    const report = buildProblemReport(
+      { ...base, logTail: lines.join("\n") },
+      { budgets: { logTailBytes: Number.NaN } },
+    )
+
+    const payload = parseProblemReportPayload(report.markdown)
+    // NaN falls back to the 1 MB default, which leaves this small log untouched (no silent disable).
+    expect(payload.logTail).toContain("OLDEST_LINE")
+    expect(payload.logTail).toContain("NEWEST_LINE")
+    expect(payload.truncation.omittedLogBytes).toBe(0)
+  })
+
+  test("honors the session budget as a hard cap even when the newest message does not fit", () => {
+    const messages = Array.from({ length: 5 }, (_, i) => ({
+      info: { id: `msg_${i}`, sessionID: "ses_1", role: "user", time: { created: i } },
+      parts: [{ id: `p_${i}`, sessionID: "ses_1", messageID: `msg_${i}`, type: "text", text: `body ${i}` }],
+    }))
+    const report = buildProblemReport(
+      { ...base, sessionExport: { status: "ok", info: { id: "ses_1", title: "t" }, messages } },
+      // A near-zero session budget that even a single identity stub overflows.
+      { budgets: { sessionMessagesBytes: 10 } },
+    )
+
+    const payload = parseProblemReportPayload(report.markdown)
+    const kept = payload.sessionExport.status === "ok" ? payload.sessionExport.messages : []
+    // Hard cap: the message array fits the budget, dropping the newest rather than overflowing.
+    expect(Buffer.byteLength(JSON.stringify(kept), "utf8")).toBeLessThanOrEqual(10)
+    expect(payload.truncation.omittedMessages).toBe(5)
+  })
+
+  test("does not count part-trim bytes for a message the overall ladder later drops whole", () => {
+    const bigParts = Array.from({ length: 200 }, (_, i) => ({
+      id: `p_${i}`,
+      sessionID: "ses_1",
+      messageID: "msg_old",
+      type: "text",
+      text: `part ${i} ${"x".repeat(1000)}`,
+    }))
+    const messages = [
+      { info: { id: "msg_old", sessionID: "ses_1", role: "assistant", time: { created: 1 } }, parts: bigParts },
+      { info: { id: "msg_new", sessionID: "ses_1", role: "user", time: { created: 2 } }, parts: [{ type: "text", text: "hi" }] },
+    ]
+    const report = buildProblemReport(
+      { ...base, sessionExport: { status: "ok", info: { id: "ses_1", title: "t" }, messages } },
+      // The old message is part-trimmed (to 50 KB) but survives the session cap; a small overall maxBytes
+      // then drops it whole in the fallback ladder. Its trimmed bytes must not stay in the ledger.
+      { maxBytes: 10_000, budgets: { sessionMessageBytes: 50_000, sessionMessagesBytes: 500_000 } },
+    )
+
+    const payload = parseProblemReportPayload(report.markdown)
+    const kept = payload.sessionExport.status === "ok" ? payload.sessionExport.messages : []
+    expect(JSON.stringify(kept)).toContain("msg_new")
+    expect(JSON.stringify(kept)).not.toContain("msg_old")
+    expect(payload.truncation.omittedMessages).toBeGreaterThan(0)
+    // The dropped message's part-trim is not double-counted; the surviving message had no trim.
+    expect(payload.truncation.omittedMessagePartsBytes).toBe(0)
+  })
+
+  test("leaves a small report untouched under default budgets", () => {
+    const payload = parseProblemReportPayload(buildProblemReport(base).markdown)
+    expect(payload.truncation.omittedLogBytes).toBe(0)
+    expect(payload.truncation.omittedMessages).toBe(0)
+    expect(payload.truncation.omittedRendererErrorBytes).toBe(0)
   })
 })

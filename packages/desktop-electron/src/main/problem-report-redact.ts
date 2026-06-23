@@ -63,6 +63,34 @@ const SECRET_REPLACERS: Array<(value: string) => string> = [
       /-----BEGIN[A-Z0-9 ]{0,40}PRIVATE[A-Z0-9 ]{0,40}-----[\s\S]*?(?:-----END[A-Z0-9 ]{0,40}-----|$)/g,
       "[redacted-key]",
     ),
+  // Bare multi-line base64 block (the wrapped body of a PEM/PGP key). The BEGIN-keyed rule above only
+  // fires when the header is present, but a pre-redaction truncation of an unbounded log (logging.ts
+  // byte/line tail) can strand a key body without its BEGIN — leaving headerless base64 the rule misses.
+  // Matching the body shape directly is header-agnostic: it covers a body stranded after armor lines
+  // (PGP Version/Comment, encrypted-PEM Proc-Type/DEK-Info), with or without an END, and CRLF logs. The
+  // run is >= 2 WHOLE lines of only base64 (>= 16 chars each), so a single base64 line (a token/hash/id
+  // kept for diagnostics) and inline base64 (a quoted literal) are untouched. Every MATCHED line needs
+  // >= 16 chars so a trailing word ("done") is never eaten; the line-start anchor plus the per-line
+  // length floor keep it linear (no catastrophic backtracking on a long non-base64 run). This runs
+  // before the orphan-END rule so a long body is consumed here as one match, not chewed line by line.
+  (v) =>
+    v.replace(
+      /(^|\n)(?:[A-Za-z0-9+/]{16,}={0,2}\r?\n){1,}[A-Za-z0-9+/]{16,}={0,2}(?=\r?\n|$)/g,
+      "$1[redacted-key-body]",
+    ),
+  // Orphaned private-key END: the BEGIN rule consumed every complete BEGIN..END block, so a surviving
+  // "-----END ... PRIVATE ... -----" had its BEGIN truncated away. Redact the contiguous body above it
+  // through the END — this catches even a SINGLE stranded body line that the >= 2-line block rule misses
+  // (the END is the signal). The body can be preceding whole lines, a short final line, an optional PGP
+  // "=CRC" checksum line, and a same-physical-line base64 run right before the END (a log that serialized
+  // the key without a newline between body and END). Anchored at a line start with per-line length floors
+  // so it stays linear; only a PRIVATE END triggers it (a public CERTIFICATE body is not secret), and a
+  // real private-key END never follows unrelated base64, so the body match cannot eat legitimate content.
+  (v) =>
+    v.replace(
+      /(^|\n)(?:[A-Za-z0-9+/]{16,}={0,2}\r?\n)*(?:[A-Za-z0-9+/]{1,}={0,2}\r?\n)?(?:=[A-Za-z0-9+/]{1,6}\r?\n)?[ \t]*[A-Za-z0-9+/]*={0,2}[ \t]*-----END[A-Z0-9 ]{0,40}PRIVATE[A-Z0-9 ]{0,40}-----/g,
+      "$1[redacted-key]",
+    ),
   // URL basic-auth credentials. The username is optional ([^/@\s:]*) so `scheme://:pass@host` and
   // IP hosts are covered, not only `scheme://user:pass@host`. ONLY the scheme length is bounded
   // ([a-z0-9+.-]{0,40}): the scheme is unanchored, so an unbounded greedy run scans for "://" from

@@ -6,6 +6,14 @@ import type {
 } from "./renderer-diagnostics-types"
 import { jsonBytes } from "./renderer-diagnostics-sanitize"
 
+// A diagnostics package is usually prepared AFTER the problem, so a short backward window misses the
+// incident. Unscoped slices keep a moderate lookback to avoid pulling unrelated noise; scoped
+// (session/trace) slices use NO lower time bound — the identity filter already keeps only matching
+// events, and retention (events older than ~24h are already off disk) plus maxBytes/capEvents bound
+// the result, so a session's incident from hours ago is still included.
+const SLICE_LOOKBACK_MS = 30 * 60 * 1000
+const SLICE_FORWARD_MS = 60 * 1000
+
 export function eventTime(event: RendererDiagnosticEvent) {
   const time = Date.parse(event.time)
   return Number.isFinite(time) ? time : 0
@@ -86,8 +94,9 @@ export function selectRendererDiagnosticsSlice(
   input: InternalSliceInput,
 ): RendererDiagnosticsSlice {
   const windowID = input.windowID === undefined ? undefined : String(input.windowID)
-  const from = input.from?.getTime() ?? input.now.getTime() - 5 * 60 * 1000
-  const to = input.to?.getTime() ?? input.now.getTime() + 60 * 1000
+  const scoped = Boolean(input.sessionID || input.traceID)
+  const from = input.from?.getTime() ?? (scoped ? Number.NEGATIVE_INFINITY : input.now.getTime() - SLICE_LOOKBACK_MS)
+  const to = input.to?.getTime() ?? input.now.getTime() + SLICE_FORWARD_MS
   const events = inputEvents
     .filter((event) => {
       const time = eventTime(event)

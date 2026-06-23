@@ -139,6 +139,91 @@ describe("makeRedactor", () => {
     expect(redact("url https://:plainsecretvalue@127.0.0.1/api")).not.toContain("plainsecretvalue")
   })
 
+  test("redacts a bare multi-line base64 key body whose BEGIN header was truncated away", () => {
+    // A pre-redaction log tail can strand a key body without its header; the body-shape rule catches it.
+    const body = Array.from({ length: 8 }, () => "MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7AgEAAkEAq2u3").join("\n")
+    const out = redact(`some log line\n${body}\nmore log`)
+    expect(out).not.toContain("MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7AgEAAkEAq2u3")
+    expect(out).toContain("[redacted-key-body]")
+    expect(out).toContain("some log line")
+    expect(out).toContain("more log")
+  })
+
+  test("redacts a stranded key body after PGP armor / encrypted-PEM header lines", () => {
+    // Header-agnostic: the body rule matches the base64 directly, so Version/Proc-Type lines don't shield it.
+    const body = Array.from({ length: 8 }, () => "lQOYBFB2k3IBCADHmQE7AgEAAkEAq2u3MIIBVQIBADANBgkqhkiG9w0").join("\n")
+    const pgp = redact(`Version: GnuPG v2\nComment: a comment\n\n${body}`)
+    expect(pgp).toContain("[redacted-key-body]")
+    expect(pgp).not.toContain("lQOYBFB2k3IBCADHmQE7AgEAAkEAq2u3MIIBVQIBADANBgkqhkiG9w0")
+    const enc = redact(`Proc-Type: 4,ENCRYPTED\nDEK-Info: AES-256-CBC,FEED\n\n${body}`)
+    expect(enc).toContain("[redacted-key-body]")
+  })
+
+  test("redacts a CRLF base64 key body", () => {
+    const body = Array.from({ length: 8 }, () => "MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7AgEAAkEAq2u3").join("\r\n")
+    expect(redact(body)).toContain("[redacted-key-body]")
+  })
+
+  test("redacts a single stranded body line terminated by an orphaned private-key END", () => {
+    // BEGIN truncated away, only one full body line + a short line + END survive: the END signals a key,
+    // so the body is redacted even though the multi-line block rule alone would not fire on one line.
+    const full = "MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7AgEAAkEAq2u3"
+    const out = redact([full, "AQAB", "-----END RSA PRIVATE KEY-----"].join("\n"))
+    expect(out).toContain("[redacted-key]")
+    expect(out).not.toContain(full)
+    // A public certificate END is not a secret marker — its body is left intact.
+    const cert = redact(["aGVsbG8gd29ybGQgZm9vYmFyYmF6", "-----END CERTIFICATE-----"].join("\n"))
+    expect(cert).toContain("aGVsbG8gd29ybGQgZm9vYmFyYmF6")
+  })
+
+  test("redacts a body and END that share one physical line (newline-stripped serialization)", () => {
+    const body = "MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7AgEAAkEAq2u3"
+    const out = redact(`${body}-----END RSA PRIVATE KEY-----`)
+    expect(out).toContain("[redacted-key]")
+    expect(out).not.toContain(body)
+  })
+
+  test("redacts a stranded PGP body whose END is preceded by a =CRC checksum line", () => {
+    // ASCII-armored PGP keys end the body with a "=<4 base64 chars>" CRC-24 line before the END.
+    // That line starts with "=", so the body/short-line groups can't traverse it; the rule must hop it.
+    const body = "MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7AgEAAkEAq2u3"
+    const out = redact([body, "=aBcD", "-----END PGP PRIVATE KEY BLOCK-----"].join("\n"))
+    expect(out).toContain("[redacted-key]")
+    expect(out).not.toContain(body)
+    // Armor headers above the body are not secret and stay; everything from the body through END goes.
+    const armored = redact(
+      ["Version: GnuPG v2", "", body, "=aBcD", "-----END PGP PRIVATE KEY BLOCK-----"].join("\n"),
+    )
+    expect(armored).toContain("Version: GnuPG v2")
+    expect(armored).toContain("[redacted-key]")
+    expect(armored).not.toContain(body)
+  })
+
+  test("redacts full body lines even when the last line is short (e.g. the AQAB exponent)", () => {
+    // A PEM body's final line is usually < 16 chars; it must not prevent matching the full lines above it.
+    const full = "MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7AgEAAkEAq2u3"
+    const out = redact([full, full, full, "AQAB"].join("\n"))
+    expect(out).toContain("[redacted-key-body]")
+    expect(out).not.toContain(full)
+  })
+
+  test("does not redact a single base64 line or inline base64 (a kept token/hash stays diagnostic)", () => {
+    // One base64 line is a token/id/hash; only a multi-line block is treated as a key body.
+    const inline = "id MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7 done"
+    expect(redact(inline)).toBe(inline)
+    const single = "MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7AgEAAkEAq2u3"
+    expect(redact(single)).toBe(single)
+    // A following plain word is not swallowed into the block.
+    expect(redact([single, single, "done note"].join("\n"))).toContain("done note")
+  })
+
+  test("does not backtrack on a long unbroken base64 run (no ReDoS)", () => {
+    const huge = "A".repeat(300_000)
+    const start = performance.now()
+    redact(huge)
+    expect(performance.now() - start).toBeLessThan(1_000)
+  })
+
   test("redacts an over-long basic-auth password to an IP host (no length cap on the credential)", () => {
     const longPass = "S".repeat(300)
     expect(redact(`url https://user:${longPass}@127.0.0.1/api`)).not.toContain(longPass)
@@ -464,6 +549,8 @@ describe("sanitizeSessionInfo", () => {
 
 describe("buildProblemReport redaction gate", () => {
   test("the full uploaded report contains no seeded secret, path, username, or email", () => {
+    // A private-key body whose BEGIN header was stranded outside a pre-redaction log-tail truncation.
+    const strandedKeyBody = "MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7AgEAAkEAq2u3leiyKeyBody"
     const logTail = [
       `anthropic ${TOKENS.anthropic}`,
       `aws ${TOKENS.aws} google ${TOKENS.google}`,
@@ -475,6 +562,10 @@ describe("buildProblemReport redaction gate", () => {
       `url https://${USERNAME}:${TOKENS.basicPass}@internal.example.com/api`,
       `email ${EMAIL}`,
       `paths ${Object.values(PATHS).join(" ")}`,
+      strandedKeyBody,
+      strandedKeyBody,
+      strandedKeyBody,
+      strandedKeyBody,
     ].join("\n")
 
     const report = buildProblemReport(
@@ -553,6 +644,8 @@ describe("buildProblemReport redaction gate", () => {
     for (const sample of samples) {
       expect(report.markdown, sample).not.toContain(sample)
     }
+    // A bare key body stranded in the log tail (header truncated away) is scrubbed end-to-end.
+    expect(report.markdown).not.toContain(strandedKeyBody)
     // The rogue rendererError field was dropped, not carried through.
     expect(report.markdown).not.toContain("extra-field-secret-7f3a")
     // The renderer summary (not just events) is scrubbed.
