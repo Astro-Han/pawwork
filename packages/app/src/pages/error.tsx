@@ -107,6 +107,8 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
       .catch(async () => {
         const copied = await copyCurrentErrorDetails()
         setStore({
+          // Clear any prior successful review so a failed re-prepare can't leave stale content visible.
+          review: undefined,
           actionError: copied ? undefined : language.t("error.page.report.failed"),
           actionMessage: copied ? language.t("error.page.report.copiedFallback") : undefined,
         })

@@ -97,14 +97,19 @@ export function DiagnosticsReviewBody(props: {
   const [fallback, setFallback] = createSignal<{ feedbackUrl: string; summary: string }>()
   const [copied, setCopied] = createSignal(false)
   const [stale, setStale] = createSignal(false)
+  const [failed, setFailed] = createSignal(false)
 
   const reveal = () => {
-    void props.platform.revealReport?.(props.result.reportId)
+    // revealReport resolves once the OS handler is asked to open; an IPC-layer rejection must not become
+    // an unhandled rejection — surface a recoverable notice and keep the dialog open.
+    setFailed(false)
+    void props.platform.revealReport?.(props.result.reportId)?.catch(() => setFailed(true))
   }
 
   const submit = async () => {
     if (submitting()) return
     setSubmitting(true)
+    setFailed(false)
     try {
       const result = await props.platform.submitReport?.(props.result.reportId)
       if (result?.status === "form-fallback") {
@@ -118,6 +123,9 @@ export function DiagnosticsReviewBody(props: {
         return
       }
       props.onDone()
+    } catch {
+      // IPC rejected — keep the dialog open with a recoverable notice rather than failing silently.
+      setFailed(true)
     } finally {
       setSubmitting(false)
     }
@@ -151,6 +159,9 @@ export function DiagnosticsReviewBody(props: {
           <div class="flex flex-col gap-2.5">
             <Show when={stale()}>
               <p class="text-body text-error leading-relaxed">{t("diagnostics.review.stale")}</p>
+            </Show>
+            <Show when={failed()}>
+              <p class="text-body text-error leading-relaxed">{t("diagnostics.review.actionFailed")}</p>
             </Show>
             <div class="flex justify-end gap-2">
               <Show when={props.result.hasForm} fallback={<Button variant="ghost" onClick={() => props.onDone()}>{t("diagnostics.review.action.done")}</Button>}>

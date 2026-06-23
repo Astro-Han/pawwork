@@ -264,6 +264,26 @@ describe("prepareReport", () => {
     expect(runs).toBe(2)
   })
 
+  test("does not share an in-flight run across different contexts", async () => {
+    let runs = 0
+    const subject = setup({
+      diagnostics: () => {
+        runs += 1
+        return diagnostics
+      },
+    })
+    // A manual prepare and an error-triggered prepare fired concurrently must each run: sharing
+    // the in-flight promise would hand one context the other's package (wrong reportId to reveal/submit).
+    const [a, b] = await Promise.all([
+      subject.handler.prepareReport(),
+      subject.handler.prepareReport({ rendererError: { summary: "boom", details: "x" } }),
+    ])
+    expect(runs).toBe(2)
+    if (a.status !== "ready" || b.status !== "ready") throw new Error("expected ready")
+    expect(a.contents.rendererError).toBe(false)
+    expect(b.contents.rendererError).toBe(true)
+  })
+
   test("passes the IPC sender window override to the context snapshot", async () => {
     let receivedOverride: unknown
     const subject = setup({

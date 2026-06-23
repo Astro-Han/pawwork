@@ -559,6 +559,7 @@ export const dict = {
   "diagnostics.review.formFallback.copy": "Copy summary",
   "diagnostics.review.formFallback.copied": "Copied",
   "diagnostics.review.stale": "This package was replaced by a newer one. Close this and prepare it again.",
+  "diagnostics.review.actionFailed": "Something went wrong. Please try again.",
   "diagnostics.review.prepareFailed": "Couldn't prepare the diagnostics package.",
   "error.page.version": "Version: {{version}}",
 

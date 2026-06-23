@@ -161,7 +161,7 @@ async function rendererDiagnosticsWithTimeout(deps: FeedbackDeps, context: unkno
 }
 
 export function createFeedbackHandler(deps: FeedbackDeps): FeedbackHandler {
-  let inFlight: Promise<PrepareReportResult> | undefined
+  let inFlight: { windowID?: number; rendererErrorKey: string; promise: Promise<PrepareReportResult> } | undefined
   let pending: PendingReport | undefined
 
   async function runPrepareReport(
@@ -275,8 +275,15 @@ export function createFeedbackHandler(deps: FeedbackDeps): FeedbackHandler {
     input: FeedbackInput = {},
     contextOverride?: FeedbackContextOverride,
   ): Promise<PrepareReportResult> {
-    if (inFlight) return inFlight
-    const next = runPrepareReport(input, contextOverride)
+    // Dedupe only a re-entrant prepare for the SAME context (a rapid double-trigger from one window with
+    // the same error). A different window or a different renderer error must get its OWN package — never
+    // the in-flight one's reportId, or it could reveal/submit diagnostics generated from the wrong context.
+    const windowID = contextOverride?.windowID
+    const rendererErrorKey = JSON.stringify(input.rendererError ?? null)
+    if (inFlight && inFlight.windowID === windowID && inFlight.rendererErrorKey === rendererErrorKey) {
+      return inFlight.promise
+    }
+    const promise = runPrepareReport(input, contextOverride)
       .catch(async (error) => {
         try {
           await deps.onError?.(error)
@@ -286,10 +293,10 @@ export function createFeedbackHandler(deps: FeedbackDeps): FeedbackHandler {
         return { status: "failed", reason: "report_failed", summary: "" } satisfies PrepareReportResult
       })
       .finally(() => {
-        inFlight = undefined
+        if (inFlight?.promise === promise) inFlight = undefined
       })
-    inFlight = next
-    return next
+    inFlight = { windowID, rendererErrorKey, promise }
+    return promise
   }
 
   async function revealReport(reportId: string): Promise<void> {

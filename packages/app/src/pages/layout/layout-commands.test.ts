@@ -11,6 +11,7 @@ function layoutCommandCatalog(input?: {
   canSwitchColorScheme?: boolean
   canOpenFiles?: boolean
   canMoveSession?: boolean
+  canPrepareDiagnostics?: boolean
 }) {
   let catalog: CommandOption[] = []
   registerLayoutCommands({
@@ -68,6 +69,7 @@ function layoutCommandCatalog(input?: {
     },
     diagnosticsActions: {
       prepare: () => undefined,
+      canPrepare: () => input?.canPrepareDiagnostics ?? true,
     },
   })
   return catalog
@@ -134,6 +136,7 @@ describe("registerLayoutCommands", () => {
       canSwitchColorScheme: false,
       canOpenFiles: false,
       canMoveSession: false,
+      canPrepareDiagnostics: false,
     })
 
     expect(catalog.find((command) => command.id === "settings.openGlobalConfigFolder")?.disabled).toBe(true)
@@ -149,5 +152,8 @@ describe("registerLayoutCommands", () => {
     expect(catalog.find((command) => command.id === "session.previous.unseen")?.disabled).toBe(true)
     expect(catalog.find((command) => command.id === "session.next.unseen")?.disabled).toBe(true)
     expect(catalog.some((command) => command.id.startsWith("theme.scheme."))).toBe(false)
+    // Non-desktop hosts have no prepareReport bridge, so the diagnostics entry
+    // stays visible but disabled rather than firing a no-op.
+    expect(catalog.find((command) => command.id === "diagnostics.prepare")?.disabled).toBe(true)
   })
 })

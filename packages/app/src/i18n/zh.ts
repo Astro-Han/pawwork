@@ -535,6 +535,7 @@ export const dict = {
   "diagnostics.review.formFallback.copy": "复制摘要",
   "diagnostics.review.formFallback.copied": "已复制",
   "diagnostics.review.stale": "这个诊断包已被新的准备结果替换。请关闭后重新准备。",
+  "diagnostics.review.actionFailed": "出了点问题,请重试。",
   "diagnostics.review.prepareFailed": "无法准备诊断包。",
   "error.page.version": "版本：{{version}}",
   "error.dev.rootNotFound": "未找到根元素。你是不是忘了把它添加到 index.html？或者 id 属性拼写错了？",

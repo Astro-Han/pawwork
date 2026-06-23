@@ -1019,6 +1019,7 @@ export default function Layout(props: ParentProps) {
     },
     diagnosticsActions: {
       prepare: () => void openDiagnosticsReview({ platform, dialog, language }),
+      canPrepare: () => Boolean(platform.prepareReport),
     },
   })
 

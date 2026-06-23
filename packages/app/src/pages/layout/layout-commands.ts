@@ -50,6 +50,7 @@ type LayoutCommandRegistration = {
   diagnosticsActions: {
     // Prepare the diagnostics package and open its review (also the Help-menu entry).
     prepare: () => void
+    canPrepare: Accessor<boolean>
   }
 }
 
@@ -189,6 +190,7 @@ export function registerLayoutCommands(input: LayoutCommandRegistration) {
         id: "diagnostics.prepare",
         title: copy.t("command.diagnostics.prepare"),
         category: copy.t("command.category.help"),
+        disabled: !diagnosticsActions.canPrepare(),
         onSelect: () => diagnosticsActions.prepare(),
       },
       {
