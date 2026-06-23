@@ -1,7 +1,6 @@
 import { Show, createSignal } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
-import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
 import type { useDialog } from "@opencode-ai/ui/context/dialog"
 import type { useLanguage } from "@/context/language"
@@ -15,10 +14,10 @@ type DialogControl = Pick<ReturnType<typeof useDialog>, "show" | "close">
 
 function Row(props: { label: string; value?: string }) {
   return (
-    <div class="flex items-baseline justify-between gap-4 py-1.5 border-b border-border last:border-b-0">
-      <span class="text-body text-fg-weak">{props.label}</span>
+    <div class="flex items-baseline justify-between gap-4">
+      <span class="text-body text-fg-base">{props.label}</span>
       <Show when={props.value}>
-        <span class="text-body text-fg-strong tabular-nums">{props.value}</span>
+        <span class="text-body text-fg-weak tabular-nums">{props.value}</span>
       </Show>
     </div>
   )
@@ -28,7 +27,7 @@ function ContentsList(props: { result: ReadyReport; language: Language }) {
   const t = props.language.t
   const c = () => props.result.contents
   return (
-    <div class="flex flex-col">
+    <div class="flex flex-col gap-2 rounded-lg bg-fg-base/[0.035] px-3.5 py-3">
       <Row label={t("diagnostics.review.contents.environment")} />
       <Show when={c().logLines !== null}>
         <Row label={t("diagnostics.review.contents.logs")} value={t("diagnostics.review.contents.logs.value", { count: c().logLines ?? 0 })} />
@@ -111,14 +110,9 @@ export function DiagnosticsReviewBody(props: {
     <div class="flex flex-col gap-3.5 px-5 pb-5">
       <ContentsList result={props.result} language={props.language} />
 
-      <div class="flex items-start gap-2.5">
-        <span class="mt-0.5 shrink-0">
-          <Icon name="lock" class="text-fg-weak" />
-        </span>
-        <p class="text-body text-fg-weak leading-relaxed">
-          {t(props.result.hasForm ? "diagnostics.review.notice.upload" : "diagnostics.review.notice.share")}
-        </p>
-      </div>
+      <p class="text-body text-fg-weak leading-relaxed">
+        {t(props.result.hasForm ? "diagnostics.review.notice.upload" : "diagnostics.review.notice.share")}
+      </p>
 
       <Show
         when={fallback()}
@@ -137,7 +131,6 @@ export function DiagnosticsReviewBody(props: {
                 </Button>
               </Show>
               <Button variant={props.result.hasForm ? "secondary" : "primary"} onClick={reveal}>
-                <Icon name="folder" />
                 {t("diagnostics.review.action.reveal")}
               </Button>
               <Show when={props.result.hasForm}>
