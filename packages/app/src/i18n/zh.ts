@@ -192,6 +192,13 @@ export const dict = {
   "provider.connect.toast.connected.description": "现在可以使用 {{provider}} 模型了。",
   "provider.connect.toast.connected.deferredDescription": "{{provider}} 已连接。模型刷新会在当前任务结束后完成。",
 
+  "provider.fetchModels.action": "拉取模型",
+  "provider.fetchModels.loading": "拉取中…",
+  "provider.fetchModels.toast.added.title": "模型已更新",
+  "provider.fetchModels.toast.added.description": "新增 {{added}} 个模型，跳过 {{skipped}} 个已有。",
+  "provider.fetchModels.toast.none.title": "没有新模型",
+  "provider.fetchModels.toast.none.description": "{{provider}} 没有返回已列出之外的模型。",
+
   "provider.custom.title": "自定义提供商",
   "provider.custom.description.prefix": "配置与 OpenAI 兼容的提供商。请查看",
   "provider.custom.description.link": "提供商配置文档",

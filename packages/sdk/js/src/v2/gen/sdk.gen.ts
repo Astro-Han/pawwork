@@ -120,6 +120,8 @@ import type {
   ProjectUpdateErrors,
   ProjectUpdateResponses,
   ProviderAuthResponses,
+  ProviderFetchModelsErrors,
+  ProviderFetchModelsResponses,
   ProviderListResponses,
   ProviderOauthAuthorizeErrors,
   ProviderOauthAuthorizeResponses,
@@ -3477,6 +3479,40 @@ export class Provider extends HeyApiClient {
         ...params.headers,
       },
     })
+  }
+
+  /**
+   * Fetch provider models
+   *
+   * Discover an OpenAI-compatible provider's models live from its /models endpoint using the provider's configured base URL, auth, and headers. Returns the parsed list without persisting it.
+   */
+  public fetchModels<ThrowOnError extends boolean = false>(
+    parameters: {
+      providerID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "providerID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ProviderFetchModelsResponses, ProviderFetchModelsErrors, ThrowOnError>(
+      {
+        url: "/provider/{providerID}/models",
+        ...options,
+        ...params,
+      },
+    )
   }
 
   private _oauth?: Oauth

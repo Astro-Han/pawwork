@@ -1,6 +1,8 @@
 import { Effect } from "effect"
 import { mapValues } from "remeda"
+import { Auth } from "../../auth"
 import { Config } from "../../config/config"
+import { FetchModels } from "../../provider/fetch-models"
 import { ModelState } from "../../provider/model-state"
 import { ModelsDev } from "../../provider/models"
 import { withPawWorkProviders } from "../../provider/pawwork-providers"
@@ -64,4 +66,66 @@ export const completeProviderAuth = Effect.fn("ProviderHttpApi.oauth.callback")(
 export const recordRecentModel = Effect.fn("ProviderHttpApi.recent.record")(function* (input: ModelState.ModelRef) {
   const modelState = yield* ModelState.Service
   yield* modelState.recordRecent(input)
+})
+
+export type FetchProviderModelsResult =
+  | { ok: true; models: FetchModels.Parsed[] }
+  | { ok: false; status: number; message: string }
+
+// Live-discover an OpenAI-compatible provider's models by calling its `/models` endpoint with the
+// provider's already-configured base URL + auth + headers. The base URL comes from the user's config
+// override when present, otherwise the models.dev catalog entry (so connected providers like Kilo
+// Gateway work without re-entering anything). This only reads and returns the parsed list; persisting
+// the chosen additions is the app's job (merge into config.provider.<id>.models). Issue #1463.
+export const fetchProviderModels = Effect.fn("ProviderHttpApi.models.fetch")(function* (input: {
+  providerID: ProviderID
+}) {
+  const config = yield* Config.Service
+  const auth = yield* Auth.Service
+  const modelsDev = yield* ModelsDev.Service
+
+  const [configInfo, authInfo, modelsDevProviders] = yield* Effect.all(
+    [
+      config.get(),
+      auth.get(input.providerID).pipe(Effect.orElseSucceed(() => undefined)),
+      modelsDev.data().pipe(Effect.orElseSucceed(() => ({}) as Record<string, ModelsDev.Provider>)),
+    ],
+    { concurrency: "unbounded" },
+  )
+
+  const catalog = withPawWorkProviders(modelsDevProviders)[input.providerID]
+  const resolved = FetchModels.request({
+    configOptions: configInfo.provider?.[input.providerID]?.options,
+    authKey: authInfo?.type === "api" ? authInfo.key : undefined,
+    catalogBaseURL: catalog?.api,
+  })
+  if (!resolved) {
+    return { ok: false as const, status: 400, message: "No base URL configured for this provider" }
+  }
+  const { baseURL, headers } = resolved
+
+  return yield* Effect.promise(async (): Promise<FetchProviderModelsResult> => {
+    try {
+      const response = await fetch(FetchModels.endpoint(baseURL), { headers, signal: AbortSignal.timeout(10_000) })
+      if (!response.ok) {
+        return {
+          ok: false,
+          status: response.status,
+          message: `Provider returned ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`,
+        }
+      }
+      let json: unknown
+      try {
+        json = await response.json()
+      } catch {
+        return { ok: false, status: 502, message: "Provider returned a non-JSON response" }
+      }
+      return { ok: true, models: FetchModels.parse(json) }
+    } catch (error) {
+      if (error instanceof Error && error.name === "TimeoutError") {
+        return { ok: false, status: 504, message: "Request timed out" }
+      }
+      return { ok: false, status: 502, message: error instanceof Error ? error.message : "Request failed" }
+    }
+  })
 })

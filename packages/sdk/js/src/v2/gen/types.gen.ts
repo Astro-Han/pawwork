@@ -2177,6 +2177,13 @@ export type ProviderAuthAuthorization = {
 }
 
 /**
+ * Failed to reach or parse the provider's models endpoint.
+ */
+export type FetchModelsError = {
+  message: string
+}
+
+/**
  * Invalid PawWork memory file
  */
 export type InvalidMemoryFileError = {
@@ -5879,6 +5886,41 @@ export type ProviderRecordRecentResponses = {
 }
 
 export type ProviderRecordRecentResponse = ProviderRecordRecentResponses[keyof ProviderRecordRecentResponses]
+
+export type ProviderFetchModelsData = {
+  body?: never
+  path: {
+    providerID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider/{providerID}/models"
+}
+
+export type ProviderFetchModelsErrors = {
+  /**
+   * Failed to reach or parse the provider's models endpoint.
+   */
+  400: FetchModelsError
+}
+
+export type ProviderFetchModelsError = ProviderFetchModelsErrors[keyof ProviderFetchModelsErrors]
+
+export type ProviderFetchModelsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    models: Array<{
+      id: string
+      name: string
+    }>
+  }
+}
+
+export type ProviderFetchModelsResponse = ProviderFetchModelsResponses[keyof ProviderFetchModelsResponses]
 
 export type MemoryGetData = {
   body?: never
