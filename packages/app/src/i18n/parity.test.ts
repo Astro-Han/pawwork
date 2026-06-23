@@ -51,7 +51,9 @@ describe("i18n parity", () => {
     }
     for (const dict of [en, zh]) {
       const formatted = formatServerError(providerError, translatorFor(dict))
-      expect(formatted).toBe("unknown_error: Insufficient Balance")
+      // The human reason, verbatim — not "unknown_error: ..." and not a localized
+      // fallback.
+      expect(formatted).toBe("Insufficient Balance")
       // Guard against silent regression to the old generic fallback.
       expect(formatted).not.toBe(dict["error.chain.unknown"])
     }
