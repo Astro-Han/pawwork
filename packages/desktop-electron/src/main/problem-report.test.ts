@@ -456,6 +456,59 @@ describe("problem report", () => {
     expect(payload.truncation.omittedRendererDiagnosticsBytes).toBeGreaterThan(0)
   })
 
+  test("drains all-protected renderer diagnostics to fit a tight max bytes (no throw)", () => {
+    const incident = {
+      ...base.rendererDiagnostics.events[0],
+      "event.name": "incident.session_timeline_remount",
+      data: { mount_count: 2, unmount_count: 1, note: "x".repeat(200) },
+    }
+    const report = buildProblemReport(
+      {
+        ...base,
+        logTail: "",
+        sessionExport: { status: "none" },
+        rendererDiagnostics: {
+          ...base.rendererDiagnostics,
+          events: Array.from({ length: 40 }, (_, index) => ({ ...incident, trace_id: `inc_${index}` })),
+          summary: { ...base.rendererDiagnostics.summary, event_count: 40, incident_count: 40 },
+        },
+      },
+      { maxBytes: 5_000 },
+    )
+
+    // Every event is a protected incident, yet the slice still drains to fit. The old fallback broke on
+    // the first protected event, so the report would have exceeded maxBytes (or thrown) here.
+    expect(Buffer.byteLength(report.markdown, "utf8")).toBeLessThanOrEqual(5_000)
+    const payload = parseProblemReportPayload(report.markdown)
+    expect(payload.rendererDiagnostics?.status).toBe("truncated")
+    expect(payload.rendererDiagnostics?.summary.omitted_event_count).toBeGreaterThan(0)
+    expect(payload.truncation.omittedRendererDiagnosticsBytes).toBeGreaterThan(0)
+  })
+
+  test("re-bounds oversized renderer diagnostics to the component budget below the overall limit", () => {
+    // 1.2 MB of events — over the 1 MB renderer-diagnostics component budget but well under the 5 MB
+    // overall limit, so only the component cap (not the overall ladder) can have trimmed them.
+    const big = {
+      ...base.rendererDiagnostics.events[0],
+      data: { action: "submit", endpoint_kind: "prompt", blob: "x".repeat(20_000) },
+    }
+    const report = buildProblemReport({
+      ...base,
+      rendererDiagnostics: {
+        ...base.rendererDiagnostics,
+        events: Array.from({ length: 60 }, (_, index) => ({ ...big, trace_id: `e_${index}` })),
+        summary: { ...base.rendererDiagnostics.summary, event_count: 60 },
+      },
+    })
+
+    const payload = parseProblemReportPayload(report.markdown)
+    expect(payload.truncation.omittedRendererDiagnosticsBytes).toBeGreaterThan(0)
+    expect(payload.rendererDiagnostics?.summary.omitted_event_count).toBeGreaterThan(0)
+    expect(Buffer.byteLength(JSON.stringify(payload.rendererDiagnostics?.events ?? []), "utf8")).toBeLessThanOrEqual(
+      1024 * 1024,
+    )
+  })
+
   test("sanitizes non-json session export values", () => {
     const circular: Record<string, unknown> = { id: "root" }
     circular.self = circular

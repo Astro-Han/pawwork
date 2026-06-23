@@ -2,6 +2,7 @@
 // Default full report payload limit: 5 MB.
 import type { RendererErrorDetails } from "@opencode-ai/app/desktop-api"
 import type { RendererDiagnosticEvent, RendererDiagnosticsSlice } from "./renderer-diagnostics"
+import { capEvents, SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES } from "./renderer-diagnostics"
 import {
   type JsonValue,
   makeRedactor,
@@ -17,11 +18,11 @@ export const DEFAULT_PROBLEM_REPORT_MAX_BYTES = 5 * 1024 * 1024
 // Per-component byte budgets. Each source is bounded independently so one component (a giant log, a
 // long session, a huge renderer stack) can't fill the whole report and crowd out the rest. They sum
 // to well under DEFAULT_PROBLEM_REPORT_MAX_BYTES, leaving the overall maxBytes ladder below as a
-// final fallback rather than the primary bound. (Renderer diagnostics carry their own upstream byte
-// cap when the slice is built, so they are budgeted at the source, not here.)
+// final fallback rather than the primary bound.
 // Fixed, not configurable — there is no production caller that would tune these, so they are not a
 // public API surface. The capping logic is exercised in tests by calling the pure cap helpers
-// (capLogTailBytes / capMessageParts / capSessionMessagesBytes / headBytes) directly with small limits.
+// (capLogTailBytes / capMessageParts / capSessionMessagesBytes / headBytes / capEvents) directly with
+// small limits.
 const COMPONENT_BUDGETS = {
   logTailBytes: 1 * 1024 * 1024,
   sessionMessagesBytes: 1 * 1024 * 1024,
@@ -30,6 +31,9 @@ const COMPONENT_BUDGETS = {
   // Per renderer-error text field. Bounds BOTH summary and details: summary derives from
   // error.message, which an API error can balloon, so capping only details would leave a hole.
   rendererErrorDetailsBytes: 64 * 1024,
+  // Renderer diagnostics are byte-capped at the source (when the slice is built), but redaction here
+  // can re-expand them, so re-bound to the same ceiling after redaction — same capEvents() ruler.
+  rendererDiagnosticsBytes: SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
 }
 
 const SUMMARY_ERROR_LINE_MAX_CHARS = 220
@@ -313,10 +317,6 @@ function redactRendererDiagnostics(slice: RendererDiagnosticsSlice, redact: Reda
   }
 }
 
-function isProtectedRendererDiagnosticEvent(event: RendererDiagnosticEvent) {
-  return event["event.name"].startsWith("incident.") || event["event.name"] === "session.identity.transition"
-}
-
 function withRendererDiagnosticsEvents(
   rendererDiagnostics: RendererDiagnosticsSlice,
   events: RendererDiagnosticEvent[],
@@ -384,6 +384,9 @@ export function buildProblemReport(input: Input, options: Options = {}) {
   let rendererDiagnostics = input.rendererDiagnostics
     ? redactRendererDiagnostics(input.rendererDiagnostics, redact)
     : undefined
+  // Immutable post-redaction baseline. Every renderer-diagnostics cap (the component budget below and
+  // the overall ladder) re-derives from this, so the omitted ledger stays correct across stages.
+  const redactedRendererDiagnostics = rendererDiagnostics
   let rendererError = input.rendererError
     ? // Construct from the two known fields only — never spread the IPC input, which is untyped at
       // the boundary and could carry extra unredacted fields. Each field is coerced through the
@@ -406,12 +409,25 @@ export function buildProblemReport(input: Input, options: Options = {}) {
   let omittedRendererDiagnosticsBytes = 0
   let omittedDiagnosticsBytes = 0
 
+  // Bound the renderer-diagnostics events to a byte budget using the same capEvents() as the source
+  // slice (drops non-incident events first, then incidents only if a single payload still overflows).
+  // Re-derives from the redacted baseline each call, so it is idempotent across the component-budget
+  // pass and the overall ladder, and the omitted ledger always reflects the total dropped from baseline.
+  const baselineRendererEvents = redactedRendererDiagnostics?.events ?? []
+  const baselineRendererEventsBytes = jsonBytes(baselineRendererEvents)
+  const capRendererDiagnostics = (maxEventBytes: number) => {
+    if (!redactedRendererDiagnostics) return
+    const capped = capEvents(baselineRendererEvents, maxEventBytes)
+    omittedRendererDiagnosticsBytes = Math.max(0, baselineRendererEventsBytes - jsonBytes(capped.events))
+    rendererDiagnostics =
+      capped.omittedEventCount > 0
+        ? withRendererDiagnosticsEvents(redactedRendererDiagnostics, capped.events, omittedRendererDiagnosticsBytes)
+        : redactedRendererDiagnostics
+  }
+
   // Per-component budgets: bound each source independently so one can't dominate the report. Runs
   // after redaction (cuts never split a secret) and before the overall maxBytes ladder, which is now
   // the fallback. Keeps the most recent context (log tail, latest messages) around the failure.
-  // Renderer diagnostics aren't re-budgeted here: their events array is bounded where the slice is
-  // built (capEvents, ~1 MB at the call site) — modulo a small fixed envelope — and the overall
-  // ladder below trims renderer events as the final backstop.
   const budgets = COMPONENT_BUDGETS
   const cappedLog = capLogTailBytes(logTail, budgets.logTailBytes)
   logTail = cappedLog.value
@@ -443,6 +459,9 @@ export function buildProblemReport(input: Input, options: Options = {}) {
       rendererError = { ...rendererError, summary, details }
     }
   }
+  // Re-bound renderer diagnostics post-redaction to their component budget, so a redaction that
+  // re-expanded the source-capped slice can't ride into the report above its per-component ceiling.
+  if (redactedRendererDiagnostics) capRendererDiagnostics(budgets.rendererDiagnosticsBytes)
 
   const makePayload = (): Payload => ({
     reportVersion: 1,
@@ -530,16 +549,16 @@ export function buildProblemReport(input: Input, options: Options = {}) {
     output = markdown(makePayload())
   }
 
-  if (bytes(output) > maxBytes && rendererDiagnostics) {
-    const original = rendererDiagnostics
-    let events = [...original.events]
-    while (bytes(output) > maxBytes && events.length > 0) {
-      const removeIndex = events.findIndex((event) => !isProtectedRendererDiagnosticEvent(event))
-      if (removeIndex < 0) break
-      events.splice(removeIndex, 1)
-      omittedRendererDiagnosticsBytes = Math.max(0, jsonBytes(original.events) - jsonBytes(events))
-      rendererDiagnostics = withRendererDiagnosticsEvents(original, events, omittedRendererDiagnosticsBytes)
+  // Final backstop: halve the renderer-diagnostics event budget until the report fits. Uses the same
+  // capEvents() ruler as above, which can drop even incident events once a tight maxBytes leaves no
+  // alternative — so an all-protected oversized slice drains to empty rather than overflowing.
+  if (bytes(output) > maxBytes && rendererDiagnostics && rendererDiagnostics.events.length > 0) {
+    let limit = Math.max(0, Math.floor(jsonBytes(rendererDiagnostics.events) / 2))
+    while (bytes(output) > maxBytes && limit >= 0) {
+      capRendererDiagnostics(limit)
       output = markdown(makePayload())
+      if (limit === 0) break
+      limit = Math.floor(limit / 2)
     }
   }
 
