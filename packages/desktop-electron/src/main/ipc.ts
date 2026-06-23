@@ -10,6 +10,7 @@ import type {
   InitStep,
   ReportProblemInput,
   PrepareReportResult,
+  RevealReportResult,
   SubmitReportResult,
   ServerReadyData,
   SqliteMigrationProgress,
@@ -74,7 +75,7 @@ type Deps = {
   runUpdater: (alertOnFail: boolean) => Promise<void> | void
   checkUpdate: () => Promise<UpdateInfo>
   prepareReport: (input?: ReportProblemInput, context?: { windowID?: number }) => Promise<PrepareReportResult>
-  revealReport: (reportId: string) => Promise<void>
+  revealReport: (reportId: string) => Promise<RevealReportResult>
   submitReport: (reportId: string) => Promise<SubmitReportResult>
   installUpdate: () => Promise<boolean> | boolean
   setBackgroundColor: (color: string) => void

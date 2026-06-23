@@ -5,12 +5,29 @@ import { showToast } from "@opencode-ai/ui/toast"
 import type { useDialog } from "@opencode-ai/ui/context/dialog"
 import type { useLanguage } from "@/context/language"
 import type { Platform } from "@/context/platform"
-import type { PrepareReportResult, ReportProblemInput } from "@/desktop-api-contract"
+import type { PrepareReportResult, ReportProblemInput, RevealReportResult, SubmitReportResult } from "@/desktop-api-contract"
 
 type ReadyReport = Extract<PrepareReportResult, { status: "ready" }>
 type Language = Pick<ReturnType<typeof useLanguage>, "t">
 type ReviewPlatform = Pick<Platform, "prepareReport" | "revealReport" | "submitReport">
 type DialogControl = Pick<ReturnType<typeof useDialog>, "show" | "close">
+
+/**
+ * The non-optional actions the review body needs. The desktop bridge wires
+ * prepare/reveal/submit together, so we resolve them once at the entry boundary
+ * and hand the body a settled pair — it never has to guard a half-present
+ * platform where a missing `submitReport` would `await undefined` and silently
+ * close the review as if it had been sent.
+ */
+export type ReviewActions = {
+  revealReport: (reportId: string) => Promise<RevealReportResult>
+  submitReport: (reportId: string) => Promise<SubmitReportResult>
+}
+
+export function reviewActionsFrom(platform: ReviewPlatform): ReviewActions | undefined {
+  if (!platform.prepareReport || !platform.revealReport || !platform.submitReport) return undefined
+  return { revealReport: platform.revealReport, submitReport: platform.submitReport }
+}
 
 function Row(props: { label: string; value?: string }) {
   return (
@@ -52,7 +69,7 @@ function ContentsList(props: { result: ReadyReport; language: Language }) {
  */
 export function DiagnosticsReviewBody(props: {
   result: ReadyReport
-  platform: ReviewPlatform
+  actions: ReviewActions
   language: Language
   onDone: () => void
 }) {
@@ -63,11 +80,19 @@ export function DiagnosticsReviewBody(props: {
   const [stale, setStale] = createSignal(false)
   const [failed, setFailed] = createSignal(false)
 
-  const reveal = () => {
-    // revealReport resolves once the OS handler is asked to open; an IPC-layer rejection must not become
-    // an unhandled rejection — surface a recoverable notice and keep the dialog open.
+  const reveal = async () => {
+    // Reveal can fail invisibly in the main process (stale id, or the OS handler declines), so it
+    // returns an explicit result — surface stale/failed in the notice area instead of a silent no-op.
+    // A rare IPC-layer rejection is caught here too so it never becomes an unhandled rejection.
     setFailed(false)
-    void props.platform.revealReport?.(props.result.reportId)?.catch(() => setFailed(true))
+    setStale(false)
+    try {
+      const result = await props.actions.revealReport(props.result.reportId)
+      if (result.status === "stale") setStale(true)
+      else if (result.status === "failed") setFailed(true)
+    } catch {
+      setFailed(true)
+    }
   }
 
   const submit = async () => {
@@ -75,12 +100,12 @@ export function DiagnosticsReviewBody(props: {
     setSubmitting(true)
     setFailed(false)
     try {
-      const result = await props.platform.submitReport?.(props.result.reportId)
-      if (result?.status === "form-fallback") {
+      const result = await props.actions.submitReport(props.result.reportId)
+      if (result.status === "form-fallback") {
         setFallback({ feedbackUrl: result.feedbackUrl, summary: result.summary })
         return
       }
-      if (result?.status === "stale") {
+      if (result.status === "stale") {
         // A newer prepare replaced this package; keep the surface open with a
         // clear notice instead of silently closing the submit entry.
         setStale(true)
@@ -165,7 +190,7 @@ export function DiagnosticsReviewBody(props: {
 
 function DialogDiagnosticsReview(props: {
   result: ReadyReport
-  platform: ReviewPlatform
+  actions: ReviewActions
   language: Language
   dialog: Pick<DialogControl, "close">
 }) {
@@ -175,7 +200,7 @@ function DialogDiagnosticsReview(props: {
     <Dialog title={title()} fit class="w-full max-w-[380px] mx-auto">
       <DiagnosticsReviewBody
         result={props.result}
-        platform={props.platform}
+        actions={props.actions}
         language={props.language}
         onDone={() => props.dialog.close()}
       />
@@ -192,7 +217,8 @@ export async function openDiagnosticsReview(
   deps: { platform: ReviewPlatform; dialog: DialogControl; language: Language },
   input?: ReportProblemInput,
 ): Promise<void> {
-  if (!deps.platform.prepareReport) return
+  const actions = reviewActionsFrom(deps.platform)
+  if (!deps.platform.prepareReport || !actions) return
   const result = await deps.platform.prepareReport(input).catch(() => null)
   if (!result || result.status === "failed") {
     const summary = result?.status === "failed" ? result.summary : ""
@@ -214,7 +240,7 @@ export async function openDiagnosticsReview(
   deps.dialog.show(() => (
     <DialogDiagnosticsReview
       result={result}
-      platform={deps.platform}
+      actions={actions}
       language={deps.language}
       dialog={deps.dialog}
     />

@@ -8,7 +8,7 @@ import type { E2EWindow } from "@/testing/terminal"
 import { updateErrorPageState } from "./error-update"
 import { PAWWORK_GITHUB_ISSUE_URL } from "@/utils/support-links"
 import { buildErrorReportDetails, formatError, summarizeKnownError } from "./error-report"
-import { DiagnosticsReviewBody } from "@/components/diagnostics-review"
+import { DiagnosticsReviewBody, reviewActionsFrom } from "@/components/diagnostics-review"
 import type { PrepareReportResult } from "@/desktop-api-contract"
 export type { InitError } from "./error-report"
 
@@ -30,6 +30,9 @@ type ErrorPageStore = {
 export const ErrorPage: Component<ErrorPageProps> = (props) => {
   const platform = usePlatform()
   const language = useLanguage()
+  // Resolve reveal/submit once at this boundary so the review body gets settled, non-optional
+  // actions (a half-wired bridge can't reach a state where submit silently no-ops).
+  const reviewActions = reviewActionsFrom(platform)
   const [store, setStore] = createStore<ErrorPageStore>({
     checking: false,
     reporting: false,
@@ -90,7 +93,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
   }
 
   async function prepareDiagnostics() {
-    if (!platform.prepareReport) {
+    if (!platform.prepareReport || !reviewActions) {
       setStore({ review: undefined, actionError: undefined, actionMessage: language.t("error.page.report.unavailable") })
       return
     }
@@ -181,19 +184,23 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
           </div>
         </div>
 
-        <Show when={store.review}>
-          {(review) => (
-            <div class="mt-8 max-w-[420px] rounded-lg ring-1 ring-border bg-bg-cream/40 pt-4">
-              <h2 class="px-5 pb-1 text-h3 text-fg-strong">
-                {language.t(review().hasForm ? "diagnostics.review.title.ready" : "diagnostics.review.title.saved")}
-              </h2>
-              <DiagnosticsReviewBody
-                result={review()}
-                platform={platform}
-                language={language}
-                onDone={() => setStore("review", undefined)}
-              />
-            </div>
+        <Show when={reviewActions}>
+          {(actions) => (
+            <Show when={store.review}>
+              {(review) => (
+                <div class="mt-8 max-w-[420px] rounded-lg ring-1 ring-border bg-bg-cream/40 pt-4">
+                  <h2 class="px-5 pb-1 text-h3 text-fg-strong">
+                    {language.t(review().hasForm ? "diagnostics.review.title.ready" : "diagnostics.review.title.saved")}
+                  </h2>
+                  <DiagnosticsReviewBody
+                    result={review()}
+                    actions={actions()}
+                    language={language}
+                    onDone={() => setStore("review", undefined)}
+                  />
+                </div>
+              )}
+            </Show>
           )}
         </Show>
 

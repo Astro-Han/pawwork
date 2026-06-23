@@ -6,6 +6,7 @@ import type {
   RendererDiagnosticsExportResult,
   ReportProblemInput,
   PrepareReportResult,
+  RevealReportResult,
   SubmitReportResult,
   UpdateInfo,
 } from "@/desktop-api-contract"
@@ -22,6 +23,7 @@ export type {
   RendererErrorDetails,
   ReportProblemInput,
   PrepareReportResult,
+  RevealReportResult,
   SubmitReportResult,
   DiagnosticsReviewContents,
   UpdateInfo,
@@ -192,7 +194,7 @@ export type Platform = {
   prepareReport?(input?: ReportProblemInput): Promise<PrepareReportResult>
 
   /** Reveal the prepared package in the OS file manager (desktop only). */
-  revealReport?(reportId: string): Promise<void>
+  revealReport?(reportId: string): Promise<RevealReportResult>
 
   /** Open the configured feedback form after review (desktop only). */
   submitReport?(reportId: string): Promise<SubmitReportResult>

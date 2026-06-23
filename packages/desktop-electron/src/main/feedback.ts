@@ -4,6 +4,7 @@ import type {
   DiagnosticsReviewContents,
   PrepareReportResult,
   ReportProblemInput,
+  RevealReportResult,
   SubmitReportResult,
 } from "@opencode-ai/app/desktop-api"
 import {
@@ -66,7 +67,7 @@ export type FeedbackHandler = {
     input?: FeedbackInput,
     contextOverride?: FeedbackContextOverride,
   ) => Promise<PrepareReportResult>
-  revealReport: (reportId: string) => Promise<void>
+  revealReport: (reportId: string) => Promise<RevealReportResult>
   submitReport: (reportId: string) => Promise<SubmitReportResult>
 }
 
@@ -299,18 +300,24 @@ export function createFeedbackHandler(deps: FeedbackDeps): FeedbackHandler {
     return promise
   }
 
-  async function revealReport(reportId: string): Promise<void> {
-    if (!pending || pending.reportId !== reportId) return
+  async function revealReport(reportId: string): Promise<RevealReportResult> {
+    // A stale id (a newer prepare replaced this package) and an OS open failure are both
+    // invisible to the renderer's IPC catch, so report them as explicit results instead of
+    // returning void — the review surface needs them to show a recoverable notice.
+    if (!pending || pending.reportId !== reportId) return { status: "stale" }
     const { path } = pending
     try {
       await deps.showItemInFolder(path)
+      return { status: "revealed" }
     } catch (error) {
       deps.onHandledError?.("problem report reveal failed", error)
       try {
         const openPathError = await deps.openPath(dirname(path))
         if (typeof openPathError === "string" && openPathError.length > 0) throw new Error(openPathError)
+        return { status: "opened-directory" }
       } catch (openPathError) {
         deps.onHandledError?.("problem report directory open failed", openPathError)
+        return { status: "failed" }
       }
     }
   }

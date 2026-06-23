@@ -68,6 +68,21 @@ export type SubmitReportResult =
   | { status: "no-form" }
   | { status: "stale" }
 
+/**
+ * Result of revealing the prepared package in the OS file manager. Reveal can
+ * fail inside the main process (the OS handler declines) where the renderer
+ * cannot observe it, so the outcome is reported back explicitly.
+ *  - `revealed` — the file was highlighted in its folder.
+ *  - `opened-directory` — highlighting failed; the containing folder was opened instead.
+ *  - `stale` — the reportId is not the pending package (a newer prepare replaced it).
+ *  - `failed` — neither reveal nor the directory fallback could open anything.
+ */
+export type RevealReportResult =
+  | { status: "revealed" }
+  | { status: "opened-directory" }
+  | { status: "stale" }
+  | { status: "failed" }
+
 export type RendererDiagnosticInput = {
   name: string
   level?: "info" | "warn"

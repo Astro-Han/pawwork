@@ -66,6 +66,13 @@ const failed: Extract<PrepareReportResult, { status: "failed" }> = {
   summary: "PawWork Problem Report Summary\nFull report: not generated",
 }
 
+// The desktop bridge wires reveal/submit alongside prepare; openDiagnosticsReview
+// resolves all three before opening, so the mocks provide the full set.
+const bridge = {
+  revealReport: async () => ({ status: "revealed" }) as const,
+  submitReport: async () => ({ status: "opened" }) as const,
+}
+
 describe("openDiagnosticsReview", () => {
   test("does nothing when the platform cannot prepare reports", async () => {
     const dialog = makeDialog()
@@ -74,10 +81,23 @@ describe("openDiagnosticsReview", () => {
     expect(toastCalls).toHaveLength(0)
   })
 
+  test("does nothing when the reveal/submit actions are missing", async () => {
+    const dialog = makeDialog()
+    // A half-wired bridge (prepare without reveal/submit) must not open a review the
+    // body cannot drive — validate the full action set at the boundary.
+    await openDiagnosticsReview({
+      platform: { prepareReport: async () => ready },
+      dialog: dialog.control,
+      language,
+    })
+    expect(dialog.shown).toHaveLength(0)
+    expect(toastCalls).toHaveLength(0)
+  })
+
   test("opens the review dialog when a package is ready", async () => {
     const dialog = makeDialog()
     await openDiagnosticsReview({
-      platform: { prepareReport: async () => ready },
+      platform: { prepareReport: async () => ready, ...bridge },
       dialog: dialog.control,
       language,
     })
@@ -88,7 +108,7 @@ describe("openDiagnosticsReview", () => {
   test("surfaces an error toast instead of a dialog when preparation fails", async () => {
     const dialog = makeDialog()
     await openDiagnosticsReview({
-      platform: { prepareReport: async () => failed },
+      platform: { prepareReport: async () => failed, ...bridge },
       dialog: dialog.control,
       language,
     })
@@ -104,6 +124,7 @@ describe("openDiagnosticsReview", () => {
         prepareReport: async () => {
           throw new Error("ipc unavailable")
         },
+        ...bridge,
       },
       dialog: dialog.control,
       language,
@@ -168,10 +189,17 @@ const clickByText = async (needle) => {
   await button.onClick()
 }
 
-const mount = (platform, onDone) => {
+// Non-optional ReviewActions: the body never guards a missing method, so both are always present.
+const acts = (overrides) => ({
+  revealReport: async () => ({ status: "revealed" }),
+  submitReport: async () => ({ status: "opened" }),
+  ...overrides,
+})
+
+const mount = (actions, onDone) => {
   buttons.length = 0
   return createRoot((dispose) => {
-    DiagnosticsReviewBody({ result: ready, platform, language, onDone })
+    DiagnosticsReviewBody({ result: ready, actions, language, onDone })
     return dispose
   })
 }
@@ -182,7 +210,7 @@ const reveal = "diagnostics.review.action.reveal"
 // A successful submit (form opened) is the only terminal state that closes the surface.
 {
   let done = 0
-  const dispose = mount({ submitReport: async () => ({ status: "opened" }) }, () => { done++ })
+  const dispose = mount(acts({ submitReport: async () => ({ status: "opened" }) }), () => { done++ })
   await clickByText(submit)
   assert(done === 1, "opened submit must call onDone once, got " + done)
   dispose()
@@ -191,7 +219,7 @@ const reveal = "diagnostics.review.action.reveal"
 // A newer prepare replaced this package: keep the surface open instead of silently closing.
 {
   let done = 0
-  const dispose = mount({ submitReport: async () => ({ status: "stale" }) }, () => { done++ })
+  const dispose = mount(acts({ submitReport: async () => ({ status: "stale" }) }), () => { done++ })
   await clickByText(submit)
   assert(done === 0, "stale submit must keep the surface open (no onDone), got " + done)
   dispose()
@@ -201,7 +229,7 @@ const reveal = "diagnostics.review.action.reveal"
 {
   let done = 0
   const dispose = mount(
-    { submitReport: async () => ({ status: "form-fallback", feedbackUrl: "https://x", summary: "s" }) },
+    acts({ submitReport: async () => ({ status: "form-fallback", feedbackUrl: "https://x", summary: "s" }) }),
     () => { done++ },
   )
   await clickByText(submit)
@@ -212,7 +240,7 @@ const reveal = "diagnostics.review.action.reveal"
 // An IPC rejection on submit must be caught (recoverable notice) and not close the surface.
 {
   let done = 0
-  const dispose = mount({ submitReport: async () => { throw new Error("ipc boom") } }, () => { done++ })
+  const dispose = mount(acts({ submitReport: async () => { throw new Error("ipc boom") } }), () => { done++ })
   await clickByText(submit)
   await new Promise((r) => setTimeout(r, 10))
   assert(done === 0, "rejected submit must not close the surface, got " + done)
@@ -220,21 +248,38 @@ const reveal = "diagnostics.review.action.reveal"
   dispose()
 }
 
-// Reveal forwards the reportId; an IPC rejection is caught rather than leaked, surface stays open.
+// Reveal forwards the reportId and never closes the surface on success.
 {
   let done = 0
   let revealedWith
   const dispose = mount(
-    {
-      revealReport: (id) => { revealedWith = id; return Promise.reject(new Error("open boom")) },
-      submitReport: async () => ({ status: "opened" }),
-    },
+    acts({ revealReport: async (id) => { revealedWith = id; return { status: "revealed" } } }),
     () => { done++ },
   )
   await clickByText(reveal)
   await new Promise((r) => setTimeout(r, 10))
   assert(revealedWith === "rid_1", "reveal must forward the reportId, got " + revealedWith)
-  assert(done === 0, "reveal must not close the surface, got " + done)
+  assert(done === 0, "a successful reveal must keep the surface open, got " + done)
+  dispose()
+}
+
+// A stale or failed reveal result keeps the surface open (the notice area shows it).
+for (const status of ["stale", "failed"]) {
+  let done = 0
+  const dispose = mount(acts({ revealReport: async () => ({ status }) }), () => { done++ })
+  await clickByText(reveal)
+  await new Promise((r) => setTimeout(r, 10))
+  assert(done === 0, status + " reveal must keep the surface open (no onDone), got " + done)
+  dispose()
+}
+
+// An IPC rejection on reveal is caught rather than leaked, surface stays open.
+{
+  let done = 0
+  const dispose = mount(acts({ revealReport: async () => { throw new Error("open boom") } }), () => { done++ })
+  await clickByText(reveal)
+  await new Promise((r) => setTimeout(r, 10))
+  assert(done === 0, "rejected reveal must not close the surface, got " + done)
   assert(unhandled === 0, "a rejected reveal must be caught, got " + unhandled)
   dispose()
 }

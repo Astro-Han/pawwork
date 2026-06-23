@@ -14,6 +14,7 @@ export type {
   ReportProblemInput,
   PrepareReportResult,
   SubmitReportResult,
+  RevealReportResult,
   DiagnosticsReviewContents,
   UpdateInfo,
   WebSearchStatus,

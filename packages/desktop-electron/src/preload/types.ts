@@ -7,6 +7,7 @@ import type {
   RendererDiagnosticsExportResult,
   ReportProblemInput,
   PrepareReportResult,
+  RevealReportResult,
   SubmitReportResult,
   UpdateInfo,
   WebSearchStatus,
@@ -18,6 +19,7 @@ export type {
   RendererDiagnosticsExportResult,
   ReportProblemInput,
   PrepareReportResult,
+  RevealReportResult,
   SubmitReportResult,
   UpdateInfo,
 }
@@ -112,7 +114,7 @@ export type ElectronAPI = {
   runUpdater: (alertOnFail: boolean) => Promise<void>
   checkUpdate: () => Promise<UpdateInfo>
   prepareReport: (input?: ReportProblemInput) => Promise<PrepareReportResult>
-  revealReport: (reportId: string) => Promise<void>
+  revealReport: (reportId: string) => Promise<RevealReportResult>
   submitReport: (reportId: string) => Promise<SubmitReportResult>
   emitRendererDiagnostic: (event: RendererDiagnosticInput) => Promise<void>
   exportDiagnosticsLog: () => Promise<RendererDiagnosticsExportResult>

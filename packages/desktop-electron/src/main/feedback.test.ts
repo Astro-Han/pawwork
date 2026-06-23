@@ -329,14 +329,16 @@ describe("revealReport", () => {
     const subject = setup()
     const result = await subject.handler.prepareReport()
     if (result.status !== "ready") throw new Error("expected ready")
-    await subject.handler.revealReport(result.reportId)
+    await expect(subject.handler.revealReport(result.reportId)).resolves.toEqual({ status: "revealed" })
     expect(subject.calls.shown).toContain("/tmp/pawwork/problem-reports/")
   })
 
-  test("ignores a reveal for a report that is not the pending one", async () => {
+  test("reports stale for a reveal of a report that is not the pending one", async () => {
     const subject = setup()
     await subject.handler.prepareReport()
-    await subject.handler.revealReport("not-the-pending-id")
+    // A stale reveal is invisible to the renderer's IPC catch, so it must come back as an explicit
+    // result the review surface can show — never a silent no-op.
+    await expect(subject.handler.revealReport("not-the-pending-id")).resolves.toEqual({ status: "stale" })
     expect(subject.calls.showItemCount).toBe(0)
   })
 
@@ -348,12 +350,12 @@ describe("revealReport", () => {
     })
     const result = await subject.handler.prepareReport()
     if (result.status !== "ready") throw new Error("expected ready")
-    await subject.handler.revealReport(result.reportId)
+    await expect(subject.handler.revealReport(result.reportId)).resolves.toEqual({ status: "opened-directory" })
     expect(subject.calls.openedPath).toBe("/tmp/pawwork/problem-reports")
     expect(subject.calls.handledErrors).toContain("problem report reveal failed")
   })
 
-  test("reports Electron openPath error strings from the directory fallback", async () => {
+  test("returns failed when reveal and the directory fallback both fail", async () => {
     const subject = setup({
       showItemInFolder: async () => {
         throw new Error("reveal failed")
@@ -365,7 +367,7 @@ describe("revealReport", () => {
     })
     const result = await subject.handler.prepareReport()
     if (result.status !== "ready") throw new Error("expected ready")
-    await subject.handler.revealReport(result.reportId)
+    await expect(subject.handler.revealReport(result.reportId)).resolves.toEqual({ status: "failed" })
     expect(subject.calls.openedPath).toBe("/tmp/pawwork/problem-reports")
     expect(subject.calls.handledErrors).toContain("problem report directory open failed")
   })
