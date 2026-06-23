@@ -1435,7 +1435,7 @@ export function fromError(
         },
         { cause: e },
       ).toObject()
-    default:
+    default: {
       // A provider error can arrive raw or wrapped in an Error (the stream
       // "error" part throws value.error; the iterator-throw mapper hands back a
       // value). Run the stream parser for both before falling back to Unknown so
@@ -1474,6 +1474,7 @@ export function fromError(
         { message: e instanceof Error ? errorMessage(e) : JSON.stringify(e) },
         { cause: e },
       ).toObject()
+    }
   }
 }
 
