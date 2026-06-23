@@ -1,3 +1,4 @@
+import { homedir, userInfo } from "node:os"
 import { dirname } from "node:path"
 import type { ReportProblemInput, ReportProblemResult } from "@opencode-ai/app/desktop-api"
 import {
@@ -126,6 +127,26 @@ function fallbackDiagnostics(): ProblemReportDiagnostics {
   }
 }
 
+// Exact local identifiers no regex can infer (home directory, OS username) — redacted verbatim
+// from the report. Best-effort: userInfo() can throw on some platforms, so a failure just
+// contributes no extra term rather than blocking the report.
+function localRedactTerms(): string[] {
+  const terms: string[] = []
+  try {
+    const home = homedir()
+    if (home) terms.push(home)
+  } catch {
+    // ignore — no home term
+  }
+  try {
+    const name = userInfo().username
+    if (name) terms.push(name)
+  } catch {
+    // ignore — no username term
+  }
+  return terms
+}
+
 function recentKeyErrors(logTail: string) {
   return logTail
     .split(/\r?\n/)
@@ -187,6 +208,10 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
 
     const id = defaultReportId()
     const generatedAt = new Date().toISOString()
+    // Compute the exact runtime terms (home dir, OS username) once and share them across BOTH the
+    // full report and the clipboard summary — the summary is the same outbound channel, so it must
+    // scrub the same bare identifiers no regex can infer.
+    const redactTerms = localRedactTerms()
     let diagnostics: ProblemReportDiagnostics
     let logTail = ""
     let sessionExport: SessionExport = { status: "none" }
@@ -224,7 +249,7 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
       try {
         const report = buildProblemReport(
           { diagnostics, logTail, sessionExport, rendererDiagnostics, rendererError: input.rendererError },
-          { reportId: id, generatedAt, maxBytes: DEFAULT_PROBLEM_REPORT_MAX_BYTES },
+          { reportId: id, generatedAt, maxBytes: DEFAULT_PROBLEM_REPORT_MAX_BYTES, redactTerms },
         )
         savedReport = await deps.saveReport({ reportId: id, generatedAt, markdown: report.markdown })
       } catch (error) {
@@ -243,6 +268,7 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
       recentErrors: recentKeyErrors(logTail),
       rendererDiagnostics,
       rendererError: input.rendererError,
+      redactTerms,
     })
 
     await deps.copy(summary)

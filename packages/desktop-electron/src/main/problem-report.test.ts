@@ -147,7 +147,13 @@ describe("problem report", () => {
       rendererError,
     })
 
-    expect(payload.rendererError).toEqual(rendererError)
+    // The full report now redacts the same secret/path shapes as the summary (PR1), so the
+    // uploaded file no longer carries raw credentials or local paths in rendererError.
+    expect(payload.rendererError?.summary).toContain("storage=[redacted]")
+    expect(payload.rendererError?.summary).toContain("key=[redacted]")
+    expect(report.markdown).not.toContain("pawwork.workspace.project.abc123.dat")
+    expect(report.markdown).not.toContain("workspace:vcs")
+    expect(report.markdown).not.toContain("/Users/test/project")
     expect(summary).toContain("Renderer error: PawWork hit a local state problem.")
     expect(summary).toContain("storage=[redacted]")
     expect(summary).toContain("key=[redacted]")
@@ -302,6 +308,48 @@ describe("problem report", () => {
     expect(summary).not.toContain("secret.log")
   })
 
+  test("summary scrubs the bare OS username and non-allowlisted home via shared redactTerms", () => {
+    // The summary is the same outbound channel as the full report, so it must apply the caller's
+    // exact runtime terms. Under a non-allowlisted root, only the exact term catches the leak — the
+    // path regex (allowlisted roots only) does not, and the username is a bare word no regex infers.
+    const summary = buildProblemReportSummary({
+      reportId: "pwr_terms",
+      generatedAt: "2026-04-23T01:02:03.004Z",
+      diagnostics: base.diagnostics,
+      reportFileName: "r.md",
+      reportLocationHint: "hint",
+      fullReportStatus: "ready",
+      recentErrors: [
+        "[error] failed reading /customroot/zoe/project/app.ts",
+        "[warn] user zoe could not write cache",
+      ],
+      rendererError: { summary: "crash under /customroot/zoe/project", details: "" },
+      redactTerms: ["/customroot/zoe", "zoe"],
+    })
+
+    expect(summary).not.toContain("zoe")
+    expect(summary).not.toContain("/customroot/zoe")
+  })
+
+  test("summary redacts a short non-ASCII username and identity-bearing report metadata", () => {
+    // A 1–2 char CJK username slips past JS \b word boundaries, and the report file/location were
+    // inserted raw — both must be scrubbed before the summary hits the clipboard.
+    const summary = buildProblemReportSummary({
+      reportId: "pwr_cjk",
+      generatedAt: "2026-04-23T01:02:03.004Z",
+      diagnostics: base.diagnostics,
+      reportFileName: "problem.md",
+      reportLocationHint: "/customroot/山田/problem-reports/problem.md",
+      fullReportStatus: "ready",
+      recentErrors: ["[error] failed for user 山田"],
+      rendererError: { summary: "crash for 山田", details: "" },
+      redactTerms: ["山田"],
+    })
+
+    expect(summary).not.toContain("山田")
+    expect(summary).not.toContain("/customroot/山田")
+  })
+
   test("keeps no-session reports useful", () => {
     const report = buildProblemReport({
       ...base,
@@ -405,7 +453,9 @@ describe("problem report", () => {
       ...base,
       sessionExport: {
         status: "ok",
-        info: { size: 123n, circular },
+        // Both info and executionContext are field allowlists: top-level `size` and executionContext's
+        // `build`/`circular` are unknown fields and dropped; the kept `activeDirectory` is shape-tokened.
+        info: { id: "ses_1", size: 123n, executionContext: { activeDirectory: "/Users/x/p", build: 789n, circular } },
         messages: [{ body: 456n, circular }],
       },
     })
@@ -413,11 +463,15 @@ describe("problem report", () => {
     const payload = parseProblemReportPayload(report.markdown)
     expect(payload.sessionExport.status).toBe("ok")
     if (payload.sessionExport.status === "ok") {
-      expect(payload.sessionExport.info).toEqual({ size: "123", circular: { id: "root", self: "[Circular]" } })
-      expect(payload.sessionExport.messages[0]).toEqual({
-        body: "456",
-        circular: { id: "root", self: "[Circular]" },
+      expect(payload.sessionExport.info).toEqual({
+        id: "ses_1",
+        executionContext: { activeDirectory: "[path]" },
       })
+      // A non-{info,parts} message shape is reported, not passed through, so it cannot smuggle
+      // raw content into the report (PR1 structure-aware allowlist).
+      const message = payload.sessionExport.messages[0] as { unrecognized?: boolean; bytes?: number }
+      expect(message.unrecognized).toBe(true)
+      expect(message.bytes).toBeGreaterThan(0)
     }
   })
 
@@ -450,11 +504,13 @@ describe("problem report", () => {
         logTail: "",
         sessionExport: {
           status: "ok",
-          info: { snapshot: "z".repeat(20_000) },
+          // Bulk lives in the capped title: even after the per-field cap it stays large enough to
+          // exceed this small budget, so the omission ladder still has session info to drop.
+          info: { title: "z".repeat(20_000) },
           messages: [],
         },
       },
-      { maxBytes: 5_000 },
+      { maxBytes: 3_000 },
     )
 
     expect(Buffer.byteLength(report.markdown, "utf8")).toBeLessThanOrEqual(5_000)
