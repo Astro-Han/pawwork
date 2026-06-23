@@ -8,12 +8,11 @@ import {
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData } from "../context"
 import { isWorkInFlightStatus } from "../util/session-status"
-import { decodeServerErrorText } from "../util/server-error"
 
 import { Binary } from "@opencode-ai/core/util/binary"
 import { createEffect, createMemo, createSignal, onCleanup, ParentProps, Show } from "solid-js"
 import { AssistantParts, Message, MessageDivider, PART_MAPPING, type UserActions } from "./message-part"
-import { Card } from "./card"
+import { ErrorCard } from "./error-card"
 import { Icon } from "./icon"
 import { TextShimmer } from "./text-shimmer"
 import { SessionRetry } from "./session-retry"
@@ -78,6 +77,12 @@ export function SessionTurn(
      * stays framework-agnostic. Forwarded to SessionRetry.
      */
     rateLimitCardSlot?: import("./session-retry").SessionRetryRateLimitSlot
+    /**
+     * App-injected side effect for the error card's primary action (re-login /
+     * switch model). Lives in the app layer like RateLimitCardWiring so
+     * packages/ui stays framework-agnostic. Forwarded to ErrorCard.
+     */
+    onErrorAction?: (target: "models") => void
     classes?: {
       root?: string
       content?: string
@@ -257,15 +262,6 @@ export function SessionTurn(
     }
 
     return undefined
-  })
-  const errorText = createMemo(() => {
-    const err = error()
-    const decoded = decodeServerErrorText(err)
-    if (decoded) return decoded
-    const msg = err?.data?.message
-    if (msg === undefined || msg === null) return ""
-    // oxlint-disable-next-line no-base-to-string -- msg is unknown from error data, coercion is intentional
-    return String(msg)
   })
 
   const visibleTurnChange = createMemo(() => {
@@ -468,9 +464,7 @@ export function SessionTurn(
                   />
                 </Show>
                 <Show when={error()}>
-                  <Card variant="error" class="error-card">
-                    {errorText()}
-                  </Card>
+                  {(err) => <ErrorCard error={err()} onAction={props.onErrorAction} />}
                 </Show>
               </div>
             )}
