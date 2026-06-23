@@ -1,3 +1,5 @@
+import { decodeServerErrorText } from "@opencode-ai/ui/util/server-error"
+
 export type ConfigInvalidError = {
   name: "ConfigInvalidError"
   data: {
@@ -28,6 +30,12 @@ function tr(translator: Translator | undefined, key: string, text: string, vars?
 export function formatServerError(error: unknown, translate?: Translator, fallback?: string) {
   if (isConfigInvalidErrorLike(error)) return parseReadableConfigInvalidError(error, translate)
   if (isProviderModelNotFoundErrorLike(error)) return parseReadableProviderModelNotFoundError(error, translate)
+  // Server / assistant error payloads ({ name, data }) are neither Error
+  // instances nor strings; share the session card's decoder so a toast surfaces
+  // the provider's real reason (read from the structured body) instead of the
+  // unknown-error fallback.
+  const decoded = decodeServerErrorText(error)
+  if (decoded) return decoded
   if (error instanceof Error && error.message) return error.message
   if (typeof error === "string" && error) return error
   if (fallback) return fallback
