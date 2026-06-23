@@ -3,6 +3,7 @@ import { LLM } from "../../src/session/llm"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { RunIncident } from "../../src/session/run-incident"
 import { RunObservability } from "../../src/session/run-observability"
+import { haltInterruptionMessage } from "../../src/session/processor"
 
 const beforeProgressCause = {
   category: "provider_transport_disconnect",
@@ -1876,6 +1877,56 @@ describe("RunObservability", () => {
         reason: "side_effect_facts_incomplete",
       })
     })
+  })
+
+  test("a terminal provider rejection after a tool ran keeps both the provider reason and the safety hint (end-to-end)", () => {
+    // Record a real tool execution, then drive recordAttemptFailureAndDeriveRecovery
+    // with a terminal quota_exhausted (retryable=false). The derived recovery must
+    // carry the side-effect reason (not the bare "provider_api_error" passthrough),
+    // and the final halt message must keep BOTH the provider reason and the
+    // "check external state" hint — so a user who tops up their balance and resends
+    // does not silently re-run the tool's side effect.
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_terminal_provider_after_tool"),
+      traceID: MessageID.make("msg_terminal_provider_after_tool"),
+      sessionID: SessionID.make("ses_terminal_provider_after_tool"),
+      messageID: MessageID.make("msg_terminal_provider_after_tool"),
+      providerID: "deepseek",
+      modelID: "deepseek-chat",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolCallMaterialized({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordToolExecutionStarted({
+      attemptID: attempt.attemptID,
+      at: 13,
+      monotonicMs: 130,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    const recovery = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 14,
+      monotonicMs: 140,
+      error: { name: "AI_APICallError", message: "Insufficient Balance" },
+      retryable: false,
+      providerFailure: { kind: "quota_exhausted", statusCode: 402, hasResponseBody: true },
+    })
+
+    // Side-effect reason, not the pure "provider_api_error" passthrough; still do_not_retry.
+    expect(recovery).toMatchObject({ recommendation: "do_not_retry", reason: "tool_execution_started" })
+
+    const message = haltInterruptionMessage(true, recovery, "Insufficient Balance")
+    expect(message).toContain("Insufficient Balance")
+    expect(message).toContain("check whether the last operation completed")
+    expect(message).not.toContain("Connection lost")
   })
 
   test("transport failure after tool input end is not classified as text generation", () => {
