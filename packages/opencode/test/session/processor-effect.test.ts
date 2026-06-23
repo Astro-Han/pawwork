@@ -1463,6 +1463,60 @@ it.live("session.processor effect tests do not retry unknown json errors", () =>
   ),
 )
 
+it.live("surfaces a terminal provider API error's real message instead of a connection-lost interruption", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        // DeepSeek direct: account in arrears returns 402 Insufficient Balance.
+        // This must surface as the real provider error, not "Connection lost".
+        yield* llm.error(402, {
+          error: { message: "Insufficient Balance", code: "invalid_request_error", type: "unknown_error" },
+        })
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "spend")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "spend" }],
+          tools: {},
+        })
+
+        expect(value).toBe("stop")
+        const error = handle.message.error
+        expect(error?.name).toBe("APIError")
+        // The real provider failure is classified and its body is preserved …
+        const data = error && "data" in error ? (error.data as Record<string, unknown>) : undefined
+        expect((data?.providerFailure as { kind?: string } | undefined)?.kind).toBeDefined()
+        expect(String(data?.responseBody ?? "")).toContain("Insufficient Balance")
+        // … and the message is NOT overwritten with the generic connection-lost text.
+        expect(String(data?.message ?? "")).not.toContain("Connection lost")
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("session.processor effect tests retry recognized structured json errors", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>

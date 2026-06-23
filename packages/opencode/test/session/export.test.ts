@@ -855,7 +855,7 @@ describe("Export.session", () => {
         const userID = MessageID.make("msg_run_obs_user")
         const assistantID = MessageID.make("msg_run_obs_assistant")
         const summary: RunObservability.Summary = {
-          schema_version: 1,
+          schema_version: 2,
           run_id: RunObservability.RunID.make("run_export"),
           trace_id: assistantID,
           session_id: root.id,
@@ -915,7 +915,7 @@ describe("Export.session", () => {
           } as MessageV2.Assistant)
 
           const result = await AppRuntime.runPromise(Export.session(root.id))
-          expect(result.diagnostics.run_observability_schema_version).toBe(1)
+          expect(result.diagnostics.run_observability_schema_version).toBe(2)
           expect(result.diagnostics.run_observability).toEqual([summary])
         } finally {
           await SessionNs.remove(root.id)
@@ -1972,7 +1972,7 @@ describe("redactPart", () => {
 
   test("sanitizeSnapshot preserves safe run observability error fingerprints", () => {
     const summary: RunObservability.Summary = {
-      schema_version: 1,
+      schema_version: 2,
       run_id: RunObservability.RunID.make("run_sanitize"),
       trace_id: MessageID.make("msg_sanitize"),
       session_id: SessionID.make("ses_sanitize"),
@@ -2020,7 +2020,7 @@ describe("redactPart", () => {
         model_refs: {},
         stats: { session_count: 1, message_count: 1, part_count: 0, omitted_attachment_count: 0 },
       },
-      diagnostics: { run_observability_schema_version: 1, run_observability: [summary] },
+      diagnostics: { run_observability_schema_version: 2, run_observability: [summary] },
       session: {
         info: {
           id: SessionID.make("ses_sanitize"),
@@ -2147,7 +2147,7 @@ describe("redactPart", () => {
       diagnostics_complete: true,
     }
     const summary = {
-      schema_version: 1,
+      schema_version: 2,
       run_id: RunObservability.RunID.make("run_sanitize_incident"),
       trace_id: MessageID.make("msg_sanitize_incident"),
       session_id: SessionID.make("ses_sanitize_incident"),
@@ -2194,7 +2194,7 @@ describe("redactPart", () => {
         model_refs: {},
         stats: { session_count: 1, message_count: 1, part_count: 0, omitted_attachment_count: 0 },
       },
-      diagnostics: { run_observability_schema_version: 1, run_observability: [summary] },
+      diagnostics: { run_observability_schema_version: 2, run_observability: [summary] },
       session: {
         info: {
           id: SessionID.make("ses_sanitize_incident"),
@@ -2210,7 +2210,7 @@ describe("redactPart", () => {
       },
     })
 
-    expect(sanitized.diagnostics.run_incident_schema_version).toBe(1)
+    expect(sanitized.diagnostics.run_incident_schema_version).toBe(2)
     expect(sanitized.diagnostics.run_incidents?.[0]?.terminal_cause.category).toBe("provider_transport_disconnect")
     expect(sanitized.diagnostics.incident_chains?.[0]).toMatchObject({
       incident_id: "incident:msg_sanitize",
@@ -2356,7 +2356,7 @@ describe("redactPart", () => {
         model_refs: {},
         stats: { session_count: 1, message_count: 0, part_count: 0, omitted_attachment_count: 0 },
       },
-      diagnostics: { run_observability_schema_version: 1, run_observability: [summary] },
+      diagnostics: { run_observability_schema_version: 2, run_observability: [summary] },
       session: {
         info: {
           id: SessionID.make("ses_side_effect_snapshot_sanitize"),
@@ -2453,7 +2453,7 @@ describe("redactPart", () => {
         model_refs: {},
         stats: { session_count: 1, message_count: 0, part_count: 0, omitted_attachment_count: 0 },
       },
-      diagnostics: { run_observability_schema_version: 1, run_observability: [summary] },
+      diagnostics: { run_observability_schema_version: 2, run_observability: [summary] },
       session: {
         info: {
           id: SessionID.make("ses_recovered_incident_export"),
@@ -2542,7 +2542,7 @@ describe("redactPart", () => {
         model_refs: {},
         stats: { session_count: 1, message_count: 0, part_count: 0, omitted_attachment_count: 0 },
       },
-      diagnostics: { run_observability_schema_version: 1, run_observability: [summary] },
+      diagnostics: { run_observability_schema_version: 2, run_observability: [summary] },
       session: {
         info: {
           id: SessionID.make("ses_generated_chain_sanitize"),

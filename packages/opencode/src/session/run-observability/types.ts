@@ -2,8 +2,11 @@ import { MessageID, SessionID } from "../schema"
 import z from "zod"
 import type { RunIncident } from "../run-incident"
 import type { LifecycleRequest } from "../lifecycle-provenance"
+import type { ProviderFailureKind } from "@/provider/error"
 
-export const SCHEMA_VERSION = 1
+// v2: added the provider_api_error classification (a provider returned an
+// API-level rejection rather than the stream disconnecting).
+export const SCHEMA_VERSION = 2
 
 export const RunID = z.string().brand<"RunID">()
 export type RunID = z.infer<typeof RunID>
@@ -14,6 +17,7 @@ export type AttemptID = z.infer<typeof AttemptID>
 export const Classification = z.enum([
   "success",
   "external_stream_disconnect",
+  "provider_api_error",
   "local_instance_reload",
   "local_instance_dispose",
   "known_lifecycle_close",
@@ -248,6 +252,12 @@ export type Recorder = {
     evidence?: string[]
     watchdog?: { phase: "connect" | "silent_stream" | "unknown" }
     retryable?: boolean
+    /** The parsed providerFailure (slice ①) plus the HTTP evidence the recorder
+     *  needs to route a real provider API rejection to provider_api_error instead
+     *  of defaulting it to a transport disconnect. statusCode/hasResponseBody gate
+     *  the catch-all "unknown" kind so a wrapped connection failure is not
+     *  mislabeled. Absent for watchdog timeouts and raw transport drops. */
+    providerFailure?: { kind: ProviderFailureKind; code?: string; statusCode?: number; hasResponseBody?: boolean }
   }): RunIncident.Recovery
   recordRecoveryDecision(input: {
     attemptID?: AttemptID

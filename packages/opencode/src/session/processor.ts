@@ -19,6 +19,7 @@ import { SessionDiagnostics } from "./diagnostics"
 import { classifyToolFailure } from "./tool-failure"
 import type { Provider } from "@/provider"
 import { ProviderTransform } from "@/provider"
+import { isProviderApiError, type ProviderFailureKind } from "@/provider/error"
 import { ExternalResult } from "@/tool/external-result"
 import { errorMessage } from "@/util/error"
 import { Log } from "@opencode-ai/core/util/log"
@@ -212,6 +213,12 @@ function retryTimeoutPolicyFor(
   })
 }
 
+// Appended whenever a side effect may already have run, so the user verifies
+// external state before resending. Kept separate from the "Connection lost."
+// framing so a provider rejection (billing / auth) can reuse the bare hint
+// without being mislabelled as a dropped connection.
+const SIDE_EFFECT_SAFETY_HINT = "Please check whether the last operation completed before resending."
+
 function recoveryInterruptionMessage(recovery: NonNullable<RunObservability.Summary["incident"]>["recovery"] | undefined) {
   switch (recovery?.reason) {
     case "no_visible_output_or_tool_execution":
@@ -224,7 +231,7 @@ function recoveryInterruptionMessage(recovery: NonNullable<RunObservability.Summ
     case "tool_execution_started":
     case "unsafe_side_effect_started":
     case "side_effect_facts_incomplete":
-      return "Connection lost. Please check whether the last operation completed before resending."
+      return `Connection lost. ${SIDE_EFFECT_SAFETY_HINT}`
     case "local_lifecycle_close":
       return LOCAL_LIFECYCLE_CLOSE_INTERRUPTION_MESSAGE
     case "user_cancel":
@@ -232,6 +239,47 @@ function recoveryInterruptionMessage(recovery: NonNullable<RunObservability.Summ
     default:
       return undefined
   }
+}
+
+// Chooses the interruption message for a halted attempt.
+//
+// A provider API rejection (a 402 "Insufficient Balance", auth failure,
+// invalid_request, rate_limit, …) carries its own actionable message. How that
+// message is treated depends on the recovery reason the policy derived:
+//
+//   - reason "provider_api_error" — a *terminal* rejection with no side-effect
+//     risk. Return undefined so halt() leaves the provider's own message intact;
+//     overwriting it with a generic recovery string was the bug where a billing
+//     failure surfaced as "Connection lost".
+//   - a side-effect safety reason (tool_execution_started / unsafe_side_effect_started
+//     / side_effect_facts_incomplete) — a tool already ran or a side effect may
+//     have started (be it a terminal rejection after a tool ran, or a retryable
+//     rate_limit / server_overload that exhausted its retries). Keep BOTH: the
+//     provider's real reason AND the safety hint, so a user who fixes the
+//     provider problem still checks external state before resending. The bare
+//     hint is used (not the "Connection lost." string) so the rejection is not
+//     mislabelled.
+//
+// Everything else (real transport drops, lifecycle close, user cancel) uses the
+// recovery message as-is.
+export function haltInterruptionMessage(
+  providerApiRejection: boolean,
+  recovery: NonNullable<RunObservability.Summary["incident"]>["recovery"] | undefined,
+  providerMessage?: string,
+): string | undefined {
+  if (providerApiRejection) {
+    const reason = recovery?.reason
+    if (reason === "provider_api_error") return undefined
+    if (
+      providerMessage &&
+      (reason === "tool_execution_started" ||
+        reason === "unsafe_side_effect_started" ||
+        reason === "side_effect_facts_incomplete")
+    ) {
+      return `${providerMessage} ${SIDE_EFFECT_SAFETY_HINT}`
+    }
+  }
+  return recoveryInterruptionMessage(recovery)
 }
 
 type PendingLoopAction = {
@@ -1728,18 +1776,40 @@ export const layer: Layer.Layer<
           if (phase) {
             return {
               retryable: true,
-              message: "Connection timed out",
-              watchdog: { phase },
+              message: "Connection timed out" as string | undefined,
+              watchdog: { phase } as { phase: "connect" | "silent_stream" | "unknown" } | undefined,
+              providerFailure: undefined as
+                | { kind: ProviderFailureKind; code?: string; statusCode?: number; hasResponseBody?: boolean }
+                | undefined,
+              providerMessage: undefined as string | undefined,
             }
           }
+          // Parse once for the retry decision; surface providerFailure plus the
+          // HTTP evidence so the recorder routes a provider API rejection to
+          // provider_api_error instead of re-parsing or defaulting it to a
+          // transport disconnect. The provider's own message rides along too so
+          // the halt path renders it without a second parse that could drift
+          // from this classification.
           const parsed = parse(error)
+          const apiError = MessageV2.APIError.isInstance(parsed) ? parsed : undefined
+          const providerFailure = apiError?.data.providerFailure
+            ? {
+                kind: apiError.data.providerFailure.kind,
+                code: apiError.data.providerFailure.code,
+                statusCode: apiError.data.statusCode,
+                hasResponseBody:
+                  typeof apiError.data.responseBody === "string" && apiError.data.responseBody.length > 0,
+              }
+            : undefined
+          const providerMessage = apiError?.data.message
           const classification = SessionRetry.classifyRetry(parsed)
-          if (!classification) return { retryable: false }
+          if (!classification)
+            return { retryable: false, message: undefined, watchdog: undefined, providerFailure, providerMessage }
           if (SessionRetry.retryAction(classification) === "stop") {
             ctx.terminalClassification = classification
-            return { retryable: false }
+            return { retryable: false, message: undefined, watchdog: undefined, providerFailure, providerMessage }
           }
-          return { retryable: true, message: classification.raw }
+          return { retryable: true, message: classification.raw, watchdog: undefined, providerFailure, providerMessage }
         }
 
         const removeReasoningForAttempt = Effect.fn("SessionProcessor.removeReasoningForAttempt")(function* (
@@ -1883,6 +1953,7 @@ export const layer: Layer.Layer<
               evidence: retrySignal.watchdog ? ["watchdog_fired", "iterator_error"] : ["iterator_error"],
               watchdog: retrySignal.watchdog,
               retryable: retrySignal.retryable,
+              providerFailure: retrySignal.providerFailure,
             })
             const retryDecision = buildModelRetryDecision({
               technicalRetryability: retrySignal.retryable
@@ -1997,9 +2068,16 @@ export const layer: Layer.Layer<
               break
             }
 
+            // Pick the halt message (see haltInterruptionMessage): a terminal
+            // provider API rejection with no side-effect risk keeps its own
+            // actionable text; a provider rejection after a side effect keeps both
+            // that text and the safety hint; transport drops keep the recovery
+            // string. Lifecycle-close and user-cancel halts above keep their own
+            // authoritative interruption messages.
+            const providerApiRejection = !!retrySignal.providerFailure && isProviderApiError(retrySignal.providerFailure)
             yield* halt(result.error, attemptID, {
               recordFailure: false,
-              interruptionMessage: recoveryInterruptionMessage(decision),
+              interruptionMessage: haltInterruptionMessage(providerApiRejection, decision, retrySignal.providerMessage),
             })
             break
           }

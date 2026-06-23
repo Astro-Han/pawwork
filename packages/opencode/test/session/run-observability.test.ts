@@ -3,6 +3,7 @@ import { LLM } from "../../src/session/llm"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { RunIncident } from "../../src/session/run-incident"
 import { RunObservability } from "../../src/session/run-observability"
+import { haltInterruptionMessage } from "../../src/session/processor"
 
 const beforeProgressCause = {
   category: "provider_transport_disconnect",
@@ -731,6 +732,208 @@ describe("RunObservability", () => {
       confidence: "medium",
       reason: "no_visible_output_or_tool_execution",
       safety_scope: "user_visible_and_tool_side_effects",
+    })
+  })
+
+  test("classifies a terminal provider API rejection as provider_api_error, not a transport disconnect", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_provider_api_terminal"),
+      traceID: MessageID.make("msg_provider_api_terminal"),
+      sessionID: SessionID.make("ses_provider_api_terminal"),
+      messageID: MessageID.make("msg_provider_api_terminal"),
+      providerID: "deepseek",
+      modelID: "deepseek-chat",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    const recovery = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      error: { name: "APIError", message: "402 Insufficient Balance" },
+      evidence: ["iterator_error"],
+      retryable: false,
+      providerFailure: { kind: "quota_exhausted", code: "invalid_request_error" },
+    })
+
+    expect(recovery.recommendation).toBe("do_not_retry")
+    expect(recovery.reason).toBe("provider_api_error")
+
+    const summary = recorder.finalize({ completedAt: 13, monotonicMs: 130 })
+    expect(summary.classification).toBe("provider_api_error")
+    expect(String(summary.summary_key)).toBe("provider_api_error.quota_exhausted")
+    expect(summary.retry_safety).toEqual({
+      recommendation: "do_not_auto_retry",
+      confidence: "high",
+      reason: "provider_terminal_failure",
+      safety_scope: "user_visible_and_tool_side_effects",
+    })
+    expect(summary.incident?.terminal_cause).toMatchObject({
+      category: "provider_api_error",
+      subcategory: "quota_exhausted",
+      retryable: false,
+    })
+    expect(summary.incident?.user_summary).toMatchObject({
+      title_key: "run_incident.provider_api_error",
+      body_key: "run_incident.provider_api_error.quota_exhausted",
+      severity: "error",
+    })
+  })
+
+  test("treats a retryable provider API error that exhausted its budget as side-effect-safe to retry", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_provider_api_retryable"),
+      traceID: MessageID.make("msg_provider_api_retryable"),
+      sessionID: SessionID.make("ses_provider_api_retryable"),
+      messageID: MessageID.make("msg_provider_api_retryable"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      error: { name: "APIError", message: "429 Too Many Requests" },
+      evidence: ["iterator_error"],
+      retryable: true,
+      providerFailure: { kind: "rate_limit" },
+    })
+
+    const summary = recorder.finalize({ completedAt: 13, monotonicMs: 130 })
+    expect(summary.classification).toBe("provider_api_error")
+    expect(String(summary.summary_key)).toBe("provider_api_error.rate_limit")
+    expect(summary.retry_safety).toEqual({
+      recommendation: "candidate_safe_auto_retry",
+      confidence: "medium",
+      reason: "no_visible_output_or_tool_execution",
+      safety_scope: "user_visible_and_tool_side_effects",
+    })
+  })
+
+  test("keeps a transport_disconnect providerFailure on the transport path, not provider_api_error", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_provider_api_transport"),
+      traceID: MessageID.make("msg_provider_api_transport"),
+      sessionID: SessionID.make("ses_provider_api_transport"),
+      messageID: MessageID.make("msg_provider_api_transport"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      error: { name: "APIError", message: "Connection interrupted", code: "ECONNRESET" },
+      evidence: ["iterator_error"],
+      retryable: true,
+      providerFailure: { kind: "transport_disconnect", code: "ECONNRESET" },
+    })
+
+    const summary = recorder.finalize({ completedAt: 13, monotonicMs: 130 })
+    expect(summary.classification).toBe("external_stream_disconnect")
+    expect(summary.incident?.terminal_cause.category).toBe("provider_transport_disconnect")
+  })
+
+  test("keeps a decompression providerFailure on the transport path, not provider_api_error", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_provider_api_decompression"),
+      traceID: MessageID.make("msg_provider_api_decompression"),
+      sessionID: SessionID.make("ses_provider_api_decompression"),
+      messageID: MessageID.make("msg_provider_api_decompression"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      error: { name: "APIError", message: "Response decompression failed", code: "ZlibError" },
+      evidence: ["iterator_error"],
+      retryable: true,
+      providerFailure: { kind: "decompression", code: "ZlibError" },
+    })
+
+    const summary = recorder.finalize({ completedAt: 13, monotonicMs: 130 })
+    expect(summary.classification).toBe("external_stream_disconnect")
+    expect(summary.incident?.terminal_cause.category).toBe("provider_transport_disconnect")
+  })
+
+  test("keeps an unknown-kind failure with no HTTP evidence on the transport path", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_unknown_no_evidence"),
+      traceID: MessageID.make("msg_unknown_no_evidence"),
+      sessionID: SessionID.make("ses_unknown_no_evidence"),
+      messageID: MessageID.make("msg_unknown_no_evidence"),
+      providerID: "openai",
+      modelID: "gpt-5.5",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      // A wrapped network failure (e.g. DNS ENOTFOUND) the stream classifier did
+      // not recognize: kind "unknown" with no status code and no response body.
+      error: { name: "APIError", message: "fetch failed", code: "ENOTFOUND" },
+      evidence: ["iterator_error"],
+      retryable: true,
+      providerFailure: { kind: "unknown", code: "ENOTFOUND" },
+    })
+
+    const summary = recorder.finalize({ completedAt: 13, monotonicMs: 130 })
+    expect(summary.classification).toBe("external_stream_disconnect")
+    expect(summary.incident?.terminal_cause.category).toBe("provider_transport_disconnect")
+  })
+
+  test("routes an unknown-kind failure WITH an HTTP status to provider_api_error", () => {
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_unknown_with_status"),
+      traceID: MessageID.make("msg_unknown_with_status"),
+      sessionID: SessionID.make("ses_unknown_with_status"),
+      messageID: MessageID.make("msg_unknown_with_status"),
+      providerID: "deepseek",
+      modelID: "deepseek-chat",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      // 402 Insufficient Balance before PR1 classifies it: kind "unknown" but a
+      // real HTTP response (status 402) was received, so it is a provider API error.
+      error: { name: "APIError", message: "402 Insufficient Balance" },
+      evidence: ["iterator_error"],
+      retryable: false,
+      providerFailure: { kind: "unknown", statusCode: 402, hasResponseBody: true },
+    })
+
+    const summary = recorder.finalize({ completedAt: 13, monotonicMs: 130 })
+    expect(summary.classification).toBe("provider_api_error")
+    expect(String(summary.summary_key)).toBe("provider_api_error.unknown")
+    expect(summary.incident?.terminal_cause).toMatchObject({
+      category: "provider_api_error",
+      subcategory: "unknown",
+      retryable: false,
     })
   })
 
@@ -1624,6 +1827,106 @@ describe("RunObservability", () => {
       recommendation: "ask_user_before_retry",
       reason: "side_effect_facts_incomplete",
     })
+  })
+
+  describe("recoveryFor — terminal provider API rejection", () => {
+    const terminalProviderCause = {
+      category: "provider_api_error",
+      subcategory: "quota_exhausted",
+      confidence: "high",
+    } satisfies RunIncident.TerminalCause
+
+    // retryable=false → a terminal (do-not-retry) provider rejection, e.g. a 402
+    // "Insufficient Balance". It always stops; the reason reflects side-effect risk.
+    function terminalProviderRecovery(overrides: Partial<RunIncident.Facts>) {
+      return RunIncident.recoveryFor({ cause: terminalProviderCause, facts: beforeProgressFacts(overrides), retryable: false })
+    }
+
+    test("with no side-effect risk it stays a pure provider passthrough", () => {
+      // No tool ran, no unsafe side effect, side-effect facts complete: keep
+      // reason "provider_api_error" so the renderer shows the real provider text.
+      expect(
+        terminalProviderRecovery({
+          tool_execution_started: false,
+          unsafe_side_effect_started: false,
+          side_effect_facts_complete: true,
+        }),
+      ).toMatchObject({ recommendation: "do_not_retry", reason: "provider_api_error" })
+    })
+
+    test("after a tool ran it surfaces the tool_execution_started safety reason (still do_not_retry)", () => {
+      expect(terminalProviderRecovery({ tool_execution_started: true, side_effect_facts_complete: true })).toMatchObject({
+        recommendation: "do_not_retry",
+        reason: "tool_execution_started",
+      })
+    })
+
+    test("after an unsafe side effect it surfaces the unsafe_side_effect_started safety reason (precedence over tool)", () => {
+      expect(
+        terminalProviderRecovery({
+          unsafe_side_effect_started: true,
+          tool_execution_started: true,
+          side_effect_facts_complete: true,
+        }),
+      ).toMatchObject({ recommendation: "do_not_retry", reason: "unsafe_side_effect_started" })
+    })
+
+    test("with incomplete side-effect facts it surfaces the side_effect_facts_incomplete safety reason", () => {
+      expect(terminalProviderRecovery({ side_effect_facts_complete: false })).toMatchObject({
+        recommendation: "do_not_retry",
+        reason: "side_effect_facts_incomplete",
+      })
+    })
+  })
+
+  test("a terminal provider rejection after a tool ran keeps both the provider reason and the safety hint (end-to-end)", () => {
+    // Record a real tool execution, then drive recordAttemptFailureAndDeriveRecovery
+    // with a terminal quota_exhausted (retryable=false). The derived recovery must
+    // carry the side-effect reason (not the bare "provider_api_error" passthrough),
+    // and the final halt message must keep BOTH the provider reason and the
+    // "check external state" hint — so a user who tops up their balance and resends
+    // does not silently re-run the tool's side effect.
+    const recorder = RunObservability.createRecorder({
+      runID: RunObservability.RunID.make("run_terminal_provider_after_tool"),
+      traceID: MessageID.make("msg_terminal_provider_after_tool"),
+      sessionID: SessionID.make("ses_terminal_provider_after_tool"),
+      messageID: MessageID.make("msg_terminal_provider_after_tool"),
+      providerID: "deepseek",
+      modelID: "deepseek-chat",
+      createdAt: 10,
+      monotonicStartMs: 100,
+    })
+    const attempt = recorder.beginAttempt({ attemptIndex: 1, at: 11, monotonicMs: 110 })
+    recorder.recordToolCallMaterialized({
+      attemptID: attempt.attemptID,
+      at: 12,
+      monotonicMs: 120,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    recorder.recordToolExecutionStarted({
+      attemptID: attempt.attemptID,
+      at: 13,
+      monotonicMs: 130,
+      toolName: RunObservability.safeToolName("grep"),
+      effect: RunObservability.toolEffect("grep"),
+    })
+    const recovery = recorder.recordAttemptFailureAndDeriveRecovery({
+      attemptID: attempt.attemptID,
+      at: 14,
+      monotonicMs: 140,
+      error: { name: "AI_APICallError", message: "Insufficient Balance" },
+      retryable: false,
+      providerFailure: { kind: "quota_exhausted", statusCode: 402, hasResponseBody: true },
+    })
+
+    // Side-effect reason, not the pure "provider_api_error" passthrough; still do_not_retry.
+    expect(recovery).toMatchObject({ recommendation: "do_not_retry", reason: "tool_execution_started" })
+
+    const message = haltInterruptionMessage(true, recovery, "Insufficient Balance")
+    expect(message).toContain("Insufficient Balance")
+    expect(message).toContain("check whether the last operation completed")
+    expect(message).not.toContain("Connection lost")
   })
 
   test("transport failure after tool input end is not classified as text generation", () => {

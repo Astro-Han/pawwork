@@ -22,6 +22,47 @@ export const ProviderFailureKind = z.enum([
 ])
 export type ProviderFailureKind = z.infer<typeof ProviderFailureKind>
 
+// The provider-API-rejection kinds: a provider returned an API-level error (an
+// HTTP response was received, or a typed provider error body arrived) rather
+// than the connection dropping. transport_disconnect and decompression are
+// stream/transport failures and are deliberately left out. run-incident routes
+// these to its provider_api_error terminal cause, and the renderer passes their
+// real message through instead of a generic connection-lost interruption string.
+//
+// This tuple is the single source of truth: the type is derived from it and the
+// runtime check reads it directly, so adding a ProviderFailureKind forces an
+// explicit decision here and the two can never drift. `satisfies` keeps every
+// entry a valid ProviderFailureKind.
+const PROVIDER_API_ERROR_KINDS = [
+  "auth",
+  "rate_limit",
+  "quota_exhausted",
+  "server_overload",
+  "invalid_request",
+  "unknown",
+] as const satisfies readonly ProviderFailureKind[]
+export type ProviderApiErrorKind = (typeof PROVIDER_API_ERROR_KINDS)[number]
+
+function isProviderApiErrorKind(kind: ProviderFailureKind | undefined): kind is ProviderApiErrorKind {
+  return kind !== undefined && (PROVIDER_API_ERROR_KINDS as readonly ProviderFailureKind[]).includes(kind)
+}
+
+// Whether a parsed APIError is a provider API rejection (an HTTP response was
+// received, or a typed provider error body arrived) rather than a wrapped
+// connection failure. The explicit kinds are only ever assigned from a status
+// code or a typed error body, so they always qualify. "unknown" is the
+// catch-all and must be gated on API evidence (a status code or a response
+// body): without it, a wrapped network error — e.g. an APICallError with no
+// HTTP response, or a DNS failure the stream classifier did not recognize —
+// would be misclassified as a provider API error instead of a transport drop.
+export function isProviderApiError<
+  T extends { kind?: ProviderFailureKind; statusCode?: number; hasResponseBody?: boolean },
+>(input: T): input is T & { kind: ProviderApiErrorKind } {
+  if (!isProviderApiErrorKind(input.kind)) return false
+  if (input.kind === "unknown") return input.statusCode !== undefined || input.hasResponseBody === true
+  return true
+}
+
 function apiCallErrorKind(statusCode: number | undefined, code: string | undefined): ProviderFailureKind {
   if (code === "insufficient_quota" || code === "usage_not_included") return "quota_exhausted"
   if (code === "invalid_prompt") return "invalid_request"

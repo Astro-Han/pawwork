@@ -240,6 +240,20 @@ function phaseFor(input: {
   }
 }
 
+export function providerApiCause(input: {
+  kind: Extract<TerminalCause, { category: "provider_api_error" }>["subcategory"]
+  retryable?: boolean
+  error?: SafeErrorFingerprint
+}): Extract<TerminalCause, { category: "provider_api_error" }> {
+  return {
+    category: "provider_api_error",
+    subcategory: input.kind,
+    retryable: input.retryable,
+    error: input.error,
+    confidence: "high",
+  }
+}
+
 export function transportCause(input: {
   error?: SafeErrorFingerprint
   providerProgressSeen: boolean
