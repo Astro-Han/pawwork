@@ -1,17 +1,27 @@
+import { Button } from "@opencode-ai/ui/button"
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Switch } from "@opencode-ai/ui/switch"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TextField } from "@opencode-ai/ui/text-field"
-import { type Component, For, Show } from "solid-js"
+import { showToast } from "@opencode-ai/ui/toast"
+import { type Component, createSignal, For, Show } from "solid-js"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useModels } from "@/context/models"
 import { popularProviders } from "@/hooks/use-providers"
+import { clientActionHeaders } from "@/utils/server"
+import { mergeFetchedModels } from "./settings-models-fetch"
 import { SettingsList } from "./settings-list"
 import { compareModelsForDisplay } from "@/utils/model-order"
 
 type ModelItem = ReturnType<ReturnType<typeof useModels>["list"]>[number]
+
+// Only OpenAI-compatible providers (custom providers + gateways like Kilo) expose a /models endpoint
+// we can discover from. Native SDKs (anthropic, etc.) do not, so the action stays hidden for them.
+const OPENAI_COMPATIBLE = "@ai-sdk/openai-compatible"
 
 const ListLoadingState: Component<{ label: string }> = (props) => {
   return (
@@ -35,6 +45,54 @@ const ListEmptyState: Component<{ message: string; filter: string }> = (props) =
 export const SettingsModels: Component = () => {
   const language = useLanguage()
   const models = useModels()
+  const globalSDK = useGlobalSDK()
+  const globalSync = useGlobalSync()
+  const [fetchingID, setFetchingID] = createSignal<string>()
+
+  // Live-fetch the provider's models and persist any the catalog/config does not already list. Issue #1463.
+  const fetchModels = async (provider: ModelItem["provider"]) => {
+    if (fetchingID()) return
+    setFetchingID(provider.id)
+    try {
+      const actionClient = globalSDK.createClient({
+        headers: clientActionHeaders({ kind: "settings.models.fetch" }),
+        throwOnError: true,
+      })
+      const response = await actionClient.provider.fetchModels({ providerID: provider.id })
+      const configProvider = globalSync.data.config.provider?.[provider.id]
+      const { models: nextModels, addedModelIDs, skipped } = mergeFetchedModels({
+        existingModelIDs: Object.keys(provider.models),
+        configModels: configProvider?.models,
+        fetched: response.data?.models ?? [],
+      })
+      if (addedModelIDs.length === 0) {
+        showToast({
+          title: language.t("provider.fetchModels.toast.none.title"),
+          description: language.t("provider.fetchModels.toast.none.description", { provider: provider.name }),
+        })
+        return
+      }
+      // Mark new models hidden before they enter the catalog: they carry no release_date, and the model
+      // visibility default treats undated models as visible — so without this a large gateway would flood
+      // the picker. The user toggles on the ones they want. Issue #1463.
+      for (const modelID of addedModelIDs) models.setVisibility({ providerID: provider.id, modelID }, false)
+      await globalSync.updateConfig({ provider: { [provider.id]: { ...configProvider, models: nextModels } } })
+      showToast({
+        variant: "success",
+        icon: "circle-check",
+        title: language.t("provider.fetchModels.toast.added.title"),
+        description: language.t("provider.fetchModels.toast.added.description", {
+          added: addedModelIDs.length,
+          skipped,
+        }),
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({ title: language.t("common.requestFailed"), description: message })
+    } finally {
+      setFetchingID(undefined)
+    }
+  }
 
   const list = useFilteredList<ModelItem>({
     items: (_filter) => models.list(),
@@ -101,6 +159,20 @@ export const SettingsModels: Component = () => {
                   <div class="flex items-center gap-2 pb-2">
                     <ProviderIcon id={group.category} class="size-5 shrink-0 text-icon-strong" />
                     <span class="text-h3 text-fg-strong">{group.items[0].provider.name}</span>
+                    <Show when={group.items.some((item) => item.api?.npm === OPENAI_COMPATIBLE)}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        icon="refresh"
+                        class="ml-auto"
+                        disabled={Boolean(fetchingID())}
+                        onClick={() => void fetchModels(group.items[0].provider)}
+                      >
+                        {fetchingID() === group.items[0].provider.id
+                          ? language.t("provider.fetchModels.loading")
+                          : language.t("provider.fetchModels.action")}
+                      </Button>
+                    </Show>
                   </div>
                   <SettingsList>
                     <For each={group.items}>

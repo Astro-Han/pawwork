@@ -176,6 +176,13 @@ export const dict = {
   "provider.connect.toast.connected.deferredDescription":
     "{{provider}} is connected. Model refresh will finish after the current run.",
 
+  "provider.fetchModels.action": "Fetch models",
+  "provider.fetchModels.loading": "Fetching…",
+  "provider.fetchModels.toast.added.title": "Models updated",
+  "provider.fetchModels.toast.added.description": "Added {{added}} models, skipped {{skipped}} existing.",
+  "provider.fetchModels.toast.none.title": "No new models",
+  "provider.fetchModels.toast.none.description": "{{provider}} returned no models beyond the ones already listed.",
+
   "provider.custom.title": "Custom provider",
   "provider.custom.description.prefix": "Configure an OpenAI-compatible provider. See the ",
   "provider.custom.description.link": "provider config docs",

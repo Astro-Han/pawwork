@@ -7,7 +7,7 @@ import {
 import { ListResult } from "@/provider/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { Schema } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { BadRequestError, WorkspaceRoutingQuery } from "./common"
 
 const root = "/provider"
@@ -20,6 +20,26 @@ export const RecentModelInput = Schema.Struct({
   providerID: ProviderID,
   modelID: ModelID,
 })
+
+export const FetchedModel = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+})
+
+export const FetchModelsResult = Schema.Struct({
+  models: Schema.Array(FetchedModel),
+})
+
+export const FetchModelsError = Schema.Struct({
+  message: Schema.String,
+}).pipe(
+  HttpApiSchema.status(400),
+  (schema) =>
+    schema.annotate({
+      identifier: "FetchModelsError",
+      description: "Failed to reach or parse the provider's models endpoint.",
+    }),
+)
 
 export const ProviderApi = HttpApi.make("provider")
   .add(
@@ -82,6 +102,19 @@ export const ProviderApi = HttpApi.make("provider")
             summary: "Record recent model",
             description:
               "Persist the user's picked model as the recent default that model-less sessions (e.g. a Telegram /new) inherit. Called by the desktop model picker on an explicit pick.",
+          }),
+        ),
+        HttpApiEndpoint.post("fetchModels", `${root}/:providerID/models`, {
+          params: ProviderParam,
+          query: WorkspaceRoutingQuery,
+          success: FetchModelsResult,
+          error: FetchModelsError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "provider.fetchModels",
+            summary: "Fetch provider models",
+            description:
+              "Discover an OpenAI-compatible provider's models live from its /models endpoint using the provider's configured base URL, auth, and headers. Returns the parsed list without persisting it.",
           }),
         ),
       )

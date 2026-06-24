@@ -1,4 +1,4 @@
-import { authorizeProvider, completeProviderAuth, getAuthMethods, listProviders, recordRecentModel } from "@/server/instance/provider-actions"
+import { authorizeProvider, completeProviderAuth, fetchProviderModels, getAuthMethods, listProviders, recordRecentModel } from "@/server/instance/provider-actions"
 import { ProviderAuth } from "@/provider/auth"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { NamedError } from "@opencode-ai/util/error"
@@ -105,6 +105,13 @@ export const providerHandlers = HttpApiBuilder.group(ProviderApi, "provider", (h
         if (HttpServerResponse.isHttpServerResponse(payload)) return payload
         yield* recordRecentModel(payload)
         return HttpServerResponse.jsonUnsafe(true)
+      }),
+    )
+    .handleRaw("fetchModels", (ctx) =>
+      Effect.gen(function* () {
+        const result = yield* fetchProviderModels({ providerID: ctx.params.providerID })
+        if (!result.ok) return HttpServerResponse.jsonUnsafe({ message: result.message }, { status: 400 })
+        return HttpServerResponse.jsonUnsafe({ models: result.models })
       }),
     ),
 )

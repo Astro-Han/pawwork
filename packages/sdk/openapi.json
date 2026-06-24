@@ -8917,6 +8917,96 @@
         ]
       }
     },
+    "/provider/{providerID}/models": {
+      "post": {
+        "tags": [
+          "provider"
+        ],
+        "operationId": "provider.fetchModels",
+        "parameters": [
+          {
+            "name": "providerID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "models": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "models"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Failed to reach or parse the provider's models endpoint.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FetchModelsError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Discover an OpenAI-compatible provider's models live from its /models endpoint using the provider's configured base URL, auth, and headers. Returns the parsed list without persisting it.",
+        "summary": "Fetch provider models",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\"\n\nconst client = createOpencodeClient()\nawait client.provider.fetchModels({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/memory": {
       "get": {
         "tags": [
@@ -19338,6 +19428,19 @@
           "instructions"
         ],
         "additionalProperties": false
+      },
+      "FetchModelsError": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "additionalProperties": false,
+        "description": "Failed to reach or parse the provider's models endpoint."
       },
       "InvalidMemoryFileError": {
         "type": "object",
