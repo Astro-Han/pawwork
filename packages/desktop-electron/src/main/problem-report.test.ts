@@ -72,25 +72,59 @@ describe("problem report", () => {
       generatedAt: "2026-04-23T01:02:03.004Z",
     })
 
-    const payload = parseProblemReportPayload(report.markdown)
+    const payload = parseProblemReportPayload(report.json)
     expect(report.reportId).toBe("pwr_20260423_abc123")
     expect(report.generatedAt).toBe("2026-04-23T01:02:03.004Z")
-    expect(payload.reportId).toBe("pwr_20260423_abc123")
-    expect(payload.generatedAt).toBe("2026-04-23T01:02:03.004Z")
+    expect(payload.meta.reportId).toBe("pwr_20260423_abc123")
+    expect(payload.meta.generatedAt).toBe("2026-04-23T01:02:03.004Z")
   })
 
-  test("creates markdown with valid fenced JSON", () => {
+  test("creates valid agent-readable JSON", () => {
     const report = buildProblemReport(base)
-    expect(report.markdown).toContain("# PawWork Problem Report")
-    expect(report.markdown).toContain("Upload this markdown file to the feedback form after reviewing it.")
-    expect(report.markdown).not.toContain("Paste this report into the feedback form")
-    const payload = parseProblemReportPayload(report.markdown)
-    expect(payload.reportVersion).toBe(1)
-    expect(payload.reportId).toBe(report.reportId)
-    expect(payload.diagnostics.sessionID).toBe("ses_1")
-    expect(payload.sessionExport.status).toBe("ok")
+    expect(report.json).not.toContain("# PawWork Problem Report")
+    expect(report.json).not.toContain("```json")
+    const payload = parseProblemReportPayload(report.json)
+    expect(payload.meta.reportVersion).toBe(2)
+    expect(payload.meta.reportId).toBe(report.reportId)
+    expect(payload.environment.sessionID).toBe("ses_1")
+    expect(payload.session.status).toBe("ok")
     expect(payload.rendererDiagnostics?.status).toBe("ok")
     expect(payload.rendererDiagnostics?.summary.event_count).toBe(1)
+  })
+
+  test("creates agent-readable JSON with stable top-level sections and log lines", () => {
+    const report = buildProblemReport(
+      {
+        ...base,
+        logTail: ["main: boot", "warn: renderer failed"].join("\n"),
+        rendererError: { summary: "Renderer crashed", details: "stack line" },
+      },
+      {
+        reportId: "pwr_agent_readable",
+        generatedAt: "2026-06-24T01:02:03.004Z",
+      },
+    )
+
+    const json = (report as { json?: string }).json
+    expect(json).toBeTruthy()
+    expect(json).not.toContain("```json")
+
+    const payload = parseProblemReportPayload(json ?? "")
+    expect(Object.keys(payload)).toEqual([
+      "meta",
+      "environment",
+      "error",
+      "recentErrors",
+      "session",
+      "rendererDiagnostics",
+      "logTail",
+    ])
+    expect(payload.meta.reportId).toBe("pwr_agent_readable")
+    expect(payload.meta.truncation.omittedLogBytes).toBe(0)
+    expect(payload.environment.sessionID).toBe("ses_1")
+    expect(payload.error?.summary).toBe("Renderer crashed")
+    expect(payload.recentErrors).toEqual(["warn: renderer failed"])
+    expect(payload.logTail.at(-1)).toBe("warn: renderer failed")
   })
 
   test("summarizes renderer diagnostics without exposing event payloads", () => {
@@ -98,8 +132,8 @@ describe("problem report", () => {
       reportId: "pwr_20260423_abc123",
       generatedAt: "2026-04-23T01:02:03.004Z",
       diagnostics: base.diagnostics,
-      reportFileName: "pawwork-problem-report.md",
-      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report.md",
+      reportFileName: "pawwork-problem-report.json",
+      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report.json",
       fullReportStatus: "ready",
       recentErrors: [],
       rendererDiagnostics: base.rendererDiagnostics,
@@ -114,15 +148,15 @@ describe("problem report", () => {
       reportId: "pwr_20260423_abc123",
       generatedAt: "2026-04-23T01:02:03.004Z",
       diagnostics: base.diagnostics,
-      reportFileName: "pawwork-problem-report-20260423-090203-004-abc123.md",
-      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report-20260423-090203-004-abc123.md",
+      reportFileName: "pawwork-problem-report-20260423-090203-004-abc123.json",
+      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report-20260423-090203-004-abc123.json",
       fullReportStatus: "ready",
       recentErrors: ["[error] launch failed", "[warn] retrying"],
     })
 
     expect(summary).toContain("PawWork Problem Report Summary")
     expect(summary).toContain("Report ID: pwr_20260423_abc123")
-    expect(summary).toContain("Report file: pawwork-problem-report-20260423-090203-004-abc123.md")
+    expect(summary).toContain("Report file: pawwork-problem-report-20260423-090203-004-abc123.json")
     expect(summary).toContain("Full report: ready for manual upload")
     expect(summary).toContain("[error] launch failed")
     expect(summary).not.toContain(base.diagnostics.logPath)
@@ -143,13 +177,13 @@ describe("problem report", () => {
       ].join("\n"),
     }
     const report = buildProblemReport({ ...base, rendererError })
-    const payload = parseProblemReportPayload(report.markdown)
+    const payload = parseProblemReportPayload(report.json)
     const summary = buildProblemReportSummary({
       reportId: report.reportId,
       generatedAt: report.generatedAt,
       diagnostics: base.diagnostics,
-      reportFileName: "pawwork-problem-report.md",
-      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report.md",
+      reportFileName: "pawwork-problem-report.json",
+      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report.json",
       fullReportStatus: "ready",
       recentErrors: [],
       rendererError,
@@ -157,11 +191,11 @@ describe("problem report", () => {
 
     // The full report now redacts the same secret/path shapes as the summary (PR1), so the
     // uploaded file no longer carries raw credentials or local paths in rendererError.
-    expect(payload.rendererError?.summary).toContain("storage=[redacted]")
-    expect(payload.rendererError?.summary).toContain("key=[redacted]")
-    expect(report.markdown).not.toContain("pawwork.workspace.project.abc123.dat")
-    expect(report.markdown).not.toContain("workspace:vcs")
-    expect(report.markdown).not.toContain("/Users/test/project")
+    expect(payload.error?.summary).toContain("storage=[redacted]")
+    expect(payload.error?.summary).toContain("key=[redacted]")
+    expect(report.json).not.toContain("pawwork.workspace.project.abc123.dat")
+    expect(report.json).not.toContain("workspace:vcs")
+    expect(report.json).not.toContain("/Users/test/project")
     expect(summary).toContain("Renderer error: PawWork hit a local state problem.")
     expect(summary).toContain("storage=[redacted]")
     expect(summary).toContain("key=[redacted]")
@@ -192,8 +226,8 @@ describe("problem report", () => {
       reportId: "pwr_20260423_errors",
       generatedAt: "2026-04-23T01:02:03.004Z",
       diagnostics: base.diagnostics,
-      reportFileName: "pawwork-problem-report-20260423-090203-004-errors.md",
-      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report-20260423-090203-004-errors.md",
+      reportFileName: "pawwork-problem-report-20260423-090203-004-errors.json",
+      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report-20260423-090203-004-errors.json",
       fullReportStatus: "ready",
       recentErrors: Array.from({ length: 20 }, (_, index) => `[error] failure ${index}\nstack line ${index}`),
     })
@@ -210,8 +244,8 @@ describe("problem report", () => {
       reportId: "pwr_long_errors",
       generatedAt: "2026-04-23T01:02:03.004Z",
       diagnostics: base.diagnostics,
-      reportFileName: "pawwork-problem-report-20260423-090203-004-pwr_long_errors.md",
-      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report-20260423-090203-004-pwr_long_errors.md",
+      reportFileName: "pawwork-problem-report-20260423-090203-004-pwr_long_errors.json",
+      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report-20260423-090203-004-pwr_long_errors.json",
       fullReportStatus: "ready",
       recentErrors: [`[error] tool output ${toolOutput}`],
     })
@@ -231,8 +265,8 @@ describe("problem report", () => {
         ...base.diagnostics,
         route: `/session/new?prompt=${encodeURIComponent(prompt)}#${"hash".repeat(200)}`,
       },
-      reportFileName: "pawwork-problem-report-20260423-090203-004-pwr_prompt_route.md",
-      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report-20260423-090203-004-pwr_prompt_route.md",
+      reportFileName: "pawwork-problem-report-20260423-090203-004-pwr_prompt_route.json",
+      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report-20260423-090203-004-pwr_prompt_route.json",
       fullReportStatus: "ready",
       recentErrors: [],
     })
@@ -253,8 +287,8 @@ describe("problem report", () => {
         ...base.diagnostics,
         sessionID: `${longSessionID}/C:\\Users\\name\\secret`,
       },
-      reportFileName: "pawwork-problem-report-20260423-090203-004-pwr_long_session.md",
-      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report-20260423-090203-004-pwr_long_session.md",
+      reportFileName: "pawwork-problem-report-20260423-090203-004-pwr_long_session.json",
+      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report-20260423-090203-004-pwr_long_session.json",
       fullReportStatus: "ready",
       recentErrors: [],
     })
@@ -275,8 +309,8 @@ describe("problem report", () => {
         directory: "C:\\Users\\张 三\\Project Space",
         logPath: "C:\\Users\\张 三\\AppData\\Roaming\\PawWork\\logs\\main.log",
       },
-      reportFileName: "pawwork-problem-report-20260423-090203-004-pwr_windows_paths.md",
-      reportLocationHint: "%APPDATA%/.../problem-reports/pawwork-problem-report-20260423-090203-004-pwr_windows_paths.md",
+      reportFileName: "pawwork-problem-report-20260423-090203-004-pwr_windows_paths.json",
+      reportLocationHint: "%APPDATA%/.../problem-reports/pawwork-problem-report-20260423-090203-004-pwr_windows_paths.json",
       fullReportStatus: "ready",
       recentErrors: ["[error] failed to launch C:\\Users\\张 三\\Project Space\\app.log"],
     })
@@ -299,8 +333,8 @@ describe("problem report", () => {
         directory: "/home/alice/workspace/project",
         logPath: "/home/alice/.config/PawWork/logs/main.log",
       },
-      reportFileName: "pawwork-problem-report-20260423-090203-004-pwr_unix_paths.md",
-      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report-20260423-090203-004-pwr_unix_paths.md",
+      reportFileName: "pawwork-problem-report-20260423-090203-004-pwr_unix_paths.json",
+      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report-20260423-090203-004-pwr_unix_paths.json",
       fullReportStatus: "ready",
       recentErrors: [
         "[error] failed reading /home/alice/workspace/project/src/index.ts",
@@ -324,7 +358,7 @@ describe("problem report", () => {
       reportId: "pwr_terms",
       generatedAt: "2026-04-23T01:02:03.004Z",
       diagnostics: base.diagnostics,
-      reportFileName: "r.md",
+      reportFileName: "r.json",
       reportLocationHint: "hint",
       fullReportStatus: "ready",
       recentErrors: [
@@ -346,8 +380,8 @@ describe("problem report", () => {
       reportId: "pwr_cjk",
       generatedAt: "2026-04-23T01:02:03.004Z",
       diagnostics: base.diagnostics,
-      reportFileName: "problem.md",
-      reportLocationHint: "/customroot/山田/problem-reports/problem.md",
+      reportFileName: "problem.json",
+      reportLocationHint: "/customroot/山田/problem-reports/problem.json",
       fullReportStatus: "ready",
       recentErrors: ["[error] failed for user 山田"],
       rendererError: { summary: "crash for 山田", details: "" },
@@ -364,8 +398,8 @@ describe("problem report", () => {
       diagnostics: { ...base.diagnostics, sessionID: null },
       sessionExport: { status: "none" },
     })
-    const payload = parseProblemReportPayload(report.markdown)
-    expect(payload.sessionExport).toEqual({ status: "none" })
+    const payload = parseProblemReportPayload(report.json)
+    expect(payload.session).toEqual({ status: "none" })
     expect(payload.logTail).toContain("line two")
   })
 
@@ -374,8 +408,8 @@ describe("problem report", () => {
       ...base,
       sessionExport: { status: "failed", error: "session export failed: 500" },
     })
-    const payload = parseProblemReportPayload(report.markdown)
-    expect(payload.sessionExport).toEqual({ status: "failed", error: "session export failed: 500" })
+    const payload = parseProblemReportPayload(report.json)
+    expect(payload.session).toEqual({ status: "failed", error: "session export failed: 500" })
   })
 
   test("truncates oversized failed export errors", () => {
@@ -388,11 +422,11 @@ describe("problem report", () => {
       { maxBytes: 8_000 },
     )
 
-    expect(Buffer.byteLength(report.markdown, "utf8")).toBeLessThanOrEqual(8_000)
-    const payload = parseProblemReportPayload(report.markdown)
-    expect(payload.truncation.omittedFailedExportErrorBytes).toBeGreaterThan(0)
-    expect(payload.sessionExport.status).toBe("failed")
-    if (payload.sessionExport.status === "failed") expect(payload.sessionExport.error.length).toBeLessThan(100_000)
+    expect(Buffer.byteLength(report.json, "utf8")).toBeLessThanOrEqual(8_000)
+    const payload = parseProblemReportPayload(report.json)
+    expect(payload.meta.truncation.omittedFailedExportErrorBytes).toBeGreaterThan(0)
+    expect(payload.session.status).toBe("failed")
+    if (payload.session.status === "failed") expect(payload.session.error.length).toBeLessThan(100_000)
   })
 
   test("truncates oversized renderer error details to honor max bytes", () => {
@@ -410,12 +444,12 @@ describe("problem report", () => {
       { maxBytes: 8_000 },
     )
 
-    expect(Buffer.byteLength(report.markdown, "utf8")).toBeLessThanOrEqual(8_000)
-    const payload = parseProblemReportPayload(report.markdown)
-    expect(payload.rendererError?.summary).toBe("large renderer error")
-    expect(payload.rendererError?.details.length).toBeLessThan(details.length)
+    expect(Buffer.byteLength(report.json, "utf8")).toBeLessThanOrEqual(8_000)
+    const payload = parseProblemReportPayload(report.json)
+    expect(payload.error?.summary).toBe("large renderer error")
+    expect(payload.error?.details.length).toBeLessThan(details.length)
     // The ledger reflects what the overall ladder removed too, not only the component-budget cut.
-    expect(payload.truncation.omittedRendererErrorBytes).toBeGreaterThan(0)
+    expect(payload.meta.truncation.omittedRendererErrorBytes).toBeGreaterThan(0)
   })
 
   test("truncates renderer diagnostics events to honor max bytes", () => {
@@ -448,12 +482,12 @@ describe("problem report", () => {
       { maxBytes: 5_000 },
     )
 
-    expect(Buffer.byteLength(report.markdown, "utf8")).toBeLessThanOrEqual(5_000)
-    const payload = parseProblemReportPayload(report.markdown)
+    expect(Buffer.byteLength(report.json, "utf8")).toBeLessThanOrEqual(5_000)
+    const payload = parseProblemReportPayload(report.json)
     expect(payload.rendererDiagnostics?.status).toBe("truncated")
     expect(payload.rendererDiagnostics?.truncation).toBeUndefined()
     expect(payload.rendererDiagnostics?.summary.omitted_event_count).toBeGreaterThan(0)
-    expect(payload.truncation.omittedRendererDiagnosticsBytes).toBeGreaterThan(0)
+    expect(payload.meta.truncation.omittedRendererDiagnosticsBytes).toBeGreaterThan(0)
   })
 
   test("drains all-protected renderer diagnostics to fit a tight max bytes (no throw)", () => {
@@ -478,11 +512,11 @@ describe("problem report", () => {
 
     // Every event is a protected incident, yet the slice still drains to fit. The old fallback broke on
     // the first protected event, so the report would have exceeded maxBytes (or thrown) here.
-    expect(Buffer.byteLength(report.markdown, "utf8")).toBeLessThanOrEqual(5_000)
-    const payload = parseProblemReportPayload(report.markdown)
+    expect(Buffer.byteLength(report.json, "utf8")).toBeLessThanOrEqual(5_000)
+    const payload = parseProblemReportPayload(report.json)
     expect(payload.rendererDiagnostics?.status).toBe("truncated")
     expect(payload.rendererDiagnostics?.summary.omitted_event_count).toBeGreaterThan(0)
-    expect(payload.truncation.omittedRendererDiagnosticsBytes).toBeGreaterThan(0)
+    expect(payload.meta.truncation.omittedRendererDiagnosticsBytes).toBeGreaterThan(0)
   })
 
   test("re-bounds oversized renderer diagnostics to the component budget below the overall limit", () => {
@@ -501,8 +535,8 @@ describe("problem report", () => {
       },
     })
 
-    const payload = parseProblemReportPayload(report.markdown)
-    expect(payload.truncation.omittedRendererDiagnosticsBytes).toBeGreaterThan(0)
+    const payload = parseProblemReportPayload(report.json)
+    expect(payload.meta.truncation.omittedRendererDiagnosticsBytes).toBeGreaterThan(0)
     expect(payload.rendererDiagnostics?.summary.omitted_event_count).toBeGreaterThan(0)
     expect(Buffer.byteLength(JSON.stringify(payload.rendererDiagnostics?.events ?? []), "utf8")).toBeLessThanOrEqual(
       1024 * 1024,
@@ -523,16 +557,16 @@ describe("problem report", () => {
       },
     })
 
-    const payload = parseProblemReportPayload(report.markdown)
-    expect(payload.sessionExport.status).toBe("ok")
-    if (payload.sessionExport.status === "ok") {
-      expect(payload.sessionExport.info).toEqual({
+    const payload = parseProblemReportPayload(report.json)
+    expect(payload.session.status).toBe("ok")
+    if (payload.session.status === "ok") {
+      expect(payload.session.info).toEqual({
         id: "ses_1",
         executionContext: { activeDirectory: "[path]" },
       })
       // A non-{info,parts} message shape is reported, not passed through, so it cannot smuggle
       // raw content into the report (PR1 structure-aware allowlist).
-      const message = payload.sessionExport.messages[0] as { unrecognized?: boolean; bytes?: number }
+      const message = payload.session.messages[0] as { unrecognized?: boolean; bytes?: number }
       expect(message.unrecognized).toBe(true)
       expect(message.bytes).toBeGreaterThan(0)
     }
@@ -555,9 +589,9 @@ describe("problem report", () => {
       { maxBytes: 10_000 },
     )
 
-    expect(Buffer.byteLength(report.markdown, "utf8")).toBeLessThanOrEqual(10_000)
-    const payload = parseProblemReportPayload(report.markdown)
-    expect(payload.truncation.omittedMessages).toBeGreaterThan(0)
+    expect(Buffer.byteLength(report.json, "utf8")).toBeLessThanOrEqual(10_000)
+    const payload = parseProblemReportPayload(report.json)
+    expect(payload.meta.truncation.omittedMessages).toBeGreaterThan(0)
   })
 
   test("omits oversized session info to honor max bytes", () => {
@@ -576,11 +610,11 @@ describe("problem report", () => {
       { maxBytes: 3_000 },
     )
 
-    expect(Buffer.byteLength(report.markdown, "utf8")).toBeLessThanOrEqual(5_000)
-    const payload = parseProblemReportPayload(report.markdown)
-    expect(payload.truncation.omittedSessionInfoBytes).toBeGreaterThan(0)
-    expect(payload.sessionExport.status).toBe("ok")
-    if (payload.sessionExport.status === "ok") expect(payload.sessionExport.info).toBeNull()
+    expect(Buffer.byteLength(report.json, "utf8")).toBeLessThanOrEqual(5_000)
+    const payload = parseProblemReportPayload(report.json)
+    expect(payload.meta.truncation.omittedSessionInfoBytes).toBeGreaterThan(0)
+    expect(payload.session.status).toBe("ok")
+    if (payload.session.status === "ok") expect(payload.session.info).toBeNull()
   })
 
   test("rejects invalid max byte limits", () => {
@@ -602,146 +636,37 @@ describe("problem report", () => {
     )
   })
 
-  test("parses only the first JSON fence", () => {
-    const report = [
-      "```json",
-      JSON.stringify({
-        reportVersion: 1,
-        reportId: "pwr_fixture",
-        generatedAt: new Date().toISOString(),
-        diagnostics: base.diagnostics,
-        logTail: "",
-        sessionExport: { status: "none" },
-        truncation: {
-          omittedMessages: 0,
-          omittedMessagePartsBytes: 0,
-          omittedLogBytes: 0,
-          omittedSessionInfoBytes: 0,
-          omittedFailedExportErrorBytes: 0,
-          omittedRendererErrorBytes: 0,
-          omittedRendererDiagnosticsBytes: 0,
-          omittedDiagnosticsBytes: 0,
-        },
-      }),
-      "```",
-      "",
-      "```",
-      "extra",
-      "```",
-    ].join("\n")
+  test("parses pure JSON payloads", () => {
+    const report = buildProblemReport({ ...base, sessionExport: { status: "none" } }).json
 
-    expect(parseProblemReportPayload(report).sessionExport.status).toBe("none")
+    expect(parseProblemReportPayload(report).session.status).toBe("none")
   })
 
-  test("parses CRLF fenced JSON", () => {
-    const report = [
-      "```json",
-      JSON.stringify({
-        reportVersion: 1,
-        reportId: "pwr_fixture",
-        generatedAt: new Date().toISOString(),
-        diagnostics: base.diagnostics,
-        logTail: "",
-        sessionExport: { status: "none" },
-        truncation: {
-          omittedMessages: 0,
-          omittedMessagePartsBytes: 0,
-          omittedLogBytes: 0,
-          omittedSessionInfoBytes: 0,
-          omittedFailedExportErrorBytes: 0,
-          omittedRendererErrorBytes: 0,
-          omittedRendererDiagnosticsBytes: 0,
-          omittedDiagnosticsBytes: 0,
-        },
-      }),
-      "```",
-    ].join("\r\n")
+  test("rejects legacy markdown fenced JSON reports", () => {
+    const report = ["# PawWork Problem Report", "", "```json", buildProblemReport(base).json, "```"].join("\n")
 
-    expect(parseProblemReportPayload(report).sessionExport.status).toBe("none")
-  })
-
-  test("skips invalid fenced JSON before a valid report", () => {
-    const report = [
-      "```json",
-      "{ invalid",
-      "```",
-      "```json",
-      JSON.stringify({
-        reportVersion: 1,
-        reportId: "pwr_fixture",
-        generatedAt: new Date().toISOString(),
-        diagnostics: base.diagnostics,
-        logTail: "",
-        sessionExport: { status: "none" },
-        truncation: {
-          omittedMessages: 0,
-          omittedMessagePartsBytes: 0,
-          omittedLogBytes: 0,
-          omittedSessionInfoBytes: 0,
-          omittedFailedExportErrorBytes: 0,
-          omittedRendererErrorBytes: 0,
-          omittedRendererDiagnosticsBytes: 0,
-          omittedDiagnosticsBytes: 0,
-        },
-      }),
-      "```",
-    ].join("\n")
-
-    expect(parseProblemReportPayload(report).sessionExport.status).toBe("none")
+    expect(() => parseProblemReportPayload(report)).toThrow("Problem report JSON payload not found")
   })
 
   test("rejects malformed renderer error details", () => {
-    const report = [
-      "```json",
-      JSON.stringify({
-        reportVersion: 1,
-        reportId: "pwr_fixture",
-        generatedAt: new Date().toISOString(),
-        diagnostics: base.diagnostics,
-        logTail: "",
-        rendererError: { summary: "missing details" },
-        sessionExport: { status: "none" },
-        truncation: {
-          omittedMessages: 0,
-          omittedMessagePartsBytes: 0,
-          omittedLogBytes: 0,
-          omittedSessionInfoBytes: 0,
-          omittedFailedExportErrorBytes: 0,
-          omittedRendererErrorBytes: 0,
-          omittedRendererDiagnosticsBytes: 0,
-          omittedDiagnosticsBytes: 0,
-        },
-      }),
-      "```",
-    ].join("\n")
+    const payload = parseProblemReportPayload(buildProblemReport({ ...base, sessionExport: { status: "none" } }).json)
+    const report = JSON.stringify({ ...payload, error: { summary: "missing details" } })
 
-    expect(() => parseProblemReportPayload(report)).toThrow("Problem report JSON block not found")
+    expect(() => parseProblemReportPayload(report)).toThrow("Problem report JSON payload not found")
   })
 
-  test("rejects fenced JSON that is not a valid problem report payload", () => {
-    const report = [
-      "```json",
-      JSON.stringify({
-        reportVersion: 1,
-        reportId: "pwr_invalid",
-        diagnostics: base.diagnostics,
-        logTail: "",
-        sessionExport: { status: "none" },
-        truncation: {
-          omittedMessages: 0,
-          omittedMessagePartsBytes: 0,
-          omittedLogBytes: 0,
-          omittedSessionInfoBytes: 0,
-          omittedFailedExportErrorBytes: 0,
-          omittedRendererErrorBytes: 0,
-          omittedRendererDiagnosticsBytes: 0,
-          omittedDiagnosticsBytes: 0,
-        },
-      }),
-      "```",
-    ].join("\n")
+  test("rejects JSON that is not a valid problem report payload", () => {
+    const report = JSON.stringify({
+      meta: { reportVersion: 2, reportId: "pwr_invalid" },
+      environment: base.diagnostics,
+      error: null,
+      recentErrors: [],
+      session: { status: "none" },
+      rendererDiagnostics: null,
+      logTail: [],
+    })
 
-    expect(() => parseProblemReportPayload(report)).toThrow("Problem report JSON block not found")
+    expect(() => parseProblemReportPayload(report)).toThrow("Problem report JSON payload not found")
   })
 })
 
@@ -828,9 +753,9 @@ describe("component budgets — pure helpers", () => {
 describe("component budgets — wired into buildProblemReport", () => {
   test("caps the log tail to the default budget, keeping the most recent lines", () => {
     const lines = ["OLDEST_LINE", ...Array.from({ length: 150_000 }, () => "log line"), "NEWEST_LINE"]
-    const payload = parseProblemReportPayload(buildProblemReport({ ...base, logTail: lines.join("\n") }).markdown)
-    expect(Buffer.byteLength(payload.logTail, "utf8")).toBeLessThanOrEqual(1024 * 1024)
-    expect(payload.truncation.omittedLogBytes).toBeGreaterThan(0)
+    const payload = parseProblemReportPayload(buildProblemReport({ ...base, logTail: lines.join("\n") }).json)
+    expect(Buffer.byteLength(payload.logTail.join("\n"), "utf8")).toBeLessThanOrEqual(1024 * 1024)
+    expect(payload.meta.truncation.omittedLogBytes).toBeGreaterThan(0)
     expect(payload.logTail).toContain("NEWEST_LINE")
     expect(payload.logTail).not.toContain("OLDEST_LINE")
   })
@@ -839,9 +764,9 @@ describe("component budgets — wired into buildProblemReport", () => {
     const parts = Array.from({ length: 200 }, (_, i) => ({ id: `p_${i}`, type: "text", text: `part ${i} ${"x".repeat(2_000)}` }))
     const messages = [{ info: { id: "msg_big", sessionID: "ses_1", role: "assistant", time: { created: 1 } }, parts }]
     const payload = parseProblemReportPayload(
-      buildProblemReport({ ...base, sessionExport: { status: "ok", info: { id: "ses_1", title: "t" }, messages } }).markdown,
+      buildProblemReport({ ...base, sessionExport: { status: "ok", info: { id: "ses_1", title: "t" }, messages } }).json,
     )
-    const kept = payload.sessionExport.status === "ok" ? payload.sessionExport.messages : []
+    const kept = payload.session.status === "ok" ? payload.session.messages : []
     expect(kept.length).toBe(1)
     const message = kept[0] as { omittedParts?: number }
     expect(message.omittedParts).toBeGreaterThan(0)
@@ -849,7 +774,7 @@ describe("component budgets — wired into buildProblemReport", () => {
     // The latest parts (nearest the failure) survive; the start of the turn is trimmed.
     expect(JSON.stringify(message)).toContain("part 199 ")
     expect(JSON.stringify(message)).not.toContain("part 0 ")
-    expect(payload.truncation.omittedMessagePartsBytes).toBeGreaterThan(0)
+    expect(payload.meta.truncation.omittedMessagePartsBytes).toBeGreaterThan(0)
   })
 
   test("byte-caps the stub identity so an oversized id can't escape under default budgets", () => {
@@ -861,8 +786,8 @@ describe("component budgets — wired into buildProblemReport", () => {
       sessionExport: { status: "ok", info: { id: "ses_1", title: "t" }, messages },
     })
 
-    const payload = parseProblemReportPayload(report.markdown)
-    const kept = payload.sessionExport.status === "ok" ? payload.sessionExport.messages : []
+    const payload = parseProblemReportPayload(report.json)
+    const kept = payload.session.status === "ok" ? payload.session.messages : []
     // Even the stub's id is byte-capped, so the whole session stays well under the default budget.
     expect(Buffer.byteLength(JSON.stringify(kept), "utf8")).toBeLessThanOrEqual(4_096)
     expect((kept[0] as { oversized?: boolean }).oversized).toBe(true)
@@ -875,13 +800,13 @@ describe("component budgets — wired into buildProblemReport", () => {
       rendererError: { summary: `boom ${"S".repeat(100_000)}`, details: "stack frame\n".repeat(20_000) },
     })
 
-    const payload = parseProblemReportPayload(report.markdown)
-    expect(Buffer.byteLength(payload.rendererError?.summary ?? "", "utf8")).toBeLessThanOrEqual(64 * 1024)
-    expect(Buffer.byteLength(payload.rendererError?.details ?? "", "utf8")).toBeLessThanOrEqual(64 * 1024)
+    const payload = parseProblemReportPayload(report.json)
+    expect(Buffer.byteLength(payload.error?.summary ?? "", "utf8")).toBeLessThanOrEqual(64 * 1024)
+    expect(Buffer.byteLength(payload.error?.details ?? "", "utf8")).toBeLessThanOrEqual(64 * 1024)
     // Both keep the head (the error message + top of the stack), the useful part of an error.
-    expect(payload.rendererError?.summary.startsWith("boom ")).toBe(true)
-    expect(payload.rendererError?.details.startsWith("stack frame")).toBe(true)
-    expect(payload.truncation.omittedRendererErrorBytes).toBeGreaterThan(0)
+    expect(payload.error?.summary.startsWith("boom ")).toBe(true)
+    expect(payload.error?.details.startsWith("stack frame")).toBe(true)
+    expect(payload.meta.truncation.omittedRendererErrorBytes).toBeGreaterThan(0)
   })
 
   test("does not count part-trim bytes for a message the overall ladder later drops whole", () => {
@@ -903,19 +828,19 @@ describe("component budgets — wired into buildProblemReport", () => {
       { maxBytes: 10_000 },
     )
 
-    const payload = parseProblemReportPayload(report.markdown)
-    const kept = payload.sessionExport.status === "ok" ? payload.sessionExport.messages : []
+    const payload = parseProblemReportPayload(report.json)
+    const kept = payload.session.status === "ok" ? payload.session.messages : []
     expect(JSON.stringify(kept)).toContain("msg_new")
     expect(JSON.stringify(kept)).not.toContain("msg_old")
-    expect(payload.truncation.omittedMessages).toBeGreaterThan(0)
+    expect(payload.meta.truncation.omittedMessages).toBeGreaterThan(0)
     // The dropped message's part-trim is not double-counted; the surviving message had no trim.
-    expect(payload.truncation.omittedMessagePartsBytes).toBe(0)
+    expect(payload.meta.truncation.omittedMessagePartsBytes).toBe(0)
   })
 
   test("leaves a small report untouched under default budgets", () => {
-    const payload = parseProblemReportPayload(buildProblemReport(base).markdown)
-    expect(payload.truncation.omittedLogBytes).toBe(0)
-    expect(payload.truncation.omittedMessages).toBe(0)
-    expect(payload.truncation.omittedRendererErrorBytes).toBe(0)
+    const payload = parseProblemReportPayload(buildProblemReport(base).json)
+    expect(payload.meta.truncation.omittedLogBytes).toBe(0)
+    expect(payload.meta.truncation.omittedMessages).toBe(0)
+    expect(payload.meta.truncation.omittedRendererErrorBytes).toBe(0)
   })
 })

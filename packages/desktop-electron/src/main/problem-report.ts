@@ -14,6 +14,7 @@ import {
 } from "./problem-report-redact"
 
 export const DEFAULT_PROBLEM_REPORT_MAX_BYTES = 5 * 1024 * 1024
+const PROBLEM_REPORT_VERSION = 2
 
 // Per-component byte budgets. Each source is bounded independently so one component (a giant log, a
 // long session, a huge renderer stack) can't fill the whole report and crowd out the rest. They sum
@@ -86,24 +87,27 @@ type Options = {
 }
 
 type Payload = {
-  reportVersion: 1
-  reportId: string
-  generatedAt: string
-  diagnostics: ProblemReportDiagnostics
-  logTail: string
-  rendererError?: RendererErrorDetails
-  rendererDiagnostics?: RendererDiagnosticsSlice
-  sessionExport: SafeSessionExport
-  truncation: {
-    omittedMessages: number
-    omittedMessagePartsBytes: number
-    omittedLogBytes: number
-    omittedSessionInfoBytes: number
-    omittedFailedExportErrorBytes: number
-    omittedRendererErrorBytes: number
-    omittedRendererDiagnosticsBytes: number
-    omittedDiagnosticsBytes: number
+  meta: {
+    reportVersion: typeof PROBLEM_REPORT_VERSION
+    reportId: string
+    generatedAt: string
+    truncation: {
+      omittedMessages: number
+      omittedMessagePartsBytes: number
+      omittedLogBytes: number
+      omittedSessionInfoBytes: number
+      omittedFailedExportErrorBytes: number
+      omittedRendererErrorBytes: number
+      omittedRendererDiagnosticsBytes: number
+      omittedDiagnosticsBytes: number
+    }
   }
+  environment: ProblemReportDiagnostics
+  error: RendererErrorDetails | null
+  recentErrors: string[]
+  session: SafeSessionExport
+  rendererDiagnostics: RendererDiagnosticsSlice | null
+  logTail: string[]
 }
 
 function bytes(value: string) {
@@ -239,17 +243,20 @@ export function capSessionMessagesBytes(
   }
 }
 
-function markdown(payload: Payload) {
-  return [
-    "# PawWork Problem Report",
-    "",
-    "Upload this markdown file to the feedback form after reviewing it.",
-    "",
-    "```json",
-    JSON.stringify(payload, null, 2),
-    "```",
-    "",
-  ].join("\n")
+function jsonReport(payload: Payload) {
+  return JSON.stringify(payload, null, 2)
+}
+
+function logLines(value: string) {
+  return value.length > 0 ? value.split(/\r?\n/) : []
+}
+
+export function recentKeyErrors(value: string) {
+  return logLines(value)
+    .filter((line) => /\b(error|warn|warning|failed|exception)\b/i.test(line))
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(-10)
 }
 
 function sessionMessages(sessionExport: SafeSessionExport): JsonValue[] {
@@ -464,35 +471,38 @@ export function buildProblemReport(input: Input, options: Options = {}) {
   if (redactedRendererDiagnostics) capRendererDiagnostics(budgets.rendererDiagnosticsBytes)
 
   const makePayload = (): Payload => ({
-    reportVersion: 1,
-    reportId,
-    generatedAt,
-    diagnostics,
-    logTail,
-    ...(rendererError ? { rendererError } : {}),
-    ...(rendererDiagnostics ? { rendererDiagnostics } : {}),
-    sessionExport: withFailedExportError(
+    meta: {
+      reportVersion: PROBLEM_REPORT_VERSION,
+      reportId,
+      generatedAt,
+      truncation: {
+        omittedMessages,
+        omittedMessagePartsBytes,
+        omittedLogBytes,
+        omittedSessionInfoBytes,
+        omittedFailedExportErrorBytes,
+        // Derived: whatever the renderer-error text (summary + details) lost across every truncation
+        // stage, including full removal.
+        omittedRendererErrorBytes: Math.max(
+          0,
+          rendererErrorBaseline - (rendererError ? bytes(rendererError.summary) + bytes(rendererError.details) : 0),
+        ),
+        omittedRendererDiagnosticsBytes,
+        omittedDiagnosticsBytes,
+      },
+    },
+    environment: diagnostics,
+    error: rendererError ?? null,
+    recentErrors: recentKeyErrors(logTail),
+    session: withFailedExportError(
       withMessages(withSessionInfo(sessionExport, sessionInfo ?? null), messages),
       failedExportError,
     ),
-    truncation: {
-      omittedMessages,
-      omittedMessagePartsBytes,
-      omittedLogBytes,
-      omittedSessionInfoBytes,
-      omittedFailedExportErrorBytes,
-      // Derived: whatever the renderer-error text (summary + details) lost across every truncation
-      // stage, including full removal.
-      omittedRendererErrorBytes: Math.max(
-        0,
-        rendererErrorBaseline - (rendererError ? bytes(rendererError.summary) + bytes(rendererError.details) : 0),
-      ),
-      omittedRendererDiagnosticsBytes,
-      omittedDiagnosticsBytes,
-    },
+    rendererDiagnostics: rendererDiagnostics ?? null,
+    logTail: logLines(logTail),
   })
 
-  let output = markdown(makePayload())
+  let output = jsonReport(makePayload())
 
   // Drop older entries first so the report keeps the most recent context around the failure.
   while (bytes(output) > maxBytes && messages.length > 0) {
@@ -502,20 +512,20 @@ export function buildProblemReport(input: Input, options: Options = {}) {
     // Keep the part-trim ledger consistent: the dropped messages are no longer in the report.
     survivorPartTrimBytes = survivorPartTrimBytes.slice(remove)
     omittedMessagePartsBytes = sumPartTrim()
-    output = markdown(makePayload())
+    output = jsonReport(makePayload())
   }
 
   while (bytes(output) > maxBytes && logTail.length > 0) {
     const remove = Math.max(1, Math.ceil(logTail.length / 2))
     omittedLogBytes += bytes(logTail.slice(0, remove))
     logTail = logTail.slice(remove)
-    output = markdown(makePayload())
+    output = jsonReport(makePayload())
   }
 
   if (bytes(output) > maxBytes && sessionExport.status === "ok" && sessionInfo != null) {
     omittedSessionInfoBytes += jsonBytes(sessionInfo)
     sessionInfo = null
-    output = markdown(makePayload())
+    output = jsonReport(makePayload())
   }
 
   if (bytes(output) > maxBytes && failedExportError !== undefined) {
@@ -524,7 +534,7 @@ export function buildProblemReport(input: Input, options: Options = {}) {
     while (bytes(output) > maxBytes && errorLimit >= 0) {
       failedExportError = truncateString(originalError, errorLimit)
       omittedFailedExportErrorBytes = Math.max(0, bytes(originalError) - bytes(failedExportError))
-      output = markdown(makePayload())
+      output = jsonReport(makePayload())
       if (errorLimit === 0) break
       errorLimit = Math.floor(errorLimit / 2)
     }
@@ -538,7 +548,7 @@ export function buildProblemReport(input: Input, options: Options = {}) {
         ...rendererError,
         details: truncateString(originalDetails, detailsLimit),
       }
-      output = markdown(makePayload())
+      output = jsonReport(makePayload())
       if (detailsLimit === 0) break
       detailsLimit = Math.floor(detailsLimit / 2)
     }
@@ -546,7 +556,7 @@ export function buildProblemReport(input: Input, options: Options = {}) {
 
   if (bytes(output) > maxBytes && rendererError) {
     rendererError = undefined
-    output = markdown(makePayload())
+    output = jsonReport(makePayload())
   }
 
   // Final backstop: halve the renderer-diagnostics event budget until the report fits. Uses the same
@@ -556,7 +566,7 @@ export function buildProblemReport(input: Input, options: Options = {}) {
     let limit = Math.max(0, Math.floor(jsonBytes(rendererDiagnostics.events) / 2))
     while (bytes(output) > maxBytes && limit >= 0) {
       capRendererDiagnostics(limit)
-      output = markdown(makePayload())
+      output = jsonReport(makePayload())
       if (limit === 0) break
       limit = Math.floor(limit / 2)
     }
@@ -566,7 +576,7 @@ export function buildProblemReport(input: Input, options: Options = {}) {
   while (bytes(output) > maxBytes && diagnosticStringLimit >= 0) {
     diagnostics = truncateDiagnostics(redactedDiagnostics, diagnosticStringLimit)
     omittedDiagnosticsBytes = Math.max(0, jsonBytes(redactedDiagnostics) - jsonBytes(diagnostics))
-    output = markdown(makePayload())
+    output = jsonReport(makePayload())
     if (diagnosticStringLimit === 0) break
     diagnosticStringLimit = Math.floor(diagnosticStringLimit / 2)
   }
@@ -575,7 +585,7 @@ export function buildProblemReport(input: Input, options: Options = {}) {
     throw new Error("Problem report exceeds maxBytes after truncation")
   }
 
-  return { markdown: output, reportId, generatedAt }
+  return { json: output, reportId, generatedAt }
 }
 
 type ProblemReportSummaryInput = {
@@ -748,7 +758,11 @@ function isRendererDiagnosticsSlice(value: unknown): value is RendererDiagnostic
   )
 }
 
-function isTruncation(value: unknown): value is Payload["truncation"] {
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string")
+}
+
+function isTruncation(value: unknown): value is Payload["meta"]["truncation"] {
   if (!isRecord(value)) return false
   return (
     isFiniteNumber(value.omittedMessages) &&
@@ -765,34 +779,29 @@ function isTruncation(value: unknown): value is Payload["truncation"] {
 function isProblemReportPayload(value: unknown): value is Payload {
   if (!isRecord(value)) return false
   return (
-    value.reportVersion === 1 &&
-    typeof value.reportId === "string" &&
-    value.reportId.length > 0 &&
-    typeof value.generatedAt === "string" &&
-    !Number.isNaN(Date.parse(value.generatedAt)) &&
-    isDiagnostics(value.diagnostics) &&
-    typeof value.logTail === "string" &&
-    (value.rendererError === undefined || isRendererErrorDetails(value.rendererError)) &&
-    (value.rendererDiagnostics === undefined || isRendererDiagnosticsSlice(value.rendererDiagnostics)) &&
-    isSessionExport(value.sessionExport) &&
-    isTruncation(value.truncation)
+    isRecord(value.meta) &&
+    value.meta.reportVersion === PROBLEM_REPORT_VERSION &&
+    typeof value.meta.reportId === "string" &&
+    value.meta.reportId.length > 0 &&
+    typeof value.meta.generatedAt === "string" &&
+    !Number.isNaN(Date.parse(value.meta.generatedAt)) &&
+    isTruncation(value.meta.truncation) &&
+    isDiagnostics(value.environment) &&
+    (value.error === null || isRendererErrorDetails(value.error)) &&
+    isStringArray(value.recentErrors) &&
+    isSessionExport(value.session) &&
+    (value.rendererDiagnostics === null || isRendererDiagnosticsSlice(value.rendererDiagnostics)) &&
+    isStringArray(value.logTail)
   )
 }
 
 export function parseProblemReportPayload(input: string): Payload {
-  const lines = input.split(/\r?\n/)
-  for (let start = 0; start < lines.length; start++) {
-    if (lines[start] !== "```json") continue
-    for (let end = start + 1; end < lines.length; end++) {
-      if (lines[end] !== "```") continue
-      try {
-        const parsed = JSON.parse(lines.slice(start + 1, end).join("\n")) as unknown
-        if (isProblemReportPayload(parsed)) return parsed
-      } catch {
-        continue
-      }
-    }
+  try {
+    const parsed = JSON.parse(input) as unknown
+    if (isProblemReportPayload(parsed)) return parsed
+  } catch {
+    // fall through to the shared error below
   }
 
-  throw new Error("Problem report JSON block not found")
+  throw new Error("Problem report JSON payload not found")
 }

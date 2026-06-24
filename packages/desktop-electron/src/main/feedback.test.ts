@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { createFeedbackHandler } from "./feedback"
+import { parseProblemReportPayload } from "./problem-report"
 
 const diagnostics = {
   appVersion: "0.2.4",
@@ -25,7 +26,7 @@ function setup(overrides: Partial<Parameters<typeof createFeedbackHandler>[0]> =
     showItemCount: 0,
     openedPath: "",
     cleanedUp: "",
-    savedMarkdown: "",
+    savedJson: "",
     errors: [] as unknown[],
     handledErrors: [] as string[],
   }
@@ -46,12 +47,12 @@ function setup(overrides: Partial<Parameters<typeof createFeedbackHandler>[0]> =
       openPath: async (path) => {
         calls.openedPath = path
       },
-      saveReport: async ({ markdown, reportId }) => {
-        calls.savedMarkdown = markdown
+      saveReport: async ({ json, reportId }) => {
+        calls.savedJson = json
         return {
-          path: `/tmp/pawwork/problem-reports/pawwork-problem-report-${reportId}.md`,
-          fileName: `pawwork-problem-report-${reportId}.md`,
-          locationHint: `PawWork app data/.../problem-reports/pawwork-problem-report-${reportId}.md`,
+          path: `/tmp/pawwork/problem-reports/pawwork-problem-report-${reportId}.json`,
+          fileName: `pawwork-problem-report-${reportId}.json`,
+          locationHint: `PawWork app data/.../problem-reports/pawwork-problem-report-${reportId}.json`,
         }
       },
       cleanupReports: async (path) => {
@@ -90,7 +91,8 @@ describe("prepareReport", () => {
     const subject = setup()
     const result = await subject.handler.prepareReport()
 
-    expect(subject.calls.savedMarkdown).toContain("# PawWork Problem Report")
+    expect(subject.calls.savedJson).toContain('"meta"')
+    expect(subject.calls.savedJson).not.toContain("# PawWork Problem Report")
     expect(subject.calls.cleanedUp).toContain("/tmp/pawwork/problem-reports/")
     // Preparation is inert: reveal and form are the user's explicit follow-up choices.
     expect(subject.calls.openExternalCount).toBe(0)
@@ -143,7 +145,34 @@ describe("prepareReport", () => {
       rendererEvents: 2,
       rendererError: true,
     })
-    expect(subject.calls.savedMarkdown).toContain("ChildStoreError: Failed to create persisted cache")
+    expect(subject.calls.savedJson).toContain("ChildStoreError: Failed to create persisted cache")
+  })
+
+  test("uses the same recent error selection for the saved JSON and fallback summary", async () => {
+    const subject = setup({
+      logTail: () =>
+        [
+          "plain boot line",
+          "[warn] retry started",
+          "[error] launch failed",
+          "details without keyword",
+          "[exception] renderer crashed",
+        ].join("\n"),
+      openExternal: async () => {
+        throw new Error("browser unavailable")
+      },
+    })
+    const prepared = await subject.handler.prepareReport()
+    expect(prepared.status).toBe("ready")
+    if (prepared.status !== "ready") throw new Error("expected ready")
+
+    const payload = parseProblemReportPayload(subject.calls.savedJson)
+    const submitted = await subject.handler.submitReport(prepared.reportId)
+
+    expect(payload.recentErrors).toEqual(["[warn] retry started", "[error] launch failed", "[exception] renderer crashed"])
+    expect(submitted.status).toBe("form-fallback")
+    if (submitted.status !== "form-fallback") throw new Error("expected form fallback")
+    for (const line of payload.recentErrors) expect(submitted.summary).toContain(`- ${line}`)
   })
 
   test("hasForm is false when no feedback URL is configured", async () => {
@@ -152,7 +181,8 @@ describe("prepareReport", () => {
     expect(result.status).toBe("ready")
     if (result.status !== "ready") throw new Error("expected ready")
     expect(result.hasForm).toBe(false)
-    expect(subject.calls.savedMarkdown).toContain("# PawWork Problem Report")
+    expect(subject.calls.savedJson).toContain('"meta"')
+    expect(subject.calls.savedJson).not.toContain("# PawWork Problem Report")
   })
 
   test("session export failure downgrades the package but still prepares it", async () => {
@@ -163,8 +193,8 @@ describe("prepareReport", () => {
     })
     const result = await subject.handler.prepareReport()
     expect(result.status).toBe("ready")
-    expect(subject.calls.savedMarkdown).toContain('"status": "failed"')
-    expect(subject.calls.savedMarkdown).toContain("session unavailable")
+    expect(subject.calls.savedJson).toContain('"status": "failed"')
+    expect(subject.calls.savedJson).toContain("session unavailable")
   })
 
   test("renderer diagnostics failure still prepares the package", async () => {
@@ -176,7 +206,7 @@ describe("prepareReport", () => {
     const result = await subject.handler.prepareReport()
     expect(result.status).toBe("ready")
     expect(subject.calls.handledErrors).toContain("renderer diagnostics slice failed")
-    expect(subject.calls.savedMarkdown).toContain('"status": "write_failed"')
+    expect(subject.calls.savedJson).toContain('"status": "write_failed"')
   })
 
   test("slow renderer diagnostics times out and still prepares the package", async () => {
@@ -187,7 +217,7 @@ describe("prepareReport", () => {
     const result = await subject.handler.prepareReport()
     expect(result.status).toBe("ready")
     expect(subject.calls.handledErrors).toContain("renderer diagnostics slice failed")
-    expect(subject.calls.savedMarkdown).toContain('"status": "write_failed"')
+    expect(subject.calls.savedJson).toContain('"status": "write_failed"')
   })
 
   test("slow session export times out, aborts, and still prepares the package", async () => {
@@ -204,8 +234,8 @@ describe("prepareReport", () => {
     const result = await subject.handler.prepareReport()
     expect(result.status).toBe("ready")
     expect(aborted).toBe(true)
-    expect(subject.calls.savedMarkdown).toContain('"status": "failed"')
-    expect(subject.calls.savedMarkdown).toContain("session export timed out")
+    expect(subject.calls.savedJson).toContain('"status": "failed"')
+    expect(subject.calls.savedJson).toContain("session export timed out")
   })
 
   test("file write failure returns a copyable summary fallback without leaking paths", async () => {

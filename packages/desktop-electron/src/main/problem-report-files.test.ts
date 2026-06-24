@@ -24,7 +24,7 @@ afterEach(async () => {
 })
 
 describe("problem report files", () => {
-  test("builds collision-resistant markdown file names in local time", () => {
+  test("builds collision-resistant JSON file names in local time", () => {
     const generatedAt = new Date(2026, 3, 23, 9, 2, 3, 4).toISOString()
     const first = problemReportFileName({
       reportId: "pwr_abc123",
@@ -35,8 +35,8 @@ describe("problem report files", () => {
       generatedAt,
     })
 
-    expect(first).toBe("pawwork-problem-report-20260423-090203-004-pwr_abc123.md")
-    expect(second).toBe("pawwork-problem-report-20260423-090203-004-pwr_def456.md")
+    expect(first).toBe("pawwork-problem-report-20260423-090203-004-pwr_abc123.json")
+    expect(second).toBe("pawwork-problem-report-20260423-090203-004-pwr_def456.json")
   })
 
   test("rejects report ids that cannot be cleaned up safely", () => {
@@ -67,14 +67,14 @@ describe("problem report files", () => {
       root,
       reportId: "pwr_abc123",
       generatedAt: "2026-04-23T01:02:03.004Z",
-      markdown: "first",
+      json: "first",
     })
     await expect(
       writeProblemReportFile({
         root,
         reportId: "pwr_abc123",
         generatedAt: "2026-04-23T01:02:03.004Z",
-        markdown: "second",
+        json: "second",
       }),
     ).rejects.toThrow("Problem report already exists")
 
@@ -88,7 +88,7 @@ describe("problem report files", () => {
       root,
       reportId: "pwr_cleanup_failed",
       generatedAt: "2026-04-23T01:02:03.004Z",
-      markdown: "report",
+      json: "report",
       removeTemp: async () => {
         cleanupAttempted = true
         throw new Error("cleanup failed")
@@ -102,16 +102,16 @@ describe("problem report files", () => {
   test("creates a user-facing location hint without full local paths", () => {
     expect(
       reportLocationHint({
-        fileName: "pawwork-problem-report-20260423-010203-004-pwr_abc123.md",
+        fileName: "pawwork-problem-report-20260423-010203-004-pwr_abc123.json",
         platform: "darwin",
       }),
-    ).toBe("PawWork app data/.../problem-reports/pawwork-problem-report-20260423-010203-004-pwr_abc123.md")
+    ).toBe("PawWork app data/.../problem-reports/pawwork-problem-report-20260423-010203-004-pwr_abc123.json")
     expect(
       reportLocationHint({
-        fileName: "pawwork-problem-report-20260423-010203-004-pwr_abc123.md",
+        fileName: "pawwork-problem-report-20260423-010203-004-pwr_abc123.json",
         platform: "win32",
       }),
-    ).toBe("%APPDATA%/.../problem-reports/pawwork-problem-report-20260423-010203-004-pwr_abc123.md")
+    ).toBe("%APPDATA%/.../problem-reports/pawwork-problem-report-20260423-010203-004-pwr_abc123.json")
   })
 
   test("cleanup keeps current report and skips non-regular or non-matching entries", async () => {
@@ -120,12 +120,12 @@ describe("problem report files", () => {
       root,
       reportId: "pwr_current",
       generatedAt: "2026-04-23T01:02:03.004Z",
-      markdown: "current",
+      json: "current",
     })
-    const old = join(root, "pawwork-problem-report-20260423-010203-004-pwr_old.md")
+    const old = join(root, "pawwork-problem-report-20260423-010203-004-pwr_old.json")
     const other = join(root, "notes.md")
-    const dir = join(root, "pawwork-problem-report-20260423-010203-004-pwr_dir.md")
-    const link = join(root, "pawwork-problem-report-20260423-010203-004-pwr_link.md")
+    const dir = join(root, "pawwork-problem-report-20260423-010203-004-pwr_dir.json")
+    const link = join(root, "pawwork-problem-report-20260423-010203-004-pwr_link.json")
     await writeFile(old, "old")
     await writeFile(other, "other")
     await mkdir(dir)
@@ -146,10 +146,10 @@ describe("problem report files", () => {
       root,
       reportId: "pwr_current",
       generatedAt: "2026-04-23T01:02:03.004Z",
-      markdown: "current",
+      json: "current",
     })
-    const newestArchived = join(root, "pawwork-problem-report-20260423-010203-004-pwr_newest.md")
-    const oldestArchived = join(root, "pawwork-problem-report-20260423-010203-004-pwr_oldest.md")
+    const newestArchived = join(root, "pawwork-problem-report-20260423-010203-004-pwr_newest.json")
+    const oldestArchived = join(root, "pawwork-problem-report-20260423-010203-004-pwr_oldest.json")
     await writeFile(newestArchived, "newest")
     await writeFile(oldestArchived, "oldest")
 
@@ -162,5 +162,25 @@ describe("problem report files", () => {
     expect(existsSync(current.path)).toBe(true)
     expect(existsSync(newestArchived)).toBe(true)
     expect(existsSync(oldestArchived)).toBe(false)
+  })
+
+  test("cleanup removes legacy Markdown reports without matching ordinary Markdown files", async () => {
+    const root = await tempRoot()
+    const current = await writeProblemReportFile({
+      root,
+      reportId: "pwr_current",
+      generatedAt: "2026-04-23T01:02:03.004Z",
+      json: "current",
+    })
+    const legacyReport = join(root, "pawwork-problem-report-20260423-010203-004-pwr_legacy.md")
+    const ordinaryMarkdown = join(root, "notes.md")
+    await writeFile(legacyReport, "legacy")
+    await writeFile(ordinaryMarkdown, "notes")
+
+    await cleanupProblemReports({ root, keep: 1, currentPath: current.path })
+
+    expect(existsSync(current.path)).toBe(true)
+    expect(existsSync(legacyReport)).toBe(false)
+    expect(existsSync(ordinaryMarkdown)).toBe(true)
   })
 })

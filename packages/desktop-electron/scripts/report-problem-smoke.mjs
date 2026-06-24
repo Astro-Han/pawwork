@@ -43,15 +43,18 @@ function buildSmokeEnv(homeDir) {
   }
 }
 
-function latestMarkdownReport(reportRoot) {
-  if (!existsSync(reportRoot)) return { fileName: undefined, markdown: "" }
+function latestJsonReport(reportRoot) {
+  if (!existsSync(reportRoot)) return { fileName: undefined, json: "", payload: undefined }
   const fileName = readdirSync(reportRoot)
-    .filter((name) => name.endsWith(".md"))
+    .filter((name) => name.endsWith(".json"))
     .sort()
     .at(-1)
+  const json = fileName ? readFileSync(join(reportRoot, fileName), "utf8") : ""
+  const payload = json ? JSON.parse(json) : undefined
   return {
     fileName,
-    markdown: fileName ? readFileSync(join(reportRoot, fileName), "utf8") : "",
+    json,
+    payload,
   }
 }
 
@@ -123,7 +126,8 @@ try {
 
   const userData = await app.evaluate(({ app }) => app.getPath("userData"))
   const reportRoot = join(userData, "problem-reports")
-  const report = latestMarkdownReport(reportRoot)
+  const report = latestJsonReport(reportRoot)
+  const logTail = Array.isArray(report.payload?.logTail) ? report.payload.logTail : []
 
   const summary = {
     homeDir,
@@ -131,11 +135,16 @@ try {
     result,
     staleActions,
     latestReport: report.fileName,
-    markdownHasRendererError:
-      report.markdown.includes(rendererError.summary) && report.markdown.includes('\\"kind\\":\\"manual-smoke\\"'),
-    markdownHasReportPayload: report.markdown.includes("```json"),
-    markdownHasMainLog: report.markdown.includes("== Main process log:"),
-    markdownHasBackendLog: report.markdown.includes("== Backend log:"),
+    jsonHasRendererError:
+      report.payload?.error?.summary === rendererError.summary &&
+      report.payload?.error?.details?.includes('"kind":"manual-smoke"'),
+    jsonHasAgentReadableSections:
+      report.payload?.meta?.reportVersion === 2 &&
+      report.payload?.environment &&
+      Array.isArray(report.payload?.recentErrors) &&
+      Array.isArray(report.payload?.logTail),
+    jsonHasMainLog: logTail.some((line) => line.includes("== Main process log:")),
+    jsonHasBackendLog: logTail.some((line) => line.includes("== Backend log:")),
   }
 
   console.log(JSON.stringify(summary, null, 2))
@@ -152,11 +161,11 @@ try {
     staleActions?.submit?.status === "stale",
     `expected a stale submit through the real bridge; got ${JSON.stringify(staleActions?.submit)}`,
   )
-  assert(report.fileName, "expected a saved markdown problem report")
-  assert(summary.markdownHasRendererError, "expected full report to include renderer error details")
-  assert(summary.markdownHasReportPayload, "expected full report to include the fenced JSON payload")
-  assert(summary.markdownHasMainLog, "expected full report to include main process log tail")
-  assert(summary.markdownHasBackendLog, "expected full report to include backend log tail")
+  assert(report.fileName, "expected a saved JSON problem report")
+  assert(summary.jsonHasRendererError, "expected full report to include renderer error details")
+  assert(summary.jsonHasAgentReadableSections, "expected full report to include agent-readable JSON sections")
+  assert(summary.jsonHasMainLog, "expected full report to include main process log tail")
+  assert(summary.jsonHasBackendLog, "expected full report to include backend log tail")
 } finally {
   await closeApp(app)
   rmSync(homeDir, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 })

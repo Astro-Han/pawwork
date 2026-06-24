@@ -642,17 +642,17 @@ describe("buildProblemReport redaction gate", () => {
 
     const samples = [...Object.values(TOKENS), ...Object.values(PATHS), USERNAME, EMAIL]
     for (const sample of samples) {
-      expect(report.markdown, sample).not.toContain(sample)
+      expect(report.json, sample).not.toContain(sample)
     }
     // A bare key body stranded in the log tail (header truncated away) is scrubbed end-to-end.
-    expect(report.markdown).not.toContain(strandedKeyBody)
+    expect(report.json).not.toContain(strandedKeyBody)
     // The rogue rendererError field was dropped, not carried through.
-    expect(report.markdown).not.toContain("extra-field-secret-7f3a")
+    expect(report.json).not.toContain("extra-field-secret-7f3a")
     // The renderer summary (not just events) is scrubbed.
-    expect(report.markdown).not.toContain("sk-ant-statusleak0000000000000000")
+    expect(report.json).not.toContain("sk-ant-statusleak0000000000000000")
     // The report is still a valid, parseable payload after redaction.
-    const payload = parseProblemReportPayload(report.markdown)
-    expect(payload.sessionExport.status).toBe("ok")
+    const payload = parseProblemReportPayload(report.json)
+    expect(payload.session.status).toBe("ok")
   })
 
   test("shape-tokens diagnostics directory and logPath even under a non-allowlisted root", () => {
@@ -670,10 +670,10 @@ describe("buildProblemReport redaction gate", () => {
       { reportId: "pwr_custompath", generatedAt: "2026-06-22T01:02:03.004Z" },
     )
 
-    const payload = parseProblemReportPayload(report.markdown)
-    expect(payload.diagnostics.directory).toBe("[path]")
-    expect(payload.diagnostics.logPath).toBe("[path]")
-    expect(report.markdown).not.toContain("customroot")
+    const payload = parseProblemReportPayload(report.json)
+    expect(payload.environment.directory).toBe("[path]")
+    expect(payload.environment.logPath).toBe("[path]")
+    expect(report.json).not.toContain("customroot")
   })
 
   test("scrubs a non-string rendererError field arriving from the untyped IPC boundary", () => {
@@ -690,6 +690,6 @@ describe("buildProblemReport redaction gate", () => {
       },
       { reportId: "pwr_nonstring", generatedAt: "2026-06-22T01:02:03.004Z" },
     )
-    expect(report.markdown).not.toContain(TOKENS.anthropic)
+    expect(report.json).not.toContain(TOKENS.anthropic)
   })
 })

@@ -54,8 +54,8 @@ function makeDialog() {
 const ready: Extract<PrepareReportResult, { status: "ready" }> = {
   status: "ready",
   reportId: "rid_1",
-  fileName: "pawwork-problem-report.md",
-  locationHint: "PawWork app data/.../pawwork-problem-report.md",
+  fileName: "pawwork-problem-report.json",
+  locationHint: "PawWork app data/.../pawwork-problem-report.json",
   hasForm: true,
   contents: { logLines: 2, sessionMessages: null, rendererEvents: 0, rendererError: false },
 }
@@ -172,8 +172,8 @@ const language = { t: (key) => key }
 const ready = {
   status: "ready",
   reportId: "rid_1",
-  fileName: "pawwork-problem-report.md",
-  locationHint: "…/pawwork-problem-report.md",
+  fileName: "pawwork-problem-report.json",
+  locationHint: "…/pawwork-problem-report.json",
   hasForm: true,
   contents: { logLines: 2, sessionMessages: null, rendererEvents: 0, rendererError: false },
 }

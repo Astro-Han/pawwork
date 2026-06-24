@@ -12,6 +12,7 @@ import {
   buildProblemReportSummary,
   DEFAULT_PROBLEM_REPORT_MAX_BYTES,
   defaultReportId,
+  recentKeyErrors,
   type ProblemReportDiagnostics,
   type SessionExport,
 } from "./problem-report"
@@ -27,7 +28,7 @@ type SavedReport = {
 type SaveReportInput = {
   reportId: string
   generatedAt: string
-  markdown: string
+  json: string
 }
 
 type FeedbackContextOverride = {
@@ -116,15 +117,6 @@ function localRedactTerms(): string[] {
     // ignore — no username term
   }
   return terms
-}
-
-function recentKeyErrors(logTail: string) {
-  return logTail
-    .split(/\r?\n/)
-    .filter((line) => /\b(error|warn|warning|failed|exception)\b/i.test(line))
-    .map((line) => line.replace(/\s+/g, " ").trim())
-    .filter(Boolean)
-    .slice(-10)
 }
 
 async function sessionExportWithTimeout(deps: FeedbackDeps, context: unknown) {
@@ -216,7 +208,7 @@ export function createFeedbackHandler(deps: FeedbackDeps): FeedbackHandler {
           { diagnostics, logTail, sessionExport, rendererDiagnostics, rendererError: input.rendererError },
           { reportId: id, generatedAt, maxBytes: DEFAULT_PROBLEM_REPORT_MAX_BYTES, redactTerms },
         )
-        savedReport = await deps.saveReport({ reportId: id, generatedAt, markdown: report.markdown })
+        savedReport = await deps.saveReport({ reportId: id, generatedAt, json: report.json })
       } catch (error) {
         fullReportFailure = safeFailureReason(error)
       }
