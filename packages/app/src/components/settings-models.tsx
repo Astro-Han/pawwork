@@ -49,8 +49,7 @@ export const SettingsModels: Component = () => {
   const globalSync = useGlobalSync()
   const [fetchingID, setFetchingID] = createSignal<string>()
 
-  // Live-fetch the provider's models and persist any the catalog/config does not already list. New models
-  // land disabled (visibility default), so a 300-model gateway never floods the picker. Issue #1463.
+  // Live-fetch the provider's models and persist any the catalog/config does not already list. Issue #1463.
   const fetchModels = async (provider: ModelItem["provider"]) => {
     if (fetchingID()) return
     setFetchingID(provider.id)
