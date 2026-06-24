@@ -11,7 +11,10 @@ export type MergeFetchedModelsInput = {
 export type MergeFetchedModelsResult = {
   // The next config.provider.<id>.models map to persist (existing config entries + newly added).
   models: Record<string, { name: string }>
-  added: number
+  // IDs of models added by this merge. The caller marks these hidden by default: a freshly fetched model
+  // carries no release_date, and the visibility default treats undated models as visible (see
+  // createModelsView.visible) — so without this a large gateway would flood the picker. Issue #1463.
+  addedModelIDs: string[]
   skipped: number
 }
 
@@ -27,7 +30,7 @@ export function mergeFetchedModels(input: MergeFetchedModelsInput): MergeFetched
     present.add(id)
   }
 
-  let added = 0
+  const addedModelIDs: string[] = []
   let skipped = 0
   const seen = new Set<string>()
   for (const model of input.fetched) {
@@ -40,8 +43,8 @@ export function mergeFetchedModels(input: MergeFetchedModelsInput): MergeFetched
     }
     models[id] = { name: model.name.trim() || id }
     present.add(id)
-    added++
+    addedModelIDs.push(id)
   }
 
-  return { models, added, skipped }
+  return { models, addedModelIDs, skipped }
 }

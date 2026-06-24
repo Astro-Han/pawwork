@@ -61,24 +61,31 @@ export const SettingsModels: Component = () => {
       })
       const response = await actionClient.provider.fetchModels({ providerID: provider.id })
       const configProvider = globalSync.data.config.provider?.[provider.id]
-      const { models: nextModels, added, skipped } = mergeFetchedModels({
+      const { models: nextModels, addedModelIDs, skipped } = mergeFetchedModels({
         existingModelIDs: Object.keys(provider.models),
         configModels: configProvider?.models,
         fetched: response.data?.models ?? [],
       })
-      if (added === 0) {
+      if (addedModelIDs.length === 0) {
         showToast({
           title: language.t("provider.fetchModels.toast.none.title"),
           description: language.t("provider.fetchModels.toast.none.description", { provider: provider.name }),
         })
         return
       }
+      // Mark new models hidden before they enter the catalog: they carry no release_date, and the model
+      // visibility default treats undated models as visible — so without this a large gateway would flood
+      // the picker. The user toggles on the ones they want. Issue #1463.
+      for (const modelID of addedModelIDs) models.setVisibility({ providerID: provider.id, modelID }, false)
       await globalSync.updateConfig({ provider: { [provider.id]: { ...configProvider, models: nextModels } } })
       showToast({
         variant: "success",
         icon: "circle-check",
         title: language.t("provider.fetchModels.toast.added.title"),
-        description: language.t("provider.fetchModels.toast.added.description", { added, skipped }),
+        description: language.t("provider.fetchModels.toast.added.description", {
+          added: addedModelIDs.length,
+          skipped,
+        }),
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -159,7 +166,7 @@ export const SettingsModels: Component = () => {
                         variant="ghost"
                         icon="refresh"
                         class="ml-auto"
-                        disabled={fetchingID() === group.items[0].provider.id}
+                        disabled={Boolean(fetchingID())}
                         onClick={() => void fetchModels(group.items[0].provider)}
                       >
                         {fetchingID() === group.items[0].provider.id

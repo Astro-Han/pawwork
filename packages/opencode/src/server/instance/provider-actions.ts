@@ -70,7 +70,9 @@ export const recordRecentModel = Effect.fn("ProviderHttpApi.recent.record")(func
 
 export type FetchProviderModelsResult =
   | { ok: true; models: FetchModels.Parsed[] }
-  | { ok: false; status: number; message: string }
+  // The message carries the human-readable cause (status text, timeout, non-JSON); the app surfaces it
+  // verbatim and does not branch on a code, so no numeric status is returned. Issue #1463.
+  | { ok: false; message: string }
 
 // Live-discover an OpenAI-compatible provider's models by calling its `/models` endpoint with the
 // provider's already-configured base URL + auth + headers. The base URL comes from the user's config
@@ -100,7 +102,7 @@ export const fetchProviderModels = Effect.fn("ProviderHttpApi.models.fetch")(fun
     catalogBaseURL: catalog?.api,
   })
   if (!resolved) {
-    return { ok: false as const, status: 400, message: "No base URL configured for this provider" }
+    return { ok: false as const, message: "No base URL configured for this provider" }
   }
   const { baseURL, headers } = resolved
 
@@ -110,7 +112,6 @@ export const fetchProviderModels = Effect.fn("ProviderHttpApi.models.fetch")(fun
       if (!response.ok) {
         return {
           ok: false,
-          status: response.status,
           message: `Provider returned ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`,
         }
       }
@@ -118,14 +119,14 @@ export const fetchProviderModels = Effect.fn("ProviderHttpApi.models.fetch")(fun
       try {
         json = await response.json()
       } catch {
-        return { ok: false, status: 502, message: "Provider returned a non-JSON response" }
+        return { ok: false, message: "Provider returned a non-JSON response" }
       }
       return { ok: true, models: FetchModels.parse(json) }
     } catch (error) {
       if (error instanceof Error && error.name === "TimeoutError") {
-        return { ok: false, status: 504, message: "Request timed out" }
+        return { ok: false, message: "Request timed out" }
       }
-      return { ok: false, status: 502, message: error instanceof Error ? error.message : "Request failed" }
+      return { ok: false, message: error instanceof Error ? error.message : "Request failed" }
     }
   })
 })
