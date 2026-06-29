@@ -214,6 +214,46 @@ test("sidebar session press does not dim the row before drag starts", async ({ p
   }
 })
 
+test("@smoke sidebar session click with slight jitter still navigates instead of starting a drag", async ({ page, slug, sdk, gotoSession }) => {
+  const stamp = Date.now()
+  const source = await sdk.session.create({ title: `e2e sidebar jitter source ${stamp}` }).then((r) => r.data)
+  const target = await sdk.session.create({ title: `e2e sidebar jitter target ${stamp}` }).then((r) => r.data)
+
+  if (!source?.id) throw new Error("Source session create did not return an id")
+  if (!target?.id) throw new Error("Target session create did not return an id")
+
+  try {
+    await gotoSession(source.id)
+    await openSidebar(page)
+
+    const targetRow = page.locator(`[data-session-id="${target.id}"][data-component="pawwork-session-row"]`).first()
+    await expect(targetRow).toBeVisible()
+    const targetBox = await targetRow.boundingBox()
+    if (!targetBox) throw new Error("Target session row did not expose a bounding box")
+
+    // Press, drift a few px (inside the 5px fallbackTolerance dead zone), release.
+    // This is the hand-jitter case a 0-tolerance config misread as a drag, which
+    // swallowed the click so navigation never fired and the row felt unresponsive.
+    const startX = targetBox.x + targetBox.width / 3
+    const startY = targetBox.y + targetBox.height / 2
+    await page.mouse.move(startX, startY)
+    await nextFrame(page)
+    await page.mouse.down()
+    await page.mouse.move(startX + 3, startY + 3, { steps: 3 })
+    await nextFrame(page)
+    await page.mouse.up()
+
+    const selectedSessionUrl = new RegExp(`/${slug}/session/${target.id}(?:\\?|#|$)`)
+    await expect(page).toHaveURL(selectedSessionUrl)
+    await expect(page.locator(`[data-session-id="${target.id}"] a`).first()).toHaveClass(/\bactive\b/)
+    // The row did not get dragged anywhere: still exactly one instance in the sidebar.
+    await expect(page.locator(`[data-session-id="${target.id}"][data-component="pawwork-session-row"]`)).toHaveCount(1)
+  } finally {
+    await cleanupSession({ sdk, sessionID: source.id })
+    await cleanupSession({ sdk, sessionID: target.id })
+  }
+})
+
 test("sidebar session links can switch workspaces without opening the error boundary", async ({ page, backend, project }) => {
   const stamp = Date.now()
   const other = await createTestProject({ serverUrl: backend.url })
