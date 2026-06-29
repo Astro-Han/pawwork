@@ -4,7 +4,9 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
+import { usePlatform } from "@/context/platform"
 import { SkillDetail } from "./skill-detail"
+import { OpenSkillsFolderButton } from "./skills-folder-button"
 import { skillMatches, skillTitle, type SkillInfo } from "./skill-presentation"
 
 // One capability row: brand-tinted tile + humanized title + the raw description
@@ -40,6 +42,7 @@ export function SkillsSurface(props: {
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
+  const platform = usePlatform()
   const dialog = useDialog()
   const [query, setQuery] = createSignal("")
 
@@ -119,24 +122,29 @@ export function SkillsSurface(props: {
       aria-label={language.t("skills.title")}
       class="no-scrollbar size-full overflow-y-auto bg-bg-base"
     >
-      <div class="mx-auto w-full max-w-[760px] px-6 py-6">
-        <div class="flex items-start justify-between gap-4">
-          <div class="min-w-0">
-            <h1 class="text-h2 text-fg-strong">{language.t("skills.title")}</h1>
-            <p class="mt-1 text-body text-fg-weak">{language.t("skills.subtitle")}</p>
+      <div class="mx-auto w-full max-w-[760px] px-6 pt-9 pb-6">
+        {/* Title and actions share one vertically-centered row; the description
+            sits on its own line below so the controls align to the heading
+            instead of floating against a taller title block. */}
+        <div class="flex items-center justify-between gap-4">
+          <h1 class="text-h2 text-fg-strong">{language.t("skills.title")}</h1>
+          <div class="flex shrink-0 items-center gap-2">
+            <OpenSkillsFolderButton globalSDK={globalSDK} platform={platform} language={language} />
+            <label class="flex h-9 w-56 items-center gap-2 rounded-lg border border-border-weak bg-bg-base px-3 focus-within:border-border-strong">
+              <Icon name="magnifying-glass" class="size-4 shrink-0 text-icon-weak" />
+              <input
+                type="text"
+                data-action="skill-search"
+                aria-label={language.t("skills.search.placeholder")}
+                value={query()}
+                onInput={(event) => setQuery(event.currentTarget.value)}
+                placeholder={language.t("skills.search.placeholder")}
+                class="min-w-0 flex-1 bg-transparent text-body text-fg-base placeholder:text-fg-weaker focus:outline-none"
+              />
+            </label>
           </div>
-          <label class="flex h-9 w-56 shrink-0 items-center gap-2 rounded-lg border border-border-weak bg-bg-base px-3 focus-within:border-border-strong">
-            <Icon name="magnifying-glass" class="size-4 shrink-0 text-icon-weak" />
-            <input
-              type="text"
-              data-action="skill-search"
-              value={query()}
-              onInput={(event) => setQuery(event.currentTarget.value)}
-              placeholder={language.t("skills.search.placeholder")}
-              class="min-w-0 flex-1 bg-transparent text-body text-fg-base placeholder:text-fg-weaker focus:outline-none"
-            />
-          </label>
         </div>
+        <p class="mt-2 text-body text-fg-weak">{language.t("skills.subtitle")}</p>
 
         <Switch>
           <Match when={view() === "no-directory"}>
@@ -161,7 +169,7 @@ export function SkillsSurface(props: {
             </div>
           </Match>
           <Match when={view() === "list"}>
-            <div class="mt-6 grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
+            <div class="mt-8 grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
               <For each={filtered()}>{(skill) => <SkillRow skill={skill} onOpen={() => openDetail(skill)} />}</For>
             </div>
           </Match>

@@ -27,6 +27,11 @@ test("Skills sidebar entry opens the gallery; Escape closes detail then surface"
   const surface = page.locator('[data-component="skills-page"]')
   await expect(surface).toBeVisible()
 
+  // "Open skills folder" needs a local filesystem, so the web build hides it;
+  // the desktop host renders it (verified via dev:desktop). This guards the gate
+  // so a future change can't leak a dead button into the web surface.
+  await expect(surface.locator('[data-action="skill-open-folder"]')).toHaveCount(0)
+
   const row = surface.locator('[data-action="skill-open"][data-skill="summarize"]')
   await expect(row).toBeVisible({ timeout: 30_000 })
   await row.click()
