@@ -94,6 +94,13 @@ export namespace Skill {
     return [...roots]
   }
 
+  // The update-safe home for user-added skills: scanned via loadSkills' external
+  // `.agents` root (EXTERNAL_SKILL_PATTERN), and the single source for the path
+  // the UI offers to open. Lives under the home dir, never the install bundle.
+  export function userSkillsDir() {
+    return path.join(Global.Path.home, AGENTS_EXTERNAL_DIR, "skills")
+  }
+
   const add = Effect.fnUntraced(function* (state: State, match: string, bus: Bus.Interface) {
     const md = yield* Effect.tryPromise({
       try: () => ConfigMarkdown.parse(match),

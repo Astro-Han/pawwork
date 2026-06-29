@@ -918,6 +918,7 @@ export class Path extends HeyApiClient {
       directory?: string
       workspace?: string
       ensureConfig?: boolean
+      ensureSkills?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -929,6 +930,7 @@ export class Path extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "query", key: "ensureConfig" },
+            { in: "query", key: "ensureSkills" },
           ],
         },
       ],

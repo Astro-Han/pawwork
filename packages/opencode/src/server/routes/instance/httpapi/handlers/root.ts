@@ -66,7 +66,7 @@ const parseApplyBody = Effect.fn("RootHttpApi.vcsApplyBody")(function* (
   return parsed.data
 })
 
-const getPaths = Effect.fn("RootHttpApi.path")(function* (ensureConfig: boolean) {
+const getPaths = Effect.fn("RootHttpApi.path")(function* (ensureConfig: boolean, ensureSkills: boolean) {
   const config = Runtime.isPawWork()
     ? ensureConfig
       ? yield* Effect.promise(() => PawWorkHome.ensurePrimary())
@@ -75,10 +75,17 @@ const getPaths = Effect.fn("RootHttpApi.path")(function* (ensureConfig: boolean)
   if (ensureConfig && !Runtime.isPawWork()) {
     yield* Effect.promise(() => fs.mkdir(config, { recursive: true }))
   }
+  // User skills live under the home dir (not the install bundle), so the path is
+  // workspace-independent; create on demand when the client is about to open it.
+  const skills = Skill.userSkillsDir()
+  if (ensureSkills) {
+    yield* Effect.promise(() => fs.mkdir(skills, { recursive: true }))
+  }
   return {
     home: Global.Path.home,
     state: Global.Path.state,
     config,
+    skills,
     worktree: Instance.worktree,
     directory: Instance.directory,
   }
@@ -105,7 +112,9 @@ export const rootHandlers = HttpApiBuilder.group(RootApi, "root", (handlers) =>
       Effect.promise(() => Instance.dispose()).pipe(Effect.as(HttpServerResponse.jsonUnsafe(true))),
     )
     .handleRaw("path", (ctx) =>
-      getPaths(ctx.query.ensureConfig === "true").pipe(Effect.map((result) => HttpServerResponse.jsonUnsafe(result))),
+      getPaths(ctx.query.ensureConfig === "true", ctx.query.ensureSkills === "true").pipe(
+        Effect.map((result) => HttpServerResponse.jsonUnsafe(result)),
+      ),
     )
     .handleRaw("vcs", () =>
       Effect.gen(function* () {

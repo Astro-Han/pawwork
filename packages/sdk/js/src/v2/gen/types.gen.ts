@@ -3179,6 +3179,7 @@ export type PathGetData = {
     directory?: string
     workspace?: string
     ensureConfig?: boolean
+    ensureSkills?: boolean
   }
   url: "/path"
 }
@@ -3191,6 +3192,7 @@ export type PathGetResponses = {
     home: string
     state: string
     config: string
+    skills: string
     worktree: string
     directory: string
   }
