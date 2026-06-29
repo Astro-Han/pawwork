@@ -135,6 +135,7 @@ export function SkillsSurface(props: {
               <input
                 type="text"
                 data-action="skill-search"
+                aria-label={language.t("skills.search.placeholder")}
                 value={query()}
                 onInput={(event) => setQuery(event.currentTarget.value)}
                 placeholder={language.t("skills.search.placeholder")}
