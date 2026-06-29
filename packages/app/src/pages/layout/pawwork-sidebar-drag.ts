@@ -79,9 +79,11 @@ export function createSortableAttacher(deps: SortableAttacherDeps) {
       // as a drag — that swallows the click, navigation never fires, and the
       // row feels slow/unresponsive (issue: clicking the sidebar title). A
       // small movement dead zone keeps still clicks as clicks; only deliberate
-      // movement starts a drag.
+      // movement starts a drag. forceFallback routes touch through the same
+      // fallback path, so this one threshold covers mouse and touch (the
+      // touchStartThreshold option is inert here — it only applies while `delay`
+      // is counting down, which we don't use).
       fallbackTolerance: 5,
-      touchStartThreshold: 5,
       scroll: true,
       bubbleScroll: true,
       emptyInsertThreshold: 32,
