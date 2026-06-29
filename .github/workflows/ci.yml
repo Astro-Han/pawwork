@@ -120,7 +120,7 @@ jobs:
 
       - uses: ./.github/actions/setup
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # actions/cache@v5
         with:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-typecheck-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
@@ -272,7 +272,7 @@ jobs:
 
       - uses: ./.github/actions/setup
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # actions/cache@v5
         with:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-unit-app-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
@@ -327,7 +327,7 @@ jobs:
 
       - uses: ./.github/actions/setup
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # actions/cache@v5
         with:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-unit-ui-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
@@ -382,7 +382,7 @@ jobs:
 
       - uses: ./.github/actions/setup
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # actions/cache@v5
         with:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-unit-opencode-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
@@ -437,7 +437,7 @@ jobs:
 
       - uses: ./.github/actions/setup
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # actions/cache@v5
         with:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-unit-desktop-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
@@ -492,7 +492,7 @@ jobs:
 
       - uses: ./.github/actions/setup
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # actions/cache@v5
         with:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-unit-remote-bridge-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
