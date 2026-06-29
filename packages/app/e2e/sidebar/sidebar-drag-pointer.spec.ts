@@ -21,7 +21,7 @@ import { pawworkSidebarSelector } from "../selectors"
  * locales).
  */
 
-const SORTABLE_DRAG_THRESHOLD_PX = 8 // SortableJS internal default before fallback considers a drag started
+const SORTABLE_DRAG_THRESHOLD_PX = 8 // comfortably above the configured fallbackTolerance (5px in pawwork-sidebar-drag.ts) so the nudge reliably starts a drag
 
 async function startDragFrom(
   page: Page,

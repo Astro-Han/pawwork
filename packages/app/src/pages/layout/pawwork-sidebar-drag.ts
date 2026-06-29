@@ -18,6 +18,9 @@ import { onCleanup } from "solid-js"
  * 5. `sort: kind === "pinned"` — only the pinned list owns positional state.
  *    Recent and project-group lists are derived; intra-list reorder there
  *    would visibly shuffle then snap back, which is misleading.
+ * 6. `fallbackTolerance: 5` — a movement dead zone so an ordinary click with a
+ *    little hand jitter is not mistaken for a drag (default is 0, which eats
+ *    the click and makes the row feel unresponsive).
  *
  * Project mode: project groups also accept drag, but ONLY for drops from
  * pinned (a session's project is derived from its directory and is read-only;
@@ -71,6 +74,14 @@ export function createSortableAttacher(deps: SortableAttacherDeps) {
       animation: 150,
       forceFallback: true,
       fallbackOnBody: true,
+      // Click and drag share one mousedown on the same row. Default
+      // fallbackTolerance is 0, so any ~1px hand jitter during a click is read
+      // as a drag — that swallows the click, navigation never fires, and the
+      // row feels slow/unresponsive (issue: clicking the sidebar title). A
+      // small movement dead zone keeps still clicks as clicks; only deliberate
+      // movement starts a drag.
+      fallbackTolerance: 5,
+      touchStartThreshold: 5,
       scroll: true,
       bubbleScroll: true,
       emptyInsertThreshold: 32,
