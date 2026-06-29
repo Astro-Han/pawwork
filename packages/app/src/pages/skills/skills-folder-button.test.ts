@@ -56,9 +56,14 @@ const { OpenSkillsFolderButton } = await import("./src/pages/skills/skills-folde
 // opens the resolved skills path.
 {
   const root = document.createElement("div")
+  let resolveOpened
+  const opened = new Promise((resolve) => {
+    resolveOpened = resolve
+  })
   const platform = {
     openPath: (path) => {
       openPathCalls.push(path)
+      resolveOpened()
       return Promise.resolve()
     },
   }
@@ -67,7 +72,7 @@ const { OpenSkillsFolderButton } = await import("./src/pages/skills/skills-folde
   assert(button, "desktop host should render the open-folder action")
   assert(button.textContent === "skills.openFolder", "button should use the i18n label key")
   button.click()
-  await new Promise((resolve) => setTimeout(resolve, 20))
+  await opened
   assert(
     JSON.stringify(pathGetCalls) === JSON.stringify([{ ensureSkills: true }]),
     "click should ensure and resolve the skills path via the server",
