@@ -214,7 +214,7 @@ test("sidebar session press does not dim the row before drag starts", async ({ p
   }
 })
 
-test("sidebar session click with slight jitter still navigates instead of starting a drag", async ({ page, slug, sdk, gotoSession }) => {
+test("@smoke sidebar session click with slight jitter still navigates instead of starting a drag", async ({ page, slug, sdk, gotoSession }) => {
   const stamp = Date.now()
   const source = await sdk.session.create({ title: `e2e sidebar jitter source ${stamp}` }).then((r) => r.data)
   const target = await sdk.session.create({ title: `e2e sidebar jitter target ${stamp}` }).then((r) => r.data)
