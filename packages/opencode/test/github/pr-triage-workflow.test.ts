@@ -98,7 +98,7 @@ describe("pr triage workflow", () => {
 
     const stepUses = triageSteps.map((step) => step.uses).filter((value): value is string => Boolean(value))
     expect(stepUses[0]).toBe("actions/labeler@f27b608878404679385c85cfa523b85ccb86e213")
-    expect(stepUses[1]).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
+    expect(stepUses[1]).toBe("actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0")
     expect(stepUses[2]).toBe("actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3")
 
     expect(labelerStep?.with).toEqual({ "sync-labels": true })
