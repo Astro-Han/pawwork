@@ -7,6 +7,7 @@ import { Parameters as ExitWorktreeParameters } from "./exit-worktree"
 import ExitWorktreeDescription from "./exit-worktree.txt"
 import { Parameters as LspParameters } from "./lsp"
 import LspDescription from "./lsp.txt"
+import { AutomateManageParameters } from "./automate-manage"
 import { Parameters as BrowserNavigateParameters } from "./browser-navigate"
 import BrowserNavigateDescription from "./browser-navigate.txt"
 import { Parameters as BrowserSnapshotParameters } from "./browser-snapshot"
@@ -64,6 +65,13 @@ const DEFERRED: DeferredEntry[] = [
     card: "Use language-server code intelligence for definitions, references, hover, and symbol navigation.",
     description: LspDescription,
     parameters: LspParameters as unknown as Tool.Def["parameters"],
+  },
+  {
+    id: "automate_manage",
+    card: "List, pause, resume, or delete existing PawWork Automations by exact id.",
+    description:
+      "Manage existing PawWork Automations from the conversation. Use this when the user asks to list scheduled tasks or reminders in the current context, or to pause, resume, or delete an automation by exact id. Pause and resume do not ask for confirmation. Delete asks the user for confirmation, removes future scheduling, and already-started runs continue to completion.",
+    parameters: AutomateManageParameters as unknown as Tool.Def["parameters"],
   },
   {
     id: "browser_navigate",
@@ -387,56 +395,58 @@ export const ToolInfoTool = (
       return {
         description: PREFACE,
         parameters: Parameters,
-        execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-          Effect.gen(function* () {
-            // Canonicalise first so a CamelCase echo (e.g. "Enter-Worktree") resolves
-            // to the real id instead of burning a turn on an "unknown tool" error.
-            // Target ids are canonical by construction, so every downstream string and
-            // the activation metadata use the canonical form.
-            const target = canonicalActivationTarget(params.name)
-            if (!target) {
-              const names = [...DEFERRED_GROUP_IDS, ...DEFERRED.filter((d) => !d.group).map((d) => d.id)].join(", ")
-              return yield* Effect.fail(
-                new Error(`Unknown deferred tool "${params.name}". Available: ${names || "none"}`),
-              )
-            }
-            const isAvailable = ctx.extra?.["deferredAvailable"] as ((id: string) => boolean) | undefined
-            // Render only the members the registry will actually expose next
-            // step (it filters per member): announcing a disabled member would
-            // point the model at a tool that never appears in its list.
-            const allEntries =
-              target.kind === "group" ? deferredGroupMembers(target.id).map((id) => BY_ID[id]) : [BY_ID[target.id]]
-            const entries = isAvailable ? allEntries.filter((entry) => isAvailable(entry.id)) : allEntries
-            if (entries.length === 0) {
-              return yield* Effect.fail(new Error(`Deferred tool "${target.id}" is not available in this context.`))
-            }
-            const model = ctx.extra?.["model"] as Provider.Model | undefined
-            const blocks: string[] = []
-            for (const entry of entries) {
-              const processed = { description: entry.description, parameters: entry.parameters }
-              yield* applyPluginDefinition(entry.id, processed)
-              blocks.push(renderToolBlock(entry, processed, model))
-            }
-            const callable =
-              target.kind === "group"
-                ? `The ${target.id} tools (${entries.map((entry) => entry.id).join(", ")}) are now in your tool list. Call them directly (there is no tool named "${target.id}"). Do not call tool_info again for this group.`
-                : `${target.id} is now in your tool list. Call ${target.id} directly. Do not call tool_info again for this tool.`
-            return {
-              title: `Loaded ${target.kind === "group" ? "tool group" : "tool"}: ${target.id}`,
-              output: [...blocks, "", callable].join("\n"),
-              // truncated:false opts this tool out of output truncation (see tool.ts
-              // wrap): tool_info exists to hand the model a *complete* schema, so a
-              // large deferred tool's parameters must never be clipped mid-load.
-              // For a group, `members` records the members actually rendered
-              // (availability-filtered) so the activation reminder lists the
-              // same set instead of the full roster.
-              metadata: {
-                activated: target.id,
-                ...(target.kind === "group" ? { members: entries.map((entry) => entry.id) } : {}),
-                truncated: false,
-              },
-            }
-          }),
+        execute: Effect.fn("ToolInfoTool.execute")(function* (
+          params: Schema.Schema.Type<typeof Parameters>,
+          ctx: Tool.Context,
+        ) {
+          // Canonicalise first so a CamelCase echo (e.g. "Enter-Worktree") resolves
+          // to the real id instead of burning a turn on an "unknown tool" error.
+          // Target ids are canonical by construction, so every downstream string and
+          // the activation metadata use the canonical form.
+          const target = canonicalActivationTarget(params.name)
+          if (!target) {
+            const names = [...DEFERRED_GROUP_IDS, ...DEFERRED.filter((d) => !d.group).map((d) => d.id)].join(", ")
+            return yield* Effect.fail(
+              new Error(`Unknown deferred tool "${params.name}". Available: ${names || "none"}`),
+            )
+          }
+          const isAvailable = ctx.extra?.["deferredAvailable"] as ((id: string) => boolean) | undefined
+          // Render only the members the registry will actually expose next
+          // step (it filters per member): announcing a disabled member would
+          // point the model at a tool that never appears in its list.
+          const allEntries =
+            target.kind === "group" ? deferredGroupMembers(target.id).map((id) => BY_ID[id]) : [BY_ID[target.id]]
+          const entries = isAvailable ? allEntries.filter((entry) => isAvailable(entry.id)) : allEntries
+          if (entries.length === 0) {
+            return yield* Effect.fail(new Error(`Deferred tool "${target.id}" is not available in this context.`))
+          }
+          const model = ctx.extra?.["model"] as Provider.Model | undefined
+          const blocks: string[] = []
+          for (const entry of entries) {
+            const processed = { description: entry.description, parameters: entry.parameters }
+            yield* applyPluginDefinition(entry.id, processed)
+            blocks.push(renderToolBlock(entry, processed, model))
+          }
+          const callable =
+            target.kind === "group"
+              ? `The ${target.id} tools (${entries.map((entry) => entry.id).join(", ")}) are now in your tool list. Call them directly (there is no tool named "${target.id}"). Do not call tool_info again for this group.`
+              : `${target.id} is now in your tool list. Call ${target.id} directly. Do not call tool_info again for this tool.`
+          return {
+            title: `Loaded ${target.kind === "group" ? "tool group" : "tool"}: ${target.id}`,
+            output: [...blocks, "", callable].join("\n"),
+            // truncated:false opts this tool out of output truncation (see tool.ts
+            // wrap): tool_info exists to hand the model a *complete* schema, so a
+            // large deferred tool's parameters must never be clipped mid-load.
+            // For a group, `members` records the members actually rendered
+            // (availability-filtered) so the activation reminder lists the
+            // same set instead of the full roster.
+            metadata: {
+              activated: target.id,
+              ...(target.kind === "group" ? { members: entries.map((entry) => entry.id) } : {}),
+              truncated: false,
+            },
+          }
+        }),
       }
     }),
   )

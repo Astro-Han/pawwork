@@ -1,11 +1,13 @@
-import { BrowserWindow, WebContentsView, shell } from "electron"
+import { BrowserWindow, WebContentsView, session, shell } from "electron"
 import type { BrowserState, BrowserViewLayout } from "@opencode-ai/app/desktop-api"
-import { browserViewWebPreferences } from "./options"
+import { BROWSER_PARTITION, browserViewWebPreferences } from "./options"
+import { configurePartitionUserAgent } from "./user-agent"
 import {
   clearDataReloadAction,
   computeViewBounds,
   deriveBrowserState,
   displayDecision,
+  isDefaultGrantedPermission,
   parseNavigable,
   safeExternalUrl,
 } from "./logic"
@@ -22,6 +24,19 @@ export const BROWSER_DISPLAY_TAKEN_CHANNEL = "browser:display-taken"
  * panel displays them.
  */
 const DEFAULT_VIEW_BOUNDS = { x: 0, y: 0, width: 1280, height: 720 }
+
+let partitionUserAgentConfigured = false
+/**
+ * Configure the browser partition's UA before the first view/request, exactly
+ * once: present the partition as the faithful Chrome it is (rewrite + rationale
+ * in user-agent.ts and the PR). Scoped to the browser partition; the app
+ * renderer keeps its own UA.
+ */
+function ensureBrowserPartitionUserAgent() {
+  if (partitionUserAgentConfigured) return
+  partitionUserAgentConfigured = true
+  configurePartitionUserAgent(session.fromPartition(BROWSER_PARTITION), process.versions.chrome ?? "")
+}
 
 /**
  * Owns one embedded browser per CONVERSATION (root session) — or a per-window
@@ -41,6 +56,9 @@ export class BrowserViewController {
   private throttlingBefore: boolean | null = null
 
   constructor(private target: string) {
+    // Configure the partition UA before the view exists, so its very first
+    // request already carries the faithful Chrome UA.
+    ensureBrowserPartitionUserAgent()
     this.view = new WebContentsView({ webPreferences: browserViewWebPreferences() })
     this.view.setVisible(false)
     this.view.setBounds(DEFAULT_VIEW_BOUNDS)
@@ -89,9 +107,13 @@ export class BrowserViewController {
       this.openExternal(url)
     })
 
-    // Deny every permission request by default — a v1 content viewer should not
-    // silently grant camera/mic/geolocation/etc.
-    wc.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
+    // Apply the shared permission policy (logic.ts) to BOTH actual requests and
+    // navigator.permissions.query checks, so the queried state and the request
+    // outcome always agree.
+    wc.session.setPermissionRequestHandler((_wc, permission, callback) =>
+      callback(isDefaultGrantedPermission(permission)),
+    )
+    wc.session.setPermissionCheckHandler((_wc, permission) => isDefaultGrantedPermission(permission))
   }
 
   private openExternal(url: string) {

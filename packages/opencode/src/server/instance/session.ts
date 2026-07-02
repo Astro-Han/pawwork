@@ -1,6 +1,3 @@
-import { Hono } from "hono"
-import { stream } from "hono/streaming"
-import { describeRoute, validator, resolver } from "hono-openapi"
 import { SessionID, MessageID, PartID } from "@/session/schema"
 import z from "zod"
 import { Session } from "../../session"
@@ -18,13 +15,10 @@ import { Todo } from "../../session/todo"
 import { Effect } from "effect"
 import { AppRuntime } from "../../effect/app-runtime"
 import { Command } from "../../command"
-import { Log } from "@opencode-ai/core/util/log"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
 import { ExternalResult } from "@/tool/external-result"
 import { ModelID, ProviderID } from "@/provider/schema"
-import { errors } from "../error"
-import { lazy } from "../../util/lazy"
 import { Bus } from "../../bus"
 import { NamedError } from "@opencode-ai/util/error"
 import { TurnChange, type Display as TurnChangeDisplay } from "@/session/turn-change"
@@ -33,22 +27,359 @@ import { File } from "@/file"
 import { LSP } from "@/lsp"
 import { Env } from "@/env"
 
-const log = Log.create({ service: "server" })
-const AbortSource = z.string().regex(/^[A-Za-z0-9._-]{1,80}$/)
-// z.coerce.boolean() runs Boolean(value), so the string "false" coerces to true and clients
-// can never disable a boolean query flag. Parse the literal strings instead.
-const QueryBoolean = z.enum(["true", "false"]).transform((value) => value === "true")
+const readEnv = (key: string) => AppRuntime.runSync(Env.Service.use((env) => env.get(key)))
+const e2eSessionRoutesEnabled = () => readEnv("OPENCODE_E2E_ENABLED") === "true" && !!readEnv("OPENCODE_E2E_LLM_URL")
+const runSessionRoute: typeof AppRuntime.runPromise = (effect, options) => AppRuntime.runPromise(effect, options)
 
-// tool/respond returns route-local failure bodies ({ error } for not-found /
-// already-resolved, plus optional decoder { details } on 422) rather than the
-// shared NotFoundError/BadRequest envelopes, so it declares them inline. The
-// schema is left un-refed (no .meta ref) so it inlines directly into each
-// response instead of a shared component.
-const ToolRespondFailure = z.object({
-  error: z.string(),
-  details: z.unknown().optional(),
+type SessionListQuery = {
+  directory?: string
+  roots?: boolean
+  start?: number
+  search?: string
+  limit?: number
+  sort?: "updated" | "created"
+}
+type UpdateSessionInput = {
+  sessionID: SessionID
+  updates: {
+    title?: string
+    permission?: z.infer<typeof Permission.Ruleset>
+    time?: {
+      archived?: number
+    }
+  }
+}
+type InitSessionInput = {
+  sessionID: SessionID
+  body: {
+    modelID: ModelID
+    providerID: ProviderID
+    messageID: MessageID
+  }
+}
+type ToolRespondValue = { kind: "dismissed" } | { kind: "submitted"; value: unknown }
+type TurnChangeParams = {
+  sessionID: SessionID
+  messageID: MessageID
+}
+type AggregateTurnChangeParams = {
+  sessionID: SessionID
+  userMessageID: MessageID
+}
+type SessionMessagesInput = {
+  sessionID: SessionID
+  limit?: number
+  before?: string
+}
+
+const listSessions = Effect.fn("SessionRoutes.list")(function* (query: SessionListQuery) {
+  const session = yield* Session.Service
+  return yield* session.list(query)
 })
-const e2eSessionRoutesEnabled = () => Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
+
+const getSessionStatus = Effect.fn("SessionRoutes.status")(function* () {
+  const status = yield* SessionStatus.Service
+  return yield* status.list()
+})
+
+const updateE2ETodos = Effect.fn("SessionRoutes.e2e.updateTodos")(function* (input: {
+  sessionID: SessionID
+  todos: z.infer<typeof Todo.Input>[]
+}) {
+  const todo = yield* Todo.Service
+  yield* todo.update(input)
+})
+
+const getSession = Effect.fn("SessionRoutes.get")(function* (sessionID: SessionID) {
+  const sessions = yield* Session.Service
+  return yield* sessions.get(sessionID)
+})
+
+const listSessionChildren = Effect.fn("SessionRoutes.children")(function* (sessionID: SessionID) {
+  const sessions = yield* Session.Service
+  return yield* sessions.children(sessionID)
+})
+
+const getSessionTodos = Effect.fn("SessionRoutes.todo")(function* (sessionID: SessionID) {
+  const todo = yield* Todo.Service
+  return yield* todo.get(sessionID)
+})
+
+const createSession = Effect.fn("SessionRoutes.create")(function* (body: Parameters<SessionShare.Interface["create"]>[0]) {
+  const share = yield* SessionShare.Service
+  return yield* share.create(body)
+})
+
+const deleteSession = Effect.fn("SessionRoutes.delete")(function* (sessionID: SessionID) {
+  const sessions = yield* Session.Service
+  yield* sessions.remove(sessionID)
+})
+
+const updateSession = Effect.fn("SessionRoutes.update")(function* ({ sessionID, updates }: UpdateSessionInput) {
+  const sessions = yield* Session.Service
+  const current = yield* sessions.get(sessionID)
+
+  if (updates.title !== undefined) {
+    yield* sessions.setTitle({ sessionID, title: updates.title })
+  }
+  if (updates.permission !== undefined) {
+    yield* sessions.setPermission({
+      sessionID,
+      permission: Permission.merge(current.permission ?? [], updates.permission),
+    })
+  }
+  if (updates.time?.archived !== undefined) {
+    yield* sessions.setArchived({ sessionID, time: updates.time.archived })
+  }
+
+  return yield* sessions.get(sessionID)
+})
+
+const initSession = Effect.fn("SessionRoutes.init")(function* ({ sessionID, body }: InitSessionInput) {
+  const prompt = yield* SessionPrompt.Service
+  yield* prompt.command(
+    SessionPrompt.CommandInput.parse({
+      sessionID,
+      messageID: body.messageID,
+      model: body.providerID + "/" + body.modelID,
+      command: Command.Default.INIT,
+      arguments: "",
+    }),
+  )
+})
+
+const forkSession = Effect.fn("SessionRoutes.fork")(function* (input: Parameters<Session.Interface["fork"]>[0]) {
+  const sessions = yield* Session.Service
+  return yield* sessions.fork(input)
+})
+
+const resolveToolResponse = Effect.fn("SessionRoutes.toolRespond.resolve")(function* (input: {
+  sessionID: SessionID
+  messageID: MessageID
+  callID: string
+  value: ToolRespondValue
+}) {
+  return yield* ExternalResult.resolveIfPending(input)
+})
+
+const abortSession = Effect.fn("SessionRoutes.abort")(function* (input: { sessionID: SessionID; source?: string }) {
+  const prompt = yield* SessionPrompt.Service
+  return yield* prompt.cancel(input.sessionID, {
+    source: input.source,
+  })
+})
+
+const shareSession = Effect.fn("SessionRoutes.share")(function* (sessionID: SessionID) {
+  const gate = yield* ShareRuntime.CloudShareGate
+  if (!gate.isEnabled()) return { enabled: false as const }
+  const share = yield* SessionShare.Service
+  const sessions = yield* Session.Service
+  return {
+    enabled: true as const,
+    share: yield* share.share(sessionID),
+    session: yield* sessions.get(sessionID),
+  }
+})
+
+const exportSession = Effect.fn("SessionRoutes.export")(function* (sessionID: SessionID) {
+  return yield* Export.session(sessionID)
+})
+
+const getSessionDiff = Effect.fn("SessionRoutes.diff")(function* (input: z.infer<typeof SessionSummary.DiffInput>) {
+  const summary = yield* SessionSummary.Service
+  return yield* summary.diff(input)
+})
+
+const getTurnChange = Effect.fn("SessionRoutes.turnChange")(function* (params: TurnChangeParams) {
+  const turnChange = yield* TurnChange.Service
+  return yield* turnChange.get(params)
+})
+
+const undoTurnChange = Effect.fn("SessionRoutes.turnChange.undo")(function* (params: TurnChangeParams) {
+  const state = yield* SessionRunState.Service
+  const turnChange = yield* TurnChange.Service
+  yield* state.assertNotBusy(params.sessionID)
+  const result = yield* turnChange.undo(params)
+  if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "undo")
+  return result
+})
+
+const redoTurnChange = Effect.fn("SessionRoutes.turnChange.redo")(function* (params: TurnChangeParams) {
+  const state = yield* SessionRunState.Service
+  const turnChange = yield* TurnChange.Service
+  yield* state.assertNotBusy(params.sessionID)
+  const result = yield* turnChange.redo(params)
+  if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "redo")
+  return result
+})
+
+const getAggregateTurnChanges = Effect.fn("SessionRoutes.turnChanges.aggregate")(function* (
+  params: AggregateTurnChangeParams,
+) {
+  const turnChange = yield* TurnChange.Service
+  return yield* turnChange.aggregateTurnUnion(params)
+})
+
+const undoAggregateTurnChanges = Effect.fn("SessionRoutes.turnChanges.undo")(function* (
+  input: AggregateTurnChangeParams & { force?: boolean },
+) {
+  const state = yield* SessionRunState.Service
+  const turnChange = yield* TurnChange.Service
+  yield* state.assertNotBusy(input.sessionID)
+  const result = yield* turnChange.aggregateTurnUndo(input)
+  if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "undo", result.mutatedPaths)
+  return result
+})
+
+const redoAggregateTurnChanges = Effect.fn("SessionRoutes.turnChanges.redo")(function* (
+  input: AggregateTurnChangeParams & { force?: boolean },
+) {
+  const state = yield* SessionRunState.Service
+  const turnChange = yield* TurnChange.Service
+  yield* state.assertNotBusy(input.sessionID)
+  const result = yield* turnChange.aggregateTurnRedo(input)
+  if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "redo", result.mutatedPaths)
+  return result
+})
+
+const listSessionArtifacts = Effect.fn("SessionRoutes.artifacts")(function* (
+  input: z.infer<typeof SessionSummary.ArtifactsInput>,
+) {
+  const summary = yield* SessionSummary.Service
+  return yield* summary.artifacts(input)
+})
+
+const unshareSession = Effect.fn("SessionRoutes.unshare")(function* (sessionID: SessionID) {
+  const gate = yield* ShareRuntime.CloudShareGate
+  if (!gate.isEnabled()) return { enabled: false as const }
+  const share = yield* SessionShare.Service
+  const sessions = yield* Session.Service
+  yield* share.unshare(sessionID)
+  return {
+    enabled: true as const,
+    session: yield* sessions.get(sessionID),
+  }
+})
+
+const summarizeSession = Effect.fn("SessionRoutes.summarize")(function* (
+  input: {
+    sessionID: SessionID
+  } & z.infer<typeof SessionPrompt.LoopInput>["prelude"],
+) {
+  const prompt = yield* SessionPrompt.Service
+  yield* prompt.loop(
+    SessionPrompt.LoopInput.parse({
+      sessionID: input.sessionID,
+      prelude: {
+        type: "compaction",
+        model: input.model,
+        auto: input.auto,
+      },
+    }),
+  )
+
+  const sessions = yield* Session.Service
+  const finalMsgs = yield* sessions.messages({ sessionID: input.sessionID })
+  for (let i = finalMsgs.length - 1; i >= 0; i--) {
+    const info = finalMsgs[i].info
+    if (info.role !== "assistant" || info.mode !== "compaction") continue
+    if (info.error && info.error.name !== "MessageAbortedError") {
+      const raw = (info.error.data as { message?: unknown } | undefined)?.message
+      const reason =
+        typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : `Compaction failed (${info.error.name})`
+      return yield* Effect.fail(new NamedError.Unknown({ message: reason }))
+    }
+    break
+  }
+})
+
+const listSessionMessages = Effect.fn("SessionRoutes.messages")(function* (input: SessionMessagesInput) {
+  const sessions = yield* Session.Service
+  if (input.limit === undefined || input.limit === 0) {
+    yield* sessions.get(input.sessionID)
+    return {
+      kind: "all" as const,
+      items: yield* sessions.messages({ sessionID: input.sessionID }),
+    }
+  }
+
+  return {
+    kind: "page" as const,
+    page: yield* sessions.messagesPage({
+      sessionID: input.sessionID,
+      limit: input.limit,
+      before: input.before,
+    }),
+  }
+})
+
+const deleteSessionMessage = Effect.fn("SessionRoutes.message.delete")(function* (params: {
+  sessionID: SessionID
+  messageID: MessageID
+}) {
+  const state = yield* SessionRunState.Service
+  const session = yield* Session.Service
+  yield* state.assertNotBusy(params.sessionID)
+  yield* session.removeMessage(params)
+})
+
+const deleteSessionPart = Effect.fn("SessionRoutes.part.delete")(function* (params: {
+  sessionID: SessionID
+  messageID: MessageID
+  partID: PartID
+}) {
+  const sessions = yield* Session.Service
+  // Surface the route's declared 404 instead of silently succeeding:
+  // deleting a part that does not exist is a not-found, not a no-op.
+  // The check lives in the route, not Session.removePart, because
+  // removePart is also called internally by the message processor,
+  // which must stay a tolerant no-op for an already-gone part.
+  const part = yield* sessions.getPart(params)
+  if (!part) return yield* Effect.fail(new NotFoundError({ message: `Part not found: ${params.partID}` }))
+  yield* sessions.removePart(params)
+})
+
+const updateSessionPart = Effect.fn("SessionRoutes.part.update")(function* (part: MessageV2.Part) {
+  const sessions = yield* Session.Service
+  return yield* sessions.updatePart(part)
+})
+
+const promptSession = Effect.fn("SessionRoutes.prompt")(function* (input: SessionPrompt.PromptInput) {
+  const prompt = yield* SessionPrompt.Service
+  // HTTP callers cannot mark their own messages as automation-sent.
+  return yield* prompt.prompt(SessionPrompt.PromptInput.parse({ ...input, automationID: undefined }))
+})
+
+const runSessionCommand = Effect.fn("SessionRoutes.command")(function* (input: SessionPrompt.CommandInput) {
+  const prompt = yield* SessionPrompt.Service
+  return yield* prompt.command(SessionPrompt.CommandInput.parse(input))
+})
+
+const runSessionShell = Effect.fn("SessionRoutes.shell")(function* (input: SessionPrompt.ShellInput) {
+  const prompt = yield* SessionPrompt.Service
+  return yield* prompt.shell(SessionPrompt.ShellInput.parse(input))
+})
+
+const revertSession = Effect.fn("SessionRoutes.revert")(function* (input: SessionRevert.RevertInput) {
+  const revert = yield* SessionRevert.Service
+  return yield* revert.revert(SessionRevert.RevertInput.parse(input))
+})
+
+const unrevertSession = Effect.fn("SessionRoutes.unrevert")(function* (sessionID: SessionID) {
+  const revert = yield* SessionRevert.Service
+  return yield* revert.unrevert(SessionRevert.UnrevertInput.parse({ sessionID }))
+})
+
+const replyToDeprecatedPermission = Effect.fn("SessionRoutes.permission.reply")(function* (input: {
+  permissionID: PermissionID
+  reply: z.infer<typeof Permission.Reply>
+}) {
+  const permission = yield* Permission.Service
+  yield* permission.reply({
+    requestID: input.permissionID,
+    reply: input.reply,
+  })
+})
 
 function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo", mutatedPaths?: string[]) {
   return Effect.gen(function* () {
@@ -77,1593 +408,41 @@ function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo
   })
 }
 
-export const SessionRoutes = lazy(() =>
-  new Hono()
-    .get(
-      "/",
-      describeRoute({
-        summary: "List sessions",
-        description:
-          "Get a list of all OpenCode sessions. Defaults to most recently updated; use sort=created for creation-time order.",
-        operationId: "session.list",
-        responses: {
-          200: {
-            description: "List of sessions",
-            content: {
-              "application/json": {
-                schema: resolver(Session.Info.array()),
-              },
-            },
-          },
-        },
-      }),
-      validator(
-        "query",
-        z.object({
-          directory: z.string().optional().meta({ description: "Filter sessions by project directory" }),
-          roots: QueryBoolean.optional().meta({ description: "Only return root sessions (no parentID)" }),
-          start: z.coerce
-            .number()
-            .optional()
-            .meta({ description: "Filter sessions updated on or after this timestamp (milliseconds since epoch)" }),
-          search: z.string().optional().meta({ description: "Filter sessions by title (case-insensitive)" }),
-          limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
-          sort: z
-            .enum(["updated", "created"])
-            .optional()
-            .meta({ description: "Sort sessions by last update or creation time" }),
-        }),
-      ),
-      async (c) => {
-        const query = c.req.valid("query")
-        const sessions: Session.Info[] = []
-        for await (const session of Session.list({
-          directory: query.directory,
-          roots: query.roots,
-          start: query.start,
-          search: query.search,
-          limit: query.limit,
-          sort: query.sort,
-        })) {
-          sessions.push(session)
-        }
-        return c.json(sessions)
-      },
-    )
-    .get(
-      "/status",
-      describeRoute({
-        summary: "Get session status",
-        description: "Retrieve the current status of all sessions, including active, idle, and completed states.",
-        operationId: "session.status",
-        responses: {
-          200: {
-            description: "Get session status",
-            content: {
-              "application/json": {
-                schema: resolver(z.record(z.string(), SessionStatus.Info)),
-              },
-            },
-          },
-          ...errors(400),
-        },
-      }),
-      async (c) => {
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const status = yield* SessionStatus.Service
-            return yield* status.list()
-          }),
-        )
-        return c.json(Object.fromEntries(result))
-      },
-    )
-    .post(
-      "/__e2e/update-todos",
-      async (c, next) => {
-        if (!e2eSessionRoutesEnabled()) return c.notFound()
-        await next()
-      },
-      validator(
-        "json",
-        z.object({
-          sessionID: SessionID.zod,
-          todos: z.array(Todo.Input),
-        }),
-      ),
-      async (c) => {
-        const json = c.req.valid("json")
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const todo = yield* Todo.Service
-            yield* todo.update({
-              sessionID: json.sessionID,
-              todos: json.todos,
-            })
-          }),
-        )
-        return c.body(null, 204)
-      },
-    )
-    .get(
-      "/:sessionID",
-      describeRoute({
-        summary: "Get session",
-        description: "Retrieve detailed information about a specific OpenCode session.",
-        tags: ["Session"],
-        operationId: "session.get",
-        responses: {
-          200: {
-            description: "Get session",
-            content: {
-              "application/json": {
-                schema: resolver(Session.Info),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: Session.get.schema,
-        }),
-      ),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        const session = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            return yield* sessions.get(sessionID)
-          }),
-        )
-        return c.json(session)
-      },
-    )
-    .get(
-      "/:sessionID/children",
-      describeRoute({
-        summary: "Get session children",
-        tags: ["Session"],
-        description: "Retrieve all child sessions that were forked from the specified parent session.",
-        operationId: "session.children",
-        responses: {
-          200: {
-            description: "List of children",
-            content: {
-              "application/json": {
-                schema: resolver(Session.Info.array()),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: Session.children.schema,
-        }),
-      ),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        const session = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            return yield* sessions.children(sessionID)
-          }),
-        )
-        return c.json(session)
-      },
-    )
-    .get(
-      "/:sessionID/todo",
-      describeRoute({
-        summary: "Get session todos",
-        description: "Retrieve the todo list associated with a specific session, showing tasks and action items.",
-        operationId: "session.todo",
-        responses: {
-          200: {
-            description: "Todo list",
-            content: {
-              "application/json": {
-                schema: resolver(Todo.Snapshot),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        const todos = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const todo = yield* Todo.Service
-            return yield* todo.get(sessionID)
-          }),
-        )
-        return c.json(todos)
-      },
-    )
-    .post(
-      "/",
-      describeRoute({
-        summary: "Create session",
-        description: "Create a new OpenCode session for interacting with AI assistants and managing conversations.",
-        operationId: "session.create",
-        responses: {
-          ...errors(400),
-          200: {
-            description: "Successfully created session",
-            content: {
-              "application/json": {
-                schema: resolver(Session.Info),
-              },
-            },
-          },
-        },
-      }),
-      validator("json", Session.create.schema),
-      async (c) => {
-        const body = c.req.valid("json") ?? {}
-        const session = await SessionShare.create(body)
-        return c.json(session)
-      },
-    )
-    .delete(
-      "/:sessionID",
-      describeRoute({
-        summary: "Delete session",
-        description: "Delete a session and permanently remove all associated data, including messages and history.",
-        operationId: "session.delete",
-        responses: {
-          200: {
-            description: "Successfully deleted session",
-            content: {
-              "application/json": {
-                schema: resolver(z.boolean()),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: Session.remove.schema,
-        }),
-      ),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            yield* sessions.remove(sessionID)
-          }),
-        )
-        return c.json(true)
-      },
-    )
-    .patch(
-      "/:sessionID",
-      describeRoute({
-        summary: "Update session",
-        description: "Update properties of an existing session, such as title or other metadata.",
-        operationId: "session.update",
-        responses: {
-          200: {
-            description: "Successfully updated session",
-            content: {
-              "application/json": {
-                schema: resolver(Session.Info),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      validator(
-        "json",
-        z.object({
-          title: z.string().optional(),
-          permission: Permission.Ruleset.optional(),
-          time: z
-            .object({
-              archived: z.number().optional(),
-            })
-            .optional(),
-        }),
-      ),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        const updates = c.req.valid("json")
-        const session = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            const current = yield* sessions.get(sessionID)
-
-            if (updates.title !== undefined) {
-              yield* sessions.setTitle({ sessionID, title: updates.title })
-            }
-            if (updates.permission !== undefined) {
-              yield* sessions.setPermission({
-                sessionID,
-                permission: Permission.merge(current.permission ?? [], updates.permission),
-              })
-            }
-            if (updates.time?.archived !== undefined) {
-              yield* sessions.setArchived({ sessionID, time: updates.time.archived })
-            }
-
-            return yield* sessions.get(sessionID)
-          }),
-        )
-        return c.json(session)
-      },
-    )
-    // TODO(v2): remove this dedicated route and rely on the normal `/init` command flow.
-    .post(
-      "/:sessionID/init",
-      describeRoute({
-        summary: "Initialize session",
-        description:
-          "Analyze the current application and create an AGENTS.md file with project-specific agent configurations.",
-        operationId: "session.init",
-        responses: {
-          200: {
-            description: "200",
-            content: {
-              "application/json": {
-                schema: resolver(z.boolean()),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      validator(
-        "json",
-        z.object({
-          modelID: ModelID.zod,
-          providerID: ProviderID.zod,
-          messageID: MessageID.zod,
-        }),
-      ),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        const body = c.req.valid("json")
-        await SessionPrompt.command({
-          sessionID,
-          messageID: body.messageID,
-          model: body.providerID + "/" + body.modelID,
-          command: Command.Default.INIT,
-          arguments: "",
-        })
-        return c.json(true)
-      },
-    )
-    .post(
-      "/:sessionID/fork",
-      describeRoute({
-        summary: "Fork session",
-        description: "Create a new session by forking an existing session at a specific message point.",
-        operationId: "session.fork",
-        responses: {
-          200: {
-            description: "200",
-            content: {
-              "application/json": {
-                schema: resolver(Session.Info),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: Session.fork.schema.shape.sessionID,
-        }),
-      ),
-      validator("json", Session.fork.schema.omit({ sessionID: true })),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        const body = c.req.valid("json")
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            return yield* sessions.fork({ ...body, sessionID })
-          }),
-        )
-        return c.json(result)
-      },
-    )
-    .post(
-      "/:sessionID/tool/respond",
-      describeRoute({
-        summary: "Respond to an external-result tool call",
-        description:
-          "Resolve a pending external-result Deferred (e.g. question tool) with the user's submitted payload or a dismiss action.",
-        operationId: "session.toolRespond",
-        responses: {
-          200: {
-            description: "Resolved",
-            content: { "application/json": { schema: resolver(z.object({ status: z.literal("ok") })) } },
-          },
-          ...errors(400),
-          404: {
-            description: "No pending tool call for the given (session, message, call)",
-            content: { "application/json": { schema: resolver(ToolRespondFailure) } },
-          },
-          409: {
-            description: "The pending tool call was already resolved",
-            content: { "application/json": { schema: resolver(ToolRespondFailure) } },
-          },
-          422: {
-            description: "The submitted payload failed the tool-owned decoder",
-            content: { "application/json": { schema: resolver(ToolRespondFailure) } },
-          },
-        },
-      }),
-      validator("param", z.object({ sessionID: SessionID.zod })),
-      validator(
-        "json",
-        z.discriminatedUnion("kind", [
-          z.object({
-            kind: z.literal("submit"),
-            messageID: MessageID.zod,
-            callID: z.string(),
-            payload: z.unknown(),
-          }),
-          z.object({
-            kind: z.literal("dismiss"),
-            messageID: MessageID.zod,
-            callID: z.string(),
-          }),
-        ]),
-      ),
-      async (c) => {
-        const { sessionID } = c.req.valid("param")
-        const body = c.req.valid("json")
-        const { messageID, callID } = body
-        const lookup = ExternalResult.lookup({ sessionID, messageID, callID })
-        if (lookup.state === "not_found") return c.json({ error: "no_pending_tool_call" }, 404)
-        if (lookup.state === "resolved") return c.json({ error: "already_resolved" }, 409)
-        let value: { kind: "dismissed" } | { kind: "submitted"; value: unknown }
-        if (body.kind === "dismiss") {
-          value = { kind: "dismissed" as const }
-        } else {
-          // Run the tool-owned decoder (if any) before settling the Deferred.
-          // On failure the entry stays pending so the client can correct
-          // and resubmit. Route stays tool-agnostic — decoder lives with
-          // the tool that registered it (see e.g. question.ts).
-          if (lookup.decoder) {
-            const decoded = lookup.decoder(body.payload, lookup.inputSnapshot)
-            if (!decoded.ok) {
-              return c.json({ error: decoded.error, details: decoded.details }, 422)
-            }
-            value = { kind: "submitted" as const, value: decoded.value }
-          } else {
-            value = { kind: "submitted" as const, value: body.payload }
-          }
-        }
-        const outcome = await AppRuntime.runPromise(
-          ExternalResult.resolveIfPending({ sessionID, messageID, callID, value }),
-        )
-        if (outcome === "resolved") return c.json({ status: "ok" })
-        if (outcome === "already_resolved") return c.json({ error: "already_resolved" }, 409)
-        return c.json({ error: "no_pending_tool_call" }, 404)
-      },
-    )
-    .post(
-      "/:sessionID/abort",
-      describeRoute({
-        summary: "Abort session",
-        description: "Abort an active session and stop any ongoing AI processing or command execution.",
-        operationId: "session.abort",
-        responses: {
-          200: {
-            description: "Aborted session",
-            content: {
-              "application/json": {
-                schema: resolver(z.boolean()),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      validator(
-        "query",
-        z.object({
-          source: AbortSource.optional(),
-        }),
-      ),
-      async (c) => {
-        const query = c.req.valid("query")
-        const aborted = await SessionPrompt.cancel(c.req.valid("param").sessionID, {
-          source: query.source,
-        })
-        return c.json(aborted)
-      },
-    )
-    .post(
-      "/:sessionID/share",
-      describeRoute({
-        summary: "Share session",
-        description: "Create a shareable link for a session, allowing others to view the conversation.",
-        operationId: "session.share",
-        responses: {
-          200: {
-            description: "Successfully shared session",
-            content: {
-              "application/json": {
-                schema: resolver(Session.Info),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        const enabled = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const gate = yield* ShareRuntime.CloudShareGate
-            return gate.isEnabled()
-          }),
-        )
-        if (!enabled) {
-          return c.json({ error: "cloud_share_disabled" }, 410)
-        }
-        const share = await SessionShare.share(sessionID)
-        const session = await Session.get(sessionID)
-        return c.json({
-          ...session,
-          share,
-        })
-      },
-    )
-    .get(
-      "/:sessionID/export",
-      describeRoute({
-        summary: "Export session log",
-        description:
-          "Export the full root session tree as a single JSON document for local debugging. " +
-          "If a child session id is provided, climbs to the topmost ancestor and exports the whole tree.",
-        operationId: "session.export",
-        responses: {
-          200: {
-            description: "Successfully exported session",
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        try {
-          const result = await AppRuntime.runPromise(Export.session(sessionID))
-          return c.json(result)
-        } catch (err) {
-          // Session.get throws NotFoundError; matches the typed pattern used in middleware.ts.
-          if (err instanceof NotFoundError) {
-            return c.json({ error: "session_not_found", sessionID }, 404)
-          }
-          throw err
-        }
-      },
-    )
-    .get(
-      "/:sessionID/diff",
-      describeRoute({
-        summary: "Get message diff",
-        description: "Get the file changes (diff) that resulted from a specific user message in the session.",
-        operationId: "session.diff",
-        responses: {
-          200: {
-            description: "Successfully retrieved diff",
-            content: {
-              "application/json": {
-                schema: resolver(TurnChange.AggregateSchema),
-              },
-            },
-          },
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionSummary.DiffInput.shape.sessionID,
-        }),
-      ),
-      validator(
-        "query",
-        z.object({
-          messageID: SessionSummary.DiffInput.shape.messageID,
-        }),
-      ),
-      async (c) => {
-        const query = c.req.valid("query")
-        const params = c.req.valid("param")
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const summary = yield* SessionSummary.Service
-            return yield* summary.diff({
-              sessionID: params.sessionID,
-              messageID: query.messageID,
-            })
-          }),
-        )
-        return c.json(result)
-      },
-    )
-    .get(
-      "/:sessionID/turn-change/:messageID",
-      describeRoute({
-        summary: "Get assistant turn changes",
-        description: "Get files explicitly changed by PawWork file-writing tools during one assistant turn.",
-        operationId: "session.turnChange",
-        responses: {
-          200: {
-            description: "Turn changes",
-            content: {
-              "application/json": {
-                schema: resolver(TurnChange.DisplaySchema.nullable()),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-          messageID: MessageID.zod,
-        }),
-      ),
-      async (c) => {
-        const params = c.req.valid("param")
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const turnChange = yield* TurnChange.Service
-            return yield* turnChange.get(params)
-          }),
-        )
-        return c.json(result ?? null)
-      },
-    )
-    .post(
-      "/:sessionID/turn-change/:messageID/undo",
-      describeRoute({
-        summary: "Undo assistant turn file changes",
-        operationId: "session.turnChangeUndo",
-        responses: {
-          200: {
-            description: "Undo result",
-            content: {
-              "application/json": {
-                schema: resolver(TurnChange.MutationResultSchema),
-              },
-            },
-          },
-          ...errors(400, 404, 409),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-          messageID: MessageID.zod,
-        }),
-      ),
-      async (c) => {
-        const params = c.req.valid("param")
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const state = yield* SessionRunState.Service
-            const turnChange = yield* TurnChange.Service
-            yield* state.assertNotBusy(params.sessionID)
-            const result = yield* turnChange.undo(params)
-            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "undo")
-            return result
-          }),
-        )
-        return c.json(result)
-      },
-    )
-    .post(
-      "/:sessionID/turn-change/:messageID/redo",
-      describeRoute({
-        summary: "Redo assistant turn file changes",
-        operationId: "session.turnChangeRedo",
-        responses: {
-          200: {
-            description: "Redo result",
-            content: {
-              "application/json": {
-                schema: resolver(TurnChange.MutationResultSchema),
-              },
-            },
-          },
-          ...errors(400, 404, 409),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-          messageID: MessageID.zod,
-        }),
-      ),
-      async (c) => {
-        const params = c.req.valid("param")
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const state = yield* SessionRunState.Service
-            const turnChange = yield* TurnChange.Service
-            yield* state.assertNotBusy(params.sessionID)
-            const result = yield* turnChange.redo(params)
-            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "redo")
-            return result
-          }),
-        )
-        return c.json(result)
-      },
-    )
-    .get(
-      "/:sessionID/turn/:userMessageID/changes",
-      describeRoute({
-        summary: "Get aggregated turn changes",
-        description: "Aggregate file changes across all assistants in one user turn.",
-        operationId: "session.turnChangesAggregate",
-        responses: {
-          200: {
-            description: "Aggregated turn changes",
-            content: {
-              "application/json": {
-                schema: resolver(TurnChange.AggregateSchema),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-          userMessageID: MessageID.zod,
-        }),
-      ),
-      async (c) => {
-        const params = c.req.valid("param")
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const turnChange = yield* TurnChange.Service
-            return yield* turnChange.aggregateTurnUnion(params)
-          }),
-        )
-        return c.json(result)
-      },
-    )
-    .post(
-      "/:sessionID/turn/:userMessageID/changes/undo",
-      describeRoute({
-        summary: "Undo all assistant changes in a turn",
-        operationId: "session.turnChangesAggregateUndo",
-        responses: {
-          200: {
-            description: "Undo result",
-            content: {
-              "application/json": {
-                schema: resolver(TurnChange.MutationResultSchema),
-              },
-            },
-          },
-          ...errors(400, 404, 409),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-          userMessageID: MessageID.zod,
-        }),
-      ),
-      validator("json", z.object({ force: z.boolean().optional() }).optional()),
-      async (c) => {
-        const params = c.req.valid("param")
-        const body = c.req.valid("json") ?? {}
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const state = yield* SessionRunState.Service
-            const turnChange = yield* TurnChange.Service
-            yield* state.assertNotBusy(params.sessionID)
-            const result = yield* turnChange.aggregateTurnUndo({ ...params, force: body.force })
-            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "undo", result.mutatedPaths)
-            return result
-          }),
-        )
-        return c.json(result)
-      },
-    )
-    .post(
-      "/:sessionID/turn/:userMessageID/changes/redo",
-      describeRoute({
-        summary: "Redo all assistant changes in a turn",
-        operationId: "session.turnChangesAggregateRedo",
-        responses: {
-          200: {
-            description: "Redo result",
-            content: {
-              "application/json": {
-                schema: resolver(TurnChange.MutationResultSchema),
-              },
-            },
-          },
-          ...errors(400, 404, 409),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-          userMessageID: MessageID.zod,
-        }),
-      ),
-      validator("json", z.object({ force: z.boolean().optional() }).optional()),
-      async (c) => {
-        const params = c.req.valid("param")
-        const body = c.req.valid("json") ?? {}
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const state = yield* SessionRunState.Service
-            const turnChange = yield* TurnChange.Service
-            yield* state.assertNotBusy(params.sessionID)
-            const result = yield* turnChange.aggregateTurnRedo({ ...params, force: body.force })
-            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "redo", result.mutatedPaths)
-            return result
-          }),
-        )
-        return c.json(result)
-      },
-    )
-    .get(
-      "/:sessionID/artifacts",
-      describeRoute({
-        summary: "Get session artifacts",
-        description: "Get the cumulative files created or updated across a session.",
-        operationId: "session.artifacts",
-        responses: {
-          200: {
-            description: "Successfully retrieved artifacts",
-            content: {
-              "application/json": {
-                schema: resolver(SessionSummary.Artifact.array()),
-              },
-            },
-          },
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionSummary.ArtifactsInput.shape.sessionID,
-        }),
-      ),
-      async (c) => {
-        const params = c.req.valid("param")
-        const result = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const summary = yield* SessionSummary.Service
-            return yield* summary.artifacts({
-              sessionID: params.sessionID,
-            })
-          }),
-        )
-        return c.json(result)
-      },
-    )
-    .delete(
-      "/:sessionID/share",
-      describeRoute({
-        summary: "Unshare session",
-        description: "Remove the shareable link for a session, making it private again.",
-        operationId: "session.unshare",
-        responses: {
-          200: {
-            description: "Successfully unshared session",
-            content: {
-              "application/json": {
-                schema: resolver(Session.Info),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        const enabled = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const gate = yield* ShareRuntime.CloudShareGate
-            return gate.isEnabled()
-          }),
-        )
-        if (!enabled) {
-          return c.json({ error: "cloud_share_disabled" }, 410)
-        }
-        await SessionShare.unshare(sessionID)
-        const session = await Session.get(sessionID)
-        return c.json({
-          ...session,
-          share: undefined,
-        })
-      },
-    )
-    .post(
-      "/:sessionID/summarize",
-      describeRoute({
-        summary: "Summarize session",
-        description: "Generate a concise summary of the session using AI compaction to preserve key information.",
-        operationId: "session.summarize",
-        responses: {
-          200: {
-            description: "Summarized session",
-            content: {
-              "application/json": {
-                schema: resolver(z.boolean()),
-              },
-            },
-          },
-          ...errors(400, 404, 409),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      validator(
-        "json",
-        z.object({
-          providerID: ProviderID.zod,
-          modelID: ModelID.zod,
-          auto: z.boolean().optional().default(false),
-        }),
-      ),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        const body = c.req.valid("json")
-        // Marker creation runs inside the loop's runner-protected work effect
-        // (see SessionPrompt.loop). That gives us four guarantees the
-        // pre-refactor route lacked: (1) status flips to busy *before* the
-        // compaction part event reaches clients so the divider doesn't flash
-        // the legacy-orphan "failed" frame; (2) a cancel arriving while the
-        // marker is being written hits a Running runner and interrupts the
-        // fiber instead of being silently dropped by SessionRunState.cancel;
-        // (3) the prelude path uses rejectIfBusy, so summarize calls that
-        // arrive while another run is in flight throw Session.BusyError
-        // (mapped to 409) instead of resolving `true` without writing the
-        // marker. Clients should queue the action and retry once the session
-        // goes idle; (4) revert.cleanup and agent derivation live inside
-        // the work effect, so a busy-rejected compact leaves session state
-        // untouched and the agent is picked from the post-cleanup message
-        // list (matters when the session has been reverted).
-        await SessionPrompt.loop({
-          sessionID,
-          prelude: {
-            type: "compaction",
-            model: {
-              providerID: body.providerID,
-              modelID: body.modelID,
-            },
-            auto: body.auto,
-          },
-        })
-        // Compaction is fire-and-forget at the loop level: a pre-summary
-        // failure writes `error` onto the placeholder summary assistant and
-        // returns "stop" without throwing, so summarize would otherwise
-        // resolve `true` for a session that visibly failed. Surface the
-        // error so SDK callers can branch on it. User-initiated aborts are
-        // not failures from the route's perspective.
-        const finalMsgs = await Session.messages({ sessionID })
-        for (let i = finalMsgs.length - 1; i >= 0; i--) {
-          const info = finalMsgs[i].info
-          if (info.role !== "assistant" || info.mode !== "compaction") continue
-          if (info.error && info.error.name !== "MessageAbortedError") {
-            const raw = (info.error.data as { message?: unknown } | undefined)?.message
-            const reason =
-              typeof raw === "string" && raw.trim().length > 0
-                ? raw.trim()
-                : `Compaction failed (${info.error.name})`
-            throw new NamedError.Unknown({ message: reason })
-          }
-          break
-        }
-        return c.json(true)
-      },
-    )
-    .get(
-      "/:sessionID/message",
-      describeRoute({
-        summary: "Get session messages",
-        description: "Retrieve all messages in a session, including user prompts and AI responses.",
-        operationId: "session.messages",
-        responses: {
-          200: {
-            description: "List of messages",
-            content: {
-              "application/json": {
-                schema: resolver(MessageV2.WithParts.array()),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      validator(
-        "query",
-        z
-          .object({
-            limit: z.coerce
-              .number()
-              .int()
-              .min(0)
-              .optional()
-              .meta({ description: "Maximum number of messages to return" }),
-            before: z
-              .string()
-              .optional()
-              .meta({ description: "Opaque cursor for loading older messages" })
-              .refine(
-                (value) => {
-                  if (!value) return true
-                  try {
-                    MessageV2.cursor.decode(value)
-                    return true
-                  } catch {
-                    return false
-                  }
-                },
-                { message: "Invalid cursor" },
-              ),
-          })
-          .refine((value) => !value.before || value.limit !== undefined, {
-            message: "before requires limit",
-            path: ["before"],
-          }),
-      ),
-      async (c) => {
-        const query = c.req.valid("query")
-        const sessionID = c.req.valid("param").sessionID
-        if (query.limit === undefined) {
-          const messages = await AppRuntime.runPromise(
-            Effect.gen(function* () {
-              const sessions = yield* Session.Service
-              yield* sessions.get(sessionID)
-              return yield* sessions.messages({ sessionID })
-            }),
-          )
-          return c.json(messages)
-        }
-
-        if (query.limit === 0) {
-          const messages = await AppRuntime.runPromise(
-            Effect.gen(function* () {
-              const sessions = yield* Session.Service
-              yield* sessions.get(sessionID)
-              return yield* sessions.messages({ sessionID })
-            }),
-          )
-          return c.json(messages)
-        }
-
-        const limit = query.limit
-        const page = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            return yield* sessions.messagesPage({
-              sessionID,
-              limit,
-              before: query.before,
-            })
-          }),
-        )
-        if (page.cursor) {
-          const url = new URL(c.req.url)
-          url.searchParams.set("limit", limit.toString())
-          url.searchParams.set("before", page.cursor)
-          c.header("Access-Control-Expose-Headers", "Link, X-Next-Cursor")
-          c.header("Link", `<${url.toString()}>; rel=\"next\"`)
-          c.header("X-Next-Cursor", page.cursor)
-        }
-        return c.json(page.items)
-      },
-    )
-    .get(
-      "/:sessionID/message/:messageID",
-      describeRoute({
-        summary: "Get message",
-        description: "Retrieve a specific message from a session by its message ID.",
-        operationId: "session.message",
-        responses: {
-          200: {
-            description: "Message",
-            content: {
-              "application/json": {
-                schema: resolver(
-                  z.object({
-                    info: MessageV2.Info,
-                    parts: MessageV2.Part.array(),
-                  }),
-                ),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-          messageID: MessageID.zod,
-        }),
-      ),
-      async (c) => {
-        const params = c.req.valid("param")
-        const message = await MessageV2.get({
-          sessionID: params.sessionID,
-          messageID: params.messageID,
-        })
-        return c.json(message)
-      },
-    )
-    .delete(
-      "/:sessionID/message/:messageID",
-      describeRoute({
-        summary: "Delete message",
-        description:
-          "Permanently delete a specific message (and all of its parts) from a session. This does not revert any file changes that may have been made while processing the message.",
-        operationId: "session.deleteMessage",
-        responses: {
-          200: {
-            description: "Successfully deleted message",
-            content: {
-              "application/json": {
-                schema: resolver(z.boolean()),
-              },
-            },
-          },
-          ...errors(400, 404, 409),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-          messageID: MessageID.zod,
-        }),
-      ),
-      async (c) => {
-        const params = c.req.valid("param")
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const state = yield* SessionRunState.Service
-            const session = yield* Session.Service
-            yield* state.assertNotBusy(params.sessionID)
-            yield* session.removeMessage({
-              sessionID: params.sessionID,
-              messageID: params.messageID,
-            })
-          }),
-        )
-        return c.json(true)
-      },
-    )
-    .delete(
-      "/:sessionID/message/:messageID/part/:partID",
-      describeRoute({
-        description: "Delete a part from a message",
-        operationId: "part.delete",
-        responses: {
-          200: {
-            description: "Successfully deleted part",
-            content: {
-              "application/json": {
-                schema: resolver(z.boolean()),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-          messageID: MessageID.zod,
-          partID: PartID.zod,
-        }),
-      ),
-      async (c) => {
-        const params = c.req.valid("param")
-        await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            // Surface the route's declared 404 instead of silently succeeding:
-            // deleting a part that does not exist is a not-found, not a no-op.
-            // The check lives in the route, not Session.removePart, because
-            // removePart is also called internally by the message processor,
-            // which must stay a tolerant no-op for an already-gone part.
-            const part = yield* sessions.getPart({
-              sessionID: params.sessionID,
-              messageID: params.messageID,
-              partID: params.partID,
-            })
-            if (!part) throw new NotFoundError({ message: `Part not found: ${params.partID}` })
-            yield* sessions.removePart({
-              sessionID: params.sessionID,
-              messageID: params.messageID,
-              partID: params.partID,
-            })
-          }),
-        )
-        return c.json(true)
-      },
-    )
-    .patch(
-      "/:sessionID/message/:messageID/part/:partID",
-      describeRoute({
-        description: "Update a part in a message",
-        operationId: "part.update",
-        responses: {
-          200: {
-            description: "Successfully updated part",
-            content: {
-              "application/json": {
-                schema: resolver(MessageV2.Part),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-          messageID: MessageID.zod,
-          partID: PartID.zod,
-        }),
-      ),
-      validator("json", MessageV2.Part),
-      async (c) => {
-        const params = c.req.valid("param")
-        const body = c.req.valid("json")
-        if (body.id !== params.partID || body.messageID !== params.messageID || body.sessionID !== params.sessionID) {
-          return c.json(
-            {
-              success: false as const,
-              errors: [
-                {
-                  message: `Part mismatch: body.id='${body.id}' vs partID='${params.partID}', body.messageID='${body.messageID}' vs messageID='${params.messageID}', body.sessionID='${body.sessionID}' vs sessionID='${params.sessionID}'`,
-                },
-              ],
-              data: null,
-            },
-            400,
-          )
-        }
-        const part = await AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const sessions = yield* Session.Service
-            return yield* sessions.updatePart(body)
-          }),
-        )
-        return c.json(part)
-      },
-    )
-    .post(
-      "/:sessionID/message",
-      describeRoute({
-        summary: "Send message",
-        description: "Create and send a new message to a session, streaming the AI response.",
-        operationId: "session.prompt",
-        responses: {
-          200: {
-            description: "Created message",
-            content: {
-              "application/json": {
-                schema: resolver(
-                  z.object({
-                    info: MessageV2.Assistant,
-                    parts: MessageV2.Part.array(),
-                  }),
-                ),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      validator("json", SessionPrompt.PromptInput.omit({ sessionID: true })),
-      async (c) => {
-        c.status(200)
-        c.header("Content-Type", "application/json")
-        return stream(c, async (stream) => {
-          const sessionID = c.req.valid("param").sessionID
-          const body = c.req.valid("json")
-          const msg = await SessionPrompt.prompt({ ...body, sessionID })
-          stream.write(JSON.stringify(msg))
-        })
-      },
-    )
-    .post(
-      "/:sessionID/prompt_async",
-      describeRoute({
-        summary: "Send async message",
-        description:
-          "Create and send a new message to a session asynchronously, starting the session if needed and returning immediately.",
-        operationId: "session.prompt_async",
-        responses: {
-          204: {
-            description: "Prompt accepted",
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      validator("json", SessionPrompt.PromptInput.omit({ sessionID: true })),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        const body = c.req.valid("json")
-        SessionPrompt.prompt({ ...body, sessionID }).catch((err) => {
-          log.error("prompt_async failed", { sessionID, error: err })
-          Bus.publish(Session.Event.Error, {
-            sessionID,
-            error: new NamedError.Unknown({ message: err instanceof Error ? err.message : String(err) }).toObject(),
-          })
-        })
-
-        return c.body(null, 204)
-      },
-    )
-    .post(
-      "/:sessionID/command",
-      describeRoute({
-        summary: "Send command",
-        description: "Send a new command to a session for execution by the AI assistant.",
-        operationId: "session.command",
-        responses: {
-          200: {
-            description: "Created message",
-            content: {
-              "application/json": {
-                schema: resolver(
-                  z.object({
-                    info: MessageV2.Assistant,
-                    parts: MessageV2.Part.array(),
-                  }),
-                ),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      validator("json", SessionPrompt.CommandInput.omit({ sessionID: true })),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        const body = c.req.valid("json")
-        const msg = await SessionPrompt.command({ ...body, sessionID })
-        return c.json(msg)
-      },
-    )
-    .post(
-      "/:sessionID/shell",
-      describeRoute({
-        summary: "Run shell command",
-        description: "Execute a shell command within the session context and return the AI's response.",
-        operationId: "session.shell",
-        responses: {
-          200: {
-            description: "Created message",
-            content: {
-              "application/json": {
-                schema: resolver(MessageV2.WithParts),
-              },
-            },
-          },
-          ...errors(400, 404, 409),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      validator("json", SessionPrompt.ShellInput.omit({ sessionID: true })),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        const body = c.req.valid("json")
-        const msg = await SessionPrompt.shell({ ...body, sessionID })
-        return c.json(msg)
-      },
-    )
-    .post(
-      "/:sessionID/revert",
-      describeRoute({
-        summary: "Revert message",
-        description: "Revert a specific message in a session, undoing its effects and restoring the previous state.",
-        operationId: "session.revert",
-        responses: {
-          200: {
-            description: "Updated session",
-            content: {
-              "application/json": {
-                schema: resolver(Session.Info),
-              },
-            },
-          },
-          ...errors(400, 404, 409),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      validator("json", SessionRevert.RevertInput.omit({ sessionID: true })),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        log.info("revert", c.req.valid("json"))
-        const session = await SessionRevert.revert({
-          sessionID,
-          ...c.req.valid("json"),
-        })
-        return c.json(session)
-      },
-    )
-    .post(
-      "/:sessionID/unrevert",
-      describeRoute({
-        summary: "Restore reverted messages",
-        description: "Restore all previously reverted messages in a session.",
-        operationId: "session.unrevert",
-        responses: {
-          200: {
-            description: "Updated session",
-            content: {
-              "application/json": {
-                schema: resolver(Session.Info),
-              },
-            },
-          },
-          ...errors(400, 404, 409),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        const session = await SessionRevert.unrevert({ sessionID })
-        return c.json(session)
-      },
-    )
-    .post(
-      "/:sessionID/permissions/:permissionID",
-      describeRoute({
-        summary: "Respond to permission",
-        deprecated: true,
-        description: "Approve or deny a permission request from the AI assistant.",
-        operationId: "permission.respond",
-        responses: {
-          200: {
-            description: "Permission processed successfully",
-            content: {
-              "application/json": {
-                schema: resolver(z.boolean()),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-          permissionID: PermissionID.zod,
-        }),
-      ),
-      validator("json", z.object({ response: Permission.Reply })),
-      async (c) => {
-        const params = c.req.valid("param")
-        // Await so an unknown permission surfaces this route's documented 404
-        // instead of being swallowed by a fire-and-forget rejection.
-        await Permission.reply({
-          requestID: params.permissionID,
-          reply: c.req.valid("json").response,
-        })
-        return c.json(true)
-      },
-    ),
-)
+export const SessionRouteEffects = {
+  listSessions,
+  getSessionStatus,
+  updateE2ETodos,
+  e2eSessionRoutesEnabled,
+  getSession,
+  listSessionChildren,
+  getSessionTodos,
+  createSession,
+  deleteSession,
+  updateSession,
+  initSession,
+  forkSession,
+  resolveToolResponse,
+  abortSession,
+  shareSession,
+  exportSession,
+  getSessionDiff,
+  getTurnChange,
+  undoTurnChange,
+  redoTurnChange,
+  getAggregateTurnChanges,
+  undoAggregateTurnChanges,
+  redoAggregateTurnChanges,
+  listSessionArtifacts,
+  unshareSession,
+  summarizeSession,
+  listSessionMessages,
+  deleteSessionMessage,
+  deleteSessionPart,
+  updateSessionPart,
+  promptSession,
+  runSessionCommand,
+  runSessionShell,
+  revertSession,
+  unrevertSession,
+  replyToDeprecatedPermission,
+} as const

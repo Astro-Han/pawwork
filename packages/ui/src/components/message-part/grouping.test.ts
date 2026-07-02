@@ -12,7 +12,12 @@ function textPart(id: string, text: string): TextPart {
   }
 }
 
-function toolPart(id: string, tool: string, status: "pending" | "running" | "completed" | "error" = "completed"): ToolPart {
+function toolPart(
+  id: string,
+  tool: string,
+  status: "pending" | "running" | "completed" | "error" = "completed",
+  metadata?: Record<string, unknown>,
+): ToolPart {
   if (status === "pending") {
     return {
       id,
@@ -32,7 +37,7 @@ function toolPart(id: string, tool: string, status: "pending" | "running" | "com
       type: "tool",
       callID: `call-${id}`,
       tool,
-      state: { status: "running", input: {}, time: { start: 0 } },
+      state: { status: "running", input: {}, metadata, time: { start: 0 } },
     }
   }
   if (status === "error") {
@@ -142,11 +147,34 @@ describe("message-part groupParts", () => {
     })
   })
 
-  test("pending question tools are filtered before grouping", () => {
+  test("unready pending question tools are filtered before grouping", () => {
     const result = groupRenderable([toolPart("t1", "bash"), toolPart("q1", "question", "pending"), toolPart("t2", "bash")])
 
+    expect(renderable(toolPart("q1", "question", "pending"))).toBe(false)
+    expect(renderable(toolPart("q2", "question", "running", { externalResultReady: false }))).toBe(false)
     expect(result).toHaveLength(1)
     expect(result[0].type).toBe("trow")
+  })
+
+  test("ready running question tools split into a visible single trow marker", () => {
+    const result = groupRenderable([
+      toolPart("t1", "bash"),
+      toolPart("q1", "question", "running", { externalResultReady: true }),
+    ])
+
+    expect(renderable(toolPart("q1", "question", "running", { externalResultReady: true }))).toBe(true)
+    expect(result).toEqual([
+      {
+        key: "trow:t1",
+        type: "trow",
+        refs: [{ messageID: "m", partID: "t1" }],
+      },
+      {
+        key: "trow:q1",
+        type: "trow",
+        refs: [{ messageID: "m", partID: "q1" }],
+      },
+    ])
   })
 
   test("a reasoning part folds into a trow group, not a standalone part", () => {

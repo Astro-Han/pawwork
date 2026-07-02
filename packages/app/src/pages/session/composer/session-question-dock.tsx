@@ -2,7 +2,6 @@ import { For, Show, createMemo, onCleanup, onMount, type Component } from "solid
 import { createStore } from "solid-js/store"
 import { useMutation } from "@tanstack/solid-query"
 import { Button } from "@opencode-ai/ui/button"
-import { DockPrompt } from "@opencode-ai/ui/dock-prompt"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
@@ -312,67 +311,22 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
     submit()
   }
 
-  const jump = (tab: number) => {
-    if (!canInteract()) return
-    setStore("tab", tab)
-    setStore("editing", false)
-    keyboardNav.focus(keyboardNav.pickFocus(tab))
-  }
-
   return (
-    <DockPrompt
-      kind="question"
+    <div
+      data-component="dock-prompt"
+      data-kind="question"
       ref={(el) => (root = el)}
       onKeyDown={keyboardNav.nav}
-      header={
-        <>
-          <div data-slot="question-header-title">
-            <span data-slot="question-header-seq">{summary()}</span>
-            <span data-slot="question-header-mode">
-              {multi() ? language.t("ui.question.multiHint") : language.t("ui.question.singleHint")}
-            </span>
-          </div>
-          <div data-slot="question-progress">
-            <For each={questions()}>
-              {(_, i) => (
-                <button
-                  type="button"
-                  data-slot="question-progress-segment"
-                  data-active={i() === store.tab}
-                  data-answered={settled(i())}
-                  disabled={!canInteract()}
-                  onClick={() => jump(i())}
-                  aria-label={`${language.t("ui.tool.questions")} ${i() + 1}`}
-                />
-              )}
-            </For>
-          </div>
-        </>
-      }
-      footer={
-        <>
-          <Button variant="ghost" disabled={!canInteract()} onClick={skipCurrent}>
-            {language.t("session.question.skipCurrent")}
-          </Button>
-          <div data-slot="question-footer-actions">
-            <Show when={store.tab > 0}>
-              <Button variant="secondary" disabled={!canInteract()} onClick={back}>
-                {language.t("ui.common.back")}
-              </Button>
-            </Show>
-            <Button
-              variant={last() ? "primary" : "secondary"}
-              disabled={!canInteract()}
-              onClick={next}
-              aria-keyshortcuts="Meta+Enter Control+Enter"
-            >
-              {last() ? language.t("ui.common.submit") : language.t("ui.common.next")}
-            </Button>
-          </div>
-        </>
-      }
     >
-      <div data-slot="question-text">{question()?.question}</div>
+      <div data-slot="question-header">
+        <div data-slot="question-text">{question()?.question}</div>
+        <Show when={total() > 1}>
+          <span data-slot="question-header-seq">{summary()}</span>
+        </Show>
+      </div>
+      <Show when={multi()}>
+        <div data-slot="question-header-mode">{language.t("ui.question.multiHint")}</div>
+      </Show>
       <div data-slot="question-options">
         <For each={options()}>
           {(opt, i) => (
@@ -465,6 +419,26 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
           </Show>
         </Show>
       </div>
-    </DockPrompt>
+      <div data-slot="question-footer">
+        <Button variant="ghost" disabled={!canInteract()} onClick={skipCurrent}>
+          {language.t("session.question.skipCurrent")}
+        </Button>
+        <div data-slot="question-footer-actions">
+          <Show when={store.tab > 0}>
+            <Button variant="secondary" disabled={!canInteract()} onClick={back}>
+              {language.t("ui.common.back")}
+            </Button>
+          </Show>
+          <Button
+            variant={last() ? "primary" : "secondary"}
+            disabled={!canInteract()}
+            onClick={next}
+            aria-keyshortcuts="Meta+Enter Control+Enter"
+          >
+            {last() ? language.t("ui.common.submit") : language.t("ui.common.next")}
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }

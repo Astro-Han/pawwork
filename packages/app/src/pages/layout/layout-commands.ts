@@ -47,6 +47,11 @@ type LayoutCommandRegistration = {
     connectProvider: () => void
     switchServer: () => void
   }
+  diagnosticsActions: {
+    // Prepare the diagnostics package and open its review (also the Help-menu entry).
+    prepare: () => void
+    canPrepare: Accessor<boolean>
+  }
 }
 
 const colorSchemeOrder: ColorScheme[] = ["system", "light", "dark"]
@@ -68,6 +73,7 @@ export function registerLayoutCommands(input: LayoutCommandRegistration) {
     settingsActions,
     workspaceActions,
     systemActions,
+    diagnosticsActions,
   } = input
   const colorSchemeLabel = (scheme: ColorScheme) => copy.t(colorSchemeKey[scheme])
 
@@ -178,6 +184,14 @@ export function registerLayoutCommands(input: LayoutCommandRegistration) {
         category: copy.t("command.category.settings"),
         disabled: !settingsActions.canOpenGlobalConfigFolder(),
         onSelect: () => settingsActions.openGlobalConfigFolder(),
+      },
+      {
+        // Menu id "diagnostics.prepare" is also sent from the desktop Help menu.
+        id: "diagnostics.prepare",
+        title: copy.t("command.diagnostics.prepare"),
+        category: copy.t("command.category.help"),
+        disabled: !diagnosticsActions.canPrepare(),
+        onSelect: () => diagnosticsActions.prepare(),
       },
       {
         id: "session.previous",

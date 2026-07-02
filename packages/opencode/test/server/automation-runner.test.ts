@@ -6,7 +6,8 @@ import { Effect } from "effect"
 import { Automation } from "../../src/automation"
 import { sessionPromptExecutor } from "../../src/automation/runner"
 import { AutomationRunTable } from "../../src/automation/automation.sql"
-import { Bus } from "../../src/bus"
+import { AppRuntime } from "../../src/effect/app-runtime"
+import { GlobalBus } from "../../src/bus/global"
 import { Database, eq } from "../../src/storage/db"
 import { Instance } from "../../src/project/instance"
 import { Project } from "../../src/project/project"
@@ -17,13 +18,40 @@ import { SessionID } from "../../src/session/schema"
 import { AutomationRunContext, AutomationStepCapError } from "../../src/automation/run-context"
 import { Flock } from "../../src/util/flock"
 import { Worktree } from "../../src/worktree"
+import { internalTestHooks } from "../../src/automation/__test_hooks"
 import { tmpdir } from "../fixture/fixture"
 
 const RUN_WAIT_TIMEOUT_MS = 10_000
+const runSession = <A>(fn: (svc: Session.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Session.Service.use(fn))
+
+function subscribeAutomationEvent<D extends { type: string; properties: { parse(input: unknown): any } }>(
+  def: D,
+  callback: (event: { type: D["type"]; properties: ReturnType<D["properties"]["parse"]> }) => unknown,
+  options?: { directory?: string },
+) {
+  const listener = (event: { directory?: string; payload?: { type?: string; properties?: unknown } }) => {
+    if (options?.directory && event.directory !== options.directory) return
+    if (event.payload?.type !== def.type) return
+    callback({ type: def.type, properties: def.properties.parse(event.payload.properties) })
+  }
+  GlobalBus.on("event", listener)
+  return () => GlobalBus.off("event", listener)
+}
 
 afterEach(async () => {
   await Instance.disposeAll()
 })
+
+const projectUpdate = (input: Project.UpdateInput) =>
+  Effect.runPromise(Project.Service.use((project) => project.update(input)).pipe(Effect.provide(Project.defaultLayer)))
+const worktreeCreateReady = (input?: Worktree.CreateInput & { exactName?: boolean }) =>
+  Effect.runPromise(
+    Worktree.Service.use((worktree) => worktree.createReady(input)).pipe(Effect.provide(Worktree.defaultLayer)),
+  )
+const worktreeLookupBySlug = (slug: string) =>
+  Effect.runPromise(
+    Worktree.Service.use((worktree) => worktree.lookupBySlug(slug)).pipe(Effect.provide(Worktree.defaultLayer)),
+  )
 
 async function withAutomation<T>(fn: (projectID: ProjectID) => Promise<T>) {
   await using tmp = await tmpdir({ git: true })
@@ -93,6 +121,21 @@ async function waitForTerminalRun(automationID: string) {
   throw new Error("Timed out waiting for terminal automation run")
 }
 
+function readRun(runID: string) {
+  const row = Database.use((db) => db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, runID)).get())
+  return row ? Automation.Run.parse(row.data) : undefined
+}
+
+async function waitForRunByID(runID: string, state: Automation.Run["state"]) {
+  const deadline = Date.now() + RUN_WAIT_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    const run = readRun(runID)
+    if (run?.state === state) return run
+    await Bun.sleep(10)
+  }
+  throw new Error(`Timed out waiting for run ${runID} to reach ${state}`)
+}
+
 function defer<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
   const promise = new Promise<T>((done) => {
@@ -111,7 +154,7 @@ function automationSessionsForTitle(title: string) {
   )
 }
 
-function hangingChat(ready: () => void) {
+function hangingChat(ready: () => void, delayMs = 10_000) {
   const encoder = new TextEncoder()
   let timer: ReturnType<typeof setTimeout> | undefined
   const first = `data: ${JSON.stringify({
@@ -141,23 +184,12 @@ function hangingChat(ready: () => void) {
       timer = setTimeout(() => {
         ctrl.enqueue(encoder.encode(rest))
         ctrl.close()
-      }, 10_000)
+      }, delayMs)
     },
     cancel() {
       if (timer) clearTimeout(timer)
     },
   })
-}
-
-async function waitForAbortedAssistant(sessionID: SessionID) {
-  const deadline = Date.now() + 1_000
-  while (Date.now() < deadline) {
-    const messages = await Session.messages({ sessionID })
-    const assistant = messages.findLast((message) => message.info.role === "assistant")
-    if (assistant?.info.role === "assistant" && assistant.info.error?.name === "MessageAbortedError") return assistant
-    await Bun.sleep(10)
-  }
-  throw new Error("Timed out waiting for aborted assistant message")
 }
 
 describe("automation runNow execution", () => {
@@ -187,9 +219,9 @@ describe("automation runNow execution", () => {
       const definition = Automation.create(input(projectID))
       const sessionID = SessionID.descending()
       const runEvents: Automation.Run[] = []
-      const unsubscribeRun = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
+      const unsubscribeRun = subscribeAutomationEvent(Automation.Event.RunUpdated, (event) => {
         if (event.properties.automationID === definition.id) runEvents.push(event.properties)
-      })
+      }, { directory: Instance.directory })
 
       await Automation.runNowExecuting(definition.id, {
         executor: async ({ run }) => {
@@ -258,6 +290,31 @@ describe("automation runNow execution", () => {
       const stopped = await waitForRun(second.id, "stopped")
       if (stopped.state !== "stopped") throw new Error("expected stopped run")
       expect(stopped.stopReason).toBe("previous_run_awaiting_input")
+      expect(entered).toBe(false)
+    })
+  })
+
+  test("blocks a run when a deleted automation still has a durable active writer", async () => {
+    await withAutomation(async (projectID) => {
+      const first = Automation.create(input(projectID, { title: "Deleted active writer" }))
+      const second = Automation.create(input(projectID, { title: "Second automation" }))
+      const active = Automation.runNow(first.id, { now: 100 })
+      await using _ = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
+      Automation.remove(first.id)
+      let entered = false
+
+      await Automation.runNowExecuting(second.id, {
+        now: 200,
+        executor: async () => {
+          entered = true
+          return { sessionID: SessionID.descending(), result: "second", cost: 0 }
+        },
+      })
+
+      const stopped = await waitForRun(second.id, "stopped")
+      if (stopped.state !== "stopped") throw new Error("expected stopped run")
+      expect(stopped.stopReason).toBe("previous_run_awaiting_input")
+      expect(readRun(active.id)?.state).toBe("scheduled")
       expect(entered).toBe(false)
     })
   })
@@ -365,9 +422,9 @@ describe("automation runNow execution", () => {
       const definition = Automation.create(input(projectID))
       const runEvents: Automation.Run[] = []
       const executorFinished = defer<void>()
-      const unsubscribeRun = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
+      const unsubscribeRun = subscribeAutomationEvent(Automation.Event.RunUpdated, (event) => {
         if (event.properties.automationID === definition.id) runEvents.push(event.properties)
-      })
+      }, { directory: Instance.directory })
 
       await Automation.runNowExecuting(definition.id, {
         executor: async ({ run }) => {
@@ -396,9 +453,9 @@ describe("automation runNow execution", () => {
       const fresh = Automation.create(input(projectID, { context: "fresh" }))
 
       const deletedEvents: Automation.Tombstone[] = []
-      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionDeleted, (event) => {
+      const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionDeleted, (event) => {
         deletedEvents.push(event.properties)
-      })
+      }, { directory: Instance.directory })
 
       await Automation.deleteBySourceSession(sourceSessionID)
       unsubscribe()
@@ -413,27 +470,59 @@ describe("automation runNow execution", () => {
     })
   })
 
+  test("deleteBySourceSession cancels an active continue run bound to the deleted conversation", async () => {
+    await withAutomation(async (projectID) => {
+      const sourceSessionID = SessionID.descending()
+      const definition = Automation.create(input(projectID, { context: "continue" }), { sourceSessionID })
+      const started = Promise.withResolvers<void>()
+      const release = Promise.withResolvers<void>()
+      let sawAbort = false
+
+      const initial = await Automation.runNowExecuting(definition.id, {
+        executor: async ({ signal }) => {
+          signal.addEventListener("abort", () => {
+            sawAbort = true
+            release.resolve()
+          })
+          started.resolve()
+          await release.promise
+          return { sessionID: sourceSessionID, result: "done", cost: 0 }
+        },
+      })
+
+      await started.promise
+      await Automation.deleteBySourceSession(sourceSessionID)
+      release.resolve()
+
+      expect(() => Automation.get(definition.id)).toThrow()
+      const stopped = await waitForRunByID(initial.id, "stopped")
+      if (stopped.state !== "stopped") throw new Error("expected stopped run")
+      expect(stopped.stopReason).toBe("cancelled")
+      expect(sawAbort).toBe(true)
+    })
+  })
+
   test("does not revive a continue automation deleted during execution", async () => {
     await withAutomation(async (projectID) => {
       const definition = Automation.create(input(projectID, { context: "continue" }), {
         sourceSessionID: SessionID.descending(),
       })
       const definitionEvents: Automation.Definition[] = []
-      const unsubscribeDefinition = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+      const unsubscribeDefinition = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         definitionEvents.push(event.properties)
-      })
+      }, { directory: Instance.directory })
       let removed!: Awaited<ReturnType<typeof Automation.remove>>
 
-      await Automation.runNowExecuting(definition.id, {
+      const initial = await Automation.runNowExecuting(definition.id, {
         executor: async () => {
           removed = await Automation.remove(definition.id)
           return { sessionID: SessionID.descending(), result: "done", cost: 0 }
         },
       })
 
-      await Bun.sleep(20)
+      await waitForRunByID(initial.id, "succeeded")
       unsubscribeDefinition()
-      expect(removed.stoppedRun).toMatchObject({ state: "stopped", stopReason: "cancelled" })
+      expect(removed.tombstone).toEqual({ id: definition.id, deleted: true, revision: 2 })
       expect(() => Automation.get(definition.id)).toThrow()
       expect(definitionEvents).toHaveLength(0)
     })
@@ -460,7 +549,7 @@ describe("automation runNow execution", () => {
     })
   })
 
-  test("aborts an active run when its automation is deleted", async () => {
+  test("keeps an active run alive when its automation is deleted", async () => {
     await withAutomation(async (projectID) => {
       const definition = Automation.create(input(projectID))
       const sessionID = SessionID.descending()
@@ -468,11 +557,11 @@ describe("automation runNow execution", () => {
       const started = Promise.withResolvers<void>()
       const release = Promise.withResolvers<void>()
       const runEvents: Automation.Run[] = []
-      const unsubscribeRun = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
+      const unsubscribeRun = subscribeAutomationEvent(Automation.Event.RunUpdated, (event) => {
         if (event.properties.automationID === definition.id) runEvents.push(event.properties)
-      })
+      }, { directory: Instance.directory })
 
-      await Automation.runNowExecuting(definition.id, {
+      const initial = await Automation.runNowExecuting(definition.id, {
         executor: async ({ run, signal }) => {
           Automation.markRunStarted(run, sessionID, { now: run.triggeredAt })
           signal.addEventListener("abort", () => {
@@ -481,33 +570,76 @@ describe("automation runNow execution", () => {
           })
           started.resolve()
           await release.promise
-          return { sessionID, result: "should not succeed", cost: 0 }
+          return { sessionID, result: "done", cost: 0 }
         },
       })
 
       await started.promise
       const removed = await Automation.remove(definition.id)
+      release.resolve()
 
-      expect(sawAbort).toBe(true)
-      expect(removed.stoppedRun).toMatchObject({
-        state: "stopped",
+      expect(sawAbort).toBe(false)
+      expect(removed).not.toHaveProperty("stoppedRun")
+      expect(() => Automation.get(definition.id)).toThrow()
+      const succeeded = await waitForRunByID(initial.id, "succeeded")
+      expect(succeeded).toMatchObject({
+        state: "succeeded",
         sessionID,
-        stopReason: "cancelled",
+        result: "done",
       })
-      await Bun.sleep(20)
       unsubscribeRun()
-      expect(runEvents.some((event) => event.state === "succeeded")).toBe(false)
+      expect(runEvents.some((event) => event.state === "stopped")).toBe(false)
     })
   })
 
-  test("deleting an active automation cancels the real session prompt", async () => {
+  test("keeps a queued run alive when its automation is deleted before the runner reads the definition", async () => {
+    await withAutomation(async (projectID) => {
+      const definition = Automation.create(input(projectID))
+      const sessionID = SessionID.descending()
+      const runnerEntered = Promise.withResolvers<Automation.Run>()
+      const releaseRunner = Promise.withResolvers<void>()
+      let entered = false
+
+      internalTestHooks.beforeExecuteRun = async (run) => {
+        runnerEntered.resolve(run)
+        await releaseRunner.promise
+      }
+      try {
+        const initial = await Automation.runNowExecuting(definition.id, {
+          executor: async () => {
+            entered = true
+            return { sessionID, result: "done", cost: 0 }
+          },
+        })
+        const queued = await runnerEntered.promise
+        expect(queued.id).toBe(initial.id)
+        const removed = await Automation.remove(definition.id)
+        releaseRunner.resolve()
+
+        expect(removed.tombstone).toEqual({ id: definition.id, deleted: true, revision: 2 })
+        expect(() => Automation.get(definition.id)).toThrow()
+        const succeeded = await waitForRunByID(initial.id, "succeeded")
+        expect(succeeded).toMatchObject({
+          state: "succeeded",
+          sessionID,
+          result: "done",
+        })
+        expect(entered).toBe(true)
+      } finally {
+        releaseRunner.resolve()
+        delete internalTestHooks.beforeExecuteRun
+      }
+    })
+  })
+
+  test("deleting an active automation lets the real session prompt finish", async () => {
     const ready = defer<void>()
     const server = Bun.serve({
       port: 0,
       fetch(req) {
         const url = new URL(req.url)
         if (!url.pathname.endsWith("/chat/completions")) return new Response("not found", { status: 404 })
-        return new Response(hangingChat(() => ready.resolve()), {
+        return new Response(hangingChat(() => ready.resolve(), 10), {
           status: 200,
           headers: { "Content-Type": "text/event-stream" },
         })
@@ -546,15 +678,19 @@ describe("automation runNow execution", () => {
         fn: async () => {
           const definition = Automation.create(input(Instance.project.id, { title: "Cancel real prompt" }))
 
-          await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
+          const initial = await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
           await ready.promise
 
           const removed = await Automation.remove(definition.id)
-          const stoppedRun = removed.stoppedRun
-          expect(stoppedRun).toMatchObject({ state: "stopped", stopReason: "cancelled" })
-          if (!stoppedRun?.sessionID) throw new Error("expected stopped run to keep its sessionID")
+          expect(removed).not.toHaveProperty("stoppedRun")
 
-          await waitForAbortedAssistant(stoppedRun.sessionID)
+          const succeeded = await waitForRunByID(initial.id, "succeeded")
+          if (!succeeded.sessionID) throw new Error("expected succeeded run to keep its sessionID")
+          const sessionID = succeeded.sessionID
+          const messages = await runSession((svc) => svc.messages({ sessionID }))
+          expect(
+            messages.some((message) => message.info.role === "assistant" && message.info.error?.name === "MessageAbortedError"),
+          ).toBe(false)
         },
       })
     } finally {
@@ -618,7 +754,8 @@ describe("automation runNow execution", () => {
 
           const succeeded = await waitForRun(definition.id, "succeeded")
           if (!succeeded.sessionID) throw new Error("expected run session")
-          const session = await Session.get(succeeded.sessionID)
+          const sessionID = succeeded.sessionID
+          const session = await runSession((svc) => svc.get(sessionID))
           expect(session.executionContext.ownerDirectory).toBe(tmp.path)
           expect(session.executionContext.activeWorktree).toMatchObject({
             name: "daily-brief",
@@ -679,7 +816,7 @@ describe("automation runNow execution", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          await Project.update({
+          await projectUpdate({
             projectID: Instance.project.id,
             commands: {
               start:
@@ -699,7 +836,7 @@ describe("automation runNow execution", () => {
             Bun.sleep(RUN_WAIT_TIMEOUT_MS).then(() => ({ state: "timeout" as const })),
           ])
           if (result.state === "timeout") {
-            const worktree = await Worktree.lookupBySlug("long-start")
+            const worktree = await worktreeLookupBySlug("long-start")
             if (worktree) await Bun.write(path.join(worktree.directory, ".automation-start-release"), "done")
             throw new Error("Automation waited for the worktree start command to exit before prompting")
           }
@@ -707,7 +844,7 @@ describe("automation runNow execution", () => {
           const succeeded = result.run
           if (!succeeded.sessionID) throw new Error("expected run session")
           expect(providerCalls).toBe(1)
-          const worktree = await Worktree.lookupBySlug("long-start")
+          const worktree = await worktreeLookupBySlug("long-start")
           if (!worktree) throw new Error("expected worktree placement")
           await Bun.write(path.join(worktree.directory, ".automation-start-release"), "done")
         },
@@ -771,7 +908,7 @@ describe("automation runNow execution", () => {
 
           await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
           await waitForRun(definition.id, "succeeded")
-          const worktree = await Worktree.lookupBySlug("daily-brief")
+          const worktree = await worktreeLookupBySlug("daily-brief")
           if (!worktree) throw new Error("expected worktree placement")
           await $`git checkout -b manual-automation-branch`.cwd(worktree.directory).quiet()
           await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
@@ -780,7 +917,8 @@ describe("automation runNow execution", () => {
           await waitForSucceededRunCount(definition.id, 2)
           const latest = Automation.runs({ automationID: definition.id }).items[0]
           if (!latest?.sessionID) throw new Error("expected latest run session")
-          const session = await Session.get(latest.sessionID)
+          const sessionID = latest.sessionID
+          const session = await runSession((svc) => svc.get(sessionID))
           expect(session.executionContext.activeWorktree?.branch).toBe("manual-automation-branch")
         },
       })
@@ -836,18 +974,20 @@ describe("automation runNow execution", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const worktree = await Worktree.createReady({ name: "daily-brief" })
+          const worktree = await worktreeCreateReady({ name: "daily-brief" })
           await Bun.write(path.join(worktree.directory, "user-draft.txt"), "keep me\n")
-          const userSession = await Session.create({ title: "Automation: User renamed" })
-          await Session.updateExecutionContext({
-            sessionID: userSession.id,
-            activeWorktree: {
-              directory: worktree.directory,
-              name: worktree.name,
-              branch: worktree.branch,
-              source: worktree.source,
-            },
-          })
+          const userSession = await runSession((svc) => svc.create({ title: "Automation: User renamed" }))
+          await runSession((svc) =>
+            svc.updateExecutionContext({
+              sessionID: userSession.id,
+              activeWorktree: {
+                directory: worktree.directory,
+                name: worktree.name,
+                branch: worktree.branch,
+                source: worktree.source,
+              },
+            }),
+          )
           const definition = Automation.create(
             input(Instance.project.id, {
               title: "Respect user binding",
@@ -862,7 +1002,7 @@ describe("automation runNow execution", () => {
           expect(terminal.stopReason).toBe("cancelled")
           expect(providerCalls).toBe(0)
           expect(await Bun.file(path.join(worktree.directory, "user-draft.txt")).text()).toBe("keep me\n")
-          const updatedUserSession = await Session.get(userSession.id)
+          const updatedUserSession = await runSession((svc) => svc.get(userSession.id))
           expect(updatedUserSession.executionContext.activeWorktree?.name).toBe("daily-brief")
         },
       })
@@ -974,7 +1114,7 @@ describe("automation runNow execution", () => {
     }
   })
 
-  test("deleting after run start but before prompt runner is busy does not call the provider", async () => {
+  test("deleting after run start but before prompt runner is busy still lets the prompt run", async () => {
     let providerCalls = 0
     const server = Bun.serve({
       port: 0,
@@ -982,7 +1122,7 @@ describe("automation runNow execution", () => {
         const url = new URL(req.url)
         if (!url.pathname.endsWith("/chat/completions")) return new Response("not found", { status: 404 })
         providerCalls++
-        return new Response(hangingChat(() => undefined), {
+        return new Response(hangingChat(() => undefined, 10), {
           status: 200,
           headers: { "Content-Type": "text/event-stream" },
         })
@@ -1021,12 +1161,12 @@ describe("automation runNow execution", () => {
         fn: async () => {
           const definition = Automation.create(input(Instance.project.id, { title: "Cancel before runner busy" }))
           const removed = Promise.withResolvers<Awaited<ReturnType<typeof Automation.remove>>>()
-          const unsubscribe = Bus.subscribe(Automation.Event.RunUpdated, (event) => {
+          const unsubscribe = subscribeAutomationEvent(Automation.Event.RunUpdated, (event) => {
             if (event.properties.automationID !== definition.id || event.properties.state !== "running") return
             void Automation.remove(definition.id).then(removed.resolve, removed.reject)
-          })
+          }, { directory: Instance.directory })
 
-          await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
+          const initial = await Automation.runNowExecuting(definition.id, { executor: sessionPromptExecutor })
           let result: Awaited<ReturnType<typeof Automation.remove>>
           try {
             result = await Promise.race([
@@ -1039,13 +1179,9 @@ describe("automation runNow execution", () => {
             unsubscribe()
           }
 
-          expect(result.stoppedRun).toMatchObject({ state: "stopped", stopReason: "cancelled" })
-          await Bun.sleep(50)
-          expect(providerCalls).toBe(0)
-          if (result.stoppedRun?.sessionID) {
-            const messages = await Session.messages({ sessionID: result.stoppedRun.sessionID })
-            expect(messages.some((message) => message.info.role === "assistant")).toBe(false)
-          }
+          expect(result).not.toHaveProperty("stoppedRun")
+          await waitForRunByID(initial.id, "succeeded")
+          expect(providerCalls).toBe(1)
         },
       })
     } finally {

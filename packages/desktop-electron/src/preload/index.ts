@@ -7,6 +7,24 @@ import { getRuntimeFlags } from "./runtime-flags"
 const runtimeFlags = getRuntimeFlags(process.env)
 const invokeSetDesktopContext = (context: DesktopContext) => ipcRenderer.invoke("set-desktop-context", context)
 
+const remote: ElectronAPI["remote"] = {
+  getStatus: () => ipcRenderer.invoke("remote:get-status"),
+  startPairing: (platform, start) => ipcRenderer.invoke("remote:start-pairing", platform, start),
+  cancelPairing: () => ipcRenderer.invoke("remote:cancel-pairing"),
+  confirmPairing: (platform) => ipcRenderer.invoke("remote:confirm-pairing", platform),
+  disconnect: (platform) => ipcRenderer.invoke("remote:disconnect", platform),
+  onStatus: (cb) => {
+    const handler = (_: unknown, status: Parameters<typeof cb>[0]) => cb(status)
+    ipcRenderer.on("remote:status", handler)
+    return () => ipcRenderer.removeListener("remote:status", handler)
+  },
+  onPairing: (cb) => {
+    const handler = (_: unknown, event: Parameters<typeof cb>[0]) => cb(event)
+    ipcRenderer.on("remote:pairing", handler)
+    return () => ipcRenderer.removeListener("remote:pairing", handler)
+  },
+}
+
 const browser: ElectronAPI["browser"] = {
   navigate: (target, url) => ipcRenderer.invoke("browser:navigate", target, url),
   goBack: (target) => ipcRenderer.invoke("browser:back", target),
@@ -123,7 +141,9 @@ const api: ElectronAPI = {
   loadingWindowComplete: () => ipcRenderer.send("loading-window-complete"),
   runUpdater: (alertOnFail) => ipcRenderer.invoke("run-updater", alertOnFail),
   checkUpdate: () => ipcRenderer.invoke("check-update"),
-  reportProblem: (input) => ipcRenderer.invoke("report-problem", input),
+  prepareReport: (input) => ipcRenderer.invoke("prepare-report", input),
+  revealReport: (reportId) => ipcRenderer.invoke("reveal-report", reportId),
+  submitReport: (reportId) => ipcRenderer.invoke("submit-report", reportId),
   emitRendererDiagnostic: (event) => ipcRenderer.invoke("renderer-diagnostics:record", event),
   exportDiagnosticsLog: () => ipcRenderer.invoke("renderer-diagnostics:export"),
   installUpdate: () => ipcRenderer.invoke("install-update"),
@@ -144,6 +164,7 @@ const api: ElectronAPI = {
   flashFrame: () => ipcRenderer.invoke("flash-frame"),
   setBadgeCount: (count: number) => ipcRenderer.invoke("set-badge-count", count),
   browser,
+  remote,
 }
 
 contextBridge.exposeInMainWorld("api", api)

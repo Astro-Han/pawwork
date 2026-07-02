@@ -7,7 +7,6 @@ import { NamedError } from "@opencode-ai/util/error"
 import type { Agent } from "@/agent/agent"
 import { Bus } from "@/bus"
 import { InstanceState } from "@/effect/instance-state"
-import { makeRuntime } from "@/effect/run-service"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Global } from "@/global"
 import { Permission } from "@/permission"
@@ -93,6 +92,13 @@ export namespace Skill {
       roots.add(resolveBuiltinRoot(resolvedBaseDir, rel))
     }
     return [...roots]
+  }
+
+  // The update-safe home for user-added skills: scanned via loadSkills' external
+  // `.agents` root (EXTERNAL_SKILL_PATTERN), and the single source for the path
+  // the UI offers to open. Lives under the home dir, never the install bundle.
+  export function userSkillsDir() {
+    return path.join(Global.Path.home, AGENTS_EXTERNAL_DIR, "skills")
   }
 
   const add = Effect.fnUntraced(function* (state: State, match: string, bus: Bus.Interface) {
@@ -314,23 +320,5 @@ export namespace Skill {
         .toSorted((a, b) => a.name.localeCompare(b.name))
         .map((skill) => `- **${skill.name}**: ${skill.description}`),
     ].join("\n")
-  }
-
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export async function get(name: string) {
-    return runPromise((skill) => skill.get(name))
-  }
-
-  export async function all() {
-    return runPromise((skill) => skill.all())
-  }
-
-  export async function dirs() {
-    return runPromise((skill) => skill.dirs())
-  }
-
-  export async function available(agent?: Agent.Info) {
-    return runPromise((skill) => skill.available(agent))
   }
 }

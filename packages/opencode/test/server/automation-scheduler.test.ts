@@ -3,6 +3,7 @@ import { Effect, ManagedRuntime } from "effect"
 import { Automation } from "../../src/automation"
 import { internalTestHooks } from "../../src/automation/__test_hooks"
 import { AutomationScheduler } from "../../src/automation/scheduler"
+import { GlobalBus } from "../../src/bus/global"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
 import { trackActiveRun } from "../../src/session/lifecycle-provenance"
@@ -16,6 +17,14 @@ import { Flock } from "../../src/util/flock"
 // once (injected in production from AppRuntime, like provider).
 const runtime = ManagedRuntime.make(Automation.defaultLayer)
 const automation = await runtime.runPromise(Effect.gen(function* () { return yield* Automation.Service }))
+
+function publishAutomationEvent<D extends { type: string }>(def: D, properties: unknown) {
+  GlobalBus.emit("event", {
+    directory: Instance.directory,
+    project: Instance.project.id,
+    payload: { type: def.type, properties },
+  })
+}
 
 afterEach(async () => {
   AutomationScheduler.stopProcess({ stopRuns: false })
@@ -745,6 +754,28 @@ describe("automation scheduler", () => {
       scheduler.reschedule(definition)
       await Automation.remove(definition.id)
       await expect(clock.advance(1_000)).resolves.toBeUndefined()
+
+      expect(calls).toEqual([])
+      scheduler.stop()
+    })
+  })
+
+  test("cancels scheduled automation when a definition deleted event arrives", async () => {
+    await withAutomation(async (projectID) => {
+      const clock = new FakeClock(0)
+      const calls: number[] = []
+      const scheduler = AutomationScheduler.make({
+        clock,
+        executor: async () => {
+          calls.push(clock.now())
+          return { sessionID: SessionID.descending(), result: "done", cost: 0 }
+        },
+      })
+      const definition = Automation.create(oneshotInput(projectID, 1_000), { now: 0 })
+
+      scheduler.reschedule(definition)
+      publishAutomationEvent(Automation.Event.DefinitionDeleted, { id: definition.id, deleted: true, revision: 2 })
+      await clock.advance(1_000)
 
       expect(calls).toEqual([])
       scheduler.stop()

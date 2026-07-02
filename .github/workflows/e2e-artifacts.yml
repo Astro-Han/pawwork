@@ -25,9 +25,6 @@ permissions:
   contents: read
   pull-requests: read
 
-env:
-  PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
-
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -142,23 +139,14 @@ jobs:
           restore-keys: |
             bun-${{ runner.os }}-
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
-        with:
-          path: ${{ github.workspace }}/.playwright-browsers
-          key: playwright-${{ runner.os }}-${{ hashFiles('packages/app/package.json', 'bun.lock') }}
-          restore-keys: |-
-            playwright-${{ runner.os }}-
-
       - run: bun install --frozen-lockfile
 
-      # Avoid Playwright's browser download path here; on this runner it can
-      # hang after reaching 100%. Use the GitHub-hosted Chrome install instead.
-      - name: Install Playwright system dependencies
-        timeout-minutes: 10
-        working-directory: packages/app
-        run: |
-          bunx playwright install-deps chromium
-          google-chrome --version
+      # This workflow runs Playwright against GitHub-hosted Chrome. Do not call
+      # `playwright install-deps chromium` here: on Ubuntu 24.04 it installs
+      # extra apt font packages and can time out before e2e starts.
+      - name: Verify GitHub-hosted Chrome
+        timeout-minutes: 2
+        run: google-chrome --version
 
       - name: Run e2e
         id: run_e2e

@@ -20,7 +20,11 @@ export interface Interface {
     sessionID: SessionID,
     onInterrupt: (meta?: InterruptMeta) => Effect.Effect<MessageV2.WithParts>,
     work: Effect.Effect<MessageV2.WithParts>,
-    options?: { rejectIfBusy?: boolean; runLifecycle?: RunLifecycleObserver },
+    options?: {
+      rejectIfBusy?: boolean
+      runLifecycle?: RunLifecycleObserver
+      onCancel?: (meta?: InterruptMeta) => Effect.Effect<void>
+    },
   ) => Effect.Effect<MessageV2.WithParts>
   readonly startShell: (
     sessionID: SessionID,
@@ -41,6 +45,8 @@ export const layer = Layer.effect(
       Effect.fn("SessionRunState.state")(function* (ctx) {
         const scope = yield* Scope.Scope
         const runners = new Map<SessionID, Runner<MessageV2.WithParts>>()
+        const cancelObservers = new Map<SessionID, Set<(meta?: InterruptMeta) => Effect.Effect<void>>>()
+        const queuedCancels = new Map<SessionID, InterruptMeta | undefined>()
         let scopeCloseAction = currentLifecycleCloseAction(ctx.directory)
         const lifecycleAction = () => currentLifecycleCloseAction(ctx.directory)
         const interruptFallback = () => {
@@ -56,25 +62,77 @@ export const layer = Layer.effect(
             const action = lifecycleAction()
             scopeCloseAction = action ?? scopeCloseAction
             yield* Effect.forEach(
-              runners.values(),
-              (runner) =>
-                runner.cancelWith({
+              runners.entries(),
+              ([sessionID, runner]) => {
+                const meta = {
                   source: "session.run_state.finalizer",
                   reason: "scope_finalizer",
                   ...(action ? lifecycleCloseActionMeta(action) : {}),
-                }),
+                } satisfies InterruptMeta
+                return Effect.gen(function* () {
+                  yield* notifyCancelObservers(sessionID, meta)
+                  yield* runner.cancelWith(meta)
+                })
+              },
               {
                 concurrency: "unbounded",
                 discard: true,
               },
             )
             runners.clear()
+            cancelObservers.clear()
+            queuedCancels.clear()
           }),
         )
-        return { directory: ctx.directory, runners, scope, interruptFallback }
+        const hasCancelObservers = (sessionID: SessionID) => (cancelObservers.get(sessionID)?.size ?? 0) > 0
+        const notifyCancelObservers = (sessionID: SessionID, meta?: InterruptMeta) =>
+          Effect.forEach(
+            cancelObservers.get(sessionID) ?? [],
+            (observer) =>
+              observer(meta).pipe(
+                Effect.catchCause((cause) => (Cause.hasInterruptsOnly(cause) ? Effect.interrupt : Effect.void)),
+              ),
+            { concurrency: "unbounded", discard: true },
+          )
+        const rememberQueuedCancel = (sessionID: SessionID, meta?: InterruptMeta) => {
+          if (hasCancelObservers(sessionID)) queuedCancels.set(sessionID, meta)
+        }
+        const consumeQueuedCancel = (sessionID: SessionID) => {
+          if (!queuedCancels.has(sessionID)) return undefined
+          const meta = queuedCancels.get(sessionID)
+          queuedCancels.delete(sessionID)
+          return { meta }
+        }
+        const registerCancelObserver = (
+          sessionID: SessionID,
+          observer: (meta?: InterruptMeta) => Effect.Effect<void>,
+        ) => {
+          let observers = cancelObservers.get(sessionID)
+          if (!observers) {
+            observers = new Set()
+            cancelObservers.set(sessionID, observers)
+          }
+          observers.add(observer)
+          return () => {
+            observers.delete(observer)
+            if (observers.size === 0) {
+              cancelObservers.delete(sessionID)
+              queuedCancels.delete(sessionID)
+            }
+          }
+        }
+        return {
+          directory: ctx.directory,
+          runners,
+          scope,
+          interruptFallback,
+          notifyCancelObservers,
+          rememberQueuedCancel,
+          consumeQueuedCancel,
+          registerCancelObserver,
+        }
       }),
     )
-
     const withActiveRun = <A, E>(
       directory: string,
       sessionID: SessionID,
@@ -184,9 +242,12 @@ export const layer = Layer.effect(
       const data = yield* InstanceState.get(state)
       const existing = data.runners.get(sessionID)
       if (!existing) {
+        data.rememberQueuedCancel(sessionID, meta)
+        yield* data.notifyCancelObservers(sessionID, meta)
         yield* status.set(sessionID, { type: "idle" })
         return
       }
+      yield* data.notifyCancelObservers(sessionID, meta)
       yield* existing.cancelWith(meta)
     })
 
@@ -194,19 +255,28 @@ export const layer = Layer.effect(
       sessionID: SessionID,
       onInterrupt: (meta?: InterruptMeta) => Effect.Effect<MessageV2.WithParts>,
       work: Effect.Effect<MessageV2.WithParts>,
-      options?: { rejectIfBusy?: boolean; runLifecycle?: RunLifecycleObserver },
+      options?: {
+        rejectIfBusy?: boolean
+        runLifecycle?: RunLifecycleObserver
+        onCancel?: (meta?: InterruptMeta) => Effect.Effect<void>
+      },
     ) {
       const data = yield* InstanceState.get(state)
       const runnerOptions =
         options?.rejectIfBusy === undefined ? undefined : { rejectIfBusy: options.rejectIfBusy }
+      const unregisterCancelObserver = options?.onCancel
+        ? data.registerCancelObserver(sessionID, options.onCancel)
+        : undefined
       return yield* withActiveRun(
         data.directory,
         sessionID,
         Effect.gen(function* () {
+          const queuedCancel = data.consumeQueuedCancel(sessionID)
+          if (queuedCancel) return yield* onInterrupt(queuedCancel.meta)
           return yield* (yield* runner(sessionID, onInterrupt)).ensureRunning(work, runnerOptions)
         }),
         options?.runLifecycle,
-      )
+      ).pipe(Effect.ensuring(Effect.sync(() => unregisterCancelObserver?.())))
     })
 
     const startShell = Effect.fn("SessionRunState.startShell")(function* (

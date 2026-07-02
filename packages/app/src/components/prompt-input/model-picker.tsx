@@ -14,6 +14,7 @@ import { useLanguage } from "@/context/language"
 import { compareModelsForDisplay } from "@/utils/model-order"
 import { modelSupportsInput } from "@/components/prompt-input/attachment-routing"
 import { translateVariant } from "@/components/prompt-input/variant-label"
+import { selectModel } from "./model-picker-select"
 
 const isFree = (provider: string, cost: { input: number } | undefined) =>
   provider === "opencode" && (!cost || cost.input === 0)
@@ -86,9 +87,7 @@ const ModelList: Component<{
         </Tooltip>
       )}
       onSelect={(x) => {
-        model.set(x ? { modelID: x.id, providerID: x.provider.id } : undefined, {
-          recent: true,
-        })
+        selectModel(model, x)
         props.onSelect()
       }}
     >

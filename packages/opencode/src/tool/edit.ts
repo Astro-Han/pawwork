@@ -12,7 +12,6 @@ import DESCRIPTION from "./edit.txt"
 import { File } from "../file"
 import { FileWatcher } from "../file/watcher"
 import { Bus } from "../bus"
-import { Format } from "../format"
 import { Instance } from "../project/instance"
 import { Snapshot } from "@/snapshot"
 import { assertExternalDirectoryEffect } from "./external-directory"
@@ -62,7 +61,6 @@ export const EditTool = Tool.define(
   Effect.gen(function* () {
     const lsp = yield* LSP.Service
     const afs = yield* AppFileSystem.Service
-    const format = yield* Format.Service
     const bus = yield* Bus.Service
     const turnChange = yield* TurnChange.Service
 
@@ -133,13 +131,6 @@ export const EditTool = Tool.define(
                     },
               })
               yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
-              if (yield* format.file(filePath)) {
-                contentNew = yield* Bom.syncFile(afs, filePath, desiredBom)
-                // Recompute the diff so the metadata/snapshot reflects the
-                // post-format on-disk content (formatters can rewrite the
-                // file after the diff was originally built).
-                diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
-              }
               yield* bus.publish(File.Event.Edited, { file: filePath })
               yield* bus.publish(FileWatcher.Event.Updated, {
                 file: filePath,
@@ -198,31 +189,15 @@ export const EditTool = Tool.define(
             })
 
             yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
-            if (yield* format.file(filePath)) {
-              contentNew = yield* Bom.syncFile(afs, filePath, desiredBom)
-            }
             yield* bus.publish(File.Event.Edited, { file: filePath })
             yield* bus.publish(FileWatcher.Event.Updated, {
               file: filePath,
               event: "change",
             })
-            diff = trimDiff(
-              createTwoFilesPatch(
-                filePath,
-                filePath,
-                normalizeLineEndings(contentOld),
-                normalizeLineEndings(contentNew),
-              ),
-            )
           }),
         )
 
-        let additions = 0
-        let deletions = 0
-        for (const change of diffLines(contentOld, contentNew)) {
-          if (change.added) additions += change.count || 0
-          if (change.removed) deletions += change.count || 0
-        }
+        const { additions, deletions } = countLineChanges(contentOld, contentNew)
         const sensitive = isSensitiveTargetPath(filePath, Instance.worktree)
         const status = existedBefore ? "modified" : "added"
         const filediff: Snapshot.FileDiff = sensitive
@@ -250,7 +225,9 @@ export const EditTool = Tool.define(
           after: { exists: true, content: contentNew, bom: afterBom },
         })
 
-        let output = "Edit applied successfully."
+        let output = existedBefore
+          ? `Edited ${relativeFilePath} (+${additions} -${deletions} lines).`
+          : `Created ${relativeFilePath} (+${additions} lines).`
         yield* lsp.touchFile(filePath, true)
         const diagnostics = sensitive ? {} : yield* lsp.diagnostics()
         const normalizedFilePath = AppFileSystem.normalizePath(filePath)
@@ -700,6 +677,16 @@ export const ContextAwareReplacer: Replacer = function* (content, find) {
       }
     }
   }
+}
+
+export function countLineChanges(oldContent: string, newContent: string): { additions: number; deletions: number } {
+  let additions = 0
+  let deletions = 0
+  for (const change of diffLines(oldContent, newContent)) {
+    if (change.added) additions += change.count || 0
+    if (change.removed) deletions += change.count || 0
+  }
+  return { additions, deletions }
 }
 
 export function trimDiff(diff: string): string {

@@ -4,22 +4,30 @@ import { Process } from "../../src/util/process"
 describe("node server adapter shutdown", () => {
   test("stop(true) closes upgraded websocket clients", async () => {
     const script = `
-      import { Hono } from "hono"
       import { adapter } from "./src/server/adapter.node.ts"
 
-      const app = new Hono()
-      const runtime = adapter.create(app)
-
-      app.get(
-        "/ws",
-        runtime.upgradeWebSocket(() => ({
-          onOpen(_event, ws) {
-            ws.send("ready")
-          },
-        })),
-      )
+      let runtime
+      const app = {
+        fetch(request, env) {
+          if (new URL(request.url).pathname === "/ws") {
+            return runtime.upgradeWebSocket(request, env, {
+              onOpen(_event, ws) {
+                ws.send("ready")
+              },
+            })
+          }
+          return new Response(\`main-fetch:\${new URL(request.url).pathname}\`)
+        },
+      }
+      runtime = adapter.create(app)
 
       const listener = await runtime.listen({ port: 0, hostname: "127.0.0.1" })
+      const http = await fetch(\`http://127.0.0.1:\${listener.port}/health\`)
+      const httpText = await http.text()
+      if (http.status !== 200 || httpText !== "main-fetch:/health") {
+        throw new Error(\`HTTP listener did not use main FetchApp: \${http.status} \${httpText}\`)
+      }
+
       const socket = new WebSocket(\`ws://127.0.0.1:\${listener.port}/ws\`)
       const opened = new Promise((resolve, reject) => {
         socket.addEventListener("message", (event) => {

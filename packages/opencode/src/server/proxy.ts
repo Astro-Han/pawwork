@@ -1,10 +1,10 @@
 import type { Target } from "@/control-plane/types"
-import { Hono } from "hono"
-import type { UpgradeWebSocket } from "hono/ws"
 import { Log } from "@opencode-ai/core/util/log"
 import * as Fence from "./fence"
 import type { WorkspaceID } from "@/control-plane/schema"
 import { Workspace } from "@/control-plane/workspace"
+import { AppRuntime } from "@/effect/app-runtime"
+import type { UpgradeWebSocket, WebSocketEvents } from "./adapter"
 
 const hop = new Set([
   "connection",
@@ -20,6 +20,27 @@ const hop = new Set([
 ])
 
 type Msg = string | ArrayBuffer | Uint8Array
+type ProxySocket = {
+  binaryType?: BinaryType
+  readyState: number
+  send(data: Msg): void
+  close(code?: number, reason?: string): void
+  onopen: (() => void) | null
+  onmessage: ((event: { data: unknown }) => void) | null
+  onerror: (() => void) | null
+  onclose: ((event: { code: number; reason: string }) => void) | null
+}
+
+type LocalSocket = {
+  send(data: Msg): void
+  close(code?: number, reason?: string): void
+}
+
+type WorkspaceProxyPeerOptions = {
+  targetUrl?: string
+  protocols?: string[]
+  socketFactory?: (url: string, protocols: string[]) => ProxySocket
+}
 
 function headers(req: Request, extra?: HeadersInit) {
   const out = new Headers(req.headers)
@@ -34,7 +55,7 @@ function headers(req: Request, extra?: HeadersInit) {
   return out
 }
 
-function protocols(req: Request) {
+export function protocols(req: Request) {
   const value = req.headers.get("sec-websocket-protocol")
   if (!value) return []
   return value
@@ -57,50 +78,67 @@ function send(ws: { send(data: string | ArrayBuffer | Uint8Array): void }, data:
   return ws.send(data)
 }
 
-const app = (upgrade: UpgradeWebSocket) =>
-  new Hono().get(
-    "/__workspace_ws",
-    upgrade((c) => {
-      const url = c.req.header("x-opencode-proxy-url")
-      const queue: Msg[] = []
-      let remote: WebSocket | undefined
-      return {
-        onOpen(_, ws) {
-          if (!url) {
-            ws.close(1011, "missing proxy target")
-            return
-          }
-          remote = new WebSocket(url, protocols(c.req.raw))
-          remote.binaryType = "arraybuffer"
-          remote.onopen = () => {
-            for (const item of queue) remote?.send(item)
-            queue.length = 0
-          }
-          remote.onmessage = (event) => {
-            void send(ws, event.data)
-          }
-          remote.onerror = () => {
-            ws.close(1011, "proxy error")
-          }
-          remote.onclose = (event) => {
-            ws.close(event.code, event.reason)
-          }
-        },
-        onMessage(event) {
-          const data = event.data
-          if (typeof data !== "string" && !(data instanceof Uint8Array) && !(data instanceof ArrayBuffer)) return
-          if (remote?.readyState === WebSocket.OPEN) {
-            remote.send(data)
-            return
-          }
-          queue.push(data)
-        },
-        onClose(event) {
-          remote?.close(event.code, event.reason)
-        },
+export function createWorkspaceProxyPeer({
+  targetUrl,
+  protocols = [],
+  socketFactory = (url, protocols) => new WebSocket(url, protocols) as ProxySocket,
+}: WorkspaceProxyPeerOptions) {
+  const queue: Msg[] = []
+  let remote: ProxySocket | undefined
+
+  return {
+    onOpen(ws: LocalSocket) {
+      if (!targetUrl) {
+        ws.close(1011, "missing proxy target")
+        return
       }
-    }),
-  )
+      remote = socketFactory(targetUrl, protocols)
+      remote.binaryType = "arraybuffer"
+      remote.onopen = () => {
+        for (const item of queue) remote?.send(item)
+        queue.length = 0
+      }
+      remote.onmessage = (event) => {
+        void send(ws, event.data)
+      }
+      remote.onerror = () => {
+        ws.close(1011, "proxy error")
+      }
+      remote.onclose = (event) => {
+        ws.close(event.code, event.reason)
+      }
+    },
+    onMessage(data: unknown) {
+      if (typeof data !== "string" && !(data instanceof Uint8Array) && !(data instanceof ArrayBuffer)) return
+      if (remote?.readyState === WebSocket.OPEN) {
+        remote.send(data)
+        return
+      }
+      queue.push(data)
+    },
+    onClose(code?: number, reason?: string) {
+      remote?.close(code, reason)
+    },
+  }
+}
+
+export function createWorkspaceWebSocketEvents(request: Request): WebSocketEvents {
+  const peer = createWorkspaceProxyPeer({
+    targetUrl: request.headers.get("x-opencode-proxy-url") ?? undefined,
+    protocols: protocols(request),
+  })
+  return {
+    onOpen(_, ws) {
+      peer.onOpen(ws)
+    },
+    onMessage(event) {
+      peer.onMessage(event.data)
+    },
+    onClose(event) {
+      peer.onClose(event.code, event.reason)
+    },
+  }
+}
 
 const log = Log.Default.clone().tag("service", "server-proxy")
 const SENSITIVE_QUERY_KEYS = new Set(["auth_token", "ticket"])
@@ -117,8 +155,10 @@ function isLegacyTarget(value: unknown): value is Extract<Target, { type: "remot
   return Boolean(value && typeof value === "object" && "type" in value && (value as { type?: unknown }).type === "remote")
 }
 
-function proxyReady(workspaceID: WorkspaceID) {
-  const status = Workspace.status().find((item) => item.workspaceID === workspaceID)
+async function proxyReady(workspaceID: WorkspaceID) {
+  const status = await AppRuntime.runPromise(Workspace.Service.use((workspace) => workspace.status())).then((items) =>
+    items.find((item) => item.workspaceID === workspaceID),
+  )
   if (!status) return
   if (status.status === "connected" || status.status === "connecting") return
   return new Response(`broken sync connection for workspace: ${workspaceID}`, {
@@ -162,14 +202,9 @@ export async function http(
   const req = reqOrWorkspace as Request
   const workspaceID = maybeWorkspace as WorkspaceID
 
-  const blocked = proxyReady(workspaceID)
+  const blocked = await proxyReady(workspaceID)
   if (blocked) {
-    return new Response(`broken sync connection for workspace: ${workspaceID}`, {
-      status: 503,
-      headers: {
-        "content-type": "text/plain; charset=utf-8",
-      },
-    })
+    return blocked
   }
 
   return fetch(
@@ -234,14 +269,12 @@ export function websocket(
     request: redactProxyURL(req.url),
     target: redactProxyURL(target),
   })
-  return app(upgrade).fetch(
-    new Request(proxy, {
-      method: req.method,
-      headers: next,
-      signal: req.signal,
-    }),
-    env as never,
-  )
+  const proxyRequest = new Request(proxy, {
+    method: req.method,
+    headers: next,
+    signal: req.signal,
+  })
+  return upgrade(proxyRequest, env, createWorkspaceWebSocketEvents(proxyRequest))
 }
 
 export * as ServerProxy from "./proxy"

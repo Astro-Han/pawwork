@@ -92,7 +92,7 @@ test("synthetic stop tool parts are hidden through reactive metadata", () => {
   expect(source).toMatch(/partMetadata\(\)\??\.diagnostics\?\.loop\?\.loopAction\s*===\s*"stop"/)
 })
 
-test("tool part wrapper suppresses both pending questions and synthetic stop tools", () => {
+test("tool part wrapper suppresses legacy pending questions and synthetic stop tools", () => {
   const source = readMessagePartSources()
 
   expect(source).toContain("<Show when={!hideQuestion() && !hideSyntheticStop()}>")

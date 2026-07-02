@@ -90,7 +90,7 @@ export namespace Installation {
     stderr: Schema.String,
   }) {
     // Without this, the TaggedError default message is empty, so the desktop upgrade API
-    // (server/instance/global.ts surfaces `err.message`) returns a blank error.
+    // (server/routes/instance/httpapi/handlers/global.ts surfaces `err.message`) returns a blank error.
     override get message() {
       return this.stderr
     }

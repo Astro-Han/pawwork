@@ -382,6 +382,7 @@ export async function bootstrapDirectory(input: {
   input.setStore("lsp_ready", false)
   input.setStore("lsp", [])
   input.setStore("command_ready", false)
+  input.setStore("external_result_ready", false)
   input.setStore("session_status_state", "loading")
   input.setStore("session_status_ready", false)
   input.setStore("session_status", reconcile(statusBaseline))
@@ -534,8 +535,10 @@ export async function bootstrapDirectory(input: {
               pruneCandidateIDs,
             })
             input.pendingQuestions.reconcile(input.directory, active)
+            input.setStore("external_result_ready", true)
           })
         }).catch((err) => {
+          input.setStore("external_result_ready", false)
           // Hydrate is best-effort: a transient failure should not surface
           // the project-level "reloadFailed" toast. The dock recovers on
           // the next SSE message.part.updated for live questions, or on

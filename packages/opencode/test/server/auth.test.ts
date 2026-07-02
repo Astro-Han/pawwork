@@ -2,8 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { Option, Redacted } from "effect"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { ServerAuth } from "../../src/server/auth"
+import { handleWebSocketCompatibilityRequest } from "../../src/server/websocket-compatibility"
 import { AuthMiddleware } from "../../src/server/middleware"
 import { Hono } from "hono"
+import type { UpgradeWebSocket } from "../../src/server/adapter"
 
 const mutableFlag = Flag as {
   OPENCODE_SERVER_PASSWORD?: string
@@ -14,6 +16,8 @@ const original = {
   OPENCODE_SERVER_PASSWORD: Flag.OPENCODE_SERVER_PASSWORD,
   OPENCODE_SERVER_USERNAME: Flag.OPENCODE_SERVER_USERNAME,
 }
+
+const testUpgradeWebSocket: UpgradeWebSocket = () => new Response("upgraded")
 
 afterEach(() => {
   mutableFlag.OPENCODE_SERVER_PASSWORD = original.OPENCODE_SERVER_PASSWORD
@@ -140,6 +144,21 @@ describe("AuthMiddleware", () => {
     mutableFlag.OPENCODE_SERVER_USERNAME = "alice"
 
     const response = await app().request("/?ticket=one-use")
+
+    expect(response.status).toBe(401)
+    expect(response.headers.get("www-authenticate")).toBe('Basic realm="opencode"')
+  })
+
+  test("protects direct websocket compatibility upgrades with server auth", async () => {
+    mutableFlag.OPENCODE_SERVER_PASSWORD = "secret"
+    mutableFlag.OPENCODE_SERVER_USERNAME = "alice"
+
+    const response = await handleWebSocketCompatibilityRequest(
+      new Request("http://localhost/pty/pty_test/connect"),
+      undefined,
+      testUpgradeWebSocket,
+    )
+    if (!response) throw new Error("Expected websocket auth response")
 
     expect(response.status).toBe(401)
     expect(response.headers.get("www-authenticate")).toBe('Basic realm="opencode"')

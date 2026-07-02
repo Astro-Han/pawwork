@@ -42,10 +42,12 @@ import { ApplyPatchTool } from "./apply_patch"
 import { EnterWorktreeTool } from "./enter-worktree"
 import { ExitWorktreeTool } from "./exit-worktree"
 import { AutomateTool } from "./automate"
+import { AutomateManageTool } from "./automate-manage"
 import { Automation } from "@/automation"
 import { Permission } from "../permission"
 import { Glob } from "../util/glob"
 import path from "path"
+import { readFile } from "node:fs/promises"
 import { pathToFileURL } from "url"
 import { Effect, Layer, Context, Schema } from "effect"
 import { ZodOverride } from "@/util/effect-zod"
@@ -53,10 +55,8 @@ import { FetchHttpClient, HttpClient } from "effect/unstable/http"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "../file/ripgrep"
-import { Format } from "../format"
 import { InstanceState } from "@/effect/instance-state"
 import { EffectBridge } from "@/effect"
-import { makeRuntime } from "@/effect/run-service"
 import { Env } from "../env"
 import { Todo } from "../session/todo"
 import { TurnChange } from "../session/turn-change"
@@ -68,6 +68,7 @@ import { Agent } from "../agent/agent"
 import { Skill } from "../skill"
 import { SubagentRun } from "../session/subagent-run"
 import { needsConfigDependencies, usesConfigDependencies } from "../config/dependency"
+import { Worktree } from "@/worktree"
 
 export function localToolImportSpec(input: string) {
   return input.startsWith("file://") ? input : pathToFileURL(input).href
@@ -131,9 +132,10 @@ export namespace ToolRegistry {
     | HttpClient.HttpClient
     | ChildProcessSpawner
     | Ripgrep.Service
-    | Format.Service
     | Truncate.Service
     | Automation.Service
+    | Worktree.Service
+    | Env.Service
   > = Layer.effect(
     Service,
     Effect.gen(function* () {
@@ -142,6 +144,7 @@ export namespace ToolRegistry {
       const agents = yield* Agent.Service
       const truncate = yield* Truncate.Service
       const settings = yield* Settings.Service
+      const env = yield* Env.Service
 
       const invalid = yield* InvalidTool
       const agent = yield* AgentTool
@@ -164,6 +167,7 @@ export namespace ToolRegistry {
       const enterWorktree = yield* EnterWorktreeTool
       const exitWorktree = yield* ExitWorktreeTool
       const automate = yield* AutomateTool
+      const automateManage = yield* AutomateManageTool
       const browserNavigate = yield* BrowserNavigateTool
       const browserSnapshot = yield* BrowserSnapshotTool
       const browserClick = yield* BrowserClickTool
@@ -197,7 +201,7 @@ export namespace ToolRegistry {
               id,
               parameters,
               description: def.description,
-              execute: (args, toolCtx) =>
+              execute: Effect.fn("ToolRegistry.plugin.execute")((args, toolCtx) =>
                 Effect.gen(function* () {
                   // Plugin tools see `ask`/`metadata` as Promise/void (see
                   // @opencode-ai/plugin), but the framework versions are Effects.
@@ -220,7 +224,7 @@ export namespace ToolRegistry {
                     worktree: ctx.worktree,
                   }
                   const result = yield* Effect.promise(() => def.execute(args as any, pluginCtx))
-                  const agent = yield* Effect.promise(() => Agent.get(toolCtx.agent))
+                  const agent = yield* agents.get(toolCtx.agent)
                   const out = yield* truncate.output(result, {}, agent)
                   return {
                     title: "",
@@ -240,6 +244,7 @@ export namespace ToolRegistry {
                     },
                   }),
                 ),
+              ),
             }
           }
 
@@ -253,7 +258,7 @@ export namespace ToolRegistry {
           const depsFailed = new Set<string>()
           for (const match of matches) {
             const namespace = path.basename(match, path.extname(match))
-            const text = yield* Effect.promise(() => Bun.file(match).text())
+            const text = yield* Effect.promise(() => readFile(match, "utf8"))
             const named = Array.from(
               text.matchAll(/export\s+(?:const|let|var|async function|function)\s+([A-Za-z_$][\w$]*)/g),
               (item) => `${namespace}_${item[1]}`,
@@ -273,17 +278,17 @@ export namespace ToolRegistry {
               const needsDeps = yield* Effect.promise(() => needsConfigDependencies(match, configDir))
               yield* config.waitForDependencies()
               if (needsDeps) {
-                const installed = yield* Effect.promise(async () => {
-                  try {
-                    return await Config.installDependencies(configDir)
-                  } catch (error) {
-                    log.warn("failed to install config dependencies for local tool", {
-                      dir: configDir,
-                      error: String(error),
-                    })
-                    return false
-                  }
-                })
+                const installed = yield* config.installDependencies(configDir).pipe(
+                  Effect.catchDefect((defect) =>
+                    Effect.sync(() => {
+                      log.warn("failed to install config dependencies for local tool", {
+                        dir: configDir,
+                        error: String(defect),
+                      })
+                      return false
+                    }),
+                  ),
+                )
                 if (!installed) {
                   depsFailed.add(configDir)
                   continue
@@ -336,6 +341,7 @@ export namespace ToolRegistry {
             enterWorktree: Tool.init(enterWorktree),
             exitWorktree: Tool.init(exitWorktree),
             automate: Tool.init(automate),
+            automateManage: Tool.init(automateManage),
             toolInfo: Tool.init(toolInfoInfo),
             browserNavigate: Tool.init(browserNavigate),
             browserSnapshot: Tool.init(browserSnapshot),
@@ -371,6 +377,7 @@ export namespace ToolRegistry {
               ...(lspEnabled ? [tool.lsp] : []),
               ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
               tool.automate,
+              tool.automateManage,
               tool.enterWorktree,
               tool.exitWorktree,
               // Desktop-only: the embedded browser lives in the desktop app's
@@ -443,12 +450,13 @@ export namespace ToolRegistry {
 
       const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
         const webSearchEnabled = yield* settings.webSearchEnabled()
+        const e2eLLMUrl = yield* env.get("OPENCODE_E2E_LLM_URL")
         const { allTools, availableDeferred, isDeferredAvailable } = yield* deferredAvailability(input)
         const filtered = allTools.filter((tool) => {
           if (tool.id === WebSearchTool.id) return webSearchEnabled
 
           const usePatch =
-            !!Env.get("OPENCODE_E2E_LLM_URL") ||
+            !!e2eLLMUrl ||
             (input.modelID.includes("gpt-") && !input.modelID.includes("oss") && !input.modelID.includes("gpt-4"))
           if (tool.id === ApplyPatchTool.id) return usePatch
           if (tool.id === EditTool.id || tool.id === WriteTool.id) return !usePatch
@@ -471,7 +479,7 @@ export namespace ToolRegistry {
             yield* plugin.trigger("tool.definition", { toolID: tool.id }, output)
             const execute: Tool.Def["execute"] =
               tool.id === TOOL_INFO_ID
-                ? ((args, ctx) => {
+                ? Effect.fn("ToolRegistry.toolInfo.execute")((args, ctx) => {
                     const contextDeferredAvailable = ctx.extra?.["deferredAvailable"] as
                       | ((id: string) => boolean)
                       | undefined
@@ -516,7 +524,7 @@ export namespace ToolRegistry {
 
   export const defaultLayer = Layer.suspend(() =>
     layer.pipe(
-      Layer.provide(Config.defaultLayer),
+      Layer.provide(Layer.mergeAll(Config.defaultLayer, Env.defaultLayer)),
       Layer.provide(Plugin.defaultLayer),
       Layer.provide(Layer.mergeAll(Todo.defaultLayer, TurnChange.defaultLayer)),
       Layer.provide(Skill.defaultLayer),
@@ -531,38 +539,11 @@ export namespace ToolRegistry {
       Layer.provide(AppFileSystem.defaultLayer),
       Layer.provide(Bus.layer),
       Layer.provide(FetchHttpClient.layer),
-      Layer.provide(Format.defaultLayer),
       Layer.provide(CrossSpawnSpawner.defaultLayer),
       Layer.provide(Ripgrep.defaultLayer),
       Layer.provide(Truncate.defaultLayer),
       Layer.provide(Automation.defaultLayer),
+      Layer.provide(Worktree.defaultLayer),
     ),
   )
-
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export async function ids() {
-    return runPromise((svc) => svc.ids())
-  }
-
-  export async function tools(input: {
-    providerID: ProviderID
-    modelID: ModelID
-    agent: Agent.Info
-    activatedTools?: ReadonlySet<string>
-    deferredAvailable?: (id: string) => boolean
-  }): Promise<(Tool.Def & { id: string })[]> {
-    return runPromise((svc) => svc.tools(input))
-  }
-
-  export async function availableDeferred(input: {
-    activatedTools?: ReadonlySet<string>
-    deferredAvailable?: (id: string) => boolean
-  }): Promise<ReadonlySet<string>> {
-    return runPromise((svc) => svc.availableDeferred(input))
-  }
-
-  export async function invalidate() {
-    return runPromise((svc) => svc.invalidate())
-  }
 }

@@ -5,6 +5,7 @@ import { EventSequenceTable } from "@/sync/event.sql"
 import { Workspace } from "@/control-plane/workspace"
 import type { WorkspaceID } from "@/control-plane/schema"
 import { Log } from "@opencode-ai/core/util/log"
+import { AppRuntime } from "@/effect/app-runtime"
 
 const HEADER = "x-opencode-sync"
 type State = Record<string, number>
@@ -68,7 +69,9 @@ export async function wait(workspaceID: WorkspaceID, state: State, signal?: Abor
     const done = ids.every((id) => (current[id] ?? -1) >= state[id]!)
     if (done) break
 
-    const status = Workspace.status().find((item) => item.workspaceID === workspaceID)
+    const status = await AppRuntime.runPromise(Workspace.Service.use((workspace) => workspace.status())).then((items) =>
+      items.find((item) => item.workspaceID === workspaceID),
+    )
     if (status?.status === "error") {
       throw new Error(status.error ?? `workspace sync failed: ${workspaceID}`)
     }

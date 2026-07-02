@@ -1,6 +1,6 @@
 import { onCleanup } from "solid-js"
 import type { SetStoreFunction } from "solid-js/store"
-import type { QuestionInfo } from "@/pages/session/blockers/running-external-result-question"
+import type { QuestionInfo } from "@/context/global-sync/external-result-question"
 import type { QuestionStore } from "./question-draft"
 import { focusWithoutScrollingTimeline } from "./question-option-focus"
 

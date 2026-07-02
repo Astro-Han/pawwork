@@ -22,7 +22,6 @@ import { Global } from "@/global"
 import * as Bom from "@/util/bom"
 import { Log } from "@opencode-ai/core/util/log"
 import { Context, Effect, Layer } from "effect"
-import { makeRuntime } from "@/effect/run-service"
 
 export type FileState =
   | {
@@ -1497,49 +1496,4 @@ export namespace TurnChange {
   )
 
   export const defaultLayer = layer.pipe(Layer.provide(Bus.layer))
-  const runtime = makeRuntime(Service, defaultLayer)
-
-  export function recordWrite(input: RecordWriteInput) {
-    return runtime.runSync((svc) => svc.recordWrite(input))
-  }
-
-  export function recordUncaptured(input: RecordUncapturedInput) {
-    return runtime.runSync((svc) => svc.recordUncaptured(input))
-  }
-
-  export function finalize(input: { sessionID: SessionID; messageID: MessageID }) {
-    return runtime.runSync((svc) => svc.finalize(input))
-  }
-
-  export function get(input: { sessionID: SessionID; messageID: MessageID }) {
-    return runtime.runSync((svc) => svc.get(input))
-  }
-
-  export function aggregateTurn(input: { sessionID: SessionID; userMessageID: MessageID }) {
-    return runtime.runSync((svc) => svc.aggregateTurn(input))
-  }
-
-  export function aggregateTurnUnion(input: { sessionID: SessionID; userMessageID: MessageID }) {
-    return runtime.runSync((svc) => svc.aggregateTurnUnion(input))
-  }
-
-  export function aggregateSessionFromTurns(input: { sessionID: SessionID }) {
-    return runtime.runSync((svc) => svc.aggregateSessionFromTurns(input))
-  }
-
-  export function undo(input: { sessionID: SessionID; messageID: MessageID }) {
-    return runtime.runPromise((svc) => svc.undo(input))
-  }
-
-  export function redo(input: { sessionID: SessionID; messageID: MessageID }) {
-    return runtime.runPromise((svc) => svc.redo(input))
-  }
-
-  export function aggregateTurnUndo(input: { sessionID: SessionID; userMessageID: MessageID; force?: boolean }) {
-    return runtime.runPromise((svc) => svc.aggregateTurnUndo(input))
-  }
-
-  export function aggregateTurnRedo(input: { sessionID: SessionID; userMessageID: MessageID; force?: boolean }) {
-    return runtime.runPromise((svc) => svc.aggregateTurnRedo(input))
-  }
 }

@@ -1,4 +1,6 @@
 import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test"
+import type { Effect } from "effect"
+import type { Plugin as PluginNamespace } from "../../src/plugin/index"
 import fs from "fs/promises"
 import path from "path"
 import { pathToFileURL } from "url"
@@ -12,9 +14,9 @@ const { Plugin } = await import("../../src/plugin/index")
 const { PluginLoader } = await import("../../src/plugin/loader")
 const { Instance } = await import("../../src/project/instance")
 const { Npm } = await import("@opencode-ai/core/npm")
-const { Config } = await import("../../src/config/config")
 const { writeMockConfigInstall } = await import("../shared/mock-npm-install")
 const { withConfigDepsLock } = await import("../shared/config-deps-lock")
+const { AppRuntime } = await import("../../src/effect/app-runtime")
 
 afterAll(() => {
   if (disableDefault === undefined) {
@@ -28,11 +30,15 @@ afterEach(async () => {
   await Instance.disposeAll()
 })
 
+function runPlugin<A>(fn: (plugin: PluginNamespace.Interface) => Effect.Effect<A>) {
+  return AppRuntime.runPromise(Plugin.Service.use(fn))
+}
+
 async function load(dir: string) {
   return Instance.provide({
     directory: dir,
     fn: async () => {
-      await Plugin.list()
+      await runPlugin((plugin) => plugin.list())
     },
   })
 }
@@ -738,14 +744,24 @@ describe("plugin.loader.shared", () => {
       },
     })
 
-    const wait = spyOn(Config, "waitForDependencies").mockResolvedValue()
+    const originalLoadExternal = PluginLoader.loadExternal
+    let waits = 0
+    const loadExternal = spyOn(PluginLoader, "loadExternal").mockImplementation((input) =>
+      originalLoadExternal({
+        ...input,
+        wait: async () => {
+          waits++
+          await input.wait?.()
+        },
+      }),
+    )
 
     try {
       await load(tmp.path)
-      expect(wait).not.toHaveBeenCalled()
+      expect(waits).toBe(0)
       expect(await Bun.file(tmp.extra.mark).text()).toBe("ok")
     } finally {
-      wait.mockRestore()
+      loadExternal.mockRestore()
     }
   })
 

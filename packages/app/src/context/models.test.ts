@@ -26,7 +26,10 @@ beforeAll(async () => {
 // only thing createModelsView reads. Models carry no release_date so they stay
 // visible by default (release memo treats them as undated).
 function fakeProviders(connected: Array<{ providerID: string; modelID: string }>): ReturnType<typeof useProviders> {
-  const byProvider = new Map<string, { id: string; models: Record<string, { id: string; name: string; release_date: string }> }>()
+  const byProvider = new Map<
+    string,
+    { id: string; models: Record<string, { id: string; name: string; release_date: string }> }
+  >()
   for (const m of connected) {
     const p = byProvider.get(m.providerID) ?? { id: m.providerID, models: {} }
     p.models[m.modelID] = { id: m.modelID, name: m.modelID, release_date: "" }
@@ -46,7 +49,7 @@ const provider = {
   id: VOLCENGINE_PLAN_PROVIDER_ID,
   models: {
     "doubao-seed-2.0-code": { id: "doubao-seed-2.0-code", name: "Doubao Seed 2.0 Code" },
-    "glm-5.1": { id: "glm-5.1", name: "GLM 5.1" },
+    "glm-5.2": { id: "glm-5.2", name: "GLM 5.2" },
     "kimi-k2.6": { id: "kimi-k2.6", name: "Kimi K2.6" },
     "ark-code-latest": { id: "ark-code-latest", name: "Ark Code Latest" },
   },
@@ -56,7 +59,7 @@ describe("provider model list helpers", () => {
   test("hides the Volcano Engine latest alias from context model lists", () => {
     expect(listAvailableProviderModels(provider).map((model) => model.id)).toEqual([
       "doubao-seed-2.0-code",
-      "glm-5.1",
+      "glm-5.2",
       "kimi-k2.6",
     ])
   })
@@ -64,7 +67,7 @@ describe("provider model list helpers", () => {
   test("keeps the Volcano Engine latest alias resolvable for existing selections", () => {
     expect(listProviderModels(provider).map((model) => model.id)).toEqual([
       "doubao-seed-2.0-code",
-      "glm-5.1",
+      "glm-5.2",
       "kimi-k2.6",
       "ark-code-latest",
     ])
@@ -78,7 +81,7 @@ describe("provider model list helpers", () => {
       .map((model) => ({ ...model, provider: { id: provider.id } }))
       .sort(compareModelsForDisplay)
 
-    expect(visible.map((model) => model.id)).toEqual(["doubao-seed-2.0-code", "glm-5.1", "kimi-k2.6"])
+    expect(visible.map((model) => model.id)).toEqual(["doubao-seed-2.0-code", "glm-5.2", "kimi-k2.6"])
   })
 })
 

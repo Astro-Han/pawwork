@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import { $ } from "bun"
+import { Effect } from "effect"
 import fs from "fs/promises"
 import path from "path"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { Worktree } from "../../src/worktree"
@@ -10,6 +12,27 @@ import { tmpdir } from "../fixture/fixture"
 
 const wintest = process.platform === "win32" ? test : test.skip
 const unixtest = process.platform === "win32" ? test.skip : test
+const runSession = <A>(fn: (svc: Session.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Session.Service.use(fn))
+const worktreeMakeWorktreeInfo = (name?: string) =>
+  Effect.runPromise(Worktree.Service.use((worktree) => worktree.makeWorktreeInfo(name)).pipe(Effect.provide(Worktree.defaultLayer)))
+const worktreeCreateFromInfo = (info: Worktree.Info, startCommand?: string) =>
+  Effect.runPromise(
+    Worktree.Service.use((worktree) => worktree.createFromInfo(info, startCommand)).pipe(
+      Effect.provide(Worktree.defaultLayer),
+    ),
+  )
+const worktreeCreateReady = (input?: Worktree.CreateInput & { exactName?: boolean }) =>
+  Effect.runPromise(
+    Worktree.Service.use((worktree) => worktree.createReady(input)).pipe(Effect.provide(Worktree.defaultLayer)),
+  )
+const worktreeLookupByDirectory = (directory: string) =>
+  Effect.runPromise(
+    Worktree.Service.use((worktree) => worktree.lookupByDirectory(directory)).pipe(Effect.provide(Worktree.defaultLayer)),
+  )
+const worktreeRemove = (input: Worktree.RemoveInput) =>
+  Effect.runPromise(Worktree.Service.use((worktree) => worktree.remove(input)).pipe(Effect.provide(Worktree.defaultLayer)))
+const worktreeReset = (input: Worktree.ResetInput) =>
+  Effect.runPromise(Worktree.Service.use((worktree) => worktree.reset(input)).pipe(Effect.provide(Worktree.defaultLayer)))
 
 describe("Worktree.remove", () => {
   test("refuses to remove a worktree bound to an active session", async () => {
@@ -19,13 +42,13 @@ describe("Worktree.remove", () => {
     const { info, session } = await Instance.provide({
       directory: root,
       fn: async () => {
-        const info = await Worktree.makeWorktreeInfo("bound-session")
-        await Worktree.createFromInfo(info)
-        const session = await Session.create({ title: "Bound session" })
-        await Session.updateExecutionContext({
+        const info = await worktreeMakeWorktreeInfo("bound-session")
+        await worktreeCreateFromInfo(info)
+        const session = await runSession((svc) => svc.create({ title: "Bound session" }))
+        await runSession((svc) => svc.updateExecutionContext({
           sessionID: session.id,
           activeWorktree: info,
-        })
+        }))
         return { info, session }
       },
     })
@@ -33,13 +56,13 @@ describe("Worktree.remove", () => {
     await expect(
       Instance.provide({
         directory: root,
-        fn: () => Worktree.remove({ directory: info.directory }),
+        fn: () => worktreeRemove({ directory: info.directory }),
       }),
     ).rejects.toThrow("WorktreeRemoveFailedError")
     try {
       await Instance.provide({
         directory: root,
-        fn: () => Worktree.remove({ directory: info.directory }),
+        fn: () => worktreeRemove({ directory: info.directory }),
       })
     } catch (error) {
       expect((error as { data?: { message?: string } }).data?.message).toContain("Worktree is in use by session")
@@ -49,9 +72,9 @@ describe("Worktree.remove", () => {
     await Instance.provide({
       directory: root,
       fn: async () => {
-        await Session.updateExecutionContext({ sessionID: session.id, activeWorktree: null })
-        await Session.remove(session.id)
-        await Worktree.remove({ directory: info.directory })
+        await runSession((svc) => svc.updateExecutionContext({ sessionID: session.id, activeWorktree: null }))
+        await runSession((svc) => svc.remove(session.id))
+        await worktreeRemove({ directory: info.directory })
       },
     })
   })
@@ -94,7 +117,7 @@ describe("Worktree.remove", () => {
       try {
         return await Instance.provide({
           directory: root,
-          fn: () => Worktree.remove({ directory: dir }),
+          fn: () => worktreeRemove({ directory: dir }),
         })
       } finally {
         process.env.PATH = prev
@@ -117,8 +140,8 @@ describe("Worktree.remove", () => {
     const info = await Instance.provide({
       directory: root,
       fn: async () => {
-        const info = await Worktree.makeWorktreeInfo("branch-delete-fails")
-        await Worktree.createFromInfo(info)
+        const info = await worktreeMakeWorktreeInfo("branch-delete-fails")
+        await worktreeCreateFromInfo(info)
         return info
       },
     })
@@ -150,7 +173,7 @@ describe("Worktree.remove", () => {
       await expect(
         Instance.provide({
           directory: root,
-          fn: () => Worktree.remove({ directory: info.directory }),
+          fn: () => worktreeRemove({ directory: info.directory }),
         }),
       ).rejects.toThrow("WorktreeRemoveFailedError")
     } finally {
@@ -160,7 +183,7 @@ describe("Worktree.remove", () => {
     expect(await Filesystem.exists(info.directory)).toBe(false)
     const registryEntry = await Instance.provide({
       directory: root,
-      fn: () => Worktree.lookupByDirectory(info.directory),
+      fn: () => worktreeLookupByDirectory(info.directory),
     })
     expect(registryEntry).toBeUndefined()
 
@@ -186,7 +209,7 @@ describe("Worktree.remove", () => {
 
     const ok = await Instance.provide({
       directory: root,
-      fn: () => Worktree.remove({ directory: dir }),
+      fn: () => worktreeRemove({ directory: dir }),
     })
 
     expect(ok).toBe(true)
@@ -205,12 +228,12 @@ describe("Worktree.reset", () => {
     const { info, session } = await Instance.provide({
       directory: root,
       fn: async () => {
-        const info = await Worktree.createReady({ name: "reset-bound-session" })
-        const session = await Session.create({ title: "Bound reset session" })
-        await Session.updateExecutionContext({
+        const info = await worktreeCreateReady({ name: "reset-bound-session" })
+        const session = await runSession((svc) => svc.create({ title: "Bound reset session" }))
+        await runSession((svc) => svc.updateExecutionContext({
           sessionID: session.id,
           activeWorktree: info,
-        })
+        }))
         return { info, session }
       },
     })
@@ -220,7 +243,7 @@ describe("Worktree.reset", () => {
     await expect(
       Instance.provide({
         directory: root,
-        fn: () => Worktree.reset({ directory: info.directory }),
+        fn: () => worktreeReset({ directory: info.directory }),
       }),
     ).rejects.toThrow("WorktreeResetFailedError")
     expect(await Bun.file(path.join(info.directory, "unsaved.txt")).text()).toBe("do not delete\n")
@@ -228,9 +251,9 @@ describe("Worktree.reset", () => {
     await Instance.provide({
       directory: root,
       fn: async () => {
-        await Session.updateExecutionContext({ sessionID: session.id, activeWorktree: null })
-        await Session.remove(session.id)
-        await Worktree.remove({ directory: info.directory })
+        await runSession((svc) => svc.updateExecutionContext({ sessionID: session.id, activeWorktree: null }))
+        await runSession((svc) => svc.remove(session.id))
+        await worktreeRemove({ directory: info.directory })
       },
     })
   })

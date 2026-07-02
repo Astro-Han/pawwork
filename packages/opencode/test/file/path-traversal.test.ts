@@ -2,9 +2,15 @@ import { test, expect, describe } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import { Filesystem } from "../../src/util/filesystem"
-import { File } from "../../src/file"
+import { File as FileCore } from "../../src/file"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
+
+const File = {
+  read: (file: string) => AppRuntime.runPromise(FileCore.Service.use((svc) => svc.read(file))),
+  list: (dir?: string) => AppRuntime.runPromise(FileCore.Service.use((svc) => svc.list(dir))),
+}
 
 describe("Filesystem.contains", () => {
   test("allows paths within project", () => {

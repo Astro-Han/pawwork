@@ -11,6 +11,7 @@ import { ConfigPlugin } from "../../src/config/plugin"
 import { ConfigPaths } from "../../src/config/paths"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
@@ -32,6 +33,7 @@ const emptyAuth = Layer.mock(Auth.Service)({
 })
 
 const layer = Config.layer.pipe(
+  Layer.provide(EffectFlock.defaultLayer),
   Layer.provide(AppFileSystem.defaultLayer),
   Layer.provide(emptyAuth),
   Layer.provide(emptyAccount),
@@ -598,7 +600,7 @@ describe("PawWork global config isolation", () => {
       await Instance.provide({
         directory: project.path,
         fn: async () => {
-          await Config.seedGlobalConfig()
+          await saveGlobal({})
           const saved = JSON.parse(await Bun.file(path.join(home.path, ".pawwork", "pawwork.json")).text())
           expect(saved.username).toBe("legacy-user")
           expect("default_agent" in saved).toBeFalse()
@@ -638,7 +640,7 @@ describe("PawWork global config isolation", () => {
       await Instance.provide({
         directory: project.path,
         fn: async () => {
-          await Config.seedGlobalConfig()
+          await saveGlobal({})
           const saved = JSON.parse(await Bun.file(path.join(home.path, ".pawwork", "pawwork.json")).text())
           expect(saved.model).toBe("legacy/model")
           expect(saved.theme).toBeUndefined()

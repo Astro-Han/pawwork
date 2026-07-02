@@ -64,6 +64,10 @@ describe("pr triage workflow", () => {
     expect(labelerLabelsForGlob("packages/sdk/**")).toEqual(["harness"])
   })
 
+  test("routes packaged third-party notices to the platform area", () => {
+    expect(labelerLabelsForGlob("THIRD_PARTY_NOTICES.md")).toEqual(["platform"])
+  })
+
   test("labels workflow PRs with routing while scripts own priority and selected type inference", () => {
     const labels = labelerLabelsForGlob(".github/workflows/**")
 

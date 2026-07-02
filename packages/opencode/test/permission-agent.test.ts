@@ -3,10 +3,14 @@ import { Permission } from "../src/permission"
 import { Config } from "../src/config/config"
 import { Instance } from "../src/project/instance"
 import { tmpdir } from "./fixture/fixture"
+import { Effect } from "effect"
 
 afterEach(async () => {
   await Instance.disposeAll()
 })
+
+const loadConfig = () =>
+  Effect.runPromise(Config.Service.use((svc) => svc.get()).pipe(Effect.scoped, Effect.provide(Config.defaultLayer)))
 
 describe("Permission.evaluate for permission.agent", () => {
   const createRuleset = (rules: Record<string, "allow" | "deny" | "ask">): Permission.Ruleset =>
@@ -158,7 +162,7 @@ describe("permission.agent with real config files", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const config = await Config.get()
+        const config = await loadConfig()
         const ruleset = Permission.fromConfig(config.permission ?? {})
         // general and orchestrator-fast should be allowed, code-reviewer denied
         expect(Permission.evaluate("agent", "general", ruleset).action).toBe("allow")
@@ -183,7 +187,7 @@ describe("permission.agent with real config files", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const config = await Config.get()
+        const config = await loadConfig()
         const ruleset = Permission.fromConfig(config.permission ?? {})
         // general and code-reviewer should be ask, orchestrator-* denied
         expect(Permission.evaluate("agent", "general", ruleset).action).toBe("ask")
@@ -208,7 +212,7 @@ describe("permission.agent with real config files", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const config = await Config.get()
+        const config = await loadConfig()
         const ruleset = Permission.fromConfig(config.permission ?? {})
         expect(Permission.evaluate("agent", "general", ruleset).action).toBe("allow")
         expect(Permission.evaluate("agent", "code-reviewer", ruleset).action).toBe("deny")
@@ -235,7 +239,7 @@ describe("permission.agent with real config files", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const config = await Config.get()
+        const config = await loadConfig()
         const ruleset = Permission.fromConfig(config.permission ?? {})
 
         // Verify agent permissions
@@ -273,7 +277,7 @@ describe("permission.agent with real config files", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const config = await Config.get()
+        const config = await loadConfig()
         const ruleset = Permission.fromConfig(config.permission ?? {})
 
         // Last matching rule wins - "*" deny is last, so all agents are denied
@@ -304,7 +308,7 @@ describe("permission.agent with real config files", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const config = await Config.get()
+        const config = await loadConfig()
         const ruleset = Permission.fromConfig(config.permission ?? {})
 
         // Evaluate uses findLast - "general" allow comes after "*" deny

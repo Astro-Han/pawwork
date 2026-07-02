@@ -43,16 +43,17 @@ import { SystemPrompt } from "../../src/session/system"
 import { Shell } from "../../src/shell/shell"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "../../src/tool/registry"
+import { Worktree } from "../../src/worktree"
 import { Automation } from "../../src/automation"
+import { AutomationScheduler } from "../../src/automation/scheduler"
 import { WebSearchAuth } from "../../src/tool/websearch-auth"
 import { Truncate } from "../../src/tool/truncate"
 import { Log } from "@opencode-ai/core/util/log"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "../../src/file/ripgrep"
-import { Format } from "../../src/format"
 import { provideTmpdirInstance, provideTmpdirServer } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
-import { reply, TestLLMServer } from "../lib/llm-server"
+import { raw, reply, TestLLMServer } from "../lib/llm-server"
 
 void Log.init({ print: false })
 
@@ -146,6 +147,18 @@ function requestTextContaining(inputs: Record<string, unknown>[], needle: string
   const match = inputs.find((input) => flattenRequestText(input).includes(needle))
   if (!match) throw new Error(`Missing provider request containing: ${needle}`)
   return flattenRequestText(match)
+}
+
+function requestToolNames(input: Record<string, unknown>) {
+  const tools = Array.isArray(input.tools) ? input.tools : []
+  return tools.flatMap((tool) => {
+    const fn =
+      tool && typeof tool === "object" && "function" in tool && tool.function && typeof tool.function === "object"
+        ? tool.function
+        : undefined
+    if (!fn || !("name" in fn) || typeof fn.name !== "string") return []
+    return [fn.name]
+  })
 }
 
 function envValue(text: string, label: string) {
@@ -275,9 +288,9 @@ function makeHttp(httpLayer: Layer.Layer<HttpClient.HttpClient> = FetchHttpClien
     Layer.provide(httpLayer),
     Layer.provide(CrossSpawnSpawner.defaultLayer),
     Layer.provide(Ripgrep.defaultLayer),
-    Layer.provide(Format.defaultLayer),
     Layer.provide(SubagentRun.defaultLayer),
     Layer.provide(Automation.defaultLayer),
+    Layer.provide(Worktree.defaultLayer),
     Layer.provideMerge(todo),
     Layer.provideMerge(deps),
   )
@@ -752,6 +765,56 @@ it.live("prompt records lifecycle wait diagnostics on the queued user message", 
   ),
 )
 
+it.live("cancel prevents a queued prompt from starting after lifecycle wait", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Cancel queued lifecycle wait" })
+        const releaseClose = beginLifecycleClose([dir])
+        const fiber = yield* prompt
+          .prompt({
+            sessionID: chat.id,
+            agent: "build",
+            parts: [{ type: "text", text: "hello" }],
+          })
+          .pipe(Effect.forkChild)
+
+        try {
+          let queuedUser: MessageV2.WithParts | undefined
+          const deadline = Date.now() + 1000
+          while (Date.now() < deadline) {
+            const pending = yield* sessions.messages({ sessionID: chat.id })
+            queuedUser = pending.find(
+              (message) =>
+                message.info.role === "user" &&
+                message.info.diagnostics?.run_lifecycle?.some((event) => event.type === "run_wait_started"),
+            )
+            if (queuedUser) break
+            yield* Effect.sleep("5 millis")
+          }
+          expect(queuedUser?.info.role).toBe("user")
+
+          const cancelled = yield* prompt.cancel(chat.id)
+          expect(cancelled).toBe(true)
+          yield* llm.text("should not be consumed")
+          releaseClose()
+
+          const exit = yield* Fiber.await(fiber).pipe(Effect.timeout(cancelRaceCheckpointTimeout))
+          expect(Exit.isSuccess(exit)).toBe(true)
+          if (Exit.isSuccess(exit) && queuedUser) {
+            expect(exit.value.info.id).toBe(queuedUser.info.id)
+          }
+          expect(yield* llm.calls).toBe(0)
+        } finally {
+          releaseClose()
+        }
+      }),
+    { git: true, config: providerCfg },
+  ),
+)
+
 
 it.live("provider env matches assistant path for an active worktree", () =>
   provideTmpdirServer(
@@ -994,6 +1057,56 @@ it.live("loop continues when finish is tool-calls", () =>
       if (result.info.role === "assistant") {
         expect(result.parts.some((part) => part.type === "text" && part.text === "second")).toBe(true)
         expect(result.info.finish).toBe("stop")
+      }
+    }),
+    { git: true, config: providerCfg },
+  ),
+)
+
+it.live("loop activates automate_manage through tool_info before invoking it", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* ({ llm }) {
+      try {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({
+          title: "Automation manage activation",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "List my existing PawWork Automations." }],
+        })
+
+        yield* llm.tool("tool_info", { name: "automate_manage" })
+        yield* llm.tool("automate_manage", { action: "list" })
+        yield* llm.text("done")
+
+        const result = yield* prompt.loop({ sessionID: session.id })
+        expect(result.info.role).toBe("assistant")
+
+        const requests = yield* llm.inputs
+        expect(requests.length).toBeGreaterThanOrEqual(2)
+        const [firstRequest, secondRequest] = requests
+        expect(requestToolNames(firstRequest)).toContain("tool_info")
+        expect(requestToolNames(firstRequest)).not.toContain("automate_manage")
+        expect(requestToolNames(secondRequest)).toContain("automate_manage")
+
+        const allMessages = yield* MessageV2.filterCompactedEffect(session.id)
+        const toolParts = allMessages.flatMap((message) =>
+          message.parts.filter((part): part is MessageV2.ToolPart => part.type === "tool"),
+        )
+        const toolInfo = toolParts.find((part) => part.tool === "tool_info")
+        const automateManage = toolParts.find((part) => part.tool === "automate_manage")
+        expect(toolInfo?.state.status).toBe("completed")
+        expect(automateManage?.state.status).toBe("completed")
+        if (automateManage?.state.status === "completed") {
+          expect(JSON.parse(automateManage.state.output)).toEqual({ items: [] })
+        }
+      } finally {
+        AutomationScheduler.stopProcess({ stopRuns: false })
       }
     }),
     { git: true, config: providerCfg },
@@ -2302,6 +2415,114 @@ it.live(
       { git: true, config: cfg },
     ),
   30_000,
+)
+
+it.live(
+  "cancel aborts executing tool from run-state observer while cleanup is draining",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const registry = yield* ToolRegistry.Service
+        const { read } = yield* registry.named()
+        const ready = defer<void>()
+        const aborted = defer<void>()
+        const original = read.execute
+        read.execute = (_args, ctx) =>
+          Effect.callback<never, DOMException>((resume) => {
+            ready.resolve()
+            const onAbort = () => {
+              aborted.resolve()
+              resume(Effect.fail(new DOMException("Tool cancelled", "AbortError")))
+            }
+            if (ctx.abort.aborted) onAbort()
+            else ctx.abort.addEventListener("abort", onAbort, { once: true })
+            return Effect.sync(() => ctx.abort.removeEventListener("abort", onAbort))
+          })
+        yield* Effect.addFinalizer(() => Effect.sync(() => void (read.execute = original)))
+
+        yield* llm.push(
+          raw({
+            head: [
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [{ delta: { role: "assistant" } }],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          id: "call_prompt_cancel_read",
+                          type: "function",
+                          function: { name: "read", arguments: "" },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: 0,
+                          function: { arguments: JSON.stringify({ filePath: "target.txt" }) },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                choices: [{ delta: {}, finish_reason: "tool_calls" }],
+              },
+            ],
+            error: new Error("connection reset"),
+          }),
+        )
+
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Prompt cancel aborts tool" })
+        yield* user(chat.id, "read target")
+
+        const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+        yield* Effect.promise(() => ready.promise)
+        yield* Effect.sleep(50)
+
+        const cancelStarted = Date.now()
+        const cancelled = yield* prompt.cancel(chat.id)
+        expect(cancelled).toBe(true)
+        yield* Effect.promise(() =>
+          Promise.race([
+            aborted.promise,
+            new Promise<void>((_, reject) =>
+              setTimeout(() => reject(new Error("tool abort signal not observed within 2s")), 2_000),
+            ),
+          ]),
+        )
+
+        const exit = yield* Fiber.await(fiber)
+        expect(Date.now() - cancelStarted).toBeLessThan(2_500)
+        expect(Exit.isSuccess(exit)).toBe(true)
+        const assistant = Exit.isSuccess(exit) && exit.value.info.role === "assistant" ? exit.value : undefined
+        const tool = assistant?.parts.find((part): part is MessageV2.ToolPart => part.type === "tool")
+        expect(tool?.state.status).not.toBe("running")
+      }),
+      { git: true, config: providerCfg },
+    ),
+  10_000,
 )
 
 it.live(

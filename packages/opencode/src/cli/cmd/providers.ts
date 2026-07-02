@@ -4,6 +4,7 @@ import { cmd } from "./cmd"
 import * as prompts from "@clack/prompts"
 import { UI } from "../ui"
 import { ModelsDev } from "../../provider/models"
+import { withPawWorkProviders } from "../../provider/pawwork-providers"
 import { map, pipe, sortBy, values } from "remeda"
 import path from "path"
 import os from "os"
@@ -283,7 +284,14 @@ export const ProvidersListCommand = cmd({
         return Object.entries(yield* auth.all())
       }),
     )
-    const database = await ModelsDev.get()
+    const database = await AppRuntime.runPromise(
+      ModelsDev.Service.use((svc) =>
+        svc.data().pipe(
+          Effect.map((catalog) => withPawWorkProviders(catalog as Record<string, ModelsDev.Provider>)),
+          Effect.orDie,
+        ),
+      ),
+    )
 
     for (const [providerID, result] of results) {
       const name = database[providerID]?.name || providerID
@@ -379,22 +387,30 @@ export const ProvidersLoginCommand = cmd({
       async fn() {
         UI.empty()
         prompts.intro("Add credential")
-        await ModelsDev.refresh(true).catch(() => {})
+        await AppRuntime.runPromise(ModelsDev.Service.use((svc) => svc.refresh(true).pipe(Effect.ignore)))
 
         const config = await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.get()))
 
         const disabled = new Set(config.disabled_providers ?? [])
         const enabled = config.enabled_providers ? new Set(config.enabled_providers) : undefined
 
-        const providers = await ModelsDev.get().then((x) => {
-          const filtered: Record<string, (typeof x)[string]> = {}
-          for (const [key, value] of Object.entries(x)) {
-            if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) {
-              filtered[key] = value
-            }
-          }
-          return filtered
-        })
+        const providers = await AppRuntime.runPromise(
+          ModelsDev.Service.use((svc) =>
+            svc.data().pipe(
+              Effect.map((catalog) => {
+                const all = withPawWorkProviders(catalog as Record<string, ModelsDev.Provider>)
+                const filtered: Record<string, (typeof all)[string]> = {}
+                for (const [key, value] of Object.entries(all)) {
+                  if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) {
+                    filtered[key] = value
+                  }
+                }
+                return filtered
+              }),
+              Effect.orDie,
+            ),
+          ),
+        )
         const hooks = await AppRuntime.runPromise(
           Effect.gen(function* () {
             const plugin = yield* Plugin.Service
@@ -550,7 +566,14 @@ export const ProvidersLogoutCommand = cmd({
       prompts.log.error("No credentials found")
       return
     }
-    const database = await ModelsDev.get()
+    const database = await AppRuntime.runPromise(
+      ModelsDev.Service.use((svc) =>
+        svc.data().pipe(
+          Effect.map((catalog) => withPawWorkProviders(catalog as Record<string, ModelsDev.Provider>)),
+          Effect.orDie,
+        ),
+      ),
+    )
     const selected = await prompts.select({
       message: "Select provider",
       options: credentials.map(([key, value]) => ({

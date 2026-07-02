@@ -5,7 +5,9 @@ import type {
   RendererDiagnosticInput,
   RendererDiagnosticsExportResult,
   ReportProblemInput,
-  ReportProblemResult,
+  PrepareReportResult,
+  RevealReportResult,
+  SubmitReportResult,
   UpdateInfo,
 } from "@/desktop-api-contract"
 import { ServerConnection } from "./server"
@@ -20,7 +22,10 @@ export type {
   RendererDiagnosticsExportResult,
   RendererErrorDetails,
   ReportProblemInput,
-  ReportProblemResult,
+  PrepareReportResult,
+  RevealReportResult,
+  SubmitReportResult,
+  DiagnosticsReviewContents,
   UpdateInfo,
 } from "@/desktop-api-contract"
 
@@ -181,8 +186,18 @@ export type Platform = {
   /** Check for updates (desktop only) */
   checkUpdate?(): Promise<UpdateInfo>
 
-  /** Prepare a problem report and open the configured feedback form (desktop only) */
-  reportProblem?(input?: ReportProblemInput): Promise<ReportProblemResult>
+  /**
+   * Generate, redact, and save a diagnostics package, returning its contents for
+   * review. No side effects beyond writing the file — the user then reveals it
+   * (`revealReport`) or opens the feedback form (`submitReport`). Desktop only.
+   */
+  prepareReport?(input?: ReportProblemInput): Promise<PrepareReportResult>
+
+  /** Reveal the prepared package in the OS file manager (desktop only). */
+  revealReport?(reportId: string): Promise<RevealReportResult>
+
+  /** Open the configured feedback form after review (desktop only). */
+  submitReport?(reportId: string): Promise<SubmitReportResult>
 
   /** Emit a local renderer diagnostics event. Desktop only; no-op on web. */
   emitRendererDiagnostic?(event: RendererDiagnosticInput): Promise<void>

@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { Context, Effect, Layer, Schema } from "effect"
 import { Auth } from "../auth"
-import { makeRuntime } from "../effect/run-service"
 import * as McpExa from "./mcp-exa"
 
 export namespace WebSearchAuth {
@@ -151,18 +150,4 @@ export namespace WebSearchAuth {
   )
 
   export const defaultLayer = layer.pipe(Layer.provide(Auth.defaultLayer))
-
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export async function status() {
-    return runPromise((svc) => svc.status())
-  }
-
-  export async function saveKey(key: string) {
-    return runPromise((svc) => svc.saveKey(key))
-  }
-
-  export async function removeKey() {
-    return runPromise((svc) => svc.removeKey())
-  }
 }

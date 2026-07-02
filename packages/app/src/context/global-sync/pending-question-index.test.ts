@@ -43,6 +43,17 @@ describe("upsertPendingQuestion", () => {
     upsertPendingQuestion(index, "/dir", question({ sessionID: "s1", messageID: "m1", callID: "c1" }))
     expect(index["/dir"]["s1"][0].rootSessionID).toBe("root")
   })
+
+  test("uses one workspace-key bucket across directory variants", () => {
+    const index: PendingQuestionIndex = {}
+    const q = question({ sessionID: "s1", messageID: "m1", callID: "c1" })
+
+    expect(upsertPendingQuestion(index, "C:/repo/", q)).toBe(true)
+    expect(upsertPendingQuestion(index, "c:\\repo\\", q)).toBe(false)
+
+    expect(Object.keys(index)).toEqual(["C:/repo"])
+    expect(index["C:/repo"]["s1"]).toHaveLength(1)
+  })
 })
 
 describe("setPendingQuestionRoot", () => {
@@ -134,11 +145,30 @@ describe("derivations", () => {
     expect(pendingRootSessionIDs(index)).toEqual(new Set(["root", "lonely"]))
   })
 
+  test("pendingRootSessionIDs can exclude authoritative mounted directories", () => {
+    const index: PendingQuestionIndex = {}
+    upsertPendingQuestion(index, "/mounted/", question({ sessionID: "child", messageID: "m1", callID: "c1", rootSessionID: "root" }))
+    upsertPendingQuestion(
+      index,
+      "/background",
+      question({ sessionID: "background-child", messageID: "m2", callID: "c2", rootSessionID: "background-root" }),
+    )
+
+    expect(pendingRootSessionIDs(index, { excludeDirectories: ["/mounted"] })).toEqual(new Set(["background-root"]))
+  })
+
   test("pendingSessionIDsForDirectory lists asking sessions for trim preserve", () => {
     const index: PendingQuestionIndex = {}
     upsertPendingQuestion(index, "/dir", question({ sessionID: "s1", messageID: "m1", callID: "c1" }))
     upsertPendingQuestion(index, "/dir", question({ sessionID: "s2", messageID: "m2", callID: "c2" }))
     expect(pendingSessionIDsForDirectory(index, "/dir")).toEqual(new Set(["s1", "s2"]))
     expect(pendingSessionIDsForDirectory(index, "/missing")).toEqual(new Set())
+  })
+
+  test("pendingSessionIDsForDirectory preserves sessions across workspace key variants", () => {
+    const index: PendingQuestionIndex = {}
+    upsertPendingQuestion(index, "C:/repo/", question({ sessionID: "child", messageID: "m1", callID: "c1" }))
+
+    expect(pendingSessionIDsForDirectory(index, "c:\\repo")).toEqual(new Set(["child"]))
   })
 })

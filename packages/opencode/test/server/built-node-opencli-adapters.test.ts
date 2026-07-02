@@ -51,19 +51,22 @@ describe("built node opencli adapters", () => {
       expectModelsSnapshotUnchanged(modelsFixture)
 
       const script = `
-        import { Effect } from "effect"
+        import { Effect, ManagedRuntime } from "effect"
         import { Instance, Log, ToolRegistry } from ${JSON.stringify(pathToFileURL(distEntry).href)}
 
         const directory = process.env.TEST_DIRECTORY
         if (!directory) throw new Error("missing TEST_DIRECTORY")
 
         await Log.init({ level: "DEBUG", print: false })
+        const registryRuntime = ManagedRuntime.make(ToolRegistry.defaultLayer)
+        const registryTools = (input) =>
+          registryRuntime.runPromise(ToolRegistry.Service.use((registry) => registry.tools(input)))
         let exitCode = 0
         try {
           const result = await Instance.provide({
             directory,
             fn: async () => {
-              const tools = await ToolRegistry.tools({
+              const tools = await registryTools({
                 providerID: "openai",
                 modelID: "gpt-5",
                 agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -80,15 +83,25 @@ describe("built node opencli adapters", () => {
                 metadata: () => Effect.void,
                 ask: () => Effect.void,
               }
-              return Effect.runPromise(search.execute({ query: "12306 account", limit: 5 }, ctx))
+              const account = await Effect.runPromise(search.execute({ query: "12306 account", limit: 5 }, ctx))
+              const xiaohongshu = await Effect.runPromise(search.execute({ query: "xiaohongshu ask", limit: 5 }, ctx))
+              return { account, xiaohongshu }
             }
           })
-          console.log(JSON.stringify({ title: result.title, output: result.output, metadata: result.metadata }))
+          console.log(JSON.stringify({
+            account: { title: result.account.title, output: result.account.output, metadata: result.account.metadata },
+            xiaohongshu: {
+              title: result.xiaohongshu.title,
+              output: result.xiaohongshu.output,
+              metadata: result.xiaohongshu.metadata,
+            },
+          }))
         } catch (error) {
           console.error(error instanceof Error ? error.stack : String(error))
           exitCode = 1
         } finally {
           await Instance.disposeAll()
+          await registryRuntime.dispose()
         }
 
         await new Promise((resolve) => setTimeout(resolve, 50))
@@ -103,10 +116,13 @@ describe("built node opencli adapters", () => {
         },
       })
       const output = JSON.parse(result.stdout.toString("utf8"))
-      expect(output.title).toBe('OpenCLI commands for "12306 account"')
-      expect(output.output).toContain('<opencli_command name="12306/me">')
-      expect(output.output).not.toContain("instagram/reel")
-      expect(output.metadata.count).toBeGreaterThan(0)
+      expect(output.account.title).toBe('OpenCLI commands for "12306 account"')
+      expect(output.account.output).toContain('<opencli_command name="12306/me">')
+      expect(output.account.output).not.toContain("instagram/reel")
+      expect(output.account.metadata.count).toBeGreaterThan(0)
+      expect(output.xiaohongshu.title).toBe('OpenCLI commands for "xiaohongshu ask"')
+      expect(output.xiaohongshu.output).toContain('<opencli_command name="xiaohongshu/ask">')
+      expect(output.xiaohongshu.output).toContain("Ask 小红书点点")
     })
   })
 })

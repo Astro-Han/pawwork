@@ -8,7 +8,7 @@ Use `InstanceState` (from `src/effect/instance-state.ts`) for services that need
 
 Use `makeRuntime` (from `src/effect/run-service.ts`) to create a per-service `ManagedRuntime` that lazily initializes and shares layers via a global `memoMap`. Returns `{ runPromise, runFork, runCallback }`.
 
-- Global services (no per-directory state): Account, Auth, AppFileSystem, Installation, Truncate, Worktree
+- Global services (no per-directory state): Account, Auth, AppFileSystem, Installation, ModelState, Truncate, Worktree
 - Instance-scoped (per-directory state via InstanceState): Agent, Bus, Command, Config, File, FileTime, FileWatcher, Format, LSP, MCP, Permission, Plugin, ProviderAuth, Pty, Question, SessionStatus, Skill, Snapshot, ToolRegistry, Vcs
 
 Rule of thumb: if two open directories should not share one copy of the service, it needs `InstanceState`.
@@ -196,6 +196,8 @@ Fully migrated (single namespace, InstanceState where needed, flattened facade):
 - [x] `LSP` — `lsp/index.ts`
 - [x] `MCP` — `mcp/index.ts`
 - [x] `McpAuth` — `mcp/auth.ts`
+- [x] `ModelsDev` — `provider/models.ts` (catalog cache and refresh use `Effect.cached`, `AppFileSystem.Service`, and `EffectFlock.Service`; async facade remains for callers)
+- [x] `ModelState` — `provider/model-state.ts` (`recordRecent` write path; `Provider.defaultModel()` still owns the read path)
 - [x] `Permission` — `permission/index.ts`
 - [x] `Plugin` — `plugin/index.ts`
 - [x] `Project` — `project/project.ts`
@@ -252,6 +254,8 @@ Tool tests should use the existing Effect helpers in `packages/opencode/test/lib
 
 This keeps migrated tool tests aligned with the production service graph today, and makes the eventual `Tool.Info` → `Effect` cleanup mostly mechanical later.
 
+As of the tool-wrapper cleanup slice, `packages/opencode/src/tool/*.ts` no longer has plain `execute:` declarations in the inventory: each execute boundary is named with `Effect.fn(...)`. `tool/registry.ts` still contains compatibility adapters for plugin tools and `tool_info` availability injection, but those wrappers are also named Effect boundaries rather than Promise-returning tool definitions.
+
 Individual tools, ordered by value:
 
 - [x] `apply_patch.ts` — HIGH: multi-step orchestration, error accumulation, Bus events
@@ -262,16 +266,15 @@ Individual tools, ordered by value:
 - [x] `write.ts` — MEDIUM: permission checks, diagnostics polling, Bus events
 - [x] `webfetch.ts` — MEDIUM: fetch with UA retry, size limits → HttpClient
 - [x] `websearch.ts` — MEDIUM: MCP over HTTP → HttpClient
-- [ ] `batch.ts` — MEDIUM: parallel execution, per-call error recovery → Effect.all
-- [ ] `task.ts` — MEDIUM: task state management
-- [ ] `ls.ts` — MEDIUM: bounded directory listing over ripgrep-backed traversal
 - [x] `glob.ts` — LOW: simple async generator
 - [x] `lsp.ts` — LOW: dispatch switch over LSP operations
-- [ ] `question.ts` — LOW: prompt wrapper
+- [x] `question.ts` — LOW: prompt wrapper
 - [x] `skill.ts` — LOW: skill tool adapter
-- [ ] `todo.ts` — LOW: todo persistence wrapper
-- [ ] `invalid.ts` — LOW: invalid-tool fallback
-- [ ] `plan.ts` — LOW: plan file operations
+- [x] `todo.ts` — LOW: todo persistence wrapper
+- [x] `invalid.ts` — LOW: invalid-tool fallback
+- [x] `plan.ts` — LOW: plan file operations
+
+Stale entries removed 2026-06-19: the current tree has no `tool/batch.ts`, `tool/task.ts`, or `tool/ls.ts` files.
 
 ## Effect service adoption in already-migrated code
 
@@ -279,18 +282,19 @@ Some already-effectified areas still use raw `Filesystem.*` or `Process.spawn` i
 
 ### `Filesystem.*` → `AppFileSystem.Service` (yield in layer)
 
-- [ ] `file/index.ts` — 1 remaining `Filesystem.readText()` call in untracked diff handling
-- [ ] `config/config.ts` — 5 remaining `Filesystem.*` calls in `installDependencies()`
-- [ ] `provider/provider.ts` — 1 remaining `Filesystem.readJson()` call for recent model state
+- [x] `file/index.ts` — current tree has no remaining `Filesystem.*` calls; untracked diff handling reads through `AppFileSystem.Service`
+- [x] `config/config.ts` — `installDependencies()` now lives on `Config.Service`, uses `AppFileSystem.Service` and `EffectFlock`, and the async facade delegates through `runPromise`
+- [x] `provider/provider.ts` — default model state reads through `AppFileSystem.Service`; no remaining `Filesystem.*` calls in the current file
+- [x] `provider/models.ts` — catalog cache reads, TTL checks, and atomic writes now run through `AppFileSystem.Service`
 
 ### `Process.spawn` → `ChildProcessSpawner` (yield in layer)
 
 - [x] `format/formatter.ts` — formatter discovery now uses `AppFileSystem.Service` and `ChildProcessSpawner`
-- [ ] `lsp/server.ts` — multiple `Process.spawn()` installs/download helpers
+- [x] `lsp/server.ts` — install/download/root helper IO now uses named Effect helpers backed by `AppFileSystem.Service` and `ChildProcessSpawner`; `launch.ts` remains the long-lived LSP process compatibility launcher
 
 ## Filesystem consolidation
 
-`util/filesystem.ts` (raw fs wrapper) is currently imported by **34 files**. The effectified `AppFileSystem` service (`filesystem/index.ts`) is currently imported by **15 files**. As services and tools are effectified, they should switch from `Filesystem.*` to yielding `AppFileSystem.Service` — this happens naturally during each migration, not as a separate effort.
+`util/filesystem.ts` (raw fs wrapper) still has direct callers, while the effectified `AppFileSystem` service (`filesystem/index.ts`) is now used across migrated service and tool owners. As services and tools are effectified, they should switch from `Filesystem.*` to yielding `AppFileSystem.Service` — this happens naturally during each migration, not as a separate effort.
 
 Similarly, **21 files** still import raw `fs` or `fs/promises` directly. These should migrate to `AppFileSystem` or `Filesystem.*` as they're touched.
 
@@ -302,16 +306,26 @@ Current raw fs users that will convert during tool migration:
 
 ## Primitives & utilities
 
-- [ ] `util/lock.ts` — reader-writer lock → Effect Semaphore/Permit
-- [ ] `util/flock.ts` — file-based distributed lock with heartbeat → Effect.repeat + addFinalizer
-- [ ] `util/process.ts` — child process spawn wrapper → return Effect instead of Promise
-- [ ] `util/lazy.ts` — replace uses in Effect code with Effect.cached; keep for sync-only code
+- [x] `util/lock.ts` — removed; no production callers remained, and the only direct references were the util export plus `test/util/lock.test.ts`
+- [ ] `util/flock.ts` — `packages/core/src/util/effect-flock.ts` is the Effect-native implementation; Effect/service callers should use `EffectFlock.Service`, while legacy Promise callers still use the `packages/opencode/src/util/flock.ts` facade
+  - Converted in this slice: provider models catalog refresh, `Config.withConfigFileLock`, plugin config patching, and plugin metadata reads now run their critical sections through `EffectFlock.Service`
+  - Retained Promise lease boundary: automation run leases/scheduler ownership and direct flock compatibility tests still need the legacy lease object facade
+  - Guardrail: `test/effect/legacy-boundaries.test.ts` prevents new production imports of `@/util/flock` outside the automation lease owners and rejects production `EffectFlock.withLockPromise` usage
+- [x] `util/process.ts` — `Process.Service` and Effect-native `run/text/lines/stop/descendants/terminateTree` now own execution and cleanup; the async facade delegates through `runPromise`
+  - Retained compatibility boundary: `Process.spawn` still returns the Node child facade because CLI pager/auth flows, long-lived LSP launch, Windows cmd script spawning, and stream ownership still depend on that shape
+  - Converted in this slice: `session/prompt.ts` inline shell expansion, `pty/index.ts` teardown cleanup, and `tool/shell.ts` abort/timeout cleanup use `Process.*Effect` directly
+- [ ] `util/lazy.ts` — sync-only route factories, shell selection, native module loading, and zod recursion stay on `lazy`; async Effect code should use `Effect.cached`
+  - Converted in this slice: provider models catalog cache now uses `Effect.cached` inside `ModelsDev.Service`; `tool/shell.ts` parser initialization also uses `Effect.cached` inside the tool's Effect definition
+  - Converted in this slice: control-plane built-in workspace adaptors now use a static map, and `WorktreeAdaptor` calls `Worktree.Service` through the service runtime instead of the `Worktree` Promise facade
+  - Guardrail: `test/effect/legacy-boundaries.test.ts` rejects async `lazy` in production source and keeps the worktree adaptor off the Promise facade path
 
 ## Destroying the facades
 
 Every service currently exports async facade functions at the bottom of its namespace — `export async function read(...) { return runPromise(...) }` — backed by a per-service `makeRuntime`. These exist because cyclic imports used to force each service to build its own independent runtime. Now that the layer DAG is acyclic and `AppRuntime` (`src/effect/app-runtime.ts`) composes everything into one `ManagedRuntime`, we're removing them.
 
 ### Process
+
+Process execution is now effect-native at the utility boundary. Keep the Node child `spawn` facade until long-lived process owners no longer need direct `stdin`/`stdout` streams and `exited` promises, then delete it as a separate compatibility cleanup.
 
 For each service, the migration is roughly:
 
@@ -382,13 +396,25 @@ Decision table for the design:
 - `WriteTool` / `EditTool` / `LspTool` — checklist corrected 2026-06-15. Tool bodies already used named `Effect.fn(...execute)` boundaries and the shared `testEffect(...).live` harness; this follow-up verified the existing write/edit/lsp coverage and closed the stale checklist without code or test changes.
 - `ShellTool` / public `bash` tool — migrated 2026-06-15. The current tree exposes this tool from `tool/shell.ts` with public tool id `bash`; there is no standalone `bash.ts` file. The tool body already used named `Effect.fn(...)` boundaries, and this follow-up moved `shell.test.ts` off its local `ManagedRuntime` / `runtime.runPromise(...)` helper and onto an explicit `Effect.provide(testLayer)` runner that initializes and executes the tool inside the same Effect scope while preserving the shell behavior matrix.
 - `SkillTool` — migrated 2026-06-15. The tool body already used the named `Effect.fn("SkillTool.execute")` boundary; this follow-up moved the remaining `skill.test.ts` execute coverage off its local `ManagedRuntime` / `runtime.runPromise(...)` helper and onto an inline `Effect.scoped` + `Effect.provide(testLayer)` boundary, without changing skill discovery or ToolRegistry behavior.
+- Low-tail tools — migrated 2026-06-19. `QuestionTool`, `TodoWriteTool`, and `InvalidTool` already used `Tool.define(...)`, effectful init, and named `Effect.fn(...execute)` boundaries; this follow-up added shared Effect-harness execute coverage for submitted question answers, Todo.Service-backed persistence, and the invalid-tool fallback shape. `PlanExitTool` now wraps its `MessageV2.stream(...)` model lookup in a named Effect boundary and uses `Clock.currentTimeMillis` for the synthetic build-agent message timestamp, with coverage for the approved plan-exit handoff. No HTTP/server, remote, UI, or registry behavior changed.
 - Browser tool tests / `Tool.define` wrapper tests — migrated 2026-06-15. Browser tool bodies were already `Tool.define` + named `Effect.fn(...execute)` definitions, and `browser-shared.ts` already wrapped the CDP Promise boundary with `Effect.tryPromise`; this follow-up moved `browser-tools.test.ts` and `tool-define.test.ts` off their local `Effect.runPromise` / `ManagedRuntime` helpers and onto the shared `testEffect(...).live` harness while preserving fake CDP, permission, cancellation, and wrapper error-boundary assertions.
-- Light instance route handlers — migrated 2026-06-15. The `server/instance/permission.ts` e2e ask and list/prune handlers, `server/instance/session.ts` status and todo handlers, `server/instance/index.ts` raw/apply VCS handlers, and `server/instance/global.ts` upgrade handler now run their bodies through one `AppRuntime.runPromise(Effect.gen(...))` service injection path while preserving fire-and-forget logging, dangling-session pruning, VCS error mappings, and upgrade result handling. This does not claim full session, global, or heavy route migration.
+- Light instance route handlers — migrated 2026-06-15. The `server/instance/permission.ts` e2e ask and list/prune handlers, `server/instance/session.ts` status and todo handlers, the then-current root raw/apply VCS handlers, and `server/instance/global.ts` upgrade handler moved their bodies through one `AppRuntime.runPromise(Effect.gen(...))` service injection path while preserving fire-and-forget logging, dangling-session pruning, VCS error mappings, and upgrade result handling. This does not claim full session, global, or heavy route migration.
 - MCP route handlers — migrated 2026-06-15. The current `server/instance/mcp.ts` operation handlers now run MCP service calls through `AppRuntime.runPromise(Effect.gen(...))` and `MCP.Service`, with route tests covering disabled local server add and non-OAuth auth 400 behavior. This does not change MCP service behavior, OAuth providers, or config schema.
+- Workspace route handlers — migrated 2026-06-15. The current `server/instance/workspace.ts` create/list/status/remove handlers now run through `AppRuntime.runPromise(Effect.gen(...))` and `Workspace.Service`, with route tests covering the public create/list/status/remove HTTP behavior, current-project status filtering, and legacy worktree bad-request error mapping.
+- Server routing/runtime helpers — migrated 2026-06-15. `server/proxy.ts` and `server/fence.ts` now read workspace connection status through `AppRuntime` and `Workspace.Service`, while `server/instance/workspace-routing.ts` resolves session-bound workspace ownership through the injected `Session.Service`. This keeps Hono routing behavior unchanged and leaves the service facades as legacy compatibility boundaries.
+- Session route facade stragglers — migrated 2026-06-15. The current `server/instance/session.ts` owner now routes the listed GET `/session`, share/unshare session fetches, summarize post-loop message check, and deprecated session permission response through `AppRuntime.runPromise(Effect.gen(...))` with `Session.Service` / `Permission.Service`. This only clears those route-owner stragglers; it does not claim full `server/routes/session.ts` migration and does not touch session processor, prompt, or run-state internals.
+- Session route service block — migrated 2026-06-15. The current `server/instance/session.ts` owner now routes session create/share/unshare, abort, init/command/shell/prompt/prompt_async/summarize loop, and revert/unrevert through `AppRuntime.runPromise(Effect.gen(...))` with `SessionShare.Service`, `SessionPrompt.Service`, and `SessionRevert.Service`. Route tests no longer spy on the legacy facades, and HTTP prompt routes still strip client-supplied `automationID`. The synchronous `MessageV2.get` route call remains direct because `MessageV2` has no suitable Effect service boundary in this file.
+- Experimental route boundary — migrated 2026-06-15. The current `server/instance/experimental.ts` owner now routes Console state/org switch, tool ids/list, worktree create/list/remove/reset, and MCP resources through named `Effect.fn(...)` route boundaries that yield `Config.Service`, `Account.Service`, `ToolRegistry.Service`, `Agent.Service`, `Worktree.Service`, and `MCP.Service`. The `/experimental/session` list route intentionally remains on the existing `Session.listGlobal(...)` async iterator because migrating it would broaden the slice into Session pagination/cursor internals.
+- Instance root route boundary — migrated 2026-06-18 and retired from legacy Hono source on 2026-06-21. Instance dispose, path metadata, root VCS JSON/diff/status/raw/apply, command list, agent list, skill list, and LSP status now run through the production HttpApi root handlers. VCS handlers still yield `Vcs.Service` and preserve raw/apply error mappings; `/instance/dispose` intentionally keeps the existing `Instance.dispose()` compatibility facade inside the Effect boundary because it updates legacy instance directory bookkeeping that is not exposed as an Effect service API.
+- Small instance route owners — migrated 2026-06-18. `server/instance/file.ts`, `server/instance/project.ts`, `server/instance/memory.ts`, and `server/instance/external-result.ts` now route body work through named `Effect.fn(...)` boundaries with one route-local `AppRuntime.runPromise` bridge per owner. File/project/external-result routes yield `Ripgrep.Service`, `File.Service`, `Project.Service`, and `Session.Service` where service APIs already exist. Project init still keeps the existing `Instance.reload(...)` compatibility call inside the route effect, memory still wraps the existing `MemoryService` Promise API, and external-result still uses `MessageV2.get(...)` inside the route effect because those behaviors do not yet have suitable service APIs in this slice.
+- Global/workspace/permission/automation route boundary — migrated 2026-06-18. The current `server/instance/global.ts`, `workspace.ts`, `permission.ts`, and `automation.ts` owners now route their non-streaming service work through named `Effect.fn(...)` boundaries and shared route-local AppRuntime bridges. Global config/dispose/upgrade, workspace create/list/status/remove, permission e2e ask/reply/list, and automation list/create/get/update/pause/resume/delete/run/runs preserve their existing HTTP shapes; automation intentionally keeps its `runPromiseExit` typed error mapper so `ValidationError`, `ConflictError`, and `ActiveRunStillRunningError` still map to the same `422`/`409` responses. Global health and SSE routes stay direct because they do not cross a service runtime boundary.
+- Session route boundary — migrated 2026-06-18. The current `server/instance/session.ts` owner now routes its service-backed session CRUD, todo, share/unshare, export, diff, turn-change, artifacts, summarize, messages, message/part mutation, command/shell, revert/unrevert, and deprecated permission reply work through named `Effect.fn(...)` boundaries plus one route-local AppRuntime bridge. Streaming prompt and fire-and-forget prompt_async keep the existing Hono stream/error behavior through `runHttpPrompt`, while synchronous `MessageV2.get(...)` and the tool/respond lookup/decoder stay as route compatibility code because they do not have a suitable service boundary in this slice.
+- LSP server helper IO — migrated 2026-06-19. `packages/opencode/src/lsp/server.ts` now keeps root discovery, installer filesystem work, archive cleanup, chmod/symlink/rename, and short-lived install/build commands behind named Effect helpers. The public `LSPServer.Info.spawn(root): Promise<Handle | undefined>` shape remains as the compatibility facade, and `packages/opencode/src/lsp/launch.ts` still owns long-lived language-server process spawning.
+- Special HTTP production boundary — migrated 2026-06-19. `server.ts` no longer mounts the catch-all Hono compatibility app for production fallback. `GET /event`, `GET /global/event`, `GET /global/sync-event`, and `ALL /*` UI static/proxy now run through native Web `Request`/`Response` handlers. `GET /pty/:ptyID/connect` and `GET /__workspace_ws` remain in the explicit `server/websocket-compatibility.ts` island because the Node adapter still exposes Hono's `upgradeWebSocket` API for real WebSocket upgrades.
 
 ## Route handler effectification
 
-Route handlers should wrap their entire body in a single `AppRuntime.runPromise(Effect.gen(...))` call, yielding services from context rather than calling facades one-by-one. This eliminates multiple `runPromise` round-trips and lets handlers compose naturally.
+Route handlers should keep effectful service work behind named `Effect.fn(...)` route boundaries and run each handler through one AppRuntime bridge, yielding services from context rather than calling facades one-by-one. This eliminates multiple `runPromise` round-trips and gives route effects stable trace names.
 
 ```ts
 // Before — one facade call per service
@@ -398,16 +424,16 @@ Route handlers should wrap their entire body in a single `AppRuntime.runPromise(
   return c.json(true)
 }
 
-// After — one Effect.gen, yield services from context
+// After — one named route effect, yield services from context
+const removeMessage = Effect.fn("SessionRoutes.message.remove")(function* (id, messageID) {
+  const state = yield* SessionRunState.Service
+  const session = yield* Session.Service
+  yield* state.assertNotBusy(id)
+  yield* session.removeMessage({ sessionID: id, messageID })
+})
+
 ;async (c) => {
-  await AppRuntime.runPromise(
-    Effect.gen(function* () {
-      const state = yield* SessionRunState.Service
-      const session = yield* Session.Service
-      yield* state.assertNotBusy(id)
-      yield* session.removeMessage({ sessionID: id, messageID })
-    }),
-  )
+  await AppRuntime.runPromise(removeMessage(id, messageID))
   return c.json(true)
 }
 ```
@@ -416,9 +442,18 @@ When migrating, always use `{ concurrency: "unbounded" }` with `Effect.all` — 
 
 Route files to convert (each handler that calls facades should be wrapped):
 
-- [ ] `server/routes/session.ts` — heaviest; uses Session, SessionPrompt, SessionRevert, SessionCompaction, SessionShare, SessionSummary, SessionRunState, Agent, Permission, Bus
-- [ ] `server/routes/global.ts` — uses Config, Project, Provider, Vcs, Snapshot, Agent
+- [x] `server/instance/session.ts` — migrated 2026-06-18. Service-backed session CRUD, todo, share/unshare, export, diff, turn-change, artifacts, summarize, messages, message/part mutation, command/shell, revert/unrevert, and deprecated permission reply handlers now use named route effects plus one shared AppRuntime bridge; streaming prompt/prompt_async, synchronous `MessageV2.get(...)`, and tool/respond lookup/decoder remain compatibility boundaries by design.
+- [x] `server/instance/global.ts` — migrated 2026-06-18. Config, dispose, and upgrade service work now uses named route effects plus a shared AppRuntime bridge; health and SSE routes remain direct by design.
+- [x] `server/instance/index.ts` — migrated 2026-06-18; legacy Hono route source retired 2026-06-21. Root instance, path, VCS, command, agent, skill, and LSP behavior now lives in the production HttpApi root handlers; `/instance/dispose` keeps `Instance.dispose()` inside the Effect boundary for legacy directory bookkeeping.
 - [x] `server/instance/provider.ts` — migrated 2026-06-15. Provider auth route bodies now yield `ProviderAuth.Service` inside `AppRuntime.runPromise(Effect.gen(...))`; the old `server/routes/provider.ts` checklist path is stale in the current tree.
 - [ ] `server/routes/question.ts` — stale checklist path. The current tree has no `server/instance/question.ts` route; do not claim completion without a live route owner.
 - [x] `server/instance/pty.ts` — migrated 2026-06-15. Connect-token and WebSocket connect route bodies now yield `Pty.Service` for target lookup and connection setup; the old `server/routes/pty.ts` checklist path is stale in the current tree.
-- [ ] `server/routes/experimental.ts` — uses Account, ToolRegistry, Agent, MCP, Config
+- [x] `server/instance/workspace.ts` — migrated 2026-06-18. Workspace create/list/status/remove handlers now use named route effects plus a shared AppRuntime bridge; status still lists the current project first and filters global workspace statuses by those ids.
+- [x] `server/instance/permission.ts` — migrated 2026-06-18. E2E ask, reply, and list/prune handlers now use named route effects plus a shared AppRuntime bridge while preserving fire-and-forget logging for the e2e seed route.
+- [x] `server/instance/automation.ts` — migrated 2026-06-18. Automation handlers now use named route effects while preserving the route-local `runPromiseExit` error mapper for typed validation/conflict/active-run HTTP responses.
+- [x] `server/instance/experimental.ts` — migrated 2026-06-15 for Console, tool, worktree, and MCP resource handlers. The old `server/routes/experimental.ts` checklist path is stale in the current tree. `/experimental/session` still calls `Session.listGlobal(...)` directly by design.
+- [x] `server/instance/file.ts` — migrated 2026-06-18. Find/list/read/status handlers now use named route effects and yield `Ripgrep.Service` / `File.Service` through one route-local runtime bridge.
+- [x] `server/instance/config.ts` — migrated 2026-06-19 and legacy Hono route source retired 2026-06-20. Get, update, and providers now run through the production Config HttpApi handlers while keeping strict JSON handling, `Config.Info.zod` override semantics, provider default model mapping, and OpenAPI metadata unchanged.
+- [x] `server/instance/project.ts` — migrated 2026-06-18. List/init-git/update handlers now use named route effects and yield `Project.Service`; init-git keeps `Instance.reload(...)` inside the route effect for legacy instance bookkeeping.
+- [x] `server/instance/memory.ts` — migrated 2026-06-18. Memory read/update/reset/disabled/delete handlers now use named route effects and one route-local runtime bridge around the existing `MemoryService` Promise API.
+- [x] `server/instance/external-result.ts` — migrated 2026-06-18. Pending external-result hydration now runs through one route effect, yielding `Session.Service` once and preserving stale-entry skip/retry behavior while keeping `MessageV2.get(...)` inside the effect because there is no suitable MessageV2 service boundary here.

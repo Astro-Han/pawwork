@@ -9,6 +9,7 @@ import { Plugin } from "../../src/plugin/index"
 import { Auth } from "../../src/auth"
 import { ModelsDev } from "../../src/provider"
 import { Provider } from "../../src/provider"
+import { ModelState } from "../../src/provider/model-state"
 import { withPawWorkProviders } from "../../src/provider/pawwork-providers"
 import { localProviderImportSpec, stripOpenAIResponseInputIDs } from "../../src/provider/provider"
 import { ProviderID, ModelID } from "../../src/provider/schema"
@@ -16,7 +17,6 @@ import { Filesystem } from "../../src/util/filesystem"
 import { Env } from "../../src/env"
 import { Effect } from "effect"
 import { AppRuntime } from "../../src/effect/app-runtime"
-import { makeRuntime } from "../../src/effect/run-service"
 import {
   VOLCENGINE_PLAN_DEFAULT_MODEL_ID,
   VOLCENGINE_PLAN_HIDDEN_MODEL_IDS,
@@ -24,9 +24,8 @@ import {
   VOLCENGINE_PLAN_VISIBLE_MODEL_IDS,
 } from "@opencode-ai/util/volcengine-plan"
 
-const env = makeRuntime(Env.Service, Env.defaultLayer)
-const set = (k: string, v: string) => env.runSync((svc) => svc.set(k, v))
-const unset = (k: string) => env.runSync((svc) => svc.remove(k))
+const set = (k: string, v: string) => AppRuntime.runSync(Env.Service.use((env) => env.set(k, v)))
+const unset = (k: string) => AppRuntime.runSync(Env.Service.use((env) => env.remove(k)))
 
 function clearVertexEnv() {
   unset("GOOGLE_VERTEX_PROJECT")
@@ -59,6 +58,14 @@ async function getModel(providerID: ProviderID, modelID: ModelID) {
   return run((provider) => provider.getModel(providerID, modelID))
 }
 
+async function modelsDatabase() {
+  return AppRuntime.runPromise(
+    ModelsDev.Service.use((svc) =>
+      svc.data().pipe(Effect.map((catalog) => withPawWorkProviders(catalog as Record<string, ModelsDev.Provider>))),
+    ),
+  )
+}
+
 async function getLanguage(model: Provider.Model) {
   return run((provider) => provider.getLanguage(model))
 }
@@ -73,6 +80,14 @@ async function getSmallModel(providerID: ProviderID) {
 
 async function defaultModel() {
   return run((provider) => provider.defaultModel())
+}
+
+async function recordRecent(model: ModelState.ModelRef) {
+  return AppRuntime.runPromise(ModelState.Service.use((modelState) => modelState.recordRecent(model)))
+}
+
+async function runAuth<A, E>(fn: (auth: Auth.Interface) => Effect.Effect<A, E, never>) {
+  return AppRuntime.runPromise(Auth.Service.use(fn))
 }
 
 async function readAuthSnapshot() {
@@ -717,6 +732,57 @@ test("defaultModel respects config model setting", async () => {
   })
 })
 
+test("defaultModel returns a model seeded into recent via recordRecent (model.json round-trip)", async () => {
+  // The read half of the recent-model chain: recordRecent writes state/model.json,
+  // and defaultModel must pick it up ahead of the provider's own first model. If
+  // recordRecent's format drifts or defaultModel stops reading recent, this fails.
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "custom-openai": {
+              name: "Custom OpenAI",
+              npm: "@ai-sdk/openai-compatible",
+              env: [],
+              models: {
+                "model-a": { name: "Model A", tool_call: true, limit: { context: 1000, output: 100 } },
+                "model-b": { name: "Model B", tool_call: true, limit: { context: 1000, output: 100 } },
+              },
+              options: { apiKey: "test-key", baseURL: "https://custom.openai.com/v1" },
+            },
+          },
+        }),
+      )
+    },
+  })
+  // model.json is process-wide (XDG_STATE_HOME from the test preload), so it is
+  // shared with prompt.test.ts. Start clean so "empty recent" holds regardless of
+  // run order, and remove our write afterward so it can't leak into other tests.
+  const stateModel = path.join(Global.Path.state, "model.json")
+  await unlink(stateModel).catch(() => {})
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        // With an empty recent, defaultModel falls through to the provider's first model.
+        const fallback = await defaultModel()
+        // Seed the OTHER model — the one defaultModel would not pick on its own.
+        const other = String(fallback.modelID) === "model-a" ? "model-b" : "model-a"
+        await recordRecent({ providerID: ProviderID.make("custom-openai"), modelID: ModelID.make(other) })
+        const after = await defaultModel()
+        expect(String(after.providerID)).toBe("custom-openai")
+        expect(String(after.modelID)).toBe(other)
+        expect(String(after.modelID)).not.toBe(String(fallback.modelID))
+      },
+    })
+  } finally {
+    await unlink(stateModel).catch(() => {})
+  }
+})
+
 test("provider with baseURL from config", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -1353,7 +1419,7 @@ test("provider.sort prioritizes preferred models", () => {
 })
 
 test("includes Volcano Engine Coding Plan as a PawWork provider overlay", async () => {
-  const models = await ModelsDev.get()
+  const models = await modelsDatabase()
   const provider = models[VOLCENGINE_PLAN_PROVIDER_ID]
 
   expect(provider).toBeDefined()
@@ -1367,17 +1433,50 @@ test("includes Volcano Engine Coding Plan as a PawWork provider overlay", async 
     Object.keys(provider.models).filter((id) => !VOLCENGINE_PLAN_HIDDEN_MODEL_IDS.some((hidden) => hidden === id)),
   ).toEqual([...VOLCENGINE_PLAN_VISIBLE_MODEL_IDS])
   expect(provider.models[VOLCENGINE_PLAN_HIDDEN_MODEL_IDS[0]]).toBeDefined()
+  for (const [key, model] of Object.entries(provider.models)) {
+    expect(key, `key must match model.id for ${key}`).toBe(model.id)
+  }
   expect(provider.models[VOLCENGINE_PLAN_DEFAULT_MODEL_ID].cost).toEqual({
     input: 0,
     output: 0,
     cache_read: 0,
     cache_write: 0,
   })
-  expect(provider.models["glm-5.1"].family).toBe("glm")
-  expect(provider.models["glm-4.7"].family).toBe("glm")
-  expect(provider.models["deepseek-v3.2"].family).toBe("deepseek")
+  expect(provider.models["glm-5.2"].family).toBe("glm")
+  expect(provider.models["deepseek-v4-pro"].family).toBe("deepseek")
   expect(provider.models["kimi-k2.6"].interleaved).toEqual({ field: "reasoning_content" })
-  expect(provider.models["kimi-k2.5"].interleaved).toEqual({ field: "reasoning_content" })
+})
+
+
+test("Volcano Engine Coding Plan models have correct key parameters", async () => {
+  const models = await modelsDatabase()
+  const provider = models[VOLCENGINE_PLAN_PROVIDER_ID]
+
+  const expected: Record<string, {
+    context: number
+    output: number
+    reasoning: boolean
+    interleaved: false | { field: "reasoning_content" | "reasoning_details" }
+    attachment: boolean
+    inputModalities: ("text" | "image" | "audio" | "video" | "pdf")[]
+  }> = {
+    "minimax-m3": { context: 512000, output: 128000, reasoning: true, interleaved: false, attachment: false, inputModalities: ["text"] },
+    "glm-5.2": { context: 1000000, output: 131072, reasoning: true, interleaved: { field: "reasoning_content" }, attachment: false, inputModalities: ["text"] },
+    "deepseek-v4-flash": { context: 1000000, output: 384000, reasoning: true, interleaved: { field: "reasoning_content" }, attachment: false, inputModalities: ["text"] },
+    "deepseek-v4-pro": { context: 1000000, output: 384000, reasoning: true, interleaved: { field: "reasoning_content" }, attachment: false, inputModalities: ["text"] },
+    "kimi-k2.6": { context: 262144, output: 131072, reasoning: true, interleaved: { field: "reasoning_content" }, attachment: true, inputModalities: ["text", "image", "video"] },
+  }
+
+  for (const [id, spec] of Object.entries(expected)) {
+    const model = provider.models[id]
+    expect(model, `missing model ${id}`).toBeDefined()
+    expect(model.limit.context, `${id}.limit.context`).toBe(spec.context)
+    expect(model.limit.output, `${id}.limit.output`).toBe(spec.output)
+    expect(model.reasoning, `${id}.reasoning`).toBe(spec.reasoning)
+    expect(model.interleaved ?? false, `${id}.interleaved`).toEqual(spec.interleaved)
+    expect(model.attachment ?? false, `${id}.attachment`).toBe(spec.attachment)
+    expect(model.modalities?.input ?? [], `${id}.modalities.input`).toEqual(spec.inputModalities)
+  }
 })
 
 test("does not add OpenAI-compatible replay metadata to Kimi Coding Plan Anthropic models", () => {
@@ -1426,7 +1525,7 @@ test("does not add OpenAI-compatible replay metadata to Kimi Coding Plan Anthrop
 })
 
 test("uses doubao-seed-2.0-code as the Volcano Coding Plan default model", async () => {
-  const models = await ModelsDev.get()
+  const models = await modelsDatabase()
   const provider = models[VOLCENGINE_PLAN_PROVIDER_ID]
 
   expect(Provider.defaultModelIDs({ [provider.id]: provider })).toEqual({
@@ -3442,7 +3541,7 @@ test("multiple provider model hooks run for the same provider", async () => {
 
 test("Codex no-op hook does not block external OpenAI model hooks", async () => {
   const authSnapshot = await readAuthSnapshot()
-  await Auth.remove(ProviderID.openai)
+  await runAuth((auth) => auth.remove(ProviderID.openai))
   await using tmp = await tmpdir({
     init: async (dir) => {
       const root = path.join(dir, ".opencode", "plugin")
@@ -3493,7 +3592,7 @@ test("Codex no-op hook does not block external OpenAI model hooks", async () => 
 
 test("Codex OAuth provider hook filters OpenAI models added by config", async () => {
   const authSnapshot = await readAuthSnapshot()
-  await Auth.remove(ProviderID.openai)
+  await runAuth((auth) => auth.remove(ProviderID.openai))
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
@@ -3527,14 +3626,16 @@ test("Codex OAuth provider hook filters OpenAI models added by config", async ()
     await Instance.provide({
       directory: tmp.path,
       init: async () => {
-        await Auth.set(
-          ProviderID.openai,
-          {
-            type: "oauth",
-            access: "access",
-            refresh: "refresh",
-            expires: Date.now() + 60_000,
-          } as never,
+        await runAuth((auth) =>
+          auth.set(
+            ProviderID.openai,
+            {
+              type: "oauth",
+              access: "access",
+              refresh: "refresh",
+              expires: Date.now() + 60_000,
+            } as never,
+          ),
         )
       },
       fn: async () => {
@@ -3557,7 +3658,7 @@ test("Codex OAuth provider hook filters OpenAI models added by config", async ()
 
 test("Codex OAuth config model override survives external OpenAI model hook", async () => {
   const authSnapshot = await readAuthSnapshot()
-  await Auth.remove(ProviderID.openai)
+  await runAuth((auth) => auth.remove(ProviderID.openai))
   await using tmp = await tmpdir({
     init: async (dir) => {
       const root = path.join(dir, ".opencode", "plugin")
@@ -3610,14 +3711,16 @@ test("Codex OAuth config model override survives external OpenAI model hook", as
     await Instance.provide({
       directory: tmp.path,
       init: async () => {
-        await Auth.set(
-          ProviderID.openai,
-          {
-            type: "oauth",
-            access: "access",
-            refresh: "refresh",
-            expires: Date.now() + 60_000,
-          } as never,
+        await runAuth((auth) =>
+          auth.set(
+            ProviderID.openai,
+            {
+              type: "oauth",
+              access: "access",
+              refresh: "refresh",
+              expires: Date.now() + 60_000,
+            } as never,
+          ),
         )
       },
       fn: async () => {
@@ -3639,7 +3742,7 @@ test("Codex OAuth config model override survives external OpenAI model hook", as
 
 test("post-config OAuth rerun only reprocesses providers with config models", async () => {
   const authSnapshot = await readAuthSnapshot()
-  await Auth.remove(ProviderID.anthropic)
+  await runAuth((auth) => auth.remove(ProviderID.anthropic))
   await using tmp = await tmpdir({
     init: async (dir) => {
       const root = path.join(dir, ".opencode", "plugin")
@@ -3694,14 +3797,16 @@ test("post-config OAuth rerun only reprocesses providers with config models", as
       directory: tmp.path,
       init: async () => {
         set("ANTHROPIC_API_KEY", "test-anthropic-key")
-        await Auth.set(
-          ProviderID.anthropic,
-          {
-            type: "oauth",
-            access: "access",
-            refresh: "refresh",
-            expires: Date.now() + 60_000,
-          } as never,
+        await runAuth((auth) =>
+          auth.set(
+            ProviderID.anthropic,
+            {
+              type: "oauth",
+              access: "access",
+              refresh: "refresh",
+              expires: Date.now() + 60_000,
+            } as never,
+          ),
         )
       },
       fn: async () => {

@@ -17,6 +17,7 @@ import {
   pendingExternalResultQuestionFromPart,
   type PendingExternalResultQuestion,
 } from "./external-result-question"
+import { workspaceKey } from "@/utils/workspace-key"
 
 // One pending question keyed by its asking identity, plus the resolved root
 // session it should be attributed to. `rootSessionID` is filled asynchronously
@@ -25,7 +26,7 @@ import {
 // derivations fall back to `sessionID` so an unresolved entry still counts.
 export type PendingQuestion = PendingExternalResultQuestion & { rootSessionID?: string }
 
-// directory -> askSessionID -> questions owned by that session
+// workspaceKey(directory) -> askSessionID -> questions owned by that session
 export type PendingQuestionIndex = {
   [directory: string]: { [sessionID: string]: PendingQuestion[] }
 }
@@ -45,7 +46,8 @@ export function upsertPendingQuestion(
   directory: string,
   question: PendingQuestion,
 ): boolean {
-  const bySession = index[directory] ?? (index[directory] = {})
+  const key = workspaceKey(directory)
+  const bySession = index[key] ?? (index[key] = {})
   const list = bySession[question.sessionID] ?? []
   const at = list.findIndex((item) => item.id === question.id)
   if (at === -1) {
@@ -67,13 +69,14 @@ export function setPendingQuestionRoot(
   id: string,
   rootSessionID: string,
 ): void {
-  const list = index[directory]?.[sessionID]
+  const key = workspaceKey(directory)
+  const list = index[key]?.[sessionID]
   if (!list) return
   const at = list.findIndex((item) => item.id === id)
   if (at === -1) return
   const next = list.slice()
   next[at] = { ...next[at], rootSessionID }
-  index[directory][sessionID] = next
+  index[key][sessionID] = next
 }
 
 type RemoveMatch = {
@@ -89,7 +92,7 @@ type RemoveMatch = {
 // entries so the caller can cancel any in-flight root resolution for them.
 export function removePendingQuestions(index: PendingQuestionIndex, match: RemoveMatch): PendingQuestion[] {
   const removed: PendingQuestion[] = []
-  const directories = match.directory ? [match.directory] : Object.keys(index)
+  const directories = match.directory ? [workspaceKey(match.directory)] : Object.keys(index)
   for (const directory of directories) {
     const bySession = index[directory]
     if (!bySession) continue
@@ -125,7 +128,8 @@ export function reconcileDirectoryPending(
   directory: string,
   next: PendingQuestion[],
 ): string[] {
-  const previous = index[directory] ?? {}
+  const key = workspaceKey(directory)
+  const previous = index[key] ?? {}
   const priorRoot = new Map<string, string>()
   for (const list of Object.values(previous)) {
     for (const question of list ?? []) {
@@ -148,8 +152,8 @@ export function reconcileDirectoryPending(
   for (const list of Object.values(previous)) {
     for (const question of list ?? []) if (!keptIDs.has(question.id) && !priorRoot.has(question.id)) dropped.push(question.id)
   }
-  if (next.length > 0) index[directory] = bySession
-  else delete index[directory]
+  if (next.length > 0) index[key] = bySession
+  else delete index[key]
   return dropped
 }
 
@@ -157,9 +161,14 @@ export function reconcileDirectoryPending(
 // the Dock badge's question contribution: one root session waiting on the user
 // counts once, regardless of how many child agents under it are asking.
 // Unresolved entries fall back to their asking session so they still count.
-export function pendingRootSessionIDs(index: PendingQuestionIndex): Set<string> {
+export function pendingRootSessionIDs(
+  index: PendingQuestionIndex,
+  options: { excludeDirectories?: Iterable<string> } = {},
+): Set<string> {
+  const exclude = new Set(Array.from(options.excludeDirectories ?? [], workspaceKey))
   const roots = new Set<string>()
-  for (const bySession of Object.values(index)) {
+  for (const [directory, bySession] of Object.entries(index)) {
+    if (exclude.has(workspaceKey(directory))) continue
     for (const list of Object.values(bySession)) {
       for (const question of list ?? []) roots.add(question.rootSessionID ?? question.sessionID)
     }
@@ -171,5 +180,5 @@ export function pendingRootSessionIDs(index: PendingQuestionIndex): Set<string> 
 // to session-trim so a child agent waiting on the user is never trimmed out of
 // the session list (which would drop its parts and collapse the dock).
 export function pendingSessionIDsForDirectory(index: PendingQuestionIndex, directory: string): Set<string> {
-  return new Set(Object.keys(index[directory] ?? {}))
+  return new Set(Object.keys(index[workspaceKey(directory)] ?? {}))
 }

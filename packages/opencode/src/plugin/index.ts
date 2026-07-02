@@ -21,7 +21,6 @@ import { CloudflareAIGatewayAuthPlugin, CloudflareWorkersAuthPlugin } from "./cl
 import { Effect, Layer, Context, Stream } from "effect"
 import * as EffectLogger from "@opencode-ai/core/effect/logger"
 import { InstanceState } from "@/effect/instance-state"
-import { makeRuntime } from "@/effect/run-service"
 import { errorMessage } from "@/util/error"
 import { needsConfigDependencies } from "@/config/dependency"
 import { PluginLoader } from "./loader"
@@ -181,15 +180,16 @@ export namespace Plugin {
             if (!(yield* Effect.promise(() => needsConfigDependencies(fileURLToPath(spec), dependencyDir(origin.source, ctx.directory))))) {
               continue
             }
-            yield* Effect.promise(() => Config.waitForDependencies().catch(() => undefined))
+            yield* config.waitForDependencies().pipe(Effect.catch(() => Effect.void))
             break
           }
 
+          const waitForDependencies = () => Effect.runPromise(config.waitForDependencies())
           const loaded = yield* Effect.promise(() =>
             PluginLoader.loadExternal({
               items: plugins,
               kind: "server",
-              wait: () => Config.waitForDependencies(),
+              wait: waitForDependencies,
               shouldRetry: (origin) => {
                 const spec = Config.pluginSpecifier(origin.spec)
                 if (!spec.startsWith("file://")) return Promise.resolve(false)
@@ -320,21 +320,4 @@ export namespace Plugin {
   )
 
   export const defaultLayer = layer.pipe(Layer.provide(Bus.layer), Layer.provide(Config.defaultLayer))
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export async function trigger<
-    Name extends TriggerName,
-    Input = Parameters<Required<Hooks>[Name]>[0],
-    Output = Parameters<Required<Hooks>[Name]>[1],
-  >(name: Name, input: Input, output: Output): Promise<Output> {
-    return runPromise((svc) => svc.trigger(name, input, output))
-  }
-
-  export async function list(): Promise<Hooks[]> {
-    return runPromise((svc) => svc.list())
-  }
-
-  export async function init() {
-    return runPromise((svc) => svc.init())
-  }
 }

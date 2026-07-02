@@ -1,5 +1,5 @@
 import path from "path"
-import { Effect, Schema } from "effect"
+import { Clock, Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import type { DecodeResult } from "./tool"
 import { Question } from "../question"
@@ -10,12 +10,14 @@ import { Instance } from "../project/instance"
 import { type SessionID, MessageID, PartID } from "../session/schema"
 import EXIT_DESCRIPTION from "./plan-exit.txt"
 
-function getLastModel(sessionID: SessionID) {
-  for (const item of MessageV2.stream(sessionID)) {
-    if (item.info.role === "user" && item.info.model) return item.info.model
-  }
-  return undefined
-}
+const getLastModel = Effect.fn("PlanExitTool.getLastModel")((sessionID: SessionID) =>
+  Effect.sync(() => {
+    for (const item of MessageV2.stream(sessionID)) {
+      if (item.info.role === "user" && item.info.model) return item.info.model
+    }
+    return undefined
+  }),
+)
 
 export const Parameters = Schema.Struct({})
 
@@ -102,13 +104,14 @@ export const PlanExitTool = Tool.define(
           }
         }
 
-        const model = getLastModel(ctx.sessionID) ?? (yield* provider.defaultModel().pipe(Effect.orDie))
+        const model = (yield* getLastModel(ctx.sessionID)) ?? (yield* provider.defaultModel().pipe(Effect.orDie))
+        const now = yield* Clock.currentTimeMillis
 
         const msg: MessageV2.User = {
           id: MessageID.ascending(),
           sessionID: ctx.sessionID,
           role: "user",
-          time: { created: Date.now() },
+          time: { created: now },
           agent: "build",
           model,
         }

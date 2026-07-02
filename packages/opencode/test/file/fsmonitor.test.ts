@@ -2,11 +2,16 @@ import { $ } from "bun"
 import { describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
-import { File } from "../../src/file"
+import { File as FileCore } from "../../src/file"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 
 const wintest = process.platform === "win32" ? test : test.skip
+const File = {
+  status: () => AppRuntime.runPromise(FileCore.Service.use((svc) => svc.status())),
+  read: (file: string) => AppRuntime.runPromise(FileCore.Service.use((svc) => svc.read(file))),
+}
 
 describe("file fsmonitor", () => {
   wintest("status does not start fsmonitor for readonly git checks", async () => {

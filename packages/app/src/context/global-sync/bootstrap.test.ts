@@ -17,13 +17,14 @@ function createState(): State {
     agent: [],
     command: [],
     command_ready: false,
+    external_result_ready: false,
     project: "",
     projectMeta: undefined,
     icon: undefined,
     provider_ready: false,
     provider: { all: [], connected: [], default: {} },
     config: {},
-    path: { state: "", config: "", worktree: "", directory: "", home: "" },
+    path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" },
     session: [],
     sessionTotal: 0,
     session_status: {},
@@ -136,7 +137,7 @@ describe("bootstrapDirectory", () => {
         get: async () => ({ data: undefined }),
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
@@ -163,7 +164,7 @@ describe("bootstrapDirectory", () => {
         translate: (key) => key,
         global: {
           config: {} as Config,
-          path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+          path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
           project: [] as Project[],
           provider: { all: [], connected: [], default: {} },
         },
@@ -172,7 +173,66 @@ describe("bootstrapDirectory", () => {
       await waitFor(() => externalResultCalls === 1)
       await waitFor(() => reconciled.length === 1)
       expect(reconciled[0]).toEqual({ directory, entries: [] })
+      expect(store.external_result_ready).toBe(true)
       expect(warnings).toEqual([])
+    } finally {
+      console.warn = originalWarn
+    }
+  })
+
+  test("keeps external-result parts non-authoritative when hydrate fails", async () => {
+    const directory = "/repo"
+    const queryClient = new QueryClient()
+    const [store, setStore] = createStore(createState())
+    setStore("external_result_ready", true)
+    const warnings: unknown[] = []
+    const originalWarn = console.warn
+    console.warn = mock((...args: unknown[]) => {
+      warnings.push(args)
+    }) as typeof console.warn
+    const sdk = {
+      app: { agents: async () => ({ data: [] }) },
+      config: { get: async () => ({ data: {} as Config }) },
+      session: {
+        status: async () => ({ data: {} }),
+        get: async () => ({ data: undefined }),
+      },
+      project: { current: async () => ({ data: { id: "project-1" } }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
+      vcs: { get: async () => ({ data: undefined }) },
+      command: { list: async () => ({ data: [] }) },
+      permission: { list: async () => ({ data: [] }) },
+      externalResult: {
+        list: async () => {
+          setStore("external_result_ready", true)
+          throw new Error("external-result failed")
+        },
+      },
+      mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
+      provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+    } as any
+
+    try {
+      await bootstrapDirectory({
+        directory,
+        sdk,
+        store,
+        setStore,
+        vcsCache: createVcsCache(),
+        loadSessions: () => undefined,
+        pendingQuestions: { reconcile() {} },
+        translate: (key) => key,
+        global: {
+          config: {} as Config,
+          path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
+          project: [] as Project[],
+          provider: { all: [], connected: [], default: {} },
+        },
+        queryClient,
+      })
+      await waitFor(() => warnings.length === 1)
+      expect(store.external_result_ready).toBe(false)
     } finally {
       console.warn = originalWarn
     }
@@ -208,7 +268,7 @@ describe("bootstrapDirectory", () => {
         get: async () => ({ data: undefined }),
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
@@ -235,7 +295,7 @@ describe("bootstrapDirectory", () => {
       translate: (key) => key,
       global: {
         config: {} as Config,
-        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
         project: [] as Project[],
         provider: { all: [], connected: [], default: {} },
       },
@@ -262,7 +322,7 @@ describe("bootstrapDirectory", () => {
       translate: (key) => key,
       global: {
         config: {} as Config,
-        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
         project: [] as Project[],
         provider: { all: [], connected: [], default: {} },
       },
@@ -295,7 +355,7 @@ describe("bootstrapDirectory", () => {
         get: async () => ({ data: undefined }),
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
@@ -317,7 +377,7 @@ describe("bootstrapDirectory", () => {
         translate: (key) => key,
         global: {
           config: {} as Config,
-          path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+          path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
           project: [] as Project[],
           provider: { all: [], connected: [], default: {} },
         },
@@ -368,7 +428,7 @@ describe("bootstrapDirectory", () => {
         },
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: {
@@ -410,7 +470,7 @@ describe("bootstrapDirectory", () => {
       translate: (key) => key,
       global: {
         config: {} as Config,
-        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
         project: [] as Project[],
         provider: { all: [], connected: [], default: {} },
       },
@@ -442,7 +502,7 @@ describe("bootstrapDirectory", () => {
         get: async () => ({ data: undefined }),
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
@@ -463,7 +523,7 @@ describe("bootstrapDirectory", () => {
       translate: (key) => key,
       global: {
         config: {} as Config,
-        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
         project: [] as Project[],
         provider: { all: [], connected: [], default: {} },
       },
@@ -499,7 +559,7 @@ describe("bootstrapDirectory", () => {
         get: async () => ({ data: undefined }),
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => permission.promise },
@@ -520,7 +580,7 @@ describe("bootstrapDirectory", () => {
       translate: (key) => key,
       global: {
         config: {} as Config,
-        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
         project: [] as Project[],
         provider: { all: [], connected: [], default: {} },
       },
@@ -549,7 +609,7 @@ describe("bootstrapDirectory", () => {
         get: async () => ({ data: undefined }),
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: {
         list: async () => {
@@ -575,7 +635,7 @@ describe("bootstrapDirectory", () => {
       translate: (key) => key,
       global: {
         config: {} as Config,
-        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
         project: [] as Project[],
         provider: { all: [], connected: [], default: {} },
       },
@@ -609,7 +669,7 @@ describe("bootstrapDirectory", () => {
         get: async () => ({ data: undefined }),
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: {
         list: async () => {
@@ -635,7 +695,7 @@ describe("bootstrapDirectory", () => {
       translate: (key) => key,
       global: {
         config: {} as Config,
-        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
         project: [] as Project[],
         provider: { all: [], connected: [], default: {} },
       },
@@ -683,7 +743,7 @@ describe("bootstrapDirectory", () => {
         get: async () => ({ data: undefined }),
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
@@ -710,7 +770,7 @@ describe("bootstrapDirectory", () => {
       translate: (key: string) => key,
       global: {
         config: {} as Config,
-        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
         project: [] as Project[],
         provider: { all: [], connected: [], default: {} },
       },

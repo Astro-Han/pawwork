@@ -2,7 +2,7 @@ import { Effect, Schema } from "effect"
 import { htmlToMarkdown } from "@jackwener/opencli/utils"
 import * as Tool from "./tool"
 import DESCRIPTION from "./browser-extract.txt"
-import { runBrowserAction, takeoverNote } from "./browser-shared"
+import { runBrowserAction, withNotes } from "./browser-shared"
 
 /** Per-call markdown budget; long pages page through `start`/`next_start_char`. */
 const EXTRACT_CHAR_LIMIT = 16_000
@@ -76,15 +76,16 @@ export const BrowserExtractTool = Tool.define(
         const hasMore = nextStart < markdown.length
         return {
           title: result.url || "Extracted content",
-          output:
+          output: withNotes(
+            result.info,
             chunk +
-            (hasMore
-              ? `\n\n(Content continues — call browser_extract again with start=${nextStart}. next_start_char: ${nextStart})`
-              : "") +
-            (result.read.truncated
-              ? "\n\n(The page's HTML was larger than the extraction ceiling; trailing content was dropped before conversion. Use `selector` to target the part you need.)"
-              : "") +
-            takeoverNote(result.info),
+              (hasMore
+                ? `\n\n(Content continues — call browser_extract again with start=${nextStart}. next_start_char: ${nextStart})`
+                : "") +
+              (result.read.truncated
+                ? "\n\n(The page's HTML was larger than the extraction ceiling; trailing content was dropped before conversion. Use `selector` to target the part you need.)"
+                : ""),
+          ),
           metadata: {
             url: result.url,
             selector: params.selector,

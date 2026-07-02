@@ -1,5 +1,6 @@
 import path from "path"
 import { exec } from "child_process"
+import { Effect } from "effect"
 import { Filesystem } from "../../util/filesystem"
 import * as prompts from "@clack/prompts"
 import { map, pipe, sortBy, values } from "remeda"
@@ -18,6 +19,7 @@ import type {
 import { UI } from "../ui"
 import { cmd } from "./cmd"
 import { ModelsDev } from "../../provider/models"
+import { withPawWorkProviders } from "../../provider/pawwork-providers"
 import { Instance } from "@/project/instance"
 import { bootstrap } from "../bootstrap"
 import { SessionShare } from "@/share/session"
@@ -222,11 +224,19 @@ export const GithubInstallCommand = cmd({
           const app = await getAppInfo()
           await installGitHubApp()
 
-          const providers = await ModelsDev.get().then((p) => {
-            // TODO: add guide for copilot, for now just hide it
-            delete p["github-copilot"]
-            return p
-          })
+          const providers = await AppRuntime.runPromise(
+            ModelsDev.Service.use((svc) =>
+              svc.data().pipe(
+                Effect.map((catalog) => {
+                  const providers = withPawWorkProviders(catalog as Record<string, ModelsDev.Provider>)
+                  // TODO: add guide for copilot, for now just hide it
+                  delete providers["github-copilot"]
+                  return providers
+                }),
+                Effect.orDie,
+              ),
+            ),
+          )
 
           const provider = await promptProvider()
           const model = await promptModel()
@@ -560,20 +570,24 @@ export const GithubRunCommand = cmd({
 
         // Setup opencode session
         const repoData = await fetchRepo()
-        session = await Session.create({
-          permission: [
-            {
-              permission: "question",
-              action: "deny",
-              pattern: "*",
-            },
-          ],
-        })
+        session = await AppRuntime.runPromise(
+          Session.Service.use((svc) =>
+            svc.create({
+              permission: [
+                {
+                  permission: "question",
+                  action: "deny",
+                  pattern: "*",
+                },
+              ],
+            }),
+          ),
+        )
         subscribeSessionEvents()
         shareId = await (async () => {
           if (share === false) return
           if (!share && repoData.data.private) return
-          await SessionShare.share(session.id)
+          await AppRuntime.runPromise(SessionShare.Service.use((svc) => svc.share(session.id)))
           return session.id.slice(-8)
         })()
         console.log("opencode session", session.id)
@@ -903,33 +917,37 @@ export const GithubRunCommand = cmd({
         }
 
         let text = ""
-        Bus.subscribe(MessageV2.Event.PartUpdated, (evt) => {
-          if (evt.properties.part.sessionID !== session.id) return
-          //if (evt.properties.part.messageID === messageID) return
-          const part = evt.properties.part
+        AppRuntime.runSync(
+          Bus.Service.use((bus) =>
+            bus.subscribeCallback(MessageV2.Event.PartUpdated, (evt) => {
+              if (evt.properties.part.sessionID !== session.id) return
+              //if (evt.properties.part.messageID === messageID) return
+              const part = evt.properties.part
 
-          if (part.type === "tool" && part.state.status === "completed") {
-            const [tool, color] = TOOL[part.tool] ?? [part.tool, UI.Style.TEXT_INFO_BOLD]
-            const title =
-              part.state.title || Object.keys(part.state.input).length > 0
-                ? JSON.stringify(part.state.input)
-                : "Unknown"
-            console.log()
-            printEvent(color, tool, title)
-          }
+              if (part.type === "tool" && part.state.status === "completed") {
+                const [tool, color] = TOOL[part.tool] ?? [part.tool, UI.Style.TEXT_INFO_BOLD]
+                const title =
+                  part.state.title || Object.keys(part.state.input).length > 0
+                    ? JSON.stringify(part.state.input)
+                    : "Unknown"
+                console.log()
+                printEvent(color, tool, title)
+              }
 
-          if (part.type === "text") {
-            text = part.text
+              if (part.type === "text") {
+                text = part.text
 
-            if (part.time?.end) {
-              UI.empty()
-              UI.println(UI.markdown(text))
-              UI.empty()
-              text = ""
-              return
-            }
-          }
-        })
+                if (part.time?.end) {
+                  UI.empty()
+                  UI.println(UI.markdown(text))
+                  UI.empty()
+                  text = ""
+                  return
+                }
+              }
+            }),
+          ),
+        )
       }
 
       async function summarize(response: string) {
@@ -946,41 +964,47 @@ export const GithubRunCommand = cmd({
       async function chat(message: string, files: PromptFiles = []) {
         console.log("Sending message to opencode...")
 
-        const result = await SessionPrompt.prompt({
-          sessionID: session.id,
-          messageID: MessageID.ascending(),
-          variant,
-          model: {
-            providerID,
-            modelID,
-          },
-          // agent is omitted - server will choose the default primary agent
-          parts: [
-            {
-              id: PartID.ascending(),
-              type: "text",
-              text: message,
-            },
-            ...files.flatMap((f) => [
-              {
-                id: PartID.ascending(),
-                type: "file" as const,
-                mime: f.mime,
-                url: `data:${f.mime};base64,${f.content}`,
-                filename: f.filename,
-                source: {
-                  type: "file" as const,
-                  text: {
-                    value: f.replacement,
-                    start: f.start,
-                    end: f.end,
-                  },
-                  path: f.filename,
+        const result = await AppRuntime.runPromise(
+          SessionPrompt.Service.use((prompt) =>
+            prompt.prompt(
+              SessionPrompt.PromptInput.parse({
+                sessionID: session.id,
+                messageID: MessageID.ascending(),
+                variant,
+                model: {
+                  providerID,
+                  modelID,
                 },
-              },
-            ]),
-          ],
-        })
+                // agent is omitted - server will choose the default primary agent
+                parts: [
+                  {
+                    id: PartID.ascending(),
+                    type: "text",
+                    text: message,
+                  },
+                  ...files.flatMap((f) => [
+                    {
+                      id: PartID.ascending(),
+                      type: "file" as const,
+                      mime: f.mime,
+                      url: `data:${f.mime};base64,${f.content}`,
+                      filename: f.filename,
+                      source: {
+                        type: "file" as const,
+                        text: {
+                          value: f.replacement,
+                          start: f.start,
+                          end: f.end,
+                        },
+                        path: f.filename,
+                      },
+                    },
+                  ]),
+                ],
+              }),
+            ),
+          ),
+        )
 
         if (result.info.role === "assistant" && result.info.error) {
           const err = result.info.error
@@ -993,23 +1017,29 @@ export const GithubRunCommand = cmd({
         if (text) return text
 
         console.log("Requesting summary from agent...")
-        const summary = await SessionPrompt.prompt({
-          sessionID: session.id,
-          messageID: MessageID.ascending(),
-          variant,
-          model: {
-            providerID,
-            modelID,
-          },
-          tools: { "*": false },
-          parts: [
-            {
-              id: PartID.ascending(),
-              type: "text",
-              text: "Summarize the actions (tool calls & reasoning) you did for the user in 1-2 sentences.",
-            },
-          ],
-        })
+        const summary = await AppRuntime.runPromise(
+          SessionPrompt.Service.use((prompt) =>
+            prompt.prompt(
+              SessionPrompt.PromptInput.parse({
+                sessionID: session.id,
+                messageID: MessageID.ascending(),
+                variant,
+                model: {
+                  providerID,
+                  modelID,
+                },
+                tools: { "*": false },
+                parts: [
+                  {
+                    id: PartID.ascending(),
+                    type: "text",
+                    text: "Summarize the actions (tool calls & reasoning) you did for the user in 1-2 sentences.",
+                  },
+                ],
+              }),
+            ),
+          ),
+        )
 
         if (summary.info.role === "assistant" && summary.info.error) {
           const err = summary.info.error
