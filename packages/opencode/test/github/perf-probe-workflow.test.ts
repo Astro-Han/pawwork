@@ -8,7 +8,7 @@ const workflowPath = path.join(repoRoot, ".github", "workflows", "perf-probe-bas
 
 const pinned = {
   cacheRestore: "actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae",
-  checkout: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+  checkout: "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
 }
 
 describe("perf probe baseline workflow", () => {
