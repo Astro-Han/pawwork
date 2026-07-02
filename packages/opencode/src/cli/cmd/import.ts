@@ -2,6 +2,7 @@ import type { Argv } from "yargs"
 import type { Session as SDKSession, Message, Part } from "@opencode-ai/sdk/v2"
 import { Session } from "../../session"
 import { MessageV2 } from "../../session/message-v2"
+import { rootContext } from "../../session/execution-context"
 import { cmd } from "./cmd"
 import { bootstrap } from "../bootstrap"
 import { Database } from "../../storage/db"
@@ -71,6 +72,46 @@ export function transformShareData(shareData: ShareData[]): {
       info: msg,
       parts: partMap.get(msg.id) ?? [],
     })),
+  }
+}
+
+/**
+ * Re-home an imported session onto the importing instance. An exported session
+ * carries the exporter's machine-local fields — `projectID`, `directory`,
+ * `workspaceID`, and `executionContext` — all pointing at projects/paths/ids that
+ * do not exist here. Replace every one of them, mirroring how a freshly created
+ * session is rooted (`Session.createNext`): adopt the local project + directory,
+ * drop the foreign workspace binding (no local equivalent in the CLI import
+ * context, and a foreign id breaks workspace routing), and reseed the execution
+ * context — which drives the session's actual shell/tool cwd, not `directory` —
+ * at the local owner directory. (#27516)
+ */
+export function localizeImportedSession(
+  info: SDKSession,
+  ctx: { projectID: string; directory: string; ownerDirectory: string },
+) {
+  return {
+    ...info,
+    projectID: ctx.projectID,
+    directory: ctx.directory,
+    workspaceID: undefined,
+    executionContext: rootContext(ctx.ownerDirectory),
+  }
+}
+
+/**
+ * The `onConflictDoUpdate` set for re-importing an existing session: it must
+ * overwrite every column `localizeImportedSession` rewrote, else a stale foreign
+ * `workspace_id` / `execution_context` survives on the old row. `workspace_id`
+ * is coalesced to `null` because drizzle skips `undefined` keys in a SET clause —
+ * so an imported session with no workspace would otherwise keep the stale id.
+ */
+export function importedSessionConflictSet(row: ReturnType<typeof Session.toRow>) {
+  return {
+    project_id: row.project_id,
+    directory: row.directory,
+    workspace_id: row.workspace_id ?? null,
+    execution_context: row.execution_context,
   }
 }
 
@@ -154,16 +195,21 @@ export const ImportCommand = cmd({
         return
       }
 
-      const info = Session.Info.parse({
-        ...exportData.info,
-        projectID: Instance.project.id,
-      })
+      const info = Session.Info.parse(
+        localizeImportedSession(exportData.info, {
+          projectID: Instance.project.id,
+          directory: Instance.directory,
+          // git projects root the owner at the worktree (it never moves); non-git keep
+          // the opened directory — mirrors Session.createNext.
+          ownerDirectory: Instance.project.vcs === "git" ? Instance.worktree : Instance.directory,
+        }),
+      )
       const row = Session.toRow(info)
       Database.use((db) =>
         db
           .insert(SessionTable)
           .values(row)
-          .onConflictDoUpdate({ target: SessionTable.id, set: { project_id: row.project_id } })
+          .onConflictDoUpdate({ target: SessionTable.id, set: importedSessionConflictSet(row) })
           .run(),
       )
 

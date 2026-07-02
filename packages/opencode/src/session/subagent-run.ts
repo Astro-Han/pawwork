@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Semaphore } from "effect"
-import * as Session from "./session"
+import { Service as SessionService, defaultLayer as SessionLayer } from "./session"
 import { PartID as PartIDNs, type MessageID, type PartID, type SessionID } from "./schema"
 import type { MessageV2 } from "./message-v2"
 import type { ProviderID, ModelID } from "../provider/schema"
@@ -90,10 +90,10 @@ export class Service extends Context.Service<Service, Interface>()("@pawwork/Sub
 // work. Not currently configurable; promoting to Config is a v1.1 follow-up.
 const MAX_ACTIVE = 5
 
-export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
+export const layer: Layer.Layer<Service, never, SessionService> = Layer.effect(
   Service,
   Effect.gen(function* () {
-    const session = yield* Session.Service
+    const session = yield* SessionService
 
     const withWriter = <A, E, R>(eff: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
       Effect.provideService(eff, SubagentRunWriterContext, true)
@@ -485,8 +485,6 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
   }),
 )
 
-export const defaultLayer: Layer.Layer<Service, never, never> = layer.pipe(
-  Layer.provide(Session.defaultLayer),
-)
+export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(() => layer.pipe(Layer.provide(SessionLayer)))
 
 export * as SubagentRun from "./subagent-run"

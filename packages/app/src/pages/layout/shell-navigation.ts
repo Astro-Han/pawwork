@@ -13,17 +13,16 @@ export function createShellNavigation(input: {
   releaseTransientLocks: (reason: ShellNavigationReleaseReason) => void
   resolveProjectRoot: (directory: string) => string | undefined
   currentProjectRoot: () => string | undefined
+  directStartRoot?: () => string | undefined
   chooseProject: () => void
   openSettingsSurface: (tab?: SettingsTab) => void
-  closeSettingsSurface: () => void
 }) {
   const resolveNewSessionRoot = (directory?: string) => {
     if (directory) return input.resolveProjectRoot(directory)
-    return input.currentProjectRoot()
+    return input.currentProjectRoot() || input.directStartRoot?.()
   }
 
   const openNewSession = (directory?: string) => {
-    input.closeSettingsSurface()
     const root = resolveNewSessionRoot(directory)
     if (!root) {
       input.releaseTransientLocks("choose-project")
@@ -36,7 +35,6 @@ export function createShellNavigation(input: {
 
   const openSession = (session: ShellNavigationSession | undefined) => {
     if (!session) return
-    input.closeSettingsSurface()
     input.releaseTransientLocks("session")
     input.navigate(openSessionRoute(session.directory, session.id))
   }

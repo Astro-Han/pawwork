@@ -41,7 +41,7 @@ describe("menu labels", () => {
   test("returns custom labels for simplified Chinese", () => {
     expect(menuLabel("zh", "file")).toBe("文件")
     expect(menuLabel("zh", "reloadWindow")).toBe("重新加载窗口")
-    expect(menuLabel("zh", "reportProblem")).toBe("报告问题")
+    expect(menuLabel("zh", "reportProblem")).toBe("准备诊断包...")
     expect(menuLabel("zh", "exportDiagnosticsLog")).toBe("导出诊断日志...")
     expect(menuLabel("zh", "exportDiagnosticsLogTitle")).toBe("导出诊断日志")
     expect(menuLabel("zh", "pawworkOnGithub")).toBe("在 GitHub 上查看爪印")

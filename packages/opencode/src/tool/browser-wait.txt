@@ -1,0 +1,7 @@
+Wait for the page to reach a state: text to appear, a selector to exist, or a fixed pause.
+
+- `text`: wait until this text is visible on the page (default timeout 30s).
+- `selector`: wait until this CSS selector matches an element (default timeout 10s).
+- `time`: fixed pause in seconds — use only when nothing observable signals readiness.
+- `timeout`: override the wait limit in seconds for text/selector waits.
+- Provide exactly one of `text`, `selector`, or `time`. Prefer text/selector over fixed pauses; they finish as soon as the condition holds.

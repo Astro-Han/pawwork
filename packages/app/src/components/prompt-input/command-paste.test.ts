@@ -9,7 +9,7 @@ import type {
   ImageAttachmentPart,
   Prompt,
 } from "@/context/prompt"
-import { DEFAULT_PROMPT } from "@/context/prompt"
+import { DEFAULT_PROMPT } from "@/context/prompt-equality"
 import type { CommandDescriptor } from "./command-text-part"
 import { tryPathCConversion } from "./command-paste"
 

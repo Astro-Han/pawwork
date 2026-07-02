@@ -1,14 +1,28 @@
 import type {
+  AboutInfo,
+  BrowserBridge,
   DesktopContext,
+  RemoteBridge,
   RendererDiagnosticInput,
   RendererDiagnosticsExportResult,
   ReportProblemInput,
-  ReportProblemResult,
+  PrepareReportResult,
+  RevealReportResult,
+  SubmitReportResult,
   UpdateInfo,
+  WebSearchStatus,
 } from "@opencode-ai/app/desktop-api"
 
-export type { DesktopContext }
-export type { RendererDiagnosticInput, RendererDiagnosticsExportResult, ReportProblemInput, ReportProblemResult, UpdateInfo }
+export type { AboutInfo, DesktopContext, WebSearchStatus }
+export type {
+  RendererDiagnosticInput,
+  RendererDiagnosticsExportResult,
+  ReportProblemInput,
+  PrepareReportResult,
+  RevealReportResult,
+  SubmitReportResult,
+  UpdateInfo,
+}
 
 export type InitStep = { phase: "server_waiting" } | { phase: "sqlite_waiting" } | { phase: "done" }
 
@@ -28,20 +42,6 @@ export type WindowConfig = {
 }
 
 export type LinuxDisplayBackend = "wayland" | "auto"
-
-export type WebSearchStatus = {
-  source: "saved" | "env" | "anonymous"
-  configured: boolean
-  needsAttention: boolean
-  quotaExceeded: boolean
-}
-
-export type AboutInfo = {
-  version: string
-  electronVersion: string
-  chromeVersion: string
-  buildSha: string
-}
 
 export type ElectronAPI = {
   ciSmokeEnabled: boolean
@@ -87,6 +87,8 @@ export type ElectronAPI = {
     extensions?: string[]
   }) => Promise<string | string[] | null>
   readFileDataUrl: (path: string, mime: string) => Promise<string | null>
+  filePathForBrowserFile: (file: File) => Promise<string | null>
+  saveAttachmentFile: (name: string, mime: string, buffer: ArrayBuffer) => Promise<string | null>
   saveFilePicker: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   exportSession: (
     sessionID: string,
@@ -111,7 +113,9 @@ export type ElectronAPI = {
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void>
   checkUpdate: () => Promise<UpdateInfo>
-  reportProblem: (input?: ReportProblemInput) => Promise<ReportProblemResult>
+  prepareReport: (input?: ReportProblemInput) => Promise<PrepareReportResult>
+  revealReport: (reportId: string) => Promise<RevealReportResult>
+  submitReport: (reportId: string) => Promise<SubmitReportResult>
   emitRendererDiagnostic: (event: RendererDiagnosticInput) => Promise<void>
   exportDiagnosticsLog: () => Promise<RendererDiagnosticsExportResult>
   installUpdate: () => Promise<void>
@@ -124,4 +128,7 @@ export type ElectronAPI = {
   getAboutInfo: () => Promise<AboutInfo>
   onAboutOpen: (handler: () => void) => () => void
   flashFrame: () => Promise<void>
+  setBadgeCount: (count: number) => Promise<void>
+  browser: BrowserBridge
+  remote: RemoteBridge
 }

@@ -18,6 +18,10 @@ const transportCalls: Array<{
 // Controls whether the mock transport simulates a 401 that triggers the SDK
 // auth flow (which calls provider.state()) or a simple UnauthorizedError.
 let simulateAuthFlow = true
+// When true, the mock transport connects without a 401 — simulating stored
+// tokens still being valid so OAuth completes with no browser redirect.
+let connectSucceedsImmediately = false
+let serverCapabilities: { tools?: object; resources?: object } = { tools: {} }
 
 // Mock the transport constructors to simulate OAuth auto-auth on 401
 mock.module("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
@@ -38,6 +42,8 @@ mock.module("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
       })
     }
     async start() {
+      if (connectSucceedsImmediately) return
+
       // Simulate what the real SDK transport does on 401:
       // It calls auth() which eventually calls provider.state(), then
       // provider.redirectToAuthorization(), then throws UnauthorizedError.
@@ -83,6 +89,18 @@ mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
     async connect(transport: { start: () => Promise<void> }) {
       await transport.start()
     }
+
+    setNotificationHandler() {}
+
+    getServerCapabilities() {
+      return serverCapabilities
+    }
+
+    async listTools() {
+      return { tools: [{ name: "test_tool", inputSchema: { type: "object", properties: {} } }] }
+    }
+
+    async close() {}
   },
 }))
 
@@ -94,12 +112,33 @@ mock.module("@modelcontextprotocol/sdk/client/auth.js", () => ({
 beforeEach(() => {
   transportCalls.length = 0
   simulateAuthFlow = true
+  connectSucceedsImmediately = false
+  serverCapabilities = { tools: {} }
 })
 
 // Import modules after mocking
 const { MCP } = await import("../../src/mcp/index")
+const { McpAuth } = await import("../../src/mcp/auth")
 const { Instance } = await import("../../src/project/instance")
 const { tmpdir } = await import("../fixture/fixture")
+const { makeRuntime } = await import("../../src/effect/run-service")
+const mcpRuntime = makeRuntime(MCP.Service, MCP.defaultLayer)
+const authRuntime = makeRuntime(McpAuth.Service, McpAuth.defaultLayer)
+const MCPFacade = {
+  status: () => mcpRuntime.runPromise((mcp) => mcp.status()),
+  tools: () => mcpRuntime.runPromise((mcp) => mcp.tools()),
+  add: (name: string, mcpConfig: any) => mcpRuntime.runPromise((mcp) => mcp.add(name, mcpConfig)),
+  authenticate: (name: string) => mcpRuntime.runPromise((mcp) => mcp.authenticate(name)),
+  startAuth: async (name: string) => {
+    const { authorizationUrl, oauthState } = await mcpRuntime.runPromise((mcp) => mcp.startAuth(name))
+    return { authorizationUrl, oauthState }
+  },
+}
+const McpAuthFacade = {
+  get: (name: string) => authRuntime.runPromise((auth) => auth.get(name)),
+  updateOAuthState: (name: string, state: string) =>
+    authRuntime.runPromise((auth) => auth.updateOAuthState(name, state)),
+}
 
 test("first connect to OAuth server shows needs_auth instead of failed", async () => {
   await using tmp = await tmpdir({
@@ -122,7 +161,7 @@ test("first connect to OAuth server shows needs_auth instead of failed", async (
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const result = await MCP.add("test-oauth", {
+      const result = await MCPFacade.add("test-oauth", {
         type: "remote",
         url: "https://example.com/mcp",
       })
@@ -156,7 +195,7 @@ test("state() generates a new state when none is saved", async () => {
       )
 
       // Ensure no state exists
-      const entryBefore = await McpAuth.get("test-state-gen")
+      const entryBefore = await McpAuthFacade.get("test-state-gen")
       expect(entryBefore?.oauthState).toBeUndefined()
 
       // state() should generate and return a new state, not throw
@@ -165,7 +204,7 @@ test("state() generates a new state when none is saved", async () => {
       expect(state.length).toBe(64) // 32 bytes as hex
 
       // The generated state should be persisted
-      const entryAfter = await McpAuth.get("test-state-gen")
+      const entryAfter = await McpAuthFacade.get("test-state-gen")
       expect(entryAfter?.oauthState).toBe(state)
     },
   })
@@ -189,11 +228,135 @@ test("state() returns existing state when one is saved", async () => {
 
       // Pre-save a state
       const existingState = "pre-saved-state-value"
-      await McpAuth.updateOAuthState("test-state-existing", existingState)
+      await McpAuthFacade.updateOAuthState("test-state-existing", existingState)
 
       // state() should return the existing state
       const state = await provider.state()
       expect(state).toBe(existingState)
+    },
+  })
+})
+
+test("saveTokens() preserves an immediately expiring token", async () => {
+  const { McpOAuthProvider } = await import("../../src/mcp/oauth-provider")
+
+  await using tmp = await tmpdir()
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const provider = new McpOAuthProvider(
+        "test-token-expiry-zero",
+        "https://example.com/mcp",
+        {},
+        { onRedirect: async () => {} },
+      )
+
+      const before = Date.now() / 1000
+      await provider.saveTokens({
+        access_token: "access-token",
+        token_type: "Bearer",
+        expires_in: 0,
+      })
+      const after = Date.now() / 1000
+
+      const entry = await McpAuthFacade.get("test-token-expiry-zero")
+      expect(entry?.tokens?.expiresAt).toBeGreaterThanOrEqual(before)
+      expect(entry?.tokens?.expiresAt).toBeLessThanOrEqual(after)
+    },
+  })
+})
+
+test("authenticate() persists the client when OAuth completes without a redirect (#22376)", async () => {
+  const { McpOAuthCallback } = await import("../../src/mcp/oauth-callback")
+
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        `${dir}/opencode.json`,
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          mcp: {
+            "test-oauth-connect": {
+              type: "remote",
+              url: "https://example.com/mcp",
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      try {
+        // First connect: no stored tokens → needs_auth.
+        const added = await MCPFacade.add("test-oauth-connect", {
+          type: "remote",
+          url: "https://example.com/mcp",
+        })
+        const before = added.status as Record<string, { status: string; error?: string }>
+        expect(before["test-oauth-connect"]?.status).toBe("needs_auth")
+
+        // Stored tokens are still valid: connect succeeds with no browser redirect.
+        simulateAuthFlow = false
+        connectSucceedsImmediately = true
+
+        const result = await MCPFacade.authenticate("test-oauth-connect")
+        expect(result.status).toBe("connected")
+
+        // The immediately-connected client must be stored, not dropped, so the
+        // server reports connected and its tools are registered (no leak).
+        const after = await MCPFacade.status()
+        expect(after["test-oauth-connect"]?.status).toBe("connected")
+
+        const tools = await MCPFacade.tools()
+        expect(Object.keys(tools).some((key) => key.includes("test-oauth-connect"))).toBe(true)
+      } finally {
+        await McpOAuthCallback.stop()
+      }
+    },
+  })
+})
+
+test("startAuth() keeps the public result plain data on immediate connect (#22376)", async () => {
+  const { McpOAuthCallback } = await import("../../src/mcp/oauth-callback")
+
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        `${dir}/opencode.json`,
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          mcp: {
+            "test-oauth-startauth": {
+              type: "remote",
+              url: "https://example.com/mcp",
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      try {
+        // Stored tokens still valid → startAuth connects with no redirect. The
+        // public result is serialized by the /:name/auth route via c.json, so it
+        // must not carry the live (cyclic) client.
+        simulateAuthFlow = false
+        connectSucceedsImmediately = true
+
+        const result = await MCPFacade.startAuth("test-oauth-startauth")
+        expect(Object.keys(result).sort()).toEqual(["authorizationUrl", "oauthState"])
+        expect("client" in result).toBe(false)
+        expect(() => JSON.stringify(result)).not.toThrow()
+      } finally {
+        await McpOAuthCallback.stop()
+      }
     },
   })
 })

@@ -5,8 +5,8 @@ import type { useLanguage } from "@/context/language"
 import type { createSizing } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { SessionOpeningSkeleton } from "@/pages/session/session-opening-skeleton"
+import { createTimelineRevealGate } from "@/pages/session/timeline-reveal-gate"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
-import { shouldShowSessionOpeningState } from "@/pages/session/session-main-view-state"
 import type { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import type { createSessionReviewState } from "@/pages/session/use-session-review-state"
 import type { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
@@ -23,8 +23,7 @@ export function SessionMainView(props: {
   mobileTab: "session" | "changes"
   setMobileTab: (tab: "session" | "changes") => void
   language: ReturnType<typeof useLanguage>
-  routeSessionID?: string
-  routeReady: boolean
+  sessionOpening: boolean
   transitioning: boolean
   timelineSessionID?: string
   timelineSessionKey: string
@@ -38,7 +37,7 @@ export function SessionMainView(props: {
   resumeScroll: () => void
   setScrollRef: TimelineProps["setScrollRef"]
   scheduleScrollState: TimelineProps["onScheduleScrollState"]
-  autoScroll: ReturnType<typeof createSessionScrollDock>["autoScroll"]
+  onTimelineInteraction: TimelineProps["onTimelineInteraction"]
   markScrollGesture: TimelineProps["onMarkScrollGesture"]
   hasScrollGesture: TimelineProps["hasScrollGesture"]
   markUserScroll: TimelineProps["onUserScroll"]
@@ -47,13 +46,11 @@ export function SessionMainView(props: {
   historyWindow: ReturnType<typeof createSessionHistoryWindow>
   centered: boolean
   setContentRef: TimelineProps["setContentRef"]
-  historyMore: boolean
   historyLoading: boolean
+  timelineFrame: TimelineProps["timelineFrame"]
   anchor: TimelineProps["anchor"]
   virtualizerBridge: TimelineProps["virtualizerBridge"]
-  layoutTransactionActive: TimelineProps["layoutTransactionActive"]
-  layoutTransactionID: TimelineProps["layoutTransactionID"]
-  layoutTransactionKind: TimelineProps["layoutTransactionKind"]
+  reconcilerActive: TimelineProps["reconcilerActive"]
   composerSession: JSX.Element
   composerHome: (ctx: { onModeChange: (mode: "normal" | "shell") => void }) => JSX.Element
   canReview: () => boolean
@@ -64,20 +61,25 @@ export function SessionMainView(props: {
   files: ReturnType<typeof createSessionReviewState>["artifactFiles"]
   size: ReturnType<typeof createSizing>
 }) {
-  const showSessionOpeningState = () =>
-    shouldShowSessionOpeningState({
-      activeSessionID: props.activeSessionID,
-      routeSessionID: props.routeSessionID,
-      routeReady: props.routeReady,
-      timelineSessionID: props.timelineSessionID,
-    })
-  const [openingSkeletonMounted, setOpeningSkeletonMounted] = createSignal(showSessionOpeningState())
+  const showSessionOpeningState = () => props.sessionOpening
+  // Hold the opening cover past `routeReady` until the freshly mounted timeline
+  // has settled at its anchor, so the first revealed frame is the settled bottom
+  // rather than a mid-render premature bottom that then jumps down. The timeline
+  // mounts and measures behind the cover; the gate lifts it once the reconciler
+  // goes quiet (or a failsafe timeout fires). See timeline-reveal-gate.
+  const revealGate = createTimelineRevealGate({
+    sessionKey: () => props.timelineSessionKey,
+    ready: () => props.timelineMessagesReady,
+    reconcilerActive: () => props.reconcilerActive(),
+  })
+  const timelineCovered = () => !!props.activeSessionID && !!props.timelineSessionID && revealGate.covered()
+  const [openingSkeletonMounted, setOpeningSkeletonMounted] = createSignal(timelineCovered())
   const [openingSkeletonVisible, setOpeningSkeletonVisible] = createSignal(false)
   let openingShowTimer: ReturnType<typeof setTimeout> | undefined
   let openingHideTimer: ReturnType<typeof setTimeout> | undefined
 
   createEffect(() => {
-    const opening = showSessionOpeningState()
+    const opening = timelineCovered()
     if (openingShowTimer) clearTimeout(openingShowTimer)
     if (openingHideTimer) clearTimeout(openingHideTimer)
 
@@ -143,41 +145,46 @@ export function SessionMainView(props: {
                 <div class="flex-1 min-h-0" />
               </Match>
               <Match when={props.activeSessionID && props.timelineSessionID ? props.timelineSessionID : undefined}>
-                <MessageTimeline
-                  sessionID={props.timelineSessionID ?? ""}
-                  sessionKey={props.timelineSessionKey}
-                  sessionMessages={props.timelineMessages}
-                  turnChangeController={props.turnChangeController}
-                  mobileChanges={props.mobileChanges}
-                  mobileFallback={props.mobileFallback}
-                  actions={props.actions}
-                  scroll={props.scroll}
-                  onResumeScroll={props.resumeScroll}
-                  setScrollRef={props.setScrollRef}
-                  onScheduleScrollState={props.scheduleScrollState}
-                  onAutoScrollHandleScroll={props.autoScroll.handleScroll}
-                  onMarkScrollGesture={props.markScrollGesture}
-                  hasScrollGesture={props.hasScrollGesture}
-                  onUserScroll={props.markUserScroll}
-                  onTimelineScrollIntent={props.onTimelineScrollIntent}
-                  onTimelineScrollObservation={props.onTimelineScrollObservation}
-                  onTurnBackfillScroll={props.historyWindow.onScrollerScroll}
-                  onAutoScrollInteraction={props.autoScroll.handleInteraction}
-                  centered={props.centered}
-                  setContentRef={props.setContentRef}
-                  turnStart={props.historyWindow.turnStart()}
-                  historyMore={props.historyMore}
-                  historyLoading={props.historyLoading}
-                  onLoadEarlier={() => {
-                    void props.historyWindow.loadAndReveal()
+                <div
+                  class="size-full transition-opacity duration-[var(--duration-base)] ease-out motion-reduce:transition-none"
+                  classList={{
+                    "opacity-0 pointer-events-none": timelineCovered(),
+                    "opacity-100": !timelineCovered(),
                   }}
-                  renderedUserMessages={props.historyWindow.renderedUserMessages()}
-                  anchor={props.anchor}
-                  virtualizerBridge={props.virtualizerBridge}
-                  layoutTransactionActive={props.layoutTransactionActive}
-                  layoutTransactionID={props.layoutTransactionID}
-                  layoutTransactionKind={props.layoutTransactionKind}
-                />
+                  data-slot="session-timeline-reveal"
+                  data-covered={timelineCovered() ? "true" : "false"}
+                >
+                  <MessageTimeline
+                    sessionID={props.timelineSessionID ?? ""}
+                    sessionKey={props.timelineSessionKey}
+                    sessionMessages={props.timelineMessages}
+                    turnChangeController={props.turnChangeController}
+                    mobileChanges={props.mobileChanges}
+                    mobileFallback={props.mobileFallback}
+                    actions={props.actions}
+                    scroll={props.scroll}
+                    onResumeScroll={props.resumeScroll}
+                    setScrollRef={props.setScrollRef}
+                    onScheduleScrollState={props.scheduleScrollState}
+                    onMarkScrollGesture={props.markScrollGesture}
+                    hasScrollGesture={props.hasScrollGesture}
+                    onUserScroll={props.markUserScroll}
+                    onTimelineScrollIntent={props.onTimelineScrollIntent}
+                    onTimelineScrollObservation={props.onTimelineScrollObservation}
+                    onTurnBackfillScroll={props.historyWindow.onScrollerScroll}
+                    onTimelineInteraction={props.onTimelineInteraction}
+                    centered={props.centered}
+                    setContentRef={props.setContentRef}
+                    historyLoading={props.historyLoading}
+                    onLoadEarlier={() => {
+                      void props.historyWindow.loadAndReveal()
+                    }}
+                    timelineFrame={props.timelineFrame}
+                    anchor={props.anchor}
+                    virtualizerBridge={props.virtualizerBridge}
+                    reconcilerActive={props.reconcilerActive}
+                  />
+                </div>
               </Match>
               <Match when={!props.activeSessionID}>
                 <NewSessionView composer={props.composerHome} />

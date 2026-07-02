@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test"
+import * as uiIcon from "@opencode-ai/ui/icon"
 
 let SendButton: typeof import("./send-button").SendButton
 const originalReact = (globalThis as any).React
@@ -6,9 +7,7 @@ const originalReact = (globalThis as any).React
 type Node = { type: any; props: Record<string, any>; children: Node[] }
 
 beforeAll(async () => {
-  mock.module("@opencode-ai/ui/icon", () => ({
-    Icon: (props: any) => ({ type: "Icon", props: props ?? {}, children: [] }) as Node,
-  }))
+  spyOn(uiIcon, "Icon").mockImplementation((props: any) => ({ type: "Icon", props: props ?? {}, children: [] }) as any)
   SendButton = (await import("./send-button")).SendButton
 })
 

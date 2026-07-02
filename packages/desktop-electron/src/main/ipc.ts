@@ -1,6 +1,7 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import { execFile } from "node:child_process"
+import { randomUUID } from "node:crypto"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 
@@ -8,13 +9,16 @@ import type {
   DesktopContext,
   InitStep,
   ReportProblemInput,
-  ReportProblemResult,
+  PrepareReportResult,
+  RevealReportResult,
+  SubmitReportResult,
   ServerReadyData,
   SqliteMigrationProgress,
   UpdateInfo,
   WindowConfig,
   WslConfig,
 } from "../preload/types"
+import { safeAttachmentName } from "./attachment-filename"
 import { attachmentPathMime } from "./attachment-mime"
 import { getStore } from "./store"
 import { attachRendererDiagnosticsToSessionExport, fetchExport } from "./server-client"
@@ -23,6 +27,9 @@ import {
   SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
   type RendererDiagnosticsSlice,
 } from "./renderer-diagnostics"
+// Type-only: pins each Web Search credential handler to the Status shape the
+// preload promises the renderer, so a wrong service return fails typecheck.
+import type { WebSearchAuth as WebSearchAuthApi } from "virtual:opencode-server"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -40,6 +47,12 @@ function normalizeAttachmentPath(filepath: unknown) {
   if (typeof filepath !== "string" || filepath.length === 0) return
   if (/^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(filepath)) return filepath
   return path.resolve(filepath)
+}
+
+function attachmentBuffer(payload: unknown) {
+  if (payload instanceof ArrayBuffer) return Buffer.from(payload)
+  if (ArrayBuffer.isView(payload)) return Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength)
+  return null
 }
 
 type Deps = {
@@ -61,7 +74,9 @@ type Deps = {
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void> | void
   checkUpdate: () => Promise<UpdateInfo>
-  reportProblem: (input?: ReportProblemInput, context?: { windowID?: number }) => Promise<ReportProblemResult>
+  prepareReport: (input?: ReportProblemInput, context?: { windowID?: number }) => Promise<PrepareReportResult>
+  revealReport: (reportId: string) => Promise<RevealReportResult>
+  submitReport: (reportId: string) => Promise<SubmitReportResult>
   installUpdate: () => Promise<boolean> | boolean
   setBackgroundColor: (color: string) => void
   reportDeepLinkReady: (win: BrowserWindow | null) => void
@@ -149,10 +164,12 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.on("loading-window-complete", () => deps.loadingWindowComplete())
   ipcMain.handle("run-updater", (_event: IpcMainInvokeEvent, alertOnFail: boolean) => deps.runUpdater(alertOnFail))
   ipcMain.handle("check-update", () => deps.checkUpdate())
-  ipcMain.handle("report-problem", (event: IpcMainInvokeEvent, input?: ReportProblemInput) => {
+  ipcMain.handle("prepare-report", (event: IpcMainInvokeEvent, input?: ReportProblemInput) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    return deps.reportProblem(input, { windowID: win?.id })
+    return deps.prepareReport(input, { windowID: win?.id })
   })
+  ipcMain.handle("reveal-report", (_event: IpcMainInvokeEvent, reportId: string) => deps.revealReport(reportId))
+  ipcMain.handle("submit-report", (_event: IpcMainInvokeEvent, reportId: string) => deps.submitReport(reportId))
   ipcMain.handle("renderer-diagnostics:record", (event: IpcMainInvokeEvent, input: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
@@ -199,12 +216,15 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("report-ci-smoke-ready", () => deps.reportCiSmokeReady())
 
   ipcMain.handle("lsp-set-enabled", async (_event: IpcMainInvokeEvent, value: boolean) => {
-    const { Settings, LSP, ToolRegistry, Instance } = await import("virtual:opencode-server")
-    await Settings.setLspEnabled(value)
-    // LSP.invalidate / ToolRegistry.invalidate / LSP.shutdownAll all read
-    // InstanceState.directory, which requires an Instance scope. Process every
-    // active instance with isolation so a single failure does not leave the
-    // remaining projects stuck on stale cache state.
+    const { AppRuntime, Settings, LSP, ToolRegistry, Instance } = await import("virtual:opencode-server")
+    const setLspEnabled = (next: boolean) =>
+      AppRuntime.runPromise(Settings.Service.use((settings) => settings.setLspEnabled(next))) as Promise<void>
+    await setLspEnabled(value)
+    // The LSP and ToolRegistry invalidate/shutdownAll effects all read
+    // InstanceState.directory, which resolves from the Instance scope (InstanceRef
+    // ?? Instance.current ALS). Run them inside Instance.provide so each effect
+    // sees the right directory, and process every active instance with isolation
+    // so a single failure does not leave the remaining projects on stale cache.
     const directories = Instance.directories()
     const results = await Promise.allSettled(
       directories.map((directory) =>
@@ -212,10 +232,10 @@ export function registerIpcHandlers(deps: Deps) {
           directory,
           fn: async () => {
             if (!value) {
-              await LSP.shutdownAll()
+              await AppRuntime.runPromise(LSP.Service.use((lsp) => lsp.shutdownAll()))
             }
-            await LSP.invalidate()
-            await ToolRegistry.invalidate()
+            await AppRuntime.runPromise(LSP.Service.use((lsp) => lsp.invalidate()))
+            await AppRuntime.runPromise(ToolRegistry.Service.use((registry) => registry.invalidate()))
           },
         }),
       ),
@@ -231,15 +251,19 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   ipcMain.handle("websearch-set-enabled", async (_event: IpcMainInvokeEvent, value: boolean) => {
-    const { Settings, ToolRegistry, Instance } = await import("virtual:opencode-server")
-    const previous = await Settings.webSearchEnabled()
-    await Settings.setWebSearchEnabled(value)
+    const { AppRuntime, Settings, ToolRegistry, Instance } = await import("virtual:opencode-server")
+    const readWebSearchEnabled = () =>
+      AppRuntime.runPromise(Settings.Service.use((settings) => settings.webSearchEnabled())) as Promise<boolean>
+    const setWebSearchEnabled = (next: boolean) =>
+      AppRuntime.runPromise(Settings.Service.use((settings) => settings.setWebSearchEnabled(next))) as Promise<void>
+    const previous = await readWebSearchEnabled()
+    await setWebSearchEnabled(value)
     const invalidateWebSearchTools = (targetDirectories: string[]) =>
       Promise.allSettled(
         targetDirectories.map((directory) =>
           Instance.provide({
             directory,
-            fn: () => ToolRegistry.invalidate(),
+            fn: () => AppRuntime.runPromise(ToolRegistry.Service.use((registry) => registry.invalidate())),
           }),
         ),
       )
@@ -255,7 +279,7 @@ export function registerIpcHandlers(deps: Deps) {
     }
     const failures = results.filter((result) => result.status === "rejected")
     if (failures.length > 0) {
-      await Settings.setWebSearchEnabled(previous)
+      await setWebSearchEnabled(previous)
       const rollbackDirectories = Instance.directories()
       const rollbackResults = await invalidateWebSearchTools(rollbackDirectories)
       for (const [index, result] of rollbackResults.entries()) {
@@ -270,19 +294,19 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
-  ipcMain.handle("websearch-status", async () => {
-    const { WebSearchAuth } = await import("virtual:opencode-server")
-    return WebSearchAuth.status()
+  ipcMain.handle("websearch-status", async (): Promise<WebSearchAuthApi.Status> => {
+    const { AppRuntime, WebSearchAuth } = await import("virtual:opencode-server")
+    return AppRuntime.runPromise(WebSearchAuth.Service.use((auth) => auth.status()))
   })
 
-  ipcMain.handle("websearch-save-exa-key", async (_event: IpcMainInvokeEvent, key: string) => {
-    const { WebSearchAuth } = await import("virtual:opencode-server")
-    return WebSearchAuth.saveKey(key)
+  ipcMain.handle("websearch-save-exa-key", async (_event: IpcMainInvokeEvent, key: string): Promise<WebSearchAuthApi.Status> => {
+    const { AppRuntime, WebSearchAuth } = await import("virtual:opencode-server")
+    return AppRuntime.runPromise(WebSearchAuth.Service.use((auth) => auth.saveKey(key)))
   })
 
-  ipcMain.handle("websearch-remove-exa-key", async () => {
-    const { WebSearchAuth } = await import("virtual:opencode-server")
-    return WebSearchAuth.removeKey()
+  ipcMain.handle("websearch-remove-exa-key", async (): Promise<WebSearchAuthApi.Status> => {
+    const { AppRuntime, WebSearchAuth } = await import("virtual:opencode-server")
+    return AppRuntime.runPromise(WebSearchAuth.Service.use((auth) => auth.removeKey()))
   })
 
   ipcMain.handle(
@@ -317,6 +341,16 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
+  // Drag-dropped files resolve their path in the preload via webUtils, so the
+  // main process never sees them through a picker/save handler; the preload
+  // reports them here so read-file-data-url can serve their thumbnails.
+  // webUtils.getPathForFile returns nothing for synthetic File objects, and a
+  // renderer holding a real path-backed File can already read its bytes, so
+  // this grants no capability the caller does not have.
+  ipcMain.handle("approve-attachment-path", (event: IpcMainInvokeEvent, filepath: string) => {
+    approveAttachmentPaths(event.sender, filepath)
+  })
+
   ipcMain.handle("read-file-data-url", async (event: IpcMainInvokeEvent, filepath: string, mime: string) => {
     let normalized: string | undefined
     try {
@@ -333,6 +367,25 @@ export function registerIpcHandlers(deps: Deps) {
       return null
     }
   })
+
+  ipcMain.handle(
+    "save-attachment-file",
+    async (event: IpcMainInvokeEvent, name: string, _mime: string, payload: ArrayBuffer | ArrayBufferView) => {
+      try {
+        const buffer = attachmentBuffer(payload)
+        if (!buffer || buffer.byteLength === 0 || buffer.byteLength > MAX_ATTACHMENT_BYTES) return null
+        const dir = path.join(app.getPath("userData"), "attachments")
+        await fs.mkdir(dir, { recursive: true })
+        const filepath = path.join(dir, `${Date.now()}-${randomUUID()}-${safeAttachmentName(name)}`)
+        await fs.writeFile(filepath, buffer, { flag: "wx" })
+        approveAttachmentPaths(event.sender, filepath)
+        return filepath
+      } catch (err) {
+        console.warn("save-attachment-file failed", err)
+        return null
+      }
+    },
+  )
 
   ipcMain.handle(
     "save-file-picker",
@@ -456,8 +509,12 @@ export function registerIpcHandlers(deps: Deps) {
     if (!win) return
 
     if (process.platform === "darwin") {
-      // macOS: bounce the Dock icon once
-      app.dock?.bounce()
+      // macOS: bounce the Dock icon until the app is activated. "critical" (vs
+      // the default "informational" single bounce) is the "reliable bounce" the
+      // notification polish calls for — a lone informational bounce is trivial
+      // to miss. macOS never bounces the foreground app, so this is a no-op when
+      // the user is already looking, and auto-cancels the moment they click back.
+      app.dock?.bounce("critical")
     } else {
       // Windows/Linux: flash the taskbar button
       // Clear any existing timer for this window
@@ -473,6 +530,15 @@ export function registerIpcHandlers(deps: Deps) {
         }, 1000),
       )
     }
+  })
+
+  ipcMain.handle("set-badge-count", (_event: IpcMainInvokeEvent, count: number) => {
+    // Dock badge (macOS) / Unity launcher (Linux). `app.setBadgeCount` is
+    // @platform linux,darwin — a no-op on Windows, where taskbar attention is
+    // already covered by flash-frame above. Setting 0 hides the badge. A
+    // Windows overlay-icon badge can follow later if it proves worth it.
+    const next = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0
+    app.setBadgeCount(next)
   })
 
   ipcMain.handle("get-window-count", () => BrowserWindow.getAllWindows().length)

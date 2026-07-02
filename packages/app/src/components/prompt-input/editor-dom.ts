@@ -29,9 +29,12 @@ export function createTextFragment(content: string): DocumentFragment {
 
 export function getNodeLength(node: Node): number {
   if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === "BR") return 1
-  // Slash-command pill: logical length is 1 (the slash trigger) + name length.
-  // This must run before the textContent fallback because textContent only holds the name (no slash).
-  if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).dataset.cmdMark === "true") {
+  // Slash-command / skill pill: logical length is 1 (the slash trigger) + name length.
+  // This must run before the textContent fallback because textContent only holds the bare name.
+  if (
+    node.nodeType === Node.ELEMENT_NODE &&
+    ((node as HTMLElement).dataset.cmdMark === "true" || (node as HTMLElement).dataset.type === "skill")
+  ) {
     return 1 + ((node as HTMLElement).dataset.name ?? "").length
   }
   return (node.textContent ?? "").replace(/\u200B/g, "").length
@@ -40,11 +43,13 @@ export function getNodeLength(node: Node): number {
 export function getTextLength(node: Node): number {
   if (node.nodeType === Node.TEXT_NODE) return (node.textContent ?? "").replace(/\u200B/g, "").length
   if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === "BR") return 1
-  // Command pill: logical length is "/<name>" (1 + name.length), NOT the visible
-  // label-only textContent which would be name.length. getCursorPosition feeds
-  // its cloned-range fragment through this function, so any data-cmd-mark inside
-  // the fragment must report its logical length or caret math goes off by one.
-  if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).dataset.cmdMark === "true") {
+  // Command / skill pill: logical length is "/<name>" (1 + name.length), NOT the
+  // visible bare-name textContent. getCursorPosition feeds its cloned-range
+  // fragment through this function, so pills must report logical length.
+  if (
+    node.nodeType === Node.ELEMENT_NODE &&
+    ((node as HTMLElement).dataset.cmdMark === "true" || (node as HTMLElement).dataset.type === "skill")
+  ) {
     return 1 + ((node as HTMLElement).dataset.name ?? "").length
   }
   let length = 0
@@ -75,6 +80,7 @@ export function setCursorPosition(parent: HTMLElement, position: number) {
       node.nodeType === Node.ELEMENT_NODE &&
       ((node as HTMLElement).dataset.type === "file" ||
         (node as HTMLElement).dataset.type === "agent" ||
+        (node as HTMLElement).dataset.type === "skill" ||
         (node as HTMLElement).dataset.cmdMark === "true")
     const isBreak = node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === "BR"
 
@@ -142,6 +148,7 @@ export function setRangeEdge(parent: HTMLElement, range: Range, edge: "start" | 
       node.nodeType === Node.ELEMENT_NODE &&
       ((node as HTMLElement).dataset.type === "file" ||
         (node as HTMLElement).dataset.type === "agent" ||
+        (node as HTMLElement).dataset.type === "skill" ||
         (node as HTMLElement).dataset.cmdMark === "true")
     const isBreak = node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === "BR"
 

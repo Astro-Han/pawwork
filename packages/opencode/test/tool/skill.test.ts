@@ -1,4 +1,4 @@
-import { Effect, Layer, ManagedRuntime } from "effect"
+import { Effect, Layer } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { Skill } from "../../src/skill"
 import { Ripgrep } from "../../src/file/ripgrep"
@@ -13,6 +13,7 @@ import { SkillTool } from "../../src/tool/skill"
 import { ToolRegistry } from "../../src/tool/registry"
 import { tmpdir } from "../fixture/fixture"
 import { SessionID, MessageID } from "../../src/session/schema"
+import { AppRuntime } from "../../src/effect/app-runtime"
 
 const baseCtx: Omit<Tool.Context, "ask"> = {
   sessionID: SessionID.make("ses_test"),
@@ -24,12 +25,18 @@ const baseCtx: Omit<Tool.Context, "ask"> = {
   metadata: () => Effect.void,
 }
 
+const testLayer = Layer.mergeAll(Skill.defaultLayer, Ripgrep.defaultLayer, Truncate.defaultLayer, Agent.defaultLayer)
+
 afterEach(async () => {
   await Instance.disposeAll()
 })
 
+function registryTools(input: Parameters<ToolRegistry.Interface["tools"]>[0]) {
+  return AppRuntime.runPromise(ToolRegistry.Service.use((svc) => svc.tools(input)))
+}
+
 describe("tool.skill", () => {
-  test("description lists skill location URL", async () => {
+  test("description does not duplicate the available skill catalog", async () => {
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
@@ -54,12 +61,14 @@ description: Skill for tool tests.
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const desc = await ToolRegistry.tools({
+          const desc = await registryTools({
             providerID: "opencode" as any,
             modelID: "gpt-5" as any,
             agent: { name: "build", mode: "primary" as const, permission: [], options: {} },
           }).then((tools) => tools.find((tool) => tool.id === SkillTool.id)?.description ?? "")
-          expect(desc).toContain(`**tool-skill**: Skill for tool tests.`)
+          expect(desc).toContain("Load a specialized skill")
+          expect(desc).not.toContain("tool-skill")
+          expect(desc).not.toContain("Skill for tool tests.")
         },
       })
     } finally {
@@ -67,7 +76,7 @@ description: Skill for tool tests.
     }
   })
 
-  test("description sorts skills by name and is stable across calls", async () => {
+  test("description is stable across calls without listing available skills", async () => {
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
@@ -100,7 +109,7 @@ description: ${description}
         fn: async () => {
           const agent = { name: "build", mode: "primary" as const, permission: [], options: {} }
           const load = () =>
-            ToolRegistry.tools({
+            registryTools({
               providerID: "opencode" as any,
               modelID: "gpt-5" as any,
               agent,
@@ -109,14 +118,9 @@ description: ${description}
           const second = await load()
 
           expect(first).toBe(second)
-
-          const alpha = first.indexOf("**alpha-skill**: Alpha skill.")
-          const middle = first.indexOf("**middle-skill**: Middle skill.")
-          const zeta = first.indexOf("**zeta-skill**: Zeta skill.")
-
-          expect(alpha).toBeGreaterThan(-1)
-          expect(middle).toBeGreaterThan(alpha)
-          expect(zeta).toBeGreaterThan(middle)
+          expect(first).not.toContain("alpha-skill")
+          expect(first).not.toContain("middle-skill")
+          expect(first).not.toContain("zeta-skill")
         },
       })
     } finally {
@@ -124,7 +128,7 @@ description: ${description}
     }
   })
 
-  test("description uses empty state when only manual skills are available", async () => {
+  test("description omits manual-only skills without appending an empty catalog", async () => {
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
@@ -157,13 +161,14 @@ name: manual-skill
             ],
             options: {},
           }
-          const desc = await ToolRegistry.tools({
+          const desc = await registryTools({
             providerID: "opencode" as any,
             modelID: "gpt-5" as any,
             agent,
           }).then((tools) => tools.find((tool) => tool.id === SkillTool.id)?.description ?? "")
 
-          expect(desc).toContain("No skills are currently available.")
+          expect(desc).toContain("Load a specialized skill")
+          expect(desc).not.toContain("No skills are currently available.")
           expect(desc).not.toContain("manual-skill")
           expect(desc).not.toContain("The following skills provide specialized sets of instructions")
         },
@@ -201,11 +206,6 @@ Use this skill.
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const runtime = ManagedRuntime.make(
-            Layer.mergeAll(Skill.defaultLayer, Ripgrep.defaultLayer, Truncate.defaultLayer, Agent.defaultLayer),
-          )
-          const info = await runtime.runPromise(SkillTool)
-          const tool = await runtime.runPromise(info.init())
           const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
           const ctx: Tool.Context = {
             ...baseCtx,
@@ -215,7 +215,13 @@ Use this skill.
               }),
           }
 
-          const result = await runtime.runPromise(tool.execute({ name: "tool-skill" }, ctx))
+          const result = await Effect.runPromise(
+            Effect.gen(function* () {
+              const info = yield* SkillTool
+              const tool = yield* info.init()
+              return yield* tool.execute({ name: "tool-skill" }, ctx)
+            }).pipe(Effect.scoped, Effect.provide(testLayer)),
+          )
           const dir = path.join(tmp.path, ".opencode", "skill", "tool-skill")
           const file = path.resolve(dir, "scripts", "demo.txt")
 

@@ -2,14 +2,8 @@ import { onCleanup, onMount } from "solid-js"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 
+import type { AboutInfo } from "@/desktop-api-contract"
 import { useLanguage } from "@/context/language"
-
-export type AboutInfo = {
-  version: string
-  electronVersion: string
-  chromeVersion: string
-  buildSha: string
-}
 
 function AboutDialogBody(props: { info: AboutInfo }) {
   const language = useLanguage()

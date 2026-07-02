@@ -46,7 +46,6 @@ const basicToolOpenState = createBoundedStateMap<boolean>()
 const SPRING = { type: "spring" as const, visualDuration: 0.35, bounce: 0 }
 
 export function basicToolInitialReady(props: { defaultOpen?: boolean; defer?: boolean }) {
-  if (props.defer) return false
   return props.defaultOpen ?? false
 }
 

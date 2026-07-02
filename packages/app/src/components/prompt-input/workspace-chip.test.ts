@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test"
 
-import { findWorkspaceProject, workspaceChipChoices } from "./workspace-chip-helpers"
+import {
+  findWorkspaceProject,
+  workspaceChipChoices,
+  workspaceChipIconName,
+  workspaceChipLabel,
+} from "./workspace-chip-helpers"
 
 test("findWorkspaceProject matches sandboxes with normalized workspace keys", () => {
   const project = findWorkspaceProject(
@@ -91,4 +96,80 @@ test("workspaceChipChoices ignores listed worktrees", () => {
   })
 
   expect(result.map((c) => c.path)).toEqual(["/repo/main"])
+})
+
+test("workspaceChipChoices offers direct start before projects when no workspace is active", () => {
+  const result = workspaceChipChoices({
+    directStartDirectory: "/Users/demo/.pawwork",
+    projects: [{ worktree: "/repo/main" }],
+  })
+
+  expect(result).toEqual([
+    { path: "/Users/demo/.pawwork", kind: "direct-start" },
+    { path: "/repo/main", kind: "workspace" },
+  ])
+})
+
+test("workspaceChipChoices does not expose the direct-start backing folder as an unknown workspace", () => {
+  const result = workspaceChipChoices({
+    directory: "/Users/demo/.pawwork",
+    directStartDirectory: "/Users/demo/.pawwork/",
+    projects: [{ worktree: "/repo/main" }],
+  })
+
+  expect(result).toEqual([
+    { path: "/Users/demo/.pawwork/", kind: "direct-start" },
+    { path: "/repo/main", kind: "workspace" },
+  ])
+})
+
+test("workspaceChip treats the direct-start backing folder as a project when it is opened", () => {
+  const directStartDirectory = "/Users/demo/PawWork"
+  const project = { name: "Default Project", worktree: directStartDirectory }
+  const source = {
+    directory: directStartDirectory,
+    directStartDirectory: `${directStartDirectory}/`,
+    projects: [project],
+  }
+
+  expect(workspaceChipChoices(source)).toEqual([{ path: directStartDirectory, kind: "workspace" }])
+  expect(
+    workspaceChipLabel({
+      ...source,
+      directStartLabel: "Direct start",
+      emptyLabel: "No workspace",
+    }),
+  ).toBe("Default Project")
+  expect(workspaceChipIconName(source)).toBe("folder")
+})
+
+test("workspaceChipLabel names the empty and default-directory state as direct start", () => {
+  expect(
+    workspaceChipLabel({
+      directory: "",
+      directStartDirectory: "/Users/demo/.pawwork",
+      directStartLabel: "Direct start",
+      emptyLabel: "No workspace",
+    }),
+  ).toBe("Direct start")
+
+  expect(
+    workspaceChipLabel({
+      directory: "/Users/demo/.pawwork",
+      directStartDirectory: "/Users/demo/.pawwork/",
+      directStartLabel: "Direct start",
+      emptyLabel: "No workspace",
+    }),
+  ).toBe("Direct start")
+})
+
+test("workspaceChipIconName keeps the empty no-directory state folder-shaped", () => {
+  expect(workspaceChipIconName({ directory: "", directStartDirectory: "" })).toBe("folder")
+  expect(workspaceChipIconName({ directory: "", directStartDirectory: "/Users/demo/.pawwork" })).toBe("bubble-5")
+  expect(
+    workspaceChipIconName({
+      directory: "/Users/demo/.pawwork",
+      directStartDirectory: "/Users/demo/.pawwork/",
+    }),
+  ).toBe("bubble-5")
 })

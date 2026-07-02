@@ -1,5 +1,5 @@
 import { test, expect, describe, mock, afterEach, beforeEach, spyOn } from "bun:test"
-import { Effect, Layer, Option } from "effect"
+import { Cause, Effect, Exit, Layer, Option } from "effect"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Config, ConfigManaged, ConfigVariable } from "../../src/config"
 import { ConfigParse } from "../../src/config/parse"
@@ -13,6 +13,7 @@ import { Auth } from "../../src/auth"
 import { Account } from "../../src/account"
 import { AccessToken, AccountID, OrgID } from "../../src/account/schema"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { tmpdir } from "../fixture/fixture"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
@@ -24,6 +25,7 @@ const infra = CrossSpawnSpawner.defaultLayer.pipe(
 )
 import path from "path"
 import fs from "fs/promises"
+import os from "os"
 import { pathToFileURL } from "url"
 import { Global } from "../../src/global"
 import { ProjectID } from "../../src/project/schema"
@@ -46,6 +48,7 @@ const emptyAuth = Layer.mock(Auth.Service)({
 })
 
 const layer = Config.layer.pipe(
+  Layer.provide(EffectFlock.defaultLayer),
   Layer.provide(AppFileSystem.defaultLayer),
   Layer.provide(emptyAuth),
   Layer.provide(emptyAccount),
@@ -63,6 +66,27 @@ const listDirs = () =>
   Effect.runPromise(Config.Service.use((svc) => svc.directories()).pipe(Effect.scoped, Effect.provide(layer)))
 const ready = () =>
   Effect.runPromise(Config.Service.use((svc) => svc.waitForDependencies()).pipe(Effect.scoped, Effect.provide(layer)))
+const installDepsWithLayer = (dir: string, targetLayer = layer) =>
+  Effect.runPromise(
+    Config.Service.use((svc) => svc.installDependencies(dir)).pipe(Effect.scoped, Effect.provide(targetLayer)),
+  )
+const installDeps = (dir: string) => installDepsWithLayer(dir)
+const projectFromDirectory = (directory: string) =>
+  Effect.runPromise(Project.Service.use((project) => project.fromDirectory(directory)).pipe(Effect.provide(Project.defaultLayer)))
+
+const lockFailureLayer = Config.layer.pipe(
+  Layer.provide(
+    Layer.mock(EffectFlock.Service)({
+      acquire: () => Effect.fail(new EffectFlock.LockTimeoutError({ key: "config-install:test" })),
+      withLock: ((body: Effect.Effect<unknown>, key?: string) =>
+        Effect.fail(new EffectFlock.LockTimeoutError({ key: key ?? "config-install:test" }))) as never,
+    }),
+  ),
+  Layer.provide(AppFileSystem.defaultLayer),
+  Layer.provide(emptyAuth),
+  Layer.provide(emptyAccount),
+  Layer.provideMerge(infra),
+)
 
 async function withPawWorkRuntime(fn: () => Promise<void>) {
   const previous = process.env.PAWWORK_RUNTIME_NAMESPACE
@@ -108,7 +132,7 @@ async function writeConfig(dir: string, config: object, name = "opencode.json") 
 
 async function withRawInstance<R>(directory: string, fn: () => R): Promise<Awaited<R>> {
   const resolved = Filesystem.resolve(directory)
-  const { project, sandbox } = await Project.fromDirectory(resolved)
+  const { project, sandbox } = await projectFromDirectory(resolved)
   return await Instance.restore({ directory: resolved, worktree: sandbox, project }, fn)
 }
 
@@ -414,7 +438,7 @@ test("PawWork .opencode aliases win consistently when OpenCode aliases coexist",
   })
 })
 
-test("loads formatter boolean config", async () => {
+test("ignores removed formatter config", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await writeConfig(dir, {
@@ -427,7 +451,7 @@ test("loads formatter boolean config", async () => {
     directory: tmp.path,
     fn: async () => {
       const config = await load()
-      expect(config.formatter).toBe(true)
+      expect((config as any).formatter).toBeUndefined()
     },
   })
 })
@@ -742,6 +766,7 @@ test("resolves env templates in account config with account token", async () => 
   })
 
   const layer = Config.layer.pipe(
+    Layer.provide(EffectFlock.defaultLayer),
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(emptyAuth),
     Layer.provide(fakeAccount),
@@ -1441,6 +1466,7 @@ it.live(
     const install = spyOn(Npm, "install").mockResolvedValue(undefined)
 
     const testLayer = Config.layer.pipe(
+      Layer.provide(EffectFlock.defaultLayer),
       Layer.provide(AppFileSystem.defaultLayer),
       Layer.provide(emptyAuth),
       Layer.provide(emptyAccount),
@@ -1490,7 +1516,7 @@ test("installDependencies bootstraps the config plugin package metadata", async 
   const install = spyOn(Npm, "install").mockResolvedValue(undefined)
 
   try {
-    await Config.installDependencies(tmp.path)
+    await installDeps(tmp.path)
 
     const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.path, "package.json"))
     const target = Installation.isLocal() ? "*" : Installation.VERSION
@@ -1503,6 +1529,79 @@ test("installDependencies bootstraps the config plugin package metadata", async 
   }
 })
 
+test("service installDependencies bootstraps the config plugin package metadata", async () => {
+  await using tmp = await tmpdir()
+  const install = spyOn(Npm, "install").mockResolvedValue(undefined)
+
+  try {
+    await installDeps(tmp.path)
+
+    const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.path, "package.json"))
+    const target = Installation.isLocal() ? "*" : Installation.VERSION
+
+    expect(pkg.dependencies?.["@opencode-ai/plugin"]).toBe(target)
+    expect(await Filesystem.readText(path.join(tmp.path, ".gitignore"))).toContain("package-lock.json")
+    expect(install).toHaveBeenCalledWith(tmp.path)
+  } finally {
+    install.mockRestore()
+  }
+})
+
+test("service installDependencies treats malformed package metadata as missing", async () => {
+  await using tmp = await tmpdir()
+  await Filesystem.write(path.join(tmp.path, "package.json"), "{")
+  const install = spyOn(Npm, "install").mockResolvedValue(undefined)
+
+  try {
+    await installDeps(tmp.path)
+
+    const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.path, "package.json"))
+    const target = Installation.isLocal() ? "*" : Installation.VERSION
+
+    expect(pkg.dependencies?.["@opencode-ai/plugin"]).toBe(target)
+    expect(install).toHaveBeenCalledWith(tmp.path)
+  } finally {
+    install.mockRestore()
+  }
+})
+
+test("service installDependencies treats non-object package metadata as missing", async () => {
+  await using tmp = await tmpdir()
+  await Filesystem.write(path.join(tmp.path, "package.json"), "null")
+  const install = spyOn(Npm, "install").mockResolvedValue(undefined)
+
+  try {
+    await installDeps(tmp.path)
+
+    const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.path, "package.json"))
+    const target = Installation.isLocal() ? "*" : Installation.VERSION
+
+    expect(pkg.dependencies?.["@opencode-ai/plugin"]).toBe(target)
+    expect(install).toHaveBeenCalledWith(tmp.path)
+  } finally {
+    install.mockRestore()
+  }
+})
+
+test("service installDependencies returns false when dependency install fails", async () => {
+  await using tmp = await tmpdir()
+  const install = spyOn(Npm, "install").mockImplementation(async () => {
+    throw new Error("install failed")
+  })
+
+  try {
+    await expect(installDeps(tmp.path)).resolves.toBe(false)
+  } finally {
+    install.mockRestore()
+  }
+})
+
+test("service installDependencies returns false when config install lock fails", async () => {
+  await using tmp = await tmpdir()
+
+  await expect(installDepsWithLayer(tmp.path, lockFailureLayer)).resolves.toBe(false)
+})
+
 test("installDependencies does not pin config plugin metadata to a packaged app build version", async () => {
   await using tmp = await tmpdir()
   const install = spyOn(Npm, "install").mockResolvedValue(undefined)
@@ -1513,7 +1612,7 @@ test("installDependencies does not pin config plugin metadata to a packaged app 
     ;(Installation as { VERSION: string }).VERSION = "0.0.0-prod-202605230200"
     ;(Installation as { CHANNEL: string }).CHANNEL = "prod"
 
-    await Config.installDependencies(tmp.path)
+    await installDeps(tmp.path)
 
     const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.path, "package.json"))
 
@@ -2538,6 +2637,7 @@ test("project config overrides remote well-known config", async () => {
   })
 
   const layer = Config.layer.pipe(
+    Layer.provide(EffectFlock.defaultLayer),
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(fakeAuth),
     Layer.provide(emptyAccount),
@@ -2593,6 +2693,7 @@ test("wellknown URL with trailing slash is normalized", async () => {
   })
 
   const layer = Config.layer.pipe(
+    Layer.provide(EffectFlock.defaultLayer),
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(fakeAuth),
     Layer.provide(emptyAccount),
@@ -2610,6 +2711,143 @@ test("wellknown URL with trailing slash is normalized", async () => {
         ),
       { git: true },
     ).pipe(Effect.scoped, Effect.provide(layer), Effect.runPromise)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("wellknown HTML response surfaces remote auth recovery error", async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = mock((url: string | URL | Request) => {
+    const urlStr = url instanceof Request ? url.url : url instanceof URL ? url.href : url
+    if (urlStr.includes(".well-known/opencode")) {
+      return Promise.resolve(
+        new Response("<!doctype html><html><body>Login required</body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      )
+    }
+    return originalFetch(url)
+  }) as unknown as typeof fetch
+
+  const fakeAuth = Layer.mock(Auth.Service)({
+    all: () =>
+      Effect.succeed({
+        "https://example.com": new Auth.WellKnown({ type: "wellknown", key: "TEST_TOKEN", token: "expired-token" }),
+      }),
+  })
+
+  const layer = Config.layer.pipe(
+    Layer.provide(EffectFlock.defaultLayer),
+    Layer.provide(AppFileSystem.defaultLayer),
+    Layer.provide(fakeAuth),
+    Layer.provide(emptyAccount),
+    Layer.provideMerge(infra),
+  )
+
+  try {
+    const exit = await provideTmpdirInstance(
+      () => Config.Service.use((svc) => svc.get()).pipe(Effect.exit),
+      { git: true },
+    ).pipe(Effect.scoped, Effect.provide(layer), Effect.runPromise)
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    const error = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
+    expect((error as Error | undefined)?.name).toBe("ConfigRemoteAuthError")
+    const data = (error as { data?: { url?: string; remote?: string; message?: string } } | undefined)?.data
+    expect(data?.url).toBe("https://example.com")
+    expect(data?.remote).toBe("https://example.com/.well-known/opencode")
+    expect(data?.message).toBe("the server returned a login page instead of JSON")
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("wellknown non-json response surfaces remote auth recovery error", async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = mock((url: string | URL | Request) => {
+    const urlStr = url instanceof Request ? url.url : url instanceof URL ? url.href : url
+    if (urlStr.includes(".well-known/opencode")) {
+      return Promise.resolve(
+        new Response("login required", {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        }),
+      )
+    }
+    return originalFetch(url)
+  }) as unknown as typeof fetch
+
+  const fakeAuth = Layer.mock(Auth.Service)({
+    all: () =>
+      Effect.succeed({
+        "https://example.com": new Auth.WellKnown({ type: "wellknown", key: "TEST_TOKEN", token: "expired-token" }),
+      }),
+  })
+
+  const layer = Config.layer.pipe(
+    Layer.provide(EffectFlock.defaultLayer),
+    Layer.provide(AppFileSystem.defaultLayer),
+    Layer.provide(fakeAuth),
+    Layer.provide(emptyAccount),
+    Layer.provideMerge(infra),
+  )
+
+  try {
+    const exit = await provideTmpdirInstance(
+      () => Config.Service.use((svc) => svc.get()).pipe(Effect.exit),
+      { git: true },
+    ).pipe(Effect.scoped, Effect.provide(layer), Effect.runPromise)
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    const error = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
+    expect((error as Error | undefined)?.name).toBe("ConfigRemoteAuthError")
+    expect((error as { data?: { message?: string } } | undefined)?.data?.message).toBe(
+      "the server returned non-JSON content",
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("wellknown unauthorized response surfaces remote auth recovery error", async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = mock((url: string | URL | Request) => {
+    const urlStr = url instanceof Request ? url.url : url instanceof URL ? url.href : url
+    if (urlStr.includes(".well-known/opencode")) {
+      return Promise.resolve(new Response("Unauthorized", { status: 401 }))
+    }
+    return originalFetch(url)
+  }) as unknown as typeof fetch
+
+  const fakeAuth = Layer.mock(Auth.Service)({
+    all: () =>
+      Effect.succeed({
+        "https://example.com": new Auth.WellKnown({ type: "wellknown", key: "TEST_TOKEN", token: "expired-token" }),
+      }),
+  })
+
+  const layer = Config.layer.pipe(
+    Layer.provide(EffectFlock.defaultLayer),
+    Layer.provide(AppFileSystem.defaultLayer),
+    Layer.provide(fakeAuth),
+    Layer.provide(emptyAccount),
+    Layer.provideMerge(infra),
+  )
+
+  try {
+    const exit = await provideTmpdirInstance(
+      () => Config.Service.use((svc) => svc.get()).pipe(Effect.exit),
+      { git: true },
+    ).pipe(Effect.scoped, Effect.provide(layer), Effect.runPromise)
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    const error = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
+    expect((error as Error | undefined)?.name).toBe("ConfigRemoteAuthError")
+    expect((error as { data?: { message?: string } } | undefined)?.data?.message).toBe(
+      "the server rejected the request with HTTP 401",
+    )
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -3175,4 +3413,67 @@ test("parseManagedPlist handles empty config", async () => {
     "test:mobileconfig",
   )
   expect(config.$schema).toBe("https://opencode.ai/config.json")
+})
+
+// Regression for #28388: malformed OPENCODE_PERMISSION JSON used to crash
+// config load on startup with an unhandled SyntaxError. Loading the config
+// with an invalid JSON value in this env var should warn and skip, not throw.
+describe("OPENCODE_PERMISSION env var", () => {
+  test("does not crash when OPENCODE_PERMISSION contains invalid JSON", async () => {
+    const original = process.env["OPENCODE_PERMISSION"]
+    process.env["OPENCODE_PERMISSION"] = "{invalid"
+    try {
+      await using tmp = await tmpdir()
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const config = await load()
+          expect(config).toBeDefined()
+        },
+      })
+    } finally {
+      if (original === undefined) delete process.env["OPENCODE_PERMISSION"]
+      else process.env["OPENCODE_PERMISSION"] = original
+    }
+  })
+})
+
+// Regression for #29332: os.userInfo() can throw on minimal hosts with no
+// passwd entry (e.g. some containers), which used to crash config load.
+// The loader should fall back to a generic "user" instead of throwing.
+describe("system username fallback", () => {
+  test("falls back to 'user' when os.userInfo() throws", async () => {
+    const userInfo = spyOn(os, "userInfo").mockImplementation(() => {
+      throw Object.assign(new Error("missing passwd entry"), { code: "ENOENT" })
+    })
+    try {
+      await using tmp = await tmpdir()
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const config = await load()
+          expect(config.username).toBe("user")
+        },
+      })
+    } finally {
+      userInfo.mockRestore()
+    }
+  })
+
+  test("readManagedPreferences does not throw when os.userInfo() throws on darwin", async () => {
+    const originalPlatform = process.platform
+    const userInfo = spyOn(os, "userInfo").mockImplementation(() => {
+      throw Object.assign(new Error("missing passwd entry"), { code: "ENOENT" })
+    })
+    Object.defineProperty(process, "platform", { value: "darwin" })
+    try {
+      // The macOS managed-preferences paths do not exist on CI hosts, so the
+      // lookup returns undefined; the regression is that the username fallback
+      // must not let os.userInfo() throw out of readManagedPreferences().
+      await expect(ConfigManaged.readManagedPreferences()).resolves.toBeUndefined()
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform })
+      userInfo.mockRestore()
+    }
+  })
 })

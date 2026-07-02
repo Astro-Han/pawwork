@@ -396,6 +396,67 @@ describe("ProviderTransform.options - gpt-5 textVerbosity", () => {
   })
 })
 
+describe("ProviderTransform.options - azure gpt-5.5 reasoningEffort", () => {
+  const sessionID = "test-session-123"
+
+  const createAzureModel = (apiId: string) =>
+    ({
+      id: `azure/${apiId}`,
+      providerID: "azure",
+      api: {
+        id: apiId,
+        url: "https://azure.com",
+        npm: "@ai-sdk/azure",
+      },
+      name: apiId,
+      capabilities: {
+        temperature: true,
+        reasoning: true,
+        attachment: true,
+        toolcall: true,
+        input: { text: true, audio: false, image: true, video: false, pdf: false },
+        output: { text: true, audio: false, image: false, video: false, pdf: false },
+        interleaved: false,
+      },
+      cost: { input: 0.03, output: 0.06, cache: { read: 0.001, write: 0.002 } },
+      limit: { context: 128000, output: 4096 },
+      status: "active",
+      options: {},
+      headers: {},
+    }) as any
+
+  test("azure gpt-5.5 should NOT set reasoningEffort (Azure rejects it)", () => {
+    const result = ProviderTransform.options({
+      model: createAzureModel("gpt-5.5"),
+      sessionID,
+      providerOptions: {},
+    })
+    expect(result.reasoningEffort).toBeUndefined()
+    expect(result.reasoningSummary).toBe("auto")
+  })
+
+  // Guard must be scoped to gpt-5.5 only; other azure gpt-5.x keep reasoningEffort.
+  test("azure gpt-5.1 should still set reasoningEffort to medium", () => {
+    const result = ProviderTransform.options({
+      model: createAzureModel("gpt-5.1"),
+      sessionID,
+      providerOptions: {},
+    })
+    expect(result.reasoningEffort).toBe("medium")
+    expect(result.reasoningSummary).toBe("auto")
+  })
+
+  test("azure gpt-5.2 should still set reasoningEffort to medium", () => {
+    const result = ProviderTransform.options({
+      model: createAzureModel("gpt-5.2"),
+      sessionID,
+      providerOptions: {},
+    })
+    expect(result.reasoningEffort).toBe("medium")
+    expect(result.reasoningSummary).toBe("auto")
+  })
+})
+
 describe("ProviderTransform.options - gateway", () => {
   const sessionID = "test-session-123"
 
@@ -1779,6 +1840,73 @@ describe("ProviderTransform.message - empty image handling", () => {
     })
   })
 
+  test("withholds capability-unsupported media with the same notice the resolver uses", () => {
+    const validBase64 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    const textOnly = {
+      ...mockModel,
+      capabilities: {
+        ...mockModel.capabilities,
+        input: { text: true, audio: false, image: false, video: false, pdf: false },
+      },
+    } as any
+    const msgs = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "What is in these?" },
+          { type: "image", image: `data:image/png;base64,${validBase64}` },
+          { type: "file", data: "JVBERi0xLjc=", mediaType: "application/pdf", filename: "report.pdf" },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, textOnly, {})
+
+    expect(result[0].content[1]).toEqual({
+      type: "text",
+      text: "The contents of this image were NOT provided to you: this model does not support image input. Do not guess or describe the file's contents; tell the user you cannot view the file.",
+    })
+    expect(result[0].content[2]).toEqual({
+      type: "text",
+      text: 'The contents of "report.pdf" were NOT provided to you: this model does not support pdf input. Do not guess or describe the file\'s contents; tell the user you cannot view the file.',
+    })
+  })
+
+  test("maps mime types onto the shared media input kinds", () => {
+    expect(ProviderTransform.mediaInputKind("image/png")).toBe("image")
+    expect(ProviderTransform.mediaInputKind("audio/mpeg")).toBe("audio")
+    expect(ProviderTransform.mediaInputKind("video/mp4")).toBe("video")
+    expect(ProviderTransform.mediaInputKind("application/pdf")).toBe("pdf")
+    expect(ProviderTransform.mediaInputKind("text/plain")).toBeUndefined()
+  })
+
+  test("lets PDF borrow image input like the resolver and the composer warning", () => {
+    const imageOnly = {
+      ...mockModel,
+      capabilities: {
+        ...mockModel.capabilities,
+        input: { text: true, audio: false, image: true, video: false, pdf: false },
+      },
+    } as any
+    const pdfPart = {
+      type: "file",
+      data: "JVBERi0xLjc=",
+      mediaType: "application/pdf",
+      filename: "report.pdf",
+    } as const
+    const msgs = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Summarize this." }, pdfPart],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, imageOnly, {})
+
+    expect(result[0].content[1]).toEqual(pdfPart)
+  })
+
   test("should keep valid base64 images unchanged", () => {
     const validBase64 =
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
@@ -2110,7 +2238,20 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
     expect(result[1].content).toHaveLength(1)
   })
 
-  test("splits anthropic assistant messages when text trails tool calls", () => {
+  test("preserves anthropic assistant messages when thinking and text trail tool calls", () => {
+    const opusModel = {
+      ...anthropicModel,
+      id: "anthropic/claude-opus-4-7",
+      api: {
+        id: "claude-opus-4-7-20260101",
+        url: "https://api.anthropic.com",
+        npm: "@ai-sdk/anthropic",
+      },
+      capabilities: {
+        ...anthropicModel.capabilities,
+        reasoning: true,
+      },
+    }
     const msgs = [
       {
         role: "user",
@@ -2121,6 +2262,11 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
         content: [
           { type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/root" } },
           { type: "tool-call", toolCallId: "toolu_2", toolName: "glob", input: { pattern: "**/*.pdf" } },
+          {
+            type: "reasoning",
+            text: "The tool calls have completed.",
+            providerOptions: { anthropic: { signature: "sig_1" } },
+          },
           { type: "text", text: "I checked your home directory and looked for PDF files." },
         ],
       },
@@ -2138,18 +2284,20 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
       },
     ] as any[]
 
-    const result = ProviderTransform.message(msgs, anthropicModel, {}) as any[]
+    const result = ProviderTransform.message(msgs, opusModel, {}) as any[]
 
-    expect(result).toHaveLength(4)
+    expect(result).toHaveLength(3)
     expect(result[1]).toMatchObject({
-      role: "assistant",
-      content: [{ type: "text", text: "I checked your home directory and looked for PDF files." }],
-    })
-    expect(result[2]).toMatchObject({
       role: "assistant",
       content: [
         { type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/root" } },
         { type: "tool-call", toolCallId: "toolu_2", toolName: "glob", input: { pattern: "**/*.pdf" } },
+        {
+          type: "reasoning",
+          text: "The tool calls have completed.",
+          providerOptions: { anthropic: { signature: "sig_1" } },
+        },
+        { type: "text", text: "I checked your home directory and looked for PDF files." },
       ],
     })
   })
@@ -2176,7 +2324,7 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
     ])
   })
 
-  test("splits vertex anthropic assistant messages when text trails tool calls", () => {
+  test("preserves vertex anthropic assistant messages when text trails tool calls", () => {
     const model = {
       ...anthropicModel,
       providerID: "google-vertex-anthropic",
@@ -2200,16 +2348,13 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
 
     const result = ProviderTransform.message(msgs, model, {}) as any[]
 
-    expect(result).toHaveLength(2)
+    expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({
-      role: "assistant",
-      content: [{ type: "text", text: "I checked your home directory and looked for PDF files." }],
-    })
-    expect(result[1]).toMatchObject({
       role: "assistant",
       content: [
         { type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/root" } },
         { type: "tool-call", toolCallId: "toolu_2", toolName: "glob", input: { pattern: "**/*.pdf" } },
+        { type: "text", text: "I checked your home directory and looked for PDF files." },
       ],
     })
   })

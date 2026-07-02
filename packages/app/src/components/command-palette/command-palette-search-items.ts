@@ -14,6 +14,7 @@ const COMMON_COMMAND_IDS = [
   "session.next",
   "terminal.toggle",
   "review.toggle",
+  "browser.toggle",
 ] as const
 
 type SessionTabsAccessor = Accessor<{

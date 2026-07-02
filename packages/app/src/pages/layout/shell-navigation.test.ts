@@ -12,13 +12,11 @@ describe("createShellNavigation", () => {
       currentProjectRoot: () => "/current",
       chooseProject: () => calls.push("chooseProject"),
       openSettingsSurface: () => calls.push("settings"),
-      closeSettingsSurface: () => calls.push("close-settings"),
     })
 
     shell.openNewSession("/repo")
 
     expect(calls).toEqual([
-      "close-settings",
       `release:new-session`,
       `navigate:/${base64Encode("/root:/repo")}/session`,
     ])
@@ -33,13 +31,11 @@ describe("createShellNavigation", () => {
       currentProjectRoot: () => "/current",
       chooseProject: () => calls.push("chooseProject"),
       openSettingsSurface: () => calls.push("settings"),
-      closeSettingsSurface: () => calls.push("close-settings"),
     })
 
     shell.openSession({ directory: "/repo", id: "ses_123" })
 
     expect(calls).toEqual([
-      "close-settings",
       `release:session`,
       `navigate:/${base64Encode("/repo")}/session/ses_123`,
     ])
@@ -54,7 +50,6 @@ describe("createShellNavigation", () => {
       currentProjectRoot: () => "/current",
       chooseProject: () => calls.push("chooseProject"),
       openSettingsSurface: () => calls.push("settings"),
-      closeSettingsSurface: () => calls.push("close-settings"),
     })
 
     shell.openSettings()
@@ -68,15 +63,34 @@ describe("createShellNavigation", () => {
       navigate: (route) => calls.push(`navigate:${route}`),
       releaseTransientLocks: (reason) => calls.push(`release:${reason}`),
       resolveProjectRoot: () => "",
-      currentProjectRoot: () => undefined,
+      currentProjectRoot: () => "",
       chooseProject: () => calls.push("chooseProject"),
       openSettingsSurface: () => calls.push("settings"),
-      closeSettingsSurface: () => calls.push("close-settings"),
     })
 
     shell.openNewSession()
 
-    expect(calls).toEqual(["close-settings", "release:choose-project", "chooseProject"])
+    expect(calls).toEqual(["release:choose-project", "chooseProject"])
+  })
+
+  test("opens a direct-start new session when no project is active but a fallback directory exists", () => {
+    const calls: string[] = []
+    const shell = createShellNavigation({
+      navigate: (route) => calls.push(`navigate:${route}`),
+      releaseTransientLocks: (reason) => calls.push(`release:${reason}`),
+      resolveProjectRoot: (directory) => directory,
+      currentProjectRoot: () => "",
+      directStartRoot: () => "/Users/demo/.pawwork",
+      chooseProject: () => calls.push("chooseProject"),
+      openSettingsSurface: () => calls.push("settings"),
+    })
+
+    shell.openNewSession()
+
+    expect(calls).toEqual([
+      "release:new-session",
+      `navigate:/${base64Encode("/Users/demo/.pawwork")}/session`,
+    ])
   })
 
   test("falls back to project chooser when an explicit directory cannot be resolved", () => {
@@ -88,11 +102,10 @@ describe("createShellNavigation", () => {
       currentProjectRoot: () => "/current",
       chooseProject: () => calls.push("chooseProject"),
       openSettingsSurface: () => calls.push("settings"),
-      closeSettingsSurface: () => calls.push("close-settings"),
     })
 
     shell.openNewSession("/repo")
 
-    expect(calls).toEqual(["close-settings", "release:choose-project", "chooseProject"])
+    expect(calls).toEqual(["release:choose-project", "chooseProject"])
   })
 })

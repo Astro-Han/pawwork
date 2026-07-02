@@ -13,10 +13,18 @@ export const automationDefinitionFixture = Automation.Definition.parse({
   updatedAt: 1_800_000_030_000,
   timezone: "UTC",
   normalizationWarnings: [],
+  model: Automation.Model.parse({ providerID: "anthropic", modelID: "claude-sonnet-4-6" }),
+  variant: "high",
   rhythm: { kind: "interval", everyMs: 3_600_000 },
   stop: { kind: "never" },
-  nextFireAt: null,
-  nextFires: [],
+  nextFireAt: 1_800_003_600_000,
+  nextFires: [
+    1_800_003_600_000,
+    1_800_007_200_000,
+    1_800_010_800_000,
+    1_800_014_400_000,
+    1_800_018_000_000,
+  ],
   failureStreak: 0,
 })
 

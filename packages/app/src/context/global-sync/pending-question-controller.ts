@@ -1,0 +1,154 @@
+// Owns the lifecycle of the global pending-question index: it ingests the SSE
+// stream for every directory (so background projects with no child store are
+// covered), reconciles the authoritative GET /external-result snapshot on
+// bootstrap / reconnect, resolves each question's root session once, and emits a
+// rising-edge alert for live arrivals only. The dock and sidebar render from
+// child-store parts; this controller feeds the cross-project signals (Dock
+// badge, session-trim preserve, OS alert) that parts cannot.
+
+import type { Part, Session } from "@opencode-ai/sdk/v2/client"
+import {
+  type PendingQuestion,
+  type PendingQuestionIndex,
+  pendingQuestionFromPart,
+  reconcileDirectoryPending,
+  removePendingQuestions,
+  setPendingQuestionRoot,
+  upsertPendingQuestion,
+} from "./pending-question-index"
+
+export type PendingQuestionAlert = {
+  directory: string
+  askSessionID: string
+  rootSessionID: string
+  question: PendingQuestion
+}
+
+export function createPendingQuestionController(deps: {
+  read: () => PendingQuestionIndex
+  write: (mutate: (index: PendingQuestionIndex) => void) => void
+  // Walk one step up the session tree. Returns from the in-memory child store
+  // when the project is open, falling back to the network for an unbootstrapped
+  // background project (so async).
+  resolveParentID: (directory: string, sessionID: string) => string | undefined | Promise<string | undefined>
+}) {
+  let alert: ((event: PendingQuestionAlert) => void) | undefined
+  const resolving = new Set<string>()
+
+  const stillPending = (directory: string, sessionID: string, id: string) =>
+    deps.read()[directory]?.[sessionID]?.some((question) => question.id === id) ?? false
+
+  const resolveRoot = async (directory: string, sessionID: string) => {
+    const seen = new Set<string>()
+    let current = sessionID
+    while (!seen.has(current)) {
+      seen.add(current)
+      const parent = await deps.resolveParentID(directory, current)
+      if (!parent) break
+      current = parent
+    }
+    return current
+  }
+
+  // Resolve root attribution once per identity, then — if the question is still
+  // pending after the (possibly networked) walk — record the root and, for a
+  // live SSE arrival, fire the one-shot alert. A reset / removal that lands
+  // mid-walk drops the entry, so `stillPending` re-checks before writing.
+  // Hydrate calls with live=false: a reload must not re-nag for questions that
+  // were already pending before it.
+  const attribute = (directory: string, question: PendingQuestion, live: boolean) => {
+    const key = `${directory} ${question.id}`
+    if (resolving.has(key)) return
+    resolving.add(key)
+    void Promise.resolve(resolveRoot(directory, question.sessionID))
+      .then((rootSessionID) => {
+        if (!stillPending(directory, question.sessionID, question.id)) return
+        deps.write((index) => setPendingQuestionRoot(index, directory, question.sessionID, question.id, rootSessionID))
+        if (live) alert?.({ directory, askSessionID: question.sessionID, rootSessionID, question })
+      })
+      .catch(() => {})
+      .finally(() => resolving.delete(key))
+  }
+
+  // Maintain the index from one directory event. Called for every directory
+  // (attached or detached) with the raw event directory, exactly once.
+  const applyEvent = (directory: string, event: { type: string; properties?: unknown }) => {
+    if (!event.properties || typeof event.properties !== "object") return
+    switch (event.type) {
+      case "message.part.updated": {
+        const part = (event.properties as { part: Part }).part
+        const pending = pendingQuestionFromPart(part)
+        if (pending) {
+          let added = false
+          deps.write((index) => {
+            added = upsertPendingQuestion(index, directory, pending)
+          })
+          if (added) attribute(directory, pending, true)
+          return
+        }
+        // A `question` part that is no longer running-ready (terminal / reset)
+        // retracts its entry.
+        if (part.type === "tool" && part.tool === "question" && part.sessionID) {
+          deps.write((index) =>
+            removePendingQuestions(index, {
+              directory,
+              sessionID: part.sessionID,
+              messageID: part.messageID,
+              partID: part.id,
+            }),
+          )
+        }
+        return
+      }
+      case "message.part.removed": {
+        const props = event.properties as { messageID: string; partID: string }
+        deps.write((index) => removePendingQuestions(index, { directory, messageID: props.messageID, partID: props.partID }))
+        return
+      }
+      case "message.removed": {
+        const props = event.properties as { messageID: string }
+        deps.write((index) => removePendingQuestions(index, { directory, messageID: props.messageID }))
+        return
+      }
+      case "session.deleted": {
+        const info = (event.properties as { info?: Session }).info
+        if (info?.id) deps.write((index) => removePendingQuestions(index, { directory, sessionID: info.id }))
+        return
+      }
+      case "session.updated": {
+        const info = (event.properties as { info?: Session }).info
+        if (info?.id && info.time?.archived) {
+          deps.write((index) => removePendingQuestions(index, { directory, sessionID: info.id }))
+        }
+        return
+      }
+    }
+  }
+
+  // Apply the authoritative GET /external-result snapshot for a directory:
+  // prune resolved questions, keep survivors, and resolve roots for any new
+  // entry (no alert — these are seeded, not freshly arrived).
+  const reconcile = (directory: string, entries: PendingQuestion[]) => {
+    deps.write((index) => {
+      reconcileDirectoryPending(index, directory, entries)
+    })
+    for (const entry of entries) {
+      const current = deps.read()[directory]?.[entry.sessionID]?.find((question) => question.id === entry.id)
+      if (current && !current.rootSessionID) attribute(directory, current, false)
+    }
+  }
+
+  return {
+    applyEvent,
+    reconcile,
+    // Register the side-effect that fires when a question first appears live.
+    // Returns an unsubscribe. The controller owns the index; the caller owns how
+    // to nag (sound / OS notification / Dock attention).
+    onAlert(handler: (event: PendingQuestionAlert) => void) {
+      alert = handler
+      return () => {
+        if (alert === handler) alert = undefined
+      }
+    },
+  }
+}

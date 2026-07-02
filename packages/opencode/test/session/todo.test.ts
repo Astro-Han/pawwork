@@ -1,5 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test"
 import { Effect } from "effect"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { Todo } from "../../src/session/todo"
@@ -13,6 +14,7 @@ const todo = (content: string, id?: Todo.TodoID): Todo.Input => ({
   status: "pending",
   priority: "medium",
 })
+const runSession = <A>(fn: (svc: Session.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Session.Service.use(fn))
 
 describe("resolveTodoIDs", () => {
   test("assigns ids to idless todos", () => {
@@ -62,7 +64,7 @@ describe("Todo service", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const session = await Session.create({ title: "todo ids" })
+        const session = await runSession((svc) => svc.create({ title: "todo ids" }))
         const first = await Effect.runPromise(
           Todo.Service.use((svc) =>
             svc.update({
@@ -79,7 +81,7 @@ describe("Todo service", () => {
         expect(first.todos[0].id).toStartWith("todo_")
         expect(stored).toEqual(first)
 
-        await Session.remove(session.id)
+        await runSession((svc) => svc.remove(session.id))
       },
     })
   })
@@ -90,7 +92,7 @@ describe("Todo service", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const session = await Session.create({ title: "todo update ids" })
+        const session = await runSession((svc) => svc.create({ title: "todo update ids" }))
         const first = await Effect.runPromise(
           Todo.Service.use((svc) =>
             svc.update({
@@ -115,7 +117,7 @@ describe("Todo service", () => {
         expect(second.todos[0].id).toBe(first.todos[0].id)
         expect(stored).toEqual({ revision: 2, todos: [{ ...second.todos[0], status: "completed" }] })
 
-        await Session.remove(session.id)
+        await runSession((svc) => svc.remove(session.id))
       },
     })
   })
@@ -126,7 +128,7 @@ describe("Todo service", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const session = await Session.create({ title: "todo clear" })
+        const session = await runSession((svc) => svc.create({ title: "todo clear" }))
         await Effect.runPromise(
           Todo.Service.use((svc) =>
             svc.update({
@@ -147,7 +149,7 @@ describe("Todo service", () => {
         expect(cleared).toEqual({ revision: 2, todos: [] })
         expect(stored).toEqual(cleared)
 
-        await Session.remove(session.id)
+        await runSession((svc) => svc.remove(session.id))
       },
     })
   })
@@ -158,14 +160,14 @@ describe("Todo service", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const session = await Session.create({ title: "todo empty" })
+        const session = await runSession((svc) => svc.create({ title: "todo empty" }))
         const stored = await Effect.runPromise(
           Todo.Service.use((svc) => svc.get(session.id)).pipe(Effect.provide(Todo.defaultLayer)),
         )
 
         expect(stored).toEqual({ revision: 0, todos: [] })
 
-        await Session.remove(session.id)
+        await runSession((svc) => svc.remove(session.id))
       },
     })
   })
@@ -176,7 +178,7 @@ describe("Todo service", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const session = await Session.create({ title: "todo archived" })
+        const session = await runSession((svc) => svc.create({ title: "todo archived" }))
         const snapshot = await Effect.runPromise(
           Todo.Service.use((svc) =>
             svc.update({
@@ -185,7 +187,7 @@ describe("Todo service", () => {
             }),
           ).pipe(Effect.provide(Todo.defaultLayer)),
         )
-        await Session.setArchived({ sessionID: session.id, time: Date.now() })
+        await runSession((svc) => svc.setArchived({ sessionID: session.id, time: Date.now() }))
 
         await expect(
           Effect.runPromise(Todo.Service.use((svc) => svc.get(session.id)).pipe(Effect.provide(Todo.defaultLayer))),
@@ -207,7 +209,7 @@ describe("Todo service", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const session = await Session.create({ title: "todo transaction boundary" })
+        const session = await runSession((svc) => svc.create({ title: "todo transaction boundary" }))
         const originalTransaction = Database.transaction
         let transactionCount = 0
         const transaction = spyOn(Database, "transaction").mockImplementation(
@@ -232,7 +234,7 @@ describe("Todo service", () => {
 
         expect(transactionCount).toBe(1)
 
-        await Session.remove(session.id)
+        await runSession((svc) => svc.remove(session.id))
       },
     })
   })

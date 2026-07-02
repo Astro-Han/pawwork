@@ -33,8 +33,10 @@ export const WebSearchTool = Tool.define(
         return DESCRIPTION.replace("{{year}}", new Date().getFullYear().toString())
       },
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-        Effect.gen(function* () {
+      execute: Effect.fn("WebSearchTool.execute")(function* (
+        params: Schema.Schema.Type<typeof Parameters>,
+        ctx: Tool.Context,
+      ) {
           yield* ctx.ask({
             permission: "websearch",
             patterns: [params.query],

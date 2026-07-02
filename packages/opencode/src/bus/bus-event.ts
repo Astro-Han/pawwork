@@ -3,6 +3,9 @@ import type { ZodType } from "zod"
 
 export namespace BusEvent {
   export type Definition = ReturnType<typeof define>
+  type PayloadOptions = {
+    include?: Iterable<string>
+  }
 
   const registry = new Map<string, Definition>()
 
@@ -15,24 +18,30 @@ export namespace BusEvent {
     return result
   }
 
-  export function payloads() {
+  function payloadEntries(options?: PayloadOptions) {
+    if (!options?.include) return registry.entries().toArray()
+
+    return Array.from(options.include, (type) => {
+      const def = registry.get(type)
+      if (!def) throw new Error(`Bus event schema is not registered: ${type}`)
+      return [type, def] as const
+    })
+  }
+
+  export function payloads(options?: PayloadOptions) {
+    const schemas = payloadEntries(options).map(([type, def]) => {
+      return z
+        .object({
+          type: z.literal(type),
+          properties: def.properties,
+        })
+        .meta({
+          ref: "Event" + "." + def.type,
+        })
+    })
+
     return z
-      .discriminatedUnion(
-        "type",
-        registry
-          .entries()
-          .map(([type, def]) => {
-            return z
-              .object({
-                type: z.literal(type),
-                properties: def.properties,
-              })
-              .meta({
-                ref: "Event" + "." + def.type,
-              })
-          })
-          .toArray() as any,
-      )
+      .discriminatedUnion("type", schemas as any)
       .meta({
         ref: "Event",
       })

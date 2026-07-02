@@ -1,15 +1,22 @@
+import { homedir, userInfo } from "node:os"
 import { dirname } from "node:path"
+import type {
+  DiagnosticsReviewContents,
+  PrepareReportResult,
+  ReportProblemInput,
+  RevealReportResult,
+  SubmitReportResult,
+} from "@opencode-ai/app/desktop-api"
 import {
   buildProblemReport,
   buildProblemReportSummary,
   DEFAULT_PROBLEM_REPORT_MAX_BYTES,
   defaultReportId,
+  recentKeyErrors,
   type ProblemReportDiagnostics,
-  type RendererErrorDetails,
   type SessionExport,
 } from "./problem-report"
 import { emptyRendererDiagnosticsSlice, type RendererDiagnosticsSlice } from "./renderer-diagnostics"
-import type { MenuLocale } from "./menu-labels"
 import { errorMessage } from "./error"
 
 type SavedReport = {
@@ -21,7 +28,7 @@ type SavedReport = {
 type SaveReportInput = {
   reportId: string
   generatedAt: string
-  markdown: string
+  json: string
 }
 
 type FeedbackContextOverride = {
@@ -32,10 +39,7 @@ type FeedbackDeps = {
   feedbackUrl: string
   reportRoot: string
   context?: (override?: FeedbackContextOverride) => unknown
-  confirm: (context?: unknown) => Promise<boolean>
-  copy: (value: string) => Promise<void> | void
   openExternal: (url: string) => Promise<void> | void
-  showFeedbackUrlFallback: (url: string) => Promise<void> | void
   showItemInFolder: (path: string) => Promise<void> | void
   openPath: (path: string) => Promise<string | void> | string | void
   saveReport: (input: SaveReportInput) => Promise<SavedReport>
@@ -49,79 +53,23 @@ type FeedbackDeps = {
   onError?: (error: unknown) => Promise<void> | void
 }
 
-type FeedbackInput = {
-  confirm?: boolean
-  rendererError?: RendererErrorDetails
+type FeedbackInput = ReportProblemInput
+
+/** A prepared-but-not-yet-submitted package, kept so reveal/submit can act on it. */
+type PendingReport = {
+  reportId: string
+  path: string
+  summary: string
 }
 
-export type FeedbackResult =
-  | {
-      status: "ready"
-      summaryCopied: true
-      feedbackOpened: true
-      fullReport: { status: "ready"; fileName: string; locationHint: string }
-    }
-  | {
-      status: "summary-only"
-      summaryCopied: true
-      feedbackOpened: true
-      fullReport: { status: "failed" }
-    }
-  | {
-      status: "form-fallback"
-      summaryCopied: true
-      feedbackOpened: false
-      feedbackUrl: string
-      fullReport:
-        | { status: "ready"; fileName: string; locationHint: string }
-        | { status: "failed" }
-    }
-  | { status: "cancelled"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "none" } }
-  | { status: "unavailable"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "none" } }
-  | { status: "failed"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "failed" } }
-
-export function feedbackDialogLabels(locale: MenuLocale) {
-  const labels = {
-    en: {
-      title: "Prepare problem report?",
-      message:
-        "PawWork will copy a short summary to your clipboard, save a full problem report file locally, and open the feedback form.\n\nUpload the full problem report file if the form asks for details. You can delete the local full report file after submission.",
-      confirm: "Copy summary and open form",
-      cancel: "Cancel",
-      failedTitle: "Problem Report Failed",
-      failedMessage: "Could not prepare the problem report. You can try Report a Problem again.",
-      formOpenFailedTitle: "Feedback Form Did Not Open",
-      formOpenFailedMessage:
-        "PawWork prepared the problem report, but could not open the feedback form. Open this URL manually to finish submitting feedback.",
-    },
-    zh: {
-      title: "准备问题报告？",
-      message:
-        "应用会复制一份简短摘要到剪贴板，保存完整问题报告文件到本地，并打开反馈表单。\n\n如果表单需要更多细节，可以上传完整问题报告文件。提交后可以删除本地完整报告文件。",
-      confirm: "复制摘要并打开表单",
-      cancel: "取消",
-      failedTitle: "问题报告失败",
-      failedMessage: "无法准备问题报告。你可以重新点击“报告问题”再试一次。",
-      formOpenFailedTitle: "反馈表单未打开",
-      formOpenFailedMessage: "问题报告已准备好，但无法打开反馈表单。请手动打开这个链接继续提交反馈。",
-    },
-  } satisfies Record<
-    MenuLocale,
-    {
-      title: string
-      message: string
-      confirm: string
-      cancel: string
-      failedTitle: string
-      failedMessage: string
-      formOpenFailedTitle: string
-      formOpenFailedMessage: string
-    }
-  >
-
-  // Runtime fallback for unexpected locale values crossing process boundaries,
-  // such as malformed IPC payloads or manually edited config.
-  return labels[locale] ?? labels.en
+/** Public surface of the feedback handler: prepare, then reveal and/or submit. */
+export type FeedbackHandler = {
+  prepareReport: (
+    input?: FeedbackInput,
+    contextOverride?: FeedbackContextOverride,
+  ) => Promise<PrepareReportResult>
+  revealReport: (reportId: string) => Promise<RevealReportResult>
+  submitReport: (reportId: string) => Promise<SubmitReportResult>
 }
 
 function safeFailureReason(error: unknown) {
@@ -151,13 +99,24 @@ function fallbackDiagnostics(): ProblemReportDiagnostics {
   }
 }
 
-function recentKeyErrors(logTail: string) {
-  return logTail
-    .split(/\r?\n/)
-    .filter((line) => /\b(error|warn|warning|failed|exception)\b/i.test(line))
-    .map((line) => line.replace(/\s+/g, " ").trim())
-    .filter(Boolean)
-    .slice(-10)
+// Exact local identifiers no regex can infer (home directory, OS username) — redacted verbatim
+// from the report. Best-effort: userInfo() can throw on some platforms, so a failure just
+// contributes no extra term rather than blocking the report.
+function localRedactTerms(): string[] {
+  const terms: string[] = []
+  try {
+    const home = homedir()
+    if (home) terms.push(home)
+  } catch {
+    // ignore — no home term
+  }
+  try {
+    const name = userInfo().username
+    if (name) terms.push(name)
+  } catch {
+    // ignore — no username term
+  }
+  return terms
 }
 
 async function sessionExportWithTimeout(deps: FeedbackDeps, context: unknown) {
@@ -194,27 +153,22 @@ async function rendererDiagnosticsWithTimeout(deps: FeedbackDeps, context: unkno
   }
 }
 
-export function createFeedbackHandler(deps: FeedbackDeps) {
-  let inFlight: Promise<FeedbackResult> | undefined
+export function createFeedbackHandler(deps: FeedbackDeps): FeedbackHandler {
+  let inFlight: { windowID?: number; rendererErrorKey: string; promise: Promise<PrepareReportResult> } | undefined
+  let pending: PendingReport | undefined
 
-  async function runReportProblem(
-    input: FeedbackInput = {},
+  async function runPrepareReport(
+    input: FeedbackInput,
     contextOverride?: FeedbackContextOverride,
-  ): Promise<FeedbackResult> {
-    if (!deps.feedbackUrl) {
-      return { status: "unavailable", summaryCopied: false, feedbackOpened: false, fullReport: { status: "none" } }
-    }
+  ): Promise<PrepareReportResult> {
     const context = deps.context?.(contextOverride)
-    const needsConfirm = input.confirm ?? true
-    if (needsConfirm) {
-      const confirmed = await deps.confirm(context)
-      if (!confirmed) {
-        return { status: "cancelled", summaryCopied: false, feedbackOpened: false, fullReport: { status: "none" } }
-      }
-    }
 
     const id = defaultReportId()
     const generatedAt = new Date().toISOString()
+    // Compute the exact runtime terms (home dir, OS username) once and share them across BOTH the
+    // full report and the clipboard summary — the summary is the same outbound channel, so it must
+    // scrub the same bare identifiers no regex can infer.
+    const redactTerms = localRedactTerms()
     let diagnostics: ProblemReportDiagnostics
     let logTail = ""
     let sessionExport: SessionExport = { status: "none" }
@@ -252,14 +206,17 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
       try {
         const report = buildProblemReport(
           { diagnostics, logTail, sessionExport, rendererDiagnostics, rendererError: input.rendererError },
-          { reportId: id, generatedAt, maxBytes: DEFAULT_PROBLEM_REPORT_MAX_BYTES },
+          { reportId: id, generatedAt, maxBytes: DEFAULT_PROBLEM_REPORT_MAX_BYTES, redactTerms },
         )
-        savedReport = await deps.saveReport({ reportId: id, generatedAt, markdown: report.markdown })
+        savedReport = await deps.saveReport({ reportId: id, generatedAt, json: report.json })
       } catch (error) {
         fullReportFailure = safeFailureReason(error)
       }
     }
 
+    // The summary is the degraded fallback the renderer can copy when the package
+    // file could not be written (e.g. Windows disk/permission), so the feedback
+    // link never goes fully dead. Built regardless of whether the save succeeded.
     const summary = buildProblemReportSummary({
       reportId: id,
       generatedAt,
@@ -271,87 +228,105 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
       recentErrors: recentKeyErrors(logTail),
       rendererDiagnostics,
       rendererError: input.rendererError,
+      redactTerms,
     })
 
-    await deps.copy(summary)
-
-    if (savedReport) {
-      try {
-        await deps.showItemInFolder(savedReport.path)
-      } catch (error) {
-        deps.onHandledError?.("problem report reveal failed", error)
-        try {
-          const openPathError = await deps.openPath(dirname(savedReport.path))
-          if (typeof openPathError === "string" && openPathError.length > 0) throw new Error(openPathError)
-        } catch (openPathError) {
-          deps.onHandledError?.("problem report directory open failed", openPathError)
-        }
-      }
-      try {
-        await deps.cleanupReports(savedReport.path)
-      } catch (error) {
-        deps.onHandledError?.("problem report cleanup failed", error)
-      }
+    if (!savedReport) {
+      pending = undefined
+      return { status: "failed", reason: fullReportFailure ?? "report_failed", summary }
     }
 
+    // Prune older packages now that the new one is on disk. Preparation has no
+    // other side effect — no clipboard copy, no reveal, no form. Those are the
+    // user's explicit choices in the review dialog (revealReport / submitReport).
     try {
-      await deps.openExternal(deps.feedbackUrl)
+      await deps.cleanupReports(savedReport.path)
     } catch (error) {
-      deps.onHandledError?.("feedback form open failed", error)
-      try {
-        await deps.showFeedbackUrlFallback(deps.feedbackUrl)
-      } catch (fallbackError) {
-        deps.onHandledError?.("feedback form fallback failed", fallbackError)
-      }
-      return {
-        status: "form-fallback",
-        summaryCopied: true,
-        feedbackOpened: false,
-        feedbackUrl: deps.feedbackUrl,
-        fullReport: savedReport
-          ? { status: "ready", fileName: savedReport.fileName, locationHint: savedReport.locationHint }
-          : { status: "failed" },
-      }
+      deps.onHandledError?.("problem report cleanup failed", error)
     }
 
-    return savedReport
-      ? {
-          status: "ready",
-          summaryCopied: true,
-          feedbackOpened: true,
-          fullReport: { status: "ready", fileName: savedReport.fileName, locationHint: savedReport.locationHint },
-        }
-      : {
-          status: "summary-only",
-          summaryCopied: true,
-          feedbackOpened: true,
-          fullReport: { status: "failed" },
-        }
+    pending = { reportId: id, path: savedReport.path, summary }
+
+    const contents: DiagnosticsReviewContents = {
+      logLines: logTail ? logTail.split(/\r?\n/).filter((line) => line.length > 0).length : null,
+      sessionMessages: sessionExport.status === "ok" ? sessionExport.messages.length : null,
+      rendererEvents: rendererDiagnostics.events.length,
+      rendererError: Boolean(input.rendererError),
+    }
+
+    return {
+      status: "ready",
+      reportId: id,
+      fileName: savedReport.fileName,
+      locationHint: savedReport.locationHint,
+      hasForm: Boolean(deps.feedbackUrl),
+      contents,
+    }
   }
 
-  return async function reportProblem(
-    input?: FeedbackInput,
+  async function prepareReport(
+    input: FeedbackInput = {},
     contextOverride?: FeedbackContextOverride,
-  ): Promise<FeedbackResult> {
-    if (inFlight) return inFlight
-    const next = runReportProblem(input, contextOverride)
+  ): Promise<PrepareReportResult> {
+    // Dedupe only a re-entrant prepare for the SAME context (a rapid double-trigger from one window with
+    // the same error). A different window or a different renderer error must get its OWN package — never
+    // the in-flight one's reportId, or it could reveal/submit diagnostics generated from the wrong context.
+    const windowID = contextOverride?.windowID
+    const rendererErrorKey = JSON.stringify(input.rendererError ?? null)
+    if (inFlight && inFlight.windowID === windowID && inFlight.rendererErrorKey === rendererErrorKey) {
+      return inFlight.promise
+    }
+    const promise = runPrepareReport(input, contextOverride)
       .catch(async (error) => {
         try {
           await deps.onError?.(error)
         } catch (handlerError) {
           deps.onHandledError?.("report problem error handler failed", handlerError)
         }
-        return {
-          status: "failed",
-          summaryCopied: false,
-          feedbackOpened: false,
-          fullReport: { status: "failed" },
-        } satisfies FeedbackResult
+        return { status: "failed", reason: "report_failed", summary: "" } satisfies PrepareReportResult
       })
       .finally(() => {
-        inFlight = undefined
+        if (inFlight?.promise === promise) inFlight = undefined
       })
-    inFlight = next
-    return next
+    inFlight = { windowID, rendererErrorKey, promise }
+    return promise
   }
+
+  async function revealReport(reportId: string): Promise<RevealReportResult> {
+    // A stale id (a newer prepare replaced this package) and an OS open failure are both
+    // invisible to the renderer's IPC catch, so report them as explicit results instead of
+    // returning void — the review surface needs them to show a recoverable notice.
+    if (!pending || pending.reportId !== reportId) return { status: "stale" }
+    const { path } = pending
+    try {
+      await deps.showItemInFolder(path)
+      return { status: "revealed" }
+    } catch (error) {
+      deps.onHandledError?.("problem report reveal failed", error)
+      try {
+        const openPathError = await deps.openPath(dirname(path))
+        if (typeof openPathError === "string" && openPathError.length > 0) throw new Error(openPathError)
+        return { status: "opened-directory" }
+      } catch (openPathError) {
+        deps.onHandledError?.("problem report directory open failed", openPathError)
+        return { status: "failed" }
+      }
+    }
+  }
+
+  async function submitReport(reportId: string): Promise<SubmitReportResult> {
+    // Act only on the package currently under review; a stale id (a newer
+    // prepare replaced it) must not open the form, mirroring revealReport.
+    if (!pending || pending.reportId !== reportId) return { status: "stale" }
+    if (!deps.feedbackUrl) return { status: "no-form" }
+    try {
+      await deps.openExternal(deps.feedbackUrl)
+      return { status: "opened" }
+    } catch (error) {
+      deps.onHandledError?.("feedback form open failed", error)
+      return { status: "form-fallback", feedbackUrl: deps.feedbackUrl, summary: pending.summary }
+    }
+  }
+
+  return { prepareReport, revealReport, submitReport }
 }

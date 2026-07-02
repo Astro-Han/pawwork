@@ -1,10 +1,16 @@
 import { describe, expect, test } from "bun:test"
+import { Effect } from "effect"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { Pty } from "../../src/pty"
 import { Shell } from "../../src/shell/shell"
 import { tmpdir } from "../fixture/fixture"
 
 Shell.preferred.reset()
+
+function pty<A, E>(fn: (svc: Pty.Interface) => Effect.Effect<A, E>) {
+  return AppRuntime.runPromise(Pty.Service.use(fn))
+}
 
 describe("pty shell args", () => {
   if (process.platform !== "win32") return
@@ -18,11 +24,11 @@ describe("pty shell args", () => {
         await Instance.provide({
           directory: dir.path,
           fn: async () => {
-            const info = await Pty.create({ command: ps, title: "pwsh" })
+            const info = await pty((svc) => svc.create({ command: ps, title: "pwsh" }))
             try {
               expect(info.args).toEqual([])
             } finally {
-              await Pty.remove(info.id)
+              await pty((svc) => svc.remove(info.id))
             }
           },
         })
@@ -44,11 +50,11 @@ describe("pty shell args", () => {
         await Instance.provide({
           directory: dir.path,
           fn: async () => {
-            const info = await Pty.create({ command: bash, title: "bash" })
+            const info = await pty((svc) => svc.create({ command: bash, title: "bash" }))
             try {
               expect(info.args).toEqual(["-l"])
             } finally {
-              await Pty.remove(info.id)
+              await pty((svc) => svc.remove(info.id))
             }
           },
         })

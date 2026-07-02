@@ -4,16 +4,22 @@ import { base64Encode } from "@opencode-ai/util/encode"
 import { getFilename } from "@opencode-ai/util/path"
 import { useNavigate } from "@solidjs/router"
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js"
+import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useLayoutPage } from "@/context/layout-page"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { findWorkspaceProject, workspaceChipChoices } from "./workspace-chip-helpers"
+import {
+  workspaceChipChoices,
+  workspaceChipIconName,
+  workspaceChipLabel,
+} from "./workspace-chip-helpers"
 import { workspaceKey } from "@/pages/layout/helpers"
 import { decode64 } from "@/utils/base64"
 
 export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}) {
   const language = useLanguage()
+  const globalSync = useGlobalSync()
   const layout = useLayout()
   const layoutPage = useLayoutPage()
   const navigate = useNavigate()
@@ -21,17 +27,22 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
   const [open, setOpen] = createSignal(false)
 
   const current = createMemo(() => decode64(params.dir))
-  const project = createMemo(() => findWorkspaceProject(layout.projects.list(), current()))
+  const directStartDirectory = createMemo(() => globalSync.data.path.directory)
   const workspaces = createMemo(() => {
     return workspaceChipChoices({
       directory: current(),
+      directStartDirectory: directStartDirectory(),
       projects: layout.projects.list(),
     })
   })
   const label = createMemo(() => {
-    const directory = current()
-    if (!directory) return language.t("workspace.chip.empty")
-    return getFilename(directory)
+    return workspaceChipLabel({
+      directory: current(),
+      directStartDirectory: directStartDirectory(),
+      directStartLabel: language.t("workspace.chip.directStart"),
+      emptyLabel: language.t("workspace.chip.empty"),
+      projects: layout.projects.list(),
+    })
   })
 
   return (
@@ -54,7 +65,14 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
       }
       trigger={
         <>
-          <Icon name="folder" class="shrink-0 text-fg-weak" />
+          <Icon
+            name={workspaceChipIconName({
+              directory: current(),
+              directStartDirectory: directStartDirectory(),
+              projects: layout.projects.list(),
+            })}
+            class="shrink-0 text-fg-weak"
+          />
           <span class="max-w-[120px] truncate transition-[max-width] duration-200 ease-out @max-[24rem]/composer:max-w-0">{label()}</span>
           <Icon name="chevron-down" class="shrink-0 text-fg-weak" />
         </>
@@ -74,6 +92,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
             {(workspace) => {
               const active = createMemo(() => {
                 const c = current()
+                if (workspace.kind === "direct-start" && !c) return true
                 return c ? workspaceKey(workspace.path) === workspaceKey(c) : false
               })
               return (
@@ -89,9 +108,14 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
                     setOpen(false)
                   }}
                 >
-                  <Icon name="folder" class="shrink-0 text-fg-weak" />
+                  <Icon
+                    name={workspace.kind === "direct-start" ? "bubble-5" : "folder"}
+                    class="shrink-0 text-fg-weak"
+                  />
                   <span class="min-w-0 flex-1 truncate">
-                    {getFilename(workspace.path)}
+                    {workspace.kind === "direct-start"
+                      ? language.t("workspace.chip.directStart")
+                      : getFilename(workspace.path)}
                   </span>
                 </button>
               )

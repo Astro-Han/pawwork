@@ -1,16 +1,11 @@
 // DOM ↔ Parts bidirectional serialization for the contenteditable composer.
 // Pure functions, no Solid reactivity. Pairs with editor-dom (cursor primitives).
 
-import {
-  type AgentPart,
-  type CommandSource,
-  type FileAttachmentPart,
-  type TextPart,
-  type Prompt,
-  DEFAULT_PROMPT,
-} from "@/context/prompt"
+import type { AgentPart, CommandSource, FileAttachmentPart, SkillAttachmentPart, TextPart, Prompt } from "@/context/prompt"
+import { DEFAULT_PROMPT } from "@/context/prompt-equality"
 import { resolveCommandIconSvg } from "@opencode-ai/ui/command-icon"
 import { createTextFragment } from "./editor-dom"
+import { formatFileSize } from "./attachment-chips-model"
 import "./command-pill.css"
 
 /** Build the DOM node for a slash-command pill (contenteditable=false). */
@@ -40,12 +35,37 @@ export function createCommandMark(part: TextPart & { command: NonNullable<TextPa
   return outer
 }
 
-export function createPill(part: FileAttachmentPart | AgentPart): HTMLSpanElement {
+export function createPill(part: FileAttachmentPart | AgentPart | SkillAttachmentPart): HTMLSpanElement {
   const pill = document.createElement("span")
-  pill.textContent = part.content
   pill.setAttribute("data-type", part.type)
-  if (part.type === "file") pill.setAttribute("data-path", part.path)
+  if (part.type === "file") {
+    const size = formatFileSize(part.size)
+    pill.setAttribute("data-path", part.path)
+    pill.setAttribute("data-content", part.content)
+    if (part.size !== undefined) pill.setAttribute("data-size", String(part.size))
+    pill.title = size ? `${part.path}\n${size}` : part.path
+    pill.textContent = size ? `${part.content} ${size}` : part.content
+  }
   if (part.type === "agent") pill.setAttribute("data-name", part.name)
+  if (part.type === "skill") {
+    pill.setAttribute("data-name", part.name)
+    pill.setAttribute("data-source", part.source)
+    // Skill chips carry the skill glyph + the bare name (no leading "/").
+    // editor-dom computes logical length as 1 + data-name.length, not from
+    // textContent, so caret math is unaffected by the stripped slash.
+    const iconSpan = document.createElement("span")
+    iconSpan.setAttribute("data-cmd-icon", "true")
+    iconSpan.setAttribute("aria-hidden", "true")
+    iconSpan.className = "command-icon"
+    iconSpan.innerHTML = resolveCommandIconSvg("skill")
+    pill.appendChild(iconSpan)
+    const labelSpan = document.createElement("span")
+    labelSpan.setAttribute("data-cmd-label", "true")
+    labelSpan.textContent = part.content.replace(/^\//, "")
+    pill.appendChild(labelSpan)
+  } else if (part.type !== "file") {
+    pill.textContent = part.content
+  }
   pill.setAttribute("contenteditable", "false")
   pill.style.userSelect = "text"
   pill.style.cursor = "default"
@@ -68,6 +88,7 @@ export function isNormalizedEditor(editor: HTMLElement): boolean {
     const el = node as HTMLElement
     if (el.dataset.type === "file") return true
     if (el.dataset.type === "agent") return true
+    if (el.dataset.type === "skill") return true
     // Command pill is only valid at index 0 (spec invariant: at most one
     // marked TextPart, always the leading part). A mid-stream cmd-mark means
     // some path breached the invariant; returning false here forces the
@@ -99,7 +120,7 @@ export function renderPartsToEditor(editor: HTMLElement, parts: Prompt): void {
       editor.appendChild(createTextFragment(part.content))
       continue
     }
-    if (part.type === "file" || part.type === "agent") {
+    if (part.type === "file" || part.type === "agent" || part.type === "skill") {
       editor.appendChild(createPill(part))
     }
   }
@@ -126,14 +147,17 @@ export function parseEditorToParts(editor: HTMLElement): Prompt {
   }
 
   const pushFile = (file: HTMLElement) => {
-    const content = file.textContent ?? ""
-    parts.push({
+    const content = file.dataset.content ?? file.textContent ?? ""
+    const size = file.dataset.size ? Number(file.dataset.size) : undefined
+    const part: FileAttachmentPart = {
       type: "file",
       path: file.dataset.path!,
       content,
       start: position,
       end: position + content.length,
-    })
+    }
+    if (Number.isFinite(size)) part.size = size
+    parts.push(part)
     position += content.length
   }
 
@@ -142,6 +166,22 @@ export function parseEditorToParts(editor: HTMLElement): Prompt {
     parts.push({
       type: "agent",
       name: agent.dataset.name!,
+      content,
+      start: position,
+      end: position + content.length,
+    })
+    position += content.length
+  }
+
+  const pushSkill = (skill: HTMLElement) => {
+    // The pill label displays the bare name (no "/") since the glyph already
+    // signals "this is a slash command". Rebuild the canonical "/<name>" token
+    // from data-name so the flattened text and source offsets stay correct.
+    const content = `/${skill.dataset.name!}`
+    parts.push({
+      type: "skill",
+      name: skill.dataset.name!,
+      source: (skill.dataset.source ?? "skill") as CommandSource,
       content,
       start: position,
       end: position + content.length,
@@ -165,6 +205,11 @@ export function parseEditorToParts(editor: HTMLElement): Prompt {
     if (el.dataset.type === "agent") {
       flushText()
       pushAgent(el)
+      return
+    }
+    if (el.dataset.type === "skill") {
+      flushText()
+      pushSkill(el)
       return
     }
     if (el.tagName === "BR") {
@@ -209,7 +254,12 @@ export function parseEditorToParts(editor: HTMLElement): Prompt {
         if (sibEl.tagName === "BR") {
           followingTextRun += "\n"
           consumedSiblings++
-        } else if (sibEl.dataset.type === "file" || sibEl.dataset.type === "agent" || sibEl.dataset.cmdMark === "true") {
+        } else if (
+          sibEl.dataset.type === "file" ||
+          sibEl.dataset.type === "agent" ||
+          sibEl.dataset.type === "skill" ||
+          sibEl.dataset.cmdMark === "true"
+        ) {
           break
         } else {
           // Unknown inline element — recurse and collect text

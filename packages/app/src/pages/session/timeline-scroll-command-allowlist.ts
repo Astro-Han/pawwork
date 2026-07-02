@@ -2,7 +2,7 @@ import type { TimelineScrollOwnershipAllowlistEntry } from "./timeline-scroll-ow
 
 export const timelineScrollCommandAllowlist: TimelineScrollOwnershipAllowlistEntry[] = [
   {
-    filePath: "packages/app/src/pages/session/composer/session-question-dock.tsx",
+    filePath: "packages/app/src/pages/session/composer/question-option-focus.ts",
     symbol: "keepVisibleInQuestionOptions",
     reason: "Question option list is a nested composer scroller, not the session timeline viewport.",
     owner: "session composer",

@@ -451,3 +451,133 @@ test("sets anthropic beta header only for github copilot anthropic chat headers"
   expect(copilotOpenAI.headers).not.toHaveProperty("anthropic-beta")
   expect(anthropic.headers).not.toHaveProperty("anthropic-beta")
 })
+
+test("marks an auto-continued compaction turn (synthetic text part) as agent initiated", async () => {
+  // Auto-compaction resumes the turn with a synthetic user text part marked
+  // metadata.compaction_continue (session/compaction.ts). That follow-up request
+  // carries no `compaction`-type part, so x-initiator must still be set to agent.
+  const hooks = await CopilotAuthPlugin({
+    client: {
+      session: {
+        message: async () => ({
+          data: {
+            parts: [
+              {
+                type: "text",
+                text: "Continue if you have next steps, or stop and ask for clarification.",
+                synthetic: true,
+                metadata: { compaction_continue: true },
+              },
+            ],
+          },
+        }),
+        get: async () => ({ data: { parentID: undefined } }),
+      },
+    } as never,
+    project: {} as never,
+    directory: "",
+    worktree: "",
+    experimental_workspace: {
+      register() {},
+    },
+    serverUrl: new URL("https://example.com"),
+    $: {} as never,
+  })
+
+  const output = { headers: {} as Record<string, string> }
+  await hooks["chat.headers"]?.(
+    {
+      model: {
+        providerID: "github-copilot",
+        id: "gpt",
+        api: { id: "gpt-5", npm: "@ai-sdk/openai" },
+      },
+      message: { sessionID: "s", id: "m" },
+    } as never,
+    output as never,
+  )
+
+  expect(output.headers["x-initiator"]).toBe("agent")
+})
+
+test("keeps a manual post-compaction user prompt user initiated", async () => {
+  // A real user prompt after compaction is not synthetic and carries no
+  // compaction_continue marker, so x-initiator must not be forced to agent on a
+  // top-level session — only the parentID (subagent) fallback may set it.
+  const hooks = await CopilotAuthPlugin({
+    client: {
+      session: {
+        message: async () => ({
+          data: { parts: [{ type: "text", text: "now refactor the parser" }] },
+        }),
+        get: async () => ({ data: { parentID: undefined } }),
+      },
+    } as never,
+    project: {} as never,
+    directory: "",
+    worktree: "",
+    experimental_workspace: {
+      register() {},
+    },
+    serverUrl: new URL("https://example.com"),
+    $: {} as never,
+  })
+
+  const output = { headers: {} as Record<string, string> }
+  await hooks["chat.headers"]?.(
+    {
+      model: {
+        providerID: "github-copilot",
+        id: "gpt",
+        api: { id: "gpt-5", npm: "@ai-sdk/openai" },
+      },
+      message: { sessionID: "s", id: "m" },
+    } as never,
+    output as never,
+  )
+
+  expect(output.headers).not.toHaveProperty("x-initiator")
+})
+
+test("excludes models disabled by org/enterprise policy", async () => {
+  const model = (id: string, extra: Record<string, unknown>) => ({
+    model_picker_enabled: true,
+    id,
+    name: id,
+    version: `${id}-2026-04-01`,
+    capabilities: {
+      family: "gpt",
+      limits: {
+        max_context_window_tokens: 32000,
+        max_output_tokens: 8192,
+        max_prompt_tokens: 32000,
+      },
+      supports: {
+        streaming: true,
+        tool_calls: true,
+      },
+    },
+    ...extra,
+  })
+
+  globalThis.fetch = mock(() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          data: [
+            model("allowed-no-policy", {}),
+            model("allowed-enabled", { policy: { state: "enabled" } }),
+            model("blocked-by-policy", { policy: { state: "disabled" } }),
+          ],
+        }),
+        { status: 200 },
+      ),
+    ),
+  ) as unknown as typeof fetch
+
+  const models = await CopilotModels.get("https://api.githubcopilot.com")
+
+  expect(models["allowed-no-policy"]).toBeDefined()
+  expect(models["allowed-enabled"]).toBeDefined()
+  expect(models["blocked-by-policy"]).toBeUndefined()
+})

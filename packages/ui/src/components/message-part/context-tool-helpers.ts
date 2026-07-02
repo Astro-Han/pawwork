@@ -107,7 +107,7 @@ export function contextToolSummary(parts: ToolPart[]) {
   return { read, search, list }
 }
 
-type TrowActivityKind = "read" | "search" | "websearch" | "webfetch" | "edit" | "command" | "tool"
+type TrowActivityKind = "read" | "search" | "websearch" | "webfetch" | "edit" | "command" | "browser" | "tool"
 
 function trowActivityKind(tool: string): TrowActivityKind {
   switch (tool) {
@@ -128,7 +128,7 @@ function trowActivityKind(tool: string): TrowActivityKind {
     case "bash":
       return "command"
     default:
-      return "tool"
+      return tool.startsWith("browser_") ? "browser" : "tool"
   }
 }
 

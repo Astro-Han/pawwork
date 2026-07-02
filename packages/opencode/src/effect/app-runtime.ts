@@ -6,6 +6,7 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Bus } from "@/bus"
 import { Auth } from "@/auth"
 import { Account } from "@/account"
+import { Env } from "@/env"
 import { Config } from "@/config"
 import { Git } from "@/git"
 import { Ripgrep } from "@/file/ripgrep"
@@ -14,6 +15,8 @@ import { FileWatcher } from "@/file/watcher"
 import { Storage } from "@/storage/storage"
 import { Snapshot } from "@/snapshot"
 import { Plugin } from "@/plugin"
+import { ModelState } from "@/provider/model-state"
+import { ModelsDev } from "@/provider/models"
 import { Provider } from "@/provider/provider"
 import { ProviderAuth } from "@/provider/auth"
 import { Agent } from "@/agent/agent"
@@ -39,7 +42,7 @@ import { McpAuth } from "@/mcp/auth"
 import { Command } from "@/command"
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
-import { Format } from "@/format"
+import { WebSearchAuth } from "@/tool/websearch-auth"
 import { Project } from "@/project/project"
 import { Vcs } from "@/project/vcs"
 import { Worktree } from "@/worktree"
@@ -48,58 +51,71 @@ import { Installation } from "@/installation"
 import { ShareNext } from "@/share/share-next"
 import { SessionShare } from "@/share/session"
 import { ShareRuntime } from "@/share/runtime"
+import { Automation } from "@/automation"
+import { SyncEvent } from "@/sync"
+import { Workspace } from "@/control-plane/workspace"
 import { memoMap } from "@opencode-ai/core/effect/memo-map"
 import { InstanceLayer } from "@/project/instance-layer"
 
-export const AppLayer = Layer.mergeAll(
-  Observability.layer,
-  AppFileSystem.defaultLayer,
-  Bus.defaultLayer,
-  Auth.defaultLayer,
-  Account.defaultLayer,
-  Config.defaultLayer,
-  Settings.defaultLayer,
-  Git.defaultLayer,
-  Ripgrep.defaultLayer,
-  File.defaultLayer,
-  FileWatcher.defaultLayer,
-  Storage.defaultLayer,
-  Snapshot.defaultLayer,
-  Plugin.defaultLayer,
-  Provider.defaultLayer,
-  ProviderAuth.defaultLayer,
-  Agent.defaultLayer,
-  Skill.defaultLayer,
-  Discovery.defaultLayer,
-  Permission.defaultLayer,
-  Todo.defaultLayer,
-  Session.defaultLayer,
-  SessionStatus.defaultLayer,
-  SessionRunState.defaultLayer,
-  SessionProcessor.defaultLayer,
-  SessionCompaction.defaultLayer,
-  SessionRevert.defaultLayer,
-  SessionSummary.defaultLayer,
-  TurnChange.defaultLayer,
-  SessionPrompt.defaultLayer,
-  Instruction.defaultLayer,
-  LLM.defaultLayer,
-  LSP.defaultLayer,
-  MCP.defaultLayer,
-  McpAuth.defaultLayer,
-  Command.defaultLayer,
-  Truncate.defaultLayer,
-  ToolRegistry.defaultLayer,
-  Format.defaultLayer,
-  Project.defaultLayer,
-  Vcs.defaultLayer,
-  Worktree.defaultLayer,
-  Pty.defaultLayer,
-  Installation.defaultLayer,
-  ShareNext.defaultLayer,
-  SessionShare.defaultLayer,
-  ShareRuntime.cloudShareGateDefaultLayer,
-).pipe(Layer.provideMerge(InstanceLayer.layer))
+export const AppLayer = Layer.suspend(() =>
+  Layer.mergeAll(
+    Observability.layer,
+    AppFileSystem.defaultLayer,
+    Bus.defaultLayer,
+    Auth.defaultLayer,
+    Account.defaultLayer,
+    Layer.mergeAll(Env.defaultLayer, Config.defaultLayer),
+    Settings.defaultLayer,
+    Git.defaultLayer,
+    Ripgrep.defaultLayer,
+    File.defaultLayer,
+    FileWatcher.defaultLayer,
+    Storage.defaultLayer,
+    Snapshot.defaultLayer,
+    Plugin.defaultLayer,
+    ModelState.defaultLayer,
+    ModelsDev.defaultLayer,
+    Provider.defaultLayer,
+    ProviderAuth.defaultLayer,
+    Agent.defaultLayer,
+    Skill.defaultLayer,
+    Discovery.defaultLayer,
+    Permission.defaultLayer,
+    Todo.defaultLayer,
+    Session.defaultLayer,
+    SessionStatus.defaultLayer,
+    SessionRunState.defaultLayer,
+    SessionProcessor.defaultLayer,
+    SessionCompaction.defaultLayer,
+    SessionRevert.defaultLayer,
+    SessionSummary.defaultLayer,
+    TurnChange.defaultLayer,
+    SessionPrompt.defaultLayer,
+    Instruction.defaultLayer,
+    LLM.defaultLayer,
+    LSP.defaultLayer,
+    MCP.defaultLayer,
+    McpAuth.defaultLayer,
+    Command.defaultLayer,
+    Truncate.defaultLayer,
+    ToolRegistry.defaultLayer,
+    // Desktop settings IPC drives WebSearchAuth.status/saveKey/removeKey through
+    // AppRuntime; expose the service here (Auth is shared via the memo map) so
+    // the embedded server boundary can resolve it the same way as Settings.
+    WebSearchAuth.defaultLayer,
+    Project.defaultLayer,
+    Vcs.defaultLayer,
+    Worktree.defaultLayer,
+    Pty.defaultLayer,
+    Installation.defaultLayer,
+    ShareNext.defaultLayer,
+    SessionShare.defaultLayer,
+    ShareRuntime.cloudShareGateDefaultLayer,
+    Automation.defaultLayer,
+    SyncEvent.defaultLayer,
+    Workspace.defaultLayer,
+  ).pipe(Layer.provideMerge(InstanceLayer.layer)),
+)
 
 const rt = ManagedRuntime.make(AppLayer, { memoMap })
 type Runtime = Pick<typeof rt, "runSync" | "runPromise" | "runPromiseExit" | "runFork" | "runCallback" | "dispose">

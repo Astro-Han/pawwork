@@ -36,6 +36,7 @@ const _automationDefinitionUpdated: EventAutomationDefinitionUpdated = {
     updatedAt: 1800000030000,
     timezone: "UTC",
     normalizationWarnings: [],
+    model: { providerID: "anthropic", modelID: "claude-sonnet-4-6" },
     rhythm: { kind: "interval", everyMs: 3600000 },
     stop: { kind: "never" },
     nextFireAt: null,

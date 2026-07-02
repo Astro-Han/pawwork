@@ -1,6 +1,7 @@
 import { createStore, reconcile } from "solid-js/store"
 import { batch, createEffect, createMemo, onCleanup } from "solid-js"
 import { useParams } from "@solidjs/router"
+import { makeEventListener } from "@solid-primitives/event-listener"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useGlobalSDK } from "./global-sdk"
 import { useGlobalSync } from "./global-sync"
@@ -13,6 +14,15 @@ import { decode64 } from "@/utils/base64"
 import { EventSessionError } from "@opencode-ai/sdk/v2"
 import { Persist, persisted } from "@/utils/persist"
 import { playSoundById } from "@/utils/sound"
+import { workspaceKey } from "@/utils/workspace-key"
+import {
+  badgeSessionCount,
+  buildNotificationIndex,
+  isLiveNotification,
+  type NotificationIndex,
+} from "./notification-derive"
+import { pendingRootSessionIDs } from "./global-sync/pending-question-index"
+import { rootSessionIDsWithDescendantExternalResultQuestions } from "./global-sync/external-result-question"
 
 type NotificationBase = {
   directory?: string
@@ -33,76 +43,16 @@ type ErrorNotification = NotificationBase & {
 
 export type Notification = TurnCompleteNotification | ErrorNotification
 
-type NotificationIndex = {
-  session: {
-    all: Record<string, Notification[]>
-    unseen: Record<string, Notification[]>
-    unseenCount: Record<string, number>
-    unseenHasError: Record<string, boolean>
-  }
-  project: {
-    all: Record<string, Notification[]>
-    unseen: Record<string, Notification[]>
-    unseenCount: Record<string, number>
-    unseenHasError: Record<string, boolean>
-  }
-}
-
 const MAX_NOTIFICATIONS = 500
 const NOTIFICATION_TTL_MS = 1000 * 60 * 60 * 24 * 30
 
 function pruneNotifications(list: Notification[]) {
   const cutoff = Date.now() - NOTIFICATION_TTL_MS
-  const pruned = list.filter((n) => n.time >= cutoff)
+  // isLiveNotification drops legacy persisted `type:"question"` entries on load
+  // (see #1199) so an already-answered question can never strand an unread dot.
+  const pruned = list.filter((n) => isLiveNotification(n) && n.time >= cutoff)
   if (pruned.length <= MAX_NOTIFICATIONS) return pruned
   return pruned.slice(pruned.length - MAX_NOTIFICATIONS)
-}
-
-function createNotificationIndex(): NotificationIndex {
-  return {
-    session: {
-      all: {},
-      unseen: {},
-      unseenCount: {},
-      unseenHasError: {},
-    },
-    project: {
-      all: {},
-      unseen: {},
-      unseenCount: {},
-      unseenHasError: {},
-    },
-  }
-}
-
-function buildNotificationIndex(list: Notification[]) {
-  const index = createNotificationIndex()
-
-  list.forEach((notification) => {
-    if (notification.session) {
-      const all = index.session.all[notification.session] ?? []
-      index.session.all[notification.session] = [...all, notification]
-      if (!notification.viewed) {
-        const unseen = index.session.unseen[notification.session] ?? []
-        index.session.unseen[notification.session] = [...unseen, notification]
-        index.session.unseenCount[notification.session] = unseen.length + 1
-        if (notification.type === "error") index.session.unseenHasError[notification.session] = true
-      }
-    }
-
-    if (notification.directory) {
-      const all = index.project.all[notification.directory] ?? []
-      index.project.all[notification.directory] = [...all, notification]
-      if (!notification.viewed) {
-        const unseen = index.project.unseen[notification.directory] ?? []
-        index.project.unseen[notification.directory] = [...unseen, notification]
-        index.project.unseenCount[notification.directory] = unseen.length + 1
-        if (notification.type === "error") index.project.unseenHasError[notification.directory] = true
-      }
-    }
-  })
-
-  return index
 }
 
 export const { use: useNotification, provider: NotificationProvider } = createSimpleContext({
@@ -223,7 +173,11 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       if (!activeDirectory) return false
       if (!activeSession) return false
       if (!sessionID) return false
-      if (directory !== activeDirectory) return false
+      // Normalize before comparing: the event directory and the routed
+      // directory can be the same workspace yet differ by a trailing slash or
+      // slash direction (notably on Windows), which would otherwise alert for a
+      // session the user is already viewing.
+      if (workspaceKey(directory) !== workspaceKey(activeDirectory)) return false
       return sessionID === activeSession
     }
 
@@ -284,11 +238,60 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       })
     }
 
+    // A live question's OS alert (sound / notification / Dock attention) is
+    // driven by the global pending-question controller, which fires exactly once
+    // on the rising edge — when a `question` part first becomes ready — and never
+    // on hydrate/reconnect, so a restart with an outstanding question does not
+    // re-nag. The controller has already resolved the root session it should be
+    // attributed to; we only decide whether to surface it and how.
+    const alertQuestion = (alert: {
+      directory: string
+      askSessionID: string
+      rootSessionID: string
+    }) => {
+      if (meta.disposed) return
+      const level = settings.notify.level()
+      if (level === "never") return
+      const visible = viewedInCurrentSession(alert.directory, alert.rootSessionID)
+      if (level !== "always" && visible) return
+
+      const [syncStore] = globalSync.child(alert.directory, { bootstrap: false })
+      const match = Binary.search(syncStore.session, alert.rootSessionID, (s) => s.id)
+      const rootTitle = match.found ? syncStore.session[match.index].title : undefined
+
+      void playSoundById("notify")
+      const href = `/${base64Encode(alert.directory)}/session/${alert.rootSessionID}`
+      void platform.notify(language.t("notification.question.title"), rootTitle ?? alert.rootSessionID, href)
+      // A question blocks the agent on the user, so it bounces the Dock /
+      // flashes the taskbar. turn-complete and error only notify.
+      void platform.requestAttention?.()
+    }
+
+    const markSessionViewed = (session: string) => {
+      const unseen = index.session.unseen[session] ?? empty
+      if (!unseen.length) return
+
+      const projects = [
+        ...new Set(unseen.flatMap((notification) => (notification.directory ? [notification.directory] : []))),
+      ]
+      batch(() => {
+        setStore("list", (n) => n.session === session && !n.viewed, "viewed", true)
+        updateUnseen("session", session, [])
+        projects.forEach((directory) => {
+          const next = (index.project.unseen[directory] ?? empty).filter(
+            (notification) => notification.session !== session,
+          )
+          updateUnseen("project", directory, next)
+        })
+      })
+    }
+
     const unsub = globalSDK.event.listen((e) => {
       const event = e.details
+      const directory = e.name
+
       if (event.type !== "session.idle" && event.type !== "session.error") return
 
-      const directory = e.name
       const time = Date.now()
       if (event.type === "session.idle") {
         handleSessionIdle(directory, event, time)
@@ -296,10 +299,65 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       }
       handleSessionError(directory, event, time)
     })
+    const unsubQuestionAlert = globalSync.onQuestionAlert(alertQuestion)
     onCleanup(() => {
       meta.disposed = true
       unsub()
+      unsubQuestionAlert()
     })
+
+    // Dock/taskbar badge: mounted projects with a hydrated external-result
+    // snapshot use the same reachable session-tree selector as the sidebar;
+    // background or still-hydrating projects continue to use the pending index.
+    const launchTime = Date.now()
+    const mountedQuestionRoots = createMemo(() => {
+      const roots = new Set<string>()
+      const directories: string[] = []
+      for (const directory of globalSync.mountedDirectories()) {
+        const child = globalSync.peekExisting(directory)
+        if (!child) continue
+        const [childStore] = child
+        if (!childStore.external_result_ready) continue
+        directories.push(directory)
+        for (const root of rootSessionIDsWithDescendantExternalResultQuestions({
+          sessions: childStore.session,
+          messages: childStore.message,
+          partsByMessageID: childStore.part,
+        })) {
+          roots.add(root)
+        }
+      }
+      return { roots, directories }
+    })
+    const badgeCount = createMemo(() => {
+      const mounted = mountedQuestionRoots()
+      return badgeSessionCount(
+        store.list,
+        [
+          ...mounted.roots,
+          ...pendingRootSessionIDs(globalSync.data.pendingQuestions, {
+            excludeDirectories: mounted.directories,
+          }),
+        ],
+        launchTime,
+      )
+    })
+    createEffect(() => {
+      const count = settings.notify.level() === "never" ? 0 : badgeCount()
+      void platform.setBadgeCount?.(count)
+    })
+
+    // Returning focus to the window should clear the unread dot of the session
+    // you're already looking at. Notifications created while the window was
+    // blurred (e.g. a turn finishing in the background) land unviewed even for
+    // the active route, and route-change is the only other thing that marks
+    // them viewed — so without this the dot lingers until you navigate away.
+    if (typeof window !== "undefined") {
+      makeEventListener(window, "focus", () => {
+        const session = currentSession()
+        if (session) markSessionViewed(session)
+      })
+    }
 
     return {
       ready,
@@ -316,24 +374,7 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
         unseenHasError(session: string) {
           return index.session.unseenHasError[session] ?? false
         },
-        markViewed(session: string) {
-          const unseen = index.session.unseen[session] ?? empty
-          if (!unseen.length) return
-
-          const projects = [
-            ...new Set(unseen.flatMap((notification) => (notification.directory ? [notification.directory] : []))),
-          ]
-          batch(() => {
-            setStore("list", (n) => n.session === session && !n.viewed, "viewed", true)
-            updateUnseen("session", session, [])
-            projects.forEach((directory) => {
-              const next = (index.project.unseen[directory] ?? empty).filter(
-                (notification) => notification.session !== session,
-              )
-              updateUnseen("project", directory, next)
-            })
-          })
-        },
+        markViewed: markSessionViewed,
       },
       project: {
         all(directory: string) {

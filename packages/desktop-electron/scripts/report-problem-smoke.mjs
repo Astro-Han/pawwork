@@ -43,15 +43,18 @@ function buildSmokeEnv(homeDir) {
   }
 }
 
-function latestMarkdownReport(reportRoot) {
-  if (!existsSync(reportRoot)) return { fileName: undefined, markdown: "" }
+function latestJsonReport(reportRoot) {
+  if (!existsSync(reportRoot)) return { fileName: undefined, json: "", payload: undefined }
   const fileName = readdirSync(reportRoot)
-    .filter((name) => name.endsWith(".md"))
+    .filter((name) => name.endsWith(".json"))
     .sort()
     .at(-1)
+  const json = fileName ? readFileSync(join(reportRoot, fileName), "utf8") : ""
+  const payload = json ? JSON.parse(json) : undefined
   return {
     fileName,
-    markdown: fileName ? readFileSync(join(reportRoot, fileName), "utf8") : "",
+    json,
+    payload,
   }
 }
 
@@ -101,37 +104,68 @@ try {
   await window.waitForFunction(() => document.title === "PawWork", null, { timeout: 60_000 })
   await window.waitForSelector(desktopShellMainSelector, { timeout: 60_000 })
 
+  // Inverted flow (#1472): prepareReport only generates + redacts + saves the package and returns review
+  // metadata — no clipboard / reveal / form side effects (those are explicit follow-ups). The smoke is
+  // prepare-only so it stays side-effect-free, as the old `confirm: false` path was.
   const result = await window.evaluate(async (rendererError) => {
     const api = globalThis.api
-    if (!api?.reportProblem) throw new Error("window.api.reportProblem is not available")
-    return api.reportProblem({ confirm: false, rendererError })
+    if (!api?.prepareReport) throw new Error("window.api.prepareReport is not available")
+    return api.prepareReport({ rendererError })
   }, rendererError)
 
+  // Exercise the reveal/submit bridge end-to-end without side effects: a stale id (no pending match)
+  // returns `stale` from the real main-process handlers without opening a file manager or browser.
+  const staleActions = await window.evaluate(async () => {
+    const api = globalThis.api
+    if (!api?.revealReport || !api?.submitReport) throw new Error("reveal/submit bridge is not available")
+    return {
+      reveal: await api.revealReport("stale-report-id"),
+      submit: await api.submitReport("stale-report-id"),
+    }
+  })
+
   const userData = await app.evaluate(({ app }) => app.getPath("userData"))
-  const clipboardText = await app.evaluate(({ clipboard }) => clipboard.readText())
   const reportRoot = join(userData, "problem-reports")
-  const report = latestMarkdownReport(reportRoot)
+  const report = latestJsonReport(reportRoot)
+  const logTail = Array.isArray(report.payload?.logTail) ? report.payload.logTail : []
 
   const summary = {
     homeDir,
     userData,
     result,
+    staleActions,
     latestReport: report.fileName,
-    clipboardHasSmokeSummary: clipboardText.includes(rendererError.summary),
-    clipboardRedactedStorage: !clipboardText.includes("manual.dat") && !clipboardText.includes("manual-key"),
-    markdownHasRendererError:
-      report.markdown.includes(rendererError.summary) && report.markdown.includes('\\"kind\\":\\"manual-smoke\\"'),
-    markdownHasReportPayload: report.markdown.includes("```json"),
+    jsonHasRendererError:
+      report.payload?.error?.summary === rendererError.summary &&
+      report.payload?.error?.details?.includes('"kind":"manual-smoke"'),
+    jsonHasAgentReadableSections:
+      report.payload?.meta?.reportVersion === 2 &&
+      report.payload?.environment &&
+      Array.isArray(report.payload?.recentErrors) &&
+      Array.isArray(report.payload?.logTail),
+    jsonHasMainLog: logTail.some((line) => line.includes("== Main process log:")),
+    jsonHasBackendLog: logTail.some((line) => line.includes("== Backend log:")),
   }
 
   console.log(JSON.stringify(summary, null, 2))
 
-  assert(result?.status === "ready", `expected reportProblem to return ready; got ${JSON.stringify(result)}`)
-  assert(report.fileName, "expected a saved markdown problem report")
-  assert(summary.clipboardHasSmokeSummary, "expected clipboard summary to include renderer error summary")
-  assert(summary.clipboardRedactedStorage, "expected clipboard summary to redact storage and key diagnostics")
-  assert(summary.markdownHasRendererError, "expected full report to include renderer error details")
-  assert(summary.markdownHasReportPayload, "expected full report to include the fenced JSON payload")
+  assert(result?.status === "ready", `expected prepareReport to return ready; got ${JSON.stringify(result)}`)
+  assert(result?.reportId, "expected prepareReport to return a reportId")
+  assert(result?.fileName, "expected prepareReport to return the saved file name")
+  assert(result?.contents?.rendererError === true, "expected review contents to flag the renderer error")
+  assert(
+    staleActions?.reveal?.status === "stale",
+    `expected a stale reveal through the real bridge; got ${JSON.stringify(staleActions?.reveal)}`,
+  )
+  assert(
+    staleActions?.submit?.status === "stale",
+    `expected a stale submit through the real bridge; got ${JSON.stringify(staleActions?.submit)}`,
+  )
+  assert(report.fileName, "expected a saved JSON problem report")
+  assert(summary.jsonHasRendererError, "expected full report to include renderer error details")
+  assert(summary.jsonHasAgentReadableSections, "expected full report to include agent-readable JSON sections")
+  assert(summary.jsonHasMainLog, "expected full report to include main process log tail")
+  assert(summary.jsonHasBackendLog, "expected full report to include backend log tail")
 } finally {
   await closeApp(app)
   rmSync(homeDir, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 })

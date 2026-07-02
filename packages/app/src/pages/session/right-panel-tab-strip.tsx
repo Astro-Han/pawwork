@@ -21,7 +21,7 @@ interface ShellTabDef {
 }
 
 /** Maps right-panel tab names to their shell icon components. */
-function RightPanelShellIcon(props: { icon: ShellTabIcon; active?: boolean }) {
+function RightPanelShellIcon(props: { icon: ShellTabIcon }) {
   return (
     <Switch>
       <Match when={props.icon.kind === "indicator"}>
@@ -30,14 +30,14 @@ function RightPanelShellIcon(props: { icon: ShellTabIcon; active?: boolean }) {
       <Match when={props.icon.kind === "icon" && props.icon.name === "status"}>
         <Icon name="status" class="text-fg-weaker" />
       </Match>
-      <Match when={props.icon.kind === "icon" && props.icon.name === "folder"}>
-        <Icon name="folder" class="text-fg-weaker" />
-      </Match>
       <Match when={props.icon.kind === "icon" && props.icon.name === "review"}>
-        <Icon name={props.active ? "review-active" : "review"} class="text-fg-weaker" />
+        <Icon name="review" class="text-fg-weaker" />
       </Match>
       <Match when={props.icon.kind === "icon" && props.icon.name === "terminal"}>
-        <Icon name={props.active ? "terminal-active" : "terminal"} class="text-fg-weaker" />
+        <Icon name="terminal" class="text-fg-weaker" />
+      </Match>
+      <Match when={props.icon.kind === "icon" && props.icon.name === "browser"}>
+        <Icon name="browser" class="text-fg-weaker" />
       </Match>
     </Switch>
   )
@@ -51,7 +51,6 @@ function RightPanelShellIcon(props: { icon: ShellTabIcon; active?: boolean }) {
 export function RightPanelTabStrip(props: {
   tabsPortalMount: () => HTMLElement | undefined
   shellTabs: () => ShellTabDef[]
-  activeTab: () => string | undefined
   openShellTabs: () => RightPanelTab[]
   closeTab: (tab: RightPanelTab) => void
   openTab: (tab: RightPanelTab) => void
@@ -63,6 +62,10 @@ export function RightPanelTabStrip(props: {
   }[]
   openFilePicker: (onOpenFile?: () => void) => void
   showAllFiles: () => void
+  // Reported so the embedded browser can hide its native overlay while this
+  // menu is open — the dropdown opens down over the browser content region and
+  // a native layer ignores DOM stacking, so it would otherwise be occluded.
+  onMenuOpenChange: (open: boolean) => void
 }) {
   const language = useLanguage()
   const command = useCommand()
@@ -113,10 +116,7 @@ export function RightPanelTabStrip(props: {
                               closable={t().closable}
                               onClose={props.closeTab}
                               icon={
-                                <RightPanelShellIcon
-                                  icon={t().icon}
-                                  active={props.activeTab() === t().value}
-                                />
+                                <RightPanelShellIcon icon={t().icon} />
                               }
                             />
                           }
@@ -127,10 +127,7 @@ export function RightPanelTabStrip(props: {
                             closable={t().closable}
                             onClose={props.closeTab}
                             icon={
-                              <RightPanelShellIcon
-                                icon={t().icon}
-                                active={props.activeTab() === t().value}
-                              />
+                              <RightPanelShellIcon icon={t().icon} />
                             }
                           />
                         </Show>
@@ -144,7 +141,7 @@ export function RightPanelTabStrip(props: {
                 the chip strip reads left-justified and `+` lives at the
                 end of the rail (matching docs/design/ui_kits/desktop/RightPanel.jsx). */}
             <div class="flex-1" />
-            <DropdownMenu gutter={4} placement="bottom-end">
+            <DropdownMenu gutter={4} placement="bottom-end" onOpenChange={props.onMenuOpenChange}>
               <DropdownMenu.Trigger
                 as={IconButton}
                 icon="plus-small"

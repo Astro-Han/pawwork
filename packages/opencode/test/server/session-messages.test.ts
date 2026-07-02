@@ -17,7 +17,7 @@ function run<A, E>(fx: Effect.Effect<A, E, SessionNs.Service>) {
 
 const svc = {
   ...SessionNs,
-  create(input?: Parameters<typeof SessionNs.create>[0]) {
+  create(input?: SessionNs.CreateInput) {
     return run(SessionNs.Service.use((svc) => svc.create(input)))
   },
   remove(id: SessionID) {
@@ -28,6 +28,9 @@ const svc = {
   },
   updatePart<T extends MessageV2.Part>(part: T) {
     return run(SessionNs.Service.use((svc) => svc.updatePart(part)))
+  },
+  messages(input: Parameters<SessionNs.Interface["messages"]>[0]) {
+    return run(SessionNs.Service.use((svc) => svc.messages(input)))
   },
 }
 
@@ -362,19 +365,200 @@ describe("session messages endpoint", () => {
       }),
     )
   })
+
+  test("updates and deletes message parts through the route runtime", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await withoutWatcher(() =>
+      Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await svc.create({})
+          const messageID = MessageID.ascending()
+          const partID = PartID.ascending()
+          await svc.updateMessage({
+            id: messageID,
+            sessionID: session.id,
+            role: "user",
+            time: { created: Date.now() },
+            agent: "test",
+            model: { providerID: "test", modelID: "test" },
+            tools: {},
+            mode: "",
+          } as unknown as MessageV2.Info)
+          await svc.updatePart({
+            id: partID,
+            sessionID: session.id,
+            messageID,
+            type: "text",
+            text: "before",
+          })
+          const app = Server.Default().app
+
+          const update = await app.request(`/session/${session.id}/message/${messageID}/part/${partID}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              id: partID,
+              sessionID: session.id,
+              messageID,
+              type: "text",
+              text: "after",
+            }),
+          })
+          const updated = await update.json()
+          expect(update.status).toBe(200)
+          expect(updated.text).toBe("after")
+
+          const remove = await app.request(`/session/${session.id}/message/${messageID}/part/${partID}`, {
+            method: "DELETE",
+          })
+          expect(remove.status).toBe(200)
+          expect(await remove.json()).toBe(true)
+          expect((await svc.messages({ sessionID: session.id }))[0].parts).toHaveLength(0)
+
+          // The route's declared 404 is now real: deleting an already-removed
+          // part surfaces NotFoundError instead of silently succeeding.
+          const missing = await app.request(`/session/${session.id}/message/${messageID}/part/${partID}`, {
+            method: "DELETE",
+          })
+          expect(missing.status).toBe(404)
+          expect((await missing.json()).name).toBe("NotFoundError")
+
+          await svc.remove(session.id)
+        },
+      }),
+    )
+  })
+
+  test("deletes a message through the route runtime and 404s a missing one", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await withoutWatcher(() =>
+      Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await svc.create({})
+          const [messageID] = await fill(session.id, 1)
+          const app = Server.Default().app
+
+          // An existing message still deletes with 200 and is gone afterwards.
+          const ok = await app.request(`/session/${session.id}/message/${messageID}`, { method: "DELETE" })
+          expect(ok.status).toBe(200)
+          expect(await ok.json()).toBe(true)
+          expect(await svc.messages({ sessionID: session.id })).toHaveLength(0)
+
+          // The route's declared 404 is now real: deleting a message that does
+          // not exist surfaces NotFoundError instead of silently succeeding.
+          const miss = await app.request(`/session/${session.id}/message/${MessageID.ascending()}`, {
+            method: "DELETE",
+          })
+          expect(miss.status).toBe(404)
+          expect((await miss.json()).name).toBe("NotFoundError")
+
+          await svc.remove(session.id)
+        },
+      }),
+    )
+  })
+
+  test("rejects a part update whose body does not match the path with a 400", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await withoutWatcher(() =>
+      Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await svc.create({})
+          const messageID = MessageID.ascending()
+          const partID = PartID.ascending()
+          await svc.updateMessage({
+            id: messageID,
+            sessionID: session.id,
+            role: "user",
+            time: { created: Date.now() },
+            agent: "test",
+            model: { providerID: "test", modelID: "test" },
+            tools: {},
+            mode: "",
+          } as unknown as MessageV2.Info)
+          await svc.updatePart({
+            id: partID,
+            sessionID: session.id,
+            messageID,
+            type: "text",
+            text: "before",
+          })
+          const app = Server.Default().app
+
+          const res = await app.request(`/session/${session.id}/message/${messageID}/part/${partID}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              id: PartID.ascending(),
+              sessionID: session.id,
+              messageID,
+              type: "text",
+              text: "after",
+            }),
+          })
+          expect(res.status).toBe(400)
+          const body = await res.json()
+          expect(body.success).toBe(false)
+          expect(Array.isArray(body.errors)).toBe(true)
+          expect(body.errors).toHaveLength(1)
+          expect(body.errors[0]?.message).toContain("Part mismatch")
+
+          await svc.remove(session.id)
+        },
+      }),
+    )
+  })
 })
 
 describe("session.prompt_async error handling", () => {
+  test("prompt route strips client-supplied automation provenance", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await withoutWatcher(() =>
+      Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await svc.create({})
+          const app = Server.Default().app
+
+          const res = await app.request(`/session/${session.id}/message`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              automationID: "run_forged",
+              noReply: true,
+              model: { providerID: "test", modelID: "test" },
+              parts: [{ type: "text", text: "hello" }],
+            }),
+          })
+          expect(res.status).toBe(200)
+          const body = JSON.parse(await res.text()) as MessageV2.WithParts
+          expect(body.info.role).toBe("user")
+          expect((body.info as { automationID?: string }).automationID).toBeUndefined()
+
+          const persisted = (await svc.messages({ sessionID: session.id })).find((msg) => msg.info.id === body.info.id)
+          expect((persisted?.info as { automationID?: string } | undefined)?.automationID).toBeUndefined()
+
+          await svc.remove(session.id)
+        },
+      }),
+    )
+  })
+
   test("prompt_async route has error handler for detached prompt call", async () => {
-    const src = await Bun.file(new URL("../../src/server/instance/session.ts", import.meta.url)).text()
-    const start = src.indexOf('"/:sessionID/prompt_async"')
-    const end = src.indexOf('"/:sessionID/command"', start)
+    const src = await Bun.file(
+      new URL("../../src/server/routes/instance/httpapi/handlers/session.ts", import.meta.url),
+    ).text()
+    const start = src.indexOf('.handleRaw("promptAsync"')
+    const end = src.indexOf('.handleRaw("command"', start)
 
     expect(start).toBeGreaterThan(-1)
     expect(end).toBeGreaterThan(start)
 
     const route = src.slice(start, end)
-    expect(route).toContain(".catch(")
-    expect(route).toContain("Bus.publish(Session.Event.Error")
+    expect(route).toContain("Effect.forkDetach")
+    expect(route).toContain("publishPromptAsyncError")
   })
 })

@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PawWork fingerprint probe</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 16px; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  p.note { opacity: .7; margin: 0 0 12px; }
+  button { font: inherit; padding: 4px 10px; margin: 0 6px 12px 0; cursor: pointer; }
+  table { border-collapse: collapse; width: 100%; }
+  td { vertical-align: top; padding: 3px 8px; border-bottom: 1px solid rgba(128,128,128,.25); }
+  td.k { white-space: nowrap; opacity: .8; width: 1%; }
+  td.v { word-break: break-word; }
+  .flag-bad { color: #d33; font-weight: 600; }
+  .flag-ok { color: #2a2; }
+  .flag-warn { color: #c80; font-weight: 600; }
+  textarea { width: 100%; height: 220px; font: inherit; margin-top: 12px; }
+</style>
+</head>
+<body>
+<h1>PawWork fingerprint probe</h1>
+<p class="note">Open this in the <b>embedded browser</b> and in an <b>external Chrome</b>, then compare. <span class="flag-bad">Red</span> rows are obvious automation / non-Chrome tells; <span class="flag-warn">amber</span> rows are known, deferred gaps (e.g. Widevine), expected to differ.</p>
+<button id="copy">Copy JSON</button>
+<button id="reload">Re-run</button>
+<table id="out"><tbody></tbody></table>
+<textarea id="json" readonly spellcheck="false"></textarea>
+<script>
+const rows = [];
+function add(key, value, flag) { rows.push({ key, value, flag: flag || null }); }
+
+async function collect() {
+  rows.length = 0;
+
+  // --- UA + Client Hints (PR2 surface) ---
+  const ua = navigator.userAgent;
+  add("navigator.userAgent", ua, /Electron|opencode|PawWork/i.test(ua) ? "bad" : "ok");
+  add("navigator.appVersion", navigator.appVersion);
+  add("navigator.platform", navigator.platform);
+  add("navigator.webdriver", String(navigator.webdriver), navigator.webdriver ? "bad" : "ok");
+  add("navigator.languages", JSON.stringify(navigator.languages));
+
+  const uaData = navigator.userAgentData;
+  if (uaData) {
+    const brands = JSON.stringify(uaData.brands);
+    add("userAgentData.brands", brands, /Electron|opencode|PawWork/i.test(brands) ? "bad" : "ok");
+    add("userAgentData.mobile", String(uaData.mobile));
+    add("userAgentData.platform", uaData.platform);
+    try {
+      const hi = await uaData.getHighEntropyValues([
+        "architecture", "bitness", "model", "platformVersion",
+        "uaFullVersion", "fullVersionList", "wow64",
+      ]);
+      add("UA-CH fullVersionList", JSON.stringify(hi.fullVersionList), /Electron|opencode/i.test(JSON.stringify(hi.fullVersionList)) ? "bad" : null);
+      add("UA-CH platformVersion", hi.platformVersion);
+      add("UA-CH architecture", hi.architecture + " / bitness " + hi.bitness + (hi.wow64 ? " / wow64" : ""));
+      add("UA-CH model", JSON.stringify(hi.model));
+      add("UA-CH uaFullVersion", hi.uaFullVersion);
+    } catch (e) { add("UA-CH highEntropy", "ERR " + e); }
+  } else {
+    add("navigator.userAgentData", "undefined (no UA Client Hints)", "bad");
+  }
+
+  // --- automation / environment tells ---
+  add("window.chrome", typeof window.chrome === "object" ? "present" : "MISSING", typeof window.chrome === "object" ? "ok" : "bad");
+  add("navigator.plugins.length", String(navigator.plugins.length), navigator.plugins.length === 0 ? "bad" : "ok");
+  add("navigator.hardwareConcurrency", String(navigator.hardwareConcurrency));
+  add("navigator.deviceMemory", String(navigator.deviceMemory));
+  add("navigator.maxTouchPoints", String(navigator.maxTouchPoints));
+
+  // --- permission states (PR3 surface) ---
+  // Expected default in a fresh real Chrome (measured): SENSITIVE permissions
+  // are "prompt" (we map to "denied"), EXPECT_GRANTED are "granted". Either
+  // direction of mismatch is a tell, so encode both and flag red:
+  //   - a SENSITIVE permission reporting "granted"  → impossible on a fresh
+  //     profile (the loud automation tell PR3 fixes)
+  //   - an EXPECT_GRANTED permission NOT "granted"   → diverges from real Chrome
+  const SENSITIVE = ["notifications", "geolocation", "camera", "microphone", "clipboard-read", "midi", "persistent-storage"];
+  const EXPECT_GRANTED = ["clipboard-write", "background-sync", "accelerometer", "payment-handler"];
+  const notif = (typeof Notification !== "undefined") ? Notification.permission : "no Notification API";
+  add("Notification.permission", notif);
+  for (const name of [...SENSITIVE, ...EXPECT_GRANTED]) {
+    try {
+      const st = await navigator.permissions.query({ name });
+      let bad;
+      if (SENSITIVE.includes(name)) {
+        bad = st.state === "granted";
+        // Notifications has an extra tell: the query state must agree with
+        // Notification.permission.
+        if (name === "notifications") bad = bad || ((st.state === "denied") !== (notif === "denied"));
+      } else {
+        bad = st.state !== "granted";
+      }
+      add("permissions.query(" + name + ")", st.state, bad ? "bad" : "ok");
+    } catch (e) { add("permissions.query(" + name + ")", "ERR " + e.name, "bad"); }
+  }
+
+  // --- window / screen shape ---
+  add("window.outer WxH", window.outerWidth + " x " + window.outerHeight, (window.outerWidth === 0 || window.outerHeight === 0) ? "bad" : null);
+  add("window.inner WxH", window.innerWidth + " x " + window.innerHeight);
+  add("screen WxH", screen.width + " x " + screen.height);
+  add("screen avail WxH", screen.availWidth + " x " + screen.availHeight);
+  add("devicePixelRatio", String(window.devicePixelRatio));
+
+  // --- locale / timezone (PR4 surface) ---
+  const tz = Intl.DateTimeFormat().resolvedOptions();
+  add("timeZone", tz.timeZone);
+  add("Intl locale", tz.locale);
+  add("Date tz offset (min)", String(new Date().getTimezoneOffset()));
+
+  // --- WebGL renderer (PR4 surface) ---
+  try {
+    const gl = document.createElement("canvas").getContext("webgl");
+    const dbg = gl && gl.getExtension("WEBGL_debug_renderer_info");
+    add("WebGL vendor", dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : "n/a");
+    add("WebGL renderer", dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : "n/a");
+    add("WebGL version", gl ? gl.getParameter(gl.VERSION) : "no webgl", gl ? null : "bad");
+  } catch (e) { add("WebGL", "ERR " + e); }
+
+  // --- codecs (PR4 surface) ---
+  const v = document.createElement("video");
+  add("video h264 (avc1.42E01E)", v.canPlayType('video/mp4; codecs="avc1.42E01E"') || "(empty)");
+  add("audio aac (mp4a.40.2)", v.canPlayType('audio/mp4; codecs="mp4a.40.2"') || "(empty)");
+  if (window.MediaSource) {
+    add("MSE h264", String(MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"')));
+  } else add("MediaSource", "undefined", "bad");
+
+  // --- EME / Widevine (PR4 surface) ---
+  if (navigator.requestMediaKeySystemAccess) {
+    try {
+      await navigator.requestMediaKeySystemAccess("com.widevine.alpha", [{
+        initDataTypes: ["cenc"],
+        videoCapabilities: [{ contentType: 'video/mp4; codecs="avc1.42E01E"' }],
+      }]);
+      add("EME Widevine", "supported");
+      // Amber, not red: Electron ships without the Widevine CDM by design, so
+      // "NOT supported" here is the known, deferred gap — expected, not a failure.
+    } catch (e) { add("EME Widevine", "NOT supported (" + e.name + ") — known gap, deferred", "warn"); }
+  } else add("requestMediaKeySystemAccess", "undefined — known gap, deferred", "warn");
+
+  // --- devices / WebRTC (PR4 surface) ---
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const kinds = {};
+    devs.forEach((d) => { kinds[d.kind] = (kinds[d.kind] || 0) + 1; });
+    add("enumerateDevices", devs.length + " device(s) " + JSON.stringify(kinds), devs.length === 0 ? "bad" : null);
+  } catch (e) { add("enumerateDevices", "ERR " + e); }
+  add("RTCPeerConnection", typeof window.RTCPeerConnection === "function" ? "present" : "MISSING", typeof window.RTCPeerConnection === "function" ? "ok" : "bad");
+
+  render();
+}
+
+function render() {
+  const tb = document.querySelector("#out tbody");
+  tb.innerHTML = "";
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    const k = document.createElement("td"); k.className = "k"; k.textContent = r.key;
+    const val = document.createElement("td"); val.className = "v";
+    if (r.flag === "bad") val.classList.add("flag-bad");
+    if (r.flag === "ok") val.classList.add("flag-ok");
+    if (r.flag === "warn") val.classList.add("flag-warn");
+    val.textContent = r.value;
+    tr.append(k, val); tb.append(tr);
+  }
+  const obj = {};
+  for (const r of rows) obj[r.key] = r.value;
+  document.querySelector("#json").value = JSON.stringify(obj, null, 2);
+}
+
+document.querySelector("#copy").onclick = () => {
+  const ta = document.querySelector("#json"); ta.select();
+  // Prefer the async Clipboard API; fall back to execCommand when it's absent
+  // (the optional-chain version skipped the fallback entirely when undefined).
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(ta.value).catch(() => document.execCommand("copy"));
+  } else {
+    document.execCommand("copy");
+  }
+};
+document.querySelector("#reload").onclick = collect;
+collect();
+</script>
+</body>
+</html>

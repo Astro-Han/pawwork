@@ -7,7 +7,6 @@ import { Instance } from "../../src/project/instance"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { LSP } from "../../src/lsp"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
-import { Format } from "../../src/format"
 import { Agent } from "../../src/agent/agent"
 import { Bus } from "../../src/bus"
 import { Truncate } from "../../src/tool/truncate"
@@ -57,7 +56,6 @@ const it = testEffect(
   Layer.mergeAll(
     LSP.defaultLayer,
     AppFileSystem.defaultLayer,
-    Format.defaultLayer,
     Bus.layer,
     Truncate.defaultLayer,
     Agent.defaultLayer,
@@ -127,6 +125,7 @@ describe("tool.edit", () => {
           })
 
           expect(result.metadata.diff).toContain("new content")
+          expect(result.output).toContain("newfile.txt (+1 lines).")
 
           const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
           expect(content).toBe("new content")
@@ -186,7 +185,7 @@ describe("tool.edit", () => {
             newString: "new content",
           })
 
-          expect(result.output).toContain("Edit applied successfully")
+          expect(result.output).toContain("existing-no-read.txt (+1 -1 lines).")
 
           const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
           expect(content).toBe("new content here")
@@ -206,10 +205,32 @@ describe("tool.edit", () => {
             newString: "new content",
           })
 
-          expect(result.output).toContain("Edit applied successfully")
+          expect(result.output).toContain("existing.txt (+1 -1 lines).")
 
           const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
           expect(content).toBe("new content here")
+        }),
+      ),
+    )
+
+    it.live("rejects empty oldString on existing files and leaves content unchanged", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, "existing-empty-old-string.txt")
+          const original = "\ufeffusing System;\n"
+          yield* Effect.promise(() => fs.writeFile(filepath, original, "utf-8"))
+
+          yield* expectRunFailure(
+            {
+              filePath: filepath,
+              oldString: "",
+              newString: "using Up;\n",
+            },
+            "oldString cannot be empty",
+          )
+
+          const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
+          expect(content).toBe(original)
         }),
       ),
     )
@@ -263,6 +284,201 @@ describe("tool.edit", () => {
       ),
     )
 
+    it.live("rejects loose block-anchor matches and leaves content unchanged", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, "file.ts")
+          const original = [
+            "function configure() {",
+            "  keepImportantState()",
+            "  removeAllUserData()",
+            "  archiveBackups()",
+            "  auditLog()",
+            "}",
+          ].join("\n")
+          yield* Effect.promise(() => fs.writeFile(filepath, original, "utf-8"))
+
+          yield* expectRunFailure(
+            {
+              filePath: filepath,
+              oldString: ["function configure() {", "  const enabled = true", "}"].join("\n"),
+              newString: ["function configure() {", "  const enabled = false", "}"].join("\n"),
+            },
+            "Could not find oldString",
+          )
+
+          const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
+          expect(content).toBe(original)
+        }),
+      ),
+    )
+
+    it.live("rejects block-anchor matches with unrelated middle content", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, "unrelated-middle.ts")
+          const original = ["function configure() {", "  removeAllUserData()", "}"].join("\n")
+          yield* Effect.promise(() => fs.writeFile(filepath, original, "utf-8"))
+
+          yield* expectRunFailure(
+            {
+              filePath: filepath,
+              oldString: ["function configure() {", "  const enabled = true", "}"].join("\n"),
+              newString: ["function configure() {", "  const enabled = false", "}"].join("\n"),
+            },
+            "Could not find oldString",
+          )
+
+          const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
+          expect(content).toBe(original)
+        }),
+      ),
+    )
+
+    it.live("rejects context-aware matches that keep only half of the middle lines", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, "half-middle-match.ts")
+          const original = [
+            "function configure() {",
+            "  keepImportantState()",
+            "  removeAllUserData()",
+            "}",
+          ].join("\n")
+          yield* Effect.promise(() => fs.writeFile(filepath, original, "utf-8"))
+
+          yield* expectRunFailure(
+            {
+              filePath: filepath,
+              oldString: ["function configure() {", "  keepImportantState()", "  const enabled = true", "}"].join("\n"),
+              newString: [
+                "function configure() {",
+                "  keepImportantState()",
+                "  const enabled = false",
+                "}",
+              ].join("\n"),
+            },
+            "Could not find oldString",
+          )
+
+          const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
+          expect(content).toBe(original)
+        }),
+      ),
+    )
+
+    it.live("rejects single-line whitespace matches with disproportionate spans", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, "long-whitespace.txt")
+          const original = `prefix foo${" ".repeat(1000)}bar suffix`
+          yield* Effect.promise(() => fs.writeFile(filepath, original, "utf-8"))
+
+          yield* expectRunFailure(
+            {
+              filePath: filepath,
+              oldString: "foo bar",
+              newString: "baz",
+            },
+            "matched span is much larger than oldString",
+          )
+
+          const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
+          expect(content).toBe(original)
+        }),
+      ),
+    )
+
+    it.live("continues past short nested block anchors to find a valid outer match", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, "nested-block.ts")
+          const original = [
+            "function configure() {",
+            "  if (enabled) {",
+            "    keepImportantState()",
+            "  }",
+            "  finalize()",
+            "}",
+          ].join("\n")
+          yield* Effect.promise(() => fs.writeFile(filepath, original, "utf-8"))
+
+          yield* run({
+            filePath: filepath,
+            oldString: [
+              "function configure() {",
+              "  if (enabled) {",
+              "    keepImportantState()",
+              "  }",
+              "  finish()",
+              "}",
+            ].join("\n"),
+            newString: [
+              "function configure() {",
+              "  if (enabled) {",
+              "    keepImportantState()",
+              "  }",
+              "  cleanup()",
+              "}",
+            ].join("\n"),
+          })
+
+          const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
+          expect(content).toBe(
+            [
+              "function configure() {",
+              "  if (enabled) {",
+              "    keepImportantState()",
+              "  }",
+              "  cleanup()",
+              "}",
+            ].join("\n"),
+          )
+        }),
+      ),
+    )
+
+    it.live("rejects nested block-anchor candidates with shorter line counts", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, "nested-short-candidate.ts")
+          const original = [
+            "function configure() {",
+            "  if (enabled) {",
+            "    keepImportantState()",
+            "  }",
+            "  finalize()",
+            "}",
+          ].join("\n")
+          yield* Effect.promise(() => fs.writeFile(filepath, original, "utf-8"))
+
+          yield* expectRunFailure(
+            {
+              filePath: filepath,
+              oldString: [
+                "function configure() {",
+                "  if (enabled) {",
+                "    keepImportantState()",
+                "  cleanup()",
+                "}",
+              ].join("\n"),
+              newString: [
+                "function configure() {",
+                "  if (enabled) {",
+                "    keepImportantState()",
+                "  done()",
+                "}",
+              ].join("\n"),
+            },
+            "Could not find oldString",
+          )
+
+          const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
+          expect(content).toBe(original)
+        }),
+      ),
+    )
+
     it.live("replaces all occurrences with replaceAll option", () =>
       provideTmpdirInstance((dir) =>
         Effect.gen(function* () {
@@ -278,6 +494,43 @@ describe("tool.edit", () => {
 
           const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
           expect(content).toBe("qux bar qux baz qux")
+        }),
+      ),
+    )
+
+    it.live("preserves $-patterns in newString with replaceAll", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, "file.txt")
+          yield* Effect.promise(() => fs.writeFile(filepath, "kill PID\nwait PID", "utf-8"))
+
+          yield* run({
+            filePath: filepath,
+            oldString: "PID",
+            newString: "$$PID",
+            replaceAll: true,
+          })
+
+          const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
+          expect(content).toBe("kill $$PID\nwait $$PID")
+        }),
+      ),
+    )
+
+    it.live("preserves $& in newString for single replacement", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, "file.txt")
+          yield* Effect.promise(() => fs.writeFile(filepath, "const re = X", "utf-8"))
+
+          yield* run({
+            filePath: filepath,
+            oldString: "X",
+            newString: '"$&-suffix"',
+          })
+
+          const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
+          expect(content).toBe('const re = "$&-suffix"')
         }),
       ),
     )
@@ -360,11 +613,13 @@ describe("tool.edit", () => {
           const filepath = path.join(dir, "file.txt")
           yield* Effect.promise(() => fs.writeFile(filepath, "line1\nline2\nline3", "utf-8"))
 
-          yield* run({
+          const result = yield* run({
             filePath: filepath,
             oldString: "line2",
             newString: "new line 2\nextra line",
           })
+
+          expect(result.output).toContain("file.txt (+2 -1 lines).")
 
           const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
           expect(content).toBe("line1\nnew line 2\nextra line\nline3")

@@ -35,7 +35,33 @@ export const Parameters = Schema.Struct({
   }),
 })
 
-export const ReadTool = Tool.define(
+type ReadDisplay =
+  | {
+      type: "directory"
+      path: string
+      entries: string[]
+      offset: number
+      totalEntries: number
+      truncated: boolean
+    }
+  | {
+      type: "file"
+      path: string
+      text: string
+      lineStart: number
+      lineEnd: number
+      totalLines: number
+      truncated: boolean
+    }
+
+type ReadMetadata = {
+  preview: string
+  truncated: boolean
+  loaded: string[]
+  display?: ReadDisplay
+}
+
+export const ReadTool = Tool.define<typeof Parameters, ReadMetadata, AppFileSystem.Service | Instruction.Service>(
   "read",
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
@@ -152,9 +178,9 @@ export const ReadTool = Tool.define(
       return nonPrintableCount / bytes.length > 0.3
     }
 
-    const run = Effect.fn("ReadTool.execute")(function* (
+    const execute = Effect.fn("ReadTool.execute")(function* (
       params: Schema.Schema.Type<typeof Parameters>,
-      ctx: Tool.Context,
+      ctx: Tool.Context<ReadMetadata>,
     ) {
       if (params.offset !== undefined && (!Number.isInteger(params.offset) || params.offset < 0)) {
         return yield* Effect.fail(new Error("offset must be a non-negative integer"))
@@ -187,7 +213,10 @@ export const ReadTool = Tool.define(
 
       yield* ctx.ask({
         permission: "read",
-        patterns: [filepath],
+        // ba9e4b67ed: match the permission pattern against the worktree-relative path, like
+        // edit/write/apply_patch (edit.ts:86,131). The absolute filepath never matched a user's
+        // permission.read glob (which is relative), so read rules were silently inert.
+        patterns: [path.relative(Instance.worktree, filepath)],
         always: ["*"],
         metadata: {},
       })
@@ -218,6 +247,14 @@ export const ReadTool = Tool.define(
             preview: sliced.slice(0, 20).join("\n"),
             truncated,
             loaded: [] as string[],
+            display: {
+              type: "directory" as const,
+              path: filepath,
+              entries: sliced,
+              offset,
+              totalEntries: items.length,
+              truncated,
+            },
           },
         }
       }
@@ -301,15 +338,23 @@ export const ReadTool = Tool.define(
           preview: file.raw.slice(0, 20).join("\n"),
           truncated,
           loaded: loaded.map((item) => item.filepath),
+          display: {
+            type: "file" as const,
+            path: filepath,
+            text: file.raw.join("\n"),
+            lineStart: file.offset,
+            lineEnd: last,
+            totalLines: file.count,
+            truncated,
+          },
         },
       }
-    })
+    }, Effect.orDie)
 
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-        run(params, ctx).pipe(Effect.orDie),
+      execute,
     }
   }),
 )

@@ -15,8 +15,8 @@ When the docx base rules cover it, the text here says `→ see docx v2 §X`. Rea
 
 If `officecli` is missing:
 
-- **macOS / Linux**: `curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.sh | bash`
-- **Windows (PowerShell)**: `irm https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.ps1 | iex`
+- **macOS / Linux**: `curl -fsSL https://d.officecli.ai/install.sh | bash`
+- **Windows (PowerShell)**: `irm https://d.officecli.ai/install.ps1 | iex`
 
 Verify with `officecli --version` (open a new terminal if PATH hasn't picked up). If install fails, download a binary from https://github.com/iOfficeAI/OfficeCLI/releases.
 

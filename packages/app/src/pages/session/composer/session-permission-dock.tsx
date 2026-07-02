@@ -4,6 +4,25 @@ import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
 
+type Translate = ReturnType<typeof useLanguage>["t"]
+
+export function canPersistPermission(request: Pick<PermissionRequest, "always">) {
+  return request.always.length > 0
+}
+
+export function permissionMetadataLines(request: PermissionRequest, t: Translate): string[] {
+  const metadata = request.metadata ?? {}
+  if (
+    request.permission === "automate_manage" &&
+    metadata["action"] === "delete" &&
+    typeof metadata["title"] === "string" &&
+    typeof metadata["id"] === "string"
+  ) {
+    return [t("ui.permission.automateManageDelete", { title: metadata["title"], id: metadata["id"] })]
+  }
+  return []
+}
+
 export function SessionPermissionContent(props: {
   request: PermissionRequest
   responding: boolean
@@ -17,6 +36,7 @@ export function SessionPermissionContent(props: {
     if (value === key) return ""
     return value
   }
+  const metadataLines = () => permissionMetadataLines(props.request, language.t)
 
   return (
     <div data-component="dock-prompt" data-kind="permission">
@@ -38,6 +58,15 @@ export function SessionPermissionContent(props: {
             </div>
           </Show>
 
+          <For each={metadataLines()}>
+            {(line) => (
+              <div data-slot="permission-row">
+                <span data-slot="permission-spacer" aria-hidden="true" />
+                <div data-slot="permission-hint">{line}</div>
+              </div>
+            )}
+          </For>
+
           <Show when={props.request.patterns.length > 0}>
             <div data-slot="permission-row">
               <span data-slot="permission-spacer" aria-hidden="true" />
@@ -57,9 +86,11 @@ export function SessionPermissionContent(props: {
           <Button variant="ghost" onClick={() => props.onDecide("reject")} disabled={props.responding}>
             {language.t("ui.permission.deny")}
           </Button>
-          <Button variant="secondary" onClick={() => props.onDecide("always")} disabled={props.responding}>
-            {language.t("ui.permission.allowAlways")}
-          </Button>
+          <Show when={canPersistPermission(props.request)}>
+            <Button variant="secondary" onClick={() => props.onDecide("always")} disabled={props.responding}>
+              {language.t("ui.permission.allowAlways")}
+            </Button>
+          </Show>
           <Button variant="primary" onClick={() => props.onDecide("once")} disabled={props.responding}>
             {language.t("ui.permission.allowOnce")}
           </Button>

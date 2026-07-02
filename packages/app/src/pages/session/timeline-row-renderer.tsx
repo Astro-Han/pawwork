@@ -11,7 +11,7 @@ export function TimelineRowRenderer(props: {
   viewport: HTMLDivElement | undefined
   virtualizerBridge: TimelineVirtualizerBridge
   shift: boolean
-  transactionActive: boolean
+  reconcilerActive: boolean
   renderRow: (row: TimelineVirtualRow) => JSX.Element
 }) {
   createEffect(() => {
@@ -35,7 +35,7 @@ function VirtualizedTimelineRows(props: {
   viewport: HTMLDivElement | undefined
   virtualizerBridge: TimelineVirtualizerBridge
   shift: boolean
-  transactionActive: boolean
+  reconcilerActive: boolean
   renderRow: (row: TimelineVirtualRow) => JSX.Element
 }) {
   return (
@@ -46,7 +46,7 @@ function VirtualizedTimelineRows(props: {
           data={props.rows}
           scrollRef={viewport()}
           shift={props.shift}
-          overscan={chooseTimelineVirtualizerOverscan({ transactionActive: props.transactionActive })}
+          overscan={chooseTimelineVirtualizerOverscan({ reconcilerActive: props.reconcilerActive })}
         >
           {props.renderRow}
         </Virtualizer>

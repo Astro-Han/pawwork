@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { WorkspaceID } from "@/control-plane/schema"
 import type { Target } from "@/control-plane/types"
 import { Workspace } from "@/control-plane/workspace"
@@ -28,6 +28,34 @@ export type WorkspaceRouteResolution =
   | { action: "pass-missing-session-delete" }
   | { action: "missing-workspace-error"; workspaceID: WorkspaceID }
 
+const WorkspaceRoutingErrorReason = Schema.Union([
+  Schema.Literal("session-workspace"),
+  Schema.Literal("workspace-id"),
+  Schema.Literal("workspace-record"),
+  Schema.Literal("workspace-sync"),
+  Schema.Literal("workspace-adaptor"),
+  Schema.Literal("workspace-target"),
+  Schema.Literal("unexpected-local-decision"),
+])
+
+export class WorkspaceRoutingError extends Schema.TaggedErrorClass<WorkspaceRoutingError>()("WorkspaceRoutingError", {
+  reason: WorkspaceRoutingErrorReason,
+  message: Schema.String,
+  cause: Schema.optional(Schema.Defect()),
+}) {}
+
+const workspaceRoutingFailure =
+  (reason: WorkspaceRoutingError["reason"], message: string) =>
+  (cause: unknown) => {
+    const causeMessage =
+      cause instanceof Error ? cause.message : typeof cause === "string" && cause.length > 0 ? cause : undefined
+    return new WorkspaceRoutingError({
+      reason,
+      message: causeMessage ? `${message}: ${causeMessage}` : message,
+      cause,
+    })
+  }
+
 export function isLocalCachedRoute(method: string, pathname: string) {
   for (const rule of LOCAL_ROUTE_RULES) {
     if (rule.method && rule.method !== method) continue
@@ -55,12 +83,16 @@ export function shouldCreateLegacyConfigBeforeNoWorkspacePath(input: {
   return input.pathname === "/path" && input.ensureConfig && !input.isPawWork
 }
 
-async function getSessionWorkspace(pathname: string) {
+function getSessionWorkspace(pathname: string) {
   const id = sessionIDForWorkspaceRouting(pathname)
-  if (!id) return null
+  if (!id) return Effect.succeed(undefined)
 
-  const session = await Session.get(id).catch(() => undefined)
-  return session?.workspaceID
+  return Session.Service.use((sessions) =>
+    sessions.get(id).pipe(
+      Effect.map((session) => session.workspaceID),
+      Effect.catchCause(() => Effect.succeed(undefined)),
+    ),
+  )
 }
 
 export function resolveWorkspaceRoute(input: {
@@ -71,76 +103,95 @@ export function resolveWorkspaceRoute(input: {
   ensureConfig: boolean
   isPawWork: boolean
   isWebSocketUpgrade?: boolean
-}): Effect.Effect<WorkspaceRouteResolution, unknown> {
-  return Effect.tryPromise({
-    try: async () => {
-      const sessionWorkspaceID = await getSessionWorkspace(input.pathname)
-      const workspaceID = sessionWorkspaceID || input.workspaceID
+}): Effect.Effect<WorkspaceRouteResolution, WorkspaceRoutingError, Workspace.Service | Session.Service> {
+  return Effect.gen(function* () {
+    const sessionWorkspaceID = yield* getSessionWorkspace(input.pathname)
+    const workspaceID = sessionWorkspaceID || input.workspaceID
 
-      if (!workspaceID) {
-        const createLegacyConfig = shouldCreateLegacyConfigBeforeNoWorkspacePath({
-          pathname: input.pathname,
-          ensureConfig: input.ensureConfig,
-          isPawWork: input.isPawWork,
-        })
-        return {
-          action: "provide-local-context",
-          directory: input.directory,
-          createLegacyConfig: createLegacyConfig || undefined,
-        }
+    if (!workspaceID) {
+      const createLegacyConfig = shouldCreateLegacyConfigBeforeNoWorkspacePath({
+        pathname: input.pathname,
+        ensureConfig: input.ensureConfig,
+        isPawWork: input.isPawWork,
+      })
+      return {
+        action: "provide-local-context",
+        directory: input.directory,
+        createLegacyConfig: createLegacyConfig || undefined,
       }
+    }
 
-      const id = WorkspaceID.make(workspaceID)
-      const workspace = await Workspace.record(id)
+    const id = yield* Effect.try({
+      try: () => WorkspaceID.make(workspaceID),
+      catch: workspaceRoutingFailure("workspace-id", `Invalid workspace id: ${workspaceID}`),
+    })
+    const workspaceService = yield* Workspace.Service
+    const workspace = yield* workspaceService
+      .record(id)
+      .pipe(Effect.mapError(workspaceRoutingFailure("workspace-record", `Failed to read workspace: ${id}`)))
 
-      if (!workspace) {
-        const decision = classifyWorkspaceRoute({
-          method: input.method,
-          pathname: input.pathname,
-          target: "missing",
-        })
-        if (decision.action === "pass-missing-session-delete") {
-          return { action: "pass-missing-session-delete" }
-        }
-        return { action: "missing-workspace-error", workspaceID: id }
+    if (!workspace) {
+      const decision = classifyWorkspaceRoute({
+        method: input.method,
+        pathname: input.pathname,
+        target: "missing",
+      })
+      if (decision.action === "pass-missing-session-delete") {
+        return { action: "pass-missing-session-delete" }
       }
+      return { action: "missing-workspace-error", workspaceID: id }
+    }
 
-      Workspace.ensureSync(workspace, input.directory)
+    yield* workspaceService
+      .ensureSync(workspace, input.directory)
+      .pipe(Effect.mapError(workspaceRoutingFailure("workspace-sync", `Failed to start workspace sync: ${id}`)))
 
-      const adaptor = await Workspace.resolveAdaptor({
+    const adaptor = yield* workspaceService
+      .resolveAdaptor({
         ...workspace,
         hint: input.directory,
       })
-      const target = await adaptor.target(workspace)
-
-      if (target.type === "local") {
-        const decision = classifyWorkspaceRoute({
-          method: input.method,
-          pathname: input.pathname,
-          target: target.type,
-        })
-        if (decision.action !== "provide-local-workspace") {
-          throw new Error(`Unexpected local workspace routing decision: ${decision.action}`)
+      .pipe(Effect.mapError(workspaceRoutingFailure("workspace-adaptor", `Failed to resolve workspace adaptor: ${id}`)))
+    const target = yield* Effect.tryPromise({
+      try: async () => {
+        const next = await adaptor.target(workspace)
+        if (!next || (next.type !== "local" && next.type !== "remote")) {
+          throw new Error("Workspace adaptor returned an invalid target")
         }
-        return {
-          action: "provide-local-context",
-          directory: target.directory,
-          workspaceID: id,
-        }
-      }
+        return next
+      },
+      catch: workspaceRoutingFailure("workspace-target", `Failed to resolve workspace target: ${id}`),
+    })
 
+    if (target.type === "local") {
       const decision = classifyWorkspaceRoute({
         method: input.method,
         pathname: input.pathname,
         target: target.type,
-        isWebSocketUpgrade: input.isWebSocketUpgrade,
       })
+      if (decision.action !== "provide-local-workspace") {
+        return yield* new WorkspaceRoutingError({
+          reason: "unexpected-local-decision",
+          message: `Unexpected local workspace routing decision: ${decision.action}`,
+        })
+      }
+      return {
+        action: "provide-local-context",
+        directory: target.directory,
+        workspaceID: id,
+      }
+    }
 
-      if (decision.action === "serve-local-cache") return { action: "serve-local-cache" }
-      if (decision.action === "proxy-websocket") return { action: "proxy-websocket", target }
-      return { action: "proxy-http", target, workspaceID: id }
-    },
-    catch: (error) => error,
+    const decision = classifyWorkspaceRoute({
+      method: input.method,
+      pathname: input.pathname,
+      target: target.type,
+      isWebSocketUpgrade: input.isWebSocketUpgrade,
+    })
+
+    if (decision.action === "serve-local-cache") return { action: "serve-local-cache" }
+    if (decision.action === "proxy-websocket") return { action: "proxy-websocket", target }
+    return { action: "proxy-http", target, workspaceID: id }
   })
 }
 

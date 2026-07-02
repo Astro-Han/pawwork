@@ -12,7 +12,11 @@
 
 import { describe, expect, test } from "bun:test"
 import { Persist, PersistTesting } from "@/utils/persist"
-import { buildCommentByIDMap } from "./history-comment-map"
+import {
+  buildCommentByIDMap,
+  buildPromptHistoryCommentRestore,
+  buildPromptHistoryComments,
+} from "./history-comment-map"
 
 /** Mirrors the target-building logic in createDirectoryHistoryStore. */
 function buildHistoryTarget(directory: string, mode: "normal" | "shell") {
@@ -75,28 +79,19 @@ describe("directory-scoped prompt history targets", () => {
 })
 
 // ---------------------------------------------------------------------------
-// buildCommentByIDMap — portable-active gate (Task 5 of PR #750)
+// buildCommentByIDMap
 // ---------------------------------------------------------------------------
-//
-// When portable is active (the homepage received a carried snapshot from
-// another workspace), the byID cross-reference to route-scoped useComments()
-// must be skipped so that wrong-workspace comment metadata is never used.
 
 type FakeComment = { file: string; id: string; selection: { start: number; end: number }; time: number; comment: string }
 
-describe("buildCommentByIDMap — portable-active gate", () => {
+describe("buildCommentByIDMap", () => {
   const comments: FakeComment[] = [
     { file: "/a/foo.ts", id: "c-1", selection: { start: 1, end: 5 }, time: 1000, comment: "hello" },
     { file: "/a/bar.ts", id: "c-2", selection: { start: 2, end: 3 }, time: 2000, comment: "world" },
   ]
 
-  test("returns empty map when portableActive is true", () => {
-    const map = buildCommentByIDMap(comments, true)
-    expect(map.size).toBe(0)
-  })
-
-  test("returns populated map when portableActive is false and comments exist", () => {
-    const map = buildCommentByIDMap(comments, false)
+  test("returns populated map when comments exist", () => {
+    const map = buildCommentByIDMap(comments)
     expect(map.size).toBe(2)
     // Key format: "${file}\n${id}"
     expect(map.has("/a/foo.ts\nc-1")).toBe(true)
@@ -104,8 +99,87 @@ describe("buildCommentByIDMap — portable-active gate", () => {
     expect(map.get("/a/foo.ts\nc-1")?.selection.start).toBe(1)
   })
 
-  test("returns empty map when portableActive is false but no comments given", () => {
-    const map = buildCommentByIDMap([], false)
+  test("returns empty map when no comments given", () => {
+    const map = buildCommentByIDMap([])
     expect(map.size).toBe(0)
+  })
+})
+
+describe("buildPromptHistoryComments", () => {
+  test("uses commentPath for comment metadata while preserving absolute prompt path", () => {
+    const result = buildPromptHistoryComments(
+      [
+        {
+          key: "ctx",
+          type: "file",
+          path: "/repo-A/src/a.ts",
+          commentPath: "src/a.ts",
+          selection: { startLine: 1, startChar: 1, endLine: 1, endChar: 1 },
+          comment: "review this",
+          commentID: "c-1",
+          commentOrigin: "review",
+          preview: "fallback preview",
+        },
+      ],
+      [
+        {
+          file: "src/a.ts",
+          id: "c-1",
+          selection: { start: 5, end: 7 },
+          time: 1234,
+          comment: "review this",
+        },
+      ],
+    )
+
+    expect(result).toEqual([
+      {
+        id: "c-1",
+        path: "/repo-A/src/a.ts",
+        commentPath: "src/a.ts",
+        selection: { start: 5, end: 7 },
+        comment: "review this",
+        time: 1234,
+        origin: "review",
+        preview: "fallback preview",
+        resolvedMentions: undefined,
+      },
+    ])
+  })
+})
+
+describe("buildPromptHistoryCommentRestore", () => {
+  test("restores comments by commentPath while keeping prompt context path absolute", () => {
+    const result = buildPromptHistoryCommentRestore([
+      {
+        id: "c-1",
+        path: "/repo-A/src/a.ts",
+        commentPath: "src/a.ts",
+        selection: { start: 5, end: 7 },
+        comment: "review this",
+        time: 1234,
+        origin: "review",
+        preview: "preview",
+      },
+    ])
+
+    expect(result.comments).toEqual([
+      {
+        id: "c-1",
+        file: "src/a.ts",
+        selection: { start: 5, end: 7 },
+        comment: "review this",
+        time: 1234,
+      },
+    ])
+    expect(result.context[0]).toMatchObject({
+      type: "file",
+      path: "/repo-A/src/a.ts",
+      commentPath: "src/a.ts",
+      comment: "review this",
+      commentID: "c-1",
+      commentOrigin: "review",
+      preview: "preview",
+    })
   })
 })

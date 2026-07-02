@@ -98,8 +98,8 @@ describe("defaultSidePanelTab", () => {
     expect(defaultSidePanelTab("changes")).toBe("review")
   })
 
-  test("keeps files stable", () => {
-    expect(defaultSidePanelTab("files")).toBe("files")
+  test("migrates legacy files to status", () => {
+    expect(defaultSidePanelTab("files")).toBe("status")
   })
 })
 

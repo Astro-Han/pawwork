@@ -156,6 +156,12 @@ function fake(
     },
     updateToolCall: Effect.fn("TestSessionProcessor.updateToolCall")(() => Effect.succeed(undefined)),
     completeToolCall: Effect.fn("TestSessionProcessor.completeToolCall")(() => Effect.void),
+    completeToolExecution: Effect.fn("TestSessionProcessor.completeToolExecution")(() => Effect.void),
+    failToolExecution: Effect.fn("TestSessionProcessor.failToolExecution")(() => Effect.void),
+    recordToolInputCaptured: Effect.fn("TestSessionProcessor.recordToolInputCaptured")(() => Effect.void),
+    recordToolExecutionStarted: Effect.fn("TestSessionProcessor.recordToolExecutionStarted")(() => Effect.void),
+    recordToolExecutionCompleted: Effect.fn("TestSessionProcessor.recordToolExecutionCompleted")(() => Effect.void),
+    recordToolExecutionFailed: Effect.fn("TestSessionProcessor.recordToolExecutionFailed")(() => Effect.void),
     process: Effect.fn("TestSessionProcessor.process")(() => Effect.succeed(result)),
     errorRecords: () => [],
     syntheticBlockSigKeys: () => [],
@@ -981,6 +987,86 @@ describe("session.compaction.process", () => {
       },
     })
   })
+  test("sizes the retained tail at full fidelity so a large tool output cannot sneak past the budget", async () => {
+    // Regression: estimate() must size the retained tail the way it re-enters the
+    // live prompt (full media + un-truncated tool output), not with the cheaper
+    // stripMedia + toolOutputMaxChars options that only the summarized head uses.
+    // A recent turn carrying a huge tool output looks small under the truncated
+    // estimate, so the old code retained it and overflowed the next live prompt.
+    await using tmp = await tmpdir()
+    const model = createModel({ context: 30_000, input: 30_000, output: 4_000 })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create()
+        const first = await user(session.id, "first request")
+        await assistant(session.id, first.id, tmp.path)
+        const heavy = await user(session.id, "tool heavy request")
+        const heavyAssistant = await assistant(session.id, heavy.id, tmp.path)
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: heavyAssistant.id,
+          sessionID: session.id,
+          type: "tool",
+          callID: "call-heavy",
+          tool: "bash",
+          state: {
+            status: "completed",
+            input: {},
+            // ~50k tokens at full fidelity, but truncates to ~0.5k under the
+            // head's toolOutputMaxChars cap — the exact gap this test guards.
+            output: "x".repeat(200_000),
+            title: "done",
+            metadata: {},
+            time: { start: 0, end: 1 },
+          },
+        })
+        const latest = await user(session.id, "latest request")
+        await assistant(session.id, latest.id, tmp.path)
+        const compact = await user(session.id, "compact now")
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: compact.id,
+          sessionID: session.id,
+          type: "compaction",
+          auto: true,
+        })
+
+        const fakeLLM = llm()
+        fakeLLM.push(reply("older summary"))
+        const live = liveRuntime(
+          fakeLLM.layer,
+          ProviderTest.fake({ model }),
+          // Budget clears the truncated tool output (~0.5k) but not the full one (~50k).
+          cfg({ tail_turns: 2, preserve_recent_tokens: 6_000 }),
+        )
+        try {
+          const beforeCompaction = await svc.messages({ sessionID: session.id })
+          await live.runPromise(
+            SessionCompaction.Service.use((compaction) =>
+              compaction.process({
+                parentID: compact.id,
+                messages: beforeCompaction,
+                sessionID: session.id,
+                auto: true,
+              }),
+            ),
+          )
+        } finally {
+          await live.dispose()
+        }
+
+        const messages = await svc.messages({ sessionID: session.id })
+        const compactPart = messages
+          .flatMap((message) => message.parts)
+          .find((part): part is MessageV2.CompactionPart => part.type === "compaction")
+
+        // With the fix the tail boundary stops at the small latest turn; the
+        // tool-heavy turn is summarized into the head instead of retained verbatim.
+        expect(compactPart?.tail_start_id).toBe(latest.id)
+      },
+    })
+  })
   test("throws when parent is not a user message", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
@@ -1127,14 +1213,14 @@ describe("session.compaction.process", () => {
     })
   })
 
-  test("marks summary message as errored on compact result", async () => {
+  test("marks summary message as errored on compact result when auto compaction is disabled", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
         const msg = await user(session.id, "hello")
-        const rt = runtime("compact", Plugin.defaultLayer, wide())
+        const rt = runtime("compact", Plugin.defaultLayer, wide(), cfg({ auto: false }))
         try {
           const msgs = await svc.messages({ sessionID: session.id })
           const result = await rt.runPromise(
@@ -2018,6 +2104,31 @@ describe("SessionNs.getUsage", () => {
     expect(result.tokens.output).toBe(400)
     expect(result.tokens.reasoning).toBe(100)
     expect(result.tokens.total).toBe(1500)
+  })
+
+  test("clamps negative output to zero when reasoning exceeds output tokens", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const result = SessionNs.getUsage({
+      model,
+      usage: {
+        inputTokens: 1000,
+        outputTokens: 100,
+        totalTokens: 1100,
+        inputTokenDetails: {
+          noCacheTokens: undefined,
+          cacheReadTokens: undefined,
+          cacheWriteTokens: undefined,
+        },
+        outputTokenDetails: {
+          textTokens: undefined,
+          reasoningTokens: 150,
+        },
+      },
+    })
+
+    // output = outputTokens - reasoningTokens = 100 - 150 underflows; clamp to 0, not -50
+    expect(result.tokens.output).toBe(0)
+    expect(result.tokens.reasoning).toBe(150)
   })
 
   test("does not double count reasoning tokens in cost", () => {

@@ -7,10 +7,8 @@ import type {
   Path,
   PermissionRequest,
   Project,
-  ProviderAuthResponse,
   ProviderListResponse,
   Session,
-  TodoSnapshot,
 } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@opencode-ai/ui/toast"
 import { getFilename } from "@opencode-ai/util/path"
@@ -18,23 +16,12 @@ import { retry } from "@opencode-ai/util/retry"
 import { batch } from "solid-js"
 import { produce, reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 import type { State, VcsCache } from "./types"
+import { mergeAutomationList } from "./automation-store"
+import { pendingExternalResultQuestionFromPart, type PendingExternalResultQuestion } from "./external-result-question"
 import { cmp, normalizeAgentList, normalizeProviderList } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
 import { QueryClient, queryOptions } from "@tanstack/solid-query"
-import { loadSessionsQuery } from "../global-sync"
-
-type GlobalStore = {
-  ready: boolean
-  path: Path
-  project: Project[]
-  session_todo: {
-    [sessionID: string]: TodoSnapshot
-  }
-  provider: ProviderListResponse
-  provider_auth: ProviderAuthResponse
-  config: Config
-  reload: undefined | "pending" | "complete"
-}
+import { loadSessionsQuery, type GlobalStore } from "../global-sync"
 
 function waitForPaint() {
   return new Promise<void>((resolve) => {
@@ -232,23 +219,44 @@ function filterGroupedByWarmSessions<T>(grouped: Record<string, T[]>, result: { 
   return filtered
 }
 
-// Hydrate session/message/part trios returned by GET /external-result. The
-// dock walks `sync.data.session` + `sync.data.message[child]` + `part[msg]`
-// to surface a pending question on a parent route. SSE message.part.updated
-// is intentionally not in the replay buffer (high-volume), so a reload after
-// the SSE cursor expires loses the dock without this hydrate.
+// Hydrate session/message/part trios returned by GET /external-result so the
+// dock — which renders purely from parts — recovers after a reload (SSE
+// message.part.updated is intentionally not in the replay buffer). Returns the
+// questions the server still lists as pending, for the caller to reconcile into
+// the global condition index.
+//
+// `pruneCandidateIDs` is the set of running-ready question part identities known
+// locally *before* the fetch. Any of those the server no longer lists is a
+// question answered while the app was away whose terminal event was missed; its
+// stale local part is dropped here so the part-derived dock stops showing it.
+// Scoping the prune to the pre-fetch snapshot keeps a question that arrived
+// during the fetch from being pruned by a slightly older server view.
 export function hydratePendingExternalResults(input: {
   store: Store<State>
   setStore: SetStoreFunction<State>
   entries: ReadonlyArray<{ session: Session; message: Message; part: Part }>
-}) {
+  pruneCandidateIDs?: ReadonlySet<string>
+}): PendingExternalResultQuestion[] {
+  const active: PendingExternalResultQuestion[] = []
   batch(() => {
+    const activeIDs = new Set<string>()
     for (const entry of input.entries) {
       const session = entry.session
       const message = entry.message
       const part = entry.part
       if (!session?.id || !message?.id || !part?.id || !part.messageID) continue
       mergeSession(input.setStore, session)
+      const pendingQuestion = pendingExternalResultQuestionFromPart(part)
+      const localPart = input.store.part[part.messageID]?.find((item) => item.id === part.id)
+      const localTerminalQuestion =
+        pendingQuestion &&
+        localPart?.type === "tool" &&
+        localPart.tool === "question" &&
+        localPart.state.status !== "running"
+      if (pendingQuestion && !localTerminalQuestion) {
+        activeIDs.add(pendingQuestion.id)
+        active.push(pendingQuestion)
+      }
 
       const messages = input.store.message[session.id]
       if (!messages) {
@@ -268,6 +276,7 @@ export function hydratePendingExternalResults(input: {
         }
       }
 
+      if (localTerminalQuestion) continue
       const parts = input.store.part[part.messageID]
       if (!parts) {
         input.setStore("part", part.messageID, [part])
@@ -286,7 +295,46 @@ export function hydratePendingExternalResults(input: {
         }
       }
     }
+    if (input.pruneCandidateIDs?.size) {
+      input.setStore(
+        produce((draft) => {
+          for (const messageID of Object.keys(draft.part)) {
+            const parts = draft.part[messageID]
+            if (!parts) continue
+            const next = parts.filter((part) => {
+              if (part.type !== "tool" || part.tool !== "question") return true
+              if (part.state.status !== "running") return true
+              if (part.state.metadata?.externalResultReady !== true) return true
+              const id = `${part.messageID}:${part.callID}`
+              if (!input.pruneCandidateIDs!.has(id)) return true
+              return activeIDs.has(id)
+            })
+            if (next.length === parts.length) continue
+            if (next.length > 0) draft.part[messageID] = next
+            else delete draft.part[messageID]
+          }
+        }),
+      )
+    }
   })
+  return active
+}
+
+// Identities (messageID:callID) of running-ready question parts in the local
+// cache, captured before a GET /external-result fetch so the reconcile can tell
+// an answered-while-away question (drop its stale part) from one that arrived
+// mid-fetch (keep).
+function snapshotRunningQuestionPartIDs(store: Store<State>) {
+  const ids = new Set<string>()
+  for (const parts of Object.values(store.part)) {
+    for (const part of parts ?? []) {
+      if (part.type !== "tool" || part.tool !== "question") continue
+      if (part.state.status !== "running") continue
+      if (part.state.metadata?.externalResultReady !== true) continue
+      ids.add(`${part.messageID}:${part.callID}`)
+    }
+  }
+  return ids
 }
 
 const inactiveQueryFn = async () => null
@@ -312,6 +360,7 @@ export async function bootstrapDirectory(input: {
     provider: ProviderListResponse
   }
   queryClient: QueryClient
+  pendingQuestions: { reconcile: (directory: string, entries: PendingExternalResultQuestion[]) => void }
 }) {
   const loading = input.store.status !== "complete"
   const seededProject = projectID(input.directory, input.global.project)
@@ -333,6 +382,7 @@ export async function bootstrapDirectory(input: {
   input.setStore("lsp_ready", false)
   input.setStore("lsp", [])
   input.setStore("command_ready", false)
+  input.setStore("external_result_ready", false)
   input.setStore("session_status_state", "loading")
   input.setStore("session_status_ready", false)
   input.setStore("session_status", reconcile(statusBaseline))
@@ -471,20 +521,24 @@ export async function bootstrapDirectory(input: {
           }),
         ),
       () =>
-        retry(() =>
-          input.sdk.externalResult.list().then((x) => {
+        retry(() => {
+          const pruneCandidateIDs = snapshotRunningQuestionPartIDs(input.store)
+          return input.sdk.externalResult.list().then((x) => {
             const entries = (x.data ?? []).filter(
               (entry): entry is { session: Session; message: Message; part: Part } =>
                 !!entry?.session?.id && !!entry.message?.id && !!entry.part?.id,
             )
-            if (entries.length === 0) return
-            hydratePendingExternalResults({
+            const active = hydratePendingExternalResults({
               store: input.store,
               setStore: input.setStore,
               entries,
+              pruneCandidateIDs,
             })
-          }),
-        ).catch((err) => {
+            input.pendingQuestions.reconcile(input.directory, active)
+            input.setStore("external_result_ready", true)
+          })
+        }).catch((err) => {
+          input.setStore("external_result_ready", false)
           // Hydrate is best-effort: a transient failure should not surface
           // the project-level "reloadFailed" toast. The dock recovers on
           // the next SSE message.part.updated for live questions, or on
@@ -499,6 +553,13 @@ export async function bootstrapDirectory(input: {
             input.setStore("mcp_ready", true)
           }),
         ),
+      () =>
+        retry(() => {
+          const knownIds = new Set(Object.keys(input.store.automation))
+          return input.sdk.automation.list().then((x) => {
+            mergeAutomationList(input.store, input.setStore, x.data?.items ?? [], knownIds)
+          })
+        }),
     ]
 
     await waitForPaint()

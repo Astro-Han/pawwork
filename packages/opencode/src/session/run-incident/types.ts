@@ -10,8 +10,11 @@ import type {
   ToolEffectKind,
 } from "../run-observability/types"
 import type { LifecycleRequest } from "../lifecycle-provenance"
+import type { ProviderApiErrorKind } from "@/provider/error"
 
-export const RUN_INCIDENT_SCHEMA_VERSION = 1
+// v2: added the provider_api_error terminal cause (a provider returned an
+// API-level rejection rather than the connection dropping).
+export const RUN_INCIDENT_SCHEMA_VERSION = 2
 
 export type Confidence = "low" | "medium" | "high"
 
@@ -60,6 +63,13 @@ export type TerminalCause =
         | "after_tool_result"
         | "unknown_stream_phase"
       boundary?: "sdk_transport" | "provider" | "network" | "unknown"
+      error?: SafeErrorFingerprint
+      confidence: Confidence
+    }
+  | {
+      category: "provider_api_error"
+      subcategory: ProviderApiErrorKind
+      retryable?: boolean
       error?: SafeErrorFingerprint
       confidence: Confidence
     }
@@ -187,6 +197,7 @@ export type RecoveryDecision = {
     | "side_effect_facts_incomplete"
     | "local_lifecycle_close"
     | "user_cancel"
+    | "provider_api_error"
     | "unknown"
   auto_retry?: { max_attempts: number; backoff_ms: number; attempted_at?: number }
   user_action?: { kind: "continue" | "resume" | "retry" | "confirm_continue" | "dismiss"; idempotency_key: string }

@@ -361,11 +361,11 @@ export async function openSettings(page: Page) {
 
   const dialog = page.getByRole("dialog")
   const settingsPage = page.locator('[data-component="settings-page"]')
-  // Settings is a shell-slot takeover: the nav lives in the sidebar slot and the content in
-  // the main slot, in two separate DOM subtrees. Return their common ancestor (shell-content)
-  // so callers can query both the nav (getByRole("tab")) and the content. Detection still keys
-  // on settings-page (only rendered while settings is open); the underlying session content is
-  // inert/aria-hidden and so is ignored by getByRole.
+  // The settings route renders the nav into the sidebar slot and the content into the main
+  // slot, in two separate DOM subtrees. Return their common ancestor (shell-content) so
+  // callers can query both the nav (getByRole("tab")) and the content. Detection keys on
+  // settings-page (only rendered while settings is open); the session page is unmounted
+  // behind the route, so there is no competing content.
   const settingsSurface = page.locator('[data-component="shell-content"]')
   await page.keyboard.press(`${modKey}+Comma`).catch(() => undefined)
 

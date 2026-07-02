@@ -1,68 +1,107 @@
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import type { AsyncStorage, SyncStorage } from "@solid-primitives/storage"
 import type { Accessor } from "solid-js"
+import type {
+  RendererDiagnosticInput,
+  RendererDiagnosticsExportResult,
+  ReportProblemInput,
+  PrepareReportResult,
+  RevealReportResult,
+  SubmitReportResult,
+  UpdateInfo,
+} from "@/desktop-api-contract"
 import { ServerConnection } from "./server"
 
 type PickerPaths = string | string[] | null
 type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean }
 type OpenFilePickerOptions = { title?: string; multiple?: boolean; accept?: string[]; extensions?: string[] }
 type SaveFilePickerOptions = { title?: string; defaultPath?: string }
-type UpdateFailureReason = "check" | "download" | "metadata" | "cache"
-export type UpdateInfo =
-  | { updateAvailable: false; status: "disabled" | "none" | "busy"; version?: undefined }
-  | { updateAvailable: true; status: "ready"; version: string }
-  | { updateAvailable: false; status: "failed"; reason: UpdateFailureReason; message: string; version?: undefined }
 
-export type RendererErrorDetails = {
-  summary: string
-  details: string
+export type {
+  RendererDiagnosticInput,
+  RendererDiagnosticsExportResult,
+  RendererErrorDetails,
+  ReportProblemInput,
+  PrepareReportResult,
+  RevealReportResult,
+  SubmitReportResult,
+  DiagnosticsReviewContents,
+  UpdateInfo,
+} from "@/desktop-api-contract"
+
+/** A viewport rect in CSS pixels (the renderer's coordinate space). */
+export type BrowserViewRect = { x: number; y: number; width: number; height: number }
+
+/** Desired presentation of the embedded browser overlay, sent as one unit so
+ *  visibility and bounds never race. `rect` is ignored when `visible` is false.
+ *  `claim` marks a push that may (re)take the display — sent while the panel
+ *  has newly become visible, swapped targets, or left the displaced state, and
+ *  re-sent until main confirms it applied. Geometry-only ticks leave it unset,
+ *  so an in-flight resize from a window that just lost the display can never
+ *  steal it back. */
+export type BrowserViewLayout = { visible: boolean; rect: BrowserViewRect; claim?: boolean }
+
+/** Snapshot of the embedded browser pushed from the main process on every
+ *  navigation/loading change. `hasPage` is false before any successful load,
+ *  which keeps the DOM empty state showing and the native view hidden. */
+export type BrowserState = {
+  url: string
+  title: string
+  canGoBack: boolean
+  canGoForward: boolean
+  loading: boolean
+  favicon: string | null
+  secure: boolean
+  hasPage: boolean
 }
 
-export type ReportProblemInput = {
-  confirm?: boolean
-  rendererError?: RendererErrorDetails
+/** Which conversation's browser a call addresses: its root session id, or the
+ *  literal "draft" for this window's not-yet-created conversation (the
+ *  new-session page). Drafts are window-private; main resolves them. */
+export type BrowserTarget = string
+
+/**
+ * Control surface for the embedded browser (one app-owned WebContentsView per
+ * conversation, all sharing a persistent partition). Every call names its
+ * target conversation; main validates the target against what the calling
+ * window is showing. Desktop/Electron only — undefined on web, where there is
+ * no native view to drive. Gate usage with `canUseBrowser`.
+ */
+export type BrowserBridge = {
+  navigate(target: BrowserTarget, url: string): Promise<void>
+  goBack(target: BrowserTarget): Promise<void>
+  goForward(target: BrowserTarget): Promise<void>
+  reload(target: BrowserTarget): Promise<void>
+  stop(target: BrowserTarget): Promise<void>
+  /** Report desired visibility + bounds (CSS px). The main process converts to
+   *  device-independent pixels using the window's zoom factor. Resolves true
+   *  when a visible push actually displayed the view in this window — a claim
+   *  keeps being re-sent until that confirmation arrives (the first one can be
+   *  dropped while the window's DesktopContext still lags a route change). */
+  setView(target: BrowserTarget, layout: BrowserViewLayout): Promise<boolean>
+  /** Hand this window's draft view to the session just created from it. Must
+   *  resolve BEFORE navigating to the session route, so the new panel finds
+   *  the adopted view instead of lazily creating an empty one. */
+  adoptDraft(sessionID: string): Promise<{ adopted: boolean; hasPage: boolean }>
+  /** Destroy the target's page outright (view, history, renderer process) via
+   *  the same chain as session delete/archive. WYSIWYG counterpart of the
+   *  browser tab's ×. Cookies/storage survive in the shared partition. */
+  closePage(target: BrowserTarget): Promise<void>
+  /** Sign out of every site: clear cookies, storage, and cache (all targets —
+   *  the partition is shared). */
+  clearData(): Promise<void>
+  /** Read a target's current state once (used to seed a freshly mounted panel). */
+  getState(target: BrowserTarget): Promise<BrowserState | null>
+  /** Subscribe to state pushes; filter by target. Returns an unsubscribe function. */
+  onState(cb: (payload: { target: BrowserTarget; state: BrowserState }) => void): () => void
+  /** Another window started displaying a conversation's view; the panel that
+   *  lost it shows a placeholder and stops reporting layout. */
+  onDisplayTaken(cb: (payload: { target: BrowserTarget }) => void): () => void
+  /** Subscribe to "the agent attached browser automation" pushes — the UI
+   *  surfaces the driven conversation's browser tab. Returns an unsubscribe
+   *  function. */
+  onAutomationAttached(cb: (payload: { sessionID: string }) => void): () => void
 }
-
-export type ReportProblemResult =
-  | {
-      status: "ready"
-      summaryCopied: true
-      feedbackOpened: true
-      fullReport: { status: "ready"; fileName: string; locationHint: string }
-    }
-  | {
-      status: "summary-only"
-      summaryCopied: true
-      feedbackOpened: true
-      fullReport: { status: "failed" }
-    }
-  | {
-      status: "form-fallback"
-      summaryCopied: true
-      feedbackOpened: false
-      feedbackUrl: string
-      fullReport:
-        | { status: "ready"; fileName: string; locationHint: string }
-        | { status: "failed" }
-    }
-  | { status: "cancelled"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "none" } }
-  | { status: "unavailable"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "none" } }
-  | { status: "failed"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "failed" } }
-
-export type RendererDiagnosticInput = {
-  name: string
-  level?: "info" | "warn"
-  monotonic_ms?: number
-  trace_id?: string
-  route_session_id?: string
-  visible_session_id?: string
-  timeline_session_id?: string
-  message_id?: string
-  part_id?: string
-  data?: Record<string, unknown>
-}
-
-export type RendererDiagnosticsExportResult = { ok: true; path: string } | { ok: false; error: string }
 
 export type Platform = {
   /** Platform discriminator */
@@ -101,6 +140,17 @@ export type Platform = {
   /** Send a system notification (optional deep link) */
   notify(title: string, description?: string, href?: string): Promise<void>
 
+  /**
+   * Request user attention without stealing focus: bounce the Dock (macOS) or
+   * flash the taskbar (Windows). Reserved for events that block the agent on
+   * the user — a question or permission request — not passive turn-complete or
+   * error notices. Desktop only; no-op on web.
+   */
+  requestAttention?(): Promise<void>
+
+  /** Set the Dock/taskbar unread badge count; 0 hides it (desktop only) */
+  setBadgeCount?(count: number): Promise<void>
+
   /** Open directory picker dialog (native on desktop, server-backed on web) */
   openDirectoryPickerDialog?(opts?: OpenDirectoryPickerOptions): Promise<PickerPaths>
 
@@ -109,6 +159,12 @@ export type Platform = {
 
   /** Read a local file as a data URL. Undefined on web, callers must keep a path fallback. */
   readFileDataUrl?(path: string, mime: string): Promise<string | null>
+
+  /** Recover the local path behind a desktop browser File object, when Electron exposes one. */
+  filePathForBrowserFile?(file: File): Promise<string | null>
+
+  /** Persist pathless pasted or dragged content to app-managed local storage and return its path. */
+  saveAttachmentFile?(file: File): Promise<string | null>
 
   /** Save file picker dialog (desktop only) */
   saveFilePickerDialog?(opts?: SaveFilePickerOptions): Promise<string | null>
@@ -130,8 +186,18 @@ export type Platform = {
   /** Check for updates (desktop only) */
   checkUpdate?(): Promise<UpdateInfo>
 
-  /** Prepare a problem report and open the configured feedback form (desktop only) */
-  reportProblem?(input?: ReportProblemInput): Promise<ReportProblemResult>
+  /**
+   * Generate, redact, and save a diagnostics package, returning its contents for
+   * review. No side effects beyond writing the file — the user then reveals it
+   * (`revealReport`) or opens the feedback form (`submitReport`). Desktop only.
+   */
+  prepareReport?(input?: ReportProblemInput): Promise<PrepareReportResult>
+
+  /** Reveal the prepared package in the OS file manager (desktop only). */
+  revealReport?(reportId: string): Promise<RevealReportResult>
+
+  /** Open the configured feedback form after review (desktop only). */
+  submitReport?(reportId: string): Promise<SubmitReportResult>
 
   /** Emit a local renderer diagnostics event. Desktop only; no-op on web. */
   emitRendererDiagnostic?(event: RendererDiagnosticInput): Promise<void>
@@ -174,6 +240,9 @@ export type Platform = {
 
   /** Read image from clipboard (desktop only) */
   readClipboardImage?(): Promise<File | null>
+
+  /** Embedded browser control surface (desktop only). Gate with `canUseBrowser`. */
+  browser?: BrowserBridge
 }
 
 export type DisplayBackend = "auto" | "wayland"
@@ -224,6 +293,10 @@ export function canUseDisplayBackend(platform: Pick<Platform, "getDisplayBackend
 
 export function canUseNativeFilePicker(platform: Pick<Platform, "openFilePickerDialog">) {
   return !!platform.openFilePickerDialog
+}
+
+export function canUseBrowser(platform: Pick<Platform, "browser">) {
+  return !!platform.browser
 }
 
 export const { use: usePlatform, provider: PlatformProvider } = createSimpleContext({

@@ -49,27 +49,28 @@ export const AgentListTool = Tool.define(
   Effect.gen(function* () {
     const subagentRun = yield* SubagentRun.Service
 
+    const execute = Effect.fn("AgentListTool.execute")(function* (
+      params: { status: SubagentRun.AgentListFilter; limit: number },
+      ctx: Tool.Context,
+    ) {
+      const rows = yield* subagentRun.list(ctx.sessionID, {
+        status: params.status,
+        limit: params.limit,
+      })
+      const now = Date.now()
+      const lines = rows.map((p) => formatRow(p, now))
+      return {
+        title: "agent_list",
+        metadata: { count: rows.length, status: params.status },
+        output: lines.length > 0 ? lines.join("\n") : "(no subagents match this filter)",
+      }
+    }, Effect.orDie)
+
     return {
       description:
         "List subagents launched by this parent session. Filter by lifecycle status; default `all_active` shows running plus unread terminal rows.",
       parameters: Parameters,
-      execute: (
-        params: { status: SubagentRun.AgentListFilter; limit: number },
-        ctx: Tool.Context,
-      ) =>
-        Effect.gen(function* () {
-          const rows = yield* subagentRun.list(ctx.sessionID, {
-            status: params.status,
-            limit: params.limit,
-          })
-          const now = Date.now()
-          const lines = rows.map((p) => formatRow(p, now))
-          return {
-            title: "agent_list",
-            metadata: { count: rows.length, status: params.status },
-            output: lines.length > 0 ? lines.join("\n") : "(no subagents match this filter)",
-          }
-        }).pipe(Effect.orDie),
+      execute,
     }
   }),
 )

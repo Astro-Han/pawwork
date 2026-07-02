@@ -117,30 +117,6 @@ describe("Git", () => {
     })
   })
 
-  it.live("statusUnstaged() excludes staged-only changes and includes untracked files", () =>
-    Effect.gen(function* () {
-      const tmp = yield* tmpdirScoped({ git: true })
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "tracked.txt"), "base\n", "utf-8"))
-      yield* Effect.promise(() => $`git add tracked.txt`.cwd(tmp).quiet())
-      yield* Effect.promise(() => $`git commit --no-gpg-sign -m "base"`.cwd(tmp).quiet())
-
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "staged.txt"), "staged\n", "utf-8"))
-      yield* Effect.promise(() => $`git add staged.txt`.cwd(tmp).quiet())
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "unstaged.txt"), "unstaged\n", "utf-8"))
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "tracked.txt"), "base\nunstaged\n", "utf-8"))
-
-      const git = yield* Git.Service
-      const status = yield* git.statusUnstaged(tmp)
-      expect(status).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ file: "tracked.txt", status: "modified" }),
-          expect.objectContaining({ file: "unstaged.txt", status: "added" }),
-        ]),
-      )
-      expect(status).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
-    }),
-  )
-
   it.live("showIndex() reads staged content instead of working tree content", () =>
     Effect.gen(function* () {
       const tmp = yield* tmpdirScoped({ git: true })
@@ -158,7 +134,7 @@ describe("Git", () => {
     }),
   )
 
-  it.live("diffUnstaged(), statsUnstaged(), diffStaged(), and statsStaged() split index from working tree", () =>
+  it.live("diff() against HEAD merges staged, unstaged, and committed-since-ref into one working-tree view", () =>
     Effect.gen(function* () {
       const tmp = yield* tmpdirScoped({ git: true })
       yield* Effect.promise(() => fs.writeFile(path.join(tmp, "tracked.txt"), "base\n", "utf-8"))
@@ -167,56 +143,59 @@ describe("Git", () => {
 
       yield* Effect.promise(() => fs.writeFile(path.join(tmp, "staged.txt"), "staged\n", "utf-8"))
       yield* Effect.promise(() => $`git add staged.txt`.cwd(tmp).quiet())
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "unstaged.txt"), "unstaged\n", "utf-8"))
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "tracked.txt"), "base\nstaged\n", "utf-8"))
-      yield* Effect.promise(() => $`git add tracked.txt`.cwd(tmp).quiet())
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "tracked.txt"), "base\nstaged\nworking\n", "utf-8"))
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "tracked.txt"), "base\nworking\n", "utf-8"))
 
       const git = yield* Git.Service
-      const [unstagedDiff, unstagedStats, stagedDiff, stagedStats] = yield* Effect.all([
-        git.diffUnstaged(tmp),
-        git.statsUnstaged(tmp),
-        git.diffStaged(tmp),
-        git.statsStaged(tmp),
-      ])
+      const [diff, stats] = yield* Effect.all([git.diff(tmp, "HEAD"), git.stats(tmp, "HEAD")])
 
-      expect(unstagedDiff).toEqual(
-        expect.arrayContaining([expect.objectContaining({ file: "tracked.txt", status: "modified" })]),
-      )
-      expect(unstagedDiff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
-      expect(unstagedStats).toEqual(
-        expect.arrayContaining([expect.objectContaining({ file: "tracked.txt", additions: 1, deletions: 0 })]),
-      )
-
-      expect(stagedDiff).toEqual(
+      // Single command covers staged-only file, working-tree-only modification, and would
+      // also cover anything committed since the ref. Untracked files are layered in by Vcs,
+      // not git.diff itself, which is why this test omits them.
+      expect(diff).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ file: "staged.txt", status: "added" }),
           expect.objectContaining({ file: "tracked.txt", status: "modified" }),
         ]),
       )
-      expect(stagedDiff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
-      expect(stagedStats).toEqual(
-        expect.arrayContaining([expect.objectContaining({ file: "staged.txt", additions: 1, deletions: 0 })]),
+      expect(stats).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ file: "staged.txt", additions: 1, deletions: 0 }),
+          expect.objectContaining({ file: "tracked.txt", additions: 1, deletions: 0 }),
+        ]),
       )
     }),
   )
 
-  it.live("diffHead() and statsHead() compare a ref to HEAD without working tree changes", () =>
+  it.live("diff() against merge-base includes both committed and uncommitted branch work", () =>
     Effect.gen(function* () {
       const tmp = yield* tmpdirScoped({ git: true })
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "base.txt"), "base\n", "utf-8"))
+      yield* Effect.promise(() => $`git add base.txt`.cwd(tmp).quiet())
+      yield* Effect.promise(() => $`git commit --no-gpg-sign -m "base"`.cwd(tmp).quiet())
       yield* Effect.promise(() => $`git branch -M main`.cwd(tmp).quiet())
       yield* Effect.promise(() => $`git checkout -b feature/test`.cwd(tmp).quiet())
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "branch.txt"), "branch\n", "utf-8"))
-      yield* Effect.promise(() => $`git add branch.txt`.cwd(tmp).quiet())
-      yield* Effect.promise(() => $`git commit --no-gpg-sign -m "branch file"`.cwd(tmp).quiet())
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "branch.txt"), "branch\ndirty\n", "utf-8"))
+
+      // Modify a file that exists on main so the committed delta shows up as "modified",
+      // exercising the branch-mode path against a tracked baseline rather than only new files.
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "base.txt"), "base\ncommitted\n", "utf-8"))
+      yield* Effect.promise(() => $`git add base.txt`.cwd(tmp).quiet())
+      yield* Effect.promise(() => $`git commit --no-gpg-sign -m "committed on branch"`.cwd(tmp).quiet())
+
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "dirty.txt"), "dirty\n", "utf-8"))
+      yield* Effect.promise(() => $`git add dirty.txt`.cwd(tmp).quiet())
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "base.txt"), "base\ncommitted\nworking\n", "utf-8"))
 
       const git = yield* Git.Service
-      const [diff, stats] = yield* Effect.all([git.diffHead(tmp, "main"), git.statsHead(tmp, "main")])
+      const diff = yield* git.diff(tmp, "main")
 
-      expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "branch.txt", status: "added" })]))
-      expect(stats).toEqual(
-        expect.arrayContaining([expect.objectContaining({ file: "branch.txt", additions: 1, deletions: 0 })]),
+      // Critical for branch-mode review: comparing against the merge-base must report the
+      // staged add and the working-tree edit on top of the committed change. The old
+      // `git diff <ref> HEAD` form silently dropped both of the uncommitted entries.
+      expect(diff).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ file: "base.txt", status: "modified" }),
+          expect.objectContaining({ file: "dirty.txt", status: "added" }),
+        ]),
       )
     }),
   )

@@ -18,4 +18,20 @@
     height: auto;
     fill-rule: evenodd;
   }
+
+  /* Dropdown affordance: chevron-down is a quiet hint and must sit below the
+   * 13px body text, never compete with it. Unify it at 12px app-wide (Select,
+   * composer workspace/model chips, collapsibles). Sizing both the box and the
+   * glyph (specificity 0,3,0) wins over the width:100% default and any stray
+   * size-* utility, so the rule actually lands everywhere — not just where a
+   * class happens to be absent. */
+  &[data-icon="chevron-down"] {
+    width: 12px;
+    height: 12px;
+
+    [data-slot="icon-svg"] {
+      width: 12px;
+      height: 12px;
+    }
+  }
 }

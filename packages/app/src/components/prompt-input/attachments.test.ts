@@ -1,7 +1,9 @@
 import { Buffer } from "node:buffer"
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test"
+import * as uiToast from "@opencode-ai/ui/toast"
 import { attachmentMime } from "./files"
 import { pasteMode } from "./paste"
+import { cachedPreview, loadPreviewCached, _previewCacheTesting } from "./attachment-preview-cache"
 import type { createPromptAttachments as createPromptAttachmentsType } from "./attachments"
 
 const toasts: Array<{ title?: string; description?: string; actions?: Array<{ label: string; onClick: () => void }> }> = []
@@ -27,11 +29,14 @@ class TestFileReader {
   }
 }
 
-mock.module("@opencode-ai/ui/toast", () => ({
-  showToast: (toast: (typeof toasts)[number]) => {
-    toasts.push(toast)
-  },
-}))
+// spyOn + afterAll restore instead of mock.module: bun's mock.module is a
+// global, persistent, non-restoring registry override that leaked this toast
+// mock into every later test file and broke suites relying on the real
+// showToast (e.g. pawwork-session-commands.test.ts).
+spyOn(uiToast, "showToast").mockImplementation((toast) => {
+  toasts.push(toast as (typeof toasts)[number])
+  return 0
+})
 
 mock.module("@/context/language", () => ({
   useLanguage: () => ({
@@ -41,6 +46,7 @@ mock.module("@/context/language", () => ({
 
 mock.module("@/context/prompt", () => ({
   DEFAULT_PROMPT: [{ type: "text", content: "", start: 0, end: 0 }],
+  isFloatingAttachment: (part: { type: string }) => part.type === "image" || part.type === "attachment",
   isStructurallyEmpty: (parts: unknown[], contextItems: unknown[], imageAttachments: unknown[]) =>
     (parts.length === 0 ||
       (parts.length === 1 &&
@@ -68,6 +74,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   ;(globalThis as unknown as { FileReader: typeof originalFileReader }).FileReader = originalFileReader
+  mock.restore()
 })
 
 beforeEach(() => {
@@ -123,6 +130,185 @@ describe("pasteMode", () => {
 })
 
 describe("createPromptAttachments", () => {
+  test("adds picked media paths as deduped attachment chips instead of inline pills", async () => {
+    const addedParts: unknown[] = []
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => undefined,
+      addPart: (part) => {
+        addedParts.push(part)
+        return true
+      },
+      model: () => ({
+        capabilities: {
+          input: {
+            image: true,
+            pdf: true,
+          },
+        },
+      }),
+      openModelSelector: () => undefined,
+      readFileDataUrl: async () => "data:image/png;base64,aW1hZ2U=",
+    })
+
+    const result = await attachments.addPickedPaths([
+      "/Users/me/image.png",
+      "/Users/me/report.pdf",
+      "/Users/me/image.png",
+    ])
+
+    expect(result).toBe(true)
+    expect(addedParts).toHaveLength(0)
+    expect(promptParts).toMatchObject([
+      { type: "attachment", path: "/Users/me/image.png", filename: "image.png", mime: "image/png" },
+      { type: "attachment", path: "/Users/me/report.pdf", filename: "report.pdf", mime: "application/pdf" },
+    ])
+    expect(toasts).toHaveLength(0)
+  })
+
+  test("returns focus to the editor after adding a picked path", async () => {
+    let focusCalls = 0
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => {
+        focusCalls += 1
+      },
+      addPart: () => true,
+      model: () => undefined,
+      openModelSelector: () => undefined,
+    })
+
+    await attachments.addPickedPath("/Users/me/notes.md")
+
+    expect(focusCalls).toBe(1)
+    // A same-path re-add is a no-op and must not steal focus again.
+    await attachments.addPickedPath("/Users/me/notes.md")
+    expect(focusCalls).toBe(1)
+  })
+
+  test("re-adding a path clears its negative preview cache entry", async () => {
+    // A preview that failed once (e.g. expired desktop approval on a restored
+    // chip) is negative-cached for the session. Re-adding the file through an
+    // entry point carries a fresh approval, so the failure must be dropped to
+    // let the thumbnail retry.
+    _previewCacheTesting.reset()
+    await loadPreviewCached("/Users/me/image.png", "image/png", async () => {
+      throw new Error("approval expired")
+    })
+    expect(cachedPreview("/Users/me/image.png", "image/png")).toBeNull()
+
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => undefined,
+      addPart: () => true,
+      model: () => undefined,
+      openModelSelector: () => undefined,
+    })
+    await attachments.addPickedPath("/Users/me/image.png")
+
+    expect(cachedPreview("/Users/me/image.png", "image/png")).toBeUndefined()
+  })
+
+  test("adds desktop dropped files from Electron file paths", async () => {
+    const addedParts: unknown[] = []
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => undefined,
+      addPart: (part) => {
+        addedParts.push(part)
+        return true
+      },
+      model: () => ({
+        capabilities: {
+          input: {
+            pdf: false,
+          },
+        },
+      }),
+      openModelSelector: () => undefined,
+      filePathForBrowserFile: async () => "/Users/me/guide.pdf",
+    })
+
+    const result = await attachments.addAttachments([new File(["%PDF-1.7"], "guide.pdf", { type: "application/pdf" })])
+
+    expect(result).toBe(true)
+    expect(addedParts).toHaveLength(0)
+    expect(promptParts).toMatchObject([
+      { type: "attachment", path: "/Users/me/guide.pdf", filename: "guide.pdf", mime: "application/pdf" },
+    ])
+    expect(toasts).toHaveLength(0)
+  })
+
+  test("stores file sizes on path-backed attachments when available", async () => {
+    const addedParts: unknown[] = []
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => undefined,
+      addPart: (part) => {
+        addedParts.push(part)
+        return true
+      },
+      model: () => undefined,
+      openModelSelector: () => undefined,
+      statPaths: async () => ({ "/Users/me/guide.pdf": { exists: true, size: 1536 } }),
+    })
+
+    const result = await attachments.addPickedPath("/Users/me/guide.pdf")
+
+    expect(result).toBe(true)
+    expect(addedParts).toHaveLength(0)
+    expect(promptParts).toMatchObject([
+      { type: "attachment", path: "/Users/me/guide.pdf", filename: "guide.pdf", size: 1536 },
+    ])
+  })
+
+  test("saves pathless pasted files before attaching them", async () => {
+    const addedParts: unknown[] = []
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => undefined,
+      addPart: (part) => {
+        addedParts.push(part)
+        return true
+      },
+      model: () => ({
+        capabilities: {
+          input: {
+            image: true,
+          },
+        },
+      }),
+      openModelSelector: () => undefined,
+      saveAttachmentFile: async () => "/Users/me/Library/Application Support/PawWork/attachments/pasted-image.png",
+    })
+
+    const result = await attachments.addAttachment(new File(["image"], "pasted-image.png", { type: "image/png" }))
+
+    expect(result).toBe(true)
+    expect(addedParts).toHaveLength(0)
+    expect(promptParts).toMatchObject([
+      {
+        type: "attachment",
+        path: "/Users/me/Library/Application Support/PawWork/attachments/pasted-image.png",
+        filename: "pasted-image.png",
+        mime: "image/png",
+      },
+    ])
+    expect(toasts).toHaveLength(0)
+  })
+
   test("reports a skipped file even when another dropped file is attached", async () => {
     const attachments = createPromptAttachments({
       editor: () => ({}) as HTMLDivElement,
@@ -150,7 +336,7 @@ describe("createPromptAttachments", () => {
     expect(toasts.map((toast) => toast.title)).toEqual(["prompt.toast.imageUnsupported.title"])
   })
 
-  test("reports a skipped picked path even when another picked path is attached", async () => {
+  test("does not block picked image paths on model media support", async () => {
     const addedParts: unknown[] = []
     const attachments = createPromptAttachments({
       editor: () => ({}) as HTMLDivElement,
@@ -174,12 +360,17 @@ describe("createPromptAttachments", () => {
     const result = await attachments.addPickedPaths(["/Users/me/report.docx", "/Users/me/image.png"])
 
     expect(result).toBe(true)
-    expect(addedParts).toHaveLength(1)
-    expect(toasts.map((toast) => toast.title)).toEqual(["prompt.toast.imageUnsupported.title"])
+    expect(addedParts).toHaveLength(0)
+    expect(promptParts).toMatchObject([
+      { type: "attachment", path: "/Users/me/report.docx", filename: "report.docx" },
+      { type: "attachment", path: "/Users/me/image.png", filename: "image.png" },
+    ])
+    expect(toasts).toHaveLength(0)
   })
 
-  test("does not downgrade picked direct media read failures to path mentions", async () => {
+  test("does not read picked media paths as data URL attachments", async () => {
     const addedParts: unknown[] = []
+    let readCalls = 0
     const attachments = createPromptAttachments({
       editor: () => ({}) as HTMLDivElement,
       isDialogActive: () => false,
@@ -197,45 +388,24 @@ describe("createPromptAttachments", () => {
         },
       }),
       openModelSelector: () => undefined,
-      readFileDataUrl: async () => null,
-    })
-
-    const result = await attachments.addPickedPath("/Users/me/image.png")
-
-    expect(result).toBe(false)
-    expect(addedParts).toHaveLength(0)
-    expect(promptParts).toHaveLength(0)
-    expect(toasts.map((toast) => toast.title)).toEqual(["prompt.toast.pasteUnsupported.title"])
-  })
-
-  test("reports thrown picked direct read failures", async () => {
-    const attachments = createPromptAttachments({
-      editor: () => ({}) as HTMLDivElement,
-      isDialogActive: () => false,
-      setDraggingType: () => undefined,
-      focusEditor: () => undefined,
-      addPart: () => true,
-      model: () => ({
-        capabilities: {
-          input: {
-            image: true,
-          },
-        },
-      }),
-      openModelSelector: () => undefined,
       readFileDataUrl: async () => {
+        readCalls++
         throw new Error("read failed")
       },
     })
 
     const result = await attachments.addPickedPath("/Users/me/image.png")
 
-    expect(result).toBe(false)
-    expect(promptParts).toHaveLength(0)
-    expect(toasts.map((toast) => toast.title)).toEqual(["prompt.toast.pasteUnsupported.title"])
+    expect(result).toBe(true)
+    expect(readCalls).toBe(0)
+    expect(addedParts).toHaveLength(0)
+    expect(promptParts).toMatchObject([
+      { type: "attachment", path: "/Users/me/image.png", filename: "image.png", mime: "image/png" },
+    ])
+    expect(toasts).toHaveLength(0)
   })
 
-  test("reports picked direct read failures in path batches", async () => {
+  test("keeps picked path batches on the file-reference path", async () => {
     const addedParts: unknown[] = []
     const attachments = createPromptAttachments({
       editor: () => ({}) as HTMLDivElement,
@@ -260,8 +430,54 @@ describe("createPromptAttachments", () => {
     const result = await attachments.addPickedPaths(["/Users/me/report.docx", "/Users/me/image.png"])
 
     expect(result).toBe(true)
-    expect(addedParts).toHaveLength(1)
-    expect(toasts.map((toast) => toast.title)).toEqual(["prompt.toast.pasteUnsupported.title"])
+    expect(addedParts).toHaveLength(0)
+    expect(promptParts).toMatchObject([
+      { type: "attachment", path: "/Users/me/report.docx", filename: "report.docx" },
+      { type: "attachment", path: "/Users/me/image.png", filename: "image.png" },
+    ])
+    expect(toasts).toHaveLength(0)
+  })
+
+  test("skips adding a chip when an inline pill already references the same path", async () => {
+    promptParts = [{ type: "file", path: "/Users/me/guide.pdf", content: "@guide.pdf", start: 0, end: 10 }]
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => undefined,
+      addPart: () => true,
+      model: () => undefined,
+      openModelSelector: () => undefined,
+    })
+
+    const result = await attachments.addPickedPath("/Users/me/guide.pdf")
+
+    expect(result).toBe(true)
+    expect(promptParts).toHaveLength(1)
+    expect(toasts).toHaveLength(0)
+  })
+
+  test("removeAttachment removes chip parts by id", async () => {
+    promptParts = [
+      { type: "text", content: "hi", start: 0, end: 2 },
+      { type: "attachment", id: "att_1", path: "/Users/me/a.pdf", filename: "a.pdf" },
+      { type: "image", id: "img_1", filename: "b.png", mime: "image/png", dataUrl: "data:image/png;base64,AAA" },
+    ]
+    const attachments = createPromptAttachments({
+      editor: () => ({}) as HTMLDivElement,
+      isDialogActive: () => false,
+      setDraggingType: () => undefined,
+      focusEditor: () => undefined,
+      addPart: () => true,
+      model: () => undefined,
+      openModelSelector: () => undefined,
+    })
+
+    attachments.removeAttachment("att_1")
+    expect(promptParts.map((part) => (part as { id?: string }).id ?? "text")).toEqual(["text", "img_1"])
+
+    attachments.removeAttachment("img_1")
+    expect(promptParts).toHaveLength(1)
   })
 
   test("accepts empty FileReader MIME when the routed MIME is known", async () => {

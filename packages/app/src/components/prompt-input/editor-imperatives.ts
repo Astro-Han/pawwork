@@ -1,7 +1,7 @@
 // Imperative side-effects on the contenteditable editor (cursor, scroll, focus).
 // All helpers operate via the editorRef/scrollRef getters; nothing here is reactive.
 
-import type { Prompt, usePrompt } from "@/context/prompt"
+import { isFloatingAttachment, type Prompt, type usePrompt } from "@/context/prompt"
 import type { usePlatform } from "@/context/platform"
 import { getCursorPosition, setCursorPosition } from "./editor-dom"
 import { renderPartsToEditor } from "./editor-serialize"
@@ -41,7 +41,7 @@ export function createEditorImperatives(deps: EditorImperativesDeps): EditorImpe
     if (!editor.contains(range.startContainer)) return
 
     const cursor = getCursorPosition(editor)
-    const length = promptLength(prompt.current().filter((part) => part.type !== "image"))
+    const length = promptLength(prompt.current().filter((part) => !isFloatingAttachment(part)))
     if (cursor >= length) {
       container.scrollTop = container.scrollHeight
       return

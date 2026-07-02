@@ -166,8 +166,6 @@ import type {
   McpDisconnectResponses,
   LspStatusData,
   LspStatusResponses,
-  FormatterStatusData,
-  FormatterStatusResponses,
   AuthSetData,
   AuthSetResponses,
   AuthSetErrors,
@@ -958,18 +956,6 @@ class Lsp extends _HeyApiClient {
   }
 }
 
-class Formatter extends _HeyApiClient {
-  /**
-   * Get formatter status
-   */
-  public status<ThrowOnError extends boolean = false>(options?: Options<FormatterStatusData, ThrowOnError>) {
-    return (options?.client ?? this._client).get<FormatterStatusResponses, unknown, ThrowOnError>({
-      url: "/formatter",
-      ...options,
-    })
-  }
-}
-
 class Event extends _HeyApiClient {
   /**
    * Get events
@@ -1018,7 +1004,6 @@ export class OpencodeClient extends _HeyApiClient {
   app = new App({ client: this._client })
   mcp = new Mcp({ client: this._client })
   lsp = new Lsp({ client: this._client })
-  formatter = new Formatter({ client: this._client })
   auth = new Auth({ client: this._client })
   event = new Event({ client: this._client })
 }

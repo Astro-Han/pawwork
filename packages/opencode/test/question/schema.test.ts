@@ -22,12 +22,17 @@ test("Option.label accepts exactly 50 chars", () => {
   expect(() => Option({ label: "x".repeat(50), description: "ok" })).not.toThrow()
 })
 
-test("Option.description rejects > 50 chars", () => {
-  expect(() => Option({ label: "ok", description: "x".repeat(51) })).toThrow()
+test("Option.description rejects > 120 chars", () => {
+  expect(() => Option({ label: "ok", description: "x".repeat(121) })).toThrow()
 })
 
-test("Option.description accepts exactly 50 chars", () => {
-  expect(() => Option({ label: "ok", description: "x".repeat(50) })).not.toThrow()
+test("Option.description accepts exactly 120 chars", () => {
+  expect(() => Option({ label: "ok", description: "x".repeat(120) })).not.toThrow()
+})
+
+test("Option.description rejects empty / whitespace-only", () => {
+  expect(() => Option({ label: "ok", description: "" })).toThrow()
+  expect(() => Option({ label: "ok", description: "   " })).toThrow()
 })
 
 test("Prompt.question rejects > 200 chars", () => {

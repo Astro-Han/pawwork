@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { createMemo, createRoot } from "solid-js"
 import { createStore } from "solid-js/store"
+import { base64Encode } from "@opencode-ai/util/encode"
 import {
   createOpenReviewFile,
   createOpenSessionFileTab,
@@ -10,6 +11,7 @@ import {
   planShellTabReorder,
   sizingStopEvents,
   shouldFocusTerminalOnKeyDown,
+  subscribeAutomationAttached,
 } from "./helpers"
 
 describe("createOpenReviewFile", () => {
@@ -122,19 +124,19 @@ describe("getTabReorderIndex", () => {
 describe("planShellTabReorder", () => {
   test("static to static returns a static move", () => {
     const plan = planShellTabReorder({
-      draggableId: "files",
-      droppableId: "review",
-      openStatic: ["status", "files", "review", "context"],
+      draggableId: "review",
+      droppableId: "context",
+      openStatic: ["status", "review", "context"],
       terminalIds: [],
     })
-    expect(plan).toEqual({ kind: "static", target: "files", to: 2 })
+    expect(plan).toEqual({ kind: "static", target: "review", to: 2 })
   })
 
   test("terminal to terminal returns a terminal move with terminal-segment index", () => {
     const plan = planShellTabReorder({
       draggableId: "terminal:a",
       droppableId: "terminal:c",
-      openStatic: ["status", "files"],
+      openStatic: ["status", "review"],
       terminalIds: ["a", "b", "c"],
     })
     expect(plan).toEqual({ kind: "terminal", target: "a", to: 2 })
@@ -143,9 +145,9 @@ describe("planShellTabReorder", () => {
   test("cross-segment drag (static <-> terminal) is a no-op", () => {
     expect(
       planShellTabReorder({
-        draggableId: "files",
+        draggableId: "review",
         droppableId: "terminal:a",
-        openStatic: ["status", "files", "review"],
+        openStatic: ["status", "review", "review"],
         terminalIds: ["a"],
       }),
     ).toBeNull()
@@ -153,7 +155,7 @@ describe("planShellTabReorder", () => {
       planShellTabReorder({
         draggableId: "terminal:a",
         droppableId: "review",
-        openStatic: ["status", "files", "review"],
+        openStatic: ["status", "review", "review"],
         terminalIds: ["a"],
       }),
     ).toBeNull()
@@ -162,9 +164,9 @@ describe("planShellTabReorder", () => {
   test("dragging onto self is a no-op", () => {
     expect(
       planShellTabReorder({
-        draggableId: "files",
-        droppableId: "files",
-        openStatic: ["status", "files", "review"],
+        draggableId: "review",
+        droppableId: "review",
+        openStatic: ["status", "review", "review"],
         terminalIds: [],
       }),
     ).toBeNull()
@@ -174,8 +176,8 @@ describe("planShellTabReorder", () => {
     expect(
       planShellTabReorder({
         draggableId: "ghost",
-        droppableId: "files",
-        openStatic: ["status", "files"],
+        droppableId: "review",
+        openStatic: ["status", "review"],
         terminalIds: [],
       }),
     ).toBeNull()
@@ -192,9 +194,9 @@ describe("planShellTabReorder", () => {
   test("rejects dragging onto status (pinned)", () => {
     expect(
       planShellTabReorder({
-        draggableId: "files",
+        draggableId: "review",
         droppableId: "status",
-        openStatic: ["status", "files"],
+        openStatic: ["status", "review"],
         terminalIds: [],
       }),
     ).toBeNull()
@@ -204,8 +206,8 @@ describe("planShellTabReorder", () => {
     expect(
       planShellTabReorder({
         draggableId: "status",
-        droppableId: "files",
-        openStatic: ["status", "files"],
+        droppableId: "review",
+        openStatic: ["status", "review"],
         terminalIds: [],
       }),
     ).toBeNull()
@@ -297,5 +299,58 @@ describe("createSessionTabs", () => {
       expect(result.closableTab()).toBeUndefined()
       dispose()
     })
+  })
+})
+
+describe("subscribeAutomationAttached", () => {
+  test("keys the layout write by the driven session's own directory, then unsubscribes cleanly", async () => {
+    const opened: string[] = []
+    let fire: ((payload: { sessionID: string }) => void) | undefined
+    let unsubscribed = false
+    const unsubscribe = subscribeAutomationAttached(
+      {
+        onAutomationAttached: (cb) => {
+          fire = cb
+          return () => {
+            unsubscribed = true
+          }
+        },
+      },
+      // The watching window may sit on another project: the key must come from
+      // the session's resolved directory, never the viewer's route.
+      async (sessionID) => (sessionID === "ses_a" ? "/project/a" : "/project/b"),
+      (sessionKey) => opened.push(sessionKey),
+    )
+    fire?.({ sessionID: "ses_a" })
+    fire?.({ sessionID: "ses_b" })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(opened).toEqual([`${base64Encode("/project/a")}/ses_a`, `${base64Encode("/project/b")}/ses_b`])
+    unsubscribe()
+    expect(unsubscribed).toBe(true)
+  })
+
+  test("opens nothing when the session does not resolve (deleted mid-flight or lookup failure)", async () => {
+    let fire: ((payload: { sessionID: string }) => void) | undefined
+    subscribeAutomationAttached(
+      { onAutomationAttached: (cb) => ((fire = cb), () => {}) },
+      async (sessionID) => (sessionID === "ses_gone" ? undefined : Promise.reject(new Error("boom"))),
+      () => {
+        throw new Error("must not open")
+      },
+    )
+    fire?.({ sessionID: "ses_gone" })
+    fire?.({ sessionID: "ses_err" })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
+  test("no-ops on platforms without the embedded browser", () => {
+    const unsubscribe = subscribeAutomationAttached(
+      undefined,
+      async () => "/project/a",
+      () => {
+        throw new Error("must not open")
+      },
+    )
+    expect(unsubscribe()).toBeUndefined()
   })
 })

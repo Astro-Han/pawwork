@@ -19,3 +19,12 @@ export const InvalidError = NamedError.create(
     message: z.string().optional(),
   }),
 )
+
+export const RemoteAuthError = NamedError.create(
+  "ConfigRemoteAuthError",
+  z.object({
+    url: z.string(),
+    remote: z.string(),
+    message: z.string(),
+  }),
+)

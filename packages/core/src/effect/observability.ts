@@ -1,4 +1,5 @@
-import { Effect, Layer, Logger } from "effect"
+import { Effect, Layer, Logger, Option } from "effect"
+import { OtelTracer } from "@effect/opentelemetry/Tracer"
 import { FetchHttpClient } from "effect/unstable/http"
 import { OtlpLogger, OtlpSerialization } from "effect/unstable/observability"
 import * as EffectLogger from "./logger"
@@ -104,5 +105,21 @@ export const layer = !base
         return Layer.mergeAll(trace, logs())
       }),
     )
+
+// Re-exported so consumers (and tests) can resolve or provide the tracer without
+// taking a direct dependency on @effect/opentelemetry. The Tracer module only
+// pulls @opentelemetry/api, not the heavy NodeSdk/exporter chain (kept lazy in
+// traces() above), so importing it eagerly here is cheap.
+export { OtelTracer }
+
+/**
+ * Resolve the AI-SDK-compatible OpenTelemetry tracer registered by the trace
+ * layer above, or undefined when OTel tracing is not active. NodeSdk.layer wires
+ * this tracer into the Effect context but never registers a global
+ * TracerProvider, so the AI SDK — which falls back to the no-op global tracer
+ * when handed none — must be given this tracer explicitly or its spans never
+ * export.
+ */
+export const aiSdkTracer = Effect.serviceOption(OtelTracer).pipe(Effect.map(Option.getOrUndefined))
 
 export const Observability = { enabled, layer }

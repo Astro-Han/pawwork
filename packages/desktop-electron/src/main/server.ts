@@ -32,6 +32,12 @@ type ProxyConfig = {
   noProxy?: string
 }
 
+let backendLogPath = ""
+
+export function backendLogFilePath() {
+  return backendLogPath
+}
+
 export function getDefaultServerUrl(): string | null {
   const value = getStore().get(DEFAULT_SERVER_URL_KEY)
   return typeof value === "string" ? value : null
@@ -60,6 +66,11 @@ export async function spawnLocalServer(hostname: string, port: number, password:
   await configureProxyDispatcher(process.env)
   const { Log, Server } = await import("virtual:opencode-server")
   await Log.init({ print: false, level: "WARN" })
+  backendLogPath = ""
+  const logFile = (Log as typeof Log & { file?: () => string }).file
+  if (typeof logFile === "function") {
+    backendLogPath = logFile()
+  }
   const listener = await Server.listen({
     port,
     hostname,
@@ -212,6 +223,10 @@ export const buildServerEnvForTest = buildServerEnv
 export const githubConfigDirForTest = githubConfigDir
 export const proxyConfigFromEnvForTest = proxyConfigFromEnv
 export const configureProxyDispatcherForTest = configureProxyDispatcher
+export const backendLogFilePathForTest = backendLogFilePath
+export function setBackendLogFilePathForTest(path: string) {
+  backendLogPath = path
+}
 
 export async function checkHealth(url: string, password?: string | null): Promise<boolean> {
   let healthUrl: URL

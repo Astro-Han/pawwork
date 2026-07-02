@@ -192,7 +192,7 @@ describe("desktop menu template", () => {
     expect(menuDeps.checkForUpdates).toHaveBeenCalled()
   })
 
-  test("shows report problem only when configured and always keeps github issue", () => {
+  test("shows diagnostics package even without a feedback form URL and always keeps github issue", () => {
     const menuDeps = deps()
     const template = buildMacosMenuTemplate({
       deps: menuDeps,
@@ -203,12 +203,16 @@ describe("desktop menu template", () => {
     const help = submenu(template, "Help")
 
     expect(help.some((item) => item.label === "Report a Problem")).toBe(false)
+    expect(help.some((item) => item.label === "Prepare Diagnostics Package...")).toBe(true)
+    expect(help.some((item) => item.label === "Export Diagnostics Log...")).toBe(false)
     expect(help.some((item) => item.label === "Open GitHub Issue")).toBe(true)
+    help.find((item) => item.label === "Prepare Diagnostics Package...")?.click?.()
     help.find((item) => item.label === "Open GitHub Issue")?.click?.()
+    expect(menuDeps.reportProblem).toHaveBeenCalled()
     expect(menuDeps.openExternal).toHaveBeenCalled()
   })
 
-  test("shows report problem when feedback is configured", () => {
+  test("shows diagnostics package when feedback is configured", () => {
     const menuDeps = deps()
     const template = buildMacosMenuTemplate({
       deps: menuDeps,
@@ -218,9 +222,11 @@ describe("desktop menu template", () => {
     })
     const help = submenu(template, "Help")
 
-    expect(help.some((item) => item.label === "Report a Problem")).toBe(true)
+    expect(help.some((item) => item.label === "Report a Problem")).toBe(false)
+    expect(help.some((item) => item.label === "Prepare Diagnostics Package...")).toBe(true)
+    expect(help.some((item) => item.label === "Export Diagnostics Log...")).toBe(false)
     expect(help.some((item) => item.label === "Open GitHub Issue")).toBe(true)
-    help.find((item) => item.label === "Report a Problem")?.click?.()
+    help.find((item) => item.label === "Prepare Diagnostics Package...")?.click?.()
     help.find((item) => item.label === "Open GitHub Issue")?.click?.()
     expect(menuDeps.reportProblem).toHaveBeenCalled()
     expect(menuDeps.openExternal).toHaveBeenCalled()

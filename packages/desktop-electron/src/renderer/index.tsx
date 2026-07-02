@@ -168,6 +168,17 @@ const createPlatform = (): Platform => {
       return window.api.readFileDataUrl(hostPath, mime).catch(() => null)
     },
 
+    async filePathForBrowserFile(file) {
+      const path = await window.api.filePathForBrowserFile(file)
+      if (!path) return null
+      return handleWslPicker(path)
+    },
+
+    async saveAttachmentFile(file) {
+      const path = await window.api.saveAttachmentFile(file.name, file.type, await file.arrayBuffer()).catch(() => null)
+      return handleWslPicker(path)
+    },
+
     async saveFilePickerDialog(opts) {
       const result = await window.api.saveFilePicker({
         title: opts?.title ?? t("desktop.dialog.saveFile"),
@@ -234,7 +245,9 @@ const createPlatform = (): Platform => {
       return window.api.checkUpdate()
     },
 
-    reportProblem: (input) => window.api.reportProblem(input),
+    prepareReport: (input) => window.api.prepareReport(input),
+    revealReport: (reportId) => window.api.revealReport(reportId),
+    submitReport: (reportId) => window.api.submitReport(reportId),
 
     emitRendererDiagnostic: (event) => window.api.emitRendererDiagnostic(event),
 
@@ -269,9 +282,16 @@ const createPlatform = (): Platform => {
         // Fallback to IPC-based notification if native Notification fails
         window.api.showNotification(title, description)
       }
+    },
 
-      // Flash Dock/taskbar to attract attention
-      void window.api.flashFrame()
+    requestAttention: async () => {
+      // Bounce the Dock (macOS) / flash the taskbar (Windows). Only events that
+      // block the agent on the user call this — see Platform.requestAttention.
+      await window.api.flashFrame()
+    },
+
+    setBadgeCount: async (count) => {
+      await window.api.setBadgeCount(count)
     },
 
     fetch: (input, init) => {
@@ -327,6 +347,10 @@ const createPlatform = (): Platform => {
         type: "image/png",
       })
     },
+
+    // Embedded browser: a thin passthrough to the locked-down WebContentsView
+    // bridge. Present only on desktop, which is what `canUseBrowser` keys off.
+    browser: window.api.browser,
   }
 }
 

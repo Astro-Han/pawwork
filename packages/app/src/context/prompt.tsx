@@ -6,6 +6,9 @@ import { batch, createMemo, createRoot, getOwner, onCleanup } from "solid-js"
 import { createStore, type SetStoreFunction } from "solid-js/store"
 import type { FileSelection } from "@/context/file"
 import { Persist, persisted } from "@/utils/persist"
+import { DEFAULT_PROMPT, isPromptEqual, isStructurallyEmpty } from "./prompt-equality"
+
+export { DEFAULT_PROMPT, isPromptEqual, isStructurallyEmpty }
 
 interface PartBase {
   content: string
@@ -27,12 +30,22 @@ export interface TextPart extends PartBase {
 export interface FileAttachmentPart extends PartBase {
   type: "file"
   path: string
+  size?: number
   selection?: FileSelection
 }
 
 export interface AgentPart extends PartBase {
   type: "agent"
   name: string
+}
+
+// Inline skill chip: a structured, position-independent reference (mirrors AgentPart).
+// `name` is the command/skill name; `source` drives the chip badge/icon. On send it
+// becomes a SkillPartInput; the server expands the template into model-visible text.
+export interface SkillAttachmentPart extends PartBase {
+  type: "skill"
+  name: string
+  source: CommandSource
 }
 
 export interface ImageAttachmentPart {
@@ -43,12 +56,41 @@ export interface ImageAttachmentPart {
   dataUrl: string
 }
 
-export type ContentPart = TextPart | FileAttachmentPart | AgentPart | ImageAttachmentPart
+// Floating path-backed attachment chip: lives in the prompt array but never in
+// the editor text (mirrors ImageAttachmentPart conservation). Created by the
+// entry-point attachment pipeline (picker / drop / paste); typed `@` references
+// remain inline FileAttachmentPart pills.
+export interface AttachmentPart {
+  type: "attachment"
+  id: string
+  path: string
+  filename: string
+  /** Best-effort mime derived from the path suffix; drives image-chip rendering. */
+  mime?: string
+  size?: number
+}
+
+/** Parts that float outside the editor text and render as composer chips. */
+export type FloatingAttachment = ImageAttachmentPart | AttachmentPart
+
+export const isFloatingAttachment = (part: ContentPart): part is FloatingAttachment =>
+  part.type === "image" || part.type === "attachment"
+
+export type ContentPart =
+  | TextPart
+  | FileAttachmentPart
+  | AgentPart
+  | SkillAttachmentPart
+  | ImageAttachmentPart
+  | AttachmentPart
 export type Prompt = ContentPart[]
 
 export type FileContextItem = {
   type: "file"
+  /** File path used for model/file attachment resolution. May be absolute across workspace switches. */
   path: string
+  /** Path key used by the comments store and file UI. Usually workspace-relative. */
+  commentPath?: string
   selection?: FileSelection
   comment?: string
   commentID?: string
@@ -60,57 +102,6 @@ export type FileContextItem = {
 
 export type ContextItem = FileContextItem
 
-export const DEFAULT_PROMPT: Prompt = [{ type: "text", content: "", start: 0, end: 0 }]
-
-function isSelectionEqual(a?: FileSelection, b?: FileSelection) {
-  if (!a && !b) return true
-  if (!a || !b) return false
-  return (
-    a.startLine === b.startLine && a.startChar === b.startChar && a.endLine === b.endLine && a.endChar === b.endChar
-  )
-}
-
-function isCommandMetaEqual(a: TextPart["command"], b: TextPart["command"]) {
-  if (!a && !b) return true
-  if (!a || !b) return false
-  return a.name === b.name && a.source === b.source && a.icon === b.icon
-}
-
-function isPartEqual(partA: ContentPart, partB: ContentPart) {
-  switch (partA.type) {
-    case "text":
-      return (
-        partB.type === "text" &&
-        partA.content === partB.content &&
-        isCommandMetaEqual(partA.command, partB.command)
-      )
-    case "file":
-      return partB.type === "file" && partA.path === partB.path && isSelectionEqual(partA.selection, partB.selection)
-    case "agent":
-      return partB.type === "agent" && partA.name === partB.name
-    case "image":
-      return partB.type === "image" && partA.id === partB.id
-  }
-}
-
-export function isPromptEqual(promptA: Prompt, promptB: Prompt): boolean {
-  if (promptA.length !== promptB.length) return false
-  for (let i = 0; i < promptA.length; i++) {
-    if (!isPartEqual(promptA[i], promptB[i])) return false
-  }
-  return true
-}
-
-export function isStructurallyEmpty(
-  prompt: Prompt,
-  contextItems: readonly ContextItem[],
-  imageAttachments: readonly ImageAttachmentPart[],
-): boolean {
-  if (contextItems.length > 0) return false
-  if (imageAttachments.length > 0) return false
-  return isPromptEqual(prompt, DEFAULT_PROMPT)
-}
-
 function cloneSelection(selection?: FileSelection) {
   if (!selection) return undefined
   return { ...selection }
@@ -119,7 +110,9 @@ function cloneSelection(selection?: FileSelection) {
 function clonePart(part: ContentPart): ContentPart {
   if (part.type === "text") return { ...part }
   if (part.type === "image") return { ...part }
+  if (part.type === "attachment") return { ...part }
   if (part.type === "agent") return { ...part }
+  if (part.type === "skill") return { ...part }
   return {
     ...part,
     selection: cloneSelection(part.selection),
@@ -177,6 +170,8 @@ function createPromptActions(
 }
 
 const WORKSPACE_KEY = "__workspace__"
+export const GLOBAL_HOMEPAGE_PROMPT_STORAGE_KEY = "prompt-homepage"
+const GLOBAL_HOMEPAGE_PROMPT_DIR = "__homepage__"
 const MAX_PROMPT_SESSIONS = 20
 
 type PromptSession = ReturnType<typeof createPromptSession>
@@ -196,6 +191,7 @@ type PromptBindingSession = {
   current: () => Prompt
   cursor: () => number | undefined
   dirty: () => boolean
+  hasDraft: () => boolean
   context: {
     items: () => (ContextItem & { key: string })[]
     add: (item: ContextItem) => void
@@ -203,7 +199,7 @@ type PromptBindingSession = {
     removeComment: (path: string, commentID: string) => void
     updateComment: (path: string, commentID: string, next: Partial<FileContextItem> & { comment?: string }) => void
     replaceComments: (items: FileContextItem[]) => void
-    /** Atomic full-replace: swaps ALL context items at once. Used by carry hydration. */
+    /** Atomic full-replace: swaps ALL context items at once. Used by migration hydration and failure restore. */
     replaceAll: (items: ContextItem[]) => void
   }
   set: (prompt: Prompt, cursorPosition?: number) => void
@@ -214,27 +210,37 @@ export function createPromptBinding(
   scope: () => Scope | undefined,
   load: (dir: string, id: string | undefined) => PromptBindingSession,
 ) {
+  const loadScope = (current: Scope): Scope => {
+    if (current.id) return current
+    return { dir: GLOBAL_HOMEPAGE_PROMPT_DIR }
+  }
   const session = () => {
     const current = scope()
     if (!current) return
-    return load(current.dir, current.id)
+    const normalized = loadScope(current)
+    return load(normalized.dir, normalized.id)
   }
-  const pick = (target?: Scope) => (target ? load(target.dir, target.id) : session())
+  const pick = (target?: Scope) => {
+    if (!target) return session()
+    const normalized = loadScope(target)
+    return load(normalized.dir, normalized.id)
+  }
 
   return {
     ready: () => session()?.ready() ?? false,
-    current: () => session()?.current() ?? clonePrompt(DEFAULT_PROMPT),
+    current: (target?: Scope) => pick(target)?.current() ?? clonePrompt(DEFAULT_PROMPT),
     cursor: () => session()?.cursor(),
     dirty: () => session()?.dirty() ?? false,
+    hasDraft: (target?: Scope) => pick(target)?.hasDraft() ?? false,
     context: {
-      items: () => session()?.context.items() ?? [],
+      items: (target?: Scope) => pick(target)?.context.items() ?? [],
       add: (item: ContextItem) => session()?.context.add(item),
       remove: (key: string) => session()?.context.remove(key),
       removeComment: (path: string, commentID: string) => session()?.context.removeComment(path, commentID),
       updateComment: (path: string, commentID: string, next: Partial<FileContextItem> & { comment?: string }) =>
         session()?.context.updateComment(path, commentID, next),
       replaceComments: (items: FileContextItem[]) => session()?.context.replaceComments(items),
-      replaceAll: (items: ContextItem[]) => session()?.context.replaceAll(items),
+      replaceAll: (items: ContextItem[], target?: Scope) => pick(target)?.context.replaceAll(items),
     },
     set: (prompt: Prompt, cursorPosition?: number, target?: Scope) => pick(target)?.set(prompt, cursorPosition),
     reset: (target?: Scope) => pick(target)?.reset(),
@@ -243,9 +249,13 @@ export function createPromptBinding(
 
 function createPromptSession(dir: string, id: string | undefined) {
   const legacy = `${dir}/prompt${id ? "/" + id : ""}.v2`
+  const target =
+    !id && dir === GLOBAL_HOMEPAGE_PROMPT_DIR
+      ? Persist.global(GLOBAL_HOMEPAGE_PROMPT_STORAGE_KEY)
+      : Persist.scoped(dir, id, "prompt", [legacy])
 
   const [store, setStore, _, ready] = persisted(
-    Persist.scoped(dir, id, "prompt", [legacy]),
+    target,
     createStore<{
       prompt: Prompt
       cursor?: number
@@ -268,6 +278,7 @@ function createPromptSession(dir: string, id: string | undefined) {
     current: createMemo(() => store.prompt),
     cursor: createMemo(() => store.cursor),
     dirty: createMemo(() => !isPromptEqual(store.prompt, DEFAULT_PROMPT)),
+    hasDraft: createMemo(() => !isStructurallyEmpty(store.prompt, store.context.items, [])),
     context: {
       items: createMemo(() => store.context.items),
       add(item: ContextItem) {
@@ -299,7 +310,7 @@ function createPromptSession(dir: string, id: string | undefined) {
         ])
       },
       replaceAll(items: ContextItem[]) {
-        // Atomic full-replace used by carry hydration (portable snapshot).
+        // Atomic full-replace used by migration hydration and failure restore.
         // Regenerates keys so snapshot keys do not collide with the target route.
         setStore("context", "items", items.map((item) => ({ ...item, key: contextItemKey(item) })))
       },

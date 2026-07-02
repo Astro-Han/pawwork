@@ -1,0 +1,7 @@
+Capture a text snapshot of the current page: the element tree with numbered references like [12] for every interactive element.
+
+This is the observe step — call it before browser_click or browser_type, and again after the page changes. The [N] references it returns are what those tools take as `ref`.
+
+- `interactive: true` (default) lists only interactive elements (links, buttons, inputs); set false to include the full visible structure and text.
+- `source` picks the observation backend: "dom" (default, stable) or "ax" (accessibility tree, experimental).
+- References go stale after navigation or big DOM changes; re-snapshot rather than guessing.

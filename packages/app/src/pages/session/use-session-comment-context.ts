@@ -1,6 +1,7 @@
 import { selectionFromLines, type FileSelection, type SelectedLineRange } from "@/context/file/types"
 import { previewSelectedLines } from "@opencode-ai/ui/pierre/selection-bridge"
 import { captureCommentMentions, type ResolvedMention } from "@/components/prompt-input/mention-metadata"
+import { toAbsoluteFilePath } from "@/components/prompt-input/path-canonical"
 
 export function createSessionCommentContext(input: {
   attachmentLabel: () => string
@@ -20,6 +21,7 @@ export function createSessionCommentContext(input: {
     add: (entry: {
       type: "file"
       path: string
+      commentPath?: string
       selection: FileSelection
       comment: string
       commentID: string
@@ -62,7 +64,8 @@ export function createSessionCommentContext(input: {
       })
       input.promptContext.add({
         type: "file",
-        path: comment.file,
+        path: toAbsoluteFilePath(input.sourceFilesystemDirectory(), comment.file),
+        commentPath: comment.file,
         selection,
         comment: comment.comment,
         commentID: saved.id,
@@ -77,7 +80,7 @@ export function createSessionCommentContext(input: {
         comment: comment.comment,
         sourceFilesystemDirectory: input.sourceFilesystemDirectory(),
       })
-      input.promptContext.updateComment(comment.file, comment.id, {
+      input.promptContext.updateComment(toAbsoluteFilePath(input.sourceFilesystemDirectory(), comment.file), comment.id, {
         comment: comment.comment,
         resolvedMentions,
         ...(comment.preview !== undefined ? { preview: comment.preview } : {}),
@@ -85,7 +88,7 @@ export function createSessionCommentContext(input: {
     },
     remove(comment: { id: string; file: string }) {
       input.comments.remove(comment.file, comment.id)
-      input.promptContext.removeComment(comment.file, comment.id)
+      input.promptContext.removeComment(toAbsoluteFilePath(input.sourceFilesystemDirectory(), comment.file), comment.id)
     },
   }
 }

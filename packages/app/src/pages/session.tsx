@@ -17,9 +17,10 @@ import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { buildDesktopContext } from "@/utils/desktop-context"
 import { createSessionComposerState, HomeComposerRegion } from "@/pages/session/composer"
-import { createExecutionScopeTracker, type ExecutionScope } from "@/pages/session/execution-scope"
 import { createSizing } from "@/pages/session/helpers"
+import { createSessionExecutionState } from "@/pages/session/session-execution-directory"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { shouldShowSessionOpeningState } from "@/pages/session/session-main-view-state"
 import { SessionPageComposerRegion } from "@/pages/session/session-composer-region"
 import { SessionMainView } from "@/pages/session/session-main-view"
 import { createSessionRunning, isSessionRunning } from "@/pages/session/session-running-state"
@@ -59,7 +60,7 @@ export default function Page() {
   const comments = useComments()
   const terminal = useTerminal()
   const location = useLocation()
-  const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string }>()
+  const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string; skill?: string }>()
   const { params, tabs, view } = useSessionLayout()
 
   useSessionDesktopContext({
@@ -73,12 +74,34 @@ export default function Page() {
     send: window.api?.setDesktopContext,
   })
 
+  // `?skill=` and `?prompt=` are seeded by two independent bootstraps that both
+  // write the composer. They never coexist via the in-app entry points ("Use in
+  // chat" sets only skill, "Create via chat" sets only prompt), but a hand-built
+  // deep link could carry both. Skill wins, via two guards that must work
+  // together: (1) while a skill is present this prompt accessor yields undefined
+  // so the text never seeds; and (2) the skill bootstrap below clears BOTH
+  // params. Clearing only skill would flip guard (1) back on — the now-visible
+  // prompt would re-seed and overwrite the skill chip a beat later.
   useSessionRoutePromptBootstrap({
     ready: prompt.ready,
     sessionID: () => params.id,
-    prompt: () => searchParams.prompt,
+    prompt: () => (searchParams.skill ? undefined : searchParams.prompt),
     setPrompt: (text) => prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length),
     clearPrompt: () => setSearchParams({ ...searchParams, prompt: undefined }),
+  })
+
+  // "Use in chat" from the Skills gallery lands here with ?skill=<name>. Seed the
+  // composer with the same structured skill chip the slash picker inserts, so
+  // activation is deterministic (this exact skill loads, not a description match).
+  // Clears prompt too — see guard (2) above — so a combined deep link can't let
+  // a stray ?prompt= overwrite the chip once skill is consumed.
+  useSessionRoutePromptBootstrap({
+    ready: prompt.ready,
+    sessionID: () => params.id,
+    prompt: () => searchParams.skill,
+    setPrompt: (name) =>
+      prompt.set([{ type: "skill", name, source: "skill", content: `/${name}`, start: 0, end: name.length + 1 }], name.length + 1),
+    clearPrompt: () => setSearchParams({ ...searchParams, skill: undefined, prompt: undefined }),
   })
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
@@ -123,6 +146,14 @@ export default function Page() {
   const timelineHistoryMore = timeline.historyMore
   const timelineHistoryLoading = timeline.historyLoading
   const lastUserMessage = timeline.lastUserMessage
+  const sessionOpening = createMemo(() =>
+    shouldShowSessionOpeningState({
+      activeSessionID: params.id,
+      routeSessionID: params.id,
+      routeReady: timelineMessagesReady(),
+      timelineSessionID: timelineSessionID(),
+    }),
+  )
   const turnChangeController = createSessionTurnChanges({ sessionID: timelineSessionID, sessionMessages: timelineMessages })
   const diagnostics = createSessionPageDiagnostics({
     routeSessionID: () => params.id,
@@ -178,12 +209,12 @@ export default function Page() {
   const wantsReview = createMemo(() =>
     isDesktop() ? desktopSidePanelOpen() && view().sidePanel.tab() === "review" : mobileChanges(),
   )
-  const executionScopeTracker = createExecutionScopeTracker()
-  const currentExecutionScope = (): ExecutionScope =>
-    executionScopeTracker({
-      serverKey: server.key,
-      directory: sdk.directory,
-    })
+  const executionState = createSessionExecutionState({
+    serverKey: () => server.key,
+    routeDirectory: () => sdk.directory,
+    session: timeline.sessionInfo,
+  })
+  const currentExecutionScope = executionState.scope
   const reviewState = createSessionReviewState({
     directory: () => sdk.directory,
     executionScope: currentExecutionScope,
@@ -226,7 +257,7 @@ export default function Page() {
   })
 
   useSessionVcsRefresh({
-    directory: () => sdk.directory,
+    directory: executionState.directory,
     event: sdk.event,
     branch: () => sync.data.vcs?.branch,
     defaultBranch: () => sync.data.vcs?.default_branch,
@@ -282,7 +313,6 @@ export default function Page() {
     consumePendingMessage: layout.pendingMessage.consume,
   })
   const activeMessage = timelineInteraction.activeMessage
-  const autoScroll = timelineInteraction.autoScroll
   const historyWindow = timelineInteraction.historyWindow
   const resumeScroll = timelineInteraction.resumeScroll
   const scheduleScrollState = timelineInteraction.scheduleScrollState
@@ -379,6 +409,7 @@ export default function Page() {
   const renderComposerRegion = (ctx?: { onModeChange: (mode: "normal" | "shell") => void }) => (
     <SessionPageComposerRegion
       state={composer}
+      opening={sessionOpening()}
       ready={!deferRender() && sessionActionReady()}
       actionReady={submitReady()}
       abortReady={sessionActionReady()}
@@ -453,8 +484,7 @@ export default function Page() {
       mobileTab={mobileTab()}
       setMobileTab={setMobileTab}
       language={language}
-      routeSessionID={params.id}
-      routeReady={timelineMessagesReady()}
+      sessionOpening={sessionOpening()}
       transitioning={timeline.transitioning()}
       timelineSessionID={timelineSessionID()}
       timelineSessionKey={timelineSessionKey()}
@@ -468,7 +498,7 @@ export default function Page() {
       resumeScroll={resumeScroll}
       setScrollRef={setScrollRef}
       scheduleScrollState={scheduleScrollState}
-      autoScroll={autoScroll}
+      onTimelineInteraction={timelineInteraction.onTimelineInteraction}
       markScrollGesture={timelineInteraction.markScrollGesture}
       hasScrollGesture={activeMessage.hasScrollGesture}
       markUserScroll={activeMessage.markUserScroll}
@@ -477,13 +507,11 @@ export default function Page() {
       historyWindow={historyWindow}
       centered={centered()}
       setContentRef={scrollDock.setContentRef}
-      historyMore={timelineHistoryMore()}
       historyLoading={timelineHistoryLoading()}
+      timelineFrame={timelineInteraction.timelineFrame}
       anchor={timelineInteraction.anchor}
       virtualizerBridge={timelineInteraction.virtualizerBridge}
-      layoutTransactionActive={timelineInteraction.layoutTransactionActive}
-      layoutTransactionID={timelineInteraction.layoutTransactionID}
-      layoutTransactionKind={timelineInteraction.layoutTransactionKind}
+      reconcilerActive={timelineInteraction.reconcilerActive}
       composerSession={renderComposerRegion()}
       composerHome={renderHomeComposerRegion}
       canReview={canReview}

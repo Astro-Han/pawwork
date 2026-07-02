@@ -20,107 +20,70 @@ import { useGlobalSync } from "@/context/global-sync"
 import { Persist, persisted } from "@/utils/persist"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
-import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
-import { Button } from "@opencode-ai/ui/button"
-import { Dialog } from "@opencode-ai/ui/dialog"
 import { getFilename } from "@opencode-ai/util/path"
-import { Session, type GlobalSession, type Message } from "@opencode-ai/sdk/v2/client"
-import { isMacShell, shellAttrs, usePlatform } from "@/context/platform"
+import { Session } from "@opencode-ai/sdk/v2/client"
+import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
-import { createStore, produce, reconcile } from "solid-js/store"
-import type { DragEvent } from "@thisbeyond/solid-dnd"
+import { createStore, produce } from "solid-js/store"
 import { useProviders } from "@/hooks/use-providers"
-import { showToast, Toast, toaster } from "@opencode-ai/ui/toast"
+import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "@/context/global-sdk"
-import { clientActionHeaders } from "@/utils/server"
 import { LayoutPageContext } from "@/context/layout-page"
-import { ShellSurfaceContext } from "@/context/shell-surface"
-import { clearWorkspaceTerminals, isTerminalGoneError } from "@/context/terminal"
-import { dropSessionCaches, pickSessionCacheEvictions } from "@/context/global-sync/session-cache"
-import {
-  clearSessionPrefetchInflight,
-  clearSessionPrefetch,
-  getSessionPrefetch,
-  isSessionPrefetchCurrent,
-  runSessionPrefetch,
-  setSessionPrefetch,
-  shouldSkipSessionPrefetch,
-} from "@/context/global-sync/session-prefetch"
+import { clearWorkspaceTerminals } from "@/context/terminal"
 import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
-import { Binary } from "@opencode-ai/util/binary"
-import { retry } from "@opencode-ai/util/retry"
 import { playSoundById } from "@/utils/sound"
 import { setNavigate } from "@/utils/notification-click"
 import { setOpenSettings } from "@/utils/settings-navigation"
+import { setOpenAutomations } from "@/utils/automations-navigation"
 import { Worktree as WorktreeState } from "@/utils/worktree"
-import { setSessionHandoff } from "@/pages/session/handoff"
 import { usePinnedDraft } from "@/components/prompt-input/pinned-draft"
-import {
-  runHomepageMigration,
-  HOMEPAGE_MIGRATION_SENTINEL_KEY,
-  type LegacyHomepagePromptStore,
-} from "@/components/prompt-input/homepage-migration"
-import { usePortableDraft } from "@/components/prompt-input/portable-draft"
-import { createMigrationStorageIO } from "@/components/prompt-input/homepage-migration-storage"
 
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { useCommand } from "@/context/command"
-import { getDraggableId } from "@/utils/solid-dnd"
-import { DebugBar } from "@/components/debug-bar"
-import { Titlebar } from "@/components/titlebar"
 import { useServer } from "@/context/server"
 import { useLanguage } from "@/context/language"
 import {
   displayName,
-  effectiveWorkspaceOrder,
-  errorMessage,
-  openProjectRoute,
   startupAutoselectDirectory,
   sortedRootSessions,
   workspaceKey,
 } from "./layout/helpers"
-import {
-  collectNewSessionDeepLinks,
-  collectOpenProjectDeepLinks,
-  deepLinkEvent,
-  drainPendingDeepLinks,
-} from "./layout/deep-links"
 import { createInlineEditorController } from "./layout/inline-editor"
-import {
-  buildPawworkSidebarSessionRows,
-  pawworkSessionRouteUnhideKeys,
-  pawworkSessionDirectories,
-  resolvePawworkProjectRenameTarget,
-  resolvePawworkSessionProjectKey,
-  resolvePawworkSessionProjectLabel,
-  sortPawworkSidebarSessions,
-} from "./layout/pawwork-session-source"
-import {
-  buildPawworkSessionSections,
-  findPawworkSessionNavigationTarget,
-  flattenPawworkSessionSections,
-  reorderPawworkPinnedByVisible,
-  unpinPawworkSession,
-} from "./layout/pawwork-session-nav"
+import { createPawworkSessionCommands, type SessionDeleteTarget } from "./layout/pawwork-session-commands"
+import { pawworkSessionDirectories } from "./layout/pawwork-session-source"
+import { findPawworkSessionNavigationTarget } from "./layout/pawwork-session-nav"
 import { createShellNavigation } from "./layout/shell-navigation"
+import {
+  SURFACE_ROUTE_PATHS,
+  parseSessionRoutePath,
+  readSurfaceRouteState,
+  resolveSurfaceClose,
+  surfaceEntryState,
+  surfaceRouteName,
+  type SurfaceRouteName,
+} from "./layout/surface-routes"
+import { SurfacePageContext } from "./layout/surface-page-context"
 import { useUpdatePolling } from "./layout/layout-update-polling"
+import { useHomepageMigration } from "./layout/layout-homepage-migration"
+import { createOpenGlobalConfigFolder } from "./layout/layout-open-global-config"
+import { createCurrentProjectMemo } from "./layout/layout-current-project"
+import { createNavigateProjectByOffset } from "./layout/layout-navigate-project"
 import { sessionNotificationHref, useSDKNotificationToasts } from "./layout/layout-sdk-event-effects"
 import { registerLayoutCommands } from "./layout/layout-commands"
-import {
-  buildPawworkSessionWindow,
-  nextPawworkSessionWindowLimit,
-  type PawworkWindowSession,
-  PAWWORK_SESSION_WINDOW_INITIAL,
-  pawworkSessionWindowActiveRoot,
-  sortPawworkSessionWindowSessions,
-} from "./layout/pawwork-session-window"
+import { openDiagnosticsReview } from "@/components/diagnostics-review"
+import { LayoutShellFrame } from "./layout/layout-shell-frame"
+import { createPawworkSessionPrefetch } from "./layout/pawwork-session-prefetch"
+import { createPawworkSessionController } from "./layout/pawwork-session-controller"
+import { createPawworkProjectControls } from "./layout/pawwork-project-controls"
+import { createPawworkRoutingActions } from "./layout/pawwork-routing-actions"
+import { createPawworkWorkspaceLifecycle } from "./layout/pawwork-workspace-lifecycle"
+import { createPawworkWorkspaceDialogs } from "./layout/pawwork-workspace-dialogs"
 import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
-import { PawworkTitlebar } from "./layout/pawwork-titlebar"
-import { createDefaultLayoutPageState, createLayoutPagePersistTarget, removePinnedSessionIDs } from "./layout/layout-page-store"
-import { SettingsContent, SettingsNav, isSettingsTab, type SettingsTab } from "@/pages/settings/settings-shell"
+import { createDefaultLayoutPageState, createLayoutPagePersistTarget } from "./layout/layout-page-store"
+import { SettingsNav, isSettingsTab, type SettingsTab } from "@/pages/settings/settings-shell"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { AppStartupPending } from "@/components/app-startup-pending"
 import { sessionTitle } from "@/utils/session-title"
@@ -137,11 +100,17 @@ export default function Layout(props: ParentProps) {
   let scrollContainerRef: HTMLDivElement | undefined
   let dialogRun = 0
   let dialogDead = false
-  const [settingsOpen, setSettingsOpen] = createSignal(false)
   const [settingsTab, setSettingsTab] = createSignal<SettingsTab>("general")
 
   const params = useParams()
   const location = useLocation()
+  // The three shell surfaces are real top-level routes; everything that used
+  // to read a takeover signal derives from the route instead.
+  const surfaceRoute = createMemo(() => surfaceRouteName(location.pathname))
+  const settingsOpen = createMemo(() => surfaceRoute() === "settings")
+  const automationsOpen = createMemo(() => surfaceRoute() === "automations")
+  const skillsOpen = createMemo(() => surfaceRoute() === "skills")
+  const remoteOpen = createMemo(() => surfaceRoute() === "remote")
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const layout = useLayout()
@@ -152,14 +121,10 @@ export default function Layout(props: ParentProps) {
   const notification = useNotification()
   const permission = usePermission()
   const navigate = useNavigate()
-  // Wrap navigate so non-shell entry points (notification clicks, deep links
-  // dispatched through @/utils/notification-click) also close the settings
-  // overlay before routing. Shell-driven navigation (openNewSession /
-  // openSession) closes settings explicitly through closeSettingsSurface.
-  setNavigate((href) => {
-    closeSettings()
-    navigate(href)
-  })
+  // Non-shell entry points (notification clicks, deep links dispatched
+  // through @/utils/notification-click) navigate directly; the surfaces are
+  // routes, so navigating to a session leaves them naturally.
+  setNavigate(navigate)
   setOpenSettings((tab) => openSettings(tab))
   const providers = useProviders()
   const dialog = useDialog()
@@ -178,13 +143,31 @@ export default function Layout(props: ParentProps) {
     }
   })
   const currentDir = createMemo(() => route().dir)
+  // Last directory a /:dir route was visited in. Global surfaces (settings /
+  // automations / skills) and the command palette read activeDirectory for
+  // directory context when no project route is active. The trailing fallbacks
+  // mirror HomeRedirectRoute: first open project, then first synced project.
+  const [lastRouteDir, setLastRouteDir] = createSignal("")
+  createEffect(() => {
+    const dir = currentDir()
+    if (dir) setLastRouteDir(dir)
+  })
+  const activeDirectory = createMemo(
+    () =>
+      currentDir() ||
+      lastRouteDir() ||
+      layout.projects.list()[0]?.worktree ||
+      (globalSync.ready ? (globalSync.data.project[0]?.worktree ?? "") : ""),
+  )
   const pawworkSidebar = createMemo(() => globalSync.data.project.length <= 1)
 
   const [state, setState] = createStore({
-    autoselect: !initialDirectory,
+    // Booting on a surface route (e.g. a web reload on /settings) is a real
+    // destination, not a "no project yet" start — autoselect must not yank
+    // the user off it.
+    autoselect: !initialDirectory && !surfaceRoute(),
     busyWorkspaces: {} as Record<string, boolean>,
     scrollSessionKey: undefined as string | undefined,
-    nav: undefined as HTMLElement | undefined,
     sizing: false,
   })
 
@@ -259,6 +242,7 @@ export default function Layout(props: ParentProps) {
     },
     effects: {
       notify: (title, description, href) => platform.notify(title, description, href),
+      requestAttention: () => platform.requestAttention?.(),
       playSound: playSoundById,
       setBusy,
       worktreeReady: (directory) => WorktreeState.ready(directory),
@@ -282,29 +266,10 @@ export default function Layout(props: ParentProps) {
     element.scrollIntoView({ block: "nearest", behavior: "smooth" })
   }
 
-  const currentProject = createMemo(() => {
-    const directory = currentDir()
-    if (!directory) return
-    const key = workspaceKey(directory)
-
-    const projects = layout.projects.list()
-
-    const sandbox = projects.find((p) => p.sandboxes?.some((item) => workspaceKey(item) === key))
-    if (sandbox) return sandbox
-
-    const direct = projects.find((p) => workspaceKey(p.worktree) === key)
-    if (direct) return direct
-
-    const [child] = globalSync.child(directory, { bootstrap: false })
-    const id = child.project
-    if (!id) return
-
-    const meta = globalSync.data.project.find((p) => p.id === id)
-    const root = meta?.worktree
-    if (!root) return
-
-    return projects.find((p) => p.worktree === root)
-  })
+  // Keyed on activeDirectory, not the raw route directory: the sidebar and
+  // project-scoped chrome stay on the last visited project while a global
+  // surface route (/settings /automations /skills) is mounted.
+  const currentProject = createCurrentProjectMemo({ currentDir: activeDirectory, layout, globalSync })
   const [autoselecting] = createResource(async () => {
     await ready.promise
     await layout.ready.promise
@@ -360,7 +325,7 @@ export default function Layout(props: ParentProps) {
     if (!project) return [] as string[]
     if (!workspaceSetting()) return [project.worktree]
 
-    const activeDir = currentDir()
+    const activeDir = activeDirectory()
     return workspaceIds(project).filter((directory) => {
       const expanded = store.workspaceExpanded[directory] ?? directory === project.worktree
       const active = workspaceKey(directory) === workspaceKey(activeDir)
@@ -398,511 +363,38 @@ export default function Layout(props: ParentProps) {
     return result
   })
 
-  const [pawworkSessionWindowState, setPawworkSessionWindowState] = createStore({
-    limit: PAWWORK_SESSION_WINDOW_INITIAL,
-    normal: [] as PawworkWindowSession[],
-    pinned: [] as PawworkWindowSession[],
-    active: undefined as PawworkWindowSession | undefined,
-    hasMore: false,
-    loading: false,
-  })
-  let pawworkSessionWindowRev = 0
-
-  const findLoadedSession = (sessionID: string | undefined) => {
-    if (!sessionID) return
-    for (const directory of visibleSessionDirs()) {
-      const [dirStore] = globalSync.child(directory, { bootstrap: false })
-      const found = dirStore.session.find((session) => session.id === sessionID)
-      if (found && !found.time?.archived) return found
-    }
-    return pawworkSessionWindowState.normal.find((session) => session.id === sessionID)
-  }
-
-  type SessionLoadResult =
-    | { state: "found"; session: PawworkWindowSession }
-    | { state: "gone" }
-    | { state: "transient" }
-
-  const loadSessionByIDResult = async (sessionID: string | undefined): Promise<SessionLoadResult> => {
-    if (!sessionID) return { state: "gone" }
-    const loaded = findLoadedSession(sessionID)
-    if (loaded) return { state: "found", session: loaded }
-    try {
-      const response = await globalSDK.client.session.get({ sessionID })
-      const session = response.data
-      if (session && !session.time?.archived) return { state: "found", session }
-      return { state: "gone" }
-    } catch (error) {
-      return isTerminalGoneError(error) ? { state: "gone" } : { state: "transient" }
-    }
-  }
-
-  const loadSessionByID = async (sessionID: string | undefined) => {
-    const result = await loadSessionByIDResult(sessionID)
-    return result.state === "found" ? result.session : undefined
-  }
-
-  const projectKeyForSession = (session: Session | GlobalSession) => {
-    return resolvePawworkSessionProjectKey(session)
-  }
-
-  const projectLabelForSession = (session: Session | GlobalSession) => {
-    return resolvePawworkSessionProjectLabel(session, {
-      projects: layout.projects.list(),
-      workspaceName,
-    })
-  }
-
-  const pawworkSessionWindow = createMemo(() =>
-    buildPawworkSessionWindow({
-      normal: pawworkSessionWindowState.normal,
-      pinned: pawworkSessionWindowState.pinned,
-      active: pawworkSessionWindowState.active,
-      limit: pawworkSessionWindowState.limit,
-      hasMore: pawworkSessionWindowState.hasMore,
-    }),
-  )
-
-  const pawworkSessions = createMemo(() => {
-    const rows = buildPawworkSidebarSessionRows(pawworkSessionWindow().sessions, {
-      slugForDirectory: base64Encode,
-      projectKeyForSession,
-      projectLabelForSession,
-      messagesForSession: (session) => {
-        const tuple = globalSync.peekExisting(session.directory)
-        return tuple?.[0].message[session.id]
-      },
-      partsForMessage: (session, messageID) => {
-        const tuple = globalSync.peekExisting(session.directory)
-        return tuple?.[0].part[messageID]
-      },
-    })
-    const hidden = store.pawworkProjectHidden
-    const filtered = rows.filter((row) => !hidden[row.projectKey])
-    return sortPawworkSidebarSessions(filtered.map((item) => ({ ...item, id: item.session.id }))).map(({ id: _, ...item }) => item)
+  const {
+    sessionWindow: pawworkSessionWindow,
+    sessions: pawworkSessions,
+    sessionSections: pawworkSessionSections,
+    sessionByID: pawworkSessionByID,
+    loadSessionByID,
+    navigationSessions: pawworkNavigationSessions,
+    windowLoading: pawworkSessionWindowLoading,
+    showMore: showMorePawworkSessions,
+  } = createPawworkSessionController({
+    pageReady,
+    layoutReady,
+    params,
+    visibleSessionDirs,
+    projects: () => layout.projects.list(),
+    directStartDirectory: () => globalSync.data.path.directory,
+    workspaceName,
+    store,
+    setStore,
+    globalSDK,
+    globalSync,
+    language,
   })
 
-  const pawworkSessionSections = createMemo(() =>
-    buildPawworkSessionSections({
-      sessions: pawworkSessions().map((item) => ({
-        id: item.session.id,
-        title: item.session.title ?? "",
-        directory: item.session.directory,
-        projectKey: item.projectKey,
-        projectLabel: item.projectLabel,
-        created: item.created,
-      })),
-      pinnedIDs: store.pawworkPinnedSessions,
-      sortMode: store.pawworkSortMode,
-    }),
-  )
-
-  const pawworkSessionByID = createMemo(
-    () => new Map(pawworkSessions().map((item) => [item.session.id, item.session] as const)),
-  )
-
-  const pawworkNavigationSessions = createMemo(() =>
-    flattenPawworkSessionSections(pawworkSessionSections())
-      .map((entry) => pawworkSessionByID().get(entry.item.id))
-      .filter((session): session is Session => !!session),
-  )
-
-  const mergePawworkWindowSessionMetadata = (
-    session: Session | PawworkWindowSession,
-    existing?: PawworkWindowSession,
-  ): PawworkWindowSession => {
-    const next = session as PawworkWindowSession
-    return {
-      ...session,
-      activityAt: next.activityAt ?? existing?.activityAt,
-      lastUserMessageAt: next.lastUserMessageAt ?? existing?.lastUserMessageAt,
-    }
-  }
-
-  async function loadPawworkSessionWindow() {
-    if (!pageReady()) return
-    if (!layoutReady()) return
-    if (!globalSync.ready) return
-    const rev = ++pawworkSessionWindowRev
-    setPawworkSessionWindowState("loading", true)
-    try {
-      const response = await globalSDK.client.experimental.session.list({
-        roots: true,
-        limit: pawworkSessionWindowState.limit,
-        sort: "activity",
-      })
-      if (rev !== pawworkSessionWindowRev) return
-      const normal = ((response.data ?? []) as PawworkWindowSession[]).filter((session) => !session.time?.archived)
-      const loaded = new Map(normal.map((session) => [session.id, session]))
-      const existing = new Map(
-        [
-          ...pawworkSessionWindowState.normal,
-          ...pawworkSessionWindowState.pinned,
-          ...(pawworkSessionWindowState.active ? [pawworkSessionWindowState.active] : []),
-        ].map((session) => [session.id, session] as const),
-      )
-      const pinnedResults = await Promise.all(
-        store.pawworkPinnedSessions.map(async (id) => ({
-          id,
-          result: loaded.has(id) ? ({ state: "found", session: loaded.get(id)! } as const) : await loadSessionByIDResult(id),
-        })),
-      )
-      const gonePinnedIDs = new Set(pinnedResults.filter((entry) => entry.result.state === "gone").map((entry) => entry.id))
-      const pinned = pinnedResults
-        .map((entry) =>
-          entry.result.state === "found"
-            ? mergePawworkWindowSessionMetadata(entry.result.session, existing.get(entry.id))
-            : undefined,
-        )
-        .filter((session): session is PawworkWindowSession => !!session)
-      const activeID = params.id
-      const active = activeID
-        ? await (async () => {
-            const session = loaded.get(activeID) ?? (await loadSessionByID(activeID))
-            return session ? mergePawworkWindowSessionMetadata(session, existing.get(activeID)) : undefined
-          })()
-        : undefined
-      const activeParentID = active?.parentID
-      const activeParent = activeParentID
-        ? await (async () => {
-            const session = loaded.get(activeParentID) ?? (await loadSessionByID(activeParentID))
-            return session ? mergePawworkWindowSessionMetadata(session, existing.get(activeParentID)) : undefined
-          })()
-        : undefined
-      const activeRoot = pawworkSessionWindowActiveRoot(active, activeParent)
-
-      if (rev !== pawworkSessionWindowRev) return
-      batch(() => {
-        if (gonePinnedIDs.size) {
-          setStore("pawworkPinnedSessions", (current) => removePinnedSessionIDs(current, gonePinnedIDs))
-        }
-        setPawworkSessionWindowState("normal", reconcile(sortPawworkSessionWindowSessions(normal), { key: "id" }))
-        setPawworkSessionWindowState("pinned", reconcile(pinned, { key: "id" }))
-        setPawworkSessionWindowState("active", activeRoot)
-        setPawworkSessionWindowState("hasMore", !!response.response?.headers.get("x-next-cursor"))
-        setPawworkSessionWindowState("loading", false)
-      })
-    } catch (error) {
-      if (rev !== pawworkSessionWindowRev) return
-      setPawworkSessionWindowState("loading", false)
-      showToast({
-        title: language.t("toast.session.listFailed.title", { project: "PawWork" }),
-        description: errorMessage(error, language.t("common.requestFailed")),
-      })
-    }
-  }
-
-  createEffect(
-    on(
-      () => [
-        pageReady(),
-        layoutReady(),
-        globalSync.ready,
-        globalSDK.url,
-        pawworkSessionWindowState.limit,
-        store.pawworkPinnedSessions.join("\0"),
-        params.id,
-      ] as const,
-      () => {
-        void loadPawworkSessionWindow()
-      },
-    ),
-  )
-
-  const upsertPawworkWindowSession = (info: Session) => {
-    if (info.parentID || info.time?.archived) return
-    const mergeWindowSession = (current: PawworkWindowSession[]) => {
-      const existing = current.find((session) => session.id === info.id)
-      const next = mergePawworkWindowSessionMetadata(info, existing)
-      return sortPawworkSessionWindowSessions([...current.filter((session) => session.id !== info.id), next])
-    }
-    batch(() => {
-      setPawworkSessionWindowState("normal", mergeWindowSession)
-      if (store.pawworkPinnedSessions.includes(info.id)) {
-        setPawworkSessionWindowState("pinned", mergeWindowSession)
-      }
-      if (params.id === info.id) {
-        setPawworkSessionWindowState("active", (current) =>
-          current?.id === info.id ? mergePawworkWindowSessionMetadata(info, current) : mergePawworkWindowSessionMetadata(info),
-        )
-      }
-    })
-  }
-
-  const removePawworkWindowSession = (sessionID: string) => {
-    setStore("pawworkPinnedSessions", (current) => removePinnedSessionIDs(current, new Set([sessionID])))
-    setPawworkSessionWindowState("normal", (current) => current.filter((session) => session.id !== sessionID))
-    setPawworkSessionWindowState("pinned", (current) => current.filter((session) => session.id !== sessionID))
-    if (pawworkSessionWindowState.active?.id === sessionID) {
-      setPawworkSessionWindowState("active", undefined)
-    }
-  }
-
-  onCleanup(
-    globalSDK.event.listen((event) => {
-      const details = event.details
-      if (details.type === "session.created") {
-        upsertPawworkWindowSession(details.properties.info)
-        return
-      }
-      if (details.type === "session.updated") {
-        const info = details.properties.info
-        if (info.time?.archived) {
-          removePawworkWindowSession(info.id)
-          return
-        }
-        upsertPawworkWindowSession(info)
-        return
-      }
-      if (details.type === "session.deleted") {
-        removePawworkWindowSession(details.properties.info.id)
-      }
-    }),
-  )
-
-  type PrefetchQueue = {
-    inflight: Set<string>
-    pending: string[]
-    pendingSet: Set<string>
-    running: number
-  }
-
-  const prefetchChunk = 200
-  const prefetchConcurrency = 2
-  const prefetchPendingLimit = 10
-  const span = 4
-  const prefetchToken = { value: 0 }
-  const prefetchQueues = new Map<string, PrefetchQueue>()
-
-  const PREFETCH_MAX_SESSIONS_PER_DIR = 10
-  const prefetchedByDir = new Map<string, Set<string>>()
-
-  const lruFor = (directory: string) => {
-    const existing = prefetchedByDir.get(directory)
-    if (existing) return existing
-    const created = new Set<string>()
-    prefetchedByDir.set(directory, created)
-    return created
-  }
-
-  const markPrefetched = (directory: string, sessionID: string) => {
-    const lru = lruFor(directory)
-    return pickSessionCacheEvictions({
-      seen: lru,
-      keep: sessionID,
-      limit: PREFETCH_MAX_SESSIONS_PER_DIR,
-      preserve: params.id && workspaceKey(directory) === workspaceKey(currentDir()) ? [params.id] : undefined,
-    })
-  }
-
-  createEffect(() => {
-    const active = new Set(visibleSessionDirs())
-    for (const directory of [...prefetchedByDir.keys()]) {
-      if (active.has(directory)) continue
-      prefetchedByDir.delete(directory)
-    }
-  })
-
-  createEffect(() => {
-    route()
-    globalSDK.url
-
-    prefetchToken.value += 1
-    clearSessionPrefetchInflight()
-    prefetchQueues.clear()
-  })
-
-  createEffect(() => {
-    const visible = new Set(visibleSessionDirs())
-    for (const [directory, q] of prefetchQueues) {
-      if (visible.has(directory)) continue
-      q.pending.length = 0
-      q.pendingSet.clear()
-      if (q.running === 0) prefetchQueues.delete(directory)
-    }
-  })
-
-  const queueFor = (directory: string) => {
-    const existing = prefetchQueues.get(directory)
-    if (existing) return existing
-
-    const created: PrefetchQueue = {
-      inflight: new Set(),
-      pending: [],
-      pendingSet: new Set(),
-      running: 0,
-    }
-    prefetchQueues.set(directory, created)
-    return created
-  }
-
-  const mergeByID = <T extends { id: string }>(current: T[], incoming: T[]) => {
-    if (current.length === 0) {
-      return incoming.slice().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-    }
-
-    const map = new Map<string, T>()
-    for (const item of current) {
-      map.set(item.id, item)
-    }
-    for (const item of incoming) {
-      map.set(item.id, item)
-    }
-    return [...map.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-  }
-
-  async function prefetchMessages(directory: string, sessionID: string, token: number) {
-    const [store, setStore] = globalSync.child(directory, { bootstrap: false })
-
-    return runSessionPrefetch({
-      directory,
-      sessionID,
-      task: (rev) =>
-        retry(() => globalSDK.client.session.messages({ directory, sessionID, limit: prefetchChunk }))
-          .then((messages) => {
-            if (prefetchToken.value !== token) return
-            if (!isSessionPrefetchCurrent(directory, sessionID, rev)) return
-
-            const items = (messages.data ?? []).filter((x) => !!x?.info?.id)
-            const next = items.map((x) => x.info).filter((m): m is Message => !!m?.id)
-            const sorted = mergeByID([], next)
-            const stale = markPrefetched(directory, sessionID)
-            const cursor = messages.response?.headers.get("x-next-cursor") ?? undefined
-            const meta = {
-              limit: sorted.length,
-              cursor,
-              complete: !cursor,
-              at: Date.now(),
-            }
-
-            if (stale.length > 0) {
-              clearSessionPrefetch(directory, stale)
-            }
-
-            const current = store.message[sessionID] ?? []
-            const merged = mergeByID(
-              current.filter((item): item is Message => !!item?.id),
-              sorted,
-            )
-
-            if (!isSessionPrefetchCurrent(directory, sessionID, rev)) return
-
-            batch(() => {
-              if (stale.length > 0) {
-                setStore(
-                  produce((draft) => {
-                    dropSessionCaches(draft, stale)
-                  }),
-                )
-              }
-
-              setStore("message", sessionID, reconcile(merged, { key: "id" }))
-              setSessionPrefetch({ directory, sessionID, ...meta })
-
-              for (const message of items) {
-                const currentParts = store.part[message.info.id] ?? []
-                const mergedParts = mergeByID(
-                  currentParts.filter((item): item is (typeof currentParts)[number] & { id: string } => !!item?.id),
-                  message.parts.filter((item): item is (typeof message.parts)[number] & { id: string } => !!item?.id),
-                )
-
-                setStore("part", message.info.id, reconcile(mergedParts, { key: "id" }))
-              }
-            })
-
-            return meta
-          })
-          .catch(() => undefined),
-    })
-  }
-
-  const pumpPrefetch = (directory: string) => {
-    const q = queueFor(directory)
-    if (q.running >= prefetchConcurrency) return
-
-    const sessionID = q.pending.shift()
-    if (!sessionID) return
-
-    q.pendingSet.delete(sessionID)
-    q.inflight.add(sessionID)
-    q.running += 1
-
-    const token = prefetchToken.value
-
-    void prefetchMessages(directory, sessionID, token).finally(() => {
-      q.running -= 1
-      q.inflight.delete(sessionID)
-      pumpPrefetch(directory)
-    })
-  }
-
-  const prefetchSession = (session: Session, priority: "high" | "low" = "low") => {
-    const directory = session.directory
-    if (!directory) return
-
-    const [store] = globalSync.child(directory, { bootstrap: false })
-    const cached = untrack(() => {
-      const info = getSessionPrefetch(directory, session.id)
-      return shouldSkipSessionPrefetch({
-        message: store.message[session.id] !== undefined,
-        info,
-        chunk: prefetchChunk,
-      })
-    })
-    if (cached) return
-
-    const q = queueFor(directory)
-    if (q.inflight.has(session.id)) return
-    if (q.pendingSet.has(session.id)) {
-      if (priority !== "high") return
-      const index = q.pending.indexOf(session.id)
-      if (index > 0) {
-        q.pending.splice(index, 1)
-        q.pending.unshift(session.id)
-      }
-      return
-    }
-
-    const lru = lruFor(directory)
-    const known = lru.has(session.id)
-    if (!known && lru.size >= PREFETCH_MAX_SESSIONS_PER_DIR && priority !== "high") return
-
-    if (priority === "high") q.pending.unshift(session.id)
-    if (priority !== "high") q.pending.push(session.id)
-    q.pendingSet.add(session.id)
-
-    while (q.pending.length > prefetchPendingLimit) {
-      const dropped = q.pending.pop()
-      if (!dropped) continue
-      q.pendingSet.delete(dropped)
-    }
-
-    pumpPrefetch(directory)
-  }
-
-  const warm = (sessions: Session[], index: number) => {
-    for (let offset = 1; offset <= span; offset++) {
-      const next = sessions[index + offset]
-      if (next) prefetchSession(next, offset === 1 ? "high" : "low")
-
-      const prev = sessions[index - offset]
-      if (prev) prefetchSession(prev, offset === 1 ? "high" : "low")
-    }
-  }
-
-  createEffect(() => {
-    const sessions = pawworkNavigationSessions()
-    if (sessions.length === 0) return
-
-    const index = params.id ? sessions.findIndex((s) => s.id === params.id) : 0
-    if (index === -1) return
-
-    if (!params.id) {
-      const first = sessions[index]
-      if (first) prefetchSession(first, "high")
-    }
-
-    warm(sessions, index)
+  const { prefetchSession, warm } = createPawworkSessionPrefetch({
+    params,
+    route,
+    currentDir,
+    visibleSessionDirs,
+    navigationSessions: pawworkNavigationSessions,
+    globalSDK,
+    globalSync,
   })
 
   function navigateSessionByOffset(offset: number) {
@@ -924,28 +416,6 @@ export default function Layout(props: ParentProps) {
     if (targetIndex !== -1) warm(sessions, targetIndex)
 
     navigateToSession(session)
-  }
-
-  function navigateProjectByOffset(offset: number) {
-    const projects = layout.projects.list()
-    if (projects.length === 0) return
-
-    const current = currentProject()?.worktree
-    const fallback = currentDir() ? projectRoot(currentDir()) : undefined
-    const active = current ?? fallback
-    const index = active ? projects.findIndex((project) => project.worktree === active) : -1
-
-    const target =
-      index === -1
-        ? offset > 0
-          ? projects[0]
-          : projects[projects.length - 1]
-        : projects[(index + offset + projects.length) % projects.length]
-    if (!target) return
-
-    // warm up child store to prevent flicker
-    globalSync.child(target.worktree)
-    openProject(target.worktree)
   }
 
   function navigateSessionByUnseen(offset: number) {
@@ -970,256 +440,32 @@ export default function Layout(props: ParentProps) {
     navigateToSession(session)
   }
 
-  async function renamePawworkSession(session: Session, next: string) {
-    const title = next.trim()
-    if (!title || title === (session.title ?? "")) return
+  const {
+    togglePinnedSession,
+    dragPawworkSession,
+    movePinnedSessionByOne,
+    setPawworkSortMode,
+    toggleProjectCollapsed,
+    handleRenameProject,
+    expandPawworkProjectGroup,
+  } = createPawworkProjectControls({
+    store,
+    setStore,
+    projects: () => layout.projects.list(),
+    sessions: () => pawworkSessionWindow().sessions,
+    renameProject,
+    setWorkspaceName,
+  })
 
-    try {
-      await globalSDK.client.session.update({
-        directory: session.directory,
-        sessionID: session.id,
-        title,
-      })
-
-      const [, setStore] = globalSync.child(session.directory)
-      setStore(
-        produce((draft) => {
-          const match = Binary.search(draft.session, session.id, (item) => item.id)
-          if (match.found) draft.session[match.index].title = title
-        }),
-      )
-    } catch (error) {
-      showToast({
-        title: language.t("common.requestFailed"),
-        description: errorMessage(error, language.t("common.requestFailed")),
-      })
-    }
-  }
-
-  function togglePinnedSession(sessionID: string) {
-    setStore("pawworkPinnedSessions", (current) => {
-      const next = current.filter((id) => id !== sessionID)
-      if (next.length !== current.length) return next
-      return [sessionID, ...current]
-    })
-  }
-
-  /**
-   * Cross-zone drag: All ⇄ Pinned with positional insert, or intra-Pinned
-   * reorder. `visiblePinnedIDs` is the rendered pinned order from the sidebar;
-   * `visibleTargetIndex` is a slot inside it. We translate to the raw
-   * pinned array so hidden / un-loaded pinned IDs keep their positions.
-   */
-  function dragPawworkSession(input: {
-    sessionID: string
-    targetSection: "pinned" | "recent"
-    visiblePinnedIDs: string[]
-    visibleTargetIndex: number
-  }) {
-    setStore("pawworkPinnedSessions", (current) => {
-      if (input.targetSection === "recent") {
-        return unpinPawworkSession({ pinnedIDs: current, sourceID: input.sessionID })
-      }
-      return reorderPawworkPinnedByVisible({
-        pinnedIDs: current,
-        visiblePinnedIDs: input.visiblePinnedIDs,
-        sourceID: input.sessionID,
-        targetVisibleIndex: input.visibleTargetIndex,
-      })
-    })
-  }
-
-  /**
-   * Menu-driven move up / down: keyboard-accessible reorder within the pinned
-   * zone. Operates on the visible pinned order so adjacency matches what the
-   * user sees; the helper reconciles back to the raw array.
-   */
-  function movePinnedSessionByOne(input: {
-    sessionID: string
-    direction: "up" | "down"
-    visiblePinnedIDs: string[]
-  }) {
-    const visibleIndex = input.visiblePinnedIDs.indexOf(input.sessionID)
-    if (visibleIndex === -1) return
-    const offset = input.direction === "up" ? -1 : 1
-    const nextVisibleIndex = Math.max(0, Math.min(input.visiblePinnedIDs.length - 1, visibleIndex + offset))
-    if (nextVisibleIndex === visibleIndex) return
-    setStore("pawworkPinnedSessions", (current) =>
-      reorderPawworkPinnedByVisible({
-        pinnedIDs: current,
-        visiblePinnedIDs: input.visiblePinnedIDs,
-        sourceID: input.sessionID,
-        targetVisibleIndex: nextVisibleIndex,
-      }),
-    )
-  }
-
-  function setPawworkSortMode(mode: "time" | "project") {
-    setStore("pawworkSortMode", mode)
-  }
-
-  function toggleProjectCollapsed(label: string) {
-    const current = store.pawworkProjectCollapsed
-    const next: Record<string, boolean> = { ...current }
-    if (next[label]) delete next[label]
-    else next[label] = true
-    setStore("pawworkProjectCollapsed", reconcile(next))
-  }
-
-  function hideProject(projectKey: string) {
-    if (store.pawworkProjectHidden[projectKey]) return
-    setStore("pawworkProjectHidden", projectKey, true)
-    showToast({
-      title: language.t("project.remove.toast.title"),
-      description: language.t("project.remove.toast.description"),
-      actions: [
-        {
-          label: language.t("common.undo"),
-          onClick: () => unhideProject(projectKey),
-        },
-      ],
-    })
-  }
-
-  function unhideProject(projectKey: string) {
-    if (!store.pawworkProjectHidden[projectKey]) return
-    setStore(
-      "pawworkProjectHidden",
-      produce((draft) => {
-        delete draft[projectKey]
-      }),
-    )
-  }
-
-  async function handleRenameProject(projectKey: string, next: string) {
-    const target = resolvePawworkProjectRenameTarget(projectKey, {
-      projects: layout.projects.list(),
-      sessions: pawworkSessionWindow().sessions,
-    })
-    if (!target) return
-
-    if (target.type === "project") {
-      await renameProject(target.project, next)
-      return
-    }
-
-    setWorkspaceName(target.directory, next)
-  }
-
-  function expandPawworkProjectGroup(label: string | undefined) {
-    if (!label) return
-    if (!store.pawworkProjectCollapsed[label]) return
-
-    const next: Record<string, boolean> = { ...store.pawworkProjectCollapsed }
-    delete next[label]
-    setStore("pawworkProjectCollapsed", reconcile(next))
-  }
-
-  // Export hits the embedded sidecar via main-process IPC. When the user has
-  // switched the active server to a remote target, the sidecar holds different
-  // data than the UI; hide the action rather than ship a misleading export.
-  const exportSessionAvailable = createMemo(
-    () => !!platform.exportSession && server.current?.type === "sidecar",
-  )
-
-  async function exportSession(session: Session) {
-    if (!platform.exportSession) return
-    const [store] = globalSync.child(session.directory)
-    const sessionInfo = store.session?.find((s) => s.id === session.id)
-    const slugSource = sessionInfo?.slug ?? session.id
-    const sanitized = slugSource.replace(/[\\/:*?"<>|]/g, "-").slice(0, 32)
-    const slug = /[\p{L}\p{N}]/u.test(sanitized) ? sanitized : session.id.slice(-8)
-    const stamp = new Date().toISOString().replace(/[:T]/g, "-").replace(/\..+$/, "")
-    const defaultName = `pawwork-session-${slug}-${stamp}.json`
-
-    let result: { ok: true; path: string } | { ok: false; error: string }
-    try {
-      result = await platform.exportSession(
-        session.id,
-        session.directory,
-        defaultName,
-        language.t("session.export.action.export"),
-      )
-    } catch (err) {
-      showToast({
-        title: language.t("session.export.error.failed"),
-        description: errorMessage(err, language.t("common.requestFailed")),
-        variant: "error",
-      })
-      return
-    }
-    if (!result.ok) {
-      if (result.error === "cancelled") return
-      showToast({
-        title: language.t("session.export.error.failed"),
-        description: result.error,
-        variant: "error",
-      })
-      return
-    }
-    showToast({
-      title: language.t("session.export.success"),
-      description: result.path,
-    })
-  }
-
-  type SessionDeleteTarget = Pick<Session, "id" | "directory">
-
-  async function deleteSession(session: SessionDeleteTarget) {
-    const [store, setStore] = globalSync.child(session.directory)
-    const sessions = (store.session ?? []).filter((s) => !s.parentID && !s.time?.archived)
-    const index = sessions.findIndex((s) => s.id === session.id)
-    const nextSession = index === -1 ? undefined : (sessions[index + 1] ?? sessions[index - 1])
-
-    const result = await globalSDK.client.session
-      .delete({ directory: session.directory, sessionID: session.id })
-      .then((x) => x.data)
-      .catch((err) => {
-        showToast({
-          title: language.t("session.delete.failed.title"),
-          description: errorMessage(err, language.t("common.requestFailed")),
-          variant: "error",
-        })
-        return undefined
-      })
-
-    if (!result) return
-
-    setStore(
-      produce((draft) => {
-        const removed = new Set<string>([session.id])
-        const byParent = new Map<string, string[]>()
-        for (const item of draft.session) {
-          const parentID = item.parentID
-          if (!parentID) continue
-          const existing = byParent.get(parentID)
-          if (existing) {
-            existing.push(item.id)
-            continue
-          }
-          byParent.set(parentID, [item.id])
-        }
-        const stack = [session.id]
-        while (stack.length) {
-          const parentID = stack.pop()
-          if (!parentID) continue
-          const children = byParent.get(parentID)
-          if (!children) continue
-          for (const child of children) {
-            if (removed.has(child)) continue
-            removed.add(child)
-            stack.push(child)
-          }
-        }
-        dropSessionCaches(draft, [...removed])
-        draft.session = draft.session.filter((s) => !removed.has(s.id))
-      }),
-    )
-
-    if (session.id === params.id) {
-      navigate(nextSession ? `/${params.dir}/session/${nextSession.id}` : `/${params.dir}/session`)
-    }
-  }
+  const { exportSessionAvailable, renamePawworkSession, exportSession, deleteSession } = createPawworkSessionCommands({
+    globalSDK,
+    globalSync,
+    platform,
+    server,
+    language,
+    navigate,
+    params,
+  })
 
   function confirmDeleteSession(session: Session) {
     const target: SessionDeleteTarget = { id: session.id, directory: session.directory }
@@ -1253,24 +499,124 @@ export default function Layout(props: ParentProps) {
       })
   }
 
+  // Enter a surface route, recording the current location as the origin in
+  // the navigation's own history-entry state. Re-activating the surface the
+  // user is already on is a no-op; a deep-entry request (one automation)
+  // updates the current entry's state in place, preserving its origin.
+  function openSurface(name: SurfaceRouteName, extras?: { automationID?: string }) {
+    const target = SURFACE_ROUTE_PATHS[name]
+    if (location.pathname === target) {
+      if (extras?.automationID) {
+        navigate(target, {
+          replace: true,
+          state: { ...readSurfaceRouteState(location.state), automationID: extras.automationID },
+        })
+      }
+      return
+    }
+    navigate(target, { state: surfaceEntryState({ location, automationID: extras?.automationID }) })
+  }
+
+  // Close returns to the recorded origin. A session origin deleted while away
+  // falls through to the active directory's session home, then the home
+  // redirect. Surface-route origins (the previous hop of a chain) are always
+  // honored, unwinding one close at a time.
+  function closeSurface() {
+    const close = resolveSurfaceClose({
+      state: location.state,
+      validateOrigin: (origin) => {
+        const parsed = parseSessionRoutePath(origin.pathname)
+        if (!parsed?.sessionID) return true
+        const directory = decode64(parsed.slug)
+        if (!directory) return false
+        const [child] = globalSync.child(directory, { bootstrap: false })
+        // Only a fully bootstrapped child can prove the origin stale: before
+        // that, its session list just hasn't loaded. This also covers the
+        // origin being the directory's ONLY session, deleted while away — the
+        // loaded list is then legitimately empty, which a bare length check
+        // could not tell apart from "not loaded yet".
+        if (child.status !== "complete") return true
+        return (child.session ?? []).some((session) => session.id === parsed.sessionID)
+      },
+      fallback: (() => {
+        const directory = activeDirectory()
+        return directory ? `/${base64Encode(directory)}/session` : "/"
+      })(),
+    })
+    navigate(close.href, { state: close.state })
+  }
+
   function openSettingsSurface(tab?: SettingsTab) {
     // Guard against callers that forward a DOM event (e.g. an onClick handler)
     // as the tab argument — only a known tab string selects a page, anything
     // else falls back to General.
     setSettingsTab(typeof tab === "string" && isSettingsTab(tab) ? tab : "general")
-    setSettingsOpen(true)
+    openSurface("settings")
+  }
+
+  function openAutomationsSurface() {
+    openSurface("automations")
+  }
+
+  function openSkillsSurface() {
+    openSurface("skills")
+  }
+
+  function openRemoteSurface() {
+    openSurface("remote")
+  }
+
+  // Open the Automations page focused on one automation. Wired to the
+  // module-level bridge so the automate tool card (deep in the message thread,
+  // outside this shell) can jump here. The route component reads the request
+  // from the navigation state.
+  function openAutomationByID(automationID?: string) {
+    openSurface("automations", { automationID })
+  }
+  setOpenAutomations(openAutomationByID)
+
+  // The project root surfaces act on: the active project, resolved through
+  // the last visited directory when no /:dir route is mounted.
+  const surfaceProjectRoot = () => currentProject()?.worktree ?? projectRoot(activeDirectory())
+
+  // "Create via chat" leaves the page and starts a fresh session in the current
+  // project, prefilled with a short guiding prompt the user can edit or send.
+  // The ?prompt= bootstrap (see useSessionRoutePromptBootstrap) seeds the
+  // composer reactively, so it works whether or not we are already on the
+  // new-session route.
+  function createAutomationViaChat() {
+    const directory = surfaceProjectRoot()
+    if (!directory) return
+    const prompt = encodeURIComponent(language.t("automations.create.viaChatPrompt"))
+    navigate(`/${base64Encode(directory)}/session?prompt=${prompt}`)
+  }
+
+  // Skills resolve per active directory (not the project root the Automations
+  // page uses), exactly like the composer's slash picker: activeDirectory
+  // keeps the workspace/sandbox the user was in, so the gallery and "Use in
+  // chat" match the skills the composer would actually offer. Skills are
+  // directory-resolved, not project entities.
+
+  // "Use in chat" from the Skills gallery leaves the page and starts a fresh
+  // session in the active directory. The ?skill= bootstrap seeds the composer with
+  // the structured skill chip, so the picked skill activates deterministically.
+  function useSkillInChat(name: string) {
+    const directory = activeDirectory()
+    if (!directory) return
+    navigate(`/${base64Encode(directory)}/session?skill=${encodeURIComponent(name)}`)
   }
 
   function openSettings(tab?: SettingsTab) {
     shellNavigation.openSettings(tab)
   }
 
-  createEffect(() => {
-    command.setModalOpen(settingsOpen())
-  })
+  const openGlobalConfigFolder = createOpenGlobalConfigFolder({ globalSDK, platform, language })
 
-  function closeSettings() {
-    setSettingsOpen(false)
+  // Opening a run from the Automations page lands on the run's chat session,
+  // which also lives in the normal All chats list.
+  async function openAutomationRun(sessionID: string) {
+    const session = await loadSessionByID(sessionID)
+    if (session) navigateToSession(session)
   }
 
 
@@ -1309,155 +655,89 @@ export default function Layout(props: ParentProps) {
     setState("sizing", false)
   }
 
-  function syncSessionRoute(directory: string, id: string, root = activeProjectRoot(directory)) {
-    for (const key of pawworkSessionRouteUnhideKeys(directory)) {
-      if (!store.pawworkProjectHidden[key]) continue
-      unhideProject(key)
-    }
-    notification.session.markViewed(id)
-    const expanded = untrack(() => store.workspaceExpanded[directory])
-    if (expanded === false) {
-      setStore("workspaceExpanded", directory, true)
-    }
-    requestAnimationFrame(() => scrollToSession(id, `${directory}:${id}`))
-    return root
-  }
-
-  async function navigateToProject(directory: string | undefined) {
-    if (!directory) return
-    const root = projectRoot(directory)
-    server.projects.touch(root)
-    navigate(openProjectRoute(root))
-  }
-
-  function navigateToSession(session: Session | undefined) {
-    if (session) {
-      const key = projectKeyForSession(session)
-      if (store.pawworkProjectHidden[key]) {
-        unhideProject(key)
-      }
-    }
-    shellNavigation.openSession(session)
-  }
-
-  function openPawworkHome(directory?: string) {
-    if (directory) {
-      const key = workspaceKey(directory)
-      if (store.pawworkProjectHidden[key]) {
-        unhideProject(key)
-      }
-    }
-    shellNavigation.openNewSession(directory)
-  }
-
   const shellNavigation = createShellNavigation({
     navigate,
     releaseTransientLocks: releaseTransientShellLocks,
     resolveProjectRoot: projectRoot,
-    currentProjectRoot: () => currentProject()?.worktree ?? projectRoot(currentDir()),
+    // activeDirectory equals currentDir on /:dir routes; elsewhere it falls
+    // back to the last visited directory so shell navigation (e.g. "new
+    // session" from a global page) still resolves a project.
+    currentProjectRoot: surfaceProjectRoot,
+    directStartRoot: () => globalSync.data.path.directory,
     chooseProject,
     openSettingsSurface,
-    closeSettingsSurface: closeSettings,
   })
-
-  function openProject(directory: string, shouldNavigate = true) {
-    layout.projects.open(directory)
-    if (shouldNavigate) return navigateToProject(directory)
-  }
 
   // Singleton; same instance returned every call.
   const pinned = usePinnedDraft()
 
-  const handleDeepLinks = (urls: string[]) => {
-    if (!server.isLocal()) return
-
-    for (const directory of collectOpenProjectDeepLinks(urls)) {
-      openProject(directory)
-    }
-
-    for (const link of collectNewSessionDeepLinks(urls)) {
-      openProject(link.directory, false)
-      const slug = base64Encode(link.directory)
-      if (link.prompt) {
-        // Pin the prompt to this directory so it is NOT carried portably to
-        // other homepages. The pinned slot is consumed by editor-input.ts when
-        // the user lands on the /repo homepage.
-        pinned.adopt({ directory: link.directory, prompt: link.prompt })
-        // Also keep the session handoff for the new-session composer region
-        // that shows the prefill text before the session is created (T7 will
-        // decide whether to clear it on submit).
-        setSessionHandoff(slug, { prompt: link.prompt })
-      }
-      const href = `/${slug}/session`
-      navigate(href)
-    }
-  }
-
-  onMount(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ urls: string[] }>).detail
-      const urls = detail?.urls ?? []
-      if (urls.length === 0) return
-      handleDeepLinks(urls)
-    }
-
-    handleDeepLinks(drainPendingDeepLinks(window))
-    makeEventListener(window, deepLinkEvent, handler as EventListener)
+  const {
+    syncSessionRoute,
+    navigateToProject,
+    navigateToSession,
+    openPawworkHome,
+    openProject,
+  } = createPawworkRoutingActions({
+    navigate,
+    server,
+    store,
+    setStore,
+    notification,
+    scrollToSession,
+    pinned,
+    projectRoot,
+    activeProjectRoot,
+    shellNavigation,
+    layout,
   })
 
-  // Run the v7 homepage-draft migration as soon as a directory becomes
-  // available (fire-and-forget). currentDir() can be empty during the initial
-  // autoselect phase, so onMount alone would skip migration for that session.
-  // The migration writes a sentinel internally and is idempotent, so subsequent
-  // effect ticks are no-ops once it has run.
-  let homepageMigrationStarted = false
-  createEffect(() => {
-    if (homepageMigrationStarted) return
-    const directory = currentDir()
-    if (!directory) return
-    homepageMigrationStarted = true
-
-    const portable = usePortableDraft()
-    const sentinelTarget = Persist.global(HOMEPAGE_MIGRATION_SENTINEL_KEY)
-    const { read: readRaw, write: writeRaw, remove: removeRaw } = createMigrationStorageIO(platform)
-
-    void runHomepageMigration({
-      portable,
-      currentDirectory: directory,
-      readSentinel: async () => {
-        const raw = await readRaw(sentinelTarget)
-        if (!raw) return null
-        try {
-          return JSON.parse(raw) as import("@/components/prompt-input/homepage-migration").MigrationSentinel
-        } catch {
-          return null
-        }
-      },
-      writeSentinel: async (sentinel) => {
-        await writeRaw(sentinelTarget, JSON.stringify(sentinel))
-      },
-      loadLegacyHomepage: async (dir) => {
-        const target = Persist.workspace(dir, "prompt")
-        const raw = await readRaw(target)
-        if (!raw) return null
-        try {
-          return JSON.parse(raw) as LegacyHomepagePromptStore
-        } catch {
-          return null
-        }
-      },
-      clearLegacyHomepage: async (dir) => {
-        // Must await: desktop removeItem is async and a rejection here must
-        // propagate up to homepage-migration's failed-sentinel path. Without
-        // the await, the migration would write status: "complete" even if
-        // the legacy store delete failed.
-        await removeRaw(Persist.workspace(dir, "prompt"))
-      },
-    }).catch((err) => {
-      // Log diagnostic; migration retries automatically on next boot.
-      console.warn("[homepage-migration] unexpected failure", err)
-    })
+  const navigateProjectByOffset = createNavigateProjectByOffset({
+    layout,
+    currentProject,
+    currentDir,
+    projectRoot,
+    globalSync,
+    openProject,
   })
+
+  const {
+    renameWorkspace,
+    deleteWorkspace,
+    resetWorkspace,
+    createWorkspace,
+    createCurrentWorkspace,
+    toggleCurrentWorkspace,
+  } = createPawworkWorkspaceLifecycle({
+    globalSDK,
+    globalSync,
+    layout,
+    platform,
+    clearWorkspaceTerminals,
+    store,
+    setStore,
+    navigate,
+    language,
+    params,
+    setBusy,
+    currentDir,
+    currentProject,
+    projectRoot,
+    setWorkspaceName,
+    workspaceName,
+  })
+
+  const { DialogDeleteWorkspace, DialogResetWorkspace } = createPawworkWorkspaceDialogs({
+    globalSDK,
+    dialog,
+    language,
+    params,
+    currentDir,
+    navigate,
+    deleteWorkspace,
+    resetWorkspace,
+  })
+
+  useHomepageMigration({ currentDir, platform })
 
   async function renameProject(project: LocalProject, next: string) {
     const current = displayName(project)
@@ -1470,12 +750,6 @@ export default function Layout(props: ParentProps) {
     }
 
     globalSync.project.meta(project.worktree, { name })
-  }
-
-  const renameWorkspace = (directory: string, next: string, projectId?: string, branch?: string) => {
-    const current = workspaceName(directory, projectId, branch) ?? branch ?? getFilename(directory)
-    if (current === next) return
-    setWorkspaceName(directory, next, projectId, branch)
   }
 
   function closeProject(directory: string) {
@@ -1504,6 +778,33 @@ export default function Layout(props: ParentProps) {
     })
   }
 
+  // Sidebar "Remove project" closes the working directory from the single source
+  // of truth (`server.projects`), so it disappears from the sidebar, the
+  // workspace chip, and survives new sessions. The group key may be a subfolder
+  // or sandbox, so resolve it to the open project root before closing; undo
+  // simply reopens it.
+  function removeProject(projectKey: string) {
+    const root = projectRoot(projectKey)
+    const entry = layout.projects.list().find((x) => workspaceKey(x.worktree) === workspaceKey(root))
+    if (!entry) return
+    const worktree = entry.worktree
+    // closeProject navigates away when the removed project is the active one, so
+    // Undo has to restore focus there too — a bare reopen would leave the user
+    // wherever the close sent them.
+    const wasActive = workspaceKey(currentProject()?.worktree ?? "") === workspaceKey(worktree)
+    closeProject(worktree)
+    showToast({
+      title: language.t("project.remove.toast.title"),
+      description: language.t("project.remove.toast.description"),
+      actions: [
+        {
+          label: language.t("common.undo"),
+          onClick: () => (wasActive ? openProject(worktree, true) : layout.projects.open(worktree)),
+        },
+      ],
+    })
+  }
+
   function toggleProjectWorkspaces(project: LocalProject) {
     const enabled = layout.sidebar.workspaces(project.worktree)()
     if (enabled) {
@@ -1514,15 +815,16 @@ export default function Layout(props: ParentProps) {
     layout.sidebar.toggleWorkspaces(project.worktree)
   }
 
-  async function chooseProject() {
+  async function chooseProject(options: { navigate?: boolean } = {}) {
+    const shouldNavigate = options.navigate ?? true
     function resolve(result: string | string[] | null) {
       if (Array.isArray(result)) {
         for (const directory of result) {
           openProject(directory, false)
         }
-        navigateToProject(result[0])
+        if (shouldNavigate) navigateToProject(result[0])
       } else if (result) {
-        openProject(result)
+        openProject(result, shouldNavigate)
       }
     }
 
@@ -1547,277 +849,6 @@ export default function Layout(props: ParentProps) {
           resolve(null)
         })
     }
-  }
-
-  const deleteWorkspace = async (root: string, directory: string, leaveDeletedWorkspace = false) => {
-    if (directory === root) return
-
-    const current = currentDir()
-    const currentKey = workspaceKey(current)
-    const deletedKey = workspaceKey(directory)
-    const shouldLeave = leaveDeletedWorkspace || (!!params.dir && currentKey === deletedKey)
-    if (!leaveDeletedWorkspace && shouldLeave) {
-      navigate(`/${base64Encode(root)}/session`)
-    }
-
-    setBusy(directory, true)
-
-    const result = await globalSDK.client.worktree
-      .remove({ directory: root, worktreeRemoveInput: { directory } })
-      .then((x) => x.data)
-      .catch((err) => {
-        showToast({
-          title: language.t("workspace.delete.failed.title"),
-          description: errorMessage(err, language.t("common.requestFailed")),
-        })
-        return false
-      })
-
-    setBusy(directory, false)
-
-    if (!result) return
-
-    globalSync.set(
-      "project",
-      produce((draft) => {
-        const project = draft.find((item) => item.worktree === root)
-        if (!project) return
-        project.sandboxes = (project.sandboxes ?? []).filter((sandbox) => sandbox !== directory)
-      }),
-    )
-    setStore("workspaceOrder", root, (order) => (order ?? []).filter((workspace) => workspace !== directory))
-
-    layout.projects.close(directory)
-    layout.projects.open(root)
-
-    if (shouldLeave) return
-
-    const nextCurrent = currentDir()
-    const nextKey = workspaceKey(nextCurrent)
-    const project = layout.projects.list().find((item) => item.worktree === root)
-    const dirs = project
-      ? effectiveWorkspaceOrder(root, [root, ...(project.sandboxes ?? [])], store.workspaceOrder[root])
-      : [root]
-    const valid = dirs.some((item) => workspaceKey(item) === nextKey)
-
-    if (params.dir && projectRoot(nextCurrent) === root && !valid) {
-      navigate(`/${base64Encode(root)}/session`)
-    }
-  }
-
-  const resetWorkspace = async (root: string, directory: string) => {
-    if (directory === root) return
-    setBusy(directory, true)
-
-    const progress = showToast({
-      persistent: true,
-      title: language.t("workspace.resetting.title"),
-      description: language.t("workspace.resetting.description"),
-    })
-    const dismiss = () => toaster.dismiss(progress)
-
-    const sessions: Session[] = await globalSDK.client.session
-      .list({ directory })
-      .then((x) => x.data ?? [])
-      .catch(() => [])
-
-    clearWorkspaceTerminals(
-      directory,
-      sessions.map((s) => s.id),
-      platform,
-    )
-    const actionClient = globalSDK.createClient({
-      headers: clientActionHeaders({ kind: "workspace.reset" }),
-      throwOnError: true,
-    })
-    await actionClient.instance.dispose({ directory }).catch(() => undefined)
-
-    const result = await globalSDK.client.worktree
-      .reset({ directory: root, worktreeResetInput: { directory } })
-      .then((x) => x.data)
-      .catch((err) => {
-        showToast({
-          title: language.t("workspace.reset.failed.title"),
-          description: errorMessage(err, language.t("common.requestFailed")),
-        })
-        return false
-      })
-
-    if (!result) {
-      setBusy(directory, false)
-      dismiss()
-      return
-    }
-
-    const archivedAt = Date.now()
-    await Promise.all(
-      sessions
-        .filter((session) => session.time.archived === undefined)
-        .map((session) =>
-          globalSDK.client.session
-            .update({
-              sessionID: session.id,
-              directory: session.directory,
-              time: { archived: archivedAt },
-            })
-            .catch(() => undefined),
-        ),
-    )
-
-    setBusy(directory, false)
-    dismiss()
-
-    showToast({
-      title: language.t("workspace.reset.success.title"),
-      description: language.t("workspace.reset.success.description"),
-      actions: [
-        {
-          label: language.t("command.session.new"),
-          onClick: () => {
-            const href = `/${base64Encode(directory)}/session`
-            navigate(href)
-          },
-        },
-        {
-          label: language.t("common.dismiss"),
-          onClick: "dismiss",
-        },
-      ],
-    })
-  }
-
-  function DialogDeleteWorkspace(props: { root: string; directory: string }) {
-    const name = createMemo(() => getFilename(props.directory))
-    const [data, setData] = createStore({
-      status: "loading" as "loading" | "ready" | "error",
-      dirty: false,
-    })
-
-    onMount(() => {
-      globalSDK.client.file
-        .status({ directory: props.directory })
-        .then((x) => {
-          const files = x.data ?? []
-          const dirty = files.length > 0
-          setData({ status: "ready", dirty })
-        })
-        .catch(() => {
-          setData({ status: "error", dirty: false })
-        })
-    })
-
-    const handleDelete = () => {
-      const leaveDeletedWorkspace = !!params.dir && workspaceKey(currentDir()) === workspaceKey(props.directory)
-      if (leaveDeletedWorkspace) {
-        navigate(`/${base64Encode(props.root)}/session`)
-      }
-      dialog.close()
-      void deleteWorkspace(props.root, props.directory, leaveDeletedWorkspace)
-    }
-
-    const description = () => {
-      if (data.status === "loading") return language.t("workspace.status.checking")
-      if (data.status === "error") return language.t("workspace.status.error")
-      if (!data.dirty) return language.t("workspace.status.clean")
-      return language.t("workspace.status.dirty")
-    }
-
-    return (
-      <Dialog title={language.t("workspace.delete.title")} fit>
-        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-          <div class="flex flex-col gap-1">
-            <span class="text-body text-fg-strong">
-              {language.t("workspace.delete.confirm", { name: name() })}
-            </span>
-            <span class="text-body text-fg-weak">{description()}</span>
-          </div>
-          <div class="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => dialog.close()}>
-              {language.t("common.cancel")}
-            </Button>
-            <Button variant="primary" disabled={data.status === "loading"} onClick={handleDelete}>
-              {language.t("workspace.delete.button")}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    )
-  }
-
-  function DialogResetWorkspace(props: { root: string; directory: string }) {
-    const name = createMemo(() => getFilename(props.directory))
-    const [state, setState] = createStore({
-      status: "loading" as "loading" | "ready" | "error",
-      dirty: false,
-      sessions: [] as Session[],
-    })
-
-    const refresh = async () => {
-      const sessions = await globalSDK.client.session
-        .list({ directory: props.directory })
-        .then((x) => x.data ?? [])
-        .catch(() => [])
-      const active = sessions.filter((session) => session.time.archived === undefined)
-      setState({ sessions: active })
-    }
-
-    onMount(() => {
-      globalSDK.client.file
-        .status({ directory: props.directory })
-        .then((x) => {
-          const files = x.data ?? []
-          const dirty = files.length > 0
-          setState({ status: "ready", dirty })
-          void refresh()
-        })
-        .catch(() => {
-          setState({ status: "error", dirty: false })
-        })
-    })
-
-    const handleReset = () => {
-      dialog.close()
-      void resetWorkspace(props.root, props.directory)
-    }
-
-    const archivedCount = () => state.sessions.length
-
-    const description = () => {
-      if (state.status === "loading") return language.t("workspace.status.checking")
-      if (state.status === "error") return language.t("workspace.status.error")
-      if (!state.dirty) return language.t("workspace.status.clean")
-      return language.t("workspace.status.dirty")
-    }
-
-    const archivedLabel = () => {
-      const count = archivedCount()
-      if (count === 0) return language.t("workspace.reset.archived.none")
-      if (count === 1) return language.t("workspace.reset.archived.one")
-      return language.t("workspace.reset.archived.many", { count })
-    }
-
-    return (
-      <Dialog title={language.t("workspace.reset.title")} fit>
-        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-          <div class="flex flex-col gap-1">
-            <span class="text-body text-fg-strong">
-              {language.t("workspace.reset.confirm", { name: name() })}
-            </span>
-            <span class="text-body text-fg-weak">
-              {description()} {archivedLabel()} {language.t("workspace.reset.note")}
-            </span>
-          </div>
-          <div class="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => dialog.close()}>
-              {language.t("common.cancel")}
-            </Button>
-            <Button variant="primary" disabled={state.status === "loading"} onClick={handleReset}>
-              {language.t("workspace.reset.button")}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    )
   }
 
   const activeRoute = {
@@ -1872,14 +903,6 @@ export default function Layout(props: ParentProps) {
     ),
   )
 
-  createEffect(() => {
-    const sidebarWidth = layout.sidebar.opened() ? layout.sidebar.width() : 0
-    document.documentElement.style.setProperty("--dialog-left-margin", `${sidebarWidth}px`)
-  })
-
-  const side = createMemo(() => Math.max(layout.sidebar.width(), 180))
-  const panel = createMemo(() => Math.max(side() - 64, 0))
-
   const loadedSessionDirs = new Set<string>()
 
   createEffect(
@@ -1906,129 +929,98 @@ export default function Layout(props: ParentProps) {
     ),
   )
 
-  function handleDragStart(event: unknown) {
-    const id = getDraggableId(event)
-    if (!id) return
-    setStore("activeProject", id)
-  }
-
-  function handleDragOver(event: DragEvent) {
-    const { draggable, droppable } = event
-    if (draggable && droppable) {
-      const projects = layout.projects.list()
-      const fromIndex = projects.findIndex((p) => p.worktree === draggable.id.toString())
-      const toIndex = projects.findIndex((p) => p.worktree === droppable.id.toString())
-      if (fromIndex !== toIndex && toIndex !== -1) {
-        layout.projects.move(draggable.id.toString(), toIndex)
-      }
-    }
-  }
-
-  function handleDragEnd() {
-    setStore("activeProject", undefined)
-  }
-
   function workspaceIds(project: LocalProject | undefined) {
     return pawworkSessionDirectories({
       project,
       activeProjectWorktree: currentProject()?.worktree,
-      currentDirectory: currentDir(),
+      currentDirectory: activeDirectory(),
       workspaceOrder: project ? store.workspaceOrder[project.worktree] : undefined,
     })
   }
 
-  const sidebarProject = createMemo(() => currentProject())
-
-  function handleWorkspaceDragStart(event: unknown) {
-    const id = getDraggableId(event)
-    if (!id) return
-    setStore("activeWorkspace", id)
+  // dialog.show renders the dialog under this body's owner, which sits above
+  // the LayoutPageContext.Provider in the JSX below — so the palette element
+  // wraps the provider explicitly instead of relying on the owner chain.
+  const layoutPageValue = {
+    pinnedIDs: () => store.pawworkPinnedSessions,
+    workspaceOrderFor: (worktree: string) => store.workspaceOrder[worktree],
+    openProject: () => {
+      void chooseProject()
+    },
+    activeDirectory,
   }
 
-  function handleWorkspaceDragOver(event: DragEvent) {
-    const { draggable, droppable } = event
-    if (!draggable || !droppable) return
-
-    const project = sidebarProject()
-    if (!project) return
-
-    const ids = workspaceIds(project)
-    const fromIndex = ids.findIndex((dir) => dir === draggable.id.toString())
-    const toIndex = ids.findIndex((dir) => dir === droppable.id.toString())
-    if (fromIndex === -1 || toIndex === -1) return
-    if (fromIndex === toIndex) return
-
-    const result = ids.slice()
-    const [item] = result.splice(fromIndex, 1)
-    if (!item) return
-    result.splice(toIndex, 0, item)
-    setStore(
-      "workspaceOrder",
-      project.worktree,
-      result.filter((directory) => workspaceKey(directory) !== workspaceKey(project.worktree)),
-    )
-  }
-
-  function handleWorkspaceDragEnd() {
-    setStore("activeWorkspace", undefined)
-  }
-
-  const createWorkspace = async (project: LocalProject) => {
-    const created = await globalSDK.client.worktree
-      .create({ directory: project.worktree })
-      .then((x) => x.data)
-      .catch((err) => {
-        showToast({
-          title: language.t("workspace.create.failed.title"),
-          description: errorMessage(err, language.t("common.requestFailed")),
-        })
-        return undefined
+  function openCommandPalette(source?: "palette" | "keybind" | "slash") {
+    const run = ++dialogRun
+    void import("@/components/dialog-select-file")
+      .then((x) => {
+        if (dialogDead || dialogRun !== run) return
+        dialog.show(() => (
+          <LayoutPageContext.Provider value={layoutPageValue}>
+            <x.DialogSelectFile mode={source === "slash" ? "files" : undefined} />
+          </LayoutPageContext.Provider>
+        ))
       })
+      .catch(() => {
+        // Chunk failed to load — ignore; user can retry
+      })
+  }
 
-    if (!created?.directory) return
-
-    setWorkspaceName(created.directory, created.branch, project.id, created.branch)
-
-    const local = project.worktree
-    const key = workspaceKey(created.directory)
-    const root = workspaceKey(local)
-
-    setBusy(created.directory, true)
-    WorktreeState.pending(created.directory)
-    setStore("workspaceExpanded", key, true)
-    if (key !== created.directory) {
-      setStore("workspaceExpanded", created.directory, true)
+  function openNewSessionCommand() {
+    // On a /:dir route, preserve the previous session-page behavior exactly:
+    // stay in the current route directory (a workspace keeps its own home).
+    // Elsewhere, resolve through the shell (active project, else picker).
+    const slug = params.dir
+    if (slug) {
+      navigate(`/${slug}/session`)
+      return
     }
-    setStore("workspaceOrder", project.worktree, (prev) => {
-      const existing = prev ?? []
-      const next = existing.filter((item) => {
-        const id = workspaceKey(item)
-        return id !== root && id !== key
-      })
-      return [created.directory, ...next]
-    })
-
-    globalSync.child(created.directory)
-    navigate(`/${base64Encode(created.directory)}/session`)
+    openPawworkHome()
   }
 
   registerLayoutCommands({
-    command,
-    language,
-    layout,
-    theme,
-    platform,
-    globalSDK,
-    currentProject,
-    workspaceSetting,
-    chooseProject,
-    navigateProjectByOffset,
-    connectProvider,
-    openServer,
-    openSettings,
-    navigateSessionByOffset,
-    navigateSessionByUnseen,
-    createWorkspace,
+    registry: command,
+    copy: language,
+    appearance: theme,
+    viewActions: {
+      toggleSidebar: layout.sidebar.toggle,
+    },
+    paletteActions: {
+      open: openCommandPalette,
+      canOpenFiles: () => !!activeDirectory(),
+    },
+    sessionActions: {
+      openNew: openNewSessionCommand,
+    },
+    navigationActions: {
+      openProject: chooseProject,
+      moveProject: navigateProjectByOffset,
+      moveSession: navigateSessionByOffset,
+      moveUnseenSession: navigateSessionByUnseen,
+      // Session-relative navigation has no anchor on a surface route
+      // (params.id is gone) — it would jump to an arbitrary session, yanking
+      // the user off the page they deliberately opened.
+      canMoveSession: () => !surfaceRoute(),
+    },
+    settingsActions: {
+      open: openSettings,
+      canOpenGlobalConfigFolder: () => !!platform.openPath,
+      openGlobalConfigFolder,
+    },
+    workspaceActions: {
+      canCreateCurrent: () => !!workspaceSetting(),
+      createCurrent: createCurrentWorkspace,
+      canToggleCurrent: () => currentProject()?.vcs === "git",
+      toggleCurrent: toggleCurrentWorkspace,
+    },
+    systemActions: {
+      connectProvider,
+      switchServer: openServer,
+    },
+    diagnosticsActions: {
+      prepare: () => void openDiagnosticsReview({ platform, dialog, language }),
+      canPrepare: () => Boolean(platform.prepareReport),
+    },
   })
 
   const workspaceSidebarCtx: WorkspaceSidebarContext = {
@@ -2057,10 +1049,6 @@ export default function Layout(props: ParentProps) {
   }
 
   const projects = () => layout.projects.list()
-  const showMorePawworkSessions = () => {
-    if (pawworkSessionWindowState.loading) return
-    setPawworkSessionWindowState("limit", (limit) => nextPawworkSessionWindowLimit(limit))
-  }
   const renderPawworkPanel = (
     sessions: Accessor<PawworkSidebarSession[]>,
     options?: { directory?: string; scope?: "main" | "peek" },
@@ -2071,8 +1059,12 @@ export default function Layout(props: ParentProps) {
       sessionWindow={() => ({
         canShowMore: pawworkSessionWindow().canShowMore,
         capReached: pawworkSessionWindow().capReached,
-        loading: pawworkSessionWindowState.loading,
+        loading: pawworkSessionWindowLoading(),
       })}
+      // Intentionally keyed on open projects only: with zero projects we show
+      // the "open a project" empty state even if direct-start rows survive the
+      // session filter. The sidebar lists only open projects; direct-start
+      // sessions stay reachable once any project is open (or by reopening).
       showProjectEmptyState={projects().length === 0}
       activeSessionID={() => params.id}
       pinnedIDs={() => store.pawworkPinnedSessions}
@@ -2084,7 +1076,7 @@ export default function Layout(props: ParentProps) {
       onOpenSession={navigateToSession}
       onRenameSession={renamePawworkSession}
       onRenameProject={handleRenameProject}
-      onRemoveProject={hideProject}
+      onRemoveProject={removeProject}
       onTogglePinnedSession={togglePinnedSession}
       onDragSession={dragPawworkSession}
       onMovePinnedSession={movePinnedSessionByOne}
@@ -2096,7 +1088,19 @@ export default function Layout(props: ParentProps) {
       onSearchOlderSessions={() => command.show()}
       onNew={() => openPawworkHome(options?.directory)}
       onSearch={() => command.show()}
+      // The palette dialog mounts directory-bound providers; with zero
+      // projects there is nothing to search, so the button shows as disabled.
+      searchAvailable={() => !!activeDirectory()}
       onOpenProject={chooseProject}
+      onOpenSkills={openSkillsSurface}
+      skillsActive={skillsOpen}
+      skillsLabel={() => language.t("sidebar.pawwork.skills")}
+      onOpenAutomations={openAutomationsSurface}
+      automationsActive={automationsOpen}
+      automationsLabel={() => language.t("sidebar.pawwork.automations")}
+      onOpenRemote={openRemoteSurface}
+      remoteActive={remoteOpen}
+      remoteLabel={() => language.t("sidebar.pawwork.remote")}
       onOpenSettings={() => openSettings()}
       settingsLabel={() => language.t("sidebar.settings")}
       settingsKeybind={() => command.keybind("settings.open")}
@@ -2106,151 +1110,77 @@ export default function Layout(props: ParentProps) {
   )
   const sidebarContent = () =>
     renderPawworkPanel(pawworkSessions, { directory: currentProject()?.worktree, scope: "main" })
+
+  function handleSidebarResize(width: number) {
+    setState("sizing", true)
+    if (sizet !== undefined) clearTimeout(sizet)
+    sizet = window.setTimeout(() => setState("sizing", false), 120)
+    layout.sidebar.resize(width)
+  }
+
   return (
-    <LayoutPageContext.Provider
-      value={{
-        pinnedIDs: () => store.pawworkPinnedSessions,
-        workspaceOrderFor: (worktree: string) => store.workspaceOrder[worktree],
-        openProject: () => {
-          void chooseProject()
-        },
-      }}
-    >
-      <ShellSurfaceContext.Provider
+    <LayoutPageContext.Provider value={layoutPageValue}>
+      <SurfacePageContext.Provider
         value={{
-          settingsOpen,
-          openNewSession: openPawworkHome,
-          openSession: navigateToSession,
-          openSettings,
-          closeSettings,
+          close: closeSurface,
+          settings: {
+            tab: settingsTab,
+            directory: activeDirectory,
+          },
+          automations: {
+            directory: surfaceProjectRoot,
+            projectID: () => currentProject()?.id,
+            openRun: (sessionID) => {
+              void openAutomationRun(sessionID)
+            },
+            openProject: () => {
+              void chooseProject({ navigate: false })
+            },
+            createViaChat: createAutomationViaChat,
+          },
+          skills: {
+            directory: activeDirectory,
+            useInChat: useSkillInChat,
+          },
         }}
       >
-      <div
-        data-component="desktop-shell"
-        data-platform={platform.platform}
-        {...shellAttrs(platform)}
-        class="relative bg-bg-base flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text"
-        classList={{
-          "[transition:--sidebar-width_200ms_cubic-bezier(0.22,1,0.36,1),--right-panel-width_240ms_cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none":
-            !state.sizing,
-        }}
-        style={{
-          "--shell-titlebar-current-height":
-            isMacShell(platform)
-              ? `calc(var(--shell-titlebar-height, 44px) / ${platform.webviewZoom?.() ?? 1})`
-              : "var(--shell-titlebar-height, 44px)",
-          "--sidebar-width": layout.sidebar.opened() || settingsOpen() ? `${side()}px` : "0px",
-          "--right-panel-width": layout.rightPanel.opened() ? `${layout.rightPanel.width()}px` : "0px",
-          "--right-panel-divider": layout.rightPanel.opened() ? "var(--border-weaker)" : "transparent",
-        }}
-      >
-        <div
-          data-component="desktop-shell-frame"
-          data-platform={platform.platform}
-          {...shellAttrs(platform)}
-          class="flex flex-1 min-h-0 min-w-0 flex-col"
-        >
-          <Titlebar />
-          <PawworkTitlebar visible={settingsOpen} title={() => language.t("sidebar.settings")} />
-          <div class="flex-1 min-h-0 min-w-0 flex">
-          <div class="flex-1 min-h-0 relative">
-            <div data-component="shell-content" class="size-full relative overflow-x-hidden">
-              <Show when={layout.sidebar.opened() || settingsOpen()}>
-                <aside
-                  aria-label={language.t("sidebar.nav.projectsAndSessions")}
-                  data-component="sidebar-nav-desktop"
-                  class="absolute inset-y-0 left-0 z-10 border-r border-border-weaker"
-                  style={{ width: `${side()}px` }}
-                  ref={(el) => {
-                    setState("nav", el)
-                  }}
-                >
-                  <div
-                    classList={{ "@container w-full h-full contain-strict": true, invisible: settingsOpen() }}
-                    inert={settingsOpen() ? true : undefined}
-                    aria-hidden={settingsOpen() || undefined}
-                  >
-                    {sidebarContent()}
-                  </div>
-                  {/* Settings takeover: the nav overlays the session sidebar (kept mounted, only inert, so scroll state survives); geometry is inherited from this aside slot. */}
-                  <Show when={settingsOpen()}>
-                    <div class="absolute inset-0 z-10">
-                      <SettingsNav active={settingsTab()} onSelect={setSettingsTab} onClose={closeSettings} />
-                    </div>
-                  </Show>
-                </aside>
-
-                {/* Hide the resize handle while settings is open: the sidebar width is not draggable inside settings. */}
-                <Show when={!settingsOpen()}>
-                  <div
-                    class="absolute inset-y-0 z-30 w-0 overflow-visible"
-                    style={{ left: `${side()}px` }}
-                    onPointerDown={() => setState("sizing", true)}
-                  >
-                    <ResizeHandle
-                      direction="horizontal"
-                      size={layout.sidebar.width()}
-                      min={180}
-                      max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.3 + 64}
-                      onResize={(w) => {
-                        setState("sizing", true)
-                        if (sizet !== undefined) clearTimeout(sizet)
-                        sizet = window.setTimeout(() => setState("sizing", false), 120)
-                        layout.sidebar.resize(w)
-                      }}
-                    />
-                  </div>
-                </Show>
-              </Show>
-
-              <div
-                classList={{
-                  "absolute inset-y-0 right-0 left-[var(--main-left)]": true,
-                  "z-20": true,
-                  "transition-[left] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[left] motion-reduce:transition-none":
-                    !state.sizing,
-                }}
-                style={{
-                  "--main-left": layout.sidebar.opened() || settingsOpen() ? `${side()}px` : "0",
-                }}
-              >
-                <main
-                  data-component="desktop-shell-main"
-                  data-platform={platform.platform}
-                  {...shellAttrs(platform)}
-                  classList={{
-                    "size-full overflow-x-hidden flex flex-col items-start contain-strict": true,
-                  }}
-                >
-                  <div class="relative size-full">
-                    <div
-                      inert={settingsOpen() ? true : undefined}
-                      aria-hidden={settingsOpen() || undefined}
-                      classList={{ "size-full": true, invisible: settingsOpen() }}
-                    >
-                      <Show when={!startupAutoselectPending()} fallback={<AppStartupPending />}>
-                        {props.children}
-                      </Show>
-                    </div>
-                    {/* Settings takeover: the content overlays the session page (kept mounted, only inert, so the terminal/right panel are not torn down); geometry is inherited from the main slot. */}
-                    <Show when={settingsOpen()}>
-                      <div class="absolute inset-0 z-10">
-                        <SettingsContent active={settingsTab()} directory={currentDir()} onClose={closeSettings} />
-                      </div>
-                    </Show>
-                  </div>
-                </main>
-              </div>
-            </div>
-          </div>
-          {import.meta.env.DEV &&
-            !((window as typeof window & { __opencode_e2e?: unknown }).__opencode_e2e) &&
-            <DebugBar />}
-          </div>
-        </div>
-        <Toast.Region />
-      </div>
-      </ShellSurfaceContext.Provider>
+        <LayoutShellFrame
+          platform={platform}
+          sizing={() => state.sizing}
+          sidebar={{
+            visible: () => layout.sidebar.opened() || settingsOpen(),
+            width: layout.sidebar.width,
+            minWidth: 180,
+            maxWidth: () => (typeof window === "undefined" ? 1000 : window.innerWidth * 0.3 + 64),
+            label: () => language.t("sidebar.nav.projectsAndSessions"),
+            content: sidebarContent,
+            onResizeStart: () => setState("sizing", true),
+            onResize: handleSidebarResize,
+          }}
+          rightPanel={{
+            opened: layout.rightPanel.opened,
+            width: layout.rightPanel.width,
+          }}
+          settings={{
+            open: settingsOpen,
+            title: () => language.t("sidebar.settings"),
+            nav: () => <SettingsNav active={settingsTab()} onSelect={setSettingsTab} onClose={closeSurface} />,
+          }}
+          automations={{
+            open: automationsOpen,
+            title: () => language.t("automations.title"),
+          }}
+          skills={{
+            open: skillsOpen,
+            title: () => language.t("skills.title"),
+          }}
+          main={() => (
+            <Show when={!startupAutoselectPending()} fallback={<AppStartupPending />}>
+              {props.children}
+            </Show>
+          )}
+        />
+      </SurfacePageContext.Provider>
     </LayoutPageContext.Provider>
   )
 }

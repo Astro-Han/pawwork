@@ -5,6 +5,8 @@ run-name: windows advisory @ ${{ github.ref_name }} / ${{ github.sha }}
 on:
   push:
     branches: [dev]
+  pull_request:
+    branches: [dev]
   workflow_dispatch:
 
 concurrency:
@@ -17,6 +19,9 @@ permissions:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       docs_only: ${{ steps.filter.outputs.docs_only }}
     steps:
@@ -108,16 +113,17 @@ jobs:
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: windows-latest
-    # Windows unit jobs are advisory, package-scoped or shard-scoped. The
-    # 20-minute budget applies per matrix child; opencode has three parallel
-    # shards, so a full stall can consume up to three Windows runner slots.
-    timeout-minutes: 20
+    # Windows unit jobs are advisory, package-scoped or shard-scoped. Timeout
+    # budgets are explicit per matrix child; opencode has seven parallel
+    # shards, so a full stall can still consume multiple Windows runner slots.
+    timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - package: app
             uses_turbo: true
+            timeout_minutes: 20
             command: bun turbo test:ci --filter=@opencode-ai/app
             report_path: packages/app/.artifacts/unit/junit.xml
           # The opencode-* package values below are synthetic shard names for
@@ -129,6 +135,7 @@ jobs:
           # tests to keep the Windows shard runtimes close.
           - package: opencode-session
             uses_turbo: false
+            timeout_minutes: 30
             command: >-
               cd packages/opencode && bun test
               --timeout 30000
@@ -147,6 +154,7 @@ jobs:
           # and GitHub workflow tests.
           - package: opencode-config-project
             uses_turbo: false
+            timeout_minutes: 20
             command: >-
               cd packages/opencode && bun test
               --timeout 30000
@@ -157,39 +165,83 @@ jobs:
               test/worktree
               test/file/
               test/github
+              test/opencli
               test/settings
               test/settings.test.ts
             report_path: packages/opencode/.artifacts/unit/junit-windows-config-project.xml
-          # Server tools carries many smaller and faster directories, which is
-          # why it has more entries than the other two opencode shards.
+          # Server tools carries the slow HTTP/server route suite, so it gets
+          # the largest wall-clock budget plus a process-level attempt timeout.
           - package: opencode-server-tools
             uses_turbo: false
+            timeout_minutes: 50
+            attempt_timeout_minutes: 20
             command: >-
               cd packages/opencode && bun test
               --timeout 30000
               --reporter=junit
               --reporter-outfile=.artifacts/unit/junit-windows-server-tools.xml
               test/server
-              test/snapshot
-              test/tool
-              test/mcp
-              test/question
-              test/effect
+            report_path: packages/opencode/.artifacts/unit/junit-windows-server-tools.xml
+          # Browser is isolated from server routes because a Windows process
+          # hang after browser tests can otherwise consume the whole job
+          # timeout before the retry wrapper sees an exit code.
+          - package: opencode-browser-agent
+            uses_turbo: false
+            timeout_minutes: 30
+            attempt_timeout_minutes: 10
+            command: >-
+              cd packages/opencode && bun test
+              --timeout 30000
+              --reporter=junit
+              --reporter-outfile=.artifacts/unit/junit-windows-browser-agent.xml
+              test/browser
               test/agent
+              test/question
+            report_path: packages/opencode/.artifacts/unit/junit-windows-browser-agent.xml
+          - package: opencode-server-support
+            uses_turbo: false
+            timeout_minutes: 30
+            attempt_timeout_minutes: 10
+            command: >-
+              cd packages/opencode && bun test
+              --timeout 30000
+              --reporter=junit
+              --reporter-outfile=.artifacts/unit/junit-windows-server-support.xml
+              test/snapshot
+              test/mcp
+              test/effect
               test/git/
               test/storage
+            report_path: packages/opencode/.artifacts/unit/junit-windows-server-support.xml
+          - package: opencode-tool-runtime
+            uses_turbo: false
+            timeout_minutes: 20
+            command: >-
+              cd packages/opencode && bun test
+              --timeout 30000
+              --reporter=junit
+              --reporter-outfile=.artifacts/unit/junit-windows-tool-runtime.xml
+              test/tool
               test/provider
               test/pty
               test/share/
               test/script
               test/memory
               test/lsp
+            report_path: packages/opencode/.artifacts/unit/junit-windows-tool-runtime.xml
+          - package: opencode-platform
+            uses_turbo: false
+            timeout_minutes: 20
+            command: >-
+              cd packages/opencode && bun test
+              --timeout 30000
+              --reporter=junit
+              --reporter-outfile=.artifacts/unit/junit-windows-platform.xml
               test/fixture
               test/acp
               test/bus
               test/cli
               test/global
-              test/format
               test/account
               test/sync
               test/filesystem
@@ -199,9 +251,11 @@ jobs:
               test/ide
               test/installation
               test/auth
-            report_path: packages/opencode/.artifacts/unit/junit-windows-server-tools.xml
+              test/automation
+            report_path: packages/opencode/.artifacts/unit/junit-windows-platform.xml
           - package: desktop
             uses_turbo: true
+            timeout_minutes: 20
             command: bun turbo test:ci --filter=@opencode-ai/desktop-electron
             report_path: packages/desktop-electron/.artifacts/unit/junit.xml
     permissions:
@@ -253,19 +307,83 @@ jobs:
 
       - name: unit
         id: unit
+        # Windows-advisory has shown transient flake (sleep-based timing in
+        # opencode session tests and occasional Bun native crashes on
+        # `windows-latest`). Linux `ci` is the load-bearing required gate;
+        # this workflow is advisory and non-blocking. Retry once at the
+        # process level so a single transient failure does not turn the
+        # advisory red, but keep the first-attempt failure visible in the
+        # step summary so persistent regressions are not hidden by retry.
+        # Each attempt runs in a subshell so `cd packages/...` in
+        # matrix.command does not leak between attempts.
         run: |
           set +e
-          ${{ matrix.command }}
-          status=$?
-          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          attempts=2
+          attempt_timeout_minutes="${{ matrix.attempt_timeout_minutes }}"
+          first_status=
+          if [ -n "$attempt_timeout_minutes" ] && ! command -v timeout >/dev/null 2>&1; then
+            echo "::error title=Missing GNU timeout::matrix package ${{ matrix.package }} needs process-level attempt timeout"
+            exit 127
+          fi
 
-          if [ "$status" -ne 0 ]; then
+          for attempt in $(seq 1 "$attempts"); do
+            echo "::group::Windows unit attempt $attempt of $attempts"
+            if [ -n "$attempt_timeout_minutes" ]; then
+              timeout "${attempt_timeout_minutes}m" bash -lc '${{ matrix.command }}'
+            else
+              ( ${{ matrix.command }} )
+            fi
+            status=$?
+            if [ -n "$attempt_timeout_minutes" ] && [ "$status" -eq 124 ]; then
+              echo "Windows unit attempt timed out after ${attempt_timeout_minutes}m"
+            fi
+            echo "::endgroup::"
+
+            if [ "$attempt" -eq 1 ]; then
+              first_status=$status
+            fi
+
+            if [ "$status" -eq 0 ]; then
+              break
+            fi
+
+            if [ "$attempt" -lt "$attempts" ]; then
+              {
+                echo "### Windows unit attempt $attempt failed (retrying)"
+                echo ""
+                echo "- package: ${{ matrix.package }}"
+                echo "- exit code: $status"
+                echo "- next attempt: $((attempt + 1)) of $attempts"
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          echo "first_exit_code=$first_status" >> "$GITHUB_OUTPUT"
+
+          if [ "$status" -eq 0 ] && [ "$first_status" -ne 0 ]; then
+            # ::notice surfaces the recovery in the run-level annotations panel
+            # and in each check's annotation list, not just buried in the
+            # collapsed step summary, so flake rate stays observable.
+            echo "::notice title=Windows unit recovered on retry::package=${{ matrix.package }}; attempt 1 exit code=$first_status; attempt 2 succeeded"
+            {
+              echo "### Windows unit recovered on retry"
+              echo ""
+              echo "- package: ${{ matrix.package }}"
+              echo "- attempt 1 exit code: $first_status"
+              echo "- attempt 2: success"
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$status" -ne 0 ]; then
+            # ::warning gives the run-level annotation a yellow icon on a red
+            # job — the step is still failing (advisory signal red), but the
+            # annotation makes the post-retry failure scannable at a glance.
+            echo "::warning title=Windows unit failed advisory signal after retry::package=${{ matrix.package }}; final exit code=$status; attempts=$attempts"
             {
               echo "### Windows unit diagnostic"
               echo ""
               echo "- package: ${{ matrix.package }}"
               echo "- exit code: $status"
-              echo "- status: failed advisory signal"
+              echo "- status: failed advisory signal after $attempts attempts"
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 

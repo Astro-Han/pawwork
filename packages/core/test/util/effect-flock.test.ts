@@ -129,6 +129,38 @@ describe("util.effect-flock", () => {
   )
 
   it.live(
+    "withLockPromise serializes Promise critical sections",
+    () =>
+      Effect.promise(async () => {
+        const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "eflock-promise-"))
+        const dir = path.join(tmp, "locks")
+        const active = new Set<number>()
+        let maxActive = 0
+
+        try {
+          await Promise.all(
+            Array.from({ length: 3 }, (_, index) =>
+              EffectFlock.withLockPromise(
+                "eflock:promise",
+                async () => {
+                  active.add(index)
+                  maxActive = Math.max(maxActive, active.size)
+                  await sleep(20)
+                  active.delete(index)
+                },
+                dir,
+              ),
+            ),
+          )
+
+          expect(maxActive).toBe(1)
+        } finally {
+          await fs.rm(tmp, { recursive: true, force: true })
+        }
+      }),
+  )
+
+  it.live(
     "recovers after a crashed lock owner",
     () =>
       Effect.promise(async () => {

@@ -1,0 +1,6 @@
+Navigate the embedded browser tab to a URL and wait for the page to load.
+
+- `url` must be a full http:// or https:// URL; other schemes (file:, javascript:, custom protocols) are rejected before any navigation happens.
+- The page opens in the user's visible embedded browser tab — everything you do stays on screen.
+- Returns the landed URL and page title, which may differ from the requested URL after redirects.
+- After navigating, call browser_snapshot to see the page structure before clicking or typing.

@@ -1,13 +1,13 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
-import { Hono } from "hono"
 import { GlobalBus } from "../../src/bus/global"
 import { Config } from "../../src/config"
+import { Runner, type InterruptMeta, type Runner as RunnerInstance } from "../../src/effect/runner"
 import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
 import { registerDisposer } from "../../src/effect/instance-registry"
-import { GlobalRoutes } from "../../src/server/instance/global"
+import { Server } from "../../src/server/server"
 import {
   createLifecycleCloseAction,
   beginLifecycleClose,
@@ -24,12 +24,75 @@ import { testEffect } from "../lib/effect"
 
 const it = testEffect(Layer.mergeAll(CrossSpawnSpawner.defaultLayer, SessionRunState.defaultLayer))
 
+const provideConfig = <A, E>(effect: Effect.Effect<A, E, Config.Service>) =>
+  effect.pipe(Effect.scoped, Effect.provide(Config.defaultLayer))
+
 describe("SessionRunState", () => {
   const expectDirectoryIdle = (directory: string) =>
     Effect.gen(function* () {
       const idle = yield* Effect.promise(() => whenAllRunsIdle([directory])).pipe(Effect.timeout("100 millis"), Effect.exit)
       expect(Exit.isSuccess(idle)).toBe(true)
     })
+
+  it.live("delivers cancel to an existing shell runner before it reports busy", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const run = yield* SessionRunState.Service
+        const sessionID = SessionID.make("ses_shell_cancel_startup_race")
+        const runnerEntered = yield* Deferred.make<void>()
+        const releaseRunner = yield* Deferred.make<void>()
+        let cancelMeta: InterruptMeta | undefined
+
+        const make = spyOn(Runner, "make").mockImplementation(() => {
+          const fake = {
+            get state() {
+              return { _tag: "Idle" } as const
+            },
+            get busy() {
+              return false
+            },
+            ensureRunning: () => Effect.die(new Error("unexpected ensureRunning")),
+            startShell: () =>
+              Deferred.succeed(runnerEntered, undefined).pipe(
+                Effect.andThen(Deferred.await(releaseRunner)),
+                Effect.as({} as never),
+              ),
+            cancel: Effect.sync(() => {
+              cancelMeta = undefined
+            }),
+            cancelWith: (meta?: InterruptMeta) =>
+              Effect.sync(() => {
+                cancelMeta = meta
+              }),
+          } satisfies RunnerInstance<never>
+          return fake as never
+        })
+        yield* Effect.addFinalizer(() =>
+          Effect.gen(function* () {
+            make.mockRestore()
+            yield* Deferred.succeed(releaseRunner, undefined)
+          }),
+        )
+
+        const shellFiber = yield* run
+          .startShell(
+            sessionID,
+            () => Effect.sync(() => ({}) as never),
+            Effect.sync(() => ({}) as never),
+          )
+          .pipe(Effect.forkChild)
+
+        yield* Deferred.await(runnerEntered)
+        yield* run.cancel(sessionID, { source: "test", reason: "shell_startup_cancel" })
+        yield* Deferred.succeed(releaseRunner, undefined)
+
+        expect(Exit.isSuccess(yield* Fiber.await(shellFiber))).toBe(true)
+        expect(cancelMeta).toMatchObject({
+          source: "test",
+          reason: "shell_startup_cancel",
+        })
+      }),
+    ))
 
   test("keeps overlapping lifecycle actions isolated per directory", async () => {
     const directory = "/tmp/pawwork-lifecycle-overlap"
@@ -403,7 +466,7 @@ describe("SessionRunState", () => {
           yield* Effect.addFinalizer(() => Effect.sync(() => GlobalBus.off("event", onEvent)))
           yield* Effect.sleep("10 millis")
           yield* Effect.promise(async () => {
-            const app = new Hono().route("/global", GlobalRoutes())
+            const app = Server.Default().app
             const response = await app.request("/global/dispose", {
               method: "POST",
               headers: {
@@ -568,7 +631,7 @@ describe("SessionRunState", () => {
 
           yield* Effect.sleep("10 millis")
           yield* Effect.promise(async () => {
-            const app = new Hono().route("/global", GlobalRoutes())
+            const app = Server.Default().app
             const response = await app.request("/global/dispose", { method: "POST" })
             expect(response.status).toBe(200)
             expect(await response.json()).toMatchObject({ status: "deferred" })
@@ -875,7 +938,7 @@ describe("SessionRunState", () => {
             .pipe(Effect.forkChild)
 
           yield* Effect.sleep("10 millis")
-          yield* Effect.promise(() => Config.update({ username: "config-update-origin" }))
+          yield* provideConfig(Config.Service.use((cfg) => cfg.update({ username: "config-update-origin" })))
 
           yield* Effect.sleep("20 millis")
           expect(captured).toBeUndefined()
@@ -913,7 +976,9 @@ describe("SessionRunState", () => {
           yield* Effect.sync(() => GlobalBus.on("event", onEvent))
           yield* Effect.addFinalizer(() => Effect.sync(() => GlobalBus.off("event", onEvent)))
           yield* Effect.sleep("10 millis")
-          const invalidateFiber = yield* Effect.promise(() => Config.invalidate(true)).pipe(Effect.forkChild)
+          const invalidateFiber = yield* provideConfig(Config.Service.use((cfg) => cfg.invalidate(true))).pipe(
+            Effect.forkChild,
+          )
 
           yield* Effect.sleep("20 millis")
           expect(captured).toBeUndefined()
@@ -949,12 +1014,17 @@ describe("SessionRunState", () => {
             .pipe(Effect.forkChild)
 
           yield* Effect.sleep("10 millis")
-          yield* Effect.promise(async () => {
-            await using globalTmp = await tmpdir()
+          const globalTmp = yield* Effect.acquireRelease(
+            Effect.promise(() => tmpdir()),
+            (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+          )
+          yield* Effect.gen(function* () {
             const previous = Global.Path.config
             ;(Global.Path as { config: string }).config = globalTmp.path
             try {
-              await Config.updateGlobal({ username: "config-update-global-origin" })
+              yield* provideConfig(
+                Config.Service.use((cfg) => cfg.updateGlobal({ username: "config-update-global-origin" })),
+              )
             } finally {
               ;(Global.Path as { config: string }).config = previous
             }

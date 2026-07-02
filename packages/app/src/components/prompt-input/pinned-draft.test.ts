@@ -167,10 +167,10 @@ describe("PinnedDraftOwner.clearAll / release", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Coexistence with PortableDraftOwner
+// Coexistence with legacy migration owner
 // ---------------------------------------------------------------------------
 
-describe("PinnedDraftOwner + PortableDraftOwner coexistence", () => {
+describe("PinnedDraftOwner + migration owner coexistence", () => {
   let pinned: ReturnType<typeof createPinnedDraftOwner>
   let portable: ReturnType<typeof createPortableDraftOwner>
 
@@ -179,8 +179,8 @@ describe("PinnedDraftOwner + PortableDraftOwner coexistence", () => {
     portable = createPortableDraftOwner()
   })
 
-  test("portable record while pinned slot bound: portable still accepts edits for OTHER directories", () => {
-    // Pinned bound to /a; user edits homepage /b via portable.
+  test("migration owner record while pinned slot bound: migration owner still accepts another directory", () => {
+    // Pinned bound to /a; migration adopts a legacy /b draft.
     pinned.adopt({ directory: "/repo-a", prompt: "pinned text" })
     portable.record({
       sourceFilesystemDirectory: "/repo-b",
@@ -196,8 +196,8 @@ describe("PinnedDraftOwner + PortableDraftOwner coexistence", () => {
     expect(portable.snapshot()?.prompt[0]).toMatchObject({ content: "portable text" })
   })
 
-  test("portable record for the pinned directory while pinned slot bound: owners hold independent state without interfering", () => {
-    // Pinned is bound to /repo-x; portable also records for /repo-x.
+  test("migration owner record for the pinned directory while pinned slot bound: owners stay independent", () => {
+    // Pinned is bound to /repo-x; migration owner also records for /repo-x.
     // In the real app, editor-input.ts branches so only one is updated,
     // but at the owner level both can hold state simultaneously.
     pinned.adopt({ directory: "/repo-x", prompt: "deep-link text" })
@@ -213,7 +213,7 @@ describe("PinnedDraftOwner + PortableDraftOwner coexistence", () => {
     expect(portable.snapshot()?.prompt[0]).toMatchObject({ content: "portable text" })
   })
 
-  test("after pinned.release(), recordEdit pinned no-ops but portable still works for that directory", () => {
+  test("after pinned.release(), recordEdit pinned no-ops but migration owner still works for that directory", () => {
     pinned.adopt({ directory: "/repo-x", prompt: "prefill" })
     pinned.release()
 
@@ -221,7 +221,7 @@ describe("PinnedDraftOwner + PortableDraftOwner coexistence", () => {
     pinned.recordEdit({ directory: "/repo-x", ...makePayload("new text") })
     expect(pinned.current()).toBeNull()
 
-    // Portable is unaffected and still works.
+    // Migration owner is unaffected and still works.
     portable.record({
       sourceFilesystemDirectory: "/repo-x",
       prompt: [{ type: "text", content: "portable still works", start: 0, end: 20 }],

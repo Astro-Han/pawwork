@@ -7,6 +7,9 @@ import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
 import { writeAppUpdateConfig, type GitHubPublishConfig } from "./scripts/write-app-update-config"
+import { openCliRuntimeFileSets, openCliRuntimePackageNames } from "./opencli-runtime"
+
+export { openCliRuntimeFileSets, openCliRuntimePackageNames } from "./opencli-runtime"
 
 const execFileAsync = promisify(execFile)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
@@ -118,6 +121,7 @@ const getBase = (channel: Channel): Configuration => ({
   },
   extraResources: [
     ...nativeWatcherFileSets(),
+    ...openCliRuntimeFileSets(),
     {
       from: path.join(rootDir, "skills"),
       to: "skills",

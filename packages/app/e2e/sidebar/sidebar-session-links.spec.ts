@@ -1,7 +1,7 @@
 import type { Page, Route } from "@playwright/test"
 import { test, expect } from "../fixtures"
 import { cleanupSession, cleanupTestProject, createTestProject, openSidebar, waitSession, withSession } from "../actions"
-import { promptSelector, sessionTurnListSelector } from "../selectors"
+import { promptSelector, sessionComposerDockSelector, sessionTurnListSelector } from "../selectors"
 import type { createSdk } from "../utils"
 
 async function sessionRowPaint(page: Page, sessionID: string) {
@@ -214,6 +214,46 @@ test("sidebar session press does not dim the row before drag starts", async ({ p
   }
 })
 
+test("@smoke sidebar session click with slight jitter still navigates instead of starting a drag", async ({ page, slug, sdk, gotoSession }) => {
+  const stamp = Date.now()
+  const source = await sdk.session.create({ title: `e2e sidebar jitter source ${stamp}` }).then((r) => r.data)
+  const target = await sdk.session.create({ title: `e2e sidebar jitter target ${stamp}` }).then((r) => r.data)
+
+  if (!source?.id) throw new Error("Source session create did not return an id")
+  if (!target?.id) throw new Error("Target session create did not return an id")
+
+  try {
+    await gotoSession(source.id)
+    await openSidebar(page)
+
+    const targetRow = page.locator(`[data-session-id="${target.id}"][data-component="pawwork-session-row"]`).first()
+    await expect(targetRow).toBeVisible()
+    const targetBox = await targetRow.boundingBox()
+    if (!targetBox) throw new Error("Target session row did not expose a bounding box")
+
+    // Press, drift a few px (inside the 5px fallbackTolerance dead zone), release.
+    // This is the hand-jitter case a 0-tolerance config misread as a drag, which
+    // swallowed the click so navigation never fired and the row felt unresponsive.
+    const startX = targetBox.x + targetBox.width / 3
+    const startY = targetBox.y + targetBox.height / 2
+    await page.mouse.move(startX, startY)
+    await nextFrame(page)
+    await page.mouse.down()
+    await page.mouse.move(startX + 3, startY + 3, { steps: 3 })
+    await nextFrame(page)
+    await page.mouse.up()
+
+    const selectedSessionUrl = new RegExp(`/${slug}/session/${target.id}(?:\\?|#|$)`)
+    await expect(page).toHaveURL(selectedSessionUrl)
+    await expect(page.locator(`[data-session-id="${target.id}"] a`).first()).toHaveClass(/\bactive\b/)
+    // The row did not get dragged anywhere: still exactly one instance in the sidebar.
+    await expect(page.locator(`[data-session-id="${target.id}"][data-component="pawwork-session-row"]`)).toHaveCount(1)
+  } finally {
+    await cleanupSession({ sdk, sessionID: source.id })
+    await cleanupSession({ sdk, sessionID: target.id })
+  }
+})
+
 test("sidebar session links can switch workspaces without opening the error boundary", async ({ page, backend, project }) => {
   const stamp = Date.now()
   const other = await createTestProject({ serverUrl: backend.url })
@@ -279,6 +319,8 @@ test("opening a delayed sidebar session never shows the previous session as load
       try {
         await gotoSession(source.id)
         await expect(page.locator(sessionTurnListSelector).getByText(sourceText)).toBeVisible()
+        const sourceDockBox = await page.locator(sessionComposerDockSelector).boundingBox()
+        if (!sourceDockBox) throw new Error("Source composer dock did not expose a bounding box")
         await openSidebar(page)
         await expect.poll(() => targetMessageRequests, { timeout: 10_000 }).toBeGreaterThan(0)
 
@@ -289,10 +331,22 @@ test("opening a delayed sidebar session never shows the previous session as load
         await expect(page.locator(sessionTurnListSelector).getByText(sourceText)).toHaveCount(0)
         await expect(page.locator(sessionTurnListSelector).getByText(targetText)).toHaveCount(0)
         await expect(page.locator(promptSelector)).toHaveCount(0)
+        const openingDock = page.locator(
+          `${sessionComposerDockSelector}[data-state="opening-placeholder"]`,
+        )
+        await expect(openingDock).toHaveCount(1)
+        await expect
+          .poll(async () => {
+            const openingDockBox = await openingDock.boundingBox()
+            return openingDockBox ? Math.abs(openingDockBox.height - sourceDockBox.height) : Infinity
+          })
+          .toBeLessThanOrEqual(2)
 
-        await page.locator('[data-component="session-opening-state"]').getByRole("button", { name: "New session" }).click()
-        await expect(page).toHaveURL(new RegExp(`/${slug}/session(?:\\?|#|$)`))
-        await expect(page.locator('[data-component="session-new-home"]')).toBeVisible()
+        releaseMessages?.()
+        releaseMessages = undefined
+        await expect(page.locator(sessionTurnListSelector).getByText(targetText)).toBeVisible()
+        await expect(page.locator(promptSelector)).toHaveCount(1)
+        await expect(openingDock).toHaveCount(0)
       } finally {
         releaseMessages?.()
         await page.unroute(`**/session/${target.id}/message*`, delayTargetMessages)

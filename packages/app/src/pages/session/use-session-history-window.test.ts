@@ -6,7 +6,6 @@ import {
   resolveClearedHashTarget,
   resolveHistoryTurnStart,
 } from "./use-session-history-window"
-import { createTimelineScrollCommandSink } from "./timeline-scroll-command-sink"
 
 const userMessage = (id: number) =>
   ({
@@ -232,44 +231,36 @@ describe("session history window extraction", () => {
     })
   })
 
-  test("records history prepend scroll preservation through the command sink", async () => {
-    await new Promise<void>((resolve) => {
-      createRoot((dispose) => {
-        const scroller = makeScroller({ clientHeight: 400, scrollHeight: 1000, scrollTop: 120 })
-        const scrollCommandSink = createTimelineScrollCommandSink({ now: () => 500 })
+  test("routes a backfill window expansion through preserveAnchor", () => {
+    createRoot((dispose) => {
+      const scroller = makeScroller({ clientHeight: 400, scrollHeight: 1000, scrollTop: 120 })
+      let preserveCalls = 0
+      const preserveAnchor = (mutate: () => void) => {
+        preserveCalls += 1
+        mutate()
+      }
 
-        const history = createSessionHistoryWindow({
-          sessionID: () => "ses_1",
-          messagesReady: () => true,
-          loaded: () => 30,
-          visibleUserMessages: () => userMessages(30),
-          historyMore: () => false,
-          historyLoading: () => false,
-          loadMore: async () => undefined,
-          userScrolled: () => true,
-          isAtBottom: () => false,
-          scroller: () => scroller.el,
-          scrollCommandSink,
-        })
-
-        history.expandForReading(10)
-        history.onScrollerScroll()
-        scroller.setScrollHeight(1120)
-
-        requestAnimationFrame(() => {
-          expect(scroller.top()).toBe(240)
-          expect(scrollCommandSink.records()).toEqual([
-            expect.objectContaining({
-              monotonicMs: 500,
-              type: "history-prepend-preserve",
-              source: "use-session-history-window/preserveScroll",
-              top: 240,
-            }),
-          ])
-          dispose()
-          resolve()
-        })
+      const history = createSessionHistoryWindow({
+        sessionID: () => "ses_1",
+        messagesReady: () => true,
+        loaded: () => 30,
+        visibleUserMessages: () => userMessages(30),
+        historyMore: () => false,
+        historyLoading: () => false,
+        loadMore: async () => undefined,
+        userScrolled: () => true,
+        isAtBottom: () => false,
+        scroller: () => scroller.el,
+        preserveAnchor,
       })
+
+      history.expandForReading(10)
+      history.onScrollerScroll()
+
+      // The reading-window backfill expands the window through preserveAnchor so
+      // the reconciler can keep the user's reading position pinned across the prepend.
+      expect(preserveCalls).toBe(1)
+      dispose()
     })
   })
 

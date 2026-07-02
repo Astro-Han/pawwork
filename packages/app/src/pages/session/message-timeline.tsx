@@ -21,16 +21,13 @@ import {
   shouldMarkLegacyScrollIntent,
   shouldMarkTimelineBoundaryGesture,
 } from "@/pages/session/session-timeline-scroll-intents"
-import { createTimelineStaging } from "@/pages/session/session-timeline-staging"
 import type { TimelineVirtualRow } from "@/pages/session/timeline-virtual-rows"
 import {
-  createTimelineFrame,
   emptyTimelineFrame,
   visibleRangeDataFromFrame,
   type TimelineFrame,
 } from "@/pages/session/timeline-frame"
 import { TimelineRowRenderer } from "@/pages/session/timeline-row-renderer"
-import { timelineMessageRowStyle } from "@/pages/session/timeline-row-layout"
 import type { TimelineVirtualizerBridge } from "@/pages/session/timeline-virtualizer-bridge"
 import {
   areMessageCommentsEqual,
@@ -44,7 +41,8 @@ import { useLanguage } from "@/context/language"
 import { useSessionRouteKey } from "@/pages/session/session-layout"
 import { usePlatform } from "@/context/platform"
 import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
-import { useShellSurface } from "@/context/shell-surface"
+import { openSettingsTab } from "@/utils/settings-navigation"
+import { trackEvent } from "@/utils/events"
 import { useSync } from "@/context/sync"
 import { webSearchRecoveryToast } from "./websearch-toasts"
 
@@ -77,26 +75,21 @@ export function MessageTimeline(props: {
   onResumeScroll: () => void
   setScrollRef: (el: HTMLDivElement | undefined) => void
   onScheduleScrollState: (el: HTMLDivElement) => void
-  onAutoScrollHandleScroll: () => void
   onMarkScrollGesture: (target?: EventTarget | null) => void
   hasScrollGesture: () => boolean
   onUserScroll: () => void
   onTurnBackfillScroll: () => void
-  onAutoScrollInteraction: (event: MouseEvent) => void
+  onTimelineInteraction: (event: MouseEvent) => void
   onTimelineScrollIntent: (intent: TimelineScrollIntent) => void
   onTimelineScrollObservation: (observation: TimelineScrollObservation) => TimelineScrollControllerResult
   centered: boolean
   setContentRef: (el: HTMLDivElement) => void
-  turnStart: number
-  historyMore: boolean
   historyLoading: boolean
   onLoadEarlier: () => void
-  renderedUserMessages: UserMessage[]
+  timelineFrame: () => TimelineFrame
   anchor: (id: string) => string
   virtualizerBridge: TimelineVirtualizerBridge
-  layoutTransactionActive: () => boolean
-  layoutTransactionID: () => string | undefined
-  layoutTransactionKind: () => string | undefined
+  reconcilerActive: () => boolean
 }) {
   let touchGesture: number | undefined
   let scrollSampleFrame: number | undefined
@@ -116,7 +109,6 @@ export function MessageTimeline(props: {
 
   const sync = useSync()
   const language = useLanguage()
-  const shellSurface = useShellSurface()
   const { params } = useSessionRouteKey()
   const platform = usePlatform()
   onCleanup(() => {
@@ -124,26 +116,16 @@ export function MessageTimeline(props: {
     if (scrollSampleFrame !== undefined) cancelAnimationFrame(scrollSampleFrame)
   })
 
-  const timelineFrame = createMemo<TimelineFrame>(
-    (previous) =>
-      createTimelineFrame({
-        previous,
-        messages: props.renderedUserMessages,
-        historyMore: props.historyMore,
-        turnStart: props.turnStart,
-      }),
-    emptyTimelineFrame,
-  )
-  const frameRows = createMemo(() => timelineFrame().rows, emptyTimelineFrame.rows)
-  const frameMutation = createMemo(() => timelineFrame().mutation, emptyTimelineFrame.mutation)
-  const frameRenderMode = createMemo(() => timelineFrame().renderMode, emptyTimelineFrame.renderMode)
-  const currentVisibleRangeData = () => visibleRangeDataFromFrame(timelineFrame())
+  const frameRows = () => props.timelineFrame().rows
+  const frameMutation = () => props.timelineFrame().mutation
+  const frameRenderMode = () => props.timelineFrame().renderMode
+  const currentVisibleRangeData = () => visibleRangeDataFromFrame(props.timelineFrame())
   let lastTimelineFrame = emptyTimelineFrame
 
   // Cleanup can run while Solid is disposing derived memos, so diagnostics use
   // the last stable frame instead of recomputing through live reactive chains.
   createEffect(() => {
-    lastTimelineFrame = timelineFrame()
+    lastTimelineFrame = props.timelineFrame()
   })
 
   const sessionKey = createMemo(() => props.sessionKey)
@@ -176,7 +158,7 @@ export function MessageTimeline(props: {
 
   createEffect(
     on(
-      () => timelineFrame().visibleRange.signature,
+      () => props.timelineFrame().visibleRange.signature,
       () => {
         void emitRendererDiagnostic({
           name: "session.timeline.visible",
@@ -215,7 +197,9 @@ export function MessageTimeline(props: {
           actions: [
             {
               label: language.t(toast.actionKey),
-              onClick: () => shellSurface.openSettings(),
+              // Toasts outlive the session page; the module-level bridge keeps
+              // the action working after this component unmounts.
+              onClick: () => openSettingsTab(),
             },
           ],
         })
@@ -260,14 +244,6 @@ export function MessageTimeline(props: {
 
     return undefined
   })
-  // Match the initial window cap so session switches do not reveal the window in partial batches.
-  const stageCfg = { init: 10, batch: 3 }
-  const staging = createTimelineStaging({
-    sessionKey: () => props.sessionKey,
-    turnStart: () => props.turnStart,
-    messages: () => props.renderedUserMessages,
-    config: stageCfg,
-  })
   const renderTimelineRow = (row: TimelineVirtualRow): JSX.Element => {
     if (row.type === "load-earlier") {
       return (
@@ -303,7 +279,6 @@ export function MessageTimeline(props: {
           "min-w-0 w-full max-w-full": true,
           "md:max-w-[800px] 2xl:max-w-[1000px]": props.centered,
         }}
-        style={timelineMessageRowStyle({ mode: frameRenderMode(), active: active() })}
       >
         <SessionMessageComments comments={comments()} />
         <SessionTurn
@@ -316,6 +291,10 @@ export function MessageTimeline(props: {
           active={active()}
           status={active() ? sessionStatus() : undefined}
           rateLimitCardSlot={(classification) => <RateLimitCardWiring classification={classification} />}
+          onErrorAction={(target) => {
+            trackEvent("error_card.action_click", { target })
+            openSettingsTab(target)
+          }}
           turnChanges={props.turnChangeController.turnChanges}
           turnChangeActions={{
             ...props.turnChangeController.actions,
@@ -345,8 +324,8 @@ export function MessageTimeline(props: {
         <div
           class="absolute left-1/2 -translate-x-1/2 bottom-[calc(var(--composer-dock-height,0px)+2.5rem)] z-[60] pointer-events-none transition-opacity duration-200 ease-out"
           classList={{
-            "opacity-100": props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
-            "opacity-0 pointer-events-none": !props.scroll.overflow || !props.scroll.jump || staging.isStaging(),
+            "opacity-100": props.scroll.overflow && props.scroll.jump,
+            "opacity-0 pointer-events-none": !props.scroll.overflow || !props.scroll.jump,
           }}
         >
           {/* 偏离: W1 preview L267 锁 cursor:pointer，用户 2026-05-15 决定改回默认。preview/DESIGN 同步留 follow-up。 */}
@@ -415,9 +394,11 @@ export function MessageTimeline(props: {
           onScroll={(e) => {
             const el = e.currentTarget
             const metrics = collectTimelineScrollMetrics(el)
+            const userInitiated = props.hasScrollGesture()
             const controllerResult = props.onTimelineScrollObservation({
               type: "scroll_sample",
               metrics,
+              userInitiated,
             })
             if (!controllerResult.accepted) return
             const max = Math.max(0, el.scrollHeight - el.clientHeight)
@@ -426,8 +407,8 @@ export function MessageTimeline(props: {
               scroll_height: el.scrollHeight,
               client_height: el.clientHeight,
               distance_from_bottom: Math.max(0, max - el.scrollTop),
-              user_scrolled: props.hasScrollGesture(),
-              jump_button_visible: props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
+              user_scrolled: userInitiated,
+              jump_button_visible: props.scroll.overflow && props.scroll.jump,
             }
             if (scrollSampleFrame === undefined) {
               scrollSampleFrame = requestAnimationFrame(() => {
@@ -447,12 +428,11 @@ export function MessageTimeline(props: {
             }
             props.onScheduleScrollState(e.currentTarget)
             props.onTurnBackfillScroll()
-            if (!props.hasScrollGesture()) return
+            if (!userInitiated) return
             props.onUserScroll()
-            props.onAutoScrollHandleScroll()
             props.onMarkScrollGesture(e.currentTarget)
           }}
-          onClick={props.onAutoScrollInteraction}
+          onClick={props.onTimelineInteraction}
           class="relative min-w-0 w-full h-full"
           style={{
             "--session-title-height": "0px",
@@ -473,9 +453,7 @@ export function MessageTimeline(props: {
               data-slot="session-turn-list"
               data-render-mode={frameRenderMode()}
               data-total-rows={frameRows().length}
-              data-layout-transaction-active={props.layoutTransactionActive() ? "true" : "false"}
-              data-layout-transaction-id={props.layoutTransactionID()}
-              data-layout-transaction-kind={props.layoutTransactionKind()}
+              data-reconciler-active={props.reconcilerActive() ? "true" : "false"}
               class="transition-[margin]"
               classList={{
                 "w-full": true,
@@ -490,7 +468,7 @@ export function MessageTimeline(props: {
                 viewport={virtualizerViewport()}
                 virtualizerBridge={props.virtualizerBridge}
                 shift={frameMutation() === "prepend"}
-                transactionActive={props.layoutTransactionActive()}
+                reconcilerActive={props.reconcilerActive()}
                 renderRow={renderTimelineRow}
               />
             </div>

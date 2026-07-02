@@ -36,7 +36,8 @@ describe("session comment context", () => {
     expect(added).toEqual([{ file: "src/a.ts", selection: { start: 2, end: 2 }, comment: "check this" }])
     expect(promptAdds[0]).toMatchObject({
       type: "file",
-      path: "src/a.ts",
+      path: "/repo/src/a.ts",
+      commentPath: "src/a.ts",
       comment: "check this",
       commentID: "c1",
       commentOrigin: "review",
@@ -79,18 +80,18 @@ describe("session comment context", () => {
 
     expect(updated).toContainEqual({ file: "src/a.ts", id: "c1", comment: "new" })
     expect(updated).toContainEqual({
-      file: "src/a.ts",
+      file: "/repo/src/a.ts",
       id: "c1",
       patch: { comment: "new", preview: "one", resolvedMentions: [] },
     })
     expect(updated).toContainEqual({
-      file: "src/b.ts",
+      file: "/repo/src/b.ts",
       id: "c2",
       patch: { comment: "blank", preview: "", resolvedMentions: [] },
     })
     expect(removed).toEqual([
       { file: "src/a.ts", id: "c1" },
-      { file: "src/a.ts", id: "c1" },
+      { file: "/repo/src/a.ts", id: "c1" },
     ])
   })
 

@@ -16,6 +16,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { Bus } from "../bus"
 import { ProviderTransform } from "../provider/transform"
+import { buildActivationReminder, deriveActivatedToolsFromParts, deriveNewlyActivated } from "../tool/tool-info"
 import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
@@ -43,6 +44,7 @@ import { LoopRenderer } from "./loop-renderer"
 import * as Tool from "@/tool/tool"
 import { ExternalResult } from "@/tool/external-result"
 import { Permission } from "@/permission"
+import { Env } from "@/env"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
 import { Shell } from "@/shell/shell"
@@ -58,7 +60,7 @@ import { AgentTool, type AgentPromptOps } from "@/tool/agent"
 import { SessionRunState } from "./run-state"
 import { RunLifecycle } from "./run-lifecycle"
 import { EffectBridge } from "@/effect"
-import { attachWith, makeRuntime } from "@/effect/run-service"
+import { attachWith } from "@/effect/run-service"
 import { Instance } from "@/project/instance"
 import { MemoryFile } from "@/memory/memory"
 import { MemoryService } from "@/memory/service"
@@ -79,6 +81,13 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested struc
 
 const log = Log.create({ service: "session.prompt" })
 const elog = EffectLogger.create({ service: "session.prompt" })
+
+function isOrphanedInterruptedTool(part: MessageV2.ToolPart) {
+  // The interrupt cleanup marks abandoned tool calls as status:"error" with
+  // metadata.interrupted (see processor.ts / session.ts). They are not pending
+  // work, so they must not count as live tool calls and re-trigger the loop.
+  return part.state.status === "error" && part.state.metadata?.interrupted === true
+}
 
 export type TitleGenerationState = "not_started" | "in_flight" | "completed_before_abort" | "completed_after_abort"
 
@@ -253,20 +262,6 @@ function attachedLocalFileText(filepath: string, filename?: string) {
   return `${text} (attachment name: ${filename})`
 }
 
-type MediaInputKind = "image" | "pdf" | "audio" | "video"
-
-function mediaInputKind(mime: string): MediaInputKind | undefined {
-  if (mime.startsWith("image/")) return "image"
-  if (mime === "application/pdf") return "pdf"
-  if (mime.startsWith("audio/")) return "audio"
-  if (mime.startsWith("video/")) return "video"
-  return undefined
-}
-
-function modelCanReadMedia(model: Provider.Model, kind: MediaInputKind) {
-  if (model.capabilities.input[kind] === true) return true
-  return kind === "pdf" && model.capabilities.input.image === true
-}
 
 export interface Interface {
   readonly cancel: (sessionID: SessionID, options?: { source?: string }) => Effect.Effect<boolean>
@@ -714,12 +709,24 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       )
       const lastUserLocale = lastUserMessage?.info.locale
 
+      // Deferred-tool activation is derived from the session's tool_info parts read
+      // directly from storage (NOT the compaction-filtered `messages`), so an activation
+      // older than the retained tail still counts without hydrating the full history.
+      const activatedTools = deriveActivatedToolsFromParts(MessageV2.toolInfoParts(input.session.id))
+      // No client rule here: a client that doesn't support a deferred tool never
+      // registers it, and the registry intersects with the registered set before
+      // carding or activating anything.
+      const deferredRuleset = Permission.merge(input.agent.permission, input.session.permission ?? [])
+      const deferredAvailable = (id: string) =>
+        input.tools?.[id] !== false && !Permission.disabled([id], deferredRuleset).has(id)
+      const availableDeferredTools = yield* registry.availableDeferred({ activatedTools, deferredAvailable })
+
       const context = (args: any, options: ToolExecutionOptions): Tool.Context => ({
         sessionID: input.session.id,
         abort: options.abortSignal!,
         messageID: input.processor.message.id,
         callID: options.toolCallId,
-        extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps },
+        extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps, deferredAvailable },
         agent: input.agent.name,
         messages: input.messages,
         metadata: (val) =>
@@ -834,11 +841,23 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             }
           }),
       })
+      const completeToolExecution = (
+        toolCallID: string,
+        output: Parameters<SessionProcessor.Handle["completeToolCall"]>[1],
+      ) => input.processor.completeToolExecution({ toolCallID, output })
+      const failToolExecution = (toolCallID: string, error: unknown, abortSignal?: AbortSignal) => {
+        if (abortSignal?.aborted) {
+          return input.processor.recordToolExecutionFailed({ toolCallID, error })
+        }
+        return input.processor.failToolExecution({ toolCallID, error })
+      }
 
       for (const item of yield* registry.tools({
         modelID: ModelID.make(input.model.api.id),
         providerID: input.model.providerID,
         agent: input.agent,
+        activatedTools,
+        deferredAvailable,
       })) {
         const schema = ProviderTransform.schema(input.model, EffectZod.toJsonSchema(item.parameters))
         const aiTool = tool({
@@ -859,49 +878,45 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 if (outcome.kind === "stop") return yield* Effect.fail(new LoopStopError(outcome.toolErrorMessage))
                 const output = yield* runInSessionContext(
                   Effect.gen(function* () {
-                    yield* plugin.trigger(
-                      "tool.execute.before",
-                      { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
-                      { args },
-                    )
-                    if (input.processor.recordToolExecutionStarted) {
+                    yield* input.processor.recordToolInputCaptured({
+                      tool: item.id,
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    })
+                    try {
+                      yield* plugin.trigger(
+                        "tool.execute.before",
+                        { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
+                        { args },
+                      )
                       yield* input.processor.recordToolExecutionStarted({
                         tool: item.id,
                         toolCallID: options.toolCallId,
+                        input: args,
                       })
-                    }
-                    let result: Tool.ExecuteResult
-                    try {
-                      result = yield* item.execute(args, ctx)
-                    } catch (error) {
-                      if (input.processor.recordToolExecutionFailed) {
-                        yield* input.processor.recordToolExecutionFailed({ toolCallID: options.toolCallId, error })
+                      const result = yield* item.execute(args, ctx)
+                      const output = {
+                        ...result,
+                        attachments: result.attachments?.map((attachment) => ({
+                          ...attachment,
+                          id: PartID.ascending(),
+                          sessionID: ctx.sessionID,
+                          messageID: input.processor.message.id,
+                        })),
                       }
+                      yield* plugin.trigger(
+                        "tool.execute.after",
+                        { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
+                        output,
+                      )
+                      return output
+                    } catch (error) {
+                      yield* failToolExecution(options.toolCallId, error, options.abortSignal)
                       throw error
                     }
-                    if (input.processor.recordToolExecutionCompleted) {
-                      yield* input.processor.recordToolExecutionCompleted({ toolCallID: options.toolCallId })
-                    }
-                    const output = {
-                      ...result,
-                      attachments: result.attachments?.map((attachment) => ({
-                        ...attachment,
-                        id: PartID.ascending(),
-                        sessionID: ctx.sessionID,
-                        messageID: input.processor.message.id,
-                      })),
-                    }
-                    yield* plugin.trigger(
-                      "tool.execute.after",
-                      { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
-                      output,
-                    )
-                    return output
                   }),
                 )
-                if (options.abortSignal?.aborted) {
-                  yield* input.processor.completeToolCall(options.toolCallId, output)
-                }
+                yield* completeToolExecution(options.toolCallId, output)
                 return output
               }),
             )
@@ -932,26 +947,44 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               if (outcome.kind === "stop") return yield* Effect.fail(new LoopStopError(outcome.toolErrorMessage))
               const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* runInSessionContext(
                 Effect.gen(function* () {
-                  yield* plugin.trigger(
-                    "tool.execute.before",
-                    { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId },
-                    { args },
-                  )
                   const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.gen(function* () {
-                    yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
-                    if (input.processor.recordToolExecutionStarted) {
-                      yield* input.processor.recordToolExecutionStarted({ tool: key, toolCallID: opts.toolCallId })
-                    }
+                    yield* input.processor.recordToolInputCaptured({
+                      tool: key,
+                      toolCallID: opts.toolCallId,
+                      input: args,
+                    })
                     try {
-                      const result = yield* Effect.promise(() => execute(args, opts))
-                      if (input.processor.recordToolExecutionCompleted) {
-                        yield* input.processor.recordToolExecutionCompleted({ toolCallID: opts.toolCallId })
+                      yield* plugin.trigger(
+                        "tool.execute.before",
+                        { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId },
+                        { args },
+                      )
+                      yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
+                      yield* input.processor.recordToolExecutionStarted({
+                        tool: key,
+                        toolCallID: opts.toolCallId,
+                        input: args,
+                      })
+                      const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.promise(() =>
+                        execute(args, opts),
+                      )
+                      if (result.isError === true) {
+                        // record the failure before completion is marked, so run
+                        // observability and the loop gate see isError as a failed execution
+                        const failure = parseMcpToolResult(key, result)
+                        const error = new Error(
+                          failure.kind === "error" ? failure.message : `MCP tool ${key} reported an error`,
+                        )
+                        return yield* Effect.fail(error)
                       }
+                      yield* plugin.trigger(
+                        "tool.execute.after",
+                        { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId, args },
+                        result,
+                      )
                       return result
                     } catch (error) {
-                      if (input.processor.recordToolExecutionFailed) {
-                        yield* input.processor.recordToolExecutionFailed({ toolCallID: opts.toolCallId, error })
-                      }
+                      yield* failToolExecution(opts.toolCallId, error, opts.abortSignal)
                       throw error
                     }
                   }).pipe(
@@ -964,38 +997,17 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                       },
                     }),
                   )
-                  yield* plugin.trigger(
-                    "tool.execute.after",
-                    { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId, args },
-                    result,
-                  )
                   return result
                 }),
               )
 
-              const textParts: string[] = []
-              const attachments: Omit<MessageV2.FilePart, "id" | "sessionID" | "messageID">[] = []
-              for (const contentItem of result.content) {
-                if (contentItem.type === "text") textParts.push(contentItem.text)
-                else if (contentItem.type === "image") {
-                  attachments.push({
-                    type: "file",
-                    mime: contentItem.mimeType,
-                    url: `data:${contentItem.mimeType};base64,${contentItem.data}`,
-                  })
-                } else if (contentItem.type === "resource") {
-                  const { resource } = contentItem
-                  if (resource.text) textParts.push(resource.text)
-                  if (resource.blob) {
-                    attachments.push({
-                      type: "file",
-                      mime: resource.mimeType ?? "application/octet-stream",
-                      url: `data:${resource.mimeType ?? "application/octet-stream"};base64,${resource.blob}`,
-                      filename: resource.uri,
-                    })
-                  }
-                }
+              const parsed = parseMcpToolResult(key, result)
+              if (parsed.kind === "error") {
+                const error = new Error(parsed.message)
+                yield* failToolExecution(opts.toolCallId, error, opts.abortSignal)
+                return yield* Effect.fail(error)
               }
+              const { textParts, attachments } = parsed
 
               const truncated = yield* truncate.output(textParts.join("\n\n"), {}, input.agent)
               const metadata = {
@@ -1016,16 +1028,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 })),
                 content: result.content,
               }
-              if (opts.abortSignal?.aborted) {
-                yield* input.processor.completeToolCall(opts.toolCallId, output)
-              }
+              yield* completeToolExecution(opts.toolCallId, output)
               return output
             }),
           )
         tools[key] = item
       }
 
-      return tools
+      return { tools, availableDeferredTools }
     })
 
     const handleSubtask = Effect.fn("SessionPrompt.handleSubtask")(function* (input: {
@@ -1108,7 +1118,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           sessionID,
           abort: taskAbort.signal,
           callID: part.callID,
-          extra: { bypassAgentCheck: true, promptOps },
+          // #26597: ctx.agent here is the subtask's (child) agent, not the dispatcher.
+          // Pass the real caller so the agent tool can honor its edit restriction.
+          extra: { bypassAgentCheck: true, promptOps, callerAgent: lastUser.agent },
           messages: msgs,
           metadata: (val: { title?: string; metadata?: Record<string, any> }) =>
             Effect.gen(function* () {
@@ -1443,7 +1455,60 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     const lastModel = Effect.fnUntraced(function* (sessionID: SessionID) {
       const match = yield* sessions.findMessage(sessionID, (m) => m.info.role === "user" && !!m.info.model)
       if (Option.isSome(match) && match.value.info.role === "user") return match.value.info.model
-      return yield* provider.defaultModel()
+      return yield* provider.defaultModel().pipe(Effect.orDie)
+    })
+
+    // Expand a command/skill template: positional ($1..$n) + $ARGUMENTS substitution +
+    // inline shell interpolation, then trim. A pure text transform shared by the command()
+    // endpoint and the inline-skill resolvePart branch. It deliberately does NOT touch
+    // agent/model/subtask selection, plugin hooks, or command events — those stay in command().
+    const expandCommandTemplate = Effect.fn("SessionPrompt.expandCommandTemplate")(function* (
+      cmd: Command.Info,
+      args: string,
+    ) {
+      const raw = args.match(argsRegex) ?? []
+      const parsedArgs = raw.map((arg) => arg.replace(quoteTrimRegex, ""))
+      const templateCommand = yield* Effect.promise(async () => cmd.template)
+
+      const placeholders = templateCommand.match(placeholderRegex) ?? []
+      let last = 0
+      for (const item of placeholders) {
+        const value = Number(item.slice(1))
+        if (value > last) last = value
+      }
+
+      const withArgs = templateCommand.replaceAll(placeholderRegex, (_, index) => {
+        const position = Number(index)
+        const argIndex = position - 1
+        if (argIndex >= parsedArgs.length) return ""
+        if (position === last) return parsedArgs.slice(argIndex).join(" ")
+        return parsedArgs[argIndex]
+      })
+      const usesArgumentsPlaceholder = templateCommand.includes("$ARGUMENTS")
+      // Function replacer: a string replacement would interpret $-patterns ($$, $&)
+      // inside user-typed args instead of inserting them literally.
+      let template = withArgs.replaceAll("$ARGUMENTS", () => args)
+
+      if (placeholders.length === 0 && !usesArgumentsPlaceholder && args.trim()) {
+        template = template + "\n\n" + args
+      }
+
+      const shellMatches = ConfigMarkdown.shell(template)
+      if (shellMatches.length > 0) {
+        const sh = Shell.preferred()
+        const results = yield* Effect.all(
+          shellMatches.map(([, shellCmd]) =>
+            Process.textEffect([shellCmd], { shell: sh, nothrow: true }).pipe(
+              Effect.map((result) => result.text),
+              Effect.orDie,
+            ),
+          ),
+          { concurrency: "unbounded" },
+        )
+        let index = 0
+        template = template.replace(bashRegex, () => results[index++])
+      }
+      return template.trim()
     })
 
     const createUserMessage = Effect.fn("SessionPrompt.createUserMessage")(function* (input: PromptInput) {
@@ -1474,6 +1539,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         time: { created: createdAt },
         tools: input.tools,
         agent: ag.name,
+        ...(input.automationID ? { automationID: input.automationID } : {}),
         model: {
           providerID: model.providerID,
           modelID: model.modelID,
@@ -1659,35 +1725,56 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 )
                 if (Exit.isSuccess(exit)) {
                   const { model, result } = exit.value
-                  pieces.push({
+                  const media = result.attachments ?? []
+                  const attachments = media.filter((attachment) => {
+                    const kind = ProviderTransform.mediaInputKind(attachment.mime)
+                    return kind !== undefined && ProviderTransform.modelCanReadMedia(model, kind)
+                  })
+                  const droppedNotice = {
                     messageID: info.id,
                     sessionID: input.sessionID,
-                    type: "text",
+                    type: "text" as const,
                     synthetic: true,
-                    text: result.output,
-                  })
-                  if (result.attachments?.length) {
-                    const attachments = result.attachments.filter((attachment) => {
-                      const kind = mediaInputKind(attachment.mime)
-                      return kind !== undefined && modelCanReadMedia(model, kind)
-                    })
-                    if (attachments.length) {
-                      pieces.push(
-                        ...attachments.map((a) =>
-                          inheritMetadata(part, {
-                            ...a,
-                            synthetic: true,
-                            filename: a.filename ?? part.filename,
-                            messageID: info.id,
-                            sessionID: input.sessionID,
-                          }),
-                        ),
-                      )
-                    }
-                    if (attachments.length < result.attachments.length) {
-                      pieces.push({ ...part, messageID: info.id, sessionID: input.sessionID })
-                    }
+                    // Wording kept in sync with the request-time replacement in
+                    // provider/transform.ts so the model hears one consistent contract.
+                    text: `The contents of ${part.filename ?? filepath} were NOT provided to you: the current model does not support this media type as input. Do not guess or describe the file's contents; tell the user you cannot view the file.`,
+                  }
+                  // A capability-dropped attachment must not masquerade as a
+                  // successful read ("Image read successfully" with nothing
+                  // attached makes the model hallucinate the contents).
+                  if (media.length && attachments.length === 0) {
+                    pieces.push(droppedNotice)
                   } else {
+                    pieces.push({
+                      messageID: info.id,
+                      sessionID: input.sessionID,
+                      type: "text",
+                      synthetic: true,
+                      text: result.output,
+                    })
+                    if (attachments.length < media.length) pieces.push(droppedNotice)
+                  }
+                  if (attachments.length) {
+                    // When the upgrade fully replaces the original part (it is
+                    // not re-added below), the first attachment keeps the
+                    // submitted part id — id-keyed consumers (the client's
+                    // optimistic merge) otherwise see a second attachment and
+                    // render two chips for one file.
+                    const replaced = attachments.length === media.length
+                    pieces.push(
+                      ...attachments.map((a, index) =>
+                        inheritMetadata(part, {
+                          ...a,
+                          ...(replaced && index === 0 ? { id: part.id } : {}),
+                          synthetic: true,
+                          filename: a.filename ?? part.filename,
+                          messageID: info.id,
+                          sessionID: input.sessionID,
+                        }),
+                      ),
+                    )
+                  }
+                  if (media.length === 0 || attachments.length < media.length) {
                     pieces.push({ ...part, messageID: info.id, sessionID: input.sessionID })
                   }
                 } else {
@@ -1795,6 +1882,30 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           ]
         }
 
+        if (part.type === "skill") {
+          // Inline skill chip: resolve the command/skill template and inject it as a
+          // synthetic, model-visible text part (mirrors the agent branch above). The
+          // structured skill part is persisted only to render the chip in the bubble;
+          // it is position-independent because activation reads the parts array, not the
+          // text. Argless by design — the surrounding user prose is the turn body.
+          const cmd = yield* commands.get(part.name)
+          // Unknown skill, or a command/MCP entry masquerading as a skill (the
+          // command registry is a shared namespace): keep the chip for the bubble
+          // but inject nothing — the full command pipeline handles non-skill entries.
+          if (!cmd || cmd.source !== "skill") return [{ ...part, messageID: info.id, sessionID: input.sessionID }]
+          const template = yield* expandCommandTemplate(cmd, "")
+          return [
+            { ...part, messageID: info.id, sessionID: input.sessionID },
+            {
+              messageID: info.id,
+              sessionID: input.sessionID,
+              type: "text",
+              synthetic: true,
+              text: template,
+            },
+          ]
+        }
+
         return [{ ...part, messageID: info.id, sessionID: input.sessionID }]
       })
 
@@ -1859,8 +1970,30 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
       }
       if (permissions.length > 0) {
-        session.permission = permissions
-        yield* sessions.setPermission({ sessionID: session.id, permission: permissions })
+        // #26597: the boolean tools map is availability-only — it lists the subagent's structural
+        // denies (agent, worktree, todowrite, primary_tools), not what it inherited from its
+        // caller. The caller's deny rules are the single source of truth for inheritance and live
+        // on session.permission, forwarded at dispatch (tool/agent.ts). Rebuilding from the map
+        // alone would drop them, letting a caller regain access through the child. For agent-tool
+        // children, carry forward external_directory rules plus every caller deny the map does NOT
+        // regenerate: scoped (non-"*") denies (e.g. edit on one path) and whole-tool denies for
+        // keys absent from the map — the wildcard "*" and any tool not listed (automate, MCP,
+        // custom). Per-tool "*" denies for keys the map lists are regenerated each turn, so
+        // dropping them keeps this stable instead of accumulating.
+        // NOTE: like upstream #26597 this is forward-deny only — a caller's allow exception (e.g.
+        // a read-only "*": deny agent that also allows read) is not preserved, so its subagent
+        // loses those tools too. Matching upstream's deriveSubagentSessionPermission; toward deny.
+        const toolKeys = new Set(Object.keys(input.tools ?? {}))
+        const preserved = session.createdByAgentTool
+          ? (session.permission ?? []).filter(
+              (rule) =>
+                rule.permission === "external_directory" ||
+                (rule.action === "deny" && (rule.pattern !== "*" || !toolKeys.has(rule.permission))),
+            )
+          : []
+        const next = [...preserved, ...permissions]
+        session.permission = next
+        yield* sessions.setPermission({ sessionID: session.id, permission: next })
       }
 
       yield* throwIfAborted(options)
@@ -1955,8 +2088,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       }
     })
 
-    const runLoop: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
-      function* (sessionID: SessionID) {
+    const runLoop: (
+      sessionID: SessionID,
+      options?: { onProcessor?: (handle: SessionProcessor.Handle) => void },
+    ) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
+      function* (sessionID: SessionID, options?: { onProcessor?: (handle: SessionProcessor.Handle) => void }) {
         const ctx = yield* InstanceState.context
         const automation = yield* AutomationRunContext.current
         const slog = elog.with({ sessionID })
@@ -1989,11 +2125,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
           // Some providers return "stop" even when the assistant message contains tool calls.
-          // Keep the loop running so tool results can be sent back to the model.
-          // Skip provider-executed tool parts — those were fully handled within the
+          // Keep the loop running so tool results can be sent back to the model, but ignore
+          // cleanup-marked interrupted orphans — those are abandoned, not pending work.
+          // Skip provider-executed tool parts too — those were fully handled within the
           // provider's stream (e.g. DWS Agent Platform) and don't need a re-loop.
           const hasToolCalls =
-            lastAssistantMsg?.parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted) ?? false
+            lastAssistantMsg?.parts.some(
+              (part) => part.type === "tool" && !part.metadata?.providerExecuted && !isOrphanedInterruptedTool(part),
+            ) ?? false
 
           if (
             lastAssistant?.finish &&
@@ -2021,6 +2160,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 })
                 continue
               }
+            }
+            const orphan = lastAssistantMsg?.parts.find(
+              (part): part is MessageV2.ToolPart => part.type === "tool" && isOrphanedInterruptedTool(part),
+            )
+            if (orphan) {
+              yield* slog.warn("loop exit with orphaned interrupted tool", {
+                messageID: lastAssistant.id,
+                tool: orphan.tool,
+                callID: orphan.callID,
+              })
             }
             yield* slog.info("exiting loop")
             break
@@ -2097,6 +2246,37 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             discard: true,
           })
 
+          // Tool description self-claims of "now available" don't move small models;
+          // a <system-reminder> in the user message of the very next step does. Source the
+          // just-activated ids from the durable newest non-summary assistant (not the
+          // compaction-filtered msgs) so a compaction landing right after the tool_info
+          // call can't drop the activating turn and swallow the one-shot reminder.
+          const newlyActivated = deriveNewlyActivated(MessageV2.lastNonSummaryAssistant(sessionID))
+          if (newlyActivated.size > 0) {
+            // The recorded members are a snapshot of the ACTIVATING step's availability.
+            // Re-filter through this step's (same formula resolveTools uses, intersected
+            // with the registered set): a session resumed under different permissions or
+            // a different client must not be promised a tool the registry won't expose.
+            const reminderRuleset = Permission.merge(agent.permission, session.permission ?? [])
+            const exposable = yield* registry.availableDeferred({
+              deferredAvailable: (id) =>
+                lastUser.tools?.[id] !== false && !Permission.disabled([id], reminderRuleset).has(id),
+            })
+            const userMessage = msgs.findLast((msg) => msg.info.role === "user" && msg.info.id === lastUser.id)
+            for (const [name, members] of newlyActivated) {
+              const text = buildActivationReminder(name, members, (id) => exposable.has(id))
+              if (!text) continue
+              userMessage?.parts.push({
+                id: PartID.ascending(),
+                messageID: lastUser.id,
+                sessionID,
+                type: "text",
+                text,
+                synthetic: true,
+              })
+            }
+          }
+
           const execLive = (yield* sessions.get(sessionID)).executionContext
           const msg: MessageV2.Assistant = {
             id: MessageID.ascending(),
@@ -2119,12 +2299,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             sessionID,
             model,
           })
+          options?.onProcessor?.(handle)
 
           const outcome: "break" | "continue" = yield* Effect.gen(function* () {
             const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
             const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
 
-            const tools = yield* resolveTools({
+            const resolvedTools = yield* resolveTools({
               agent,
               session,
               model,
@@ -2133,6 +2314,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               bypassAgentCheck,
               messages: msgs,
             })
+            const tools = resolvedTools.tools
 
             if (lastUser.format?.type === "json_schema") {
               tools["StructuredOutput"] = createStructuredOutputTool({
@@ -2234,6 +2416,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               system,
               messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
               tools,
+              availableDeferredTools: resolvedTools.availableDeferredTools,
               model,
               toolChoice: format.type === "json_schema" ? "required" : undefined,
             })
@@ -2284,6 +2467,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     ) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
       "SessionPrompt.loop",
     )(function* (input: z.infer<typeof LoopInput>, options?: PromptRuntimeOptions) {
+      let activeProcessor: SessionProcessor.Handle | undefined
       const onInterrupt = (meta?: {
         source?: string
         reason?: string
@@ -2390,7 +2574,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }
           const assistant = yield* currentTurnTarget(input.sessionID)
           if (assistant.info.role === "assistant") {
-            const error = assistant.info.error
+            const shouldFinalize = !assistant.info.time.completed
+            const error =
+              assistant.info.error ??
+              (shouldFinalize
+                ? MessageV2.fromError(new DOMException("Aborted", "AbortError"), {
+                    providerID: assistant.info.providerID,
+                    aborted: true,
+                  })
+                : undefined)
             const errorMessage =
               error && "data" in error && error.data && typeof error.data === "object" && "message" in error.data
                 ? String(error.data.message)
@@ -2398,6 +2590,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             const recordedAt = meta?.recordedAt ?? Date.now()
             yield* sessions.updateMessage({
               ...assistant.info,
+              ...(shouldFinalize
+                ? {
+                    error,
+                    time: {
+                      ...assistant.info.time,
+                      completed: recordedAt,
+                    },
+                  }
+                : {}),
               diagnostics: {
                 ...(assistant.info.diagnostics ?? {}),
                 abort: {
@@ -2462,7 +2663,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             auto: input.prelude.auto,
           })
         }
-        return yield* runLoop(input.sessionID)
+        return yield* runLoop(input.sessionID, {
+          onProcessor: (handle) => {
+            activeProcessor = handle
+          },
+        })
       })
       // rejectIfBusy is the prelude path's safety net: a prelude's side
       // effects (writing the compaction marker) only run when ensureRunning
@@ -2472,7 +2677,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       // `awaitRun(existing)` and resolve to the previous run's result — the
       // requested compaction would never happen, but the route would return
       // `true`. UI callers handle the resulting `Session.BusyError` (mapped
-      // to HTTP 400 by middleware) by queuing the compact action through the
+      // to HTTP 409 by middleware) by queuing the compact action through the
       // followup machinery and auto-retrying after the session idles.
       const runLifecycle = input.traceMessageID
         ? {
@@ -2486,6 +2691,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       return yield* state.ensureRunning(input.sessionID, onInterrupt, work, {
         rejectIfBusy: input.prelude !== undefined,
         runLifecycle,
+        onCancel: () => activeProcessor?.abortTools?.() ?? Effect.void,
       })
     })
 
@@ -2513,43 +2719,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       }
       const agentName = cmd.agent ?? input.agent ?? (yield* agents.defaultAgent())
 
-      const raw = input.arguments.match(argsRegex) ?? []
-      const args = raw.map((arg) => arg.replace(quoteTrimRegex, ""))
-      const templateCommand = yield* Effect.promise(async () => cmd.template)
-
-      const placeholders = templateCommand.match(placeholderRegex) ?? []
-      let last = 0
-      for (const item of placeholders) {
-        const value = Number(item.slice(1))
-        if (value > last) last = value
-      }
-
-      const withArgs = templateCommand.replaceAll(placeholderRegex, (_, index) => {
-        const position = Number(index)
-        const argIndex = position - 1
-        if (argIndex >= args.length) return ""
-        if (position === last) return args.slice(argIndex).join(" ")
-        return args[argIndex]
-      })
-      const usesArgumentsPlaceholder = templateCommand.includes("$ARGUMENTS")
-      let template = withArgs.replaceAll("$ARGUMENTS", input.arguments)
-
-      if (placeholders.length === 0 && !usesArgumentsPlaceholder && input.arguments.trim()) {
-        template = template + "\n\n" + input.arguments
-      }
-
-      const shellMatches = ConfigMarkdown.shell(template)
-      if (shellMatches.length > 0) {
-        const sh = Shell.preferred()
-        const results = yield* Effect.promise(() =>
-          Promise.all(
-            shellMatches.map(async ([, cmd]) => (await Process.text([cmd], { shell: sh, nothrow: true })).text),
-          ),
-        )
-        let index = 0
-        template = template.replace(bashRegex, () => results[index++])
-      }
-      template = template.trim()
+      const template = yield* expandCommandTemplate(cmd, input.arguments)
 
       const taskModel = yield* Effect.gen(function* () {
         if (cmd.model) return Provider.parseModel(cmd.model)
@@ -2680,6 +2850,7 @@ export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(()
     Layer.provide(Session.defaultLayer),
     Layer.provide(SessionRevert.defaultLayer),
     Layer.provide(SessionSummary.defaultLayer),
+    Layer.provide(Env.defaultLayer),
     Layer.provide(
       Layer.mergeAll(
         Agent.defaultLayer,
@@ -2691,11 +2862,13 @@ export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(()
     ),
   ),
 )
-const { runPromise } = makeRuntime(Service, defaultLayer)
 
 export const PromptInput = z.object({
   sessionID: SessionID.zod,
   messageID: MessageID.zod.optional(),
+  // Stamped onto the user message when an automation run drives this prompt, so
+  // the conversation can mark which turns it sent rather than the user typing.
+  automationID: z.string().optional(),
   model: z
     .object({
       providerID: ProviderID.zod,
@@ -2744,6 +2917,16 @@ export const PromptInput = z.object({
         .meta({
           ref: "AgentPartInput",
         }),
+      MessageV2.SkillPart.omit({
+        messageID: true,
+        sessionID: true,
+      })
+        .partial({
+          id: true,
+        })
+        .meta({
+          ref: "SkillPartInput",
+        }),
       MessageV2.SubtaskPart.omit({
         messageID: true,
         sessionID: true,
@@ -2758,30 +2941,6 @@ export const PromptInput = z.object({
   ),
 })
 export type PromptInput = z.infer<typeof PromptInput>
-
-export async function prompt(input: PromptInput) {
-  return runPromise((svc) => svc.prompt(PromptInput.parse(input)))
-}
-
-export async function promptWithAutomationContext(
-  input: PromptInput,
-  context: import("@/automation/run-context").AutomationRunContext,
-  options?: PromptRuntimeOptions,
-) {
-  return runPromise((svc) =>
-    svc
-      .prompt(PromptInput.parse(input), options)
-      .pipe(Effect.provideService(AutomationRunContext.service, context)),
-  )
-}
-
-export async function resolvePromptParts(template: string) {
-  return runPromise((svc) => svc.resolvePromptParts(z.string().parse(template)))
-}
-
-export async function cancel(sessionID: SessionID, options?: { source?: string }) {
-  return runPromise((svc) => svc.cancel(SessionID.zod.parse(sessionID), options))
-}
 
 export const LoopInput = z.object({
   sessionID: SessionID.zod,
@@ -2802,10 +2961,6 @@ export const LoopInput = z.object({
     .optional(),
 })
 
-export async function loop(input: z.infer<typeof LoopInput>) {
-  return runPromise((svc) => svc.loop(LoopInput.parse(input)))
-}
-
 export const ShellInput = z.object({
   sessionID: SessionID.zod,
   messageID: MessageID.zod.optional(),
@@ -2819,10 +2974,6 @@ export const ShellInput = z.object({
   command: z.string(),
 })
 export type ShellInput = z.infer<typeof ShellInput>
-
-export async function shell(input: ShellInput) {
-  return runPromise((svc) => svc.shell(ShellInput.parse(input)))
-}
 
 export const CommandInput = z.object({
   messageID: MessageID.zod.optional(),
@@ -2848,8 +2999,60 @@ export const CommandInput = z.object({
 })
 export type CommandInput = z.infer<typeof CommandInput>
 
-export async function command(input: CommandInput) {
-  return runPromise((svc) => svc.command(CommandInput.parse(input)))
+type McpContentItem =
+  | { type: "text"; text: string }
+  | { type: "image"; mimeType: string; data: string }
+  | { type: "resource"; resource: { text?: string; blob?: string; mimeType?: string; uri: string } }
+  | { type: string }
+
+export type McpToolOutcome =
+  | { kind: "error"; message: string }
+  | {
+      kind: "ok"
+      textParts: string[]
+      attachments: Omit<MessageV2.FilePart, "id" | "sessionID" | "messageID">[]
+    }
+
+// MCP signals tool failure via `isError` on a normally-returned result — the SDK
+// client does not throw for it, and the AI SDK only emits tool-error for thrown
+// errors. Surfacing it as an error outcome here routes the call into the regular
+// tool-error channel (error-state part, error fingerprint for the loop gate)
+// instead of recording a completed success.
+/** @internal Exported for testing */
+export function parseMcpToolResult(
+  key: string,
+  result: { isError?: boolean; content: McpContentItem[] },
+): McpToolOutcome {
+  const textParts: string[] = []
+  const attachments: Omit<MessageV2.FilePart, "id" | "sessionID" | "messageID">[] = []
+  for (const contentItem of result.content) {
+    if (contentItem.type === "text" && "text" in contentItem) textParts.push(contentItem.text)
+    else if (contentItem.type === "image" && "data" in contentItem) {
+      attachments.push({
+        type: "file",
+        mime: contentItem.mimeType,
+        url: `data:${contentItem.mimeType};base64,${contentItem.data}`,
+      })
+    } else if (contentItem.type === "resource" && "resource" in contentItem) {
+      const { resource } = contentItem
+      if (resource.text) textParts.push(resource.text)
+      if (resource.blob) {
+        attachments.push({
+          type: "file",
+          mime: resource.mimeType ?? "application/octet-stream",
+          url: `data:${resource.mimeType ?? "application/octet-stream"};base64,${resource.blob}`,
+          filename: resource.uri,
+        })
+      }
+    }
+  }
+  if (result.isError === true) {
+    return {
+      kind: "error",
+      message: textParts.join("\n\n").trim() || `MCP tool ${key} reported an error without details`,
+    }
+  }
+  return { kind: "ok", textParts, attachments }
 }
 
 /** @internal Exported for testing */

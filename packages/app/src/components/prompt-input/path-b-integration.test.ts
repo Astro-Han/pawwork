@@ -16,7 +16,8 @@
 //      leading slash
 
 import { describe, expect, test } from "bun:test"
-import { isPromptEqual, type CommandSource } from "@/context/prompt"
+import { isPromptEqual } from "@/context/prompt-equality"
+import type { CommandSource } from "@/context/prompt"
 import { tryPathBConversion } from "./command-space-trigger"
 import {
   isNormalizedEditor,

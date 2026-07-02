@@ -7,8 +7,12 @@ import { useLanguage } from "@/context/language"
 import type { E2EWindow } from "@/testing/terminal"
 import { updateErrorPageState } from "./error-update"
 import { PAWWORK_GITHUB_ISSUE_URL } from "@/utils/support-links"
-import { buildErrorReportDetails, errorReportStatusMessage, formatError, summarizeKnownError } from "./error-report"
+import { buildErrorReportDetails, diagnosticsFailureState, formatError, summarizeKnownError } from "./error-report"
+import { DiagnosticsReviewBody, reviewActionsFrom } from "@/components/diagnostics-review"
+import type { PrepareReportResult } from "@/desktop-api-contract"
 export type { InitError } from "./error-report"
+
+type ReadyReport = Extract<PrepareReportResult, { status: "ready" }>
 
 interface ErrorPageProps {
   error: unknown
@@ -17,24 +21,25 @@ interface ErrorPageProps {
 type ErrorPageStore = {
   checking: boolean
   reporting: boolean
-  reportConfirmOpen: boolean
+  review: ReadyReport | undefined
   version: string | undefined
   actionError: string | undefined
   actionMessage: string | undefined
-  feedbackUrl: string | undefined
 }
 
 export const ErrorPage: Component<ErrorPageProps> = (props) => {
   const platform = usePlatform()
   const language = useLanguage()
+  // Resolve reveal/submit once at this boundary so the review body gets settled, non-optional
+  // actions (a half-wired bridge can't reach a state where submit silently no-ops).
+  const reviewActions = reviewActionsFrom(platform)
   const [store, setStore] = createStore<ErrorPageStore>({
     checking: false,
     reporting: false,
-    reportConfirmOpen: false,
+    review: undefined,
     version: undefined,
     actionError: undefined,
     actionMessage: undefined,
-    feedbackUrl: undefined,
   })
   const knownError = createMemo(() => summarizeKnownError(props.error, language.t))
   const errorDetails = createMemo(() => formatError(props.error, language.t))
@@ -47,10 +52,10 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
     console.error(`[e2e:error-boundary] ${window.location.pathname}\n${detail}`)
   })
 
-  async function copyCurrentErrorDetails() {
-    if (!navigator.clipboard?.writeText) return false
+  async function copyText(text: string) {
+    if (!text || !navigator.clipboard?.writeText) return false
     try {
-      await navigator.clipboard.writeText(errorDetails())
+      await navigator.clipboard.writeText(text)
     } catch {
       return false
     }
@@ -87,36 +92,36 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
       })
   }
 
-  async function reportProblem() {
-    if (!platform.reportProblem) {
-      setStore({
-        reportConfirmOpen: false,
-        actionError: undefined,
-        actionMessage: language.t("error.page.report.unavailable"),
-        feedbackUrl: undefined,
-      })
+  async function prepareDiagnostics() {
+    if (!platform.prepareReport || !reviewActions) {
+      setStore({ review: undefined, actionError: undefined, actionMessage: language.t("error.page.report.unavailable") })
       return
     }
-    setStore({ reporting: true, actionError: undefined, actionMessage: undefined, feedbackUrl: undefined })
+    setStore({ reporting: true, actionError: undefined, actionMessage: undefined })
     await platform
-      .reportProblem({ confirm: false, rendererError: reportDetails() })
-      .then((result) => {
-        setStore({
-          feedbackUrl: result.status === "form-fallback" ? result.feedbackUrl : undefined,
-          actionError: result.status === "failed" ? errorReportStatusMessage(result, language.t) : undefined,
-          actionMessage: result.status === "failed" ? undefined : errorReportStatusMessage(result, language.t),
-        })
+      .prepareReport({ rendererError: reportDetails() })
+      .then(async (result) => {
+        if (result.status === "ready") {
+          setStore({ review: result, actionError: undefined, actionMessage: undefined })
+          return
+        }
+        // The package couldn't be saved, but the main process still returns the redacted summary —
+        // copy it as degraded submit material (mirroring the menu's copy-fallback toast) instead of
+        // dropping it for a bare error. Clears any prior review so stale content can't linger.
+        const copied = await copyText(result.summary)
+        setStore(diagnosticsFailureState(copied, language.t))
       })
       .catch(async () => {
-        const copied = await copyCurrentErrorDetails()
+        const copied = await copyText(errorDetails())
         setStore({
+          // Clear any prior successful review so a failed re-prepare can't leave stale content visible.
+          review: undefined,
           actionError: copied ? undefined : language.t("error.page.report.failed"),
           actionMessage: copied ? language.t("error.page.report.copiedFallback") : undefined,
-          feedbackUrl: undefined,
         })
       })
       .finally(() => {
-        setStore({ reporting: false, reportConfirmOpen: false })
+        setStore("reporting", false)
       })
   }
 
@@ -175,7 +180,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
             <button
               type="button"
               class="hover:text-fg-strong transition-colors disabled:opacity-50"
-              onClick={() => setStore("reportConfirmOpen", true)}
+              onClick={() => void prepareDiagnostics()}
               disabled={store.reporting}
             >
               {store.reporting ? language.t("error.page.report.preparing") : language.t("error.page.report.action")}
@@ -183,35 +188,24 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
           </div>
         </div>
 
-        <Show when={store.reportConfirmOpen}>
-          <div class="mt-8 flex flex-col gap-3 text-body">
-            <p class="text-fg-base leading-relaxed">{language.t("error.page.report.confirm.description")}</p>
-            <p class="text-fg-weak leading-relaxed">{language.t("error.page.report.confirm.privacy")}</p>
-            <details class="text-fg-weak">
-              <summary class="cursor-pointer text-brand-primary select-none">
-                {language.t("error.page.report.confirm.details")}
-              </summary>
-              <ul class="mt-2 list-disc pl-5">
-                <li>{language.t("error.page.report.confirm.item.error")}</li>
-                <li>{language.t("error.page.report.confirm.item.app")}</li>
-                <li>{language.t("error.page.report.confirm.item.logs")}</li>
-                <li>{language.t("error.page.report.confirm.item.context")}</li>
-              </ul>
-            </details>
-            <div class="mt-1 flex items-center gap-2">
-              <Button
-                variant="ghost"
-
-                onClick={() => setStore("reportConfirmOpen", false)}
-                disabled={store.reporting}
-              >
-                {language.t("common.cancel")}
-              </Button>
-              <Button onClick={reportProblem} disabled={store.reporting}>
-                {language.t("error.page.report.confirm.continue")}
-              </Button>
-            </div>
-          </div>
+        <Show when={reviewActions}>
+          {(actions) => (
+            <Show when={store.review}>
+              {(review) => (
+                <div class="mt-8 max-w-[420px] rounded-lg ring-1 ring-border bg-bg-cream/40 pt-4">
+                  <h2 class="px-5 pb-1 text-h3 text-fg-strong">
+                    {language.t(review().hasForm ? "diagnostics.review.title.ready" : "diagnostics.review.title.saved")}
+                  </h2>
+                  <DiagnosticsReviewBody
+                    result={review()}
+                    actions={actions()}
+                    language={language}
+                    onDone={() => setStore("review", undefined)}
+                  />
+                </div>
+              )}
+            </Show>
+          )}
         </Show>
 
         <Show when={store.actionError}>
@@ -256,11 +250,9 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
               <button
                 type="button"
                 class="hover:text-fg-weak transition-colors"
-                onClick={() => platform.openLink(store.feedbackUrl ?? PAWWORK_GITHUB_ISSUE_URL)}
+                onClick={() => platform.openLink(PAWWORK_GITHUB_ISSUE_URL)}
               >
-                {store.feedbackUrl
-                  ? language.t("error.page.report.formFallbackAction")
-                  : language.t("error.page.report.githubFallback")}
+                {language.t("error.page.report.githubFallback")}
               </button>
             </div>
           </div>

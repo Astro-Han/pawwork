@@ -1,15 +1,14 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test"
+import * as uiToast from "@opencode-ai/ui/toast"
 import type { Prompt } from "@/context/prompt"
-import type {
-  createPromptSubmit as createPromptSubmitType,
-  sendFollowupDraft as sendFollowupDraftType,
-} from "./submit"
+import type { createPromptSubmit as createPromptSubmitType } from "./submit"
+import { _portableDraftTesting } from "./portable-draft"
+import { _pinnedDraftTesting, usePinnedDraft } from "./pinned-draft"
 
 type PromptSubmitInput = Parameters<typeof createPromptSubmitType>[0]
 type PromptSubmit = ReturnType<typeof createPromptSubmitType>
 
 let createPromptSubmit: (input: PromptSubmitInput) => PromptSubmit
-let sendFollowupDraft: typeof sendFollowupDraftType
 
 const createdClients: string[] = []
 const createdSessions: string[] = []
@@ -33,16 +32,27 @@ const commandCalls: Array<Record<string, unknown>> = []
 const commandDefinitions: Array<{ name: string }> = []
 let commandsReady = true
 let promptAsyncFailure: Error | undefined
+let promptAsyncGate: Promise<void> | undefined
+let sessionCreateGate: Promise<void> | undefined
 const abortedSessions: Array<{ sessionID: string; source?: string }> = []
 const globalTodoSets: Array<{ sessionID: string; todos: unknown }> = []
 const childTodoSets: Array<{ directory: string; sessionID: string; todos: unknown }> = []
 const promptSetCalls: Array<{ prompt: Prompt; cursor?: number; target?: { dir: string; id?: string } }> = []
 const promptResetCalls: Array<{ target?: { dir: string; id?: string } }> = []
+const promptContextReplaceAllCalls: Array<{ items: unknown[]; target?: { dir: string; id?: string } }> = []
+const promptHasDraftCalls: Array<{ target?: { dir: string; id?: string } }> = []
+const uiSetModeCalls: Array<"normal" | "shell"> = []
+const uiSetPopoverCalls: Array<"at" | "slash" | null> = []
+const uiQueueScrollCalls: string[] = []
+const uiFocusCalls: string[] = []
+let promptContextItems: Array<{ key: string; type: "file"; path: string; comment?: string }> = []
 
 let params: { dir?: string; id?: string } = {}
 let navigateImpl = (_path: string): void => {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
+let promptDirty = false
+let promptHasDraft = false
 
 let currentIntl = "zh-Hans"
 let promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
@@ -55,12 +65,15 @@ const waitForCall = async (check: () => boolean) => {
   throw new Error("timed out waiting for async request")
 }
 
+const waitForAsyncSubmitSettled = () => new Promise((resolve) => setTimeout(resolve, 0))
+
 const clientFor = (directory: string) => {
   createdClients.push(directory)
   return {
     session: {
       create: async () => {
         createdSessions.push(directory)
+        await sessionCreateGate
         return {
           data: {
             id: `session-${createdSessions.length}`,
@@ -75,6 +88,7 @@ const clientFor = (directory: string) => {
       prompt: async () => ({ data: undefined }),
       promptAsync: async (input: Record<string, unknown>) => {
         promptAsyncCalls.push(input)
+        await promptAsyncGate
         if (promptAsyncFailure) throw promptAsyncFailure
         return { data: undefined }
       },
@@ -108,9 +122,11 @@ beforeAll(async () => {
     },
   }))
 
-  mock.module("@opencode-ai/ui/toast", () => ({
-    showToast: () => 0,
-  }))
+  // spyOn + afterAll restore instead of mock.module: bun's mock.module is a
+  // global, persistent, non-restoring registry override, so a noop toast mock
+  // here leaked into every later test file in the run and broke suites that
+  // rely on the real showToast (e.g. pawwork-session-commands.test.ts).
+  spyOn(uiToast, "showToast").mockImplementation(() => 0)
 
   mock.module("@opencode-ai/util/encode", () => ({
     base64Encode: (value: string) => value,
@@ -145,6 +161,12 @@ beforeAll(async () => {
   mock.module("@/context/prompt", () => ({
     usePrompt: () => ({
       current: () => promptValue,
+      dirty: () => promptDirty,
+      hasDraft: (target?: { dir: string; id?: string }) => {
+        promptHasDraftCalls.push({ target })
+        const targetIsActive = target && params.dir === target.dir && params.id === target.id
+        return promptHasDraft || (!!targetIsActive && (promptDirty || promptContextItems.length > 0))
+      },
       reset: (target?: { dir: string; id?: string }) => {
         promptResetCalls.push({ target })
       },
@@ -154,7 +176,10 @@ beforeAll(async () => {
       context: {
         add: () => undefined,
         remove: () => undefined,
-        items: () => [],
+        items: () => promptContextItems,
+        replaceAll: (items: unknown[], target?: { dir: string; id?: string }) => {
+          promptContextReplaceAllCalls.push({ items, target })
+        },
       },
     }),
   }))
@@ -252,7 +277,10 @@ beforeAll(async () => {
 
   const mod = await import("./submit")
   createPromptSubmit = mod.createPromptSubmit
-  sendFollowupDraft = mod.sendFollowupDraft
+})
+
+afterAll(() => {
+  mock.restore()
 })
 
 beforeEach(() => {
@@ -267,19 +295,32 @@ beforeEach(() => {
   commandDefinitions.length = 0
   commandsReady = true
   promptAsyncFailure = undefined
+  promptAsyncGate = undefined
+  sessionCreateGate = undefined
   abortedSessions.length = 0
   globalTodoSets.length = 0
   childTodoSets.length = 0
   promptSetCalls.length = 0
   promptResetCalls.length = 0
+  promptContextReplaceAllCalls.length = 0
+  promptHasDraftCalls.length = 0
+  uiSetModeCalls.length = 0
+  uiSetPopoverCalls.length = 0
+  uiQueueScrollCalls.length = 0
+  uiFocusCalls.length = 0
+  promptContextItems = []
   params = {}
   navigateImpl = (_path: string): void => {}
   sentShell.length = 0
   syncedDirectories.length = 0
   selected = "/repo/worktree-a"
   variant = undefined
+  promptDirty = false
+  promptHasDraft = false
   currentIntl = "zh-Hans"
   promptValue = [{ type: "text", content: "ls", start: 0, end: 2 }]
+  _portableDraftTesting.reset()
+  _pinnedDraftTesting.reset()
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
 })
 
@@ -445,7 +486,7 @@ describe("prompt submit worktree selection", () => {
       onSubmit: () => submits.push("submit"),
     })
 
-    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event, "submitButton")
 
     expect(aborts).toEqual(["called"])
     expect(abortedSessions).toEqual([{ sessionID: "session-visible", source: "renderer.stopButton" }])
@@ -453,9 +494,10 @@ describe("prompt submit worktree selection", () => {
     expect(promptAsyncCalls).toEqual([])
   })
 
-  test("marks keyboard empty-enter abort with caller source", async () => {
+  test("keyboard empty Enter does not interrupt a running task", async () => {
     params = { id: "session-visible" }
     promptValue = [{ type: "text", content: "", start: 0, end: 0 }]
+    const aborts: string[] = []
     const submit = createPromptSubmit({
       navigate: (path) => navigateImpl(path),
       routeParams: () => params,
@@ -475,11 +517,14 @@ describe("prompt submit worktree selection", () => {
       resetHistoryNavigation: () => undefined,
       setMode: () => undefined,
       setPopover: () => undefined,
+      onAbort: () => aborts.push("called"),
     })
 
-    await submit.handleSubmit(new KeyboardEvent("keydown", { key: "Enter" }))
+    await submit.handleSubmit(new KeyboardEvent("keydown", { key: "Enter" }), "keyboard")
 
-    expect(abortedSessions).toEqual([{ sessionID: "session-visible", source: "renderer.emptyEnter" }])
+    // Interrupting a running task is ESC's job; Enter must never abort.
+    expect(aborts).toEqual([])
+    expect(abortedSessions).toEqual([])
   })
 
   test("reads the latest worktree accessor value per submit", async () => {
@@ -708,6 +753,71 @@ describe("prompt submit worktree selection", () => {
     expect(promptAsyncCalls.at(-1)?.locale).toBe("pt-BR")
   })
 
+  test("allows attachment-only promptAsync submits", async () => {
+    params = { id: "session-existing" }
+    promptValue = [{ type: "file", path: "guide.pdf", content: "@guide.pdf", start: 0, end: 10 }]
+
+    const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
+      info: () => ({ id: "session-existing" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    const parts = promptAsyncCalls.at(-1)?.parts as Array<Record<string, unknown>>
+    expect(parts.some((part) => part.type === "file" && part.url === "file:///repo/main/guide.pdf")).toBe(true)
+  })
+
+  test("allows chip-only promptAsync submits", async () => {
+    params = { id: "session-existing" }
+    promptValue = [
+      { type: "text", content: "", start: 0, end: 0 },
+      { type: "attachment", id: "att_1", path: "/Users/me/shot.png", filename: "shot.png", mime: "image/png" },
+    ]
+
+    const submit = createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
+      info: () => ({ id: "session-existing" }),
+      // Mirrors production wiring (derived-state.ts): the floating accessor
+      // derives from the same prompt, so a chip there always shows up here.
+      imageAttachments: () => promptValue.filter((part) => part.type === "attachment"),
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    const parts = promptAsyncCalls.at(-1)?.parts as Array<Record<string, unknown>>
+    expect(parts.some((part) => part.type === "file" && part.url === "file:///Users/me/shot.png")).toBe(true)
+  })
+
   test("queues locale on followup drafts", async () => {
     params = { id: "session-existing" }
     const queued: Array<Record<string, unknown>> = []
@@ -768,48 +878,18 @@ describe("prompt submit worktree selection", () => {
     expect(commandCalls.at(-1)?.locale).toBe("nb-NO")
   })
 
-  test("sends locale with slash-command followups", async () => {
-    await sendFollowupDraft({
-      client: clientFor("/repo/main") as any,
-      globalSync: {
-        child: () => [{}, () => undefined],
-      } as any,
-      sync: {
-        data: { command: [{ name: "summarize" }], command_ready: true },
-        session: {
-          optimistic: {
-            add: () => undefined,
-            remove: () => undefined,
-          },
-        },
-      } as any,
-      draft: {
-        sessionID: "session-1",
-        sessionDirectory: "/repo/main",
-        prompt: [{ type: "text", content: "/summarize this", start: 0, end: 15 }],
-        context: [],
-        agent: "agent",
-        model: { providerID: "provider", modelID: "model" },
-        locale: "zh-Hans",
-      },
-    })
-
-    expect(commandCalls.at(-1)?.locale).toBe("zh-Hans")
-  })
-
-  test("clears prompt source scope on successful new-session submit", async () => {
-    params = { dir: "/repo/main" }
-    promptValue = [{ type: "text", content: "hello", start: 0, end: 5 }]
-    // Simulate navigate() changing params.id to the new session id, just as SolidJS router does
-    navigateImpl = (path: string) => {
-      const match = path.match(/\/session\/([^/]+)/)
-      if (match) params.id = match[1]
-    }
+  test("sends file attachment parts with direct slash-command submits", async () => {
+    params = { id: "session-existing" }
+    commandDefinitions.push({ name: "summarize" })
+    promptValue = [
+      { type: "text", content: "/summarize ", start: 0, end: 11 },
+      { type: "file", path: "guide.pdf", content: "@guide.pdf", start: 11, end: 21 },
+    ]
 
     const submit = createPromptSubmit({
       navigate: (path) => navigateImpl(path),
       routeParams: () => params,
-      info: () => undefined,
+      info: () => ({ id: "session-existing" }),
       imageAttachments: () => [],
       commentCount: () => 0,
       autoAccept: () => false,
@@ -826,6 +906,36 @@ describe("prompt submit worktree selection", () => {
     })
 
     await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => commandCalls.length > 0)
+
+    expect(commandCalls.at(-1)?.parts).toEqual([
+      {
+        id: expect.any(String),
+        type: "file",
+        mime: "text/plain",
+        url: "file:///repo/main/guide.pdf",
+        filename: "guide.pdf",
+        source: {
+          type: "file",
+          text: { value: "@guide.pdf", start: 11, end: 21 },
+          path: "/repo/main/guide.pdf",
+        },
+      },
+    ])
+  })
+
+  test("clears prompt source scope on successful new-session submit", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "hello", start: 0, end: 5 }]
+    // Simulate navigate() changing params.id to the new session id, just as SolidJS router does
+    navigateImpl = (path: string) => {
+      const match = path.match(/\/session\/([^/]+)/)
+      if (match) params.id = match[1]
+    }
+
+    const submit = createHomepageSubmit()
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
     await waitForCall(() => promptResetCalls.length > 0)
 
     // After navigate(), params.id is now "session-1", but clearInput must reset the
@@ -833,6 +943,493 @@ describe("prompt submit worktree selection", () => {
     expect(params.id).toBe("session-1") // confirm navigate ran and updated params
     expect(promptResetCalls.at(-1)?.target?.dir).toBe("/repo/main")
     expect(promptResetCalls.at(-1)?.target?.id).toBeUndefined()
+  })
+
+  test("does not clear homepage global draft if it changed before new-session clear", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "old draft", start: 0, end: 9 }]
+    let releaseSessionCreate!: () => void
+    sessionCreateGate = new Promise<void>((resolve) => {
+      releaseSessionCreate = resolve
+    })
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => createdSessions.length > 0)
+
+    promptValue = [{ type: "text", content: "new draft", start: 0, end: 9 }]
+    releaseSessionCreate()
+    await submitted
+    await waitForAsyncSubmitSettled()
+
+    expect(promptResetCalls).toEqual([])
+  })
+
+  const createHomepageSubmit = (overrides: Partial<PromptSubmitInput> = {}) =>
+    createPromptSubmit({
+      navigate: (path) => navigateImpl(path),
+      routeParams: () => params,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => uiQueueScrollCalls.push("queue"),
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: (nextMode) => uiSetModeCalls.push(nextMode),
+      setPopover: (popover) => uiSetPopoverCalls.push(popover),
+      onSubmit: () => undefined,
+      ...overrides,
+    })
+
+  test("clears submitted global homepage draft before async prompt settles", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "already sent", start: 0, end: 12 }]
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptResetCalls.length > 0)
+
+    expect(promptResetCalls.at(-1)?.target).toEqual({ dir: "/repo/main", id: undefined })
+
+    releasePromptAsync()
+    await submitted
+  })
+
+  test("restores submitted global homepage draft on async prompt failure when no new draft exists", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "restore me", start: 0, end: 10 }]
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptSetCalls.length > 0)
+
+    expect(promptSetCalls.at(-1)).toMatchObject({
+      prompt: promptValue,
+      cursor: 10,
+      target: { dir: "/repo/main", id: "session-1" },
+    })
+  })
+
+  test("restores submitted global homepage draft when a different active route is dirty", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "background fail", start: 0, end: 15 }]
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    params = { dir: "/repo/other", id: "session-other" }
+    promptDirty = true
+    releasePromptAsync()
+    await submitted
+    await waitForCall(() => promptSetCalls.length > 0)
+
+    expect(promptSetCalls.at(-1)).toMatchObject({
+      prompt: promptValue,
+      cursor: 15,
+      target: { dir: "/repo/main", id: "session-1" },
+    })
+  })
+
+  test("restores submitted global homepage draft in background without changing active composer UI", async () => {
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame
+    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      callback(0)
+      return 0
+    }) as typeof requestAnimationFrame
+    try {
+      params = { dir: "/repo/main" }
+      promptValue = [{ type: "text", content: "background ui", start: 0, end: 13 }]
+
+      const editor = document.createElement("div")
+      editor.textContent = "active composer"
+      Object.defineProperty(editor, "focus", { value: () => uiFocusCalls.push("focus") })
+
+      let releasePromptAsync!: () => void
+      promptAsyncGate = new Promise<void>((resolve) => {
+        releasePromptAsync = resolve
+      })
+      promptAsyncFailure = new Error("network down")
+
+      const submit = createHomepageSubmit({ editor: () => editor })
+
+      const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+      await waitForCall(() => promptResetCalls.length > 0)
+      const modeCallsAfterClear = uiSetModeCalls.length
+      const popoverCallsAfterClear = uiSetPopoverCalls.length
+      const focusCallsAfterClear = uiFocusCalls.length
+      const queueScrollCallsAfterClear = uiQueueScrollCalls.length
+
+      params = { dir: "/repo/other", id: "session-other" }
+      releasePromptAsync()
+      await submitted
+      await waitForAsyncSubmitSettled()
+
+      expect(promptSetCalls.at(-1)).toMatchObject({
+        prompt: promptValue,
+        cursor: 13,
+        target: { dir: "/repo/main", id: "session-1" },
+      })
+      expect(uiSetModeCalls).toHaveLength(modeCallsAfterClear)
+      expect(uiSetPopoverCalls).toHaveLength(popoverCallsAfterClear)
+      expect(uiFocusCalls).toHaveLength(focusCallsAfterClear)
+      expect(uiQueueScrollCalls).toHaveLength(queueScrollCallsAfterClear)
+    } finally {
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame
+    }
+  })
+
+  test("restores submitted global homepage context to target scope when a different active route is dirty", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "background context", start: 0, end: 18 }]
+    const submittedContext = [{ key: "old", type: "file" as const, path: "/repo/main/old.ts", comment: "old note" }]
+    promptContextItems = submittedContext
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    params = { dir: "/repo/other", id: "session-other" }
+    promptDirty = true
+    releasePromptAsync()
+    await submitted
+    await waitForCall(() => promptContextReplaceAllCalls.length > 0)
+
+    expect(promptSetCalls.at(-1)?.target).toEqual({ dir: "/repo/main", id: "session-1" })
+    expect(promptContextReplaceAllCalls.at(-1)).toEqual({
+      items: [{ type: "file", path: "/repo/main/old.ts", comment: "old note" }],
+      target: { dir: "/repo/main", id: "session-1" },
+    })
+  })
+
+  test("does not restore submitted global homepage draft over dirty active target route", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "same route fail", start: 0, end: 15 }]
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    params = { dir: "/repo/main", id: "session-1" }
+    promptDirty = true
+    releasePromptAsync()
+    await submitted
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(promptSetCalls).toEqual([])
+  })
+
+  test("does not restore submitted global homepage draft over context-only active target route", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "same route context", start: 0, end: 18 }]
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    params = { dir: "/repo/main", id: "session-1" }
+    promptDirty = false
+    promptContextItems = [{ key: "new", type: "file", path: "/repo/main/new.ts", comment: "new note" }]
+    releasePromptAsync()
+    await submitted
+    await waitForAsyncSubmitSettled()
+
+    expect(promptSetCalls).toEqual([])
+    expect(promptContextReplaceAllCalls).toEqual([])
+    expect(promptHasDraftCalls.at(-1)?.target).toEqual({ dir: "/repo/main", id: "session-1" })
+  })
+
+  test("does not restore submitted global homepage draft over inactive target route with a newer draft", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "old submit", start: 0, end: 10 }]
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    params = { dir: "/repo/main", id: "session-1" }
+    promptHasDraft = true
+    params = { dir: "/repo/other", id: "session-other" }
+    releasePromptAsync()
+    await submitted
+    await waitForAsyncSubmitSettled()
+
+    expect(promptSetCalls).toEqual([])
+    expect(promptContextReplaceAllCalls).toEqual([])
+    expect(promptHasDraftCalls.at(-1)?.target).toEqual({ dir: "/repo/main", id: "session-1" })
+  })
+
+  test("detaches submitted pinned draft before async prompt settles", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "deep link", start: 0, end: 9 }]
+    const pinned = usePinnedDraft()
+    pinned.adopt({ directory: "/repo/main", prompt: "deep link" })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptResetCalls.length > 0)
+
+    expect(pinned.current()).toBeNull()
+
+    releasePromptAsync()
+    await submitted
+  })
+
+  test("restores submitted pinned draft on async prompt failure when no new draft exists", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "restore pin", start: 0, end: 11 }]
+    promptContextItems = [{ key: "pin", type: "file", path: "/repo/main/pin.ts", comment: "pin note" }]
+    const pinned = usePinnedDraft()
+    pinned.adopt({ directory: "/repo/main", prompt: "restore pin" })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptSetCalls.length > 0)
+
+    expect(pinned.current()).toBeNull()
+    expect(promptSetCalls.at(-1)).toMatchObject({
+      prompt: promptValue,
+      cursor: 11,
+      target: { dir: "/repo/main", id: "session-1" },
+    })
+  })
+
+  test("restores submitted pinned context to target scope when a different active route is dirty", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "restore pin", start: 0, end: 11 }]
+    promptContextItems = [{ key: "pin", type: "file", path: "/repo/main/pin.ts", comment: "pin note" }]
+    const pinned = usePinnedDraft()
+    pinned.adopt({ directory: "/repo/main", prompt: "restore pin" })
+    pinned.recordEdit({
+      directory: "/repo/main",
+      prompt: promptValue,
+      context: promptContextItems,
+      images: [],
+      resolvedMentions: {},
+    })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    params = { dir: "/repo/other", id: "session-other" }
+    promptDirty = true
+    releasePromptAsync()
+    await submitted
+    await waitForCall(() => promptContextReplaceAllCalls.length > 0)
+
+    expect(promptSetCalls.at(-1)?.target).toEqual({ dir: "/repo/main", id: "session-1" })
+    expect(promptContextReplaceAllCalls.at(-1)).toEqual({
+      items: [{ type: "file", path: "/repo/main/pin.ts", comment: "pin note" }],
+      target: { dir: "/repo/main", id: "session-1" },
+    })
+  })
+
+  test("restores submitted pinned draft while preserving a different homepage owner draft", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "old pin", start: 0, end: 7 }]
+    const pinned = usePinnedDraft()
+    pinned.adopt({ directory: "/repo/main", prompt: "old pin" })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptResetCalls.length > 0)
+
+    params = { dir: "/repo/other" }
+    pinned.adopt({ directory: "/repo/other", prompt: "new pin" })
+    releasePromptAsync()
+    await submitted
+    await waitForAsyncSubmitSettled()
+
+    expect(promptSetCalls.at(-1)).toMatchObject({
+      prompt: promptValue,
+      cursor: 7,
+      target: { dir: "/repo/main", id: "session-1" },
+    })
+    expect(pinned.current()).toMatchObject({
+      directory: "/repo/other",
+      prompt: [{ type: "text", content: "new pin", start: 0, end: 7 }],
+    })
+  })
+
+  test("restores submitted pinned draft in background without changing active composer UI", async () => {
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame
+    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      callback(0)
+      return 0
+    }) as typeof requestAnimationFrame
+    try {
+      params = { dir: "/repo/main" }
+      promptValue = [{ type: "text", content: "pin background", start: 0, end: 14 }]
+      const pinned = usePinnedDraft()
+      pinned.adopt({ directory: "/repo/main", prompt: "pin background" })
+
+      const editor = document.createElement("div")
+      editor.textContent = "active composer"
+      Object.defineProperty(editor, "focus", { value: () => uiFocusCalls.push("focus") })
+
+      let releasePromptAsync!: () => void
+      promptAsyncGate = new Promise<void>((resolve) => {
+        releasePromptAsync = resolve
+      })
+      promptAsyncFailure = new Error("network down")
+
+      const submit = createHomepageSubmit({ editor: () => editor })
+
+      const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+      await waitForCall(() => promptResetCalls.length > 0)
+      const modeCallsAfterClear = uiSetModeCalls.length
+      const popoverCallsAfterClear = uiSetPopoverCalls.length
+      const focusCallsAfterClear = uiFocusCalls.length
+      const queueScrollCallsAfterClear = uiQueueScrollCalls.length
+
+      params = { dir: "/repo/other", id: "session-other" }
+      releasePromptAsync()
+      await submitted
+      await waitForAsyncSubmitSettled()
+
+      expect(promptSetCalls.at(-1)).toMatchObject({
+        prompt: promptValue,
+        cursor: 14,
+        target: { dir: "/repo/main", id: "session-1" },
+      })
+      expect(uiSetModeCalls).toHaveLength(modeCallsAfterClear)
+      expect(uiSetPopoverCalls).toHaveLength(popoverCallsAfterClear)
+      expect(uiFocusCalls).toHaveLength(focusCallsAfterClear)
+      expect(uiQueueScrollCalls).toHaveLength(queueScrollCallsAfterClear)
+    } finally {
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame
+    }
+  })
+
+  test("does not restore submitted pinned draft over context-only active target route", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "old pin", start: 0, end: 7 }]
+    const pinned = usePinnedDraft()
+    pinned.adopt({ directory: "/repo/main", prompt: "old pin" })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    params = { dir: "/repo/main", id: "session-1" }
+    promptDirty = false
+    promptContextItems = [{ key: "new", type: "file", path: "/repo/main/new-pin.ts", comment: "new pin note" }]
+    releasePromptAsync()
+    await submitted
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(promptSetCalls).toEqual([])
+    expect(promptContextReplaceAllCalls).toEqual([])
+  })
+
+  test("does not restore submitted pinned draft over inactive target route with a newer draft", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "old pin", start: 0, end: 7 }]
+    const pinned = usePinnedDraft()
+    pinned.adopt({ directory: "/repo/main", prompt: "old pin" })
+
+    let releasePromptAsync!: () => void
+    promptAsyncGate = new Promise<void>((resolve) => {
+      releasePromptAsync = resolve
+    })
+    promptAsyncFailure = new Error("network down")
+
+    const submit = createHomepageSubmit()
+
+    const submitted = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    params = { dir: "/repo/main", id: "session-1" }
+    promptHasDraft = true
+    params = { dir: "/repo/other", id: "session-other" }
+    releasePromptAsync()
+    await submitted
+    await waitForAsyncSubmitSettled()
+
+    expect(promptSetCalls).toEqual([])
+    expect(promptContextReplaceAllCalls).toEqual([])
+    expect(promptHasDraftCalls.at(-1)?.target).toEqual({ dir: "/repo/main", id: "session-1" })
   })
 })
 

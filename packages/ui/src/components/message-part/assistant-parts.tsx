@@ -1,5 +1,5 @@
-import { createMemo, Index, Match, Show, Switch } from "solid-js"
-import type { AssistantMessage, Part as PartType, ReasoningPart, ToolPart } from "@opencode-ai/sdk/v2"
+import { createMemo, Index, Match, Show, Switch, type Accessor } from "solid-js"
+import type { AssistantMessage, Part as PartType, ToolPart } from "@opencode-ai/sdk/v2"
 import { useData } from "../../context"
 import { useI18n } from "../../context/i18n"
 import { TrowBlock, type TrowPart } from "../session-turn-trow-block"
@@ -65,32 +65,26 @@ export function AssistantParts(props: {
                 const toolParts = createMemo(() => parts().filter((p): p is ToolPart => p.type === "tool"))
                 const singleTool = createMemo(() => toolParts().length === 1 && parts().length === 1)
                 const defaultOpenForTool = (tool: ToolPart) => partDefaultOpen(tool) ?? singleTool()
-                const renderTool = (tool: ToolPart) => {
-                  const message = msgs().get(tool.messageID)
-                  if (!message) return null
+                const renderPart = (part: Accessor<TrowPart>) => {
+                  const message = createMemo(() => msgs().get(part().messageID))
+                  const stateKey = () => `${part().type === "tool" ? "tool" : "reasoning"}:${part().id}`
+                  const defaultOpen = () => {
+                    const current = part()
+                    return current.type === "tool" ? defaultOpenForTool(current) : false
+                  }
                   return (
-                    <div data-slot="trow-result-body" data-timeline-anchor={`tool:${tool.id}`}>
-                      <Part
-                        part={tool}
-                        message={message}
-                        defaultOpen={defaultOpenForTool(tool)}
-                        stateKey={`tool:${tool.id}`}
-                      />
-                    </div>
-                  )
-                }
-                const renderReasoning = (reasoning: ReasoningPart) => {
-                  const message = msgs().get(reasoning.messageID)
-                  if (!message) return null
-                  return (
-                    <div data-slot="trow-result-body" data-timeline-anchor={`reasoning:${reasoning.id}`}>
-                      <Part
-                        part={reasoning}
-                        message={message}
-                        defaultOpen={false}
-                        stateKey={`reasoning:${reasoning.id}`}
-                      />
-                    </div>
+                    <Show when={message()}>
+                      {(message) => (
+                        <div data-slot="trow-result-body" data-timeline-anchor={stateKey()}>
+                          <Part
+                            part={part()}
+                            message={message()}
+                            defaultOpen={defaultOpen()}
+                            stateKey={stateKey()}
+                          />
+                        </div>
+                      )}
+                    </Show>
                   )
                 }
 
@@ -105,8 +99,7 @@ export function AssistantParts(props: {
                         thinking: i18n.t("ui.sessionTurn.status.thinking"),
                       }}
                       describeTool={(tool) => contextToolSummaryText(tool, i18n)}
-                      renderTool={renderTool}
-                      renderReasoning={renderReasoning}
+                      renderPart={renderPart}
                     />
                   </Show>
                 )

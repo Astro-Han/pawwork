@@ -70,7 +70,9 @@ export function SessionComposerRegion(props: {
       .map((part) => {
         if (part.type === "file") return `[file:${part.path}]`
         if (part.type === "agent") return `@${part.name}`
+        if (part.type === "skill") return `/${part.name}`
         if (part.type === "image") return `[image:${part.filename}]`
+        if (part.type === "attachment") return `[file:${part.path}]`
         return part.content
       })
       .join("")
@@ -117,9 +119,9 @@ export function SessionComposerRegion(props: {
       >
         <Show when={props.state.questionRequest()} keyed>
           {(request) => (
-            <div>
+            <DockCard>
               <SessionQuestionDock request={request} onSubmit={props.onResponseSubmit} />
-            </div>
+            </DockCard>
           )}
         </Show>
 

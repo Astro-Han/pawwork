@@ -38,4 +38,19 @@ describe("cli.error", () => {
 
     expect(formatted).toBe("Provider not found: missing")
   })
+
+  test("formats remote config auth recovery errors", () => {
+    const formatted = FormatError({
+      name: "ConfigRemoteAuthError",
+      data: {
+        url: "https://example.com",
+        remote: "https://example.com/.well-known/opencode",
+        message: "the server returned a login page instead of JSON",
+      },
+    })
+
+    expect(formatted).toContain("Failed to load remote config from https://example.com/.well-known/opencode")
+    expect(formatted).toContain("returned a login page instead of JSON")
+    expect(formatted).toContain("opencode auth login https://example.com")
+  })
 })

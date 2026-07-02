@@ -1,5 +1,5 @@
-import { createMemo, Index, Match, Show, Switch } from "solid-js"
-import type { AssistantMessage, Part as PartType, ReasoningPart, ToolPart } from "@opencode-ai/sdk/v2"
+import { createMemo, Index, Match, Show, Switch, type Accessor } from "solid-js"
+import type { AssistantMessage, Part as PartType, ToolPart } from "@opencode-ai/sdk/v2"
 import { useI18n } from "../../context/i18n"
 import { TrowBlock, type TrowPart } from "../session-turn-trow-block"
 import { groupParts, partDefaultOpen, renderable, sameGroups, type PartGroup } from "./grouping"
@@ -51,16 +51,23 @@ export function AssistantMessageDisplay(props: {
                 const toolParts = createMemo(() => parts().filter((p): p is ToolPart => p.type === "tool"))
                 const singleTool = createMemo(() => toolParts().length === 1 && parts().length === 1)
                 const defaultOpenForTool = (tool: ToolPart) => partDefaultOpen(tool) ?? singleTool()
-                const renderReasoning = (reasoning: ReasoningPart) => (
-                  <div data-slot="trow-result-body" data-timeline-anchor={`reasoning:${reasoning.id}`}>
-                    <Part
-                      part={reasoning}
-                      message={props.message}
-                      defaultOpen={false}
-                      stateKey={`reasoning:${reasoning.id}`}
-                    />
-                  </div>
-                )
+                const renderPart = (part: Accessor<TrowPart>) => {
+                  const stateKey = () => `${part().type === "tool" ? "tool" : "reasoning"}:${part().id}`
+                  const defaultOpen = () => {
+                    const current = part()
+                    return current.type === "tool" ? defaultOpenForTool(current) : false
+                  }
+                  return (
+                    <div data-slot="trow-result-body" data-timeline-anchor={stateKey()}>
+                      <Part
+                        part={part()}
+                        message={props.message}
+                        defaultOpen={defaultOpen()}
+                        stateKey={stateKey()}
+                      />
+                    </div>
+                  )
+                }
 
                 return (
                   <Show when={parts().length > 0}>
@@ -72,17 +79,7 @@ export function AssistantMessageDisplay(props: {
                         thinking: i18n.t("ui.sessionTurn.status.thinking"),
                       }}
                       describeTool={(tool) => contextToolSummaryText(tool, i18n)}
-                      renderTool={(tool) => (
-                        <div data-slot="trow-result-body" data-timeline-anchor={`tool:${tool.id}`}>
-                          <Part
-                            part={tool}
-                            message={props.message}
-                            defaultOpen={defaultOpenForTool(tool)}
-                            stateKey={`tool:${tool.id}`}
-                          />
-                        </div>
-                      )}
-                      renderReasoning={renderReasoning}
+                      renderPart={renderPart}
                     />
                   </Show>
                 )

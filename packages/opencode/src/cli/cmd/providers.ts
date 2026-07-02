@@ -4,6 +4,7 @@ import { cmd } from "./cmd"
 import * as prompts from "@clack/prompts"
 import { UI } from "../ui"
 import { ModelsDev } from "../../provider/models"
+import { withPawWorkProviders } from "../../provider/pawwork-providers"
 import { map, pipe, sortBy, values } from "remeda"
 import path from "path"
 import os from "os"
@@ -15,6 +16,7 @@ import type { Hooks } from "@opencode-ai/plugin"
 import { Process } from "../../util/process"
 import { text } from "node:stream/consumers"
 import { Effect } from "effect"
+import { errorMessage } from "@/util/error"
 
 type PluginAuth = NonNullable<Hooks["auth"]>
 
@@ -25,6 +27,53 @@ const put = (key: string, info: Auth.Info) =>
       yield* auth.set(key, info)
     }),
   )
+
+async function readWellKnownAuth(url: string) {
+  const remote = `${url}/.well-known/opencode`
+  const response = await fetch(remote).catch((error) => {
+    throw new Error(`Failed to connect to ${remote}: ${errorMessage(error)}`)
+  })
+  const body = await response.text()
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? ""
+  const isHtml = contentType.includes("html") || /^\s*(?:<!doctype html|<html)\b/i.test(body)
+  if (response.status === 401 || response.status === 403) {
+    throw new Error(`Failed to load auth metadata from ${remote}: the server rejected the request with HTTP ${response.status}.`)
+  }
+  if (!response.ok) {
+    throw new Error(`Failed to load auth metadata from ${remote}: the server returned HTTP ${response.status}.`)
+  }
+  if (isHtml) {
+    throw new Error(`Failed to load auth metadata from ${remote}: the server returned a login page instead of JSON.`)
+  }
+  let data: unknown
+  try {
+    data = JSON.parse(body)
+  } catch {
+    throw new Error(`Failed to load auth metadata from ${remote}: the server returned non-JSON content.`)
+  }
+  const auth = data && typeof data === "object" && "auth" in data ? data.auth : undefined
+  if (
+    !auth ||
+    typeof auth !== "object" ||
+    !("command" in auth) ||
+    !Array.isArray(auth.command) ||
+    auth.command.length === 0 ||
+    !auth.command.every((item) => typeof item === "string") ||
+    !("env" in auth) ||
+    typeof auth.env !== "string"
+  ) {
+    throw new Error(`Failed to load auth metadata from ${remote}: the response did not include a valid auth command.`)
+  }
+  return { auth: { command: auth.command, env: auth.env } }
+}
+
+function normalizeWellKnownUrl(input: string) {
+  const url = input.trim().replace(/\/+$/, "")
+  if (!/^https?:\/\//i.test(url)) {
+    throw new Error("Invalid auth provider URL. The URL must start with http:// or https://.")
+  }
+  return url
+}
 
 async function handlePluginAuth(plugin: { auth: PluginAuth }, provider: string, methodName?: string): Promise<boolean> {
   let index = 0
@@ -235,7 +284,14 @@ export const ProvidersListCommand = cmd({
         return Object.entries(yield* auth.all())
       }),
     )
-    const database = await ModelsDev.get()
+    const database = await AppRuntime.runPromise(
+      ModelsDev.Service.use((svc) =>
+        svc.data().pipe(
+          Effect.map((catalog) => withPawWorkProviders(catalog as Record<string, ModelsDev.Provider>)),
+          Effect.orDie,
+        ),
+      ),
+    )
 
     for (const [providerID, result] of results) {
       const name = database[providerID]?.name || providerID
@@ -290,57 +346,71 @@ export const ProvidersLoginCommand = cmd({
         type: "string",
       }),
   async handler(args) {
+    if (args.url) {
+      UI.empty()
+      prompts.intro("Add credential")
+      const url = normalizeWellKnownUrl(args.url)
+      const wellknown = await readWellKnownAuth(url)
+      prompts.log.info(`Running \`${wellknown.auth.command.join(" ")}\``)
+      const token = await (async () => {
+        const proc = Process.spawn(wellknown.auth.command, { stdout: "pipe", stderr: "inherit" })
+        if (!proc.stdout) {
+          prompts.log.error("Failed")
+          prompts.outro("Done")
+          return
+        }
+        const [exit, output] = await Promise.all([proc.exited, text(proc.stdout)])
+        if (exit !== 0) {
+          prompts.log.error("Failed")
+          prompts.outro("Done")
+          return
+        }
+        return output.trim()
+      })().catch((error) => {
+        throw new Error(`Failed to run auth command: ${errorMessage(error)}`)
+      })
+      if (token === undefined) return
+      await put(url, {
+        type: "wellknown",
+        key: wellknown.auth.env,
+        token,
+      }).catch((error) => {
+        throw new Error(`Failed to save credential for ${url}: ${errorMessage(error)}`)
+      })
+      prompts.log.success("Logged into " + url)
+      prompts.outro("Done")
+      return
+    }
+
     await Instance.provide({
       directory: process.cwd(),
       async fn() {
         UI.empty()
         prompts.intro("Add credential")
-        if (args.url) {
-          const url = args.url.replace(/\/+$/, "")
-          const wellknown = (await fetch(`${url}/.well-known/opencode`).then((x) => x.json())) as {
-            auth: { command: string[]; env: string }
-          }
-          prompts.log.info(`Running \`${wellknown.auth.command.join(" ")}\``)
-          const proc = Process.spawn(wellknown.auth.command, {
-            stdout: "pipe",
-            stderr: "inherit",
-          })
-          if (!proc.stdout) {
-            prompts.log.error("Failed")
-            prompts.outro("Done")
-            return
-          }
-          const [exit, token] = await Promise.all([proc.exited, text(proc.stdout)])
-          if (exit !== 0) {
-            prompts.log.error("Failed")
-            prompts.outro("Done")
-            return
-          }
-          await put(url, {
-            type: "wellknown",
-            key: wellknown.auth.env,
-            token: token.trim(),
-          })
-          prompts.log.success("Logged into " + url)
-          prompts.outro("Done")
-          return
-        }
-        await ModelsDev.refresh(true).catch(() => {})
+        await AppRuntime.runPromise(ModelsDev.Service.use((svc) => svc.refresh(true).pipe(Effect.ignore)))
 
         const config = await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.get()))
 
         const disabled = new Set(config.disabled_providers ?? [])
         const enabled = config.enabled_providers ? new Set(config.enabled_providers) : undefined
 
-        const providers = await ModelsDev.get().then((x) => {
-          const filtered: Record<string, (typeof x)[string]> = {}
-          for (const [key, value] of Object.entries(x)) {
-            if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) {
-              filtered[key] = value
-            }
-          }
-          return filtered
-        })
+        const providers = await AppRuntime.runPromise(
+          ModelsDev.Service.use((svc) =>
+            svc.data().pipe(
+              Effect.map((catalog) => {
+                const all = withPawWorkProviders(catalog as Record<string, ModelsDev.Provider>)
+                const filtered: Record<string, (typeof all)[string]> = {}
+                for (const [key, value] of Object.entries(all)) {
+                  if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) {
+                    filtered[key] = value
+                  }
+                }
+                return filtered
+              }),
+              Effect.orDie,
+            ),
+          ),
+        )
         const hooks = await AppRuntime.runPromise(
           Effect.gen(function* () {
             const plugin = yield* Plugin.Service
@@ -496,7 +566,14 @@ export const ProvidersLogoutCommand = cmd({
       prompts.log.error("No credentials found")
       return
     }
-    const database = await ModelsDev.get()
+    const database = await AppRuntime.runPromise(
+      ModelsDev.Service.use((svc) =>
+        svc.data().pipe(
+          Effect.map((catalog) => withPawWorkProviders(catalog as Record<string, ModelsDev.Provider>)),
+          Effect.orDie,
+        ),
+      ),
+    )
     const selected = await prompts.select({
       message: "Select provider",
       options: credentials.map(([key, value]) => ({

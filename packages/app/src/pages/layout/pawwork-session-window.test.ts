@@ -7,6 +7,7 @@ import {
   buildPawworkSessionWindow,
   nextPawworkSessionWindowLimit,
   pawworkSessionWindowActiveRoot,
+  shouldAutoExpandPawworkSessionWindow,
   sortPawworkSessionWindowSessions,
 } from "./pawwork-session-window"
 
@@ -32,6 +33,46 @@ describe("nextPawworkSessionWindowLimit", () => {
     expect(PAWWORK_SESSION_WINDOW_INITIAL).toBe(30)
     expect(PAWWORK_SESSION_WINDOW_STEP).toBe(30)
     expect(PAWWORK_SESSION_WINDOW_MAX).toBe(90)
+  })
+})
+
+describe("shouldAutoExpandPawworkSessionWindow", () => {
+  const base = {
+    openProjectCount: 1,
+    visibleCount: 0,
+    loading: false,
+    hasMore: true,
+    limit: PAWWORK_SESSION_WINDOW_INITIAL,
+    loadedLimit: PAWWORK_SESSION_WINDOW_INITIAL,
+  }
+
+  test("expands when an open project's list is empty but the window has more settled pages", () => {
+    expect(shouldAutoExpandPawworkSessionWindow(base)).toBe(true)
+  })
+
+  test("does not expand with zero open projects (empty state is deliberate)", () => {
+    expect(shouldAutoExpandPawworkSessionWindow({ ...base, openProjectCount: 0 })).toBe(false)
+  })
+
+  test("does not expand once any row is visible", () => {
+    expect(shouldAutoExpandPawworkSessionWindow({ ...base, visibleCount: 1 })).toBe(false)
+  })
+
+  test("does not expand mid-load", () => {
+    expect(shouldAutoExpandPawworkSessionWindow({ ...base, loading: true })).toBe(false)
+  })
+
+  test("does not expand when there are no more pages", () => {
+    expect(shouldAutoExpandPawworkSessionWindow({ ...base, hasMore: false })).toBe(false)
+  })
+
+  test("does not expand past the cap", () => {
+    expect(shouldAutoExpandPawworkSessionWindow({ ...base, limit: PAWWORK_SESSION_WINDOW_MAX })).toBe(false)
+  })
+
+  test("does not expand until the current limit's request has settled", () => {
+    // showMore bumped limit to 60 but the 60-page load has not landed yet.
+    expect(shouldAutoExpandPawworkSessionWindow({ ...base, limit: 60, loadedLimit: 30 })).toBe(false)
   })
 })
 

@@ -1,7 +1,7 @@
 import { PlanExitTool } from "./plan"
 import { Session } from "../session"
 import { QuestionTool } from "./question"
-import { BashTool } from "./bash"
+import { ShellTool } from "./shell"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
@@ -14,6 +14,16 @@ import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
+import { DEFERRED_TOOL_IDS, TOOL_INFO_ID, ToolInfoTool, buildCardList } from "./tool-info"
+import { BrowserNavigateTool } from "./browser-navigate"
+import { BrowserSnapshotTool } from "./browser-snapshot"
+import { BrowserClickTool } from "./browser-click"
+import { BrowserTypeTool } from "./browser-type"
+import { BrowserWaitTool } from "./browser-wait"
+import { BrowserScreenshotTool } from "./browser-screenshot"
+import { BrowserExtractTool } from "./browser-extract"
+import { OpenCliSearchTool } from "./opencli-search"
+import { OpenCliRunTool } from "./opencli-run"
 import * as Tool from "./tool"
 import { Config } from "../config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -32,9 +42,12 @@ import { ApplyPatchTool } from "./apply_patch"
 import { EnterWorktreeTool } from "./enter-worktree"
 import { ExitWorktreeTool } from "./exit-worktree"
 import { AutomateTool } from "./automate"
+import { AutomateManageTool } from "./automate-manage"
+import { Automation } from "@/automation"
 import { Permission } from "../permission"
 import { Glob } from "../util/glob"
 import path from "path"
+import { readFile } from "node:fs/promises"
 import { pathToFileURL } from "url"
 import { Effect, Layer, Context, Schema } from "effect"
 import { ZodOverride } from "@/util/effect-zod"
@@ -42,9 +55,8 @@ import { FetchHttpClient, HttpClient } from "effect/unstable/http"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "../file/ripgrep"
-import { Format } from "../format"
 import { InstanceState } from "@/effect/instance-state"
-import { makeRuntime } from "@/effect/run-service"
+import { EffectBridge } from "@/effect"
 import { Env } from "../env"
 import { Todo } from "../session/todo"
 import { TurnChange } from "../session/turn-change"
@@ -56,9 +68,14 @@ import { Agent } from "../agent/agent"
 import { Skill } from "../skill"
 import { SubagentRun } from "../session/subagent-run"
 import { needsConfigDependencies, usesConfigDependencies } from "../config/dependency"
+import { Worktree } from "@/worktree"
 
 export function localToolImportSpec(input: string) {
   return input.startsWith("file://") ? input : pathToFileURL(input).href
+}
+
+function isPluginTool(value: unknown): value is ToolDefinition {
+  return typeof value === "object" && value !== null && "args" in value && "description" in value && "execute" in value
 }
 
 export namespace ToolRegistry {
@@ -78,10 +95,16 @@ export namespace ToolRegistry {
     readonly ids: () => Effect.Effect<string[]>
     readonly all: () => Effect.Effect<Tool.Def[]>
     readonly named: () => Effect.Effect<{ agent: AgentDef; read: ReadDef }>
+    readonly availableDeferred: (input: {
+      activatedTools?: ReadonlySet<string>
+      deferredAvailable?: (id: string) => boolean
+    }) => Effect.Effect<ReadonlySet<string>>
     readonly tools: (model: {
       providerID: ProviderID
       modelID: ModelID
       agent: Agent.Info
+      activatedTools?: ReadonlySet<string>
+      deferredAvailable?: (id: string) => boolean
     }) => Effect.Effect<Tool.Def[]>
     readonly invalidate: () => Effect.Effect<void>
   }
@@ -109,17 +132,19 @@ export namespace ToolRegistry {
     | HttpClient.HttpClient
     | ChildProcessSpawner
     | Ripgrep.Service
-    | Format.Service
     | Truncate.Service
+    | Automation.Service
+    | Worktree.Service
+    | Env.Service
   > = Layer.effect(
     Service,
     Effect.gen(function* () {
       const config = yield* Config.Service
       const plugin = yield* Plugin.Service
       const agents = yield* Agent.Service
-      const skill = yield* Skill.Service
       const truncate = yield* Truncate.Service
       const settings = yield* Settings.Service
+      const env = yield* Env.Service
 
       const invalid = yield* InvalidTool
       const agent = yield* AgentTool
@@ -132,7 +157,7 @@ export namespace ToolRegistry {
       const plan = yield* PlanExitTool
       const webfetch = yield* WebFetchTool
       const websearch = yield* WebSearchTool
-      const bash = yield* BashTool
+      const bash = yield* ShellTool
       const globtool = yield* GlobTool
       const writetool = yield* WriteTool
       const edit = yield* EditTool
@@ -142,6 +167,20 @@ export namespace ToolRegistry {
       const enterWorktree = yield* EnterWorktreeTool
       const exitWorktree = yield* ExitWorktreeTool
       const automate = yield* AutomateTool
+      const automateManage = yield* AutomateManageTool
+      const browserNavigate = yield* BrowserNavigateTool
+      const browserSnapshot = yield* BrowserSnapshotTool
+      const browserClick = yield* BrowserClickTool
+      const browserType = yield* BrowserTypeTool
+      const browserWait = yield* BrowserWaitTool
+      const browserScreenshot = yield* BrowserScreenshotTool
+      const browserExtract = yield* BrowserExtractTool
+      const openCliSearch = yield* OpenCliSearchTool
+      const openCliRun = yield* OpenCliRunTool
+
+      const toolInfoInfo = yield* ToolInfoTool((toolID, output) =>
+        plugin.trigger("tool.definition", { toolID }, output),
+      )
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("ToolRegistry.state")(function* (ctx) {
@@ -162,16 +201,30 @@ export namespace ToolRegistry {
               id,
               parameters,
               description: def.description,
-              execute: (args, toolCtx) =>
+              execute: Effect.fn("ToolRegistry.plugin.execute")((args, toolCtx) =>
                 Effect.gen(function* () {
+                  // Plugin tools see `ask`/`metadata` as Promise/void (see
+                  // @opencode-ai/plugin), but the framework versions are Effects.
+                  // Without bridging, the `...toolCtx` spread hands the plugin the raw
+                  // Effect: an awaited `ctx.ask(...)` resolves it unexecuted and a
+                  // `ctx.metadata(...)` discards it — both silent no-ops. Bridge them
+                  // so they actually run.
+                  const bridge = yield* EffectBridge.make()
                   const pluginCtx: PluginToolContext = {
                     ...toolCtx,
-                    ask: (req) => toolCtx.ask(req),
+                    ask: (req) => bridge.promise(toolCtx.ask(req)),
+                    metadata: (input) => {
+                      // `metadata` returns void in the plugin contract, so fire the
+                      // bridged Effect and log on failure rather than dropping it.
+                      void bridge.promise(toolCtx.metadata(input)).catch((err) => {
+                        log.warn("failed to set plugin tool metadata", { error: String(err) })
+                      })
+                    },
                     directory: ctx.directory,
                     worktree: ctx.worktree,
                   }
                   const result = yield* Effect.promise(() => def.execute(args as any, pluginCtx))
-                  const agent = yield* Effect.promise(() => Agent.get(toolCtx.agent))
+                  const agent = yield* agents.get(toolCtx.agent)
                   const out = yield* truncate.output(result, {}, agent)
                   return {
                     title: "",
@@ -191,6 +244,7 @@ export namespace ToolRegistry {
                     },
                   }),
                 ),
+              ),
             }
           }
 
@@ -204,7 +258,7 @@ export namespace ToolRegistry {
           const depsFailed = new Set<string>()
           for (const match of matches) {
             const namespace = path.basename(match, path.extname(match))
-            const text = yield* Effect.promise(() => Bun.file(match).text())
+            const text = yield* Effect.promise(() => readFile(match, "utf8"))
             const named = Array.from(
               text.matchAll(/export\s+(?:const|let|var|async function|function)\s+([A-Za-z_$][\w$]*)/g),
               (item) => `${namespace}_${item[1]}`,
@@ -224,17 +278,17 @@ export namespace ToolRegistry {
               const needsDeps = yield* Effect.promise(() => needsConfigDependencies(match, configDir))
               yield* config.waitForDependencies()
               if (needsDeps) {
-                const installed = yield* Effect.promise(async () => {
-                  try {
-                    return await Config.installDependencies(configDir)
-                  } catch (error) {
-                    log.warn("failed to install config dependencies for local tool", {
-                      dir: configDir,
-                      error: String(error),
-                    })
-                    return false
-                  }
-                })
+                const installed = yield* config.installDependencies(configDir).pipe(
+                  Effect.catchDefect((defect) =>
+                    Effect.sync(() => {
+                      log.warn("failed to install config dependencies for local tool", {
+                        dir: configDir,
+                        error: String(defect),
+                      })
+                      return false
+                    }),
+                  ),
+                )
                 if (!installed) {
                   depsFailed.add(configDir)
                   continue
@@ -242,8 +296,17 @@ export namespace ToolRegistry {
               }
             }
             const mod = yield* Effect.promise(() => import(spec))
-            for (const [id, def] of Object.entries<ToolDefinition>(mod)) {
-              custom.push(fromPlugin(id === "default" ? namespace : `${namespace}_${id}`, def))
+            for (const [id, def] of Object.entries(mod)) {
+              // A `.opencode/tool/*.ts` file can export non-tool values alongside its
+              // tool(s) (helper consts, re-exported types). Skip anything that isn't a
+              // tool definition; otherwise `fromPlugin` wraps it into a bogus,
+              // description-less tool (7a012cac08).
+              if (!isPluginTool(def)) continue
+              const toolId = id === "default" ? namespace : `${namespace}_${id}`
+              // A non-tool sibling export keeps the coarse pre-import `ids.every(disabled)`
+              // skip from firing, so honor per-tool disables here too.
+              if (disabled.has(toolId)) continue
+              custom.push(fromPlugin(toolId, def))
             }
           }
 
@@ -278,6 +341,17 @@ export namespace ToolRegistry {
             enterWorktree: Tool.init(enterWorktree),
             exitWorktree: Tool.init(exitWorktree),
             automate: Tool.init(automate),
+            automateManage: Tool.init(automateManage),
+            toolInfo: Tool.init(toolInfoInfo),
+            browserNavigate: Tool.init(browserNavigate),
+            browserSnapshot: Tool.init(browserSnapshot),
+            browserClick: Tool.init(browserClick),
+            browserType: Tool.init(browserType),
+            browserWait: Tool.init(browserWait),
+            browserScreenshot: Tool.init(browserScreenshot),
+            browserExtract: Tool.init(browserExtract),
+            openCliSearch: Tool.init(openCliSearch),
+            openCliRun: Tool.init(openCliRun),
           })
 
           return {
@@ -298,12 +372,30 @@ export namespace ToolRegistry {
               tool.todo,
               ...(webSearchEnabled ? [tool.search] : []),
               tool.skill,
+              tool.toolInfo,
               tool.patch,
               ...(lspEnabled ? [tool.lsp] : []),
               ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
-              ...(Env.get("OPENCODE_ENABLE_AUTOMATE_TOOL") === "true" ? [tool.automate] : []),
+              tool.automate,
+              tool.automateManage,
               tool.enterWorktree,
               tool.exitWorktree,
+              // Desktop-only: the embedded browser lives in the desktop app's
+              // main process. Deferred (model-activated via the "browser"
+              // group in tool_info), so they never cost context up front.
+              ...(Flag.OPENCODE_CLIENT === "desktop"
+                ? [
+                    tool.browserNavigate,
+                    tool.browserSnapshot,
+                    tool.browserClick,
+                    tool.browserType,
+                    tool.browserWait,
+                    tool.browserScreenshot,
+                    tool.browserExtract,
+                    tool.openCliSearch,
+                    tool.openCliRun,
+                  ]
+                : []),
             ],
             agent: tool.agent,
             read: tool.read,
@@ -318,26 +410,6 @@ export namespace ToolRegistry {
 
       const ids: Interface["ids"] = Effect.fn("ToolRegistry.ids")(function* () {
         return (yield* all()).map((tool) => tool.id)
-      })
-
-      const describeSkill = Effect.fn("ToolRegistry.describeSkill")(function* (agent: Agent.Info) {
-        const list = yield* skill.available(agent)
-        const visible = Skill.displayable(list)
-        if (visible.length === 0) return Skill.fmt(visible, { verbose: false })
-        return [
-          "Load a specialized skill that provides domain-specific instructions and workflows.",
-          "",
-          "When you recognize that a task matches one of the available skills listed below, use this tool to load the full skill instructions.",
-          "",
-          "The skill will inject detailed instructions, workflows, and access to bundled resources (scripts, references, templates) into the conversation context.",
-          "",
-          'Tool output includes a `<skill_content name="...">` block with the loaded content.',
-          "",
-          "The following skills provide specialized sets of instructions for particular tasks",
-          "Invoke this tool to load a skill when a task matches one of the available skills listed below:",
-          "",
-          Skill.fmt(visible, { verbose: false }),
-        ].join("\n")
       })
 
       const describeTask = Effect.fn("ToolRegistry.describeTask")(function* (agent: Agent.Info) {
@@ -355,16 +427,43 @@ export namespace ToolRegistry {
         return ["Available agent types and the tools they have access to:", description].join("\n")
       })
 
+      const deferredAvailability = Effect.fn("ToolRegistry.deferredAvailability")(function* (input: {
+        activatedTools?: ReadonlySet<string>
+        deferredAvailable?: (id: string) => boolean
+      }) {
+        const allTools = yield* all()
+        const registeredToolIDs = new Set(allTools.map((tool) => tool.id))
+        const isDeferredAvailable = (id: string) =>
+          registeredToolIDs.has(id) && (input.deferredAvailable?.(id) ?? true)
+        const availableDeferred = [...DEFERRED_TOOL_IDS].filter(
+          (id) => isDeferredAvailable(id) && !(input.activatedTools?.has(id) ?? false),
+        )
+        return { allTools, availableDeferred, isDeferredAvailable }
+      })
+
+      const availableDeferred: Interface["availableDeferred"] = Effect.fn("ToolRegistry.availableDeferred")(function* (
+        input,
+      ) {
+        const availability = yield* deferredAvailability(input)
+        return new Set(availability.availableDeferred)
+      })
+
       const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
         const webSearchEnabled = yield* settings.webSearchEnabled()
-        const filtered = (yield* all()).filter((tool) => {
+        const e2eLLMUrl = yield* env.get("OPENCODE_E2E_LLM_URL")
+        const { allTools, availableDeferred, isDeferredAvailable } = yield* deferredAvailability(input)
+        const filtered = allTools.filter((tool) => {
           if (tool.id === WebSearchTool.id) return webSearchEnabled
 
           const usePatch =
-            !!Env.get("OPENCODE_E2E_LLM_URL") ||
+            !!e2eLLMUrl ||
             (input.modelID.includes("gpt-") && !input.modelID.includes("oss") && !input.modelID.includes("gpt-4"))
           if (tool.id === ApplyPatchTool.id) return usePatch
           if (tool.id === EditTool.id || tool.id === WriteTool.id) return !usePatch
+
+          if (DEFERRED_TOOL_IDS.has(tool.id)) {
+            return isDeferredAvailable(tool.id) && (input.activatedTools?.has(tool.id) ?? false)
+          }
 
           return true
         })
@@ -378,17 +477,31 @@ export namespace ToolRegistry {
               parameters: tool.parameters,
             }
             yield* plugin.trigger("tool.definition", { toolID: tool.id }, output)
+            const execute: Tool.Def["execute"] =
+              tool.id === TOOL_INFO_ID
+                ? Effect.fn("ToolRegistry.toolInfo.execute")((args, ctx) => {
+                    const contextDeferredAvailable = ctx.extra?.["deferredAvailable"] as
+                      | ((id: string) => boolean)
+                      | undefined
+                    const deferredAvailable = (id: string) =>
+                      isDeferredAvailable(id) && (contextDeferredAvailable?.(id) ?? true)
+                    return tool.execute(args, {
+                      ...ctx,
+                      extra: { ...ctx.extra, deferredAvailable },
+                    })
+                  })
+                : tool.execute
             return {
               id: tool.id,
               description: [
                 output.description,
                 tool.id === AgentTool.id ? yield* describeTask(input.agent) : undefined,
-                tool.id === SkillTool.id ? yield* describeSkill(input.agent) : undefined,
+                tool.id === TOOL_INFO_ID ? buildCardList(availableDeferred) : undefined,
               ]
                 .filter(Boolean)
                 .join("\n"),
               parameters: output.parameters,
-              execute: tool.execute,
+              execute,
               formatValidationError: tool.formatValidationError,
             }
           }),
@@ -405,13 +518,13 @@ export namespace ToolRegistry {
         yield* InstanceState.invalidate(state)
       })
 
-      return Service.of({ ids, all, named, tools, invalidate })
+      return Service.of({ ids, all, named, availableDeferred, tools, invalidate })
     }),
   )
 
   export const defaultLayer = Layer.suspend(() =>
     layer.pipe(
-      Layer.provide(Config.defaultLayer),
+      Layer.provide(Layer.mergeAll(Config.defaultLayer, Env.defaultLayer)),
       Layer.provide(Plugin.defaultLayer),
       Layer.provide(Layer.mergeAll(Todo.defaultLayer, TurnChange.defaultLayer)),
       Layer.provide(Skill.defaultLayer),
@@ -426,28 +539,11 @@ export namespace ToolRegistry {
       Layer.provide(AppFileSystem.defaultLayer),
       Layer.provide(Bus.layer),
       Layer.provide(FetchHttpClient.layer),
-      Layer.provide(Format.defaultLayer),
       Layer.provide(CrossSpawnSpawner.defaultLayer),
       Layer.provide(Ripgrep.defaultLayer),
       Layer.provide(Truncate.defaultLayer),
+      Layer.provide(Automation.defaultLayer),
+      Layer.provide(Worktree.defaultLayer),
     ),
   )
-
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export async function ids() {
-    return runPromise((svc) => svc.ids())
-  }
-
-  export async function tools(input: {
-    providerID: ProviderID
-    modelID: ModelID
-    agent: Agent.Info
-  }): Promise<(Tool.Def & { id: string })[]> {
-    return runPromise((svc) => svc.tools(input))
-  }
-
-  export async function invalidate() {
-    return runPromise((svc) => svc.invalidate())
-  }
 }

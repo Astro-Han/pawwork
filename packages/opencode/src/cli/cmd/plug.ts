@@ -14,6 +14,7 @@ import { UI } from "../ui"
 import { cmd } from "./cmd"
 import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { Runtime } from "@opencode-ai/core/runtime"
+import { AppRuntime } from "@/effect/app-runtime"
 
 type Spin = {
   start: (msg: string) => void
@@ -71,7 +72,9 @@ const defaultPlugDeps: PlugDeps = {
   exists: (file) => Filesystem.exists(file),
   files: (dir, name) => ConfigPaths.fileInDirectory(dir, name),
   global: defaultPluginGlobalConfigDir,
-  seedGlobalConfig: () => Config.seedGlobalConfig(),
+  seedGlobalConfig: async () => {
+    await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.updateGlobal({})))
+  },
 }
 
 function cause(err: unknown) {

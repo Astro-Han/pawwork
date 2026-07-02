@@ -2,10 +2,6 @@ import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { createEffect, createMemo, on } from "solid-js"
 import { createStore } from "solid-js/store"
 import { emptyUserMessages } from "@/pages/session/session-messages"
-import {
-  createTimelineScrollCommandSink,
-  type TimelineScrollCommandSink,
-} from "@/pages/session/timeline-scroll-command-sink"
 import { same } from "@/utils/same"
 
 export type SessionHistoryWindowInput = {
@@ -19,7 +15,12 @@ export type SessionHistoryWindowInput = {
   userScrolled: () => boolean
   isAtBottom: () => boolean
   scroller: () => HTMLDivElement | undefined
-  scrollCommandSink?: TimelineScrollCommandSink
+  /**
+   * Wraps a window-expanding mutation so the reconciler can capture the reading
+   * anchor before the prepend and re-pin it after. Defaults to running the
+   * mutation with no preservation (used by isolated tests).
+   */
+  preserveAnchor?: (mutate: () => void) => void
 }
 
 type HistoryWindowMode = "bottom" | "reading" | "hash"
@@ -66,8 +67,6 @@ export function resolveClearedHashTarget(input: {
  * small batches while scrolling upward, and prefetches older history near top.
  */
 export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
-  const fallbackTimelineScrollCommandSink = createTimelineScrollCommandSink()
-  const scrollCommandSink = () => input.scrollCommandSink ?? fallbackTimelineScrollCommandSink
   const turnInit = 10
   const turnBatch = 8
   const turnScrollThreshold = 200
@@ -152,26 +151,16 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
     },
   )
 
+  // The reconciler owns scroll position: it captures the reading anchor before
+  // the window expands (prepends older turns) and re-pins it afterward, so the
+  // user's reading position stays put. Falls back to a plain mutation when no
+  // host preservation is wired (isolated tests).
   const preserveScroll = (fn: () => void) => {
-    const el = input.scroller()
-    if (!el) {
-      fn()
+    if (input.preserveAnchor) {
+      input.preserveAnchor(fn)
       return
     }
-    const beforeTop = el.scrollTop
-    const beforeHeight = el.scrollHeight
     fn()
-    requestAnimationFrame(() => {
-      const delta = el.scrollHeight - beforeHeight
-      if (!delta) return
-      scrollCommandSink().setScrollTop({
-        element: el,
-        top: beforeTop + delta,
-        type: "history-prepend-preserve",
-        source: "use-session-history-window/preserveScroll",
-        reason: "preserve-scroll-after-backfill",
-      })
-    })
   }
 
   const backfillTurns = () => {

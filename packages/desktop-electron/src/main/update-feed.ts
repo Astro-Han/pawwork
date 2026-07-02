@@ -142,8 +142,9 @@ export function createUpdateFeed(deps: Deps) {
 
   // Download from the active feed. If an R2 download fails and GitHub is
   // available, re-check against GitHub (to rebind the provider) and retry —
-  // but only if GitHub offers the same version we validated, otherwise fail
-  // closed so the controller never marks a version ready that it did not check.
+  // but only if GitHub offers the same version we validated and still reports
+  // an update available, otherwise fail closed so the controller never marks a
+  // version ready that it did not check.
   const download = async (): Promise<unknown> => {
     try {
       return await deps.downloadUpdate()
@@ -159,6 +160,9 @@ export function createUpdateFeed(deps: Deps) {
         throw new Error(
           `github fallback version mismatch: expected ${checkedVersion ?? "unknown"}, got ${githubVersion ?? "unknown"}`,
         )
+      }
+      if (!recheck?.isUpdateAvailable) {
+        throw new Error(`github fallback reports no update available for ${checkedVersion ?? "unknown"}`)
       }
       activeLabel = "github"
       return await deps.downloadUpdate()

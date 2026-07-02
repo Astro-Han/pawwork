@@ -36,7 +36,7 @@ export function StatusPopover() {
       trigger={
         <div class="relative size-4">
           <div class="badge-mask-tight size-4 flex items-center justify-center">
-            <Icon name={shown() ? "status-active" : "status"} />
+            <Icon name="status" />
           </div>
           <div
             classList={{

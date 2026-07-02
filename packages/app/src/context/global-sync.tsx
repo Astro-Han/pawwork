@@ -1,4 +1,6 @@
 import type {
+  AutomationCreateInput,
+  AutomationUpdateInput,
   Config,
   OpencodeClient,
   Path,
@@ -31,6 +33,15 @@ import { createRefreshQueue } from "./global-sync/queue"
 import { clearSessionPrefetchDirectory } from "./global-sync/session-prefetch"
 import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global-sync/session-load"
 import { trimSessions } from "./global-sync/session-trim"
+import { createPendingQuestionController } from "./global-sync/pending-question-controller"
+import { pendingSessionIDsForDirectory, type PendingQuestionIndex } from "./global-sync/pending-question-index"
+import {
+  applyAutomationDefinition,
+  applyAutomationMoveResult,
+  applyAutomationRun,
+  applyAutomationTombstone,
+  mergeAutomationRuns,
+} from "./global-sync/automation-store"
 import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
 import { createTodoHydrateCoordinator } from "./global-sync/todo-hydrate-coordinator"
@@ -70,6 +81,11 @@ export type GlobalStore = {
   session_todo: {
     [sessionID: string]: SessionTodoSnapshot
   }
+  // The single live index of question tool calls awaiting the user, across every
+  // directory the global event stream touches. Non-persisted (a condition, not a
+  // log); the dock/sidebar render from parts, this feeds the Dock badge,
+  // session-trim preserve, and the rising-edge alert.
+  pendingQuestions: PendingQuestionIndex
   provider: ProviderListResponse
   provider_auth: ProviderAuthResponse
   config: Config
@@ -101,9 +117,10 @@ function createGlobalSync() {
 
   const [globalStore, setGlobalStore] = createStore<GlobalStore>({
     ready: false,
-    path: { state: "", config: "", worktree: "", directory: "", home: "" },
+    path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" },
     project: projectCache.value,
     session_todo: {},
+    pendingQuestions: {},
     provider: { all: [], connected: [], default: {} },
     provider_auth: {},
     config: {},
@@ -232,6 +249,24 @@ function createGlobalSync() {
     translate: language.t,
   })
 
+  // Owns the global pending-question index (see GlobalStore.pendingQuestions).
+  // resolveParentID walks one step up the session tree to attribute a question
+  // to its root session: in-memory for an open project, falling back to the
+  // network for a background project whose sessions were never bootstrapped.
+  const questions = createPendingQuestionController({
+    read: () => globalStore.pendingQuestions,
+    write: (mutate) => setGlobalStore("pendingQuestions", produce(mutate)),
+    resolveParentID: (directory, sessionID) => {
+      const existing = children.peekExisting(directory)
+      const local = existing?.[0].session.find((session) => session.id === sessionID)
+      if (local) return local.parentID
+      return globalSDK.client.session
+        .get({ directory, sessionID })
+        .then((result) => result.data?.parentID)
+        .catch(() => undefined)
+    },
+  })
+
   const sdkFor = (directory: string) => {
     const cached = sdkCache.get(directory)
     if (cached) return cached
@@ -254,6 +289,7 @@ function createGlobalSync() {
       const next = trimSessions(store.session, {
         limit: store.limit,
         permission: store.permission,
+        preserveSessionIDs: pendingSessionIDsForDirectory(globalStore.pendingQuestions, directory),
       })
       if (next.length !== store.session.length) {
         cleanupDroppedSessionCaches(store, setStore, next, {
@@ -285,6 +321,7 @@ function createGlobalSync() {
               const sessions = trimSessions([...nonArchived, ...childSessions], {
                 limit,
                 permission: store.permission,
+                preserveSessionIDs: pendingSessionIDsForDirectory(globalStore.pendingQuestions, directory),
               })
               setStore(
                 "sessionTotal",
@@ -321,6 +358,126 @@ function createGlobalSync() {
     return promise
   }
 
+  async function loadAutomationRuns(directory: string, automationID: string, options?: { cursor?: string }) {
+    if (!directory || !automationID) return
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const sdk = sdkFor(directory)
+      const res = await sdk.automation.runs({ automationID, ...(options?.cursor ? { cursor: options.cursor } : {}) })
+      mergeAutomationRuns(store, setStore, res.data?.items ?? [])
+      return res.data?.nextCursor ?? null
+    } finally {
+      children.unpin(directory)
+    }
+  }
+
+  // Mutations apply the authoritative response immediately (revision-gated), so
+  // the UI reflects the change without waiting for the SSE round-trip; the
+  // matching event then no-ops as an equal revision.
+  async function pauseAutomation(directory: string, automationID: string) {
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const res = await sdkFor(directory).automation.pause({ automationID })
+      if (res.data) applyAutomationDefinition(store, setStore, res.data)
+    } finally {
+      children.unpin(directory)
+    }
+  }
+
+  async function resumeAutomation(directory: string, automationID: string) {
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const res = await sdkFor(directory).automation.resume({ automationID })
+      if (res.data) applyAutomationDefinition(store, setStore, res.data)
+    } finally {
+      children.unpin(directory)
+    }
+  }
+
+  async function deleteAutomation(directory: string, automationID: string) {
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const res = await sdkFor(directory).automation.delete({ automationID })
+      if (res.data) applyAutomationTombstone(store, setStore, res.data)
+    } finally {
+      children.unpin(directory)
+    }
+  }
+
+  async function runAutomationNow(directory: string, automationID: string) {
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const res = await sdkFor(directory).automation.runNow({ automationID })
+      if (res.data) applyAutomationRun(store, setStore, res.data)
+      return res.data
+    } finally {
+      children.unpin(directory)
+    }
+  }
+
+  // create echoes the resolved definition (with normalizationWarnings); apply it
+  // immediately so the panel reflects the new automation before the SSE event.
+  async function createAutomation(directory: string, input: AutomationCreateInput) {
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const res = await sdkFor(directory).automation.create({ automationCreateInput: input })
+      if (res.data) applyAutomationDefinition(store, setStore, res.data)
+      return res.data
+    } finally {
+      children.unpin(directory)
+    }
+  }
+
+  async function updateAutomation(directory: string, automationID: string, patch: AutomationUpdateInput) {
+    children.pin(directory)
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      const res = await sdkFor(directory).automation.update({ automationID, automationUpdateInput: patch })
+      if (res.data) applyAutomationDefinition(store, setStore, res.data)
+      return res.data
+    } finally {
+      children.unpin(directory)
+    }
+  }
+
+  async function moveAutomation(directory: string, automationID: string, targetProject: { id: string; worktree: string }) {
+    children.pin(directory)
+    children.pin(targetProject.worktree)
+    try {
+      const source = children.peek(directory, { bootstrap: false })
+      const current = source[0].automation[automationID]
+      const res = await sdkFor(directory).automation.update({
+        automationID,
+        automationUpdateInput: {
+          where: {
+            projectID: targetProject.id,
+            ...(current?.where.worktree ? { worktree: current.where.worktree } : {}),
+          },
+        },
+      })
+      if (res.data) {
+        const target = children.peek(targetProject.worktree, { bootstrap: false })
+        applyAutomationMoveResult({
+          source,
+          target,
+          automationID,
+          targetProjectID: targetProject.id,
+          incoming: res.data,
+        })
+      }
+      return res.data
+    } finally {
+      children.unpin(targetProject.worktree)
+      children.unpin(directory)
+    }
+  }
+
   async function bootstrapInstance(directory: string) {
     if (!directory) return
     const pending = booting.get(directory)
@@ -347,6 +504,7 @@ function createGlobalSync() {
         loadSessions,
         translate: language.t,
         queryClient,
+        pendingQuestions: { reconcile: questions.reconcile },
       })
     })
 
@@ -389,6 +547,10 @@ function createGlobalSync() {
       return
     }
 
+    // Maintain the global pending-question index for every directory event,
+    // including detached background projects that have no child store.
+    questions.applyEvent(directory, event)
+
     const targets = directoryEventTargets({
       directory,
       event,
@@ -413,6 +575,16 @@ function createGlobalSync() {
         todoHydrate,
         blockerTerminals,
         vcsCache: children.vcsCache.get(targetDirectory),
+        onAutomationFailureStreak: (definition) => {
+          showToast({
+            variant: "subtle",
+            title: language.t("automations.toast.failureStreak.title"),
+            description: language.t("automations.toast.failureStreak.description", {
+              title: definition.title,
+              count: definition.failureStreak,
+            }),
+          })
+        },
         loadLsp: () => {
           void sdkFor(targetDirectory)
             .lsp.status()
@@ -559,10 +731,24 @@ function createGlobalSync() {
     child: children.child,
     peek: children.peek,
     peekExisting: children.peekExisting,
+    mountedDirectories: children.directories,
     retainDirectory,
+    // Register a rising-edge side effect for live question arrivals (the
+    // notification provider hooks OS notify / sound / Dock attention here).
+    onQuestionAlert: questions.onAlert,
     bootstrap,
     updateConfig,
     project: projectApi,
+    automation: {
+      create: createAutomation,
+      update: updateAutomation,
+      move: moveAutomation,
+      loadRuns: loadAutomationRuns,
+      pause: pauseAutomation,
+      resume: resumeAutomation,
+      delete: deleteAutomation,
+      runNow: runAutomationNow,
+    },
     todo: {
       set: setSessionTodo,
       accept: acceptSessionTodo,

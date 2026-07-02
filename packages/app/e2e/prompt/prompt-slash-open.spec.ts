@@ -74,6 +74,53 @@ test("home composer shows slash commands after a bare slash", async ({ page, pro
   await expectHoverPaint(command)
 })
 
+// Seed a project-scoped skill (.agents/skills/<name>/SKILL.md) so the mid-text
+// picker has a skill to offer in a clean CI env, not only where global skills
+// happen to exist. Skills are always inline-eligible (empty hints).
+async function seedProjectSkill(directory: string, name: string, description: string) {
+  const skillDir = join(directory, ".agents", "skills", name)
+  await mkdir(skillDir, { recursive: true })
+  await writeFile(
+    join(skillDir, "SKILL.md"),
+    ["---", `name: ${name}`, `description: ${description}`, "---", "", "Summarize the conversation into three bullets."].join(
+      "\n",
+    ),
+  )
+}
+
+test("slash mid-sentence opens the picker and inserts an inline skill chip", async ({ page, project }) => {
+  await project.open({
+    setup: async (directory) => {
+      await seedProjectSkill(directory, "summarize", "Summarize the thread")
+    },
+  })
+
+  await page.locator(promptSelector).click()
+  await page.keyboard.type("please ")
+  await page.keyboard.type("/summarize")
+
+  const popover = page.locator('[data-component="prompt-slash-popover"]')
+  await expectOnTop(popover)
+
+  // Mid-text restricts the picker to skills + simple commands; the seeded skill
+  // shows, action builtins like file.open do not.
+  const command = page.locator('[data-slash-id="custom.skill.summarize"]')
+  await expect(command).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('[data-slash-id="file.open"]')).toHaveCount(0)
+
+  // Click the specific row (the picker may also list ambient global skills).
+  await command.click()
+
+  // Selection replaces the typed "/summarize" with a position-independent chip.
+  // Assert the label sub-element (not the whole chip, which also contains the
+  // icon SVG) to catch regressions that re-add the leading "/".
+  const chip = page.locator('[data-type="skill"][data-name="summarize"]')
+  await expect(chip).toBeVisible()
+  const label = chip.locator("[data-cmd-label]")
+  await expect(label).toHaveText("summarize")
+  await expect(popover).toHaveCount(0)
+})
+
 test("@mention file suggestions stay visible above the composer", async ({ page, project }) => {
   await project.open({
     setup: async (directory) => {

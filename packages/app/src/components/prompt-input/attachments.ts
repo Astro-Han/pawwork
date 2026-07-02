@@ -1,12 +1,20 @@
 import { onMount } from "solid-js"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { pathBasename } from "@opencode-ai/util/file-extensions"
+import { attachmentMimeForPath } from "./attachment-chips-model"
 import { showToast } from "@opencode-ai/ui/toast"
-import { usePrompt, type ContentPart, type ImageAttachmentPart } from "@/context/prompt"
+import {
+  usePrompt,
+  type AttachmentPart,
+  type ContentPart,
+  type FloatingAttachment,
+  type ImageAttachmentPart,
+} from "@/context/prompt"
 import { useLanguage } from "@/context/language"
 import type { useSync } from "@/context/sync"
 import { uuid } from "@/utils/uuid"
 import { getCursorPosition } from "./editor-dom"
+import { invalidateFailedPreview } from "./attachment-preview-cache"
 import { textMime } from "./files"
 import { normalizePaste, pasteMode } from "./paste"
 import { routeBrowserFile, routePickedPath, type AttachRoute, type ModelInputSupport } from "./attachment-routing"
@@ -66,11 +74,14 @@ type PromptAttachmentsInput = {
   model: () => ModelInputSupport
   openModelSelector: () => void
   readFileDataUrl?: (path: string, mime: string) => Promise<string | null>
+  filePathForBrowserFile?: (file: File) => Promise<string | null>
+  saveAttachmentFile?: (file: File) => Promise<string | null>
+  statPaths?: (paths: string[]) => Promise<Record<string, { size: number; exists: boolean }>>
   readClipboardImage?: () => Promise<File | null>
   // Path C (paste of `/<known-name> args` into structurally-empty input)
   // dependencies. Default to empty/false so callers that do not need pill
   // paste behaviour (e.g. legacy tests) can omit them.
-  imageAttachments?: () => readonly ImageAttachmentPart[]
+  imageAttachments?: () => readonly FloatingAttachment[]
   composing?: () => boolean
   sync?: ReturnType<typeof useSync>
   externalReady?: () => boolean
@@ -133,13 +144,51 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
     return true
   }
 
-  const routePathFallback = (path: string) => {
+  const attachmentSize = async (path: string) => {
+    const stats = await input.statPaths?.([path]).catch(() => undefined)
+    const stat = stats?.[path]
+    return stat?.exists ? stat.size : undefined
+  }
+
+  // Entry-point attachments float as composer chips; same-path re-adds are
+  // no-ops against both chips and inline `@` pills.
+  const routePathFallback = async (path: string) => {
+    // The entry-point gesture carries a fresh desktop approval; let a
+    // previously failed thumbnail retry instead of staying negative-cached.
+    invalidateFailedPreview(path)
+    const duplicate = prompt
+      .current()
+      .some((part) => (part.type === "attachment" || part.type === "file") && part.path === path)
+    if (duplicate) return true
+    // The chip itself needs no cursor, but after a picker round-trip the user
+    // expects to type immediately.
     input.focusEditor()
-    const content = "@" + path
-    return input.addPart({ type: "file", path, content, start: 0, end: content.length })
+    const size = await attachmentSize(path)
+    const attachment: AttachmentPart = {
+      type: "attachment",
+      id: uuid(),
+      path,
+      filename: pathBasename(path),
+      mime: attachmentMimeForPath(path),
+      size,
+    }
+    prompt.set([...prompt.current(), attachment], prompt.cursor())
+    return true
   }
 
   const add = async (file: File, toast = true): Promise<AddResult> => {
+    const filePath = await (async () => {
+      const recovered = await input.filePathForBrowserFile?.(file).catch(() => null)
+      if (recovered) return recovered
+      if (!input.saveAttachmentFile) return null
+      return input.saveAttachmentFile(file).catch(() => null)
+    })()
+    if (filePath) return addPickedPathResult(filePath, toast)
+    if (input.saveAttachmentFile) {
+      if (toast) pathRequired()
+      return { type: "path", reason: "unknown" }
+    }
+
     const route = await routeBrowserFile(file, input.model())
     if (route.type === "direct") {
       try {
@@ -193,30 +242,12 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
     return found
   }
 
-  const addPickedPathResult = async (path: string, toast = true): Promise<AddResult> => {
+  const addPickedPathResult = async (path: string, toast = true, seen?: Set<string>): Promise<AddResult> => {
+    if (seen?.has(path)) return true
+    seen?.add(path)
+    if (await routePathFallback(path)) return true
     const route = routePickedPath(path, input.model())
-    if (route.type === "reject-image") {
-      if (toast) warnImageUnsupported()
-      return route
-    }
-
-    if (route.type === "direct") {
-      try {
-        const url = await input.readFileDataUrl?.(path, route.mime)
-        if (!url) {
-          if (toast) warn()
-          return false
-        }
-        const ok = await addDirect(pathBasename(path), route.mime, url)
-        if (!ok && toast) warn()
-        return ok
-      } catch {
-        if (toast) warn()
-        return false
-      }
-    }
-
-    if (routePathFallback(path)) return true
+    if (route.type === "direct") return false
     return route
   }
 
@@ -226,8 +257,9 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
     let found = false
     let failure: AttachmentFailureRoute | undefined
     let directFailure = false
+    const seen = new Set<string>()
     for (const path of paths) {
-      const result = await addPickedPathResult(path, false)
+      const result = await addPickedPathResult(path, false, seen)
       if (result === true) {
         found = true
         continue
@@ -245,7 +277,7 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
 
   const removeAttachment = (id: string) => {
     const current = prompt.current()
-    const next = current.filter((part) => part.type !== "image" || part.id !== id)
+    const next = current.filter((part) => (part.type !== "image" && part.type !== "attachment") || part.id !== id)
     prompt.set(next, prompt.cursor())
   }
 

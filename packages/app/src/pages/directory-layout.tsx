@@ -7,6 +7,7 @@ import { useLanguage } from "@/context/language"
 import { LocalProvider } from "@/context/local"
 import { SDKProvider } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
+import { openAutomation } from "@/utils/automations-navigation"
 import { decode64 } from "@/utils/base64"
 
 function DirectoryDataProvider(props: ParentProps<{ directory: Accessor<string> }>) {
@@ -35,6 +36,7 @@ function DirectoryDataProvider(props: ParentProps<{ directory: Accessor<string> 
       directory={props.directory()}
       onNavigateToSession={(sessionID: string) => navigate(`/${slug()}/session/${sessionID}`)}
       onSessionHref={(sessionID: string) => `/${slug()}/session/${sessionID}`}
+      onNavigateToAutomation={(automationID: string) => openAutomation(automationID)}
     >
       <LocalProvider>{props.children}</LocalProvider>
     </DataProvider>

@@ -64,15 +64,6 @@
   }
 
 
-  .error-card {
-    color: var(--error-text);
-    max-height: 240px;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    word-break: break-word;
-    overflow-y: auto;
-  }
-
   [data-slot="session-turn-assistant-content"] {
     width: 100%;
     min-width: 0;
@@ -117,6 +108,11 @@
 
   [data-slot="assistant-turn-footer-meta"] {
     user-select: none;
+    /* No middle-dot separators (DESIGN.md no-`·` rule): a gap divides the
+     * model / duration / interrupted tokens. */
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-md);
   }
 
   [data-slot="session-turn-message-container"]:hover [data-slot="assistant-turn-footer"],

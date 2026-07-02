@@ -22,6 +22,8 @@ export function plainSummary(input: { cause: TerminalCause; facts: IncidentFacts
   if (input.cause.category === "local_lifecycle_close") {
     return "The active run was interrupted by a local lifecycle close."
   }
+  if (input.cause.category === "provider_api_error")
+    return "The provider rejected the request before the response completed."
   if (input.cause.category === "user_cancel") return "The run was cancelled by the user."
   if (input.cause.category === "watchdog_timeout")
     return "The run stopped after PawWork waited too long for provider progress."
@@ -39,7 +41,11 @@ function actionKey(recovery: RecoveryDecision) {
 
 function severity(cause: TerminalCause) {
   if (cause.category === "user_cancel") return "info" as const
-  if (cause.category === "unknown_interruption" || cause.category === "crash_or_restart_incomplete")
+  if (
+    cause.category === "provider_api_error" ||
+    cause.category === "unknown_interruption" ||
+    cause.category === "crash_or_restart_incomplete"
+  )
     return "error" as const
   return "warning" as const
 }

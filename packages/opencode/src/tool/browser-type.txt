@@ -1,0 +1,6 @@
+Fill text into an input, textarea, or contenteditable element in the embedded browser.
+
+- `ref` is an element reference from browser_snapshot (like "[7]") or a CSS selector.
+- `text` replaces the field's current content (this is a fill, not an append).
+- `submit: true` presses Enter after filling — use it for search boxes and single-field forms.
+- The result self-verifies: `filled`/`verified` report whether the value landed, and `actual` echoes what the field contains afterwards. If `verified` is false, check `actual` — some rich editors transform input.

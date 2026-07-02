@@ -3,11 +3,15 @@ import { runBrowserCheck } from "@/testing/browser-subprocess"
 
 const browserCheck = String.raw`
 import { createRoot, createSignal } from "solid-js"
+import { clearSessionPrefetch, SESSION_PREFETCH_TTL, setSessionPrefetch } from "./src/context/global-sync/session-prefetch.ts"
 import { useSessionRefreshEffects } from "./src/pages/session/use-session-refresh-effects.ts"
 
 const assert = (condition, message) => {
   if (!condition) throw new Error(message)
 }
+
+const now = 1_000_000
+Date.now = () => now
 
 const installAnimationFrameQueue = () => {
   let nextID = 1
@@ -22,31 +26,61 @@ const installAnimationFrameQueue = () => {
   globalThis.cancelAnimationFrame = (id) => {
     frames.delete(id)
   }
+
+  return {
+    runFrame: () => {
+      const pending = [...frames.entries()]
+      frames.clear()
+      for (const [, callback] of pending) callback(0)
+    },
+  }
 }
 
 const installTimerQueue = () => {
   let nextID = 1
   const timers = new Map()
 
-  window.setTimeout = (callback) => {
+  window.setTimeout = (callback, ms = 0) => {
     const id = nextID++
-    timers.set(id, callback)
+    timers.set(id, { callback, ms })
     return id
   }
 
   window.clearTimeout = (id) => {
     timers.delete(id)
   }
+
+  return {
+    runDue: (maxMs) => {
+      const due = [...timers.entries()].filter(([, timer]) => timer.ms <= maxMs)
+      for (const [id, timer] of due) {
+        if (!timers.delete(id)) continue
+        timer.callback()
+      }
+    },
+    runAll: () => {
+      const pending = [...timers.entries()]
+      timers.clear()
+      for (const [, timer] of pending) timer.callback()
+    },
+  }
 }
 
-const mountRefreshEffects = ({ hasTodoCache, recoveryEpoch = () => 0, validatedRecoveryEpoch = () => 0 }) => {
+const mountRefreshEffects = ({
+  hasMessageCache = () => true,
+  hasTodoCache,
+  recoveryEpoch = () => 0,
+  validatedRecoveryEpoch = () => 0,
+  initialSessionID = "ses_initial",
+}) => {
   const scheduledTodos = []
   const canceledTodos = []
+  const syncedSessions = []
   const syncedTodos = []
 
-  const dispose = createRoot((dispose) => {
+  const root = createRoot((dispose) => {
     const [directory] = createSignal("dir-a")
-    const [sessionID] = createSignal("ses_initial")
+    const [sessionID, setSessionID] = createSignal(initialSessionID)
 
     useSessionRefreshEffects({
       directory,
@@ -54,7 +88,7 @@ const mountRefreshEffects = ({ hasTodoCache, recoveryEpoch = () => 0, validatedR
       timelineSessionID: sessionID,
       statusType: () => "idle",
       blocked: () => false,
-      hasMessageCache: () => true,
+      hasMessageCache,
       hasTodoCache,
       isTodoInvalidated: () => false,
       scheduleTodoHydrate: (directory, sessionID, reason) => {
@@ -65,17 +99,19 @@ const mountRefreshEffects = ({ hasTodoCache, recoveryEpoch = () => 0, validatedR
       },
       recoveryEpoch,
       validatedRecoveryEpoch,
-      syncSession: () => {},
+      syncSession: (sessionID, options) => {
+        syncedSessions.push({ sessionID, options })
+      },
       syncTodo: (sessionID, options) => {
         syncedTodos.push({ sessionID, options })
       },
       emitRendererDiagnostic: () => {},
     })
 
-    return dispose
+    return { dispose, setSessionID }
   })
 
-  return { dispose, scheduledTodos, canceledTodos, syncedTodos }
+  return { dispose: root.dispose, setSessionID: root.setSessionID, scheduledTodos, canceledTodos, syncedSessions, syncedTodos }
 }
 
 {
@@ -99,6 +135,73 @@ const mountRefreshEffects = ({ hasTodoCache, recoveryEpoch = () => 0, validatedR
 
   await Promise.resolve()
   assert(scheduledTodos.length === 0, "initial cached idle todo should not schedule a redundant hydrate")
+  dispose()
+}
+
+{
+  const frames = installAnimationFrameQueue()
+  const timers = installTimerQueue()
+  clearSessionPrefetch("dir-a", ["ses_stale"])
+  setSessionPrefetch({
+    directory: "dir-a",
+    sessionID: "ses_stale",
+    limit: 200,
+    complete: false,
+    at: Date.now() - SESSION_PREFETCH_TTL,
+  })
+  const { dispose, syncedSessions } = mountRefreshEffects({
+    initialSessionID: "ses_stale",
+    hasMessageCache: () => true,
+    hasTodoCache: () => true,
+  })
+
+  await Promise.resolve()
+  assert(syncedSessions.length === 1, "stale cached message session should start with the normal sync only")
+  assert(!syncedSessions[0].options?.force, "initial stale cached message sync should not be forced")
+
+  frames.runFrame()
+  timers.runDue(499)
+  await Promise.resolve()
+  assert(syncedSessions.length === 1, "stale cached message force should not run before 500ms")
+
+  timers.runDue(500)
+  await Promise.resolve()
+  assert(syncedSessions.length === 2, "stale cached message force should run at 500ms when it remains stale")
+  assert(syncedSessions[1].options?.force === true, "delayed stale cached message sync should be forced")
+  clearSessionPrefetch("dir-a", ["ses_stale"])
+  dispose()
+}
+
+{
+  const frames = installAnimationFrameQueue()
+  const timers = installTimerQueue()
+  clearSessionPrefetch("dir-a", ["ses_freshened"])
+  setSessionPrefetch({
+    directory: "dir-a",
+    sessionID: "ses_freshened",
+    limit: 200,
+    complete: false,
+    at: Date.now() - SESSION_PREFETCH_TTL - 1,
+  })
+  const { dispose, syncedSessions } = mountRefreshEffects({
+    initialSessionID: "ses_freshened",
+    hasMessageCache: () => true,
+    hasTodoCache: () => true,
+  })
+
+  await Promise.resolve()
+  frames.runFrame()
+  setSessionPrefetch({
+    directory: "dir-a",
+    sessionID: "ses_freshened",
+    limit: 200,
+    complete: false,
+    at: Date.now(),
+  })
+  timers.runAll()
+  await Promise.resolve()
+  assert(syncedSessions.length === 1, "freshened cached message session should not force refresh from a captured stale flag")
+  clearSessionPrefetch("dir-a", ["ses_freshened"])
   dispose()
 }
 

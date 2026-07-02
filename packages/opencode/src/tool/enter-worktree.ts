@@ -34,6 +34,7 @@ export const EnterWorktreeTool = Tool.define(
   Effect.gen(function* () {
     const sessions = yield* Session.Service
     const subagents = yield* SubagentRun.Service
+    const worktrees = yield* Worktree.Service
     const spawner = yield* ChildProcessSpawner
 
     const guard = (sessionID: SessionID, messageID: Tool.Context["messageID"], callID: string | undefined) =>
@@ -82,8 +83,10 @@ export const EnterWorktreeTool = Tool.define(
       },
     })
 
-    const run = (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-      Effect.gen(function* () {
+    const execute = Effect.fn("EnterWorktreeTool.execute")(function* (
+      params: Schema.Schema.Type<typeof Parameters>,
+      ctx: Tool.Context,
+    ) {
         if (params.name && params.path) {
           return yield* Effect.fail(new Error("name and path are mutually exclusive"))
         }
@@ -127,7 +130,7 @@ export const EnterWorktreeTool = Tool.define(
             )
           }
           const branch = yield* currentBranch(spawner, canonical)
-          const info = yield* Effect.promise(() => Worktree.registerExistingByPath(canonical))
+          const info = yield* worktrees.registerExistingByPath(canonical)
           yield* applyEnter(ctx.sessionID, { ...info, branch: info.branch || branch }, info.source)
           return successResult({
             activeDirectory: canonical,
@@ -139,8 +142,8 @@ export const EnterWorktreeTool = Tool.define(
         }
 
         // name= or no-arg branch
-        const existing = params.name ? yield* Effect.promise(() => Worktree.lookupBySlug(params.name!)) : undefined
-        const planned = existing ?? (yield* Effect.promise(() => Worktree.makeWorktreeInfo(params.name)))
+        const existing = params.name ? yield* worktrees.lookupBySlug(params.name!) : undefined
+        const planned = existing ?? (yield* worktrees.makeWorktreeInfo(params.name))
         if (sameDirectory(exec.activeDirectory, planned.directory)) {
           return successResult({
             activeDirectory: planned.directory,
@@ -162,7 +165,7 @@ export const EnterWorktreeTool = Tool.define(
             .catch(() => false),
         )
         if (!exists) {
-          yield* Effect.promise(() => Worktree.createFromInfo(planned))
+          yield* worktrees.createFromInfo(planned)
         } else {
           const ownerCommon = yield* gitCommonDir(spawner, exec.ownerDirectory)
           const targetCommon = yield* gitCommonDir(spawner, planned.directory)
@@ -180,13 +183,12 @@ export const EnterWorktreeTool = Tool.define(
           branch: planned.branch,
           state: exists ? "reused" : "created",
         })
-      })
+    }, Effect.orDie)
 
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-        run(params, ctx).pipe(Effect.orDie),
+      execute,
     }
   }),
 )

@@ -120,6 +120,52 @@ describe("session.llm.hasToolCalls", () => {
   })
 })
 
+describe("session.llm.buildInvalidToolRepairInput", () => {
+  const agent = {
+    name: "build",
+    mode: "primary",
+    permission: [],
+    options: {},
+  } satisfies Agent.Info
+  const user = { tools: {} } as MessageV2.User
+
+  test("omits deferred hint when tool_info is not available", () => {
+    const repair = JSON.parse(
+      LLM.buildInvalidToolRepairInput(
+        {
+          agent,
+          availableDeferredTools: new Set(["lsp"]),
+          permission: [],
+          tools: {},
+          user,
+        },
+        "lsp",
+        "Unknown tool: lsp",
+      ),
+    ) as { error: string }
+
+    expect(repair.error).not.toContain('call tool_info with name="lsp"')
+  })
+
+  test("includes deferred hint when tool_info can load the deferred tool", () => {
+    const repair = JSON.parse(
+      LLM.buildInvalidToolRepairInput(
+        {
+          agent,
+          availableDeferredTools: new Set(["lsp"]),
+          permission: [],
+          tools: { tool_info: {} as never },
+          user,
+        },
+        "lsp",
+        "Unknown tool: lsp",
+      ),
+    ) as { error: string }
+
+    expect(repair.error).toContain('call tool_info with name="lsp"')
+  })
+})
+
 type Capture = {
   url: URL
   headers: Headers
@@ -1495,7 +1541,7 @@ describe("session.llm.stream", () => {
     })
   })
 
-  test("sends anthropic tool_use blocks with tool_result immediately after them", async () => {
+  test("preserves Anthropic assistant tool_use order when text trails tool calls", async () => {
     const server = state.server
     if (!server) {
       throw new Error("Server not initialized")
@@ -1715,10 +1761,6 @@ describe("session.llm.stream", () => {
             role: "assistant",
             content: [
               {
-                type: "text",
-                text: "I checked your home directory and looked for PDF files.",
-              },
-              {
                 type: "tool_use",
                 id: "toolu_01N8mDEzG8DSTs7UPHFtmgCT",
                 name: "read",
@@ -1729,6 +1771,10 @@ describe("session.llm.stream", () => {
                 id: "toolu_01APxrADs7VozN8uWzw9WwHr",
                 name: "glob",
                 input: { pattern: "**/*.pdf", path: "/root" },
+              },
+              {
+                type: "text",
+                text: "I checked your home directory and looked for PDF files.",
                 cache_control: {
                   type: "ephemeral",
                 },

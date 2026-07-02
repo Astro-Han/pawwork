@@ -9,7 +9,7 @@
 //   3. Marked content is exactly "/<name> " AND no rest: collapse to DEFAULT_PROMPT.
 
 import type { Prompt, TextPart } from "@/context/prompt"
-import { DEFAULT_PROMPT } from "@/context/prompt"
+import { DEFAULT_PROMPT } from "@/context/prompt-equality"
 
 /**
  * Compute the new Prompt after a Backspace that fires the command fallback

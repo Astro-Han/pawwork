@@ -1,10 +1,11 @@
 import path from "path"
 import { fileURLToPath } from "url"
 
+import { Effect } from "effect"
 import { Flag } from "@opencode-ai/core/flag/flag"
+import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { Global } from "@/global"
 import { Filesystem } from "@/util/filesystem"
-import { Flock } from "@/util/flock"
 
 import { parsePluginSpecifier, pluginSource } from "./shared"
 
@@ -44,6 +45,20 @@ export namespace PluginMeta {
 
   function lock(file: string) {
     return `plugin-meta:${file}`
+  }
+
+  function withLock<T>(key: string, fn: () => Promise<T>) {
+    return Effect.runPromise(
+      EffectFlock.Service.use((flock) =>
+        flock.withLock(
+          Effect.tryPromise({
+            try: fn,
+            catch: (error) => error,
+          }),
+          key,
+        ),
+      ).pipe(Effect.provide(EffectFlock.defaultLayer)),
+    )
   }
 
   function fileTarget(spec: string, target: string) {
@@ -136,7 +151,7 @@ export namespace PluginMeta {
     const file = storePath()
     const rows = await Promise.all(items.map((item) => row(item)))
 
-    return Flock.withLock(lock(file), async () => {
+    return withLock(lock(file), async () => {
       const store = await read(file)
       const now = Date.now()
       const out: Array<{ state: State; entry: Entry }> = []
@@ -160,6 +175,6 @@ export namespace PluginMeta {
 
   export async function list(): Promise<Store> {
     const file = storePath()
-    return Flock.withLock(lock(file), async () => read(file))
+    return withLock(lock(file), async () => read(file))
   }
 }

@@ -44,6 +44,10 @@ const InputObject = Schema.StructWithRest(
     lsp: Schema.optional(Rule),
     doom_loop: Schema.optional(Action),
     skill: Schema.optional(Rule),
+    // Embedded-browser automation (browser_* tools). Defaults to allow via the
+    // agent baseline `"*": "allow"`; declared here so config/SDK consumers can
+    // tighten it (Rule: patterns scope by URL for browser_navigate).
+    browser: Schema.optional(Rule),
   }),
   [Schema.Record(Schema.String, Rule)],
 )
@@ -78,6 +82,7 @@ const InfoZod = z
         lsp: zod(Rule).optional(),
         doom_loop: zod(Action).optional(),
         skill: zod(Rule).optional(),
+        browser: zod(Rule).optional(),
       })
       .catchall(zod(Rule)),
   ])

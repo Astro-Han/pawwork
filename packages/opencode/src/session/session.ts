@@ -30,6 +30,7 @@ import type { SQL } from "../storage/db"
 import { MessageTable, PartTable, SessionTable } from "./session.sql"
 import { ProjectTable } from "../project/project.sql"
 import { Storage } from "@/storage/storage"
+import { releaseBrowserSession } from "@/browser/session"
 import { Log } from "@opencode-ai/core/util/log"
 import { updateSchema } from "../util/update-schema"
 import { MessageV2 } from "./message-v2"
@@ -39,8 +40,6 @@ import { Snapshot } from "@/snapshot"
 import { ProjectID } from "../project/schema"
 import { WorkspaceID } from "../control-plane/schema"
 import { SessionID, MessageID, PartID } from "./schema"
-import { fn } from "../util/fn"
-import { makeRuntime } from "../effect/run-service"
 import { Runtime } from "@opencode-ai/core/runtime"
 
 import type { Provider } from "@/provider"
@@ -79,6 +78,15 @@ type GlobalListRow = SessionRow & {
   lastUserMessageAt?: number | null
 }
 type ProjectFallback = { worktree?: string | null; vcs?: string | null }
+type ListInput = {
+  directory?: string
+  workspaceID?: WorkspaceID
+  roots?: boolean
+  start?: number
+  search?: string
+  limit?: number
+  sort?: SessionListSort
+}
 
 function legacyExecutionContext(row: SessionRow, project: ProjectFallback | undefined) {
   const ownerDirectoryRaw = project?.vcs === "git" ? (project.worktree ?? row.directory) : row.directory
@@ -430,7 +438,10 @@ export function plan(input: { slug: string; time: { created: number } }) {
 export const getUsage = (input: { model: Provider.Model; usage: LanguageModelUsage; metadata?: ProviderMetadata }) => {
   const safe = (value: number) => {
     if (!Number.isFinite(value)) return 0
-    return value
+    // Clamp negatives: provider accounting can make a subtraction underflow (reasoning
+    // tokens exceeding output, or cache tokens exceeding input). Negative usage understates
+    // context and can delay auto-compaction.
+    return Math.max(0, value)
   }
   const inputTokens = safe(input.usage.inputTokens ?? 0)
   const outputTokens = safe(input.usage.outputTokens ?? 0)
@@ -510,6 +521,7 @@ export interface Interface {
   }) => Effect.Effect<Info>
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
+  readonly list: (input?: ListInput) => Effect.Effect<Info[]>
   readonly get: (id: SessionID) => Effect.Effect<Info>
   readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
   readonly setArchived: (input: { sessionID: SessionID; time?: number }) => Effect.Effect<void>
@@ -600,6 +612,10 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       // module-level and `remove()` explicitly supports cleanup on broken
       // sessions that have no InstanceState.
       yield* ExternalResult.onSessionDestroyed(sessionID)
+      // Release the session's embedded-browser connection (close the CDP ws
+      // and detach the main-process bridge once the last claim goes). Keyed by
+      // root session id inside, so child-session deletes are no-ops here.
+      yield* Effect.promise(() => releaseBrowserSession(sessionID))
       if (!(yield* hasInstanceContext())) return
       yield* Permission.Service.use((svc) => svc.clearSession(sessionID, reason)).pipe(
         Effect.provide(Permission.defaultLayer),
@@ -671,6 +687,11 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
           )
         : undefined
       return fromRow(row, project)
+    })
+
+    const list = Effect.fn("Session.list")(function* (input?: ListInput) {
+      const ctx = yield* InstanceState.context
+      return yield* Effect.sync(() => listForProject(ctx.project, input))
     })
 
     const children = Effect.fn("Session.children")(function* (parentID: SessionID) {
@@ -1060,6 +1081,11 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       sessionID: SessionID
       messageID: MessageID
     }) {
+      // Surface the route's declared 404 instead of silently succeeding:
+      // removing a message that does not exist is a not-found, not a no-op.
+      // MessageV2.get throws NotFoundError for a missing row, which
+      // ErrorMiddleware maps to 404 (the deleteMessage route already declares it).
+      yield* Effect.sync(() => MessageV2.get({ sessionID: input.sessionID, messageID: input.messageID }))
       yield* Effect.sync(() =>
         SyncEvent.run(MessageV2.Event.Removed, {
           sessionID: input.sessionID,
@@ -1130,6 +1156,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       getPart,
       updatePartDelta,
       findMessage,
+      list,
     })
   }),
 )
@@ -1137,28 +1164,6 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
 export const defaultLayer: Layer.Layer<Service, never, never> = layer.pipe(
   Layer.provide(Bus.layer),
   Layer.provide(Storage.defaultLayer),
-)
-
-const { runPromise } = makeRuntime(Service, defaultLayer)
-
-export const create = fn(CreateInput, (input) => runPromise((svc) => svc.create(input)))
-export const get = fn(GetInput, (input) => runPromise((svc) => svc.get(input)))
-export const children = fn(ChildrenInput, (input) => runPromise((svc) => svc.children(input)))
-export const fork = fn(ForkInput, (input) => runPromise((svc) => svc.fork(input)))
-export const remove = fn(RemoveInput, (input) => runPromise((svc) => svc.remove(input)))
-export const setTitle = fn(SetTitleInput, (input) => runPromise((svc) => svc.setTitle(input)))
-export const setArchived = fn(SetArchivedInput, (input) => runPromise((svc) => svc.setArchived(input)))
-export const setPermission = fn(SetPermissionInput, (input) => runPromise((svc) => svc.setPermission(input)))
-export const messages = fn(MessagesInput, (input) => runPromise((svc) => svc.messages(input)))
-export const messagesPage = fn(MessagesPageInput, (input) => runPromise((svc) => svc.messagesPage(input)))
-export const removePart = fn(RemovePartInput, (input) => runPromise((svc) => svc.removePart(input)))
-export const updateMessage = fn(MessageV2.Info, (input) => runPromise((svc) => svc.updateMessage(input)))
-export const updatePart = fn(MessageV2.Part, (input) => runPromise((svc) => svc.updatePart(input)))
-export const updateExecutionContext = fn(UpdateExecutionContextInput, (input) =>
-  runPromise((svc) => svc.updateExecutionContext(input)),
-)
-export const findActiveWorktreeBinding = fn(FindActiveWorktreeBindingInput, (directory) =>
-  runPromise((svc) => svc.findActiveWorktreeBinding(directory)),
 )
 
 type SessionListSort = "updated" | "created"
@@ -1220,25 +1225,14 @@ const activitySelect = {
   lastUserMessageAt: lastUserMessageAtExpr,
 }
 
-export function* list(input?: {
-  directory?: string
-  workspaceID?: WorkspaceID
-  roots?: boolean
-  start?: number
-  search?: string
-  limit?: number
-  sort?: SessionListSort
-}) {
-  const project = Instance.project
+function listForProject(project: { id: ProjectID }, input?: ListInput) {
   const conditions = [eq(SessionTable.project_id, project.id)]
 
   if (input?.workspaceID) {
     conditions.push(eq(SessionTable.workspace_id, input.workspaceID))
   }
-  if (!Flag.OPENCODE_EXPERIMENTAL_WORKSPACES) {
-    if (input?.directory) {
-      conditions.push(eq(SessionTable.directory, input.directory))
-    }
+  if (input?.directory) {
+    conditions.push(eq(SessionTable.directory, input.directory))
   }
   if (input?.roots) {
     conditions.push(isNull(SessionTable.parent_id))
@@ -1275,9 +1269,11 @@ export function* list(input?: {
     )
     for (const item of items) projects.set(item.id, item)
   }
-  for (const row of rows) {
-    yield fromRow(row, projects.get(row.project_id))
-  }
+  return rows.map((row) => fromRow(row, projects.get(row.project_id)))
+}
+
+export function* list(input?: ListInput) {
+  yield* listForProject(Instance.project, input)
 }
 
 export function* listGlobal(input?: {

@@ -7,9 +7,10 @@ import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global
 
 const globalStoreFixture = (): GlobalStore => ({
   ready: true,
-  path: { state: "", config: "", worktree: "", directory: "", home: "" },
+  path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" },
   project: [],
   session_todo: {},
+  pendingQuestions: {},
   provider: { all: [], connected: [], default: {} },
   provider_auth: {},
   config: {},

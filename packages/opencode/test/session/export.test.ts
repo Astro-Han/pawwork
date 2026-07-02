@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
+import { setTimeout as sleep } from "timers/promises"
 import { Instance } from "../../src/project/instance"
-import { Session as SessionNs } from "../../src/session"
+import { Session as SessionCore } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { Log } from "@opencode-ai/core/util/log"
@@ -16,22 +17,177 @@ import { LLMTrace } from "../../src/session/llm-trace"
 import { RunObservability } from "../../src/session/run-observability"
 import { RunLifecycle } from "../../src/session/run-lifecycle"
 
+
+const SessionNs = {
+  ...SessionCore,
+  create(input?: SessionCore.CreateInput) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.create(input)))
+  },
+  get(id: Parameters<SessionCore.Interface["get"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.get(id)))
+  },
+  children(parentID: Parameters<SessionCore.Interface["children"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.children(parentID)))
+  },
+  fork(input: Parameters<SessionCore.Interface["fork"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.fork(input)))
+  },
+  remove(id: Parameters<SessionCore.Interface["remove"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.remove(id)))
+  },
+  setTitle(input: Parameters<SessionCore.Interface["setTitle"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.setTitle(input)))
+  },
+  setArchived(input: Parameters<SessionCore.Interface["setArchived"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.setArchived(input)))
+  },
+  setPermission(input: Parameters<SessionCore.Interface["setPermission"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.setPermission(input)))
+  },
+  messages(input: Parameters<SessionCore.Interface["messages"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.messages(input)))
+  },
+  messagesPage(input: Parameters<SessionCore.Interface["messagesPage"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.messagesPage(input)))
+  },
+  removePart(input: Parameters<SessionCore.Interface["removePart"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.removePart(input)))
+  },
+  updateMessage(input: Parameters<SessionCore.Interface["updateMessage"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.updateMessage(input)))
+  },
+  updatePart(input: Parameters<SessionCore.Interface["updatePart"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.updatePart(input)))
+  },
+  updateExecutionContext(input: Parameters<SessionCore.Interface["updateExecutionContext"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.updateExecutionContext(input)))
+  },
+  findActiveWorktreeBinding(directory: Parameters<SessionCore.Interface["findActiveWorktreeBinding"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.findActiveWorktreeBinding(directory)))
+  },
+}
+
+namespace SessionNs {
+  export type Info = SessionCore.Info
+  export type Interface = SessionCore.Interface
+  export type Service = SessionCore.Service
+  export type CreateInput = SessionCore.CreateInput
+  export type GlobalInfo = SessionCore.GlobalInfo
+}
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
 
+const invalidateConfig = (wait = false) => AppRuntime.runPromise(Config.Service.use((svc) => svc.invalidate(wait)))
+
+type RemoveDirectory = (dir: string, options: Parameters<typeof fs.rm>[1]) => Promise<void>
+
+function isRetryableDirectoryRemovalError(error: unknown) {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code
+  return code === "EBUSY" || code === "EACCES" || code === "EPERM" || code === "ENOTEMPTY"
+}
+
+async function removeDirectoryWithBusyRetry(
+  dir: string,
+  input: {
+    attempts?: number
+    delayMs?: number
+    remove?: RemoveDirectory
+    wait?: (ms: number) => Promise<void>
+  } = {},
+) {
+  const attempts = input.attempts ?? (process.platform === "win32" ? 50 : 6)
+  const delayMs = input.delayMs ?? 100
+  const remove = input.remove ?? fs.rm
+  const wait = input.wait ?? sleep
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await remove(dir, { recursive: true, force: true })
+      return
+    } catch (error) {
+      if (attempt === attempts || !isRetryableDirectoryRemovalError(error)) throw error
+      await wait(delayMs)
+    }
+  }
+}
+
 async function removeLoadedSessionProjectDirectory(dir: string) {
-  await Instance.disposeDirectory(dir)
-  await fs.rm(dir, {
-    recursive: true,
-    force: true,
-    maxRetries: process.platform === "win32" ? 30 : 5,
-    retryDelay: 100,
-  })
+  await Instance.disposeDirectory(dir, { mode: "force" })
+  await removeDirectoryWithBusyRetry(dir)
 }
 
 describe("Export.session", () => {
   test("getRuntimeNamespace returns 'pawwork' or 'opencode'", () => {
     expect(["pawwork", "opencode"]).toContain(getRuntimeNamespace())
+  })
+
+  test("removeDirectoryWithBusyRetry retries transient busy directory removal", async () => {
+    const retryableCodes = ["EBUSY", "EACCES", "EPERM", "ENOTEMPTY"]
+
+    for (const code of retryableCodes) {
+      let attempts = 0
+
+      await removeDirectoryWithBusyRetry("busy-dir", {
+        attempts: 3,
+        delayMs: 0,
+        remove: async (_dir, options) => {
+          attempts++
+          expect(options).toEqual({ recursive: true, force: true })
+          if (attempts < 3) {
+            const error = new Error("busy") as NodeJS.ErrnoException
+            error.code = code
+            throw error
+          }
+        },
+        wait: async () => {},
+      })
+
+      expect(attempts).toBe(3)
+    }
+  })
+
+  test("removeDirectoryWithBusyRetry does not retry non-transient removal errors", async () => {
+    let attempts = 0
+    const expected = new Error("invalid") as NodeJS.ErrnoException
+    expected.code = "EINVAL"
+
+    try {
+      await removeDirectoryWithBusyRetry("invalid-dir", {
+        attempts: 3,
+        delayMs: 0,
+        remove: async () => {
+          attempts++
+          throw expected
+        },
+        wait: async () => {},
+      })
+      throw new Error("expected removal to fail")
+    } catch (error) {
+      expect(error).toBe(expected)
+      expect(attempts).toBe(1)
+    }
+  })
+
+  test("removeDirectoryWithBusyRetry throws after transient removal retries are exhausted", async () => {
+    let attempts = 0
+    const expected = new Error("busy") as NodeJS.ErrnoException
+    expected.code = "EBUSY"
+
+    try {
+      await removeDirectoryWithBusyRetry("busy-dir", {
+        attempts: 3,
+        delayMs: 0,
+        remove: async () => {
+          attempts++
+          throw expected
+        },
+        wait: async () => {},
+      })
+      throw new Error("expected removal to fail")
+    } catch (error) {
+      expect(error).toBe(expected)
+      expect(attempts).toBe(3)
+    }
   })
 
   test("exports a single root session with empty messages and stub runtime_context", async () => {
@@ -273,7 +429,7 @@ describe("Export.session", () => {
         },
       })
 
-      await Config.invalidate(true)
+      await invalidateConfig(true)
       await removeLoadedSessionProjectDirectory(sessionProject.path)
       await Instance.provide({
         directory: currentProject.path,
@@ -296,7 +452,7 @@ describe("Export.session", () => {
       else process.env.GLOBAL_EXPORT_RULE = previousEnv
       if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
       else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
-      await Config.invalidate(true)
+      await invalidateConfig(true)
       if (sessionID) await SessionNs.remove(sessionID)
     }
   })
@@ -452,7 +608,7 @@ describe("Export.session", () => {
     process.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
       instructions: [localFile, url],
     })
-    await Config.invalidate(true)
+    await invalidateConfig(true)
 
     try {
       await Instance.provide({
@@ -482,7 +638,7 @@ describe("Export.session", () => {
       else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
       if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG_CONTENT
       else process.env.OPENCODE_CONFIG_CONTENT = previousConfig
-      await Config.invalidate(true)
+      await invalidateConfig(true)
     }
   })
 
@@ -506,7 +662,7 @@ describe("Export.session", () => {
     process.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
       instructions: [url],
     })
-    await Config.invalidate(true)
+    await invalidateConfig(true)
 
     try {
       await Instance.provide({
@@ -532,7 +688,7 @@ describe("Export.session", () => {
       else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
       if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG_CONTENT
       else process.env.OPENCODE_CONFIG_CONTENT = previousConfig
-      await Config.invalidate(true)
+      await invalidateConfig(true)
     }
   })
 
@@ -699,7 +855,7 @@ describe("Export.session", () => {
         const userID = MessageID.make("msg_run_obs_user")
         const assistantID = MessageID.make("msg_run_obs_assistant")
         const summary: RunObservability.Summary = {
-          schema_version: 1,
+          schema_version: 2,
           run_id: RunObservability.RunID.make("run_export"),
           trace_id: assistantID,
           session_id: root.id,
@@ -759,7 +915,7 @@ describe("Export.session", () => {
           } as MessageV2.Assistant)
 
           const result = await AppRuntime.runPromise(Export.session(root.id))
-          expect(result.diagnostics.run_observability_schema_version).toBe(1)
+          expect(result.diagnostics.run_observability_schema_version).toBe(2)
           expect(result.diagnostics.run_observability).toEqual([summary])
         } finally {
           await SessionNs.remove(root.id)
@@ -1816,7 +1972,7 @@ describe("redactPart", () => {
 
   test("sanitizeSnapshot preserves safe run observability error fingerprints", () => {
     const summary: RunObservability.Summary = {
-      schema_version: 1,
+      schema_version: 2,
       run_id: RunObservability.RunID.make("run_sanitize"),
       trace_id: MessageID.make("msg_sanitize"),
       session_id: SessionID.make("ses_sanitize"),
@@ -1864,7 +2020,7 @@ describe("redactPart", () => {
         model_refs: {},
         stats: { session_count: 1, message_count: 1, part_count: 0, omitted_attachment_count: 0 },
       },
-      diagnostics: { run_observability_schema_version: 1, run_observability: [summary] },
+      diagnostics: { run_observability_schema_version: 2, run_observability: [summary] },
       session: {
         info: {
           id: SessionID.make("ses_sanitize"),
@@ -1991,7 +2147,7 @@ describe("redactPart", () => {
       diagnostics_complete: true,
     }
     const summary = {
-      schema_version: 1,
+      schema_version: 2,
       run_id: RunObservability.RunID.make("run_sanitize_incident"),
       trace_id: MessageID.make("msg_sanitize_incident"),
       session_id: SessionID.make("ses_sanitize_incident"),
@@ -2038,7 +2194,7 @@ describe("redactPart", () => {
         model_refs: {},
         stats: { session_count: 1, message_count: 1, part_count: 0, omitted_attachment_count: 0 },
       },
-      diagnostics: { run_observability_schema_version: 1, run_observability: [summary] },
+      diagnostics: { run_observability_schema_version: 2, run_observability: [summary] },
       session: {
         info: {
           id: SessionID.make("ses_sanitize_incident"),
@@ -2054,7 +2210,7 @@ describe("redactPart", () => {
       },
     })
 
-    expect(sanitized.diagnostics.run_incident_schema_version).toBe(1)
+    expect(sanitized.diagnostics.run_incident_schema_version).toBe(2)
     expect(sanitized.diagnostics.run_incidents?.[0]?.terminal_cause.category).toBe("provider_transport_disconnect")
     expect(sanitized.diagnostics.incident_chains?.[0]).toMatchObject({
       incident_id: "incident:msg_sanitize",
@@ -2200,7 +2356,7 @@ describe("redactPart", () => {
         model_refs: {},
         stats: { session_count: 1, message_count: 0, part_count: 0, omitted_attachment_count: 0 },
       },
-      diagnostics: { run_observability_schema_version: 1, run_observability: [summary] },
+      diagnostics: { run_observability_schema_version: 2, run_observability: [summary] },
       session: {
         info: {
           id: SessionID.make("ses_side_effect_snapshot_sanitize"),
@@ -2297,7 +2453,7 @@ describe("redactPart", () => {
         model_refs: {},
         stats: { session_count: 1, message_count: 0, part_count: 0, omitted_attachment_count: 0 },
       },
-      diagnostics: { run_observability_schema_version: 1, run_observability: [summary] },
+      diagnostics: { run_observability_schema_version: 2, run_observability: [summary] },
       session: {
         info: {
           id: SessionID.make("ses_recovered_incident_export"),
@@ -2386,7 +2542,7 @@ describe("redactPart", () => {
         model_refs: {},
         stats: { session_count: 1, message_count: 0, part_count: 0, omitted_attachment_count: 0 },
       },
-      diagnostics: { run_observability_schema_version: 1, run_observability: [summary] },
+      diagnostics: { run_observability_schema_version: 2, run_observability: [summary] },
       session: {
         info: {
           id: SessionID.make("ses_generated_chain_sanitize"),

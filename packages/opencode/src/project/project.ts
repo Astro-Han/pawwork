@@ -1,5 +1,5 @@
 import z from "zod"
-import { and, Database, eq } from "../storage/db"
+import { and, Database, eq, NotFoundError, sql } from "../storage/db"
 import { ProjectTable } from "./project.sql"
 import { SessionTable } from "../session/session.sql"
 import { Log } from "@opencode-ai/core/util/log"
@@ -11,7 +11,6 @@ import { ProjectID } from "./schema"
 import { Effect, Layer, Path, Scope, Context, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
-import { makeRuntime } from "@/effect/run-service"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 
@@ -327,7 +326,10 @@ export namespace Project {
           yield* db((d) =>
             d
               .update(SessionTable)
-              .set({ project_id: data.id })
+              // Pin time_updated to its current value so the re-parent does not
+              // trip drizzle's $onUpdate, which would bump every migrated
+              // session to the top of recents.
+              .set({ project_id: data.id, time_updated: sql`${SessionTable.time_updated}` })
               .where(and(eq(SessionTable.project_id, ProjectID.global), eq(SessionTable.directory, data.worktree)))
               .run(),
           )
@@ -383,7 +385,7 @@ export namespace Project {
             .returning()
             .get(),
         )
-        if (!result) throw new Error(`Project not found: ${input.projectID}`)
+        if (!result) throw new NotFoundError({ message: `Project not found: ${input.projectID}` })
         const data = fromRow(result)
         yield* emitUpdated(data)
         return data
@@ -474,59 +476,4 @@ export namespace Project {
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(NodePath.layer),
   )
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  // ---------------------------------------------------------------------------
-  // Promise-based API (delegates to Effect service via runPromise)
-  // ---------------------------------------------------------------------------
-
-  export function fromDirectory(directory: string) {
-    return runPromise((svc) => svc.fromDirectory(directory))
-  }
-
-  export function discover(input: Info) {
-    return runPromise((svc) => svc.discover(input))
-  }
-
-  export function list() {
-    return Database.use((db) =>
-      db
-        .select()
-        .from(ProjectTable)
-        .all()
-        .map((row) => fromRow(row)),
-    )
-  }
-
-  export function get(id: ProjectID): Info | undefined {
-    const row = Database.use((db) => db.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
-    if (!row) return undefined
-    return fromRow(row)
-  }
-
-  export function setInitialized(id: ProjectID) {
-    Database.use((db) =>
-      db.update(ProjectTable).set({ time_initialized: Date.now() }).where(eq(ProjectTable.id, id)).run(),
-    )
-  }
-
-  export function initGit(input: { directory: string; project: Info }) {
-    return runPromise((svc) => svc.initGit(input))
-  }
-
-  export function update(input: UpdateInput) {
-    return runPromise((svc) => svc.update(input))
-  }
-
-  export function sandboxes(id: ProjectID) {
-    return runPromise((svc) => svc.sandboxes(id))
-  }
-
-  export function addSandbox(id: ProjectID, directory: string) {
-    return runPromise((svc) => svc.addSandbox(id, directory))
-  }
-
-  export function removeSandbox(id: ProjectID, directory: string) {
-    return runPromise((svc) => svc.removeSandbox(id, directory))
-  }
 }

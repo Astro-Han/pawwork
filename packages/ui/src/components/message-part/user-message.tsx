@@ -1,6 +1,6 @@
 import { createMemo, For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
-import type { FilePart, Part as PartType, TextPart, UserMessage } from "@opencode-ai/sdk/v2"
+import type { FilePart, Part as PartType, SkillPart, TextPart, UserMessage } from "@opencode-ai/sdk/v2"
 import { useData } from "../../context"
 import { useDialog } from "../../context/dialog"
 import { useI18n } from "../../context/i18n"
@@ -8,7 +8,7 @@ import { FileIcon } from "../file-icon"
 import { IconButton } from "../icon-button"
 import { ImagePreview } from "../image-preview"
 import { Tooltip } from "../tooltip"
-import { attached, inline, kind } from "../message-file"
+import { attached, chip, inline, kind } from "../message-file"
 import { CommandIcon } from "../command-icon"
 import { deriveCommandInvocation } from "../../lib/command-invocation"
 import type { UserActions } from "./registry"
@@ -45,11 +45,13 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
   const attachments = createMemo(() => {
     const inv = invocation()
     return files()
-      .filter(attached)
+      .filter((f) => attached(f) || chip(f))
       .filter((f) => !inv || !inv.suppressFilePartIds.includes(f.id))
   })
 
   const inlineFiles = createMemo(() => files().filter(inline))
+
+  const inlineSkills = createMemo(() => (props.parts?.filter((p) => p.type === "skill") as SkillPart[]) ?? [])
 
   const model = createMemo(() => {
     const providerID = props.message.model?.providerID
@@ -64,13 +66,19 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
     return new Intl.DateTimeFormat(i18n.locale(), { timeStyle: "short" }).format(created)
   })
 
-  const metaHead = createMemo(() => {
-    const agent = props.message.agent
-    const items = [agent ? agent[0]?.toUpperCase() + agent.slice(1) : "", model()]
-    return items.filter((x) => !!x).join(" · ")
+  // An automation run produced this message rather than the user typing it.
+  // Tag it in the footer meta, emphasized above the weak model/time (value
+  // contrast, no separator glyph) so the source reads at a glance, and link the
+  // tag back to the automation (it brightens to brand on hover).
+  const sentViaAutomation = createMemo(() => {
+    const id = props.message.automationID
+    return typeof id === "string" && id ? id : undefined
   })
-
-  const metaTail = stamp
+  const clickableAutomation = createMemo(() => !!(sentViaAutomation() && data.navigateToAutomation))
+  const openAutomation = () => {
+    const id = sentViaAutomation()
+    if (id && data.navigateToAutomation) data.navigateToAutomation(id)
+  }
 
   const openImagePreview = (url: string, alt?: string) => {
     dialog.show(() => <ImagePreview src={url} alt={alt} />)
@@ -151,21 +159,43 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
 
   const renderMetaAndActions = () => (
     <div data-slot="user-message-copy-wrapper">
-      <Show when={metaHead() || metaTail()}>
+      <Show when={sentViaAutomation() || model() || stamp()}>
         <span data-slot="user-message-meta-wrap">
-          <Show when={metaHead()}>
+          <Show when={sentViaAutomation()}>
+            <Show
+              when={clickableAutomation()}
+              fallback={
+                <span
+                  data-slot="user-message-automation-badge"
+                  class="text-body text-fg-strong font-emphasis cursor-default"
+                >
+                  {i18n.t("ui.message.automationTag")}
+                </span>
+              }
+            >
+              <button
+                type="button"
+                data-slot="user-message-automation-badge"
+                data-clickable="true"
+                class="text-body text-fg-strong font-emphasis hover:text-brand-primary cursor-pointer"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  openAutomation()
+                }}
+              >
+                {i18n.t("ui.message.automationTag")}
+              </button>
+            </Show>
+          </Show>
+          <Show when={model()}>
             <span data-slot="user-message-meta" class="text-body text-fg-weak cursor-default">
-              {metaHead()}
+              {model()}
             </span>
           </Show>
-          <Show when={metaHead() && metaTail()}>
-            <span data-slot="user-message-meta-sep" class="text-body text-fg-weak cursor-default">
-              {" · "}
-            </span>
-          </Show>
-          <Show when={metaTail()}>
+          <Show when={stamp()}>
             <span data-slot="user-message-meta-tail" class="text-body text-fg-weak cursor-default">
-              {metaTail()}
+              {stamp()}
             </span>
           </Show>
         </span>
@@ -217,7 +247,7 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
               <>
                 <div data-slot="user-message-body">
                   <div data-slot="user-message-text">
-                    <HighlightedText text={text()} references={inlineFiles()} />
+                    <HighlightedText text={text()} references={inlineFiles()} skills={inlineSkills()} />
                   </div>
                 </div>
                 {renderMetaAndActions()}

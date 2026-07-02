@@ -1,4 +1,5 @@
 import { describe, expect, test, beforeEach } from "bun:test"
+import { Effect } from "effect"
 import path from "path"
 import { LSPClient } from "../../src/lsp/client"
 import { LSPServer } from "../../src/lsp/server"
@@ -16,6 +17,11 @@ function spawnFakeServer() {
   }
 }
 
+const fakeBus = {
+  publish: () => Effect.void,
+  subscribeCallback: () => Effect.succeed(() => {}),
+}
+
 describe("LSPClient interop", () => {
   beforeEach(async () => {
     await Log.init({ print: true })
@@ -28,6 +34,7 @@ describe("LSPClient interop", () => {
       directory: process.cwd(),
       fn: () =>
         LSPClient.create({
+          bus: fakeBus,
           serverID: "fake",
           server: handle as unknown as LSPServer.Handle,
           root: process.cwd(),
@@ -52,6 +59,7 @@ describe("LSPClient interop", () => {
       directory: process.cwd(),
       fn: () =>
         LSPClient.create({
+          bus: fakeBus,
           serverID: "fake",
           server: handle as unknown as LSPServer.Handle,
           root: process.cwd(),
@@ -76,6 +84,7 @@ describe("LSPClient interop", () => {
       directory: process.cwd(),
       fn: () =>
         LSPClient.create({
+          bus: fakeBus,
           serverID: "fake",
           server: handle as unknown as LSPServer.Handle,
           root: process.cwd(),

@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useMutation } from "@tanstack/solid-query"
 import { followupCommandText, type FollowupDraft } from "@/components/prompt-input/followup-draft"
-import { sendFollowupDraft } from "@/components/prompt-input/submit"
+import { sendFollowupDraft } from "@/components/prompt-input/send-followup-draft"
 import type { useGlobalSync } from "@/context/global-sync"
 import type { useSDK } from "@/context/sdk"
 import type { useSettings } from "@/context/settings"
@@ -23,8 +23,10 @@ export function followupPreviewText(input: {
   const text = input.item.prompt
     .map((part) => {
       if (part.type === "image") return `[image:${part.filename}]`
+      if (part.type === "attachment") return `[file:${part.path}]`
       if (part.type === "file") return `[file:${part.path}]`
       if (part.type === "agent") return `@${part.name}`
+      if (part.type === "skill") return `/${part.name}`
       return part.content
     })
     .join("")

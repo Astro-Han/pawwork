@@ -2,7 +2,7 @@
  * Right-side panel tab value space.
  *
  * Two arms:
- *   1. RightPanelStaticTab — the four fixed slots (status / files / review / context).
+ *   1. RightPanelStaticTab — the three fixed slots (status / review / context).
  *      Persisted in openShellTabs by name.
  *   2. `terminal:<id>` — one dynamic tab per live terminal. The id is the
  *      TerminalTabID from the terminal context. These are NOT persisted in
@@ -10,22 +10,22 @@
  *
  * Pre-flatten, "terminal" was a fixed slot containing an internal multi-terminal
  * strip. After flatten (Area B, 2026-05-25) each terminal is its own outer tab,
- * sibling of files/review/context. Legacy persistence with "terminal" as a fixed
+ * sibling of status/review/context. Legacy persistence with "terminal" as a fixed
  * slot is dropped via migrateLegacyRightPanelTab / coerceLegacySidePanelTab.
  */
 
-export type RightPanelStaticTab = "status" | "files" | "review" | "context"
+export type RightPanelStaticTab = "status" | "review" | "context" | "browser"
 export type RightPanelTerminalTab = `terminal:${string}`
 export type RightPanelTab = RightPanelStaticTab | RightPanelTerminalTab
 
 export const RIGHT_PANEL_TAB_VALUES: readonly RightPanelStaticTab[] = [
   "status",
-  "files",
   "review",
   "context",
+  "browser",
 ] as const
 
-export type RightPanelShellIconName = "status" | "folder" | "review" | "terminal"
+export type RightPanelShellIconName = "status" | "review" | "terminal" | "browser"
 
 export type ShellTabIcon =
   | { kind: "icon"; name: RightPanelShellIconName }
@@ -33,9 +33,9 @@ export type ShellTabIcon =
 
 export type RightPanelTabLabelKey =
   | "status.popover.trigger"
-  | "session.panel.files"
   | "session.tab.review"
   | "session.tab.context"
+  | "session.tab.browser"
 
 export interface RightPanelTabMeta {
   icon: ShellTabIcon
@@ -47,12 +47,6 @@ export interface RightPanelTabMeta {
 /** Static-tab metadata only. Terminal tabs derive their meta from terminal state. */
 export const RIGHT_PANEL_TAB_META: Record<RightPanelStaticTab, RightPanelTabMeta> = {
   status: { icon: { kind: "icon", name: "status" }, labelKey: "status.popover.trigger", closable: false },
-  files: {
-    icon: { kind: "icon", name: "folder" },
-    labelKey: "session.panel.files",
-    commandId: "fileTree.toggle",
-    closable: true,
-  },
   review: {
     icon: { kind: "icon", name: "review" },
     labelKey: "session.tab.review",
@@ -62,6 +56,13 @@ export const RIGHT_PANEL_TAB_META: Record<RightPanelStaticTab, RightPanelTabMeta
   context: {
     icon: { kind: "indicator", fallbackIcon: "status" },
     labelKey: "session.tab.context",
+    closable: true,
+  },
+  // Desktop/Electron only — surfaced when canUseBrowser(platform) is true.
+  browser: {
+    icon: { kind: "icon", name: "browser" },
+    labelKey: "session.tab.browser",
+    commandId: "browser.toggle",
     closable: true,
   },
 }
@@ -105,6 +106,7 @@ export const terminalTabValue = (id: string): RightPanelTerminalTab => {
 // Used when reading legacy persisted state where invalid input should remain unset.
 export const coerceLegacySidePanelTab = (value: unknown): RightPanelTab | undefined => {
   if (value === "changes") return "review"
+  if (value === "files") return "status" // files tab merged into status panel
   if (value === "terminal") return undefined // legacy fixed terminal slot is gone
   return isRightPanelTab(value) ? value : undefined
 }
@@ -113,7 +115,7 @@ export const coerceLegacySidePanelTab = (value: unknown): RightPanelTab | undefi
 export const migrateLegacyRightPanelTab = (tab?: string): RightPanelTab => {
   if (tab === "changes") return "review"
   if (tab === "terminal") return "status" // legacy fixed slot; flatten dropped it
-  if (tab === "files") return "files"
+  if (tab === "files") return "status" // files tab merged into status panel
   if (tab === "review" || tab === "status" || tab === "context") return tab
   if (typeof tab === "string" && isRightPanelTab(tab)) return tab
   return "status"

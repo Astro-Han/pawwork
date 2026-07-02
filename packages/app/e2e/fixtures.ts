@@ -162,7 +162,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     async ({}, use) => {
       const rt = ManagedRuntime.make(TestLLMServer.layer)
       try {
-        const svc = await rt.runPromise(TestLLMServer.asEffect())
+        const svc = await rt.runPromise(TestLLMServer)
         await use({
           url: svc.url,
           push: (...input) => rt.runPromise(svc.push(...input)),

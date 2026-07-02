@@ -4,10 +4,9 @@
 // skipped by the SolidJS framework; defer is not exercised here.
 //
 // What IS exercised: the three skip branches (composing, session route,
-// scope change) and the record routing (pinned vs portable). These pin
+// scope change) and pinned record routing. These pin
 // the regression scenarios called out in the PR review:
 //
-//   - homepage A → homepage B nav must not destroy the /repo-a snapshot
 //   - pinned prefill at mount must not be overwritten in place
 //   - IME compositionend must record the committed prompt without relying
 //     on a post-compose input event
@@ -23,7 +22,6 @@ import {
   type OwnerMirrorState,
   type OwnerMirrorTickInputs,
 } from "./owner-mirror"
-import { createPortableDraftOwner } from "./portable-draft"
 import { createPinnedDraftOwner } from "./pinned-draft"
 
 // ---------------------------------------------------------------------------
@@ -60,7 +58,6 @@ function makeState(initial: Partial<OwnerMirrorState> = {}): OwnerMirrorState {
 
 function makeOwners() {
   return {
-    portable: createPortableDraftOwner(),
     pinned: createPinnedDraftOwner(),
   }
 }
@@ -72,30 +69,26 @@ function makeOwners() {
 describe("applyOwnerMirrorTick — composing guard", () => {
   test("intermediate IME prompt during composing=true returns skip-composing and does not record", () => {
     const state = makeState()
-    const { portable, pinned } = makeOwners()
+    const { pinned } = makeOwners()
     const outcome = applyOwnerMirrorTick(
       tickInputs({ parts: textPrompt("中"), compose: true }),
       state,
       pinned,
-      portable,
     )
     expect(outcome).toBe("skip-composing")
-    expect(portable.snapshot()).toBeNull()
     expect(pinned.current()).toBeNull()
   })
 
-  test("compositionend (compose true→false) tick records the committed prompt", () => {
+  test("compositionend (compose true→false) tick wakes without recording ordinary homepage drafts", () => {
     const state = makeState()
-    const { portable, pinned } = makeOwners()
+    const { pinned } = makeOwners()
 
     // Tick 1: during composition (compose=true) — skipped.
     applyOwnerMirrorTick(
       tickInputs({ parts: textPrompt("中文"), compose: true }),
       state,
       pinned,
-      portable,
     )
-    expect(portable.snapshot()).toBeNull()
 
     // Tick 2: compositionend fires with the committed prompt (compose=false).
     // The mirror effect tracks composing(), so this transition wakes it even
@@ -104,20 +97,18 @@ describe("applyOwnerMirrorTick — composing guard", () => {
       tickInputs({ parts: textPrompt("中文"), compose: false }),
       state,
       pinned,
-      portable,
     )
-    expect(outcome).toBe("recorded-portable")
-    expect(portable.snapshot()?.prompt[0]).toMatchObject({ content: "中文" })
+    expect(outcome).toBe("skip-unpinned-homepage")
+    expect(pinned.current()).toBeNull()
   })
 
   test("composing=true does NOT update lastSeenDir/sessionID (next non-compose tick still sees current scope)", () => {
     const state = makeState({ lastSeenDir: "/repo-x" })
-    const { portable, pinned } = makeOwners()
+    const { pinned } = makeOwners()
     applyOwnerMirrorTick(
       tickInputs({ dir: "/repo-x", compose: true }),
       state,
       pinned,
-      portable,
     )
     // State preserved — scope change is only consumed on non-composing ticks.
     expect(state.lastSeenDir).toBe("/repo-x")
@@ -132,29 +123,26 @@ describe("applyOwnerMirrorTick — composing guard", () => {
 describe("applyOwnerMirrorTick — session-route guard", () => {
   test("sessionID set returns skip-session and does not record", () => {
     const state = makeState()
-    const { portable, pinned } = makeOwners()
+    const { pinned } = makeOwners()
     const outcome = applyOwnerMirrorTick(
       tickInputs({ parts: textPrompt("typed in session"), sessionID: "session-abc" }),
       state,
       pinned,
-      portable,
     )
     expect(outcome).toBe("skip-session")
-    expect(portable.snapshot()).toBeNull()
     expect(pinned.current()).toBeNull()
   })
 
   test("session → homepage transition (sessionID undefined → string change) is treated as scope change", () => {
     // Initial state: was on homepage /repo-x.
     const state = makeState({ lastSeenDir: "/repo-x", lastSeenSessionID: undefined })
-    const { portable, pinned } = makeOwners()
+    const { pinned } = makeOwners()
 
     // Enter session route.
     const outcome1 = applyOwnerMirrorTick(
       tickInputs({ sessionID: "session-abc" }),
       state,
       pinned,
-      portable,
     )
     expect(outcome1).toBe("skip-session")
     expect(state.lastSeenSessionID).toBe("session-abc")
@@ -164,10 +152,8 @@ describe("applyOwnerMirrorTick — session-route guard", () => {
       tickInputs({ parts: emptyPrompt(), sessionID: undefined }),
       state,
       pinned,
-      portable,
     )
     expect(outcome2).toBe("skip-scope")
-    expect(portable.snapshot()).toBeNull()
   })
 })
 
@@ -177,39 +163,25 @@ describe("applyOwnerMirrorTick — session-route guard", () => {
 
 describe("applyOwnerMirrorTick — scope-change guard", () => {
   test("homepage A → homepage B (directory change) returns skip-scope without recording", () => {
-    // User typed on /repo-a; snapshot already recorded.
-    const { portable, pinned } = makeOwners()
-    portable.record({
-      sourceFilesystemDirectory: "/repo-a",
-      prompt: textPrompt("hello"),
-      context: [],
-      images: [],
-      resolvedMentions: {},
-    })
+    const { pinned } = makeOwners()
 
     // State reflects last-seen /repo-a.
     const state = makeState({ lastSeenDir: "/repo-a" })
 
-    // Session swap fires the effect: dir is now /repo-b, prompt is empty
-    // (new session's DEFAULT_PROMPT).
+    // Session swap fires the effect: dir is now /repo-b.
     const outcome = applyOwnerMirrorTick(
       tickInputs({ parts: emptyPrompt(), dir: "/repo-b" }),
       state,
       pinned,
-      portable,
     )
     expect(outcome).toBe("skip-scope")
-
-    // Snapshot for /repo-a is intact — empty record was not issued.
-    expect(portable.snapshot()?.sourceFilesystemDirectory).toBe("/repo-a")
-    expect(portable.snapshot()?.prompt[0]).toMatchObject({ content: "hello" })
 
     // State updated so the next /repo-b tick passes the guard.
     expect(state.lastSeenDir).toBe("/repo-b")
   })
 
-  test("subsequent non-empty tick on the new dir records normally", () => {
-    const { portable, pinned } = makeOwners()
+  test("subsequent non-empty tick on the new dir does not record ordinary homepage drafts", () => {
+    const { pinned } = makeOwners()
     const state = makeState({ lastSeenDir: "/repo-a" })
 
     // Scope-change tick.
@@ -217,7 +189,6 @@ describe("applyOwnerMirrorTick — scope-change guard", () => {
       tickInputs({ parts: emptyPrompt(), dir: "/repo-b" }),
       state,
       pinned,
-      portable,
     )
 
     // User types on /repo-b.
@@ -225,21 +196,18 @@ describe("applyOwnerMirrorTick — scope-change guard", () => {
       tickInputs({ parts: textPrompt("typed on b"), dir: "/repo-b" }),
       state,
       pinned,
-      portable,
     )
-    expect(outcome).toBe("recorded-portable")
-    expect(portable.snapshot()?.sourceFilesystemDirectory).toBe("/repo-b")
-    expect(portable.snapshot()?.prompt[0]).toMatchObject({ content: "typed on b" })
+    expect(outcome).toBe("skip-unpinned-homepage")
   })
 })
 
 // ---------------------------------------------------------------------------
-// record routing — pinned vs portable
+// record routing — pinned only
 // ---------------------------------------------------------------------------
 
 describe("applyOwnerMirrorTick — record routing", () => {
-  test("pinned slot bound to current dir routes records to pinned (portable left untouched)", () => {
-    const { portable, pinned } = makeOwners()
+  test("pinned slot bound to current dir routes records to pinned", () => {
+    const { pinned } = makeOwners()
     pinned.adopt({ directory: "/repo-x", prompt: "prefill" })
 
     const state = makeState({ lastSeenDir: "/repo-x" })
@@ -247,15 +215,13 @@ describe("applyOwnerMirrorTick — record routing", () => {
       tickInputs({ parts: textPrompt("prefill plus edit"), dir: "/repo-x" }),
       state,
       pinned,
-      portable,
     )
     expect(outcome).toBe("recorded-pinned")
     expect(pinned.current()?.prompt[0]).toMatchObject({ content: "prefill plus edit" })
-    expect(portable.snapshot()).toBeNull()
   })
 
-  test("pinned slot bound to a different dir routes records to portable", () => {
-    const { portable, pinned } = makeOwners()
+  test("pinned slot bound to a different dir leaves ordinary homepage draft unowned", () => {
+    const { pinned } = makeOwners()
     pinned.adopt({ directory: "/repo-other", prompt: "other prefill" })
 
     const state = makeState({ lastSeenDir: "/repo-x" })
@@ -263,17 +229,16 @@ describe("applyOwnerMirrorTick — record routing", () => {
       tickInputs({ parts: textPrompt("hello"), dir: "/repo-x" }),
       state,
       pinned,
-      portable,
     )
-    expect(outcome).toBe("recorded-portable")
-    expect(portable.snapshot()?.sourceFilesystemDirectory).toBe("/repo-x")
+    expect(outcome).toBe("skip-unpinned-homepage")
     // Pinned slot for /repo-other is untouched.
     expect(pinned.current()?.directory).toBe("/repo-other")
     expect(pinned.current()?.prompt[0]).toMatchObject({ content: "other prefill" })
   })
 
-  test("resolvedMentions on file context items are flattened into the recorded payload", () => {
-    const { portable, pinned } = makeOwners()
+  test("resolvedMentions on file context items are flattened into pinned payload", () => {
+    const { pinned } = makeOwners()
+    pinned.adopt({ directory: "/repo-x", prompt: "prefill" })
     const state = makeState({ lastSeenDir: "/repo-x" })
     const fileItem: ContextItem & { key: string } = {
       type: "file",
@@ -293,13 +258,13 @@ describe("applyOwnerMirrorTick — record routing", () => {
       tickInputs({ parts: textPrompt("hello"), contextItems: [fileItem] }),
       state,
       pinned,
-      portable,
     )
-    expect(Object.keys(portable.snapshot()?.resolvedMentions ?? {})).toEqual([fileItem.key])
+    expect(Object.keys(pinned.current()?.resolvedMentions ?? {})).toEqual([fileItem.key])
   })
 
-  test("image attachments are copied into the recorded payload", () => {
-    const { portable, pinned } = makeOwners()
+  test("image attachments are copied into the pinned payload", () => {
+    const { pinned } = makeOwners()
+    pinned.adopt({ directory: "/repo-x", prompt: "prefill" })
     const state = makeState({ lastSeenDir: "/repo-x" })
     const img: ImageAttachmentPart = {
       type: "image",
@@ -312,10 +277,9 @@ describe("applyOwnerMirrorTick — record routing", () => {
       tickInputs({ parts: textPrompt("hi"), images: [img] }),
       state,
       pinned,
-      portable,
     )
-    expect(portable.snapshot()?.images.length).toBe(1)
-    expect(portable.snapshot()?.images[0]?.id).toBe("img-1")
+    expect(pinned.current()?.images.length).toBe(1)
+    expect(pinned.current()?.images[0]?.id).toBe("img-1")
   })
 })
 
@@ -326,7 +290,7 @@ describe("applyOwnerMirrorTick — record routing", () => {
 // and is NOT covered by these tests. It relies on SolidJS to skip the initial
 // invocation. If a future refactor strips defer, the editor-input.ts mount
 // sequence would fire applyOwnerMirrorTick with DEFAULT_PROMPT at mount and
-// clear any portable snapshot / overwrite any pinned prefill BEFORE hydration
-// applies. The pinned-draft.test.ts and portable-draft.test.ts hazard-pin
-// tests at the owner layer remain the canonical proof of why defer matters.
+// overwrite any pinned prefill BEFORE hydration
+// applies. The pinned-draft.test.ts hazard-pin tests at the owner layer remain
+// the canonical proof of why defer matters.
 // ---------------------------------------------------------------------------

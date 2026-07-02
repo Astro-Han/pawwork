@@ -40,6 +40,7 @@ import type { ACPConfig } from "./types"
 import { Provider } from "../provider/provider"
 import { ModelID, ProviderID } from "../provider/schema"
 import { Agent as AgentModule } from "../agent/agent"
+import { AppRuntime } from "../effect/app-runtime"
 import { Installation } from "@/installation"
 import { MessageV2 } from "@/session/message-v2"
 import { Config } from "@/config/config"
@@ -56,6 +57,10 @@ const DEFAULT_VARIANT_VALUE = "default"
 
 export namespace ACP {
   const log = Log.create({ service: "acp-agent" })
+
+  function defaultAgent() {
+    return AppRuntime.runPromise(AgentModule.Service.use((agent) => agent.defaultAgent()))
+  }
 
   async function getContextLimit(
     sdk: OpencodeClient,
@@ -207,7 +212,10 @@ export namespace ACP {
                     kind: toToolKind(permission.permission),
                     locations: toLocations(permission.permission, permission.metadata),
                   },
-                  options: this.permissionOptions,
+                  options:
+                    permission.always.length > 0
+                      ? this.permissionOptions
+                      : this.permissionOptions.filter((option) => option.optionId !== "always"),
                 })
                 .catch(async (error) => {
                   log.error("failed to request permission from ACP", {
@@ -341,33 +349,7 @@ export namespace ACP {
                 this.toolStarts.delete(part.callID)
                 this.bashSnapshots.delete(part.callID)
                 const kind = toToolKind(part.tool)
-                const content: ToolCallContent[] = [
-                  {
-                    type: "content",
-                    content: {
-                      type: "text",
-                      text: part.state.output,
-                    },
-                  },
-                ]
-
-                if (kind === "edit") {
-                  const input = part.state.input
-                  const filePath = typeof input["filePath"] === "string" ? input["filePath"] : ""
-                  const oldText = typeof input["oldString"] === "string" ? input["oldString"] : ""
-                  const newText =
-                    typeof input["newString"] === "string"
-                      ? input["newString"]
-                      : typeof input["content"] === "string"
-                        ? input["content"]
-                        : ""
-                  content.push({
-                    type: "diff",
-                    path: filePath,
-                    oldText,
-                    newText,
-                  })
-                }
+                const content = completedToolContent(part, kind)
 
                 if (part.tool === "todowrite") {
                   const parsedTodos = z.array(Todo.Info).safeParse(JSON.parse(part.state.output))
@@ -407,10 +389,7 @@ export namespace ACP {
                       content,
                       title: part.state.title,
                       rawInput: part.state.input,
-                      rawOutput: {
-                        output: part.state.output,
-                        metadata: part.state.metadata,
-                      },
+                      rawOutput: completedToolRawOutput(part),
                     },
                   })
                   .catch((error) => {
@@ -452,19 +431,6 @@ export namespace ACP {
                 return
             }
           }
-          if (part.type !== "text" && part.type !== "file") return
-          const msg = await this.sdk.session
-            .message(
-              { sessionID: part.sessionID, messageID: part.messageID, directory: session.cwd },
-              { throwOnError: true },
-            )
-            .then((x) => x.data)
-            .catch((err) => {
-              log.error("failed to fetch message for user chunk", { error: err })
-              return undefined
-            })
-          if (!msg || msg.info.role !== "user") return
-          await this.processMessage({ info: msg.info, parts: [part] })
           return
         }
 
@@ -879,33 +845,7 @@ export namespace ACP {
               this.toolStarts.delete(part.callID)
               this.bashSnapshots.delete(part.callID)
               const kind = toToolKind(part.tool)
-              const content: ToolCallContent[] = [
-                {
-                  type: "content",
-                  content: {
-                    type: "text",
-                    text: part.state.output,
-                  },
-                },
-              ]
-
-              if (kind === "edit") {
-                const input = part.state.input
-                const filePath = typeof input["filePath"] === "string" ? input["filePath"] : ""
-                const oldText = typeof input["oldString"] === "string" ? input["oldString"] : ""
-                const newText =
-                  typeof input["newString"] === "string"
-                    ? input["newString"]
-                    : typeof input["content"] === "string"
-                      ? input["content"]
-                      : ""
-                content.push({
-                  type: "diff",
-                  path: filePath,
-                  oldText,
-                  newText,
-                })
-              }
+              const content = completedToolContent(part, kind)
 
               if (part.tool === "todowrite") {
                 const parsedTodos = z.array(Todo.Info).safeParse(JSON.parse(part.state.output))
@@ -945,10 +885,7 @@ export namespace ACP {
                     content,
                     title: part.state.title,
                     rawInput: part.state.input,
-                    rawOutput: {
-                      output: part.state.output,
-                      metadata: part.state.metadata,
-                    },
+                    rawOutput: completedToolRawOutput(part),
                   },
                 })
                 .catch((err) => {
@@ -1122,6 +1059,7 @@ export namespace ACP {
     private async toolStart(sessionId: string, part: ToolPart) {
       if (this.toolStarts.has(part.callID)) return
       this.toolStarts.add(part.callID)
+      const input = part.state.input ?? {}
       await this.connection
         .sessionUpdate({
           sessionId,
@@ -1131,8 +1069,8 @@ export namespace ACP {
             title: part.tool,
             kind: toToolKind(part.tool),
             status: "pending",
-            locations: [],
-            rawInput: {},
+            locations: toLocations(part.tool, input),
+            rawInput: input,
           },
         })
         .catch((error) => {
@@ -1168,7 +1106,7 @@ export namespace ACP {
         this.sessionManager.get(sessionId).modeId ||
         (await (async () => {
           if (!availableModes.length) return undefined
-          const defaultAgentName = await AgentModule.defaultAgent()
+          const defaultAgentName = await defaultAgent()
           const resolvedModeId =
             availableModes.find((mode) => mode.name === defaultAgentName)?.id ?? availableModes[0].id
           this.sessionManager.setMode(sessionId, resolvedModeId)
@@ -1369,7 +1307,7 @@ export namespace ACP {
       if (!current) {
         this.sessionManager.setModel(session.id, model)
       }
-      const agent = session.modeId ?? (await AgentModule.defaultAgent())
+      const agent = session.modeId ?? (await defaultAgent())
 
       const parts: Array<
         | { type: "text"; text: string; synthetic?: boolean; ignored?: boolean }
@@ -1565,8 +1503,14 @@ export namespace ACP {
 
       case "edit":
       case "patch":
+      case "apply_patch":
       case "write":
         return "edit"
+
+      case "agent":
+      case "subagent":
+      case "task":
+        return "think"
 
       case "grep":
       case "glob":
@@ -1595,11 +1539,112 @@ export namespace ACP {
         return input["path"] ? [{ path: input["path"] }] : []
       case "bash":
         return []
+      case "external_directory": {
+        const directories = Array.isArray(input["directories"]) ? input["directories"] : []
+        return directories.flatMap((directory) => (typeof directory === "string" ? [{ path: directory }] : []))
+      }
       case "list":
         return input["path"] ? [{ path: input["path"] }] : []
       default:
         return []
     }
+  }
+
+  function completedToolContent(part: ToolPart, kind: ToolKind): ToolCallContent[] {
+    if (part.state.status !== "completed") return []
+
+    const displayContent = displayToolContent(part)
+    const content: ToolCallContent[] = [
+      {
+        type: "content",
+        content: {
+          type: "text",
+          text: displayContent ?? part.state.output,
+        },
+      },
+    ]
+
+    if (kind === "edit") {
+      const input = part.state.input
+      const filePath = typeof input["filePath"] === "string" ? input["filePath"] : ""
+      const oldText = typeof input["oldString"] === "string" ? input["oldString"] : ""
+      const newText =
+        typeof input["newString"] === "string"
+          ? input["newString"]
+          : typeof input["content"] === "string"
+            ? input["content"]
+            : ""
+      if (filePath && (oldText || newText)) {
+        content.push({
+          type: "diff",
+          path: filePath,
+          oldText,
+          newText,
+        })
+      }
+    }
+
+    content.push(...imageContents(part.state.attachments ?? []))
+    return content
+  }
+
+  function displayToolContent(part: ToolPart) {
+    if (part.state.status !== "completed") return
+    if (part.tool !== "read") return
+    const display = part.state.metadata?.["display"]
+    if (!display || typeof display !== "object") return
+    const record = display as Record<string, unknown>
+    if (record.type === "file" && typeof record.text === "string") {
+      if (record.truncated !== true) return record.text
+      const lineStart = typeof record.lineStart === "number" ? record.lineStart : undefined
+      const lineEnd = typeof record.lineEnd === "number" ? record.lineEnd : undefined
+      if (lineStart === undefined || lineEnd === undefined) return record.text
+      return [record.text, `(Showing lines ${lineStart}-${lineEnd}. Use offset=${lineEnd + 1} to continue.)`].join("\n\n")
+    }
+    if (record.type === "directory" && Array.isArray(record.entries)) {
+      const entries = record.entries.filter((entry) => typeof entry === "string").join("\n")
+      if (record.truncated !== true) return entries
+      const offset = typeof record.offset === "number" ? record.offset : undefined
+      const totalEntries = typeof record.totalEntries === "number" ? record.totalEntries : undefined
+      const shownEntries = record.entries.length
+      if (offset === undefined || totalEntries === undefined) return entries
+      return [
+        entries,
+        `(Showing ${shownEntries} of ${totalEntries} entries. Use offset=${offset + shownEntries} to continue.)`,
+      ].join("\n\n")
+    }
+  }
+
+  function completedToolRawOutput(part: ToolPart) {
+    if (part.state.status !== "completed") return {}
+    return {
+      output: part.state.output,
+      metadata: part.state.metadata,
+      ...(part.state.attachments?.length ? { attachments: part.state.attachments } : {}),
+    }
+  }
+
+  function imageContents(attachments: Array<{ mime: string; url: string }>): ToolCallContent[] {
+    return attachments.flatMap((attachment): ToolCallContent[] => {
+      // The inner class excludes ";" so each parameter segment matches
+      // unambiguously — avoids catastrophic backtracking (ReDoS) on adversarial
+      // tool/MCP attachment URLs with many ";" and no trailing ";base64,".
+      const match = attachment.url.match(/^data:([^;,]+)(?:;[^;,]+)*;base64,(.*)$/)
+      const mime = match?.[1] ?? attachment.mime
+      if (!mime.startsWith("image/")) return []
+      const data = match?.[2]
+      if (data === undefined) return []
+      return [
+        {
+          type: "content" as const,
+          content: {
+            type: "image" as const,
+            mimeType: mime,
+            data,
+          },
+        },
+      ]
+    })
   }
 
   async function defaultModel(config: ACPConfig, cwd?: string): Promise<{ providerID: ProviderID; modelID: ModelID }> {

@@ -1,6 +1,5 @@
 import { BusEvent } from "@/bus/bus-event"
 import { InstanceState } from "@/effect/instance-state"
-import { makeRuntime } from "@/effect/run-service"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Git } from "@/git"
 import { Effect, Layer, Context } from "effect"
@@ -658,26 +657,4 @@ export namespace File {
     Layer.provide(Git.defaultLayer),
     Layer.provide(Ripgrep.defaultLayer),
   )
-
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export function init() {
-    return runPromise((svc) => svc.init())
-  }
-
-  export async function status() {
-    return runPromise((svc) => svc.status())
-  }
-
-  export async function read(file: string): Promise<Content> {
-    return runPromise((svc) => svc.read(file))
-  }
-
-  export async function list(dir?: string) {
-    return runPromise((svc) => svc.list(dir))
-  }
-
-  export async function search(input: { query: string; limit?: number; dirs?: boolean; type?: "file" | "directory" }) {
-    return runPromise((svc) => svc.search(input))
-  }
 }

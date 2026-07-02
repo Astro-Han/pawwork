@@ -84,7 +84,6 @@ const fail = Effect.fn("ReadToolTest.fail")(function* (
   throw new Error("expected read to fail")
 })
 
-const full = (p: string) => (process.platform === "win32" ? Filesystem.normalizePath(p) : p)
 const glob = (p: string) =>
   process.platform === "win32" ? Filesystem.normalizePathPattern(p) : p.replaceAll("\\", "/")
 const put = Effect.fn("ReadToolTest.put")(function* (p: string, content: string | Buffer | Uint8Array) {
@@ -145,6 +144,26 @@ describe("tool.read external_directory permission", () => {
     }),
   )
 
+  it.live("asks for read permission using the worktree-relative path (ba9e4b67ed)", () =>
+    Effect.gen(function* () {
+      // The read permission pattern must be the worktree-relative path, like
+      // edit/write/apply_patch — otherwise a user's relative permission.read glob never matches
+      // the absolute filepath and read rules are silently inert.
+      const dir = yield* tmpdirScoped({ git: true })
+      yield* put(path.join(dir, "subdir", "test.txt"), "nested content")
+
+      const { items, next } = asks()
+      const target = path.join(dir, "subdir", "test.txt")
+      yield* exec(dir, { filePath: target }, next)
+
+      const read = items.find((item) => item.permission === "read")
+      expect(read).toBeDefined()
+      expect(read!.patterns).toEqual([path.relative(dir, target)])
+      // Regression guard: not the absolute path.
+      expect(read!.patterns[0]).not.toContain(dir)
+    }),
+  )
+
   if (process.platform === "win32") {
     it.live("normalizes read permission paths on Windows", () =>
       Effect.gen(function* () {
@@ -161,7 +180,9 @@ describe("tool.read external_directory permission", () => {
         yield* exec(dir, { filePath: alt }, next)
         const read = items.find((item) => item.permission === "read")
         expect(read).toBeDefined()
-        expect(read!.patterns).toEqual([full(target)])
+        // ba9e4b67ed: a weird-cased / forward-slashed Windows input still resolves to the
+        // worktree-relative pattern (not the normalized absolute path).
+        expect(read!.patterns).toEqual([path.relative(dir, target)])
       }),
     )
   }
@@ -311,9 +332,19 @@ describe("tool.read truncation", () => {
       const dir = yield* tmpdirScoped()
       yield* put(path.join(dir, "small.txt"), "hello world")
 
-      const result = yield* exec(dir, { filePath: path.join(dir, "small.txt") })
+      const filePath = path.join(dir, "small.txt")
+      const result = yield* exec(dir, { filePath })
       expect(result.metadata.truncated).toBe(false)
       expect(result.output).toContain("End of file")
+      expect(result.metadata.display).toEqual({
+        type: "file",
+        path: filePath,
+        text: "hello world",
+        lineStart: 1,
+        lineEnd: 1,
+        totalLines: 1,
+        truncated: false,
+      })
     }),
   )
 
@@ -390,9 +421,18 @@ describe("tool.read truncation", () => {
         },
       )
 
-      const result = yield* exec(dir, { filePath: path.join(dir, "dir"), offset: 6, limit: 5 })
+      const filePath = path.join(dir, "dir")
+      const result = yield* exec(dir, { filePath, offset: 6, limit: 5 })
       expect(result.metadata.truncated).toBe(false)
       expect(result.output).not.toContain("Showing 5 of 10 entries")
+      expect(result.metadata.display).toEqual({
+        type: "directory",
+        path: filePath,
+        entries: ["file-5.txt", "file-6.txt", "file-7.txt", "file-8.txt", "file-9.txt"],
+        offset: 6,
+        totalEntries: 10,
+        truncated: false,
+      })
     }),
   )
 

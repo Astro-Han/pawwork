@@ -12,11 +12,11 @@ import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
 import { Git } from "@/git"
 import { Deferred, Effect, Layer, Path, Scope, Context, Stream, Semaphore } from "effect"
-import { ensureWorktreesIgnored, restoreWorktreesIgnored } from "./gitignore-guard"
+import type { GitignoreGuardChange } from "./gitignore-guard"
+import { ensureWorktreesIgnoredEffect, restoreWorktreesIgnoredEffect } from "./gitignore-guard"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { NodePath } from "@effect/platform-node"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
-import { makeRuntime } from "@/effect/run-service"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { InstanceState } from "@/effect/instance-state"
 import { Session } from "../session"
@@ -162,7 +162,7 @@ export namespace Worktree {
     readonly makeWorktreeInfo: (name?: string) => Effect.Effect<Info>
     readonly createFromInfo: (info: Info, startCommand?: string) => Effect.Effect<void>
     readonly create: (input?: CreateInput) => Effect.Effect<Info>
-    readonly createReady: (input?: CreateInput) => Effect.Effect<Info>
+    readonly createReady: (input?: CreateInput & { exactName?: boolean }) => Effect.Effect<Info>
     readonly list: () => Effect.Effect<Info[]>
     readonly lookupByDirectory: (directory: string) => Effect.Effect<Info | undefined>
     readonly lookupBySlug: (slug: string) => Effect.Effect<Info | undefined>
@@ -178,7 +178,12 @@ export namespace Worktree {
   export const layer: Layer.Layer<
     Service,
     never,
-    AppFileSystem.Service | Path.Path | ChildProcessSpawner.ChildProcessSpawner | Git.Service | Project.Service
+    | AppFileSystem.Service
+    | Path.Path
+    | ChildProcessSpawner.ChildProcessSpawner
+    | Git.Service
+    | Project.Service
+    | Session.Service
   > = Layer.effect(
     Service,
     Effect.gen(function* () {
@@ -188,7 +193,16 @@ export namespace Worktree {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       const gitSvc = yield* Git.Service
       const project = yield* Project.Service
+      const sessions = yield* Session.Service
       const registryLocks = new Map<ProjectID, Semaphore.Semaphore>()
+      const ensureIgnored = (root: string) =>
+        ensureWorktreesIgnoredEffect(root).pipe(
+          Effect.provideService(AppFileSystem.Service, fs),
+          Effect.provideService(Path.Path, pathSvc),
+          Effect.provideService(Git.Service, gitSvc),
+        )
+      const restoreIgnored = (change: GitignoreGuardChange) =>
+        restoreWorktreesIgnoredEffect(change).pipe(Effect.provideService(AppFileSystem.Service, fs))
 
       const registryLock = (projectID: ProjectID) => {
         const hit = registryLocks.get(projectID)
@@ -387,12 +401,12 @@ export namespace Worktree {
 
       const setup = Effect.fnUntraced(function* (info: Info) {
         const ctx = yield* InstanceState.context
-        const ignoreChange = yield* Effect.promise(() => ensureWorktreesIgnored(ctx.worktree))
+        const ignoreChange = yield* ensureIgnored(ctx.worktree).pipe(Effect.orDie)
         const created = yield* git(["worktree", "add", "--no-checkout", "-b", info.branch, info.directory], {
           cwd: ctx.worktree,
         })
         if (created.code !== 0) {
-          yield* Effect.promise(() => restoreWorktreesIgnored(ignoreChange))
+          yield* restoreIgnored(ignoreChange).pipe(Effect.orDie)
           throw new CreateFailedError({ message: created.stderr || created.text || "Failed to create git worktree" })
         }
 
@@ -539,7 +553,7 @@ export namespace Worktree {
         }
 
         const directory = yield* canonical(input.directory)
-        const bound = yield* Effect.promise(() => Session.findActiveWorktreeBinding(directory))
+        const bound = yield* sessions.findActiveWorktreeBinding(directory)
         if (bound) {
           throw new RemoveFailedError({
             message: `Worktree is in use by session "${bound.title}". Call ExitWorktree from that session first.`,
@@ -720,7 +734,7 @@ export namespace Worktree {
           throw new ResetFailedError({ message: "Cannot reset the primary workspace" })
         }
 
-        const bound = yield* Effect.promise(() => Session.findActiveWorktreeBinding(directory))
+        const bound = yield* sessions.findActiveWorktreeBinding(directory)
         if (bound) {
           throw new ResetFailedError({
             message: `Worktree is in use by session "${bound.title}". Call ExitWorktree from that session first.`,
@@ -823,48 +837,8 @@ export namespace Worktree {
     Layer.provide(Git.defaultLayer),
     Layer.provide(CrossSpawnSpawner.defaultLayer),
     Layer.provide(Project.defaultLayer),
+    Layer.provide(Layer.suspend(() => Session.defaultLayer)),
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(NodePath.layer),
   )
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export async function makeWorktreeInfo(name?: string) {
-    return runPromise((svc) => svc.makeWorktreeInfo(name))
-  }
-
-  export async function createFromInfo(info: Info, startCommand?: string) {
-    return runPromise((svc) => svc.createFromInfo(info, startCommand))
-  }
-
-  export async function create(input?: CreateInput) {
-    return runPromise((svc) => svc.create(input))
-  }
-
-  export async function createReady(input?: CreateInput & { exactName?: boolean }) {
-    return runPromise((svc) => svc.createReady(input))
-  }
-
-  export async function list() {
-    return runPromise((svc) => svc.list())
-  }
-
-  export async function lookupByDirectory(directory: string) {
-    return runPromise((svc) => svc.lookupByDirectory(directory))
-  }
-
-  export async function lookupBySlug(slug: string) {
-    return runPromise((svc) => svc.lookupBySlug(slug))
-  }
-
-  export async function registerExistingByPath(directory: string) {
-    return runPromise((svc) => svc.registerExistingByPath(directory))
-  }
-
-  export async function remove(input: RemoveInput) {
-    return runPromise((svc) => svc.remove(input))
-  }
-
-  export async function reset(input: ResetInput) {
-    return runPromise((svc) => svc.reset(input))
-  }
 }

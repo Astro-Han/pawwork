@@ -3,16 +3,21 @@ ci:
       - any-glob-to-any-file:
           - ".github/workflows/**"
           - ".github/**"
+          - "package.json"
+          - "bun.lock"
 
 platform:
   - changed-files:
       - any-glob-to-any-file:
+          - "THIRD_PARTY_NOTICES.md"
           - "packages/desktop-electron/**"
 
 app:
   - changed-files:
       - any-glob-to-any-file:
           - "packages/app/**"
+          - "README.md"
+          - "README_CN.md"
 
 ui:
   - changed-files:
@@ -26,3 +31,6 @@ harness:
   - changed-files:
       - any-glob-to-any-file:
           - "packages/opencode/**"
+          - "packages/sdk/**"
+          - "packages/core/**"
+          - "packages/remote-bridge/**"

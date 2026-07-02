@@ -9,9 +9,11 @@ import { Config } from "../../src/config/config"
 import { FileWatcher } from "../../src/file/watcher"
 import { Git } from "../../src/git"
 import { Instance } from "../../src/project/instance"
+import { shouldRunNativeWatcherTests } from "./native-watcher-ci-guard"
+import { subscribeBus } from "../lib/bus"
 
 // Native @parcel/watcher bindings aren't reliably available in CI (missing on Linux, flaky on Windows)
-const describeWatcher = FileWatcher.hasNativeBinding() && !process.env.CI ? describe : describe.skip
+const describeWatcher = shouldRunNativeWatcherTests(FileWatcher.hasNativeBinding) ? describe : describe.skip
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -33,6 +35,7 @@ function withWatcher<E>(directory: string, body: Effect.Effect<void, E>) {
     directory,
     fn: async () => {
       const layer: Layer.Layer<FileWatcher.Service, never, never> = FileWatcher.layer.pipe(
+        Layer.provide(Bus.defaultLayer),
         Layer.provide(Config.defaultLayer),
         Layer.provide(Git.defaultLayer),
         Layer.provide(watcherConfigLayer),
@@ -52,7 +55,7 @@ function withWatcher<E>(directory: string, body: Effect.Effect<void, E>) {
 function listen(directory: string, check: (evt: WatcherEvent) => boolean, hit: (evt: WatcherEvent) => void) {
   let done = false
 
-  const unsub = Bus.subscribe(FileWatcher.Event.Updated, (evt) => {
+  const unsub = subscribeBus(FileWatcher.Event.Updated, (evt) => {
     if (done) return
     if (!check(evt.properties)) return
     hit(evt.properties)
@@ -85,7 +88,7 @@ function waitRescan(check: (evt: RescanEvent) => boolean) {
     const deferred = yield* Deferred.make<RescanEvent>()
     const cleanup = yield* Effect.sync(() => {
       let done = false
-      const unsub = Bus.subscribe(FileWatcher.Event.Rescan, (evt) => {
+      const unsub = subscribeBus(FileWatcher.Event.Rescan, (evt) => {
         if (done) return
         if (!check(evt.properties)) return
         done = true
@@ -158,7 +161,6 @@ function noUpdate<E>(
 
 function ready(directory: string) {
   const file = path.join(directory, `.watcher-${Math.random().toString(36).slice(2)}`)
-  const head = path.join(directory, ".git", "HEAD")
 
   return Effect.gen(function* () {
     yield* nextUpdate(
@@ -166,6 +168,13 @@ function ready(directory: string) {
       (evt) => evt.file === file && evt.event === "add",
       Effect.promise(() => fs.writeFile(file, "ready")),
     ).pipe(Effect.ensuring(Effect.promise(() => fs.rm(file, { force: true }).catch(() => undefined))), Effect.asVoid)
+
+    // Resolve a possibly-symlinked .git so the HEAD readiness probe waits on the same
+    // realpath'd path parcel emits events at (a real .git dir resolves to itself).
+    const gitDir = yield* Effect.promise(() =>
+      fs.realpath(path.join(directory, ".git")).catch(() => path.join(directory, ".git")),
+    )
+    const head = path.join(gitDir, "HEAD")
 
     const git = yield* Effect.promise(() =>
       fs
@@ -181,7 +190,7 @@ function ready(directory: string) {
       directory,
       (evt) => evt.file === head && evt.event !== "unlink",
       Effect.promise(async () => {
-        await fs.writeFile(path.join(directory, ".git", "refs", "heads", branch), hash.trim() + "\n")
+        await fs.writeFile(path.join(gitDir, "refs", "heads", branch), hash.trim() + "\n")
         await fs.writeFile(head, `ref: refs/heads/${branch}\n`)
       }),
     ).pipe(Effect.asVoid)
@@ -449,6 +458,35 @@ describe("FileWatcher git metadata filtering", () => {
     expect(FileWatcher.shouldPublishVcsWatcherPath(path.join(gitDir, "refs", "stash"), gitDir)).toBe(false)
     expect(FileWatcher.shouldPublishVcsWatcherPath(path.join(gitDir, "MERGE_HEAD"), gitDir)).toBe(false)
   })
+
+  // CI-runnable gate for the symlinked-.git fix: no native watcher binding needed.
+  // Symlink creation needs privileges on Windows; skip there (matches upstream #27016).
+  const resolveDirsTest = process.platform === "win32" ? test.skip : test
+  resolveDirsTest("resolves symlinked git dirs to their realpath before subscribing", async () => {
+    await using tmp = await tmpdir()
+    const realGit = path.join(tmp.path, "real-git")
+    const linkGit = path.join(tmp.path, ".git")
+    await fs.mkdir(realGit)
+    await fs.symlink(realGit, linkGit)
+
+    // --git-dir and --git-common-dir both report ".git" in a normal repo: resolve + realpath + dedupe to one.
+    expect(
+      await FileWatcher.resolveVcsWatchDirs({ directory: tmp.path, gitDirs: [".git", ".git"], cfgIgnores: [] }),
+    ).toEqual([realGit])
+
+    // watcher.ignore matching either the unresolved symlink path or the realpath'd dir skips it.
+    expect(
+      await FileWatcher.resolveVcsWatchDirs({ directory: tmp.path, gitDirs: [".git"], cfgIgnores: [linkGit] }),
+    ).toEqual([])
+    expect(
+      await FileWatcher.resolveVcsWatchDirs({ directory: tmp.path, gitDirs: [".git"], cfgIgnores: [realGit] }),
+    ).toEqual([])
+
+    // realpath failure (absent dir) falls back to the unresolved resolved path.
+    expect(
+      await FileWatcher.resolveVcsWatchDirs({ directory: tmp.path, gitDirs: ["missing"], cfgIgnores: [] }),
+    ).toEqual([path.join(tmp.path, "missing")])
+  })
 })
 
 describeWatcher("FileWatcher", () => {
@@ -628,6 +666,40 @@ describeWatcher("FileWatcher", () => {
       tmp.path,
       nextUpdate(
         tmp.path,
+        (evt) => evt.file === head && evt.event !== "unlink",
+        Effect.promise(() => fs.writeFile(head, `ref: refs/heads/${branch}\n`)),
+      ).pipe(
+        Effect.tap((evt) =>
+          Effect.sync(() => {
+            expect(evt.file).toBe(head)
+            expect(["add", "change"]).toContain(evt.event)
+          }),
+        ),
+      ),
+    )
+  })
+
+  // Symlink creation needs privileges on Windows; skip there (matches upstream #27016).
+  const symlinkTest = process.platform === "win32" ? test.skip : test
+  symlinkTest("publishes .git/HEAD events through a symlinked .git directory", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await using tmpGit = await tmpdir()
+    const dir = tmp.path
+    // Move .git into a separate tmpdir and replace it with a symlink. git rev-parse still reports
+    // ".git", so without realpath the watcher subscribes to the symlink and drops parcel's
+    // realpath'd events. The second tmpdir auto-cleans the symlink target (no parent-dir writes).
+    const actualGit = path.join(tmpGit.path, ".git")
+    await fs.rename(path.join(dir, ".git"), actualGit)
+    await fs.symlink(actualGit, path.join(dir, ".git"))
+
+    const head = path.join(actualGit, "HEAD")
+    const branch = `watch-${Math.random().toString(36).slice(2)}`
+    await $`git branch ${branch}`.cwd(dir).quiet()
+
+    await withWatcher(
+      dir,
+      nextUpdate(
+        dir,
         (evt) => evt.file === head && evt.event !== "unlink",
         Effect.promise(() => fs.writeFile(head, `ref: refs/heads/${branch}\n`)),
       ).pipe(

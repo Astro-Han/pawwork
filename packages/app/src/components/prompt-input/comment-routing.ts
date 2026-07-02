@@ -17,7 +17,7 @@ export interface CommentRoutingDeps {
 
 export interface CommentRouting {
   recent: () => string[]
-  openComment: (item: { path: string; commentID?: string; commentOrigin?: "review" | "file" }) => void
+  openComment: (item: { path: string; commentPath?: string; commentID?: string; commentOrigin?: "review" | "file" }) => void
 }
 
 export function createCommentRouting(deps: CommentRoutingDeps): CommentRouting {
@@ -43,14 +43,15 @@ export function createCommentRouting(deps: CommentRoutingDeps): CommentRouting {
     return aggregate.files.some((file) => file.restoreState === "applied" && (file.openPath ?? file.path) === path)
   }
 
-  const openComment = (item: { path: string; commentID?: string; commentOrigin?: "review" | "file" }) => {
+  const openComment = (item: { path: string; commentPath?: string; commentID?: string; commentOrigin?: "review" | "file" }) => {
     // Belt-and-suspenders: reject external absolute paths so we never try to
     // open a same-named file that happens to live inside the current workspace.
     if (isAbsoluteLike(item.path) && !isUnderDirectory(item.path, sdk.directory)) return
 
     if (!item.commentID) return
 
-    const focus = { file: item.path, id: item.commentID }
+    const commentPath = item.commentPath ?? item.path
+    const focus = { file: commentPath, id: item.commentID }
     comments.setActive(focus)
 
     const queueCommentFocus = (attempts = 6) => {
@@ -70,7 +71,7 @@ export function createCommentRouting(deps: CommentRoutingDeps): CommentRouting {
       schedule(attempts)
     }
 
-    const wantsReview = item.commentOrigin === "review" || (item.commentOrigin !== "file" && commentInReview(item.path))
+    const wantsReview = item.commentOrigin === "review" || (item.commentOrigin !== "file" && commentInReview(commentPath))
     view().sidePanel.openTab("review")
     if (wantsReview) {
       view().sidePanel.explorer.setTab("changes")
@@ -80,10 +81,10 @@ export function createCommentRouting(deps: CommentRoutingDeps): CommentRouting {
     }
 
     view().sidePanel.explorer.setTab("all")
-    const tab = files.tab(item.path)
+    const tab = files.tab(commentPath)
     tabs().open(tab)
     tabs().setActive(tab)
-    Promise.resolve(files.load(item.path)).finally(() => queueCommentFocus())
+    Promise.resolve(files.load(commentPath)).finally(() => queueCommentFocus())
   }
 
   const recent = createMemo(() => {

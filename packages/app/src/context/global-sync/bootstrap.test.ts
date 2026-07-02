@@ -17,13 +17,14 @@ function createState(): State {
     agent: [],
     command: [],
     command_ready: false,
+    external_result_ready: false,
     project: "",
     projectMeta: undefined,
     icon: undefined,
     provider_ready: false,
     provider: { all: [], connected: [], default: {} },
     config: {},
-    path: { state: "", config: "", worktree: "", directory: "", home: "" },
+    path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" },
     session: [],
     sessionTotal: 0,
     session_status: {},
@@ -40,6 +41,9 @@ function createState(): State {
     limit: 5,
     message: {},
     part: {},
+    automation: {},
+    automation_run: {},
+    automation_tombstone: {},
   }
 }
 
@@ -114,6 +118,126 @@ describe("bootstrapDirectory", () => {
     })
   })
 
+  test("reconciles the external-result snapshot into the global question index", async () => {
+    const directory = "/repo"
+    const queryClient = new QueryClient()
+    const [store, setStore] = createStore(createState())
+    let externalResultCalls = 0
+    const reconciled: Array<{ directory: string; entries: unknown[] }> = []
+    const warnings: unknown[] = []
+    const originalWarn = console.warn
+    console.warn = mock((...args: unknown[]) => {
+      warnings.push(args)
+    }) as typeof console.warn
+    const sdk = {
+      app: { agents: async () => ({ data: [] }) },
+      config: { get: async () => ({ data: {} as Config }) },
+      session: {
+        status: async () => ({ data: {} }),
+        get: async () => ({ data: undefined }),
+      },
+      project: { current: async () => ({ data: { id: "project-1" } }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
+      vcs: { get: async () => ({ data: undefined }) },
+      command: { list: async () => ({ data: [] }) },
+      permission: { list: async () => ({ data: [] }) },
+      externalResult: {
+        list: async () => {
+          externalResultCalls += 1
+          return { data: [] }
+        },
+      },
+      mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
+      provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+    } as any
+
+    try {
+      await bootstrapDirectory({
+        directory,
+        sdk,
+        store,
+        setStore,
+        vcsCache: createVcsCache(),
+        loadSessions: () => undefined,
+        pendingQuestions: { reconcile: (dir, entries) => reconciled.push({ directory: dir, entries }) },
+        translate: (key) => key,
+        global: {
+          config: {} as Config,
+          path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
+          project: [] as Project[],
+          provider: { all: [], connected: [], default: {} },
+        },
+        queryClient,
+      })
+      await waitFor(() => externalResultCalls === 1)
+      await waitFor(() => reconciled.length === 1)
+      expect(reconciled[0]).toEqual({ directory, entries: [] })
+      expect(store.external_result_ready).toBe(true)
+      expect(warnings).toEqual([])
+    } finally {
+      console.warn = originalWarn
+    }
+  })
+
+  test("keeps external-result parts non-authoritative when hydrate fails", async () => {
+    const directory = "/repo"
+    const queryClient = new QueryClient()
+    const [store, setStore] = createStore(createState())
+    setStore("external_result_ready", true)
+    const warnings: unknown[] = []
+    const originalWarn = console.warn
+    console.warn = mock((...args: unknown[]) => {
+      warnings.push(args)
+    }) as typeof console.warn
+    const sdk = {
+      app: { agents: async () => ({ data: [] }) },
+      config: { get: async () => ({ data: {} as Config }) },
+      session: {
+        status: async () => ({ data: {} }),
+        get: async () => ({ data: undefined }),
+      },
+      project: { current: async () => ({ data: { id: "project-1" } }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
+      vcs: { get: async () => ({ data: undefined }) },
+      command: { list: async () => ({ data: [] }) },
+      permission: { list: async () => ({ data: [] }) },
+      externalResult: {
+        list: async () => {
+          setStore("external_result_ready", true)
+          throw new Error("external-result failed")
+        },
+      },
+      mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
+      provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+    } as any
+
+    try {
+      await bootstrapDirectory({
+        directory,
+        sdk,
+        store,
+        setStore,
+        vcsCache: createVcsCache(),
+        loadSessions: () => undefined,
+        pendingQuestions: { reconcile() {} },
+        translate: (key) => key,
+        global: {
+          config: {} as Config,
+          path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
+          project: [] as Project[],
+          provider: { all: [], connected: [], default: {} },
+        },
+        queryClient,
+      })
+      await waitFor(() => warnings.length === 1)
+      expect(store.external_result_ready).toBe(false)
+    } finally {
+      console.warn = originalWarn
+    }
+  })
+
   test("refreshes directory providers even when sessions query cache is already populated", async () => {
     const directory = "/tmp/project"
     const queryClient = new QueryClient()
@@ -144,12 +268,13 @@ describe("bootstrapDirectory", () => {
         get: async () => ({ data: undefined }),
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
       externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
       provider: {
         list: async () => {
           const next = providers[Math.min(providerCalls, providers.length - 1)]
@@ -166,10 +291,11 @@ describe("bootstrapDirectory", () => {
       setStore,
       vcsCache: createVcsCache(),
       loadSessions: () => undefined,
+      pendingQuestions: { reconcile() {} },
       translate: (key) => key,
       global: {
         config: {} as Config,
-        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
         project: [] as Project[],
         provider: { all: [], connected: [], default: {} },
       },
@@ -192,10 +318,11 @@ describe("bootstrapDirectory", () => {
       setStore,
       vcsCache: createVcsCache(),
       loadSessions: () => undefined,
+      pendingQuestions: { reconcile() {} },
       translate: (key) => key,
       global: {
         config: {} as Config,
-        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
         project: [] as Project[],
         provider: { all: [], connected: [], default: {} },
       },
@@ -228,12 +355,13 @@ describe("bootstrapDirectory", () => {
         get: async () => ({ data: undefined }),
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
       externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
 
@@ -245,10 +373,11 @@ describe("bootstrapDirectory", () => {
         setStore,
         vcsCache: createVcsCache(),
         loadSessions: () => undefined,
+        pendingQuestions: { reconcile() {} },
         translate: (key) => key,
         global: {
           config: {} as Config,
-          path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+          path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
           project: [] as Project[],
           provider: { all: [], connected: [], default: {} },
         },
@@ -299,7 +428,7 @@ describe("bootstrapDirectory", () => {
         },
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: {
@@ -326,6 +455,7 @@ describe("bootstrapDirectory", () => {
       },
       externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
 
@@ -336,10 +466,11 @@ describe("bootstrapDirectory", () => {
       setStore,
       vcsCache: createVcsCache(),
       loadSessions: () => undefined,
+      pendingQuestions: { reconcile() {} },
       translate: (key) => key,
       global: {
         config: {} as Config,
-        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
         project: [] as Project[],
         provider: { all: [], connected: [], default: {} },
       },
@@ -371,12 +502,13 @@ describe("bootstrapDirectory", () => {
         get: async () => ({ data: undefined }),
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
       externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
 
@@ -387,10 +519,11 @@ describe("bootstrapDirectory", () => {
       setStore,
       vcsCache: createVcsCache(),
       loadSessions: () => undefined,
+      pendingQuestions: { reconcile() {} },
       translate: (key) => key,
       global: {
         config: {} as Config,
-        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
         project: [] as Project[],
         provider: { all: [], connected: [], default: {} },
       },
@@ -426,12 +559,13 @@ describe("bootstrapDirectory", () => {
         get: async () => ({ data: undefined }),
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => permission.promise },
       externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
       provider: { list: async () => ({ data: providers }) },
     } as any
 
@@ -442,10 +576,11 @@ describe("bootstrapDirectory", () => {
       setStore,
       vcsCache: createVcsCache(),
       loadSessions: () => undefined,
+      pendingQuestions: { reconcile() {} },
       translate: (key) => key,
       global: {
         config: {} as Config,
-        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
         project: [] as Project[],
         provider: { all: [], connected: [], default: {} },
       },
@@ -474,7 +609,7 @@ describe("bootstrapDirectory", () => {
         get: async () => ({ data: undefined }),
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: {
         list: async () => {
@@ -485,6 +620,7 @@ describe("bootstrapDirectory", () => {
       permission: { list: async () => ({ data: [] }) },
       externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
 
@@ -495,10 +631,11 @@ describe("bootstrapDirectory", () => {
       setStore,
       vcsCache: createVcsCache(),
       loadSessions: () => undefined,
+      pendingQuestions: { reconcile() {} },
       translate: (key) => key,
       global: {
         config: {} as Config,
-        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
         project: [] as Project[],
         provider: { all: [], connected: [], default: {} },
       },
@@ -532,7 +669,7 @@ describe("bootstrapDirectory", () => {
         get: async () => ({ data: undefined }),
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: {
         list: async () => {
@@ -543,6 +680,7 @@ describe("bootstrapDirectory", () => {
       permission: { list: async () => ({ data: [] }) },
       externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
 
@@ -553,10 +691,11 @@ describe("bootstrapDirectory", () => {
       setStore,
       vcsCache: createVcsCache(),
       loadSessions: () => undefined,
+      pendingQuestions: { reconcile() {} },
       translate: (key) => key,
       global: {
         config: {} as Config,
-        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
         project: [] as Project[],
         provider: { all: [], connected: [], default: {} },
       },
@@ -604,12 +743,13 @@ describe("bootstrapDirectory", () => {
         get: async () => ({ data: undefined }),
       },
       project: { current: async () => ({ data: { id: "project-1" } }) },
-      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
       externalResult: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
       provider: {
         list: async () => {
           calls += 1
@@ -626,10 +766,11 @@ describe("bootstrapDirectory", () => {
       setStore,
       vcsCache: createVcsCache(),
       loadSessions: () => undefined,
+      pendingQuestions: { reconcile() {} },
       translate: (key: string) => key,
       global: {
         config: {} as Config,
-        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
         project: [] as Project[],
         provider: { all: [], connected: [], default: {} },
       },
@@ -688,9 +829,9 @@ describe("hydratePendingExternalResults", () => {
     },
   } as any
 
-  test("writes session, message, and part entries for a child agent's pending question", () => {
+  test("writes session, message, and part entries and returns the active question", () => {
     const [store, setStore] = createStore(createState())
-    hydratePendingExternalResults({
+    const active = hydratePendingExternalResults({
       store,
       setStore,
       entries: [{ session: childSession, message: childMessage, part: childPart }],
@@ -698,6 +839,46 @@ describe("hydratePendingExternalResults", () => {
     expect(store.session.map((s) => s.id)).toEqual(["ses_child"])
     expect(store.message.ses_child?.map((m) => m.id)).toEqual(["msg_child"])
     expect(store.part.msg_child?.map((p) => p.id)).toEqual(["part_child"])
+    expect(active).toEqual([
+      {
+        id: "msg_child:call_child",
+        sessionID: "ses_child",
+        questions: [{ header: "h", question: "q?", options: [] }],
+        messageID: "msg_child",
+        callID: "call_child",
+        partID: "part_child",
+      },
+    ])
+  })
+
+  test("removes pruned ready question parts so the part-derived dock stops showing them", () => {
+    const [store, setStore] = createStore(createState())
+    setStore("message", "ses_child", [childMessage])
+    setStore("part", "msg_child", [childPart])
+    const active = hydratePendingExternalResults({
+      store,
+      setStore,
+      entries: [],
+      pruneCandidateIDs: new Set(["msg_child:call_child"]),
+    })
+    expect(active).toEqual([])
+    expect(store.part.msg_child).toBeUndefined()
+  })
+
+  test("does not prune ready question parts that arrived after the request snapshot", () => {
+    const [store, setStore] = createStore(createState())
+    const oldPart = { ...childPart, id: "part_old", callID: "call_old", messageID: "msg_old" }
+    const newPart = { ...childPart, id: "part_new", callID: "call_new", messageID: "msg_new" }
+    setStore("part", "msg_old", [oldPart])
+    setStore("part", "msg_new", [newPart])
+    hydratePendingExternalResults({
+      store,
+      setStore,
+      entries: [],
+      pruneCandidateIDs: new Set(["msg_old:call_old"]),
+    })
+    expect(store.part.msg_old).toBeUndefined()
+    expect(store.part.msg_new?.map((p) => p.id)).toEqual(["part_new"])
   })
 
   test("merges into existing session list and existing message list without duplicating", () => {
@@ -731,6 +912,26 @@ describe("hydratePendingExternalResults", () => {
     expect(store.part.msg_child?.length).toBe(1)
     const updated = store.part.msg_child?.[0] as any
     expect(updated?.state?.metadata?.externalResultReady).toBe(true)
+  })
+
+  test("does not let a stale pending hydrate response revert a local terminal question part", () => {
+    const [store, setStore] = createStore(createState())
+    const terminalPart = {
+      ...childPart,
+      state: { ...childPart.state, status: "completed" },
+    } as any
+    setStore("part", "msg_child", [terminalPart])
+    const active = hydratePendingExternalResults({
+      store,
+      setStore,
+      entries: [{ session: childSession, message: childMessage, part: childPart }],
+      pruneCandidateIDs: new Set(["msg_child:call_child"]),
+    })
+    expect(active).toEqual([])
+    expect(store.session.map((s) => s.id)).toEqual(["ses_child"])
+    expect(store.message.ses_child?.map((m) => m.id)).toEqual(["msg_child"])
+    const updated = store.part.msg_child?.[0] as any
+    expect(updated?.state?.status).toBe("completed")
   })
 
   test("skips entries that are missing identifiers", () => {

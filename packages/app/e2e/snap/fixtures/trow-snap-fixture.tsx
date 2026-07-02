@@ -1,11 +1,12 @@
 import { Dynamic, render } from "solid-js/web"
+import { Show, type Accessor } from "solid-js"
 import type { Part, ToolPart } from "@opencode-ai/sdk/v2"
 import { BasicTool } from "@opencode-ai/ui/basic-tool"
 import { DataProvider, I18nProvider } from "@opencode-ai/ui/context"
 import { FileComponentProvider } from "@opencode-ai/ui/context/file"
 import { MarkedProvider } from "@opencode-ai/ui/context/marked"
 import { AssistantParts, ToolRegistry } from "@opencode-ai/ui/message-part"
-import { TrowBlock } from "@opencode-ai/ui/session-turn-trow-block"
+import { TrowBlock, type TrowPart } from "@opencode-ai/ui/session-turn-trow-block"
 import {
   activitySummaryParts,
   completedParts,
@@ -16,6 +17,7 @@ import {
   metadataDetailParts,
   mixedRealToolParts,
   questionDetailParts,
+  readyQuestionMarkerParts,
   reasoningOnlyParts,
   runningReasoningParts,
   reasoningWithToolsParts,
@@ -51,24 +53,41 @@ function describeTool(part: ToolPart) {
   return `执行命令${typeof description === "string" && description ? ` ${description}` : ""}`
 }
 
-function renderTool(prefix: string, openTool?: string) {
-  return (part: ToolPart) => {
-    const input = part.state.input ?? {}
-    const command = typeof input.command === "string" ? input.command : ""
-    const description = typeof input.description === "string" ? input.description : undefined
-    const output = part.state.status === "completed" ? part.state.output : ""
+function toolPart(part: Accessor<TrowPart>) {
+  const current = part()
+  return current.type === "tool" ? current : undefined
+}
+
+function renderCommandPart(prefix: string, openTool?: string) {
+  return (part: Accessor<TrowPart>) => {
+    const tool = () => toolPart(part)
     return (
-      <div data-slot="trow-result-body" data-timeline-anchor={`tool:${part.id}`}>
-        <BasicTool
-          icon="console"
-          status={part.state.status}
-          defaultOpen={part.id === openTool}
-          stateKey={`${prefix}:${part.id}`}
-          trigger={{ title: "执行命令", subtitle: description }}
-        >
-          <BashOutput command={command} output={output} />
-        </BasicTool>
-      </div>
+      <Show when={tool()}>
+        {(tool) => {
+          const command = () => {
+            const input = tool().state.input ?? {}
+            return typeof input.command === "string" ? input.command : ""
+          }
+          const description = () => {
+            const input = tool().state.input ?? {}
+            return typeof input.description === "string" ? input.description : undefined
+          }
+          const output = () => tool().state.status === "completed" ? tool().state.output : ""
+          return (
+            <div data-slot="trow-result-body" data-timeline-anchor={`tool:${tool().id}`}>
+              <BasicTool
+                icon="console"
+                status={tool().state.status}
+                defaultOpen={tool().id === openTool}
+                stateKey={`${prefix}:${tool().id}`}
+                trigger={{ title: "执行命令", subtitle: description() }}
+              >
+                <BashOutput command={command()} output={output()} />
+              </BasicTool>
+            </div>
+          )
+        }}
+      </Show>
     )
   }
 }
@@ -86,27 +105,33 @@ function BashOutput(props: { command: string; output?: string }) {
 }
 
 function renderRegisteredTool(prefix: string, openTool?: string | readonly string[]) {
-  return (part: ToolPart) => {
-    const component = ToolRegistry.render(part.tool)
-    const state = part.state
-    const input = state.input ?? {}
-    const output = state.status === "completed" ? state.output : undefined
-    const metadata = state.status === "completed" ? (state.metadata ?? {}) : {}
-    const open =
-      Array.isArray(openTool) ? openTool.includes(part.id) : part.id === (openTool ?? "websearch-real")
+  return (part: Accessor<TrowPart>) => {
+    const tool = () => toolPart(part)
     return (
-      <div data-slot="trow-result-body" data-timeline-anchor={`tool:${part.id}`}>
-        <Dynamic
-          component={component}
-          input={input}
-          tool={part.tool}
-          metadata={metadata}
-          output={output}
-          status={state.status}
-          defaultOpen={open}
-          stateKey={`${prefix}:${part.id}`}
-        />
-      </div>
+      <Show when={tool()}>
+        {(tool) => {
+          const component = () => ToolRegistry.render(tool().tool)
+          const input = () => tool().state.input ?? {}
+          const output = () => tool().state.status === "completed" ? tool().state.output : undefined
+          const metadata = () => tool().state.status === "completed" ? (tool().state.metadata ?? {}) : {}
+          const open = () =>
+            Array.isArray(openTool) ? openTool.includes(tool().id) : tool().id === (openTool ?? "websearch-real")
+          return (
+            <div data-slot="trow-result-body" data-timeline-anchor={`tool:${tool().id}`}>
+              <Dynamic
+                component={component()}
+                input={input()}
+                tool={tool().tool}
+                metadata={metadata()}
+                output={output()}
+                status={tool().state.status}
+                defaultOpen={open()}
+                stateKey={`${prefix}:${tool().id}`}
+              />
+            </div>
+          )
+        }}
+      </Show>
     )
   }
 }
@@ -129,7 +154,7 @@ function TrowSnapFixture() {
           working
           labels={labels}
           describeTool={describeTool}
-          renderTool={renderTool("running")}
+          renderPart={renderCommandPart("running")}
         />
       </div>
       <div data-snap="activity-summary-collapsed">
@@ -149,7 +174,7 @@ function TrowSnapFixture() {
           parts={completedParts}
           labels={labels}
           describeTool={describeTool}
-          renderTool={renderTool("collapsed")}
+          renderPart={renderCommandPart("collapsed")}
         />
       </div>
       <div
@@ -161,7 +186,7 @@ function TrowSnapFixture() {
           parts={completedParts}
           labels={labels}
           describeTool={describeTool}
-          renderTool={renderTool("collapsed-text")}
+          renderPart={renderCommandPart("collapsed-text")}
         />
         <div data-component="text-part">
           <div data-slot="text-part-body">工具完成后的下一段回复</div>
@@ -173,7 +198,7 @@ function TrowSnapFixture() {
           defaultOpen
           labels={labels}
           describeTool={describeTool}
-          renderTool={renderTool("expanded")}
+          renderPart={renderCommandPart("expanded")}
         />
       </div>
       <div data-snap="inner-bash-expanded">
@@ -182,7 +207,7 @@ function TrowSnapFixture() {
           defaultOpen
           labels={labels}
           describeTool={describeTool}
-          renderTool={renderTool("inner", "third")}
+          renderPart={renderCommandPart("inner", "third")}
         />
       </div>
       <div data-snap="tool-output-spacing">
@@ -191,7 +216,7 @@ function TrowSnapFixture() {
           defaultOpen
           labels={labels}
           describeTool={describeTool}
-          renderTool={renderRegisteredTool("tool-output", "glob-output")}
+          renderPart={renderRegisteredTool("tool-output", "glob-output")}
         />
       </div>
       <div data-snap="registered-tool-rows">
@@ -200,7 +225,7 @@ function TrowSnapFixture() {
           defaultOpen
           labels={labels}
           describeTool={describeTool}
-          renderTool={renderRegisteredTool("registered")}
+          renderPart={renderRegisteredTool("registered")}
         />
       </div>
       <div data-snap="question-expanded">
@@ -209,18 +234,21 @@ function TrowSnapFixture() {
           defaultOpen
           labels={labels}
           describeTool={describeTool}
-          renderTool={renderRegisteredTool("question-detail", "question-detail-real")}
+          renderPart={renderRegisteredTool("question-detail", "question-detail-real")}
         />
       </div>
       <div data-snap="dismissed-question-collapsed">
         <AssistantPartsCase parts={dismissedQuestionParts} />
+      </div>
+      <div data-snap="ready-question-marker">
+        <AssistantPartsCase parts={readyQuestionMarkerParts} working />
       </div>
       <div data-snap="metadata-detail-collapsed">
         <TrowBlock
           parts={metadataDetailParts}
           labels={labels}
           describeTool={describeTool}
-          renderTool={renderRegisteredTool("metadata-detail-collapsed")}
+          renderPart={renderRegisteredTool("metadata-detail-collapsed")}
         />
       </div>
       <div data-snap="metadata-detail-expanded">
@@ -229,7 +257,7 @@ function TrowSnapFixture() {
           defaultOpen
           labels={labels}
           describeTool={describeTool}
-          renderTool={renderRegisteredTool("metadata-detail-expanded", [
+          renderPart={renderRegisteredTool("metadata-detail-expanded", [
             "metadata-detail-question",
             "metadata-detail-edit",
             "metadata-detail-write",
@@ -251,7 +279,7 @@ function TrowSnapFixture() {
           parts={singleQuietParts}
           labels={labels}
           describeTool={describeTool}
-          renderTool={renderTool("single-direct", "single-quiet")}
+          renderPart={renderCommandPart("single-direct", "single-quiet")}
         />
       </div>
       <div data-snap="single-command-expanded">
@@ -259,7 +287,7 @@ function TrowSnapFixture() {
           parts={singleResultParts}
           labels={labels}
           describeTool={describeTool}
-          renderTool={renderTool("single-expanded", "single-result")}
+          renderPart={renderCommandPart("single-expanded", "single-result")}
         />
       </div>
       <div data-snap="single-command-error">
@@ -271,7 +299,7 @@ function TrowSnapFixture() {
           working
           labels={labels}
           describeTool={describeTool}
-          renderTool={renderTool("single-running", "single-running")}
+          renderPart={renderCommandPart("single-running", "single-running")}
         />
       </div>
     </div>

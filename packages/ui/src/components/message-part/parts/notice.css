@@ -1,0 +1,52 @@
+/*
+ * A terminal notice (safe_retry_failed) is a turn-level status line, not a
+ * trailing thought. When it follows other turn content it sat in the bare 12px
+ * column gap and read as more model thinking (#943). A hairline top rule — the
+ * canonical divider treatment (DESIGN.md "Borders") — plus padding above the
+ * text sets it apart. The `* +` guard keeps the rule off a notice that is the
+ * turn's only part (e.g. a first-attempt connection failure, where the failed
+ * attempt's reasoning was removed), so no stray line floats with nothing above.
+ * Spacing below the rule comes from padding-top; spacing above comes from the
+ * container's existing gap, so the divider stays centered between the two.
+ */
+* + [data-component="notice-part"] {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-weaker);
+}
+
+/*
+ * safe_retry_failed reads as its own terminal step, separate from the completed
+ * tool card above it (#1358): a stroked status icon in ink (no semantic color
+ * flood — the operation usually succeeded, so it must not read as an error),
+ * an ink title, then the explanation. Typography sets size/weight/line-height
+ * only, never font-family, so the CJK stack is inherited.
+ */
+[data-component="notice-part"][data-kind="safe_retry_failed"] {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+}
+
+[data-component="notice-part"] [data-slot="notice-icon"] {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--fg-weak);
+}
+
+[data-component="notice-part"] [data-slot="notice-text"] {
+  min-width: 0;
+}
+
+[data-component="notice-part"] [data-slot="notice-title"] {
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-emphasis);
+  line-height: var(--line-height-h3);
+  color: var(--fg-strong);
+}
+
+[data-component="notice-part"] [data-slot="notice-body"] {
+  margin-top: 2px;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-h3);
+  color: var(--fg-base);
+}

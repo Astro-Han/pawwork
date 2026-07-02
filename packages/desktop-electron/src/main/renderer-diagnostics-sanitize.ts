@@ -46,17 +46,22 @@ const eventDataFields = {
     "intent_source",
     "observation_type",
     "accepted",
-    "recovery",
+    "anchor_changed",
     "reason",
     "anchor_kind",
     "anchor_message_id",
-    "submit_origin_mode",
     "near_top",
     "near_bottom",
-    "near_anchor",
     "session_owner",
     "viewport_owner",
-    "coalesced_count",
+  ],
+  "session.timeline.reconcile": [
+    "reason",
+    "outcome",
+    "anchor_kind",
+    "anchor_message_id",
+    "reveal_attempts",
+    "delta",
   ],
   "session.scroll.sample": [
     "scroll_top",
@@ -95,6 +100,7 @@ const eventDataFields = {
 
 export const highFrequencyDiagnosticEvents = new Set([
   "session.timeline.scroll_controller",
+  "session.timeline.reconcile",
   "session.scroll.sample",
   "renderer.perf.sample",
 ])

@@ -6,7 +6,7 @@ import { createServer } from "node:net"
 import os, { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import type { Event } from "electron"
-import { app, BrowserWindow, clipboard, dialog, shell } from "electron"
+import { app, BrowserWindow, dialog, safeStorage, shell } from "electron"
 import pkg from "electron-updater"
 import { buildDesktopContext } from "@opencode-ai/app/desktop-api"
 
@@ -73,10 +73,14 @@ import {
 } from "./constants"
 import { normalizeDesktopContextPayload, syncWindowTitleForDesktopContext } from "./desktop-context-window"
 import { createDesktopContextStore } from "./desktop-context-store"
-import { createFeedbackHandler, feedbackDialogLabels } from "./feedback"
+import { createFeedbackHandler } from "./feedback"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { registerAboutIpc, triggerAbout } from "./ipc/about"
-import { filePath, initLogging, tail } from "./logging"
+import { registerBrowserIpc } from "./ipc/browser"
+import { registerRemoteIpc } from "./ipc/remote"
+import { createDesktopBrowserBridgeHost } from "./browser/automation-host"
+import { browserControllers } from "./browser/controller-automation"
+import { diagnosticsLogTail, filePath, initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
 import { menuLabel, type MenuLocale } from "./menu-labels"
@@ -88,7 +92,9 @@ import {
   rendererDiagnosticsRoot,
   SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
 } from "./renderer-diagnostics"
-import { getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, spawnLocalServer } from "./server"
+import { backendLogFilePath, getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, spawnLocalServer } from "./server"
+import { createRemoteBridgeRuntime } from "./remote-pairers"
+import { safeStorageCredentialStore, type CredentialStoreEnv } from "./remote-credentials"
 import { PAWWORK_RUNTIME } from "./runtime-namespace"
 import { createUpdaterController, createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./updater"
 import { pendingUpdateCacheDir } from "./updater-cache"
@@ -151,6 +157,25 @@ const contextWindowCleanup = new Set<number>()
 const pendingDeepLinks: string[] = []
 
 const serverReady = defer<ServerReadyData>()
+// The mobile-companion bridge: connects a phone chat app to this desktop's agent
+// sessions. Runs in the main process against the local server; credentials are
+// encrypted main-only and never cross to the renderer.
+// safeStorage + the on-disk paths are injected so the credential store itself
+// stays Electron-free and unit-testable with a fake env.
+const remoteUserData = () => app.getPath("userData")
+const remoteStateFile = () => join(remoteUserData(), "remote-bridge-state.json")
+const remoteCredentialEnv: CredentialStoreEnv = {
+  credentialsFile: () => join(remoteUserData(), "remote-bridge-credentials.json"),
+  isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+  encryptString: (plain) => safeStorage.encryptString(plain),
+  decryptString: (cipher) => safeStorage.decryptString(cipher),
+}
+const remoteBridge = createRemoteBridgeRuntime({
+  credentials: safeStorageCredentialStore(remoteCredentialEnv),
+  statePath: remoteStateFile(),
+  serverInfo: () => serverReady.promise,
+  locale: () => currentDesktopContext().locale,
+})
 const logger = initLogging()
 const problemReportRoot = problemReportsRoot(app.getPath("userData"))
 const rendererDiagnostics = createRendererDiagnosticsRecorder({
@@ -297,34 +322,12 @@ function feedbackContext(context: unknown): DesktopContext {
   return feedbackRuntimeContext(context).desktop
 }
 
-const reportProblem = createFeedbackHandler({
+const feedback = createFeedbackHandler({
   feedbackUrl: FEEDBACK_FORM_URL,
   reportRoot: problemReportRoot,
   context: currentFeedbackRuntimeContext,
-  confirm: async (context) => {
-    const labels = feedbackDialogLabels(context === undefined ? menuLocale : feedbackContext(context).locale)
-    const response = await dialog.showMessageBox({
-      type: "warning",
-      title: labels.title,
-      message: labels.message,
-      buttons: [labels.confirm, labels.cancel],
-      defaultId: 0,
-      cancelId: 1,
-    })
-    return response.response === 0
-  },
-  copy: (value) => clipboard.writeText(value),
   openExternal: (url) => {
     return shell.openExternal(url).then(() => undefined)
-  },
-  showFeedbackUrlFallback: async (url) => {
-    const labels = feedbackDialogLabels(currentDesktopContext().locale)
-    await dialog.showMessageBox({
-      type: "warning",
-      title: labels.formOpenFailedTitle,
-      message: labels.formOpenFailedMessage,
-      detail: url,
-    })
   },
   showItemInFolder: (path) => shell.showItemInFolder(path),
   openPath: (path) => shell.openPath(path),
@@ -332,7 +335,7 @@ const reportProblem = createFeedbackHandler({
   cleanupReports: (currentPath) => cleanupProblemReports({ root: problemReportRoot, keep: 10, currentPath }),
   sessionExportTimeoutMs: FEEDBACK_SESSION_EXPORT_TIMEOUT_MS,
   diagnostics: (context) => diagnostics(feedbackContext(context)),
-  logTail: tail,
+  logTail: () => diagnosticsLogTail({ backendLogPath: backendLogFilePath() }),
   sessionExport: (context, signal) => sessionExport(feedbackContext(context), signal),
   rendererDiagnostics: (context) => {
     const runtimeContext = feedbackRuntimeContext(context)
@@ -343,15 +346,8 @@ const reportProblem = createFeedbackHandler({
     })
   },
   onHandledError: (message, error) => logger.error(message, error),
-  onError: async (error) => {
-    logger.error("problem report failed", error)
-    const labels = feedbackDialogLabels(currentDesktopContext().locale)
-    await dialog.showMessageBox({
-      type: "error",
-      title: labels.failedTitle,
-      message: labels.failedMessage,
-    })
-  },
+  // The review dialog surfaces a failed preparation to the user; here we only log.
+  onError: async (error) => logger.error("problem report failed", error),
 })
 
 logger.log("app starting", {
@@ -404,6 +400,9 @@ function setupApp() {
   })
 
   app.on("before-quit", () => {
+    // Best-effort: signal the bridge to stop polling before the server it talks
+    // to is torn down. Its poll fetches are aborted, so this returns promptly.
+    void remoteBridge.stop()
     killSidecar()
   })
 
@@ -467,6 +466,9 @@ function openMainWindow() {
     }
   })
   win.on("focus", () => syncMenuLocaleForWindow(win))
+  // Browser views are conversation-owned: on close (pre-destroy, so reparenting
+  // still works) they detach and live on; only the window's draft dies with it.
+  win.on("close", () => browserControllers.onWindowClosing(win))
   win.on("closed", () => {
     if (mainWindow !== win) return
     mainWindow = selectNextMainWindow(win, BrowserWindow.getAllWindows())
@@ -499,6 +501,12 @@ async function initialize() {
   logger.log("spawning sidecar", { url })
   const { listener, health } = await spawnLocalServer(hostname, port, password)
   server = listener
+
+  // Hand the in-process server its browser-automation host. Same-process
+  // injection by design: the CDP endpoint/secret must never cross renderer
+  // IPC or preload (PR1 security contract rule 7).
+  const { BrowserBridge } = await import("virtual:opencode-server")
+  BrowserBridge.provideHost(createDesktopBrowserBridgeHost())
   serverReady.resolve({
     url,
     username: PAWWORK_RUNTIME.serverUsername,
@@ -536,6 +544,11 @@ async function initialize() {
 
   await loadingTask
   setInitStep({ phase: "done" })
+
+  // Start the mobile-companion bridge only after the server is healthy, in the
+  // background so it never blocks opening the main window. Failures land in the
+  // bridge's own status (degraded), not here.
+  void remoteBridge.startIfConfigured()
 
   if (overlay) {
     await loadingComplete.promise
@@ -580,7 +593,10 @@ function wireMenu() {
     },
     newWindow: () => openMainWindow(),
     reportProblem: () => {
-      void reportProblem()
+      // The review now lives in the renderer (a themed dialog showing what the
+      // package contains). The menu just asks the focused window to open it.
+      const win = commandWindow()
+      if (win) sendMenuCommand(win, "diagnostics.prepare")
     },
     exportDiagnosticsLog: () => {
       void exportDiagnosticsFromMenu()
@@ -623,7 +639,9 @@ registerIpcHandlers({
   loadingWindowComplete: () => loadingComplete.resolve(),
   runUpdater: async (alertOnFail) => checkForUpdates(alertOnFail),
   checkUpdate: async () => checkUpdate(),
-  reportProblem: (input, context) => reportProblem(input, context),
+  prepareReport: (input, context) => feedback.prepareReport(input, context),
+  revealReport: (reportId) => feedback.revealReport(reportId),
+  submitReport: (reportId) => feedback.submitReport(reportId),
   recordRendererDiagnostic: (event, context) => rendererDiagnostics.record(event, context),
   exportRendererDiagnostics: exportDiagnosticsFromMenu,
   rendererDiagnosticsSlice: ({ sessionID, windowID, maxBytes }) =>
@@ -640,6 +658,10 @@ registerIpcHandlers({
     const next = normalizeDesktopContextPayload(context, menuLocale)
     desktopContexts.set(win.id, next)
     syncWindowTitleForDesktopContext(win, next)
+    // Authoritative hide on route change: the renderer panel survives session
+    // switches without remounting, so it can no longer address the previous
+    // conversation's view — main stops displaying what the window left behind.
+    browserControllers.syncWindowDisplay(win, next.sessionID)
     if (!contextWindowCleanup.has(win.id)) {
       contextWindowCleanup.add(win.id)
       win.once("closed", () => {
@@ -652,6 +674,8 @@ registerIpcHandlers({
 })
 
 registerAboutIpc()
+registerBrowserIpc({ sessionIDForWindow: (windowID) => desktopContexts.current(windowID).sessionID })
+registerRemoteIpc(remoteBridge)
 
 function killSidecar() {
   if (!server) return

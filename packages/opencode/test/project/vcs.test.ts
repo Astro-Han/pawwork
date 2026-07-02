@@ -1,18 +1,23 @@
 import { $ } from "bun"
 import { afterEach, describe, expect, test } from "bun:test"
-import { Effect } from "effect"
+import { Deferred, Effect, Layer, Option } from "effect"
 import fs from "fs/promises"
 import path from "path"
 import { provideInstance, tmpdir } from "../fixture/fixture"
 import { AppRuntime } from "../../src/effect/app-runtime"
+import { InstanceRef } from "../../src/effect/instance-ref"
 import { FileWatcher } from "../../src/file/watcher"
 import { Instance } from "../../src/project/instance"
+import type { InstanceContext } from "../../src/project/instance"
+import { Git } from "../../src/git"
+import { Bus } from "../../src/bus"
 import { GlobalBus } from "../../src/bus/global"
 import { Vcs } from "../../src/project/vcs"
 import { testEffect } from "../lib/effect"
+import { shouldRunNativeWatcherTests } from "../file/native-watcher-ci-guard"
 
 // Skip in CI — native @parcel/watcher binding needed
-const describeVcs = FileWatcher.hasNativeBinding() && !process.env.CI ? describe : describe.skip
+const describeVcs = shouldRunNativeWatcherTests(FileWatcher.hasNativeBinding) ? describe : describe.skip
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -23,7 +28,7 @@ async function withVcs(directory: string, body: () => Promise<void>) {
     directory,
     fn: async () => {
       void AppRuntime.runPromise(FileWatcher.Service.use((svc) => svc.init()))
-      Vcs.init()
+      vcsInit()
       await Bun.sleep(500)
       await body()
     },
@@ -43,6 +48,17 @@ function withVcsOnly(directory: string, body: () => Promise<void>) {
 type BranchEvent = { directory?: string; payload: { type: string; properties: { branch?: string } } }
 const weird = process.platform === "win32" ? "space file.txt" : "tab\tfile.txt"
 const vcsIt = testEffect(Vcs.defaultLayer)
+const vcsInit = () => Effect.runPromise(Vcs.Service.use((vcs) => vcs.init()).pipe(Effect.provide(Vcs.defaultLayer)))
+const vcsBranch = () => Effect.runPromise(Vcs.Service.use((vcs) => vcs.branch()).pipe(Effect.provide(Vcs.defaultLayer)))
+const vcsDefaultBranch = () =>
+  Effect.runPromise(Vcs.Service.use((vcs) => vcs.defaultBranch()).pipe(Effect.provide(Vcs.defaultLayer)))
+const vcsStatus = () => Effect.runPromise(Vcs.Service.use((vcs) => vcs.status()).pipe(Effect.provide(Vcs.defaultLayer)))
+const vcsDiff = (mode: Vcs.Mode) =>
+  Effect.runPromise(Vcs.Service.use((vcs) => vcs.diff(mode)).pipe(Effect.provide(Vcs.defaultLayer)))
+const vcsDiffRaw = () =>
+  Effect.runPromise(Vcs.Service.use((vcs) => vcs.diffRaw()).pipe(Effect.provide(Vcs.defaultLayer)))
+const vcsApply = (input: Vcs.ApplyInput) =>
+  Effect.runPromise(Vcs.Service.use((vcs) => vcs.apply(input)).pipe(Effect.provide(Vcs.defaultLayer)))
 
 type TmpdirOptions = Parameters<typeof tmpdir>[0]
 const scopedTmpdir = (options?: TmpdirOptions) =>
@@ -50,6 +66,46 @@ const scopedTmpdir = (options?: TmpdirOptions) =>
     Effect.promise(() => tmpdir(options)),
     (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
   )
+
+const unsupportedGitCall = <A>(name: string): Effect.Effect<A> =>
+  Effect.die(new Error(`unexpected Git.${name} call`))
+
+const blockingGit = (
+  branchStarted: Deferred.Deferred<void>,
+  defaultBranchStarted: Deferred.Deferred<void>,
+): Git.Interface => ({
+  run: () => unsupportedGitCall("run"),
+  branch: () => Deferred.succeed(branchStarted, undefined).pipe(Effect.andThen(Effect.never)),
+  prefix: () => unsupportedGitCall("prefix"),
+  defaultBranch: () => Deferred.succeed(defaultBranchStarted, undefined).pipe(Effect.andThen(Effect.never)),
+  hasHead: () => unsupportedGitCall("hasHead"),
+  mergeBase: () => unsupportedGitCall("mergeBase"),
+  show: () => unsupportedGitCall("show"),
+  showIndex: () => unsupportedGitCall("showIndex"),
+  status: () => unsupportedGitCall("status"),
+  diff: () => unsupportedGitCall("diff"),
+  stats: () => unsupportedGitCall("stats"),
+  patch: () => unsupportedGitCall("patch"),
+  patchAll: () => unsupportedGitCall("patchAll"),
+  patchAllUnstaged: () => unsupportedGitCall("patchAllUnstaged"),
+  patchUntracked: () => unsupportedGitCall("patchUntracked"),
+  statUntracked: () => unsupportedGitCall("statUntracked"),
+  applyPatch: () => unsupportedGitCall("applyPatch"),
+})
+
+function vcsContext(directory: string): InstanceContext {
+  return {
+    directory,
+    worktree: directory,
+    project: {
+      id: "vcs-init-non-blocking" as InstanceContext["project"]["id"],
+      worktree: directory,
+      vcs: "git",
+      time: { created: 0, updated: 0 },
+      sandboxes: [],
+    },
+  }
+}
 
 /** Wait for a Vcs.Event.BranchUpdated event on GlobalBus, with retry polling as fallback */
 function nextBranchUpdate(directory: string, timeout = 10_000) {
@@ -90,7 +146,7 @@ describeVcs("Vcs", () => {
     await using tmp = await tmpdir({ git: true })
 
     await withVcs(tmp.path, async () => {
-      const branch = await Vcs.branch()
+      const branch = await vcsBranch()
       expect(branch).toBeDefined()
       expect(typeof branch).toBe("string")
     })
@@ -100,7 +156,7 @@ describeVcs("Vcs", () => {
     await using tmp = await tmpdir()
 
     await withVcs(tmp.path, async () => {
-      const branch = await Vcs.branch()
+      const branch = await vcsBranch()
       expect(branch).toBeUndefined()
     })
   })
@@ -133,8 +189,35 @@ describeVcs("Vcs", () => {
       await fs.writeFile(head, `ref: refs/heads/${branch}\n`)
 
       await pending
-      const current = await Vcs.branch()
+      const current = await vcsBranch()
       expect(current).toBe(branch)
+    })
+  })
+
+  test("publishes BranchUpdated when HEAD changes in a linked worktree", async () => {
+    // Regression for #1016: a linked worktree keeps its live HEAD at
+    // <gitcommondir>/worktrees/<name>/HEAD, not the main repository's .git/HEAD.
+    // The watcher must subscribe to the per-worktree git dir resolved from the
+    // active session directory, otherwise per-worktree checkouts never fire.
+    await using tmp = await tmpdir({ git: true })
+    await using parent = await tmpdir()
+    const dir = path.join(parent.path, "linked")
+    const branch = `wt-${Math.random().toString(36).slice(2)}`
+    await $`git branch ${branch}`.cwd(tmp.path).quiet()
+    await $`git worktree add -b wt-initial ${dir} HEAD`.cwd(tmp.path).quiet()
+
+    await withVcs(dir, async () => {
+      const pending = nextBranchUpdate(dir)
+
+      // Resolve the real per-worktree HEAD; in a linked worktree <dir>/.git is a
+      // pointer file, so never join `${dir}/.git/HEAD` directly. rev-parse may print
+      // a relative path, so resolve it against dir instead of relying on --path-format.
+      const headPath = (await $`git rev-parse --git-path HEAD`.cwd(dir).text()).trim()
+      const head = path.resolve(dir, headPath)
+      await fs.writeFile(head, `ref: refs/heads/${branch}\n`)
+
+      const updated = await pending
+      expect(updated).toBe(branch)
     })
   })
 })
@@ -142,6 +225,32 @@ describeVcs("Vcs", () => {
 describe("Vcs diff", () => {
   afterEach(async () => {
     await Instance.disposeAll()
+  })
+
+  test("init() starts branch resolution without waiting for it", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const branchStarted = yield* Deferred.make<void>()
+        const defaultBranchStarted = yield* Deferred.make<void>()
+        const layer = Vcs.layer.pipe(
+          Layer.provide(Layer.succeed(Git.Service, Git.Service.of(blockingGit(branchStarted, defaultBranchStarted)))),
+          Layer.provide(Bus.layer),
+        )
+        const ctx = vcsContext("/tmp/pawwork-vcs-init-non-blocking")
+
+        yield* Vcs.Service.use((vcs) =>
+          Effect.gen(function* () {
+            const initResult = yield* vcs
+              .init()
+              .pipe(Effect.provideService(InstanceRef, ctx), Effect.timeoutOption("50 millis"))
+
+            expect(Option.isSome(initResult)).toBe(true)
+            yield* Deferred.await(branchStarted).pipe(Effect.timeout("1 second"))
+            yield* Deferred.await(defaultBranchStarted).pipe(Effect.timeout("1 second"))
+          }),
+        ).pipe(Effect.provide(layer))
+      }).pipe(Effect.scoped),
+    )
   })
 
   vcsIt.live("status() returns tracked, staged, and untracked file summaries", () =>
@@ -158,7 +267,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const status = await Vcs.status()
+        const status = await vcsStatus()
         expect(status).toEqual([
           { file: "staged.txt", additions: 1, deletions: 0, status: "added" },
           { file: "tracked.txt", additions: 1, deletions: 1, status: "modified" },
@@ -176,7 +285,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const branch = await Vcs.defaultBranch()
+        const branch = await vcsDefaultBranch()
         expect(branch).toBe("main")
       })
     }),
@@ -191,7 +300,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const branch = await Vcs.defaultBranch()
+        const branch = await vcsDefaultBranch()
         expect(branch).toBe("trunk")
       })
     }),
@@ -208,14 +317,14 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(dir, async () => {
-        const [branch, base] = await Promise.all([Vcs.branch(), Vcs.defaultBranch()])
+        const [branch, base] = await Promise.all([vcsBranch(), vcsDefaultBranch()])
         expect(branch).toBe("feature/test")
         expect(base).toBe("main")
       })
     }),
   )
 
-  vcsIt.live("diff('unstaged') returns unstaged and untracked changes only", () =>
+  vcsIt.live("diff('git') merges staged, unstaged, and untracked changes into one view", () =>
     Effect.gen(function* () {
       const tmp = yield* scopedTmpdir({ git: true })
       yield* Effect.promise(async () => {
@@ -229,16 +338,43 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("unstaged")
+        const diff = await vcsDiff("git")
         expect(diff).toEqual(
           expect.arrayContaining([
             expect.objectContaining({ file: "tracked.txt", status: "modified" }),
+            expect.objectContaining({ file: "staged.txt", status: "added" }),
             expect.objectContaining({ file: "untracked.txt", status: "added" }),
           ]),
         )
         expect(diff.find((item) => item.file === "tracked.txt")?.patch).toContain("diff --git")
+        expect(diff.find((item) => item.file === "staged.txt")?.patch).toContain("+staged")
         expect(diff.find((item) => item.file === "untracked.txt")?.patch).toContain("+untracked")
-        expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
+      })
+    }),
+  )
+
+  vcsIt.live("diff('git') still surfaces staged content when the worktree happens to match HEAD", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir({ git: true })
+      yield* Effect.promise(async () => {
+        await fs.writeFile(path.join(tmp.path, "tracked.txt"), "v1\n", "utf-8")
+        await $`git add tracked.txt`.cwd(tmp.path).quiet()
+        await $`git commit --no-gpg-sign -m "v1"`.cwd(tmp.path).quiet()
+        // Stage a v2, then write the worktree back to v1 without resetting the index.
+        // Status reads "MM" but the worktree byte-for-byte matches HEAD, so the plain
+        // `git diff HEAD` form sees nothing. The staged contents will still land in the
+        // next commit, so the review panel must surface them.
+        await fs.writeFile(path.join(tmp.path, "tracked.txt"), "v2\n", "utf-8")
+        await $`git add tracked.txt`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "tracked.txt"), "v1\n", "utf-8")
+      })
+
+      yield* withVcsOnly(tmp.path, async () => {
+        const diff = await vcsDiff("git")
+        const entry = diff.find((item) => item.file === "tracked.txt")
+        expect(entry).toBeDefined()
+        expect(entry?.patch).toContain("+v2")
+        expect(entry?.additions).toBeGreaterThan(0)
       })
     }),
   )
@@ -255,12 +391,31 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const patch = await Vcs.diffRaw()
+        const patch = await vcsDiffRaw()
         expect(patch).toContain("diff --git a/tracked.txt b/tracked.txt")
         expect(patch).toContain("-original")
         expect(patch).toContain("+changed")
         expect(patch).toContain("diff --git a/untracked.txt b/untracked.txt")
         expect(patch).toContain("+new")
+      })
+    }),
+  )
+
+  vcsIt.live("diffRaw() surfaces staged-add and worktree-delete on the same path in a no-HEAD repo", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir()
+      yield* Effect.promise(async () => {
+        await $`git init`.cwd(tmp.path).quiet()
+        await $`git config commit.gpgsign false`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "foo.txt"), "staged-content\n", "utf-8")
+        await $`git add foo.txt`.cwd(tmp.path).quiet()
+        await fs.rm(path.join(tmp.path, "foo.txt"))
+      })
+
+      yield* withVcsOnly(tmp.path, async () => {
+        const patch = await vcsDiffRaw()
+        expect(patch).toContain("+staged-content")
+        expect(patch).toMatch(/deleted file|\+\+\+ \/dev\/null/)
       })
     }),
   )
@@ -277,7 +432,7 @@ describe("Vcs diff", () => {
 
       let patch = ""
       yield* withVcsOnly(source.path, async () => {
-        patch = await Vcs.diffRaw()
+        patch = await vcsDiffRaw()
       })
 
       const target = yield* scopedTmpdir({ git: true })
@@ -288,7 +443,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(target.path, async () => {
-        await expect(Vcs.apply({ patch })).resolves.toEqual({ applied: true })
+        await expect(vcsApply({ patch })).resolves.toEqual({ applied: true })
         await expect(fs.readFile(path.join(target.path, "tracked.txt"), "utf-8")).resolves.toBe("changed\n")
       })
     }),
@@ -299,7 +454,7 @@ describe("Vcs diff", () => {
       const tmp = yield* scopedTmpdir()
 
       yield* withVcsOnly(tmp.path, async () => {
-        await expect(Vcs.apply({ patch: "diff --git a/file.txt b/file.txt\n" })).rejects.toMatchObject({
+        await expect(vcsApply({ patch: "diff --git a/file.txt b/file.txt\n" })).rejects.toMatchObject({
           reason: "non-git",
         })
       })
@@ -327,7 +482,7 @@ describe("Vcs diff", () => {
       ].join("\n")
 
       yield* withVcsOnly(tmp.path, async () => {
-        await expect(Vcs.apply({ patch })).rejects.toMatchObject({
+        await expect(vcsApply({ patch })).rejects.toMatchObject({
           reason: "not-clean",
         })
         await expect(fs.readFile(path.join(tmp.path, "tracked.txt"), "utf-8")).resolves.toBe("different\n")
@@ -335,13 +490,13 @@ describe("Vcs diff", () => {
     }),
   )
 
-  vcsIt.live("diff('unstaged') handles special filenames", () =>
+  vcsIt.live("diff('git') handles special filenames", () =>
     Effect.gen(function* () {
       const tmp = yield* scopedTmpdir({ git: true })
       yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, weird), "hello\n", "utf-8"))
 
       yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("unstaged")
+        const diff = await vcsDiff("git")
         expect(diff).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
@@ -354,28 +509,7 @@ describe("Vcs diff", () => {
     }),
   )
 
-  vcsIt.live("diff('staged') returns staged changes only", () =>
-    Effect.gen(function* () {
-      const tmp = yield* scopedTmpdir({ git: true })
-      yield* Effect.promise(async () => {
-        await fs.writeFile(path.join(tmp.path, "tracked.txt"), "original\n", "utf-8")
-        await $`git add tracked.txt`.cwd(tmp.path).quiet()
-        await $`git commit --no-gpg-sign -m "add file"`.cwd(tmp.path).quiet()
-        await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
-        await $`git add staged.txt`.cwd(tmp.path).quiet()
-        await fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged\n", "utf-8")
-      })
-
-      yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("staged")
-        expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt", status: "added" })]))
-        expect(diff.find((item) => item.file === "staged.txt")?.patch).toContain("+staged")
-        expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
-      })
-    }),
-  )
-
-  vcsIt.live("diff('staged') returns staged files before the first commit", () =>
+  vcsIt.live("diff('git') returns staged files before the first commit", () =>
     Effect.gen(function* () {
       const tmp = yield* scopedTmpdir()
       yield* Effect.promise(async () => {
@@ -385,13 +519,13 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("staged")
+        const diff = await vcsDiff("git")
         expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "first.txt", status: "added" })]))
       })
     }),
   )
 
-  vcsIt.live("diff('branch') returns committed branch changes without staged, unstaged, or untracked files", () =>
+  vcsIt.live("diff('branch') includes committed, staged, unstaged, and untracked branch work", () =>
     Effect.gen(function* () {
       const tmp = yield* scopedTmpdir({ git: true })
       yield* Effect.promise(async () => {
@@ -403,16 +537,24 @@ describe("Vcs diff", () => {
         await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
         await $`git add staged.txt`.cwd(tmp.path).quiet()
         await fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged\n", "utf-8")
+        await $`git add unstaged.txt`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged-edited\n", "utf-8")
         await fs.writeFile(path.join(tmp.path, "untracked.txt"), "untracked\n", "utf-8")
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("branch")
-        expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "branch.txt", status: "added" })]))
-        expect(diff.find((item) => item.file === "branch.txt")?.patch).toContain("+branch")
-        expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
-        expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
-        expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "untracked.txt" })]))
+        const diff = await vcsDiff("branch")
+        // Branch view must reflect the full delta the user sees against the default branch,
+        // not just commits — this guards against the regression where `git diff <ref> HEAD`
+        // silently dropped staged and working-tree changes.
+        expect(diff).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ file: "branch.txt", status: "added" }),
+            expect.objectContaining({ file: "staged.txt", status: "added" }),
+            expect.objectContaining({ file: "unstaged.txt", status: "added" }),
+            expect.objectContaining({ file: "untracked.txt", status: "added" }),
+          ]),
+        )
       })
     }),
   )
@@ -429,7 +571,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("branch")
+        const diff = await vcsDiff("branch")
         expect(diff).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
@@ -438,6 +580,32 @@ describe("Vcs diff", () => {
             }),
           ]),
         )
+      })
+    }),
+  )
+
+  vcsIt.live("diff('branch') reports working-tree edits on top of branch commits", () =>
+    Effect.gen(function* () {
+      const tmp = yield* scopedTmpdir({ git: true })
+      yield* Effect.promise(async () => {
+        await fs.writeFile(path.join(tmp.path, "base.txt"), "base\n", "utf-8")
+        await $`git add base.txt`.cwd(tmp.path).quiet()
+        await $`git commit --no-gpg-sign -m "base"`.cwd(tmp.path).quiet()
+        await $`git branch -M main`.cwd(tmp.path).quiet()
+        await $`git checkout -b feature/test`.cwd(tmp.path).quiet()
+        await fs.writeFile(path.join(tmp.path, "branch.txt"), "branch\n", "utf-8")
+        await $`git add branch.txt`.cwd(tmp.path).quiet()
+        await $`git commit --no-gpg-sign -m "branch file"`.cwd(tmp.path).quiet()
+        // Working-tree edit that has not been committed yet — regression guard
+        // for the old `git diff <ref> HEAD` form that swallowed this delta.
+        await fs.writeFile(path.join(tmp.path, "branch.txt"), "branch\ndirty\n", "utf-8")
+      })
+
+      yield* withVcsOnly(tmp.path, async () => {
+        const diff = await vcsDiff("branch")
+        const branch = diff.find((item) => item.file === "branch.txt")
+        expect(branch?.patch).toContain("+dirty")
+        expect(branch?.additions).toBeGreaterThan(0)
       })
     }),
   )

@@ -1,10 +1,57 @@
-import { contextBridge, ipcRenderer } from "electron"
+import { contextBridge, ipcRenderer, webUtils } from "electron"
 import { buildDesktopContext } from "@opencode-ai/app/desktop-api"
+import type { BrowserState } from "@opencode-ai/app/desktop-api"
 import type { DesktopContext, ElectronAPI, InitStep, SqliteMigrationProgress } from "./types"
 import { getRuntimeFlags } from "./runtime-flags"
 
 const runtimeFlags = getRuntimeFlags(process.env)
 const invokeSetDesktopContext = (context: DesktopContext) => ipcRenderer.invoke("set-desktop-context", context)
+
+const remote: ElectronAPI["remote"] = {
+  getStatus: () => ipcRenderer.invoke("remote:get-status"),
+  startPairing: (platform, start) => ipcRenderer.invoke("remote:start-pairing", platform, start),
+  cancelPairing: () => ipcRenderer.invoke("remote:cancel-pairing"),
+  confirmPairing: (platform) => ipcRenderer.invoke("remote:confirm-pairing", platform),
+  disconnect: (platform) => ipcRenderer.invoke("remote:disconnect", platform),
+  onStatus: (cb) => {
+    const handler = (_: unknown, status: Parameters<typeof cb>[0]) => cb(status)
+    ipcRenderer.on("remote:status", handler)
+    return () => ipcRenderer.removeListener("remote:status", handler)
+  },
+  onPairing: (cb) => {
+    const handler = (_: unknown, event: Parameters<typeof cb>[0]) => cb(event)
+    ipcRenderer.on("remote:pairing", handler)
+    return () => ipcRenderer.removeListener("remote:pairing", handler)
+  },
+}
+
+const browser: ElectronAPI["browser"] = {
+  navigate: (target, url) => ipcRenderer.invoke("browser:navigate", target, url),
+  goBack: (target) => ipcRenderer.invoke("browser:back", target),
+  goForward: (target) => ipcRenderer.invoke("browser:forward", target),
+  reload: (target) => ipcRenderer.invoke("browser:reload", target),
+  stop: (target) => ipcRenderer.invoke("browser:stop", target),
+  setView: (target, layout) => ipcRenderer.invoke("browser:set-view", target, layout),
+  adoptDraft: (sessionID) => ipcRenderer.invoke("browser:adopt-draft", sessionID),
+  closePage: (target) => ipcRenderer.invoke("browser:close-page", target),
+  clearData: () => ipcRenderer.invoke("browser:clear-data"),
+  getState: (target) => ipcRenderer.invoke("browser:get-state", target),
+  onState: (cb) => {
+    const handler = (_: unknown, payload: { target: string; state: BrowserState }) => cb(payload)
+    ipcRenderer.on("browser:state", handler)
+    return () => ipcRenderer.removeListener("browser:state", handler)
+  },
+  onDisplayTaken: (cb) => {
+    const handler = (_: unknown, payload: { target: string }) => cb(payload)
+    ipcRenderer.on("browser:display-taken", handler)
+    return () => ipcRenderer.removeListener("browser:display-taken", handler)
+  },
+  onAutomationAttached: (cb) => {
+    const handler = (_: unknown, payload: { sessionID: string }) => cb(payload)
+    ipcRenderer.on("browser:automation-attached", handler)
+    return () => ipcRenderer.removeListener("browser:automation-attached", handler)
+  },
+}
 
 const api: ElectronAPI = {
   ciSmokeEnabled: runtimeFlags.ciSmokeEnabled,
@@ -58,6 +105,21 @@ const api: ElectronAPI = {
   openDirectoryPicker: (opts) => ipcRenderer.invoke("open-directory-picker", opts),
   openFilePicker: (opts) => ipcRenderer.invoke("open-file-picker", opts),
   readFileDataUrl: (path, mime) => ipcRenderer.invoke("read-file-data-url", path, mime),
+  filePathForBrowserFile: async (file) => {
+    const path = webUtils.getPathForFile(file)
+    if (!path) return null
+    // Approval must land before the renderer sees the path, or the first
+    // thumbnail read races the allowlist insert. An approval failure must not
+    // leak an unapproved path — degrade to null so callers fall back to the
+    // save-attachment copy route.
+    try {
+      await ipcRenderer.invoke("approve-attachment-path", path)
+    } catch {
+      return null
+    }
+    return path
+  },
+  saveAttachmentFile: (name, mime, buffer) => ipcRenderer.invoke("save-attachment-file", name, mime, buffer),
   saveFilePicker: (opts) => ipcRenderer.invoke("save-file-picker", opts),
   exportSession: (sessionID, directory, defaultName, title) =>
     ipcRenderer.invoke("export-session", sessionID, directory, defaultName, title),
@@ -79,7 +141,9 @@ const api: ElectronAPI = {
   loadingWindowComplete: () => ipcRenderer.send("loading-window-complete"),
   runUpdater: (alertOnFail) => ipcRenderer.invoke("run-updater", alertOnFail),
   checkUpdate: () => ipcRenderer.invoke("check-update"),
-  reportProblem: (input) => ipcRenderer.invoke("report-problem", input),
+  prepareReport: (input) => ipcRenderer.invoke("prepare-report", input),
+  revealReport: (reportId) => ipcRenderer.invoke("reveal-report", reportId),
+  submitReport: (reportId) => ipcRenderer.invoke("submit-report", reportId),
   emitRendererDiagnostic: (event) => ipcRenderer.invoke("renderer-diagnostics:record", event),
   exportDiagnosticsLog: () => ipcRenderer.invoke("renderer-diagnostics:export"),
   installUpdate: () => ipcRenderer.invoke("install-update"),
@@ -98,6 +162,9 @@ const api: ElectronAPI = {
     }
   },
   flashFrame: () => ipcRenderer.invoke("flash-frame"),
+  setBadgeCount: (count: number) => ipcRenderer.invoke("set-badge-count", count),
+  browser,
+  remote,
 }
 
 contextBridge.exposeInMainWorld("api", api)

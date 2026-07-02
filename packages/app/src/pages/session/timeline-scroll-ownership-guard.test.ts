@@ -62,7 +62,7 @@ describe("timeline scroll ownership guard", () => {
   test("matches reviewed exceptions when scanned file paths use Windows separators", () => {
     expect(
       scanTimelineScrollOwnershipText({
-        filePath: "packages\\app\\src\\pages\\session\\composer\\session-question-dock.tsx",
+        filePath: "packages\\app\\src\\pages\\session\\composer\\question-option-focus.ts",
         sourceText: `
           function keepVisibleInQuestionOptions(scroller: HTMLElement) {
             scroller.scrollTop += 1

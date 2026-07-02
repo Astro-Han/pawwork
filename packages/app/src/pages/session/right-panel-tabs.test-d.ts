@@ -4,13 +4,11 @@
 
 import type { RightPanelTab, RightPanelStaticTab } from "./right-panel-tabs"
 
-// Static slots: the four fixed panel tabs are valid.
+// Static slots: the three fixed panel tabs are valid.
 const status: RightPanelTab = "status"
-const files: RightPanelTab = "files"
 const review: RightPanelTab = "review"
 const context: RightPanelTab = "context"
 void status
-void files
 void review
 void context
 
@@ -20,8 +18,8 @@ const anotherTerminal: RightPanelTab = `terminal:${"42-xyz"}`
 void someTerminal
 void anotherTerminal
 
-// Static-only type narrows to the four fixed tabs without the terminal arm.
-const fixed: RightPanelStaticTab = "files"
+// Static-only type narrows to the three fixed tabs without the terminal arm.
+const fixed: RightPanelStaticTab = "status"
 // @ts-expect-error a terminal:<id> string is not a static tab
 const bogusFixed: RightPanelStaticTab = "terminal:abc"
 void fixed
@@ -34,6 +32,9 @@ const settings: RightPanelTab = "settings"
 const bareTerminal: RightPanelTab = "terminal"
 // @ts-expect-error "changes" is the pre-refactor name for review; not valid anymore
 const changes: RightPanelTab = "changes"
+// @ts-expect-error "files" was merged into the status panel; not a valid tab anymore
+const files: RightPanelTab = "files"
 void settings
 void bareTerminal
 void changes
+void files

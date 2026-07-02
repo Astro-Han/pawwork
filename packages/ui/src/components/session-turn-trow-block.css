@@ -31,6 +31,13 @@
   width: 100%;
 }
 
+[data-component="session-turn-trow-block"][data-single] details {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
 /* Trow expand / collapse animation — mirror of preview
  * message-flow.html L13-23. Gated by `prefers-reduced-motion: no-
  * preference` so reduced-motion users see an instant toggle. The
@@ -82,6 +89,13 @@
   line-height: var(--line-height-body);
 }
 
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-summary"] {
+  flex: 0 0 auto;
+  gap: 0;
+  margin-top: 1px;
+  pointer-events: none;
+}
+
 [data-component="session-turn-trow-block"] [data-slot="trow-summary"]::-webkit-details-marker,
 [data-component="session-turn-trow-block"] [data-slot="trow-summary"]::marker {
   display: none;
@@ -113,6 +127,11 @@
   font-weight: var(--font-weight-body);
   color: var(--fg-base);
   line-height: 1.4;
+}
+
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-summary-text"],
+[data-component="session-turn-trow-block"][data-single] [data-slot="trow-summary-chev"] {
+  display: none;
 }
 
 [data-component="session-turn-trow-block"] [data-slot="trow-summary-chev"] {
@@ -175,18 +194,6 @@
   min-width: 0;
 }
 
-[data-component="session-turn-trow-block"] [data-slot="trow-single-row"] {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-}
-
-[data-component="session-turn-trow-block"] [data-slot="trow-single-row"] [data-slot="trow-summary-icon"] {
-  margin-top: 1px;
-}
-
 [data-component="session-turn-trow-block"][data-single] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-title"],
 [data-component="session-turn-trow-block"][data-single] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-subtitle"],
 [data-component="session-turn-trow-block"][data-single] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-arg"] {
@@ -211,7 +218,7 @@
   height: auto;
 }
 
-/* Fallback row (default `renderTool` path) — used when the caller does
+/* Fallback row (default `renderPart` path) — used when the caller does
  * not provide a per-tool renderer. */
 [data-component="session-turn-trow-block"] [data-slot="trow-item"] {
   display: flex;

@@ -30,6 +30,7 @@ function stripComments(source: string) {
 test("desktop shell shares titlebar height across titlebar and narrow sidebar geometry", () => {
   const css = read("./index.css")
   const layout = read("./pages/layout.tsx")
+  const layoutShellFrame = read("./pages/layout/layout-shell-frame.tsx")
   const titlebar = read("./components/titlebar.tsx")
   const sessionHeader = read("./components/session/session-header.tsx")
   const pawworkTitlebar = read("./pages/layout/pawwork-titlebar.tsx")
@@ -51,9 +52,9 @@ test("desktop shell shares titlebar height across titlebar and narrow sidebar ge
   expect(wideFrameRule).toBeGreaterThan(wideDesktopQuery)
   expect(macMainSeamRule).toBeGreaterThan(-1)
   expect(macMainSeamRule).toBeLessThan(wideDesktopQuery)
-  expect(layout).toContain('"--shell-titlebar-current-height"')
-  expect(layout).toContain("{...shellAttrs(platform)}")
-  expect(layout).toContain("isMacShell(platform)")
+  expect(layoutShellFrame).toContain('"--shell-titlebar-current-height"')
+  expect(layoutShellFrame).toContain("{...shellAttrs(props.platform)}")
+  expect(layoutShellFrame).toContain("isMacShell(props.platform)")
   expect(layout).not.toContain("top-10")
   expect(titlebar).toContain('"h-11": isDesktopShell(platform) && !mac()')
   expect(titlebar).toContain("{...shellAttrs(platform)}")
@@ -119,6 +120,7 @@ test("visual shell files do not key appearance from runtime platform identity", 
   const visualSources = [
     "./components/titlebar.tsx",
     "./pages/layout.tsx",
+    "./pages/layout/layout-shell-frame.tsx",
     "./components/session/session-header.tsx",
     "./components/settings-general.tsx",
   ]

@@ -12,7 +12,7 @@ import { isWorkInFlightStatus } from "../util/session-status"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { createEffect, createMemo, createSignal, onCleanup, ParentProps, Show } from "solid-js"
 import { AssistantParts, Message, MessageDivider, PART_MAPPING, type UserActions } from "./message-part"
-import { Card } from "./card"
+import { ErrorCard } from "./error-card"
 import { Icon } from "./icon"
 import { TextShimmer } from "./text-shimmer"
 import { SessionRetry } from "./session-retry"
@@ -30,59 +30,6 @@ import {
   type CompactionDividerState,
 } from "./session-turn-compaction"
 import { AssistantTurnFooter } from "./assistant-turn-footer"
-
-function record(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-}
-
-function unwrap(message: string) {
-  const text = message.replace(/^Error:\s*/, "").trim()
-
-  const parse = (value: string) => {
-    try {
-      return JSON.parse(value) as unknown
-    } catch {
-      return undefined
-    }
-  }
-
-  const read = (value: string) => {
-    const first = parse(value)
-    if (typeof first !== "string") return first
-    return parse(first.trim())
-  }
-
-  let json = read(text)
-
-  if (json === undefined) {
-    const start = text.indexOf("{")
-    const end = text.lastIndexOf("}")
-    if (start !== -1 && end > start) {
-      json = read(text.slice(start, end + 1))
-    }
-  }
-
-  if (!record(json)) return message
-
-  const err = record(json.error) ? json.error : undefined
-  if (err) {
-    const type = typeof err.type === "string" ? err.type : undefined
-    const msg = typeof err.message === "string" ? err.message : undefined
-    if (type && msg) return `${type}: ${msg}`
-    if (msg) return msg
-    if (type) return type
-    const code = typeof err.code === "string" ? err.code : undefined
-    if (code) return code
-  }
-
-  const msg = typeof json.message === "string" ? json.message : undefined
-  if (msg) return msg
-
-  const reason = typeof json.error === "string" ? json.error : undefined
-  if (reason) return reason
-
-  return message
-}
 
 function same<T>(a: readonly T[], b: readonly T[]) {
   if (a === b) return true
@@ -130,6 +77,12 @@ export function SessionTurn(
      * stays framework-agnostic. Forwarded to SessionRetry.
      */
     rateLimitCardSlot?: import("./session-retry").SessionRetryRateLimitSlot
+    /**
+     * App-injected side effect for the error card's primary action (re-login /
+     * switch model). Lives in the app layer like RateLimitCardWiring so
+     * packages/ui stays framework-agnostic. Forwarded to ErrorCard.
+     */
+    onErrorAction?: (target: "models") => void
     classes?: {
       root?: string
       content?: string
@@ -310,13 +263,6 @@ export function SessionTurn(
 
     return undefined
   })
-  const errorText = createMemo(() => {
-    const msg = error()?.data?.message
-    if (typeof msg === "string") return unwrap(msg)
-    if (msg === undefined || msg === null) return ""
-    // oxlint-disable-next-line no-base-to-string -- msg is unknown from error data, coercion is intentional
-    return unwrap(String(msg))
-  })
 
   const visibleTurnChange = createMemo(() => {
     const current = turnChange()
@@ -350,6 +296,21 @@ export function SessionTurn(
       }
     }
     return visible
+  })
+  // Once any provider-output part exists (text / reasoning / tool — the same set
+  // the backend counts as `isProviderProgressEvent`), the provider has started
+  // responding, so the silent wait is real "thinking". Before that — building
+  // the request, connecting, waiting for the stream to be accepted, waiting for
+  // the first chunk — it is only "connecting" (#1358). A `step-start` part does
+  // not count: it can precede the first provider chunk and would otherwise make
+  // a connection wait read as model reasoning.
+  const providerStarted = createMemo(() => {
+    for (const message of visibleAssistantMessages()) {
+      for (const part of list(data.store.part?.[message.id], emptyParts)) {
+        if (part.type === "text" || part.type === "reasoning" || part.type === "tool") return true
+      }
+    }
+    return false
   })
   const showThinking = createMemo(() => {
     if (compactionDivider() === "pending") return false
@@ -462,8 +423,17 @@ export function SessionTurn(
                   </div>
                 </Show>
                 <Show when={showThinking()}>
-                  <div data-slot="session-turn-thinking">
-                    <TextShimmer text={i18n.t("ui.sessionTurn.status.thinking")} />
+                  <div
+                    data-slot="session-turn-thinking"
+                    data-phase={providerStarted() ? "thinking" : "connecting"}
+                  >
+                    <TextShimmer
+                      text={
+                        providerStarted()
+                          ? i18n.t("ui.sessionTurn.status.thinking")
+                          : i18n.t("ui.sessionTurn.status.connecting")
+                      }
+                    />
                   </div>
                 </Show>
                 <SessionRetry status={status()} show={active()} rateLimitCardSlot={props.rateLimitCardSlot} />
@@ -494,9 +464,7 @@ export function SessionTurn(
                   />
                 </Show>
                 <Show when={error()}>
-                  <Card variant="error" class="error-card">
-                    {errorText()}
-                  </Card>
+                  {(err) => <ErrorCard error={err()} onAction={props.onErrorAction} />}
                 </Show>
               </div>
             )}

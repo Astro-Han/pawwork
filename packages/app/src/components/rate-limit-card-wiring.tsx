@@ -1,6 +1,6 @@
 import type { RetryClassification } from "@opencode-ai/sdk/v2/client"
 import { RateLimitCard } from "@opencode-ai/ui/rate-limit-card"
-import { useShellSurface } from "../context/shell-surface"
+import { openSettingsTab } from "../utils/settings-navigation"
 import { trackEvent } from "../utils/events"
 
 const SUBSCRIBE_URL = "https://opencode.ai/go?ref=V1WTSZKC69"
@@ -16,7 +16,7 @@ type ApiWithOpenLink = NonNullable<Window["api"]> & { openLink?: (url: string) =
  * things that cannot live in packages/ui:
  *   - window.api.openLink (Electron preload IPC)
  *   - trackEvent (app-level telemetry hook)
- *   - shellSurface.openSettings("models")
+ *   - openSettingsTab("models")
  *
  * Passes pre-bound callbacks to the pure presentational RateLimitCard so
  * packages/ui stays framework-agnostic.
@@ -24,7 +24,6 @@ type ApiWithOpenLink = NonNullable<Window["api"]> & { openLink?: (url: string) =
 export function RateLimitCardWiring(props: {
   classification: Extract<RetryClassification, { kind: "free_quota_exhausted" }>
 }) {
-  const shell = useShellSurface()
   return (
     <RateLimitCard
       classification={props.classification}
@@ -38,7 +37,7 @@ export function RateLimitCardWiring(props: {
       }}
       onUseOwnModelClick={() => {
         trackEvent("rate_limit_card.byo_click", { providerID: props.classification.providerID })
-        shell.openSettings("models")
+        openSettingsTab("models")
       }}
     />
   )

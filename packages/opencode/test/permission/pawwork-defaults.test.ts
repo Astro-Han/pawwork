@@ -1,8 +1,14 @@
 import { afterEach, expect, test } from "bun:test"
+import { Effect } from "effect"
 import { Agent } from "../../src/agent/agent"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Permission } from "../../src/permission"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
+
+function agent<A>(fn: (svc: Agent.Interface) => Effect.Effect<A>) {
+  return AppRuntime.runPromise(Agent.Service.use(fn))
+}
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -13,7 +19,7 @@ test("build agent uses PawWork permission defaults", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await Agent.get("build")
+      const build = await agent((svc) => svc.get("build"))
 
       expect(build).toBeDefined()
       expect(Permission.evaluate("read", "notes.txt", build!.permission).action).toBe("allow")
@@ -35,9 +41,36 @@ test("build agent uses PawWork permission defaults", async () => {
       expect(Permission.evaluate("bash", "rd folder", build!.permission).action).toBe("deny")
       expect(Permission.evaluate("bash", "sudo rm -rf /", build!.permission).action).toBe("ask")
       expect(Permission.evaluate("doom_loop", "*", build!.permission).action).toBe("ask")
+      // Deliberate design ruling (browser design doc §9): web automation defaults
+      // to allow — the embedded browser is local and fully visible, which is the
+      // safety net; permission.browser rules tighten per URL. The opencli adapters
+      // inherit the same baseline so web access stays consistent with browser_*
+      // and with default-allow file editing.
+      expect(Permission.evaluate("browser", "https://example.com/page", build!.permission).action).toBe("allow")
+      expect(Permission.evaluate("opencli_read", "chatgpt-app/read", build!.permission).action).toBe("allow")
+      expect(Permission.evaluate("opencli_write", "spotify/play", build!.permission).action).toBe("allow")
       expect(Permission.evaluate("question", "*", build!.permission).action).toBe("allow")
       expect(Permission.evaluate("plan_enter", "*", build!.permission).action).toBe("allow")
       expect(Permission.evaluate("plan_exit", "*", build!.permission).action).toBe("deny")
     },
   })
+})
+
+test("an origin-scoped browser 'always' grant never overrides another site's configured deny", async () => {
+  // The other half of the §9 ruling: permission.browser rules tighten per URL,
+  // and that tightening must survive an "always allow" click. Approvals are
+  // evaluated after configured rules (last match wins), so the browser tools
+  // scope the always grant to the asked site's origin — a global "*" grant
+  // would silently void the user's own deny. SAME-origin denies (e.g.
+  // /admin/* under an approved origin) are protected one level up: ask
+  // short-circuits configured denies before approvals (see next.test.ts
+  // "relaxes asks but never a configured deny").
+  const configured = [
+    { permission: "browser", pattern: "*", action: "ask" as const },
+    { permission: "browser", pattern: "https://blocked.example/*", action: "deny" as const },
+  ]
+  const approved = [{ permission: "browser", pattern: "https://ok.example/*", action: "allow" as const }]
+  expect(Permission.evaluate("browser", "https://ok.example/page", configured, approved).action).toBe("allow")
+  expect(Permission.evaluate("browser", "https://blocked.example/page", configured, approved).action).toBe("deny")
+  expect(Permission.evaluate("browser", "https://other.example/page", configured, approved).action).toBe("ask")
 })

@@ -1045,18 +1045,6 @@ export type Config = {
   mcp?: {
     [key: string]: McpLocalConfig | McpRemoteConfig
   }
-  formatter?:
-    | false
-    | {
-        [key: string]: {
-          disabled?: boolean
-          command?: Array<string>
-          environment?: {
-            [key: string]: string
-          }
-          extensions?: Array<string>
-        }
-      }
   lsp?:
     | false
     | {
@@ -1405,12 +1393,6 @@ export type LspStatus = {
   name: string
   root: string
   status: "connected" | "error"
-}
-
-export type FormatterStatus = {
-  name: string
-  extensions: Array<string>
-  enabled: boolean
 }
 
 export type OAuth = {
@@ -3333,24 +3315,6 @@ export type LspStatusResponses = {
 }
 
 export type LspStatusResponse = LspStatusResponses[keyof LspStatusResponses]
-
-export type FormatterStatusData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-  }
-  url: "/formatter"
-}
-
-export type FormatterStatusResponses = {
-  /**
-   * Formatter status
-   */
-  200: Array<FormatterStatus>
-}
-
-export type FormatterStatusResponse = FormatterStatusResponses[keyof FormatterStatusResponses]
 
 export type AuthSetData = {
   body?: Auth

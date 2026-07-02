@@ -68,20 +68,14 @@ async function loadFixture(): Promise<typeof import("../../test/fixtures/basic-t
   )) as typeof import("../../test/fixtures/basic-tool-render.fixture")
 }
 
-test("deferred default-open tools do not mount details immediately", () => {
-  expect(basicToolInitialReady({ defaultOpen: true, defer: true })).toBe(false)
+test("deferred default-open tools mount details immediately", () => {
+  expect(basicToolInitialReady({ defaultOpen: true, defer: true })).toBe(true)
 })
 
-test("deferred default-open tools do not resolve details until the next frame", async () => {
+test("deferred default-open tools render details without a zero-height frame", async () => {
   const { mountBasicTool } = await loadFixture()
   const tool = mountBasicTool({ defaultOpen: true, defer: true })
 
-  await Promise.resolve()
-
-  expect(tool.detailsRenderCount()).toBe(0)
-  expect(tool.details()).toBeNull()
-
-  flushAnimationFrames()
   await Promise.resolve()
 
   expect(tool.detailsRenderCount()).toBeGreaterThan(0)

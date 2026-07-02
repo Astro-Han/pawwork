@@ -56,8 +56,63 @@ export function toolIcon(tool: string): IconProps["name"] {
       return "bubble-5"
     case "skill":
       return "skill"
+    case "browser_navigate":
+    case "browser_snapshot":
+    case "browser_click":
+    case "browser_type":
+    case "browser_wait":
+    case "browser_screenshot":
+    case "browser_extract":
+      return "browser"
     default:
       return "mcp"
+  }
+}
+
+export const BROWSER_TOOL_TITLE_KEYS = {
+  browser_navigate: "ui.tool.browser.navigate",
+  browser_snapshot: "ui.tool.browser.snapshot",
+  browser_click: "ui.tool.browser.click",
+  browser_type: "ui.tool.browser.type",
+  browser_wait: "ui.tool.browser.wait",
+  browser_screenshot: "ui.tool.browser.screenshot",
+  browser_extract: "ui.tool.browser.extract",
+} as const
+
+/** http(s) only: tool metadata echoes page URLs, and about:/file: must never render as a subtitle or link. */
+export function safeHttpUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined
+  try {
+    const parsed = new URL(value)
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return undefined
+    return parsed.toString()
+  } catch {
+    return undefined
+  }
+}
+
+/** One subtitle rule per browser tool, shared by the trow summary and the expanded card. */
+export function browserToolSubtitle(
+  tool: string,
+  input: Record<string, any> = {},
+  metadata: Record<string, any> = {},
+): string | undefined {
+  switch (tool) {
+    case "browser_navigate":
+      return safeHttpUrl(metadata.url ?? input.url)
+    case "browser_click":
+    case "browser_type":
+      return pickString(input.ref)
+    case "browser_wait":
+      return (
+        pickString(input.text) ??
+        pickString(input.selector) ??
+        (typeof input.time === "number" ? `${input.time}s` : undefined)
+      )
+    case "browser_extract":
+      return pickString(input.selector) ?? safeHttpUrl(metadata.url)
+    default:
+      return safeHttpUrl(metadata.url)
   }
 }
 
@@ -243,6 +298,18 @@ export function toolInfoForInput(
       return {
         icon,
         title: input.name || i18n.t("ui.tool.skill"),
+      }
+    case "browser_navigate":
+    case "browser_snapshot":
+    case "browser_click":
+    case "browser_type":
+    case "browser_wait":
+    case "browser_screenshot":
+    case "browser_extract":
+      return {
+        icon,
+        title: i18n.t(BROWSER_TOOL_TITLE_KEYS[tool]),
+        subtitle: browserToolSubtitle(tool, input, metadata),
       }
     default:
       return {

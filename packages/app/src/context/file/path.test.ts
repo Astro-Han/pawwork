@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { createPathHelpers, stripQueryAndHash, unquoteGitPath, encodeFilePath } from "./path"
+import { createPathHelpers, fileUrlToPath, stripQueryAndHash, unquoteGitPath, encodeFilePath } from "./path"
 
 describe("file path helpers", () => {
   test("normalizes file inputs against workspace root", () => {
@@ -31,6 +31,28 @@ describe("file path helpers", () => {
     expect(unquoteGitPath('"a/\\303\\251.txt"')).toBe("a/\u00e9.txt")
     expect(unquoteGitPath('"plain\\nname"')).toBe("plain\nname")
     expect(unquoteGitPath("a/b/c.ts")).toBe("a/b/c.ts")
+  })
+})
+
+describe("fileUrlToPath", () => {
+  test("decodes a POSIX file URL and strips the selection query", () => {
+    expect(fileUrlToPath("file:///Users/me/shot%202.png?start=1&end=4")).toBe("/Users/me/shot 2.png")
+  })
+
+  test("undoes the /D:/ Windows drive form", () => {
+    expect(fileUrlToPath("file:///D:/work/notes.md")).toBe("D:/work/notes.md")
+  })
+
+  test("restores the UNC prefix that fileURL strips", () => {
+    // fileURL serializes //server/share (and \\wsl$\... after normalization)
+    // into the file URL host position: file://server/share/...
+    expect(fileUrlToPath("file://server/share/a.pdf")).toBe("//server/share/a.pdf")
+    expect(fileUrlToPath("file://wsl%24/Ubuntu/home/me/a.png")).toBe("//wsl$/Ubuntu/home/me/a.png")
+  })
+
+  test("returns undefined for non-file URLs", () => {
+    expect(fileUrlToPath("data:image/png;base64,AAA")).toBeUndefined()
+    expect(fileUrlToPath("https://example.com/a.png")).toBeUndefined()
   })
 })
 

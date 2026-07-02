@@ -5,6 +5,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import type { Message as MessageType } from "@opencode-ai/sdk/v2"
+import type { TurnChangeDisplay } from "@opencode-ai/ui/session-turn-changes"
 import { useLanguage } from "@/context/language"
 import { useServer } from "@/context/server"
 import {
@@ -16,38 +17,7 @@ import {
 
 type Translate = (key: string, params?: Record<string, unknown>) => string
 
-type TurnChangeFile = {
-  path: string
-  openPath?: string
-  status: "added" | "modified" | "deleted"
-  additions?: number
-  deletions?: number
-  patch?: string
-  sensitive?: boolean
-  binary?: boolean
-  large?: boolean
-  restoreAvailable?: boolean
-  expandable: boolean
-  restoreState: "applied" | "undone" | "redo_invalidated"
-}
-
-type TurnChangeBase = {
-  sessionID: string
-  turnID?: string
-  messageID?: string
-  truncated?: boolean
-  omittedCount?: number
-  skippedCount?: number
-}
-
-export type TurnChangeDisplay =
-  | (TurnChangeBase & { kind: "empty" })
-  | (TurnChangeBase & { kind: "uncaptured"; count: number })
-  | (TurnChangeBase & {
-      kind: "captured" | "mixed"
-      count?: number
-      files: TurnChangeFile[]
-    })
+export type { TurnChangeDisplay } from "@opencode-ai/ui/session-turn-changes"
 
 export function buildTurnFetchInput(sessionID: string | undefined, messages: MessageType[]): TurnFetchInput | null {
   if (!sessionID) return null

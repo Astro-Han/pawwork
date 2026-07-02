@@ -1,11 +1,5 @@
 import { app, BrowserWindow, ipcMain } from "electron"
-
-export type AboutInfo = {
-  version: string
-  electronVersion: string
-  chromeVersion: string
-  buildSha: string
-}
+import type { AboutInfo } from "@opencode-ai/app/desktop-api"
 
 function readBuildSha(): string {
   const sha = import.meta.env.PAWWORK_BUILD_SHA

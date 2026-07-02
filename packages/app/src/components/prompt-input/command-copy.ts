@@ -1,22 +1,18 @@
-// Scoped copy handler logic for command pills.
+// Scoped copy handler logic for command pills and skill chips.
 //
-// Browser default copy on a [data-cmd-mark] pill yields just the visible
-// textContent (the label `<name>`, no slash). The rest of the system —
-// Path C paste, command-line round-trip, cross-app paste — needs the slash
-// literal `/<name>` to recognise the command. The copy listener intercepts
-// when the selection touches any [data-cmd-mark] element and rewrites the
-// `text/plain` clipboard payload accordingly.
+// Browser default copy on a pill yields just the visible textContent (the bare
+// name, no slash). The rest of the system — Path C paste, command-line
+// round-trip, cross-app paste — needs the slash literal `/<name>` to recognise
+// the command. The copy listener intercepts when the selection touches any pill
+// and rewrites the `text/plain` clipboard payload accordingly.
 
-/**
- * Walk a Range's cloned fragment and produce the text/plain string that
- * substitutes every [data-cmd-mark] with `/<dataset.name>` and every <br>
- * with `\n`. Returns the rewritten string.
- */
+const PILL_SELECTOR = "[data-cmd-mark], [data-type='skill']"
+
 export function rewriteRangeForCommandCopy(range: Range): string {
   const fragment = range.cloneContents()
   const tmp = document.createElement("div")
   tmp.appendChild(fragment)
-  tmp.querySelectorAll("[data-cmd-mark]").forEach((el) => {
+  tmp.querySelectorAll(PILL_SELECTOR).forEach((el) => {
     const name = (el as HTMLElement).dataset.name ?? ""
     el.replaceWith(document.createTextNode(`/${name}`))
   })
@@ -24,11 +20,6 @@ export function rewriteRangeForCommandCopy(range: Range): string {
   return tmp.textContent ?? ""
 }
 
-/**
- * Whether the current selection intersects any [data-cmd-mark] descendant of
- * `editor`. The listener should only intercept the copy event in this case;
- * otherwise the browser default applies (untouched by the command-copy logic).
- */
 export function selectionTouchesCommandMark(editor: HTMLElement): boolean {
   const sel = window.getSelection()
   if (!sel || sel.rangeCount === 0) return false
@@ -36,9 +27,9 @@ export function selectionTouchesCommandMark(editor: HTMLElement): boolean {
   if (!editor.contains(range.startContainer) && !editor.contains(range.endContainer)) {
     return false
   }
-  const marks = editor.querySelectorAll("[data-cmd-mark]")
-  for (const mark of marks) {
-    if (range.intersectsNode(mark)) return true
+  const pills = editor.querySelectorAll(PILL_SELECTOR)
+  for (const pill of pills) {
+    if (range.intersectsNode(pill)) return true
   }
   return false
 }

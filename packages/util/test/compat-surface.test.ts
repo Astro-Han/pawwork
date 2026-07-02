@@ -9,6 +9,8 @@ import { fn as utilFn } from "@opencode-ai/util/fn"
 import { fn as coreFn } from "@opencode-ai/core/util/fn"
 import { Identifier as coreIdentifier } from "@opencode-ai/core/util/identifier"
 import { Identifier as utilIdentifier } from "@opencode-ai/util/identifier"
+import { randomBase62 as utilRandomBase62 } from "@opencode-ai/util/base62"
+import { randomBase62 as coreRandomBase62 } from "@opencode-ai/core/util/base62"
 import { iife as utilIife } from "@opencode-ai/util/iife"
 import { iife as coreIife } from "@opencode-ai/core/util/iife"
 import { lazy as utilLazy } from "@opencode-ai/util/lazy"
@@ -54,6 +56,9 @@ test("core util surface stays aligned with compatibility util surface", async ()
 
   expect(typeof utilIdentifier.ascending()).toBe("string")
   expect(typeof coreIdentifier.ascending()).toBe("string")
+  expect(utilRandomBase62(4, (size) => [248, ...Array.from({ length: size }, () => 61)])).toBe(
+    coreRandomBase62(4, (size) => [248, ...Array.from({ length: size }, () => 61)]),
+  )
   expect(utilModule.resolve("node:path", process.cwd())).toBe(coreModule.resolve("node:path", process.cwd()))
 
   expect(await utilRetry(async () => "ok", { attempts: 1 })).toBe(await coreRetry(async () => "ok", { attempts: 1 }))

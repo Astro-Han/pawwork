@@ -2,12 +2,11 @@ import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
 import { Config } from "@/config/config"
 import { InstanceState } from "@/effect/instance-state"
-import { makeRuntime } from "@/effect/run-service"
 import { ProjectID } from "@/project/schema"
 import { Instance } from "@/project/instance"
 import { MessageID, SessionID } from "@/session/schema"
 import { PermissionTable } from "@/session/session.sql"
-import { Database, eq } from "@/storage/db"
+import { Database, NotFoundError, eq } from "@/storage/db"
 import { Log } from "@opencode-ai/core/util/log"
 import { Wildcard } from "@/util/wildcard"
 import { Deferred, Effect, Layer, Schema, Context } from "effect"
@@ -139,11 +138,53 @@ export namespace Permission {
   interface State {
     pending: Map<PermissionID, PendingEntry>
     approved: Ruleset
+    // Project this state belongs to, captured at load so reply() can persist
+    // newly approved "always" grants back to PermissionTable.
+    projectID: ProjectID
+    // Tombstone of recently-resolved request IDs. A reply can cascade-resolve
+    // sibling pending requests, so a client's own follow-up reply to one of
+    // those would otherwise miss `pending` and look unknown. Remembering the ID
+    // briefly lets that repeat reply be an idempotent success instead of a
+    // misleading 404, while a genuinely unknown ID still surfaces as not-found.
+    resolved: Set<PermissionID>
+  }
+
+  // Bounded FIFO memory backstop for the tombstone. The cap only needs to keep
+  // an entry alive across the gap between a cascade-resolve and the client's own
+  // follow-up reply (sub-second), so eviction by insertion order is fine — as
+  // long as the cap stays well above the most requests one reply can resolve at
+  // once. A single "always"/"reject" cascade resolves at most the pending count
+  // of one session; permission asks are human-paced (auto-approved rules never
+  // pend), so that count is realistically dozens. This cap sits far above it, so
+  // a cascade can never evict its own freshly-resolved siblings and turn their
+  // legitimate follow-up reply into a false 404.
+  const RESOLVED_TOMBSTONE_LIMIT = 10_000
+  function markResolved(resolved: Set<PermissionID>, id: PermissionID) {
+    resolved.add(id)
+    if (resolved.size > RESOLVED_TOMBSTONE_LIMIT) {
+      const oldest = resolved.values().next().value
+      if (oldest !== undefined) resolved.delete(oldest)
+    }
   }
 
   export function evaluate(permission: string, pattern: string, ...rulesets: Ruleset[]): Rule {
     log.info("evaluate", { permission, pattern, ruleset: rulesets.flat() })
     return evalRule(permission, pattern, ...rulesets)
+  }
+
+  // Union two rulesets, dropping exact duplicates, existing entries first. Used
+  // to merge the persisted permission row with an instance's in-memory grants
+  // so neither side is lost and the row does not grow unboundedly.
+  function mergeRulesets(existing: Ruleset, incoming: Ruleset): Ruleset {
+    const key = (rule: Ruleset[number]) => JSON.stringify([rule.permission, rule.pattern, rule.action])
+    const seen = new Set(existing.map(key))
+    const merged = [...existing]
+    for (const rule of incoming) {
+      if (seen.has(key(rule))) continue
+      seen.add(key(rule))
+      merged.push(rule)
+    }
+    return merged
   }
 
   export class Service extends Context.Service<Service, Interface>()("@opencode/Permission") {}
@@ -160,6 +201,8 @@ export namespace Permission {
           const state = {
             pending: new Map<PermissionID, PendingEntry>(),
             approved: row?.data ?? [],
+            projectID: ctx.project.id,
+            resolved: new Set<PermissionID>(),
           }
 
           yield* Effect.addFinalizer(() =>
@@ -176,13 +219,21 @@ export namespace Permission {
       )
 
       const ask = Effect.fn("Permission.ask")(function* (input: AskOptions) {
-        const { approved, pending } = yield* InstanceState.get(state)
+        const { approved, pending, resolved } = yield* InstanceState.get(state)
         const { ruleset, onPending, ...request } = input
         let needsAsk = false
         const denied: Array<{ pattern: string; rule: Rule }> = []
 
         for (const pattern of request.patterns) {
-          const rule = evaluate(request.permission, pattern, ruleset, approved)
+          // A configured deny is a hard boundary. Approvals (recorded from an
+          // earlier "always allow" click) match after configured rules, so
+          // without this short-circuit a broad approval — e.g. the browser
+          // tools' origin-wide grant — would silently override a narrower
+          // deny the user wrote down (https://site/admin/* deny vs an
+          // approved https://site/*). Approvals may relax asks, never denies.
+          const configured = evaluate(request.permission, pattern, ruleset)
+          const rule =
+            configured.action === "deny" ? configured : evaluate(request.permission, pattern, ruleset, approved)
           log.info("evaluated", { permission: request.permission, pattern, action: rule })
           if (rule.action === "deny") {
             denied.push({ pattern, rule })
@@ -232,16 +283,24 @@ export namespace Permission {
           Deferred.await(deferred),
           Effect.sync(() => {
             pending.delete(id)
+            markResolved(resolved, id)
           }),
         )
       })
 
       const reply = Effect.fn("Permission.reply")(function* (input: z.infer<typeof ReplyInput>) {
-        const { approved, pending } = yield* InstanceState.get(state)
+        const { approved, pending, resolved, projectID } = yield* InstanceState.get(state)
         const existing = pending.get(input.requestID)
-        if (!existing) return
+        if (!existing) {
+          // Already handled (most often as a cascade sibling of an earlier
+          // reply) -> idempotent success. Genuinely unknown -> surface the
+          // route's documented 404 via ErrorMiddleware's NotFoundError mapping.
+          if (resolved.has(input.requestID)) return
+          throw new NotFoundError({ message: `Permission request not found: ${input.requestID}` })
+        }
 
         pending.delete(input.requestID)
+        markResolved(resolved, input.requestID)
         yield* bus.publish(Event.Replied, {
           sessionID: existing.info.sessionID,
           requestID: existing.info.id,
@@ -257,6 +316,7 @@ export namespace Permission {
           for (const [id, item] of pending.entries()) {
             if (item.info.sessionID !== existing.info.sessionID) continue
             pending.delete(id)
+            markResolved(resolved, id)
             yield* bus.publish(Event.Replied, {
               sessionID: item.info.sessionID,
               requestID: item.info.id,
@@ -278,6 +338,31 @@ export namespace Permission {
           })
         }
 
+        // Persist the grant so "always allow" survives an instance reload / app
+        // restart. The approved list is loaded from this row at startup but was
+        // never written back, so before this every restart dropped all "always"
+        // grants and re-asked.
+        //
+        // Re-read and merge inside one synchronous use() callback rather than
+        // writing `approved` whole: several instances can share this project row
+        // (project id is the shared git-common-dir, so different worktrees or
+        // subdirectories of one repo resolve to the same row) while each keeps
+        // its own `approved` loaded at startup. Writing whole would clobber
+        // grants another instance persisted after we loaded; unioning the
+        // current row keeps every instance's grants. One process + a synchronous
+        // callback (no await between read and write) makes this atomic.
+        if (existing.info.always.length > 0) {
+          const now = Date.now()
+          Database.use((db) => {
+            const current = db.select().from(PermissionTable).where(eq(PermissionTable.project_id, projectID)).get()
+            const data = mergeRulesets(current?.data ?? [], approved)
+            db.insert(PermissionTable)
+              .values({ project_id: projectID, data, time_created: now, time_updated: now })
+              .onConflictDoUpdate({ target: PermissionTable.project_id, set: { data, time_updated: now } })
+              .run()
+          })
+        }
+
         for (const [id, item] of pending.entries()) {
           if (item.info.sessionID !== existing.info.sessionID) continue
           const ok = item.info.patterns.every(
@@ -285,6 +370,7 @@ export namespace Permission {
           )
           if (!ok) continue
           pending.delete(id)
+          markResolved(resolved, id)
           yield* bus.publish(Event.Replied, {
             sessionID: item.info.sessionID,
             requestID: item.info.id,
@@ -298,10 +384,11 @@ export namespace Permission {
         sessionID: SessionID,
         _reason: "session_deleted" | "session_archived" | "dangling_session",
       ) {
-        const { pending } = yield* InstanceState.get(state)
+        const { pending, resolved } = yield* InstanceState.get(state)
         for (const [id, item] of Array.from(pending.entries())) {
           if (item.info.sessionID !== sessionID) continue
           pending.delete(id)
+          markResolved(resolved, id)
           yield* bus.publish(Event.Replied, {
             sessionID: item.info.sessionID,
             requestID: item.info.id,
@@ -373,11 +460,43 @@ export namespace Permission {
 
   const EDIT_TOOLS = ["edit", "write", "apply_patch"]
 
+  // Permission keys the opencli group asks at execution (read vs write commands).
+  const OPENCLI_KEYS = ["opencli_read", "opencli_write"]
+
+  // True when the key's last-matching rule is a `*` deny — the same last-match
+  // convention the non-opencli path below uses. `disabled()` is only a cosmetic
+  // visibility gate, so it must never hide a usable tool; a false *show* is
+  // harmless (execution still denies). That rules out the tempting
+  // `evaluate(key, "*").action === "deny"` shortcut: querying the literal value
+  // "*" only sees the baseline rule, so `{ "*": deny, "x": allow }` would report
+  // denied and wrongly hide a group that can still run `x`. This check returns
+  // false there, keeping the group visible. Its only imperfection is the inverse
+  // — a redundant `{ "*": deny, "x": deny }` leaves the group cosmetically shown
+  // though fully denied — which execution corrects on first use.
+  function isWildcardDeny(permission: string, ruleset: Ruleset): boolean {
+    const rule = ruleset.findLast((entry) => Wildcard.match(permission, entry.permission))
+    return rule?.pattern === "*" && rule.action === "deny"
+  }
+
   export function disabled(tools: string[], ruleset: Ruleset): Set<string> {
     const result = new Set<string>()
     for (const tool of tools) {
-      const permission = EDIT_TOOLS.includes(tool) ? "edit" : tool
-      const rule = ruleset.findLast((rule) => Wildcard.match(permission, rule.permission))
+      // The opencli group (opencli_search + opencli_run) gates on its own
+      // opencli_read / opencli_write keys, never on "browser" — browser rules
+      // are URL-scoped, opencli rules are command-name-scoped, so conflating
+      // them let a `browser` rule appear to govern opencli while execution
+      // ignored it. Hide the group only when BOTH read and write are a
+      // configured `*: deny`; with either half allowed an adapter is still
+      // runnable, so the discovery + run tools stay.
+      if (tool.startsWith("opencli_")) {
+        if (OPENCLI_KEYS.every((key) => isWildcardDeny(key, ruleset))) result.add(tool)
+        continue
+      }
+      // Browser tools all ask the `browser` permission key, so a configured
+      // `permission.browser: deny` disables the whole set (hiding their deferred
+      // cards and repair hints, not just denying the eventual ask).
+      const permission = EDIT_TOOLS.includes(tool) ? "edit" : tool.startsWith("browser_") ? "browser" : tool
+      const rule = ruleset.findLast((entry) => Wildcard.match(permission, entry.permission))
       if (!rule) continue
       if (rule.pattern === "*" && rule.action === "deny") result.add(tool)
     }
@@ -385,18 +504,4 @@ export namespace Permission {
   }
 
   export const defaultLayer = layer.pipe(Layer.provide(Bus.layer))
-
-  export const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export async function ask(input: z.infer<typeof AskInput>) {
-    return runPromise((s) => s.ask(input))
-  }
-
-  export async function reply(input: z.infer<typeof ReplyInput>) {
-    return runPromise((s) => s.reply(input))
-  }
-
-  export async function list() {
-    return runPromise((s) => s.list())
-  }
 }

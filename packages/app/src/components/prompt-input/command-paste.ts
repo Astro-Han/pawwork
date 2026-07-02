@@ -10,10 +10,10 @@
 
 import type {
   ContextItem,
-  ImageAttachmentPart,
+  FloatingAttachment,
   Prompt,
 } from "@/context/prompt"
-import { isStructurallyEmpty } from "@/context/prompt"
+import { isStructurallyEmpty } from "@/context/prompt-equality"
 import type { CommandDescriptor } from "./command-text-part"
 import { tryParseLeadingCommandFromText } from "./command-text-part"
 
@@ -21,7 +21,7 @@ export interface PathCInput {
   plainText: string
   currentPrompt: Prompt
   contextItems: readonly ContextItem[]
-  imageAttachments: readonly ImageAttachmentPart[]
+  imageAttachments: readonly FloatingAttachment[]
   registry: ReadonlyArray<CommandDescriptor>
   composing: boolean
 }

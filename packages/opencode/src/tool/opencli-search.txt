@@ -1,0 +1,3 @@
+Search PawWork's bundled OpenCLI site adapters.
+
+Use this before opencli_run when the user asks to operate a specific website or use a site-specific workflow. It returns command names such as `12306/me` or `hackernews/search`, whether the command needs the embedded browser, and the argument names to pass.

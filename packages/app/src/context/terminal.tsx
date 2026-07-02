@@ -2,8 +2,9 @@ import { createStore, produce } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { batch, createEffect, createMemo, createRoot, createSignal, on, onCleanup, untrack, type Accessor } from "solid-js"
 import { useParams } from "@solidjs/router"
-import { useSDK } from "./sdk"
+import { useGlobalSDK } from "./global-sdk"
 import type { Platform } from "./platform"
+import { decode64 } from "@/utils/base64"
 import { defaultTitle, titleNumber } from "./terminal-title"
 import { createTerminalLifecycle } from "./terminal-lifecycle"
 import {
@@ -116,7 +117,27 @@ export function clearWorkspaceTerminals(dir: string, sessionIDs?: string[], plat
   }
 }
 
-function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: string, legacySessionID?: string) {
+// Narrow, directory-bound slice of the SDK. Terminal sessions are cached per
+// workspace and outlive any single route, so each session binds its own
+// directory-scoped client and event subscription instead of reading the
+// route-scoped SDK context (which dies with the session route).
+function createWorkspaceTerminalSDK(globalSDK: ReturnType<typeof useGlobalSDK>, directory: string) {
+  return {
+    client: globalSDK.createClient({ directory, throwOnError: true }),
+    get url() {
+      return globalSDK.url
+    },
+    onPtyExited(handler: (event: { properties: { id: string } }) => void) {
+      return globalSDK.event.on(directory, (event) => {
+        if (event.type === "pty.exited") handler(event)
+      })
+    },
+  }
+}
+
+type WorkspaceTerminalSDK = ReturnType<typeof createWorkspaceTerminalSDK>
+
+function createWorkspaceTerminalSession(sdk: WorkspaceTerminalSDK, dir: string, legacySessionID?: string) {
   const legacy = getLegacyTerminalStorageKeys(dir, legacySessionID)
   const [runtimeVersion, setRuntimeVersion] = createSignal(0)
   const bumpRuntime = () => setRuntimeVersion((value) => value + 1)
@@ -250,7 +271,7 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
     })
   }
 
-  const unsub = sdk.event.on("pty.exited", (event: { properties: { id: string } }) => {
+  const unsub = sdk.onPtyExited((event) => {
     removeExited(event.properties.id)
   })
   onCleanup(unsub)
@@ -455,7 +476,7 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
   name: "Terminal",
   gate: false,
   init: () => {
-    const sdk = useSDK()
+    const globalSDK = useGlobalSDK()
     const params = useParams()
     const cache = new Map<string, TerminalCacheEntry>()
 
@@ -481,8 +502,11 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       }
     }
 
-    const loadWorkspace = (dir: string, legacySessionID?: string) => {
-      const key = getWorkspaceTerminalCacheKey(dir)
+    // `slug` (the base64 route segment) keys the cache and persisted state —
+    // unchanged across the provider's move above the session route. `directory`
+    // (the decoded path) only feeds the directory-bound SDK adapter.
+    const loadWorkspace = (input: { slug: string; directory: string; legacySessionID?: string }) => {
+      const key = getWorkspaceTerminalCacheKey(input.slug)
       const existing = cache.get(key)
       if (existing) {
         cache.delete(key)
@@ -491,7 +515,11 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       }
 
       const entry = createRoot((dispose) => ({
-        value: createWorkspaceTerminalSession(sdk, dir, legacySessionID),
+        value: createWorkspaceTerminalSession(
+          createWorkspaceTerminalSDK(globalSDK, input.directory),
+          input.slug,
+          input.legacySessionID,
+        ),
         dispose,
       }))
 
@@ -501,9 +529,11 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
     }
 
     const workspace = createMemo(() => {
-      const dir = params.dir
-      if (!dir) return
-      return loadWorkspace(dir, params.id)
+      const slug = params.dir
+      if (!slug) return
+      const directory = decode64(slug)
+      if (!directory) return
+      return loadWorkspace({ slug, directory, legacySessionID: params.id })
     })
 
     return createTerminalBinding(workspace)

@@ -1,10 +1,8 @@
-import { Hono } from "hono"
-import { describeRoute, resolver } from "hono-openapi"
-import { streamSSE } from "hono/streaming"
 import { Log } from "@opencode-ai/core/util/log"
-import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
+import { AppRuntime } from "@/effect/app-runtime"
 import { AsyncQueue } from "../../util/queue"
+import { createSseResponse } from "../sse"
 
 const log = Log.create({ service: "server" })
 const DEFAULT_HEARTBEAT_MS = 10_000
@@ -13,79 +11,67 @@ function normalizeHeartbeatMs(value: number | undefined): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : DEFAULT_HEARTBEAT_MS
 }
 
-export const EventRoutes = (options: { heartbeatMs?: number } = {}) => {
+export function handleInstanceEventStream(request: Request, options: { heartbeatMs?: number } = {}) {
   const heartbeatMs = normalizeHeartbeatMs(options.heartbeatMs)
+  log.info("event connected")
+  return createSseResponse({
+    signal: request.signal,
+    start(stream) {
+      const q = new AsyncQueue<string | null>()
+      let done = false
+      let cancelled = false
 
-  return new Hono().get(
-    "/event",
-    describeRoute({
-      summary: "Subscribe to events",
-      description: "Get events",
-      operationId: "event.subscribe",
-      responses: {
-        200: {
-          description: "Event stream",
-          content: {
-            "text/event-stream": {
-              schema: resolver(BusEvent.payloads()),
-            },
-          },
-        },
-      },
-    }),
-    async (c) => {
-      log.info("event connected")
-      c.header("Cache-Control", "no-cache, no-transform")
-      c.header("X-Accel-Buffering", "no")
-      c.header("X-Content-Type-Options", "nosniff")
-      return streamSSE(c, async (stream) => {
-        const q = new AsyncQueue<string | null>()
-        let done = false
+      q.push(
+        JSON.stringify({
+          type: "server.connected",
+          properties: {},
+        }),
+      )
 
+      const heartbeat = setInterval(() => {
         q.push(
           JSON.stringify({
-            type: "server.connected",
+            type: "server.heartbeat",
             properties: {},
           }),
         )
+      }, heartbeatMs)
 
-        // Send heartbeat every 10s to prevent stalled proxy streams.
-        const heartbeat = setInterval(() => {
-          q.push(
-            JSON.stringify({
-              type: "server.heartbeat",
-              properties: {},
-            }),
-          )
-        }, heartbeatMs)
+      const stop = () => {
+        if (done) return
+        done = true
+        clearInterval(heartbeat)
+        unsub()
+        q.push(null)
+        log.info("event disconnected")
+      }
 
-        const stop = () => {
-          if (done) return
-          done = true
-          clearInterval(heartbeat)
-          unsub()
-          q.push(null)
-          log.info("event disconnected")
-        }
+      const unsub = AppRuntime.runSync(
+        Bus.Service.use((bus) =>
+          bus.subscribeAllCallback((event) => {
+            q.push(JSON.stringify(event))
+            if (event.type === Bus.InstanceDisposed.type) {
+              stop()
+            }
+          }),
+        ),
+      )
 
-        const unsub = Bus.subscribeAll((event) => {
-          q.push(JSON.stringify(event))
-          if (event.type === Bus.InstanceDisposed.type) {
-            stop()
-          }
-        })
-
-        stream.onAbort(stop)
-
+      void (async () => {
         try {
           for await (const data of q) {
             if (data === null) return
-            await stream.writeSSE({ data })
+            stream.write({ data })
           }
         } finally {
-          stop()
+          if (!cancelled) stream.close()
         }
-      })
+      })()
+
+      return () => {
+        cancelled = true
+        stop()
+      }
     },
-  )
+  })
 }

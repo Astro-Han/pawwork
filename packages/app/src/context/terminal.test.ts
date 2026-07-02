@@ -9,12 +9,6 @@ beforeAll(async () => {
     useNavigate: () => () => undefined,
     useParams: () => ({}),
   }))
-  mock.module("@opencode-ai/ui/context", () => ({
-    createSimpleContext: () => ({
-      use: () => undefined,
-      provider: () => undefined,
-    }),
-  }))
   const mod = await import("./terminal")
   getWorkspaceTerminalCacheKey = mod.getWorkspaceTerminalCacheKey
   getLegacyTerminalStorageKeys = mod.getLegacyTerminalStorageKeys

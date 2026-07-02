@@ -10,6 +10,10 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
     },
+    "build-storybook": {
+      "dependsOn": ["^build"],
+      "outputs": ["storybook-static/**"]
+    },
     "opencode#test": {
       "dependsOn": ["^build"],
       "outputs": [],
@@ -39,6 +43,11 @@
       "outputs": []
     },
     "@opencode-ai/desktop-electron#test:ci": {
+      "dependsOn": ["^build"],
+      "outputs": [".artifacts/unit/junit.xml"],
+      "passThroughEnv": ["*"]
+    },
+    "@opencode-ai/remote-bridge#test:ci": {
       "dependsOn": ["^build"],
       "outputs": [".artifacts/unit/junit.xml"],
       "passThroughEnv": ["*"]

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { modelSupportsInput, routeBrowserFile, routePickedPath } from "./attachment-routing"
+import { attachmentCapabilityWarning, modelSupportsInput, routeBrowserFile, routePickedPath } from "./attachment-routing"
 
 const mockModel = (input: Partial<Record<"text" | "image" | "audio" | "video" | "pdf", boolean>>) => ({
   capabilities: {
@@ -27,6 +27,31 @@ describe("modelSupportsInput", () => {
     expect(modelSupportsInput({ modalities: { input: ["text", "pdf"] } }, "pdf")).toBe(true)
     expect(modelSupportsInput({ modalities: { input: ["text"] } }, "image")).toBe(false)
     expect(modelSupportsInput({ modalities: { input: ["text", "image"] } }, "pdf")).toBe(true)
+  })
+})
+
+describe("attachmentCapabilityWarning", () => {
+  test("flags image attachments when the model cannot read images", () => {
+    expect(attachmentCapabilityWarning(mockModel({ image: false }), "image/png")).toBe("image")
+    expect(attachmentCapabilityWarning(mockModel({ image: true }), "image/png")).toBeUndefined()
+  })
+
+  test("flags PDF attachments when the model cannot read PDFs", () => {
+    expect(attachmentCapabilityWarning(mockModel({ pdf: false }), "application/pdf")).toBe("pdf")
+    expect(attachmentCapabilityWarning(mockModel({ pdf: true }), "application/pdf")).toBeUndefined()
+  })
+
+  test("lets image-capable models cover PDF attachments", () => {
+    expect(attachmentCapabilityWarning(mockModel({ image: true, pdf: false }), "application/pdf")).toBeUndefined()
+  })
+
+  test("never flags text or unknown attachments", () => {
+    expect(attachmentCapabilityWarning(mockModel({}), "text/plain")).toBeUndefined()
+    expect(attachmentCapabilityWarning(mockModel({}), undefined)).toBeUndefined()
+  })
+
+  test("stays silent while the model is unknown", () => {
+    expect(attachmentCapabilityWarning(undefined, "image/png")).toBeUndefined()
   })
 })
 

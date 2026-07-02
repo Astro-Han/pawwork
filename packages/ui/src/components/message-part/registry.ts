@@ -1,5 +1,5 @@
 import type { Component } from "solid-js"
-import type { Message as MessageType, Part as PartType } from "@opencode-ai/sdk/v2"
+import type { FilePart, Message as MessageType, Part as PartType } from "@opencode-ai/sdk/v2"
 
 export interface MessageProps {
   message: MessageType
@@ -36,6 +36,8 @@ export interface ToolProps {
   tool: string
   output?: string
   status?: string
+  /** Files the completed tool attached to its result (e.g. a screenshot). */
+  attachments?: FilePart[]
   hideDetails?: boolean
   defaultOpen?: boolean
   forceOpen?: boolean

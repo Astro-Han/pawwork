@@ -12,7 +12,6 @@ import DESCRIPTION from "./edit.txt"
 import { File } from "../file"
 import { FileWatcher } from "../file/watcher"
 import { Bus } from "../bus"
-import { Format } from "../format"
 import { Instance } from "../project/instance"
 import { Snapshot } from "@/snapshot"
 import { assertExternalDirectoryEffect } from "./external-directory"
@@ -62,218 +61,190 @@ export const EditTool = Tool.define(
   Effect.gen(function* () {
     const lsp = yield* LSP.Service
     const afs = yield* AppFileSystem.Service
-    const format = yield* Format.Service
     const bus = yield* Bus.Service
     const turnChange = yield* TurnChange.Service
 
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-        Effect.gen(function* () {
-          if (!params.filePath) {
-            throw new Error("filePath is required")
-          }
+      execute: Effect.fn("EditTool.execute")(function* (
+        params: Schema.Schema.Type<typeof Parameters>,
+        ctx: Tool.Context,
+      ) {
+        if (!params.filePath) {
+          throw new Error("filePath is required")
+        }
 
-          if (params.oldString === params.newString) {
-            throw new Error("No changes to apply: oldString and newString are identical.")
-          }
+        if (params.oldString === params.newString) {
+          throw new Error("No changes to apply: oldString and newString are identical.")
+        }
 
-          const rawFilePath = path.isAbsolute(params.filePath)
-            ? params.filePath
-            : path.join(Instance.directory, params.filePath)
-          const filePath = (yield* assertExternalDirectoryEffect(ctx, rawFilePath)) ?? rawFilePath
-          const relativeFilePath = path.relative(Instance.worktree, filePath)
+        const rawFilePath = path.isAbsolute(params.filePath)
+          ? params.filePath
+          : path.join(Instance.directory, params.filePath)
+        const filePath = (yield* assertExternalDirectoryEffect(ctx, rawFilePath)) ?? rawFilePath
+        const relativeFilePath = path.relative(Instance.worktree, filePath)
 
-          let diff = ""
-          let contentOld = ""
-          let contentNew = ""
-          let existedBefore = true
-          let bomDiscarded = false
-          let beforeBom = false
-          let afterBom = false
-          yield* lock(filePath).withPermits(1)(
-            Effect.gen(function* () {
-              if (params.oldString === "") {
-                const existed = yield* afs.existsSafe(filePath)
-                existedBefore = existed
-                // Reject directory targets up front instead of failing inside
-                // Bom.readFile / writeWithDirs with an opaque internal error.
-                if (existed) {
-                  const stat = yield* afs.stat(filePath).pipe(
-                    Effect.catchIf(
-                      (err) => "reason" in err && err.reason._tag === "NotFound",
-                      () => Effect.succeed(undefined),
-                    ),
-                  )
-                  if (stat?.type === "Directory") {
-                    return yield* Effect.fail(new Error(`Path is a directory, not a file: ${filePath}`))
-                  }
-                }
-                const source = existed ? yield* Bom.readFile(afs, filePath) : { bom: false, text: "" }
-                const next = Bom.split(params.newString)
-                // Only preserve the existing file's BOM. Letting `next.bom` add
-                // a new one would mutate file bytes the diff preview cannot
-                // show, silently breaking shebangs and first-token parsing on
-                // BOM-less scripts.
-                const desiredBom = source.bom
-                beforeBom = source.bom
-                afterBom = desiredBom
-                const bomChanged = source.bom !== next.bom
-                bomDiscarded = bomChanged
-                contentOld = source.text
-                contentNew = next.text
-                diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
-                const sensitive = isSensitiveTargetPath(filePath, Instance.worktree)
-                const status = existed ? "modified" : "added"
-                yield* ctx.ask({
-                  permission: "edit",
-                  patterns: [relativeFilePath],
-                  always: ["*"],
-                  metadata: sensitive
-                    ? safeFilepathMetadata(filePath, status, bomChanged ? { bomDiscarded: true } : undefined)
-                    : {
-                        filepath: filePath,
-                        diff,
-                        ...(bomChanged && { bomDiscarded: true }),
-                      },
-                })
-                yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
-                if (yield* format.file(filePath)) {
-                  contentNew = yield* Bom.syncFile(afs, filePath, desiredBom)
-                  // Recompute the diff so the metadata/snapshot reflects the
-                  // post-format on-disk content (formatters can rewrite the
-                  // file after the diff was originally built).
-                  diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
-                }
-                yield* bus.publish(File.Event.Edited, { file: filePath })
-                yield* bus.publish(FileWatcher.Event.Updated, {
-                  file: filePath,
-                  event: existed ? "change" : "add",
-                })
-                return
+        let diff = ""
+        let contentOld = ""
+        let contentNew = ""
+        let existedBefore = true
+        let bomDiscarded = false
+        let beforeBom = false
+        let afterBom = false
+        yield* lock(filePath).withPermits(1)(
+          Effect.gen(function* () {
+            if (params.oldString === "") {
+              const existed = yield* afs.existsSafe(filePath)
+              existedBefore = existed
+              if (existed) {
+                throw new Error(
+                  "oldString cannot be empty when editing an existing file. Provide the exact text to replace, or use write for an intentional full-file replacement.",
+                )
               }
-
-              const info = yield* afs.stat(filePath).pipe(
-                Effect.catchIf(
-                  (err) => "reason" in err && err.reason._tag === "NotFound",
-                  () => Effect.succeed(undefined),
-                ),
-              )
-              if (!info) throw new Error(`File ${filePath} not found`)
-              if (info.type === "Directory") throw new Error(`Path is a directory, not a file: ${filePath}`)
-              existedBefore = true
-              const source = yield* Bom.readFile(afs, filePath)
-              contentOld = source.text
-
-              const ending = detectLineEnding(contentOld)
-              const old = convertToLineEnding(normalizeLineEndings(params.oldString), ending)
-              const replacement = convertToLineEnding(normalizeLineEndings(params.newString), ending)
-
-              const next = Bom.split(replace(contentOld, old, replacement, params.replaceAll))
-              // Same reasoning as the create-path: never let the replacement
-              // text introduce a new BOM, since the diff preview cannot
-              // surface that byte-level change.
+              const source = { bom: false, text: "" }
+              const next = Bom.split(params.newString)
+              // Only preserve the existing file's BOM. Letting `next.bom` add
+              // a new one would mutate file bytes the diff preview cannot
+              // show, silently breaking shebangs and first-token parsing on
+              // BOM-less scripts.
               const desiredBom = source.bom
               beforeBom = source.bom
               afterBom = desiredBom
               const bomChanged = source.bom !== next.bom
               bomDiscarded = bomChanged
+              contentOld = source.text
               contentNew = next.text
-
-              diff = trimDiff(
-                createTwoFilesPatch(
-                  filePath,
-                  filePath,
-                  normalizeLineEndings(contentOld),
-                  normalizeLineEndings(contentNew),
-                ),
-              )
+              diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
               const sensitive = isSensitiveTargetPath(filePath, Instance.worktree)
+              const status = existed ? "modified" : "added"
               yield* ctx.ask({
                 permission: "edit",
                 patterns: [relativeFilePath],
                 always: ["*"],
                 metadata: sensitive
-                  ? safeFilepathMetadata(filePath, "modified", bomChanged ? { bomDiscarded: true } : undefined)
+                  ? safeFilepathMetadata(filePath, status, bomChanged ? { bomDiscarded: true } : undefined)
                   : {
                       filepath: filePath,
                       diff,
                       ...(bomChanged && { bomDiscarded: true }),
                     },
               })
-
               yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
-              if (yield* format.file(filePath)) {
-                contentNew = yield* Bom.syncFile(afs, filePath, desiredBom)
-              }
               yield* bus.publish(File.Event.Edited, { file: filePath })
               yield* bus.publish(FileWatcher.Event.Updated, {
                 file: filePath,
-                event: "change",
+                event: existed ? "change" : "add",
               })
-              diff = trimDiff(
-                createTwoFilesPatch(
-                  filePath,
-                  filePath,
-                  normalizeLineEndings(contentOld),
-                  normalizeLineEndings(contentNew),
-                ),
-              )
-            }).pipe(Effect.orDie),
-          )
+              return
+            }
 
-          let additions = 0
-          let deletions = 0
-          for (const change of diffLines(contentOld, contentNew)) {
-            if (change.added) additions += change.count || 0
-            if (change.removed) deletions += change.count || 0
-          }
-          const sensitive = isSensitiveTargetPath(filePath, Instance.worktree)
-          const status = existedBefore ? "modified" : "added"
-          const filediff: Snapshot.FileDiff = sensitive
-            ? (safeFileMetadata(filePath, status) as unknown as Snapshot.FileDiff)
-            : {
-                file: filePath,
-                patch: diff,
-                additions,
-                deletions,
-              }
+            const info = yield* afs.stat(filePath).pipe(
+              Effect.catchIf(
+                (err) => "reason" in err && err.reason._tag === "NotFound",
+                () => Effect.succeed(undefined),
+              ),
+            )
+            if (!info) throw new Error(`File ${filePath} not found`)
+            if (info.type === "Directory") throw new Error(`Path is a directory, not a file: ${filePath}`)
+            existedBefore = true
+            const source = yield* Bom.readFile(afs, filePath)
+            contentOld = source.text
 
-          yield* ctx.metadata({
-            metadata: {
-              ...(sensitive ? {} : { diff }),
-              filediff,
-              diagnostics: {},
-              ...(sensitive && bomDiscarded ? { bomDiscarded: true } : {}),
-            },
-          })
-          yield* turnChange.recordWrite({
-            sessionID: ctx.sessionID,
-            messageID: ctx.messageID,
-            path: filePath,
-            before: existedBefore ? { exists: true, content: contentOld, bom: beforeBom } : { exists: false },
-            after: { exists: true, content: contentNew, bom: afterBom },
-          })
+            const ending = detectLineEnding(contentOld)
+            const old = convertToLineEnding(normalizeLineEndings(params.oldString), ending)
+            const replacement = convertToLineEnding(normalizeLineEndings(params.newString), ending)
 
-          let output = "Edit applied successfully."
-          yield* lsp.touchFile(filePath, true)
-          const diagnostics = sensitive ? {} : yield* lsp.diagnostics()
-          const normalizedFilePath = AppFileSystem.normalizePath(filePath)
-          const block = LSP.Diagnostic.report(filePath, diagnostics[normalizedFilePath] ?? [])
-          if (block) output += `\n\nLSP errors detected in this file, please fix:\n${block}`
+            const next = Bom.split(replace(contentOld, old, replacement, params.replaceAll))
+            // Same reasoning as the create-path: never let the replacement
+            // text introduce a new BOM, since the diff preview cannot
+            // surface that byte-level change.
+            const desiredBom = source.bom
+            beforeBom = source.bom
+            afterBom = desiredBom
+            const bomChanged = source.bom !== next.bom
+            bomDiscarded = bomChanged
+            contentNew = next.text
 
-          return {
-            metadata: {
-              diagnostics,
-              ...(sensitive ? {} : { diff }),
-              filediff,
-              ...(sensitive && bomDiscarded ? { bomDiscarded: true } : {}),
-            },
-            title: relativeFilePath,
-            output,
-          }
-        }),
+            diff = trimDiff(
+              createTwoFilesPatch(
+                filePath,
+                filePath,
+                normalizeLineEndings(contentOld),
+                normalizeLineEndings(contentNew),
+              ),
+            )
+            const sensitive = isSensitiveTargetPath(filePath, Instance.worktree)
+            yield* ctx.ask({
+              permission: "edit",
+              patterns: [relativeFilePath],
+              always: ["*"],
+              metadata: sensitive
+                ? safeFilepathMetadata(filePath, "modified", bomChanged ? { bomDiscarded: true } : undefined)
+                : {
+                    filepath: filePath,
+                    diff,
+                    ...(bomChanged && { bomDiscarded: true }),
+                  },
+            })
+
+            yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
+            yield* bus.publish(File.Event.Edited, { file: filePath })
+            yield* bus.publish(FileWatcher.Event.Updated, {
+              file: filePath,
+              event: "change",
+            })
+          }),
+        )
+
+        const { additions, deletions } = countLineChanges(contentOld, contentNew)
+        const sensitive = isSensitiveTargetPath(filePath, Instance.worktree)
+        const status = existedBefore ? "modified" : "added"
+        const filediff: Snapshot.FileDiff = sensitive
+          ? (safeFileMetadata(filePath, status) as unknown as Snapshot.FileDiff)
+          : {
+              file: filePath,
+              patch: diff,
+              additions,
+              deletions,
+            }
+
+        yield* ctx.metadata({
+          metadata: {
+            ...(sensitive ? {} : { diff }),
+            filediff,
+            diagnostics: {},
+            ...(sensitive && bomDiscarded ? { bomDiscarded: true } : {}),
+          },
+        })
+        yield* turnChange.recordWrite({
+          sessionID: ctx.sessionID,
+          messageID: ctx.messageID,
+          path: filePath,
+          before: existedBefore ? { exists: true, content: contentOld, bom: beforeBom } : { exists: false },
+          after: { exists: true, content: contentNew, bom: afterBom },
+        })
+
+        let output = existedBefore
+          ? `Edited ${relativeFilePath} (+${additions} -${deletions} lines).`
+          : `Created ${relativeFilePath} (+${additions} lines).`
+        yield* lsp.touchFile(filePath, true)
+        const diagnostics = sensitive ? {} : yield* lsp.diagnostics()
+        const normalizedFilePath = AppFileSystem.normalizePath(filePath)
+        const block = LSP.Diagnostic.report(filePath, diagnostics[normalizedFilePath] ?? [])
+        if (block) output += `\n\nLSP errors detected in this file, please fix:\n${block}`
+
+        return {
+          metadata: {
+            diagnostics,
+            ...(sensitive ? {} : { diff }),
+            filediff,
+            ...(sensitive && bomDiscarded ? { bomDiscarded: true } : {}),
+          },
+          title: relativeFilePath,
+          output,
+        }
+      }, Effect.orDie),
     }
   }),
 )
@@ -281,8 +252,8 @@ export const EditTool = Tool.define(
 export type Replacer = (content: string, find: string) => Generator<string, void, unknown>
 
 // Similarity thresholds for block anchor fallback matching
-const SINGLE_CANDIDATE_SIMILARITY_THRESHOLD = 0.0
-const MULTIPLE_CANDIDATES_SIMILARITY_THRESHOLD = 0.3
+const SINGLE_CANDIDATE_SIMILARITY_THRESHOLD = 0.65
+const MULTIPLE_CANDIDATES_SIMILARITY_THRESHOLD = 0.65
 
 /**
  * Levenshtein distance algorithm implementation
@@ -375,8 +346,11 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
     // Look for the matching last line after this first line
     for (let j = i + 2; j < originalLines.length; j++) {
       if (originalLines[j].trim() === lastLineSearch) {
-        candidates.push({ startLine: i, endLine: j })
-        break // Only match the first occurrence of the last line
+        const actualBlockSize = j - i + 1
+        if (actualBlockSize === searchBlockSize) {
+          candidates.push({ startLine: i, endLine: j })
+          break // Only match the first valid occurrence of the last line
+        }
       }
     }
   }
@@ -392,7 +366,7 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
     const actualBlockSize = endLine - startLine + 1
 
     let similarity = 0
-    let linesToCheck = Math.min(searchBlockSize - 2, actualBlockSize - 2) // Middle lines only
+    const linesToCheck = Math.min(searchBlockSize - 2, actualBlockSize - 2) // Middle lines only
 
     if (linesToCheck > 0) {
       for (let j = 1; j < searchBlockSize - 1 && j < actualBlockSize - 1; j++) {
@@ -441,7 +415,7 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
     const actualBlockSize = endLine - startLine + 1
 
     let similarity = 0
-    let linesToCheck = Math.min(searchBlockSize - 2, actualBlockSize - 2) // Middle lines only
+    const linesToCheck = Math.min(searchBlockSize - 2, actualBlockSize - 2) // Middle lines only
 
     if (linesToCheck > 0) {
       for (let j = 1; j < searchBlockSize - 1 && j < actualBlockSize - 1; j++) {
@@ -674,8 +648,7 @@ export const ContextAwareReplacer: Replacer = function* (content, find) {
         const blockLines = contentLines.slice(i, j + 1)
         const block = blockLines.join("\n")
 
-        // Check if the middle content has reasonable similarity
-        // (simple heuristic: at least 50% of non-empty lines should match when trimmed)
+        // Check if the middle content has reasonable similarity.
         if (blockLines.length === findLines.length) {
           let matchingLines = 0
           let totalNonEmptyLines = 0
@@ -692,7 +665,10 @@ export const ContextAwareReplacer: Replacer = function* (content, find) {
             }
           }
 
-          if (totalNonEmptyLines === 0 || matchingLines / totalNonEmptyLines >= 0.5) {
+          if (
+            totalNonEmptyLines === 0 ||
+            matchingLines / totalNonEmptyLines >= MULTIPLE_CANDIDATES_SIMILARITY_THRESHOLD
+          ) {
             yield block
             break // Only match the first occurrence
           }
@@ -701,6 +677,16 @@ export const ContextAwareReplacer: Replacer = function* (content, find) {
       }
     }
   }
+}
+
+export function countLineChanges(oldContent: string, newContent: string): { additions: number; deletions: number } {
+  let additions = 0
+  let deletions = 0
+  for (const change of diffLines(oldContent, newContent)) {
+    if (change.added) additions += change.count || 0
+    if (change.removed) deletions += change.count || 0
+  }
+  return { additions, deletions }
 }
 
 export function trimDiff(diff: string): string {
@@ -743,6 +729,11 @@ export function replace(content: string, oldString: string, newString: string, r
   if (oldString === newString) {
     throw new Error("No changes to apply: oldString and newString are identical.")
   }
+  if (oldString === "") {
+    throw new Error(
+      "oldString cannot be empty when editing an existing file. Provide the exact text to replace, or use write for an intentional full-file replacement.",
+    )
+  }
 
   let notFound = true
 
@@ -761,8 +752,15 @@ export function replace(content: string, oldString: string, newString: string, r
       const index = content.indexOf(search)
       if (index === -1) continue
       notFound = false
+      if (isDisproportionateMatch(search, oldString)) {
+        throw new Error(
+          "Refusing replacement because the matched span is much larger than oldString. Re-read the file and provide the full exact oldString for the intended replacement.",
+        )
+      }
       if (replaceAll) {
-        return content.replaceAll(search, newString)
+        // Function replacer: a string replacement argument has its $-patterns
+        // ($$, $&, $`, $') interpreted, silently corrupting newString.
+        return content.replaceAll(search, () => newString)
       }
       const lastIndex = content.lastIndexOf(search)
       if (index !== lastIndex) continue
@@ -776,4 +774,11 @@ export function replace(content: string, oldString: string, newString: string, r
     )
   }
   throw new Error("Found multiple matches for oldString. Provide more surrounding context to make the match unique.")
+}
+
+function isDisproportionateMatch(search: string, oldString: string) {
+  const oldLines = oldString.split("\n").length
+  const searchLines = search.split("\n").length
+  if (searchLines >= Math.max(oldLines + 3, oldLines * 2)) return true
+  return search.trim().length > Math.max(oldString.trim().length + 500, oldString.trim().length * 4)
 }

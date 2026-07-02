@@ -1,6 +1,6 @@
 {
   "officecli": {
-    "version": "v1.0.93",
+    "version": "v1.0.102",
     "repo": "iOfficeAI/OfficeCLI",
     "assets": {
       "darwin-arm64": "officecli-mac-arm64",
@@ -8,6 +8,6 @@
       "win32-x64": "officecli-win-x64.exe",
       "win32-arm64": "officecli-win-arm64.exe"
     },
-    "skillsTarballSha256": "74e89a265b8ba1aec8e995972613857e395bcadec0cd919d5884f3da97630193"
+    "skillsTarballSha256": "933f63e5a73d3c136bacfd10f435af775355cc170ab69f4a42dbcf5648b9cb6a"
   }
 }

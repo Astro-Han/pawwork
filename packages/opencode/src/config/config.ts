@@ -14,7 +14,7 @@ import { Auth } from "../auth"
 import { Env } from "../env"
 import { applyEdits, modify } from "jsonc-parser"
 import { Instance, type InstanceContext } from "../project/instance"
-import { constants, existsSync, statSync } from "fs"
+import { existsSync, statSync } from "fs"
 import { GlobalBus } from "@/bus/global"
 import { Event } from "../server/event"
 import { Account } from "@/account"
@@ -22,7 +22,6 @@ import { isRecord } from "@/util/record"
 import type { ConsoleState } from "./console-state"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { InstanceState } from "@/effect"
-import { makeRuntime } from "@/effect/run-service"
 import { Context, Duration, Effect, Fiber, Layer, Option, Schema } from "effect"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { InstanceRef } from "@/effect/instance-ref"
@@ -30,7 +29,6 @@ import { zod, ZodOverride } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
 import { ConfigAgent } from "./agent"
 import { ConfigCommand } from "./command"
-import { ConfigFormatter } from "./formatter"
 import { ConfigKeybinds } from "./keybinds"
 import { ConfigLayout } from "./layout"
 import { ConfigLSP } from "./lsp"
@@ -45,9 +43,9 @@ import { ConfigProvider } from "./provider"
 import { ConfigServer } from "./server"
 import { ConfigSkills } from "./skills"
 import { ConfigVariable } from "./variable"
+import { RemoteAuthError } from "./error"
 import { Npm } from "@opencode-ai/core/npm"
 import { Filesystem } from "@/util/filesystem"
-import { Flock } from "@/util/flock"
 import { Installation } from "@/installation"
 import { InstallationPluginVersion } from "@opencode-ai/core/installation/version"
 import { withLifecycleOrigin } from "@/session/lifecycle-provenance"
@@ -79,6 +77,26 @@ function projectConfigFilesForDirectory(dir: string) {
   return []
 }
 
+async function readRemoteConfigJson(response: Response, input: { url: string; remote: string }) {
+  const body = await response.text()
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? ""
+  const isHtml = contentType.includes("html") || /^\s*(?:<!doctype html|<html)\b/i.test(body)
+  if (isHtml) {
+    throw new RemoteAuthError({
+      ...input,
+      message: "the server returned a login page instead of JSON",
+    })
+  }
+  try {
+    return JSON.parse(body)
+  } catch {
+    throw new RemoteAuthError({
+      ...input,
+      message: "the server returned non-JSON content",
+    })
+  }
+}
+
 function shouldGenerateInDirectory(dir: string) {
   const base = path.basename(dir)
   if (Runtime.isPawWork() && PawWorkHome.isCandidate(dir)) return PawWorkHome.isPrimary(dir)
@@ -89,15 +107,6 @@ function shouldGenerateInDirectory(dir: string) {
 
 type Package = {
   dependencies?: Record<string, string>
-}
-
-async function isWritable(dir: string) {
-  try {
-    await fsNode.access(dir, constants.W_OK)
-    return true
-  } catch {
-    return false
-  }
 }
 
 function configPluginDependencyTarget() {
@@ -119,6 +128,8 @@ function normalizeLoadedConfig(data: unknown, source: string) {
   // Legacy compat for v0.2.13-era configs: ignore removed default_agent before strict schema decode.
   // Keep this as a narrow read-time shim only; do not write the file back.
   delete copy["default_agent"]
+  // Legacy compat: formatter integration was removed. Silently ignore the field.
+  delete copy["formatter"]
   const hadLegacy = "theme" in copy || "keybinds" in copy || "tui" in copy
   if (!hadLegacy) return copy
   delete copy.theme
@@ -253,7 +264,6 @@ export const Info = Schema.Struct({
       ]),
     ),
   ).annotate({ description: "MCP (Model Context Protocol) server configurations" }),
-  formatter: Schema.optional(ConfigFormatter.Info),
   lsp: Schema.optional(ConfigLSP.Info),
   instructions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
     description: "Additional instruction files or patterns to include",
@@ -369,6 +379,7 @@ export interface Interface {
   readonly invalidate: (wait?: boolean) => Effect.Effect<void>
   readonly directories: () => Effect.Effect<string[]>
   readonly waitForDependencies: () => Effect.Effect<void>
+  readonly installDependencies: (dir: string) => Effect.Effect<boolean>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Config") {}
@@ -411,8 +422,17 @@ export function configFileLockKey(file: string) {
 }
 
 export async function withConfigFileLock<T>(file: string, fn: () => Promise<T>) {
-  await using _ = await Flock.acquire(configFileLockKey(file))
-  return await fn()
+  return Effect.runPromise(
+    EffectFlock.Service.use((flock) =>
+      flock.withLock(
+        Effect.tryPromise({
+          try: fn,
+          catch: (error) => error,
+        }),
+        configFileLockKey(file),
+      ),
+    ).pipe(Effect.provide(EffectFlock.defaultLayer)),
+  )
 }
 
 function isWindowsSyncUnsupportedError(error: unknown) {
@@ -710,6 +730,7 @@ const rawLayer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
+    const flock = yield* EffectFlock.Service
     const authSvc = yield* Auth.Service
     const accountSvc = yield* Account.Service
     const env = yield* Env.Service
@@ -745,9 +766,9 @@ const rawLayer = Layer.effect(
       if (!data.$schema) {
         data.$schema = "https://opencode.ai/config.json"
         const updated = text.replace(/^\s*\{/, '{\n  "$schema": "https://opencode.ai/config.json",')
-        yield* Effect.promise(() =>
-          withConfigFileLock(options.path, () => writeConfigTextAtomic(options.path, updated)),
-        ).pipe(Effect.catch(() => Effect.void))
+        yield* flock
+          .withLock(Effect.promise(() => writeConfigTextAtomic(options.path, updated)), configFileLockKey(options.path))
+          .pipe(Effect.catch(() => Effect.void))
       }
       return data
     })
@@ -888,13 +909,23 @@ const rawLayer = Layer.effect(
             process.env[value.key] = value.token
             log.debug("fetching remote config", { url: `${url}/.well-known/opencode` })
             const response = yield* Effect.promise(() => fetch(`${url}/.well-known/opencode`))
+            const remote = `${url}/.well-known/opencode`
+            if (response.status === 401 || response.status === 403) {
+              throw new RemoteAuthError({
+                url,
+                remote,
+                message: `the server rejected the request with HTTP ${response.status}`,
+              })
+            }
             if (!response.ok) {
               throw new Error(`failed to fetch remote config from ${url}: ${response.status}`)
             }
-            const wellknown = (yield* Effect.promise(() => response.json())) as { config?: Record<string, unknown> }
+            const wellknown = (yield* Effect.promise(() =>
+              readRemoteConfigJson(response, { url, remote }),
+            )) as { config?: Record<string, unknown> }
             const remoteConfig = wellknown.config ?? {}
             if (!remoteConfig.$schema) remoteConfig.$schema = "https://opencode.ai/config.json"
-            const source = `${url}/.well-known/opencode`
+            const source = remote
             const next = yield* loadConfig(JSON.stringify(remoteConfig), {
               dir: path.dirname(source),
               source,
@@ -957,13 +988,15 @@ const rawLayer = Layer.effect(
           if (shouldGenerateInDirectory(dir)) {
             yield* ensureGitignore(dir).pipe(Effect.orDie)
 
-            const dep = yield* Effect.promise(async () => {
-              try {
-                await installDependencies(dir)
-              } catch (error) {
-                log.warn("background dependency install failed", { dir, error: String(error) })
-              }
-            }).pipe(Effect.forkDetach)
+            const dep = yield* installDependencies(dir).pipe(
+              Effect.asVoid,
+              Effect.catchDefect((defect) =>
+                Effect.sync(() => {
+                  log.warn("background dependency install failed", { dir, error: String(defect) })
+                }),
+              ),
+              Effect.forkDetach,
+            )
             deps.push(dep)
           }
 
@@ -1059,7 +1092,11 @@ const rawLayer = Layer.effect(
         }
 
         if (Flag.OPENCODE_PERMISSION) {
-          result.permission = mergeDeep(result.permission ?? {}, JSON.parse(Flag.OPENCODE_PERMISSION))
+          try {
+            result.permission = mergeDeep(result.permission ?? {}, JSON.parse(Flag.OPENCODE_PERMISSION))
+          } catch (err) {
+            log.warn("OPENCODE_PERMISSION contains invalid JSON, skipping", { err })
+          }
         }
 
         if (result.tools) {
@@ -1075,7 +1112,14 @@ const rawLayer = Layer.effect(
           result.permission = mergeDeep(perms, result.permission ?? {})
         }
 
-        if (!result.username) result.username = os.userInfo().username
+        if (!result.username) {
+          try {
+            result.username = os.userInfo().username || "user"
+          } catch (err) {
+            log.warn("failed to read system username, using fallback", { err })
+            result.username = "user"
+          }
+        }
 
         if (result.autoshare === true && !result.share) {
           result.share = "auto"
@@ -1124,6 +1168,92 @@ const rawLayer = Layer.effect(
       yield* InstanceState.useEffect(state, (s) =>
         Effect.forEach(s.deps, Fiber.join, { concurrency: "unbounded" }).pipe(Effect.asVoid),
       )
+    })
+
+    const installDependencies: Interface["installDependencies"] = Effect.fn("Config.installDependencies")(function* (
+      dir,
+    ) {
+      const canWrite = yield* fs.access(dir, { writable: true }).pipe(
+        Effect.as(true),
+        Effect.orElseSucceed(() => false),
+      )
+      if (!canWrite) return false
+
+      const key = process.platform === "win32" ? "config-install:win32" : `config-install:${AppFileSystem.resolve(dir)}`
+
+      return yield* flock
+        .withLock(
+          Effect.gen(function* () {
+            const pkg = path.join(dir, "package.json")
+            const target = configPluginDependencyTarget()
+            const parsed = yield* fs.readFileString(pkg).pipe(
+              Effect.flatMap((text) =>
+                Effect.try({
+                  try: () => JSON.parse(text) as unknown,
+                  catch: () => undefined,
+                }),
+              ),
+              Effect.catch(() =>
+                Effect.succeed({
+                  dependencies: {},
+                } satisfies Package),
+              ),
+            )
+            const json: Package =
+              parsed && typeof parsed === "object" && !Array.isArray(parsed)
+                ? (parsed as Package)
+                : ({ dependencies: {} } satisfies Package)
+            const dependencies = json.dependencies ?? {}
+            const required = {
+              ...dependencies,
+              "@opencode-ai/plugin": target,
+            }
+            const hasDep = dependencies["@opencode-ai/plugin"] === target
+            json.dependencies = required
+
+            const gitignore = path.join(dir, ".gitignore")
+            const ignore = yield* fs.existsSafe(gitignore)
+            const installed = yield* Effect.all(
+              Object.keys(required).map((pkg) =>
+                fs.existsSafe(path.join(dir, "node_modules", ...pkg.split("/"), "package.json")),
+              ),
+              { concurrency: "unbounded" },
+            )
+
+            if (!hasDep) {
+              yield* fs.writeJson(pkg, json)
+            }
+            if (!ignore) {
+              yield* fs.writeFileString(
+                gitignore,
+                ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
+              )
+            }
+            if (hasDep && ignore && installed.every(Boolean)) return true
+            const installedDependencies = yield* Effect.tryPromise({
+              try: () => Npm.install(dir),
+              catch: (error) => error,
+            }).pipe(
+              Effect.as(true),
+              Effect.catch((error) =>
+                Effect.sync(() => {
+                  log.warn("dependency install failed", { dir, error: String(error) })
+                  return false
+                }),
+              ),
+            )
+            return installedDependencies
+          }),
+          key,
+        )
+        .pipe(
+          Effect.catch((error) =>
+            Effect.sync(() => {
+              log.warn("dependency install failed", { dir, error: String(error) })
+              return false
+            }),
+          ),
+        )
     })
 
     const update = Effect.fn("Config.update")(function* (config: Info) {
@@ -1182,58 +1312,61 @@ const rawLayer = Layer.effect(
     const updateGlobal = Effect.fn("Config.updateGlobal")(function* (config: Info) {
       if (Runtime.isPawWork()) yield* Effect.promise(() => PawWorkHome.ensurePrimary())
       const file = globalConfigFile()
-      const lock = yield* Effect.promise(() => Flock.acquire(configFileLockKey(file)))
-      let next: Info
-      let changed: boolean
-      try {
-        if (!Runtime.isPawWork()) yield* Effect.promise(() => fsNode.mkdir(path.dirname(file), { recursive: true }))
-        const existingText = yield* readConfigFile(file)
-        const seedFiles = existingText === undefined ? globalConfigFilesToLoad() : []
-        const seedSource = seedFiles.at(-1)
-        const seed =
-          existingText === undefined && seedFiles.length > 0
-            ? {
-                text: seedConfigTextFromSources(
-                  yield* Effect.all(
-                    seedFiles.map((source) =>
-                      readConfigFile(source).pipe(Effect.map((text) => ({ path: source, text: text ?? "{}" }))),
+      const { next, changed } = yield* flock.withLock(
+        Effect.gen(function* () {
+          let next: Info
+          let changed: boolean
+
+          if (!Runtime.isPawWork()) yield* Effect.promise(() => fsNode.mkdir(path.dirname(file), { recursive: true }))
+          const existingText = yield* readConfigFile(file)
+          const seedFiles = existingText === undefined ? globalConfigFilesToLoad() : []
+          const seedSource = seedFiles.at(-1)
+          const seed =
+            existingText === undefined && seedFiles.length > 0
+              ? {
+                  text: seedConfigTextFromSources(
+                    yield* Effect.all(
+                      seedFiles.map((source) =>
+                        readConfigFile(source).pipe(Effect.map((text) => ({ path: source, text: text ?? "{}" }))),
+                      ),
                     ),
                   ),
-                ),
-                mode: yield* Effect.promise(() =>
-                  seedSource
-                    ? fsNode
-                        .stat(seedSource)
-                        .then((stat) => stat.mode & 0o777)
-                        .catch(() => undefined)
-                    : Promise.resolve(undefined),
-                ),
-              }
-            : undefined
-        const before = existingText ?? seed?.text ?? "{}"
-        const fileExisted = existingText !== undefined
-        const writeOptions =
-          existingText === undefined && Runtime.isPawWork() ? { mode: seed?.mode ?? 0o600 } : undefined
+                  mode: yield* Effect.promise(() =>
+                    seedSource
+                      ? fsNode
+                          .stat(seedSource)
+                          .then((stat) => stat.mode & 0o777)
+                          .catch(() => undefined)
+                      : Promise.resolve(undefined),
+                  ),
+                }
+              : undefined
+          const before = existingText ?? seed?.text ?? "{}"
+          const fileExisted = existingText !== undefined
+          const writeOptions =
+            existingText === undefined && Runtime.isPawWork() ? { mode: seed?.mode ?? 0o600 } : undefined
 
-        if (!file.endsWith(".jsonc")) {
-          const existing = ConfigParse.schema(Info.zod, ConfigParse.jsonc(before, file), file)
-          const merged = mergeDeep(writable(existing), writable(config))
-          const serialized = JSON.stringify(merged, null, 2)
-          // Always materialize on first run (seed migration), otherwise only
-          // when bytes change. See upstream PR #25114.
-          changed = !fileExisted || serialized !== before
-          if (changed)
-            yield* Effect.promise(() => writeConfigTextAtomic(file, serialized, writeOptions)).pipe(Effect.orDie)
-          next = merged
-        } else {
-          const updated = patchJsonc(before, writable(config))
-          next = ConfigParse.schema(Info.zod, ConfigParse.jsonc(updated, file), file)
-          changed = !fileExisted || updated !== before
-          if (changed) yield* Effect.promise(() => writeConfigTextAtomic(file, updated, writeOptions)).pipe(Effect.orDie)
-        }
-      } finally {
-        yield* Effect.promise(() => lock.release())
-      }
+          if (!file.endsWith(".jsonc")) {
+            const existing = ConfigParse.schema(Info.zod, ConfigParse.jsonc(before, file), file)
+            const merged = mergeDeep(writable(existing), writable(config))
+            const serialized = JSON.stringify(merged, null, 2)
+            // Always materialize on first run (seed migration), otherwise only
+            // when bytes change. See upstream PR #25114.
+            changed = !fileExisted || serialized !== before
+            if (changed)
+              yield* Effect.promise(() => writeConfigTextAtomic(file, serialized, writeOptions)).pipe(Effect.orDie)
+            next = merged
+          } else {
+            const updated = patchJsonc(before, writable(config))
+            next = ConfigParse.schema(Info.zod, ConfigParse.jsonc(updated, file), file)
+            changed = !fileExisted || updated !== before
+            if (changed)
+              yield* Effect.promise(() => writeConfigTextAtomic(file, updated, writeOptions)).pipe(Effect.orDie)
+          }
+          return { next, changed }
+        }),
+        configFileLockKey(file),
+      ).pipe(Effect.orDie)
 
       // Only invalidate (which calls Instance.disposeAll) if config actually
       // changed on disk. No-op writes from UI mounts would otherwise abort
@@ -1251,6 +1384,7 @@ const rawLayer = Layer.effect(
       invalidate,
       directories,
       waitForDependencies,
+      installDependencies,
     })
   }),
 )
@@ -1264,113 +1398,18 @@ export const defaultLayer = layer.pipe(
   Layer.provide(Account.defaultLayer),
 )
 
-const { runPromise } = makeRuntime(Service, defaultLayer)
-
-export async function get() {
-  return runPromise((svc) => svc.get())
-}
-
-export async function getGlobal() {
-  return runPromise((svc) => svc.getGlobal())
-}
-
-export async function getConsoleState() {
-  return runPromise((svc) => svc.getConsoleState())
-}
-
-export async function update(config: Info) {
-  return runPromise((svc) => svc.update(config))
-}
-
-export async function updateGlobal(config: Info) {
-  return runPromise((svc) => svc.updateGlobal(config))
-}
-
-export async function seedGlobalConfig() {
-  await updateGlobal({})
-}
-
-export async function invalidate(wait = false) {
-  return runPromise((svc) => svc.invalidate(wait))
-}
-
-export async function directories() {
-  return runPromise((svc) => svc.directories())
-}
-
-export async function waitForDependencies() {
-  return runPromise((svc) => svc.waitForDependencies())
-}
-
-export async function installDependencies(dir: string) {
-  if (!(await isWritable(dir))) return false
-  const key = process.platform === "win32" ? "config-install:win32" : `config-install:${Filesystem.resolve(dir)}`
-  await using _ = await Flock.acquire(key)
-
-  const pkg = path.join(dir, "package.json")
-  const target = configPluginDependencyTarget()
-  const json = await Filesystem.readJson<Package>(pkg).catch(
-    (): Package => ({
-      dependencies: {},
-    }),
-  )
-  const dependencies = json.dependencies ?? {}
-  const required = {
-    ...dependencies,
-    "@opencode-ai/plugin": target,
-  }
-  const hasDep = dependencies["@opencode-ai/plugin"] === target
-  json.dependencies = required
-
-  const gitignore = path.join(dir, ".gitignore")
-  const ignore = await Filesystem.exists(gitignore)
-  const installed = await Promise.all(
-    Object.keys(required).map((pkg) =>
-      Filesystem.exists(path.join(dir, "node_modules", ...pkg.split("/"), "package.json")),
-    ),
-  )
-
-  if (!hasDep) {
-    await Filesystem.writeJson(pkg, json)
-  }
-  if (!ignore) {
-    await Filesystem.write(
-      gitignore,
-      ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
-    )
-  }
-  if (hasDep && ignore && installed.every(Boolean)) return true
-  try {
-    await Npm.install(dir)
-    return true
-  } catch (error) {
-    log.warn("dependency install failed", { dir, error: String(error) })
-    return false
-  }
-}
-
 const ConfigInfo = Info
 const ConfigServerZod = Server
 const ConfigLayoutZod = Layout
 const ConfigService = Service
 const ConfigLayer = layer
 const ConfigDefaultLayer = defaultLayer
-const ConfigGet = get
-const ConfigGetGlobal = getGlobal
-const ConfigGetConsoleState = getConsoleState
-const ConfigUpdate = update
-const ConfigUpdateGlobal = updateGlobal
-const ConfigSeedGlobalConfig = seedGlobalConfig
 const ConfigGlobalConfigFileForRead = globalConfigFileForRead
 const ConfigGlobalConfigFileForWrite = globalConfigFileForWrite
 const ConfigConfigFileLockKey = configFileLockKey
 const ConfigWithConfigFileLock = withConfigFileLock
 const ConfigWriteConfigTextAtomic = writeConfigTextAtomic
 const ConfigProjectConfigFileForWrite = projectConfigFileForWrite
-const ConfigInvalidate = invalidate
-const ConfigDirectories = directories
-const ConfigWaitForDependencies = waitForDependencies
-const ConfigInstallDependencies = installDependencies
 
 export namespace Config {
   export const Info = ConfigInfo
@@ -1404,20 +1443,10 @@ export namespace Config {
   export const managedConfigDir = ConfigManaged.managedConfigDir
   export const parseManagedPlist = ConfigManaged.parseManagedPlist
 
-  export const get = ConfigGet
-  export const getGlobal = ConfigGetGlobal
-  export const getConsoleState = ConfigGetConsoleState
-  export const update = ConfigUpdate
-  export const updateGlobal = ConfigUpdateGlobal
-  export const seedGlobalConfig = ConfigSeedGlobalConfig
   export const globalConfigFileForRead = ConfigGlobalConfigFileForRead
   export const globalConfigFileForWrite = ConfigGlobalConfigFileForWrite
   export const configFileLockKey = ConfigConfigFileLockKey
   export const withConfigFileLock = ConfigWithConfigFileLock
   export const writeConfigTextAtomic = ConfigWriteConfigTextAtomic
   export const projectConfigFileForWrite = ConfigProjectConfigFileForWrite
-  export const invalidate = ConfigInvalidate
-  export const directories = ConfigDirectories
-  export const waitForDependencies = ConfigWaitForDependencies
-  export const installDependencies = ConfigInstallDependencies
 }

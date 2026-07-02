@@ -1,4 +1,4 @@
-import { createRoot, getOwner, onCleanup, runWithOwner, type Owner } from "solid-js"
+import { createRoot, createSignal, getOwner, onCleanup, runWithOwner, type Owner } from "solid-js"
 import { createStore, type SetStoreFunction, type Store } from "solid-js/store"
 import { Persist } from "@/utils/persist"
 import type { VcsInfo } from "@opencode-ai/sdk/v2/client"
@@ -38,6 +38,12 @@ export function createChildStoreManager(input: {
   const pins = new Map<string, number>()
   const ownerPins = new WeakMap<object, Set<string>>()
   const disposers = new Map<string, () => void>()
+  const [directoryVersion, setDirectoryVersion] = createSignal(0)
+  const directories = () => {
+    directoryVersion()
+    return Object.keys(children).sort()
+  }
+  const publishDirectories = () => setDirectoryVersion((version) => version + 1)
 
   const mark = (directory: string) => {
     if (!directory) return
@@ -107,6 +113,7 @@ export function createChildStoreManager(input: {
       disposers.delete(directory)
     }
     delete children[directory]
+    publishDirectories()
     input.onDispose(directory)
     return true
   }
@@ -179,11 +186,12 @@ export function createChildStoreManager(input: {
             provider_ready: false,
             provider: { all: [], connected: [], default: {} },
             config: {},
-            path: { state: "", config: "", worktree: "", directory: "", home: "" },
+            path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" },
             status: "loading" as const,
             agent: [],
             command: [],
             command_ready: false,
+            external_result_ready: false,
             session: [],
             sessionTotal: 0,
             session_status: {},
@@ -200,8 +208,12 @@ export function createChildStoreManager(input: {
             limit: 5,
             message: {},
             part: {},
+            automation: {},
+            automation_run: {},
+            automation_tombstone: {},
           })
           children[directory] = child
+          publishDirectories()
           disposers.set(directory, dispose)
 
           const onPersistedInit = (init: Promise<string> | string | null, run: () => void) => {
@@ -293,6 +305,7 @@ export function createChildStoreManager(input: {
     child,
     peek,
     peekExisting,
+    directories,
     projectMeta,
     projectIcon,
     mark,

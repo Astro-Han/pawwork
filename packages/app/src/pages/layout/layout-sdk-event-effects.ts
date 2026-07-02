@@ -1,7 +1,7 @@
 import { onCleanup, onMount } from "solid-js"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { getFilename } from "@opencode-ai/util/path"
-import type { Event, Part, PermissionRequest, Session } from "@opencode-ai/sdk/v2/client"
+import type { Event, PermissionRequest, Session } from "@opencode-ai/sdk/v2/client"
 import type { NotifyLevel } from "@/context/settings"
 import { workspaceKey } from "./helpers"
 
@@ -17,21 +17,9 @@ type LayoutSdkEventCopyKey =
   | "command.session.new"
   | "notification.permission.title"
   | "notification.permission.description"
-  | "notification.question.title"
-  | "notification.question.description"
 
 type LayoutSdkEventCopy = {
   t(key: LayoutSdkEventCopyKey, params?: Record<string, string | number | boolean>): string
-}
-
-type QuestionNotificationPart = Pick<Part, "type"> & {
-  tool?: string
-  state?: {
-    status?: string
-    metadata?: {
-      externalResultReady?: unknown
-    }
-  }
 }
 
 type LayoutSdkEventEffectsInput = {
@@ -53,6 +41,7 @@ type LayoutSdkEventEffectsInput = {
   }
   effects: {
     notify: (title: string, description?: string, href?: string) => Promise<void> | void
+    requestAttention: () => Promise<void> | void
     playSound: (soundID: string) => unknown
     setBusy: (directory: string, value: boolean) => void
     worktreeReady: (directory: string) => void
@@ -73,10 +62,6 @@ export function permissionSessionKey(directory: string, sessionID: string) {
   return `${directory}:${sessionID}`
 }
 
-export function questionCallKey(directory: string, sessionID: string, partID: string) {
-  return `${directory}:${sessionID}:${partID}`
-}
-
 export function sessionNotificationHref(directory: string, sessionID: string) {
   return `/${base64Encode(directory)}/session/${sessionID}`
 }
@@ -84,15 +69,6 @@ export function sessionNotificationHref(directory: string, sessionID: string) {
 export function shouldThrottlePermissionAlert(lastAlerted: number | undefined, now: number, cooldownMs: number) {
   if (lastAlerted === undefined) return false
   return now - lastAlerted < cooldownMs
-}
-
-export function questionNotificationAction(part: QuestionNotificationPart): "ignore" | "reset" | "notify" {
-  if (part.type !== "tool" || part.tool !== "question") return "ignore"
-  // Terminal updates may not be followed by message.part.removed, so they must
-  // clear the running-question dedupe entry themselves.
-  if (part.state?.status !== "running") return "reset"
-  if (part.state.metadata?.externalResultReady !== true) return "ignore"
-  return "notify"
 }
 
 export function isCurrentOrDescendantSession(input: {
@@ -107,7 +83,7 @@ export function isCurrentOrDescendantSession(input: {
   if (workspaceKey(input.directory) !== workspaceKey(input.currentDirectory)) return false
   if (input.sessionID === currentSession) return true
 
-  // Walk ancestors so a child-agent question stays quiet while its parent
+  // Walk ancestors so a child agent's request stays quiet while its parent
   // session page is already visible.
   const byID = new Map(input.sessions.map((session) => [session.id, session]))
   let cursor: string | undefined = byID.get(input.sessionID)?.parentID
@@ -159,7 +135,6 @@ function titleFromSessions(
 
 export function createSDKNotificationEventHandler(input: LayoutSdkEventEffectsInput) {
   const alertedAtBySession = new Map<string, number>()
-  const alertedQuestionCalls = new Set<string>()
   const cooldownMs = input.cooldownMs ?? 5000
   const now = input.now ?? Date.now
 
@@ -181,46 +156,6 @@ export function createSDKNotificationEventHandler(input: LayoutSdkEventEffectsIn
 
     if (details.type === "permission.replied") {
       alertedAtBySession.delete(permissionSessionKey(event.name, details.properties.sessionID))
-      return
-    }
-
-    if (details.type === "message.part.updated") {
-      const directory = event.name
-      const { sessionID, part } = details.properties
-      const action = questionNotificationAction(part)
-      if (action === "ignore") return
-
-      const callKey = questionCallKey(directory, sessionID, part.id)
-      if (action === "reset") {
-        alertedQuestionCalls.delete(callKey)
-        return
-      }
-
-      if (alertedQuestionCalls.has(callKey)) return
-      alertedQuestionCalls.add(callKey)
-
-      const level = input.settings.notify.level()
-      if (level === "never") return
-
-      const visibility = currentRouteVisibility(input, directory, sessionID)
-      if (level === "unfocused" && visibility.visible) return
-
-      void input.effects.playSound("notify")
-
-      const sessions = visibility.sessions ?? input.sdk.sessions(directory)
-      const sessionTitle = titleFromSessions(sessions, sessionID, input.copy.t("command.session.new"))
-      const projectName = getFilename(directory)
-      void input.effects.notify(
-        input.copy.t("notification.question.title"),
-        input.copy.t("notification.question.description", { sessionTitle, projectName }),
-        input.route.sessionHref(directory, sessionID),
-      )
-      return
-    }
-
-    if (details.type === "message.part.removed") {
-      const { sessionID, partID } = details.properties
-      alertedQuestionCalls.delete(questionCallKey(event.name, sessionID, partID))
       return
     }
 
@@ -252,6 +187,10 @@ export function createSDKNotificationEventHandler(input: LayoutSdkEventEffectsIn
       input.copy.t("notification.permission.description", { sessionTitle, projectName }),
       input.route.sessionHref(directory, props.sessionID),
     )
+    // A permission request blocks the agent on the user, so it earns a Dock
+    // bounce / taskbar flash — the same attention a question gets, unlike a
+    // turn-complete or error which only notify.
+    void input.effects.requestAttention()
   }
 }
 

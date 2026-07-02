@@ -15,12 +15,13 @@ import { SystemPrompt } from "./system"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
-import { Bus } from "@/bus"
+import { TOOL_INFO_ID, buildDeferredHint } from "../tool/tool-info"
 import { Wildcard } from "@/util/wildcard"
 import { SessionID } from "@/session/schema"
 import { Auth } from "@/auth"
 import { Installation } from "@/installation"
 import { EffectBridge } from "@/effect"
+import { aiSdkTracer } from "@opencode-ai/core/effect/observability"
 import * as Option from "effect/Option"
 import { LLMTrace } from "./llm-trace"
 import { ExternalResult } from "@/tool/external-result"
@@ -42,10 +43,12 @@ export type StreamInput = {
   messages: ModelMessage[]
   small?: boolean
   tools: Record<string, Tool>
+  availableDeferredTools?: ReadonlySet<string>
   retries?: number
   connectTimeoutMs?: number
   streamTimeoutMs?: number
   toolChoice?: "auto" | "required" | "none"
+  toolAbortSignal?: AbortSignal
   trace?: Pick<
     LLMTrace.Recorder,
     | "request"
@@ -70,11 +73,7 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/LLM") {}
 
-const live: Layer.Layer<
-  Service,
-  never,
-  Auth.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service
-> = Layer.effect(
+const live: Layer.Layer<Service, never, Auth.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service> = Layer.effect(
   Service,
   Effect.gen(function* () {
     const auth = yield* Auth.Service
@@ -207,7 +206,7 @@ const live: Layer.Layer<
         },
       )
 
-      const tools = resolveTools(input)
+      const tools = wrapToolsWithAbortSignal(resolveTools(input), input.toolAbortSignal)
       const traceToolCount = Object.keys(tools).filter((x) => x !== "invalid").length
 
       // LiteLLM and some Anthropic proxies require the tools parameter to be present
@@ -293,11 +292,7 @@ const live: Layer.Layer<
           }
 
           const id = PermissionID.ascending()
-          let unsub: (() => void) | undefined
           try {
-            unsub = Bus.subscribe(Permission.Event.Replied, (evt) => {
-              if (evt.properties.requestID === id) void evt.properties.reply
-            })
             const toolPatterns = approvalTools.map((t: { name: string; args: string }) => {
               try {
                 const parsed = JSON.parse(t.args) as Record<string, unknown>
@@ -324,13 +319,14 @@ const live: Layer.Layer<
             return { approved: true }
           } catch {
             return { approved: false }
-          } finally {
-            unsub?.()
           }
         })
       }
 
-      const tracer = undefined
+      // Resolve the registered OTel tracer so AI-SDK spans export; without it the
+      // SDK falls back to the no-op global tracer (NodeSdk never registers a
+      // global TracerProvider). Only on the opt-in openTelemetry path.
+      const tracer = cfg.experimental?.openTelemetry ? yield* aiSdkTracer : undefined
       const activeToolNames = Object.keys(tools).filter((x) => x !== "invalid")
 
       input.trace?.request(
@@ -373,10 +369,7 @@ const live: Layer.Layer<
           }
           return {
             ...failed.toolCall,
-            input: JSON.stringify({
-              tool: failed.toolCall.toolName,
-              error: failed.error.message,
-            }),
+            input: buildInvalidToolRepairInput(input, failed.toolCall.toolName, failed.error.message),
             toolName: "invalid",
           }
         },
@@ -392,7 +385,7 @@ const live: Layer.Layer<
         headers: {
           ...(input.model.providerID.startsWith("opencode")
             ? {
-                "User-Agent": Installation.HTTP_USER_AGENT,
+                "User-Agent": Installation.LLM_USER_AGENT,
                 "x-opencode-project": Instance.project.id,
                 "x-opencode-session": input.sessionID,
                 "x-opencode-request": input.user.id,
@@ -401,7 +394,7 @@ const live: Layer.Layer<
             : {
                 "x-session-affinity": input.sessionID,
                 ...(input.parentSessionID ? { "x-parent-session-id": input.parentSessionID } : {}),
-                "User-Agent": `opencode/${Installation.HTTP_VERSION}`,
+                "User-Agent": Installation.LLM_USER_AGENT,
               }),
           ...input.model.headers,
           ...headers,
@@ -586,9 +579,13 @@ const live: Layer.Layer<
 
             // This is a silent-stream timeout: it limits how long we wait for
             // the next provider event, not the total model runtime.
-            return Stream.fromAsyncIterable(failOnTimeout(result.fullStream, request), (e) =>
-              e instanceof Error ? e : new Error(String(e)),
-            ).pipe(Stream.tap((event) => Effect.sync(() => request.resetTimeout(event))))
+            //
+            // Preserve the raw thrown value instead of coercing to new Error(String(e)):
+            // a structured provider error payload (object/string) would otherwise be
+            // crushed to "[object Object]", losing what fromError's stream parser needs.
+            return Stream.fromAsyncIterable(failOnTimeout(result.fullStream, request), (e) => e).pipe(
+              Stream.tap((event) => Effect.sync(() => request.resetTimeout(event))),
+            )
           }),
         ),
       )
@@ -676,6 +673,47 @@ export function resolveTools(input: Pick<StreamInput, "tools" | "agent" | "permi
     Permission.merge(input.agent.permission, input.permission ?? []),
   )
   return Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))
+}
+
+function wrapToolsWithAbortSignal(tools: Record<string, Tool>, toolAbortSignal?: AbortSignal) {
+  if (!toolAbortSignal) return tools
+
+  return Object.fromEntries(
+    Object.entries(tools).map(([name, item]) => {
+      const execute = item.execute
+      if (!execute) return [name, item]
+
+      return [
+        name,
+        {
+          ...item,
+          execute: async (...args: Parameters<NonNullable<typeof execute>>) => {
+            const [parameters, options] = args
+            return execute(parameters, { ...options, abortSignal: toolAbortSignal })
+          },
+        } satisfies Tool,
+      ]
+    }),
+  )
+}
+
+export function buildInvalidToolRepairInput(
+  input: Pick<StreamInput, "agent" | "availableDeferredTools" | "permission" | "tools" | "user">,
+  toolName: string,
+  errorMessage: string,
+) {
+  const deferredRuleset = Permission.merge(input.agent.permission, input.permission ?? [])
+  const toolInfoAvailable = input.tools[TOOL_INFO_ID] !== undefined
+  const deferredAvailable = (id: string) =>
+    toolInfoAvailable &&
+    (input.availableDeferredTools?.has(id) ?? true) &&
+    input.user.tools?.[id] !== false &&
+    !Permission.disabled([id], deferredRuleset).has(id)
+  const deferredHint = buildDeferredHint(toolName, deferredAvailable)
+  return JSON.stringify({
+    tool: toolName,
+    error: errorMessage + deferredHint,
+  })
 }
 
 // Check if messages contain any tool-call content

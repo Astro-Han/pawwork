@@ -9,6 +9,7 @@ import { Plugin } from "../../src/plugin/index"
 import { Auth } from "../../src/auth"
 import { ModelsDev } from "../../src/provider"
 import { Provider } from "../../src/provider"
+import { ModelState } from "../../src/provider/model-state"
 import { withPawWorkProviders } from "../../src/provider/pawwork-providers"
 import { localProviderImportSpec, stripOpenAIResponseInputIDs } from "../../src/provider/provider"
 import { ProviderID, ModelID } from "../../src/provider/schema"
@@ -16,7 +17,6 @@ import { Filesystem } from "../../src/util/filesystem"
 import { Env } from "../../src/env"
 import { Effect } from "effect"
 import { AppRuntime } from "../../src/effect/app-runtime"
-import { makeRuntime } from "../../src/effect/run-service"
 import {
   VOLCENGINE_PLAN_DEFAULT_MODEL_ID,
   VOLCENGINE_PLAN_HIDDEN_MODEL_IDS,
@@ -24,8 +24,18 @@ import {
   VOLCENGINE_PLAN_VISIBLE_MODEL_IDS,
 } from "@opencode-ai/util/volcengine-plan"
 
-const env = makeRuntime(Env.Service, Env.defaultLayer)
-const set = (k: string, v: string) => env.runSync((svc) => svc.set(k, v))
+const set = (k: string, v: string) => AppRuntime.runSync(Env.Service.use((env) => env.set(k, v)))
+const unset = (k: string) => AppRuntime.runSync(Env.Service.use((env) => env.remove(k)))
+
+function clearVertexEnv() {
+  unset("GOOGLE_VERTEX_PROJECT")
+  unset("GOOGLE_VERTEX_LOCATION")
+  unset("GOOGLE_CLOUD_PROJECT")
+  unset("GCP_PROJECT")
+  unset("GCLOUD_PROJECT")
+  unset("GOOGLE_CLOUD_LOCATION")
+  unset("VERTEX_LOCATION")
+}
 
 async function run<A, E>(fn: (provider: Provider.Interface) => Effect.Effect<A, E, never>) {
   return AppRuntime.runPromise(
@@ -48,6 +58,14 @@ async function getModel(providerID: ProviderID, modelID: ModelID) {
   return run((provider) => provider.getModel(providerID, modelID))
 }
 
+async function modelsDatabase() {
+  return AppRuntime.runPromise(
+    ModelsDev.Service.use((svc) =>
+      svc.data().pipe(Effect.map((catalog) => withPawWorkProviders(catalog as Record<string, ModelsDev.Provider>))),
+    ),
+  )
+}
+
 async function getLanguage(model: Provider.Model) {
   return run((provider) => provider.getLanguage(model))
 }
@@ -62,6 +80,14 @@ async function getSmallModel(providerID: ProviderID) {
 
 async function defaultModel() {
   return run((provider) => provider.defaultModel())
+}
+
+async function recordRecent(model: ModelState.ModelRef) {
+  return AppRuntime.runPromise(ModelState.Service.use((modelState) => modelState.recordRecent(model)))
+}
+
+async function runAuth<A, E>(fn: (auth: Auth.Interface) => Effect.Effect<A, E, never>) {
+  return AppRuntime.runPromise(Auth.Service.use(fn))
 }
 
 async function readAuthSnapshot() {
@@ -84,6 +110,31 @@ async function restoreAuthSnapshot(snapshot: string | undefined) {
   } catch (e) {
     if (!(typeof e === "object" && e !== null && "code" in e && e.code === "ENOENT")) throw e
   }
+}
+
+function languageBaseURL(language: unknown) {
+  return (language as { config: { baseURL: string } }).config.baseURL
+}
+
+async function writeVertexAnthropicConfig(dir: string) {
+  await Bun.write(
+    path.join(dir, "opencode.json"),
+    JSON.stringify({
+      $schema: "https://opencode.ai/config.json",
+      provider: {
+        "google-vertex": {
+          models: {
+            "claude-test": {
+              name: "Claude Test",
+              provider: {
+                npm: "@ai-sdk/google-vertex/anthropic",
+              },
+            },
+          },
+        },
+      },
+    }),
+  )
 }
 
 test("OpenCode Zen and OpenCode Go providers remain discoverable in PawWork runtime mode", async () => {
@@ -224,6 +275,34 @@ test("enabled_providers restricts to only listed providers", async () => {
       const providers = await list()
       expect(providers[ProviderID.anthropic]).toBeDefined()
       expect(providers[ProviderID.openai]).toBeUndefined()
+    },
+  })
+})
+
+test("defaultModel fails with a typed NoProvidersError when config excludes every provider", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          enabled_providers: [],
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      set("ANTHROPIC_API_KEY", "test-api-key")
+    },
+    fn: async () => {
+      expect(Object.keys(await list())).toHaveLength(0)
+      // Effect.flip moves the typed failure into the success channel; a bare-Error
+      // defect (the old behavior) would reject instead, so this is red->green.
+      const error = await run((provider) => provider.defaultModel().pipe(Effect.flip))
+      expect(Provider.NoProvidersError.isInstance(error)).toBe(true)
+      expect((error as { name: string }).name).toBe("ProviderNoProvidersError")
     },
   })
 })
@@ -651,6 +730,57 @@ test("defaultModel respects config model setting", async () => {
       expect(String(model.modelID)).toBe("claude-sonnet-4-20250514")
     },
   })
+})
+
+test("defaultModel returns a model seeded into recent via recordRecent (model.json round-trip)", async () => {
+  // The read half of the recent-model chain: recordRecent writes state/model.json,
+  // and defaultModel must pick it up ahead of the provider's own first model. If
+  // recordRecent's format drifts or defaultModel stops reading recent, this fails.
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "custom-openai": {
+              name: "Custom OpenAI",
+              npm: "@ai-sdk/openai-compatible",
+              env: [],
+              models: {
+                "model-a": { name: "Model A", tool_call: true, limit: { context: 1000, output: 100 } },
+                "model-b": { name: "Model B", tool_call: true, limit: { context: 1000, output: 100 } },
+              },
+              options: { apiKey: "test-key", baseURL: "https://custom.openai.com/v1" },
+            },
+          },
+        }),
+      )
+    },
+  })
+  // model.json is process-wide (XDG_STATE_HOME from the test preload), so it is
+  // shared with prompt.test.ts. Start clean so "empty recent" holds regardless of
+  // run order, and remove our write afterward so it can't leak into other tests.
+  const stateModel = path.join(Global.Path.state, "model.json")
+  await unlink(stateModel).catch(() => {})
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        // With an empty recent, defaultModel falls through to the provider's first model.
+        const fallback = await defaultModel()
+        // Seed the OTHER model — the one defaultModel would not pick on its own.
+        const other = String(fallback.modelID) === "model-a" ? "model-b" : "model-a"
+        await recordRecent({ providerID: ProviderID.make("custom-openai"), modelID: ModelID.make(other) })
+        const after = await defaultModel()
+        expect(String(after.providerID)).toBe("custom-openai")
+        expect(String(after.modelID)).toBe(other)
+        expect(String(after.modelID)).not.toBe(String(fallback.modelID))
+      },
+    })
+  } finally {
+    await unlink(stateModel).catch(() => {})
+  }
 })
 
 test("provider with baseURL from config", async () => {
@@ -1207,6 +1337,72 @@ test("getSmallModel respects config small_model override", async () => {
   })
 })
 
+test("getSmallModel ignores invalid config small_model", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          small_model: "anthropic/not-a-real-model",
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      set("ANTHROPIC_API_KEY", "test-api-key")
+    },
+    fn: async () => {
+      expect(await getSmallModel(ProviderID.anthropic)).toBeUndefined()
+    },
+  })
+})
+
+test("plugin provider.models hook cannot mutate internal provider state", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const pluginDir = path.join(dir, ".opencode", "plugin")
+      await mkdir(pluginDir, { recursive: true })
+      await Bun.write(
+        path.join(pluginDir, "provider-models-mutation.ts"),
+        [
+          "export default {",
+          '  id: "test.provider-models-mutation",',
+          "  server: async () => ({",
+          "    provider: {",
+          '      id: "anthropic",',
+          "      models: async (provider) => {",
+          '        provider.name = "mutated-by-plugin"',
+          "        provider.options = { ...provider.options, mutatedByPlugin: true }",
+          "        return provider.models ?? {}",
+          "      },",
+          "    },",
+          "  }),",
+          "}",
+          "",
+        ].join("\n"),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      set("ANTHROPIC_API_KEY", "test-api-key")
+    },
+    fn: async () => {
+      const anthropic = await getProvider(ProviderID.anthropic)
+      // The hook mutated its argument; with a deep-cloned input that must not leak
+      // into internal provider state.
+      expect(anthropic.name).not.toBe("mutated-by-plugin")
+      expect((anthropic.options as Record<string, unknown> | undefined)?.mutatedByPlugin).not.toBe(true)
+      // Models still resolve normally after the hook runs.
+      expect(Object.keys(anthropic.models).length).toBeGreaterThan(0)
+    },
+  })
+}, 30000)
+
 test("provider.sort prioritizes preferred models", () => {
   const models = [
     { id: "random-model", name: "Random" },
@@ -1223,7 +1419,7 @@ test("provider.sort prioritizes preferred models", () => {
 })
 
 test("includes Volcano Engine Coding Plan as a PawWork provider overlay", async () => {
-  const models = await ModelsDev.get()
+  const models = await modelsDatabase()
   const provider = models[VOLCENGINE_PLAN_PROVIDER_ID]
 
   expect(provider).toBeDefined()
@@ -1237,17 +1433,50 @@ test("includes Volcano Engine Coding Plan as a PawWork provider overlay", async 
     Object.keys(provider.models).filter((id) => !VOLCENGINE_PLAN_HIDDEN_MODEL_IDS.some((hidden) => hidden === id)),
   ).toEqual([...VOLCENGINE_PLAN_VISIBLE_MODEL_IDS])
   expect(provider.models[VOLCENGINE_PLAN_HIDDEN_MODEL_IDS[0]]).toBeDefined()
+  for (const [key, model] of Object.entries(provider.models)) {
+    expect(key, `key must match model.id for ${key}`).toBe(model.id)
+  }
   expect(provider.models[VOLCENGINE_PLAN_DEFAULT_MODEL_ID].cost).toEqual({
     input: 0,
     output: 0,
     cache_read: 0,
     cache_write: 0,
   })
-  expect(provider.models["glm-5.1"].family).toBe("glm")
-  expect(provider.models["glm-4.7"].family).toBe("glm")
-  expect(provider.models["deepseek-v3.2"].family).toBe("deepseek")
+  expect(provider.models["glm-5.2"].family).toBe("glm")
+  expect(provider.models["deepseek-v4-pro"].family).toBe("deepseek")
   expect(provider.models["kimi-k2.6"].interleaved).toEqual({ field: "reasoning_content" })
-  expect(provider.models["kimi-k2.5"].interleaved).toEqual({ field: "reasoning_content" })
+})
+
+
+test("Volcano Engine Coding Plan models have correct key parameters", async () => {
+  const models = await modelsDatabase()
+  const provider = models[VOLCENGINE_PLAN_PROVIDER_ID]
+
+  const expected: Record<string, {
+    context: number
+    output: number
+    reasoning: boolean
+    interleaved: false | { field: "reasoning_content" | "reasoning_details" }
+    attachment: boolean
+    inputModalities: ("text" | "image" | "audio" | "video" | "pdf")[]
+  }> = {
+    "minimax-m3": { context: 512000, output: 128000, reasoning: true, interleaved: false, attachment: false, inputModalities: ["text"] },
+    "glm-5.2": { context: 1000000, output: 131072, reasoning: true, interleaved: { field: "reasoning_content" }, attachment: false, inputModalities: ["text"] },
+    "deepseek-v4-flash": { context: 1000000, output: 384000, reasoning: true, interleaved: { field: "reasoning_content" }, attachment: false, inputModalities: ["text"] },
+    "deepseek-v4-pro": { context: 1000000, output: 384000, reasoning: true, interleaved: { field: "reasoning_content" }, attachment: false, inputModalities: ["text"] },
+    "kimi-k2.6": { context: 262144, output: 131072, reasoning: true, interleaved: { field: "reasoning_content" }, attachment: true, inputModalities: ["text", "image", "video"] },
+  }
+
+  for (const [id, spec] of Object.entries(expected)) {
+    const model = provider.models[id]
+    expect(model, `missing model ${id}`).toBeDefined()
+    expect(model.limit.context, `${id}.limit.context`).toBe(spec.context)
+    expect(model.limit.output, `${id}.limit.output`).toBe(spec.output)
+    expect(model.reasoning, `${id}.reasoning`).toBe(spec.reasoning)
+    expect(model.interleaved ?? false, `${id}.interleaved`).toEqual(spec.interleaved)
+    expect(model.attachment ?? false, `${id}.attachment`).toBe(spec.attachment)
+    expect(model.modalities?.input ?? [], `${id}.modalities.input`).toEqual(spec.inputModalities)
+  }
 })
 
 test("does not add OpenAI-compatible replay metadata to Kimi Coding Plan Anthropic models", () => {
@@ -1296,7 +1525,7 @@ test("does not add OpenAI-compatible replay metadata to Kimi Coding Plan Anthrop
 })
 
 test("uses doubao-seed-2.0-code as the Volcano Coding Plan default model", async () => {
-  const models = await ModelsDev.get()
+  const models = await modelsDatabase()
   const provider = models[VOLCENGINE_PLAN_PROVIDER_ID]
 
   expect(Provider.defaultModelIDs({ [provider.id]: provider })).toEqual({
@@ -2714,6 +2943,291 @@ test("Google Vertex: supports OpenAI compatible models", async () => {
   })
 })
 
+test("Google Vertex: uses REP endpoint for Claude continental multi-regions", async () => {
+  await using tmp = await tmpdir({
+    init: writeVertexAnthropicConfig,
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+      set("GOOGLE_CLOUD_PROJECT", "test-project")
+      set("VERTEX_LOCATION", "eu")
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex"), ModelID.make("claude-test"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://aiplatform.eu.rep.googleapis.com/v1/projects/test-project/locations/eu/publishers/anthropic/models",
+      )
+    },
+  })
+})
+
+test("Google Vertex: uses REP endpoint with Vertex SDK env names", async () => {
+  await using tmp = await tmpdir({
+    init: writeVertexAnthropicConfig,
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+      set("GOOGLE_VERTEX_PROJECT", "test-project")
+      set("GOOGLE_VERTEX_LOCATION", "eu")
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex"), ModelID.make("claude-test"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://aiplatform.eu.rep.googleapis.com/v1/projects/test-project/locations/eu/publishers/anthropic/models",
+      )
+    },
+  })
+})
+
+test("Google Vertex: keeps explicit Claude API URL", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "google-vertex": {
+              options: {
+                project: "test-project",
+                location: "eu",
+              },
+              models: {
+                "claude-proxy": {
+                  name: "Claude Proxy",
+                  provider: {
+                    npm: "@ai-sdk/google-vertex/anthropic",
+                    api: "https://proxy.example/v1",
+                  },
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex"), ModelID.make("claude-proxy"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe("https://proxy.example/v1")
+    },
+  })
+})
+
+test("Google Vertex Anthropic: uses REP endpoint for continental multi-regions", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+      set("GOOGLE_CLOUD_PROJECT", "test-project")
+      set("VERTEX_LOCATION", "us")
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex-anthropic"), ModelID.make("claude-sonnet-4-6@default"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://aiplatform.us.rep.googleapis.com/v1/projects/test-project/locations/us/publishers/anthropic/models",
+      )
+    },
+  })
+})
+
+test("Google Vertex Anthropic: uses REP endpoint from config options", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "google-vertex-anthropic": {
+              options: {
+                project: "config-project",
+                location: "eu",
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex-anthropic"), ModelID.make("claude-sonnet-4-6@default"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://aiplatform.eu.rep.googleapis.com/v1/projects/config-project/locations/eu/publishers/anthropic/models",
+      )
+    },
+  })
+})
+
+test("Google Vertex Anthropic: prefers config options over env names", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "google-vertex-anthropic": {
+              options: {
+                project: "config-project",
+                location: "eu",
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+      set("GOOGLE_VERTEX_PROJECT", "env-project")
+      set("GOOGLE_VERTEX_LOCATION", "us")
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex-anthropic"), ModelID.make("claude-sonnet-4-6@default"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://aiplatform.eu.rep.googleapis.com/v1/projects/config-project/locations/eu/publishers/anthropic/models",
+      )
+    },
+  })
+})
+
+test("Google Vertex Anthropic: keeps explicit provider baseURL", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "google-vertex-anthropic": {
+              options: {
+                project: "config-project",
+                location: "eu",
+                baseURL: "https://proxy.example/vertex",
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex-anthropic"), ModelID.make("claude-sonnet-4-6@default"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe("https://proxy.example/vertex")
+    },
+  })
+})
+
+test("Google Vertex Anthropic: keeps explicit Claude API URL", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "google-vertex-anthropic": {
+              options: {
+                project: "test-project",
+                location: "eu",
+              },
+              models: {
+                "claude-proxy": {
+                  name: "Claude Proxy",
+                  provider: {
+                    api: "https://proxy.example/v1",
+                  },
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex-anthropic"), ModelID.make("claude-proxy"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe("https://proxy.example/v1")
+    },
+  })
+})
+
+test("Google Vertex Anthropic: uses REP endpoint with Vertex SDK env names", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+      set("GOOGLE_VERTEX_PROJECT", "test-project")
+      set("GOOGLE_VERTEX_LOCATION", "eu")
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex-anthropic"), ModelID.make("claude-sonnet-4-6@default"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://aiplatform.eu.rep.googleapis.com/v1/projects/test-project/locations/eu/publishers/anthropic/models",
+      )
+    },
+  })
+})
+
+test("Google Vertex: keeps regional Claude endpoints unchanged", async () => {
+  await using tmp = await tmpdir({
+    init: writeVertexAnthropicConfig,
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      clearVertexEnv()
+      set("GOOGLE_CLOUD_PROJECT", "test-project")
+      set("VERTEX_LOCATION", "europe-west1")
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("google-vertex"), ModelID.make("claude-test"))
+      const language = await getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://europe-west1-aiplatform.googleapis.com/v1/projects/test-project/locations/europe-west1/publishers/anthropic/models",
+      )
+    },
+  })
+})
+
 test("cloudflare-ai-gateway loads with env variables", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -3027,7 +3541,7 @@ test("multiple provider model hooks run for the same provider", async () => {
 
 test("Codex no-op hook does not block external OpenAI model hooks", async () => {
   const authSnapshot = await readAuthSnapshot()
-  await Auth.remove(ProviderID.openai)
+  await runAuth((auth) => auth.remove(ProviderID.openai))
   await using tmp = await tmpdir({
     init: async (dir) => {
       const root = path.join(dir, ".opencode", "plugin")
@@ -3078,7 +3592,7 @@ test("Codex no-op hook does not block external OpenAI model hooks", async () => 
 
 test("Codex OAuth provider hook filters OpenAI models added by config", async () => {
   const authSnapshot = await readAuthSnapshot()
-  await Auth.remove(ProviderID.openai)
+  await runAuth((auth) => auth.remove(ProviderID.openai))
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
@@ -3112,14 +3626,16 @@ test("Codex OAuth provider hook filters OpenAI models added by config", async ()
     await Instance.provide({
       directory: tmp.path,
       init: async () => {
-        await Auth.set(
-          ProviderID.openai,
-          {
-            type: "oauth",
-            access: "access",
-            refresh: "refresh",
-            expires: Date.now() + 60_000,
-          } as never,
+        await runAuth((auth) =>
+          auth.set(
+            ProviderID.openai,
+            {
+              type: "oauth",
+              access: "access",
+              refresh: "refresh",
+              expires: Date.now() + 60_000,
+            } as never,
+          ),
         )
       },
       fn: async () => {
@@ -3142,7 +3658,7 @@ test("Codex OAuth provider hook filters OpenAI models added by config", async ()
 
 test("Codex OAuth config model override survives external OpenAI model hook", async () => {
   const authSnapshot = await readAuthSnapshot()
-  await Auth.remove(ProviderID.openai)
+  await runAuth((auth) => auth.remove(ProviderID.openai))
   await using tmp = await tmpdir({
     init: async (dir) => {
       const root = path.join(dir, ".opencode", "plugin")
@@ -3195,14 +3711,16 @@ test("Codex OAuth config model override survives external OpenAI model hook", as
     await Instance.provide({
       directory: tmp.path,
       init: async () => {
-        await Auth.set(
-          ProviderID.openai,
-          {
-            type: "oauth",
-            access: "access",
-            refresh: "refresh",
-            expires: Date.now() + 60_000,
-          } as never,
+        await runAuth((auth) =>
+          auth.set(
+            ProviderID.openai,
+            {
+              type: "oauth",
+              access: "access",
+              refresh: "refresh",
+              expires: Date.now() + 60_000,
+            } as never,
+          ),
         )
       },
       fn: async () => {
@@ -3224,7 +3742,7 @@ test("Codex OAuth config model override survives external OpenAI model hook", as
 
 test("post-config OAuth rerun only reprocesses providers with config models", async () => {
   const authSnapshot = await readAuthSnapshot()
-  await Auth.remove(ProviderID.anthropic)
+  await runAuth((auth) => auth.remove(ProviderID.anthropic))
   await using tmp = await tmpdir({
     init: async (dir) => {
       const root = path.join(dir, ".opencode", "plugin")
@@ -3279,14 +3797,16 @@ test("post-config OAuth rerun only reprocesses providers with config models", as
       directory: tmp.path,
       init: async () => {
         set("ANTHROPIC_API_KEY", "test-anthropic-key")
-        await Auth.set(
-          ProviderID.anthropic,
-          {
-            type: "oauth",
-            access: "access",
-            refresh: "refresh",
-            expires: Date.now() + 60_000,
-          } as never,
+        await runAuth((auth) =>
+          auth.set(
+            ProviderID.anthropic,
+            {
+              type: "oauth",
+              access: "access",
+              refresh: "refresh",
+              expires: Date.now() + 60_000,
+            } as never,
+          ),
         )
       },
       fn: async () => {

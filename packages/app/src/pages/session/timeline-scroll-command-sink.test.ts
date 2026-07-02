@@ -100,46 +100,6 @@ describe("TimelineScrollCommandSink", () => {
     expect(sink.records().map((record) => record.source)).toEqual(["two", "three"])
   })
 
-  test("records transaction metadata on scoped commands", () => {
-    const scroller = makeScroller({ clientHeight: 100, scrollHeight: 900, scrollTop: 12 })
-    const sink = createTimelineScrollCommandSink({ now: () => 456 })
-    const scoped = sink.withTransaction({ transactionID: "tx-1", transactionKind: "dock-resize" })
-
-    scoped.setScrollTop({ element: scroller.el, top: 120, type: "anchor-restore", source: "transaction-test" })
-
-    expect(sink.records()[0]).toMatchObject({
-      transactionID: "tx-1",
-      transactionKind: "dock-resize",
-      type: "anchor-restore",
-      source: "transaction-test",
-    })
-  })
-
-  test("emits a transaction violation when an unscoped command runs during an active transaction", () => {
-    const events: unknown[] = []
-    const scroller = makeScroller({ clientHeight: 100, scrollHeight: 900, scrollTop: 12 })
-    const sink = createTimelineScrollCommandSink({
-      activeTransaction: () => ({ transactionID: "tx-2", transactionKind: "content-resize" }),
-      emitDiagnostic: (event) => {
-        events.push(event)
-      },
-    })
-
-    sink.setScrollTop({ element: scroller.el, top: 220, type: "bottom-follow", source: "legacy-bottom-follow" })
-
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        name: "session.timeline.layout_transaction_violation",
-        data: expect.objectContaining({
-          transaction_id: "tx-2",
-          transaction_kind: "content-resize",
-          violation: "scroll_command_outside_transaction",
-          command_source: "legacy-bottom-follow",
-        }),
-      }),
-    )
-  })
-
   test("keeps diagnostic failures out of the scroll path", async () => {
     const scroller = makeScroller({ clientHeight: 100, scrollHeight: 900, scrollTop: 0 })
     const syncSink = createTimelineScrollCommandSink({

@@ -33,7 +33,7 @@ type BuildMenuOptions = {
 }
 
 export function buildMacosMenuTemplate(options: BuildMenuOptions): MenuItemTemplate[] {
-  const { deps, appName, locale, feedbackEnabled } = options
+  const { deps, appName, locale } = options
   const t = (key: Parameters<typeof menuLabel>[1]) => menuLabel(locale, key)
   const roleLabel = (key: MenuRoleLabelKey) => menuRoleLabel(locale, key, appName)
 
@@ -42,11 +42,8 @@ export function buildMacosMenuTemplate(options: BuildMenuOptions): MenuItemTempl
     { type: "separator" },
   ]
 
-  if (feedbackEnabled) {
-    helpSubmenu.push({ label: t("reportProblem"), click: () => deps.reportProblem() })
-  }
+  helpSubmenu.push({ label: t("reportProblem"), click: () => deps.reportProblem() })
 
-  helpSubmenu.push({ label: t("exportDiagnosticsLog"), click: () => deps.exportDiagnosticsLog() })
   helpSubmenu.push({ label: t("openGithubIssue"), click: () => deps.openExternal(PAWWORK_GITHUB_ISSUE_URL) })
 
   return [
@@ -148,7 +145,7 @@ export function buildMacosMenuTemplate(options: BuildMenuOptions): MenuItemTempl
 }
 
 export function buildWindowsMenuTemplate(options: BuildMenuOptions): MenuItemTemplate[] {
-  const { deps, locale, feedbackEnabled, appName } = options
+  const { deps, locale, appName } = options
   const t = (key: Parameters<typeof menuLabel>[1]) => menuLabel(locale, key)
   const roleLabel = (key: MenuRoleLabelKey) => menuRoleLabel(locale, key, appName)
 
@@ -156,10 +153,7 @@ export function buildWindowsMenuTemplate(options: BuildMenuOptions): MenuItemTem
     { label: t("pawworkOnGithub"), click: () => deps.openExternal(PAWWORK_GITHUB_URL) },
     { type: "separator" },
   ]
-  if (feedbackEnabled) {
-    helpSubmenu.push({ label: t("reportProblem"), click: () => deps.reportProblem() })
-  }
-  helpSubmenu.push({ label: t("exportDiagnosticsLog"), click: () => deps.exportDiagnosticsLog() })
+  helpSubmenu.push({ label: t("reportProblem"), click: () => deps.reportProblem() })
   helpSubmenu.push({ label: t("openGithubIssue"), click: () => deps.openExternal(PAWWORK_GITHUB_ISSUE_URL) })
   helpSubmenu.push({ type: "separator" })
   helpSubmenu.push({ label: t("checkForUpdates"), click: () => deps.checkForUpdates() })

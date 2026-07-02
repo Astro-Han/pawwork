@@ -1,7 +1,7 @@
 import path from "path"
 import os from "os"
 import { randomUUID } from "crypto"
-import { Context, Effect, Function, Layer, Option, Schedule, Schema } from "effect"
+import { Context, Effect, Function, Layer, ManagedRuntime, Option, Schedule, Schema } from "effect"
 import type { FileSystem, Scope } from "effect"
 import type { PlatformError } from "effect/PlatformError"
 import { AppFileSystem } from "../filesystem"
@@ -19,7 +19,7 @@ export namespace EffectFlock {
 
   class ReleaseError extends Schema.TaggedErrorClass<ReleaseError>()("ReleaseError", {
     detail: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   }) {
     override get message() {
       return this.detail
@@ -240,4 +240,21 @@ export namespace EffectFlock {
   )
 
   export const defaultLayer = layer.pipe(Layer.provide(AppFileSystem.defaultLayer), Layer.provide(Global.layer))
+
+  const runtime = ManagedRuntime.make(defaultLayer)
+
+  export async function withLockPromise<T>(key: string, fn: () => Promise<T>, dir?: string): Promise<T> {
+    return runtime.runPromise(
+      Service.use((flock) =>
+        flock.withLock(
+          Effect.tryPromise({
+            try: fn,
+            catch: (error) => error,
+          }),
+          key,
+          dir,
+        ),
+      ),
+    )
+  }
 }

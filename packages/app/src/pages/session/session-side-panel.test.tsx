@@ -88,7 +88,6 @@ beforeAll(async () => {
     }),
   }))
   mock.module("@/pages/session/file-tabs", () => ({ FileTabContent: () => null }))
-  mock.module("@/pages/session/files-tab", () => ({ FilesTab: () => null }))
   mock.module("@/pages/session/handoff", () => ({ setSessionHandoff: () => undefined }))
   mock.module("@/pages/session/session-layout", () => ({
     sessionRouteLayoutKey: (params: { dir: string | undefined; id: string | undefined }) =>
@@ -169,7 +168,7 @@ describe("sortableShellTabIds", () => {
   test("keeps the pinned status tab out of sortable ids", async () => {
     const { sortableShellTabIds } = await import("./session-side-panel")
 
-    expect(sortableShellTabIds(["status", "files", "review", "context"])).toEqual(["files", "review", "context"])
+    expect(sortableShellTabIds(["status", "review", "context"])).toEqual(["review", "context"])
   })
 })
 
@@ -215,16 +214,6 @@ describe("makeRightPanelResizeHandler", () => {
 // `no-mode-picker.test.ts` and catches the most likely regressions: tab-id
 // typos, copy-paste mistakes, and any future "let's drop the Show wrap" change.
 describe("right-panel inactive-tab gating contract", () => {
-  test("files tab body is gated by Show when={sidePanelTab() === \"files\"}", async () => {
-    const source = await fs.readFile(SOURCE_PATH, "utf8")
-    const block = findTabContentBlock(source, "files")
-    expect(block).toContain(`<Show when={sidePanelTab() === "files"}>`)
-    expect(block).toContain("<FilesTab")
-    const showIdx = block.indexOf(`<Show when={sidePanelTab() === "files"}>`)
-    const compIdx = block.indexOf("<FilesTab")
-    expect(compIdx).toBeGreaterThan(showIdx) // FilesTab must sit inside the Show
-  })
-
   test("context tab body is gated by Show when={sidePanelTab() === \"context\"}", async () => {
     const source = await fs.readFile(SOURCE_PATH, "utf8")
     const block = findTabContentBlock(source, "context")
@@ -243,5 +232,27 @@ describe("right-panel inactive-tab gating contract", () => {
     expect(source).toContain("<For each={terminal.all()}>")
     expect(source).toContain("terminalTabValue(t.tabID)")
     expect(source).toContain("<TerminalPanel tab={t}")
+  })
+})
+
+// Browser-overlay suppression contract: the embedded browser paints a native
+// WebContentsView over its content region, and a native layer ignores DOM
+// stacking — so any chrome that should sit above it must hide it explicitly. The
+// titlebar add-tab "+" menu opens down over that region, so its open state is
+// lifted into SessionSidePanel and threaded to the strip (to report it) and to
+// BrowserPanel (to suppress the overlay). A render test would need the whole
+// context surface; this grep guards the wiring from silent removal, matching the
+// gating-contract pattern above.
+describe("embedded browser overlay suppression contract", () => {
+  test("add-tab menu open state is lifted and threaded to the strip and browser panel", async () => {
+    const source = await fs.readFile(SOURCE_PATH, "utf8")
+    expect(source).toContain("setAddTabMenuOpen")
+    expect(source).toContain("onMenuOpenChange={setAddTabMenuOpen}")
+    expect(source).toContain("panelChromeMenuOpen={addTabMenuOpen}")
+  })
+
+  test("the strip's add-tab menu reports its open state via onOpenChange", async () => {
+    const stripSource = await fs.readFile(path.join(__dirname, "right-panel-tab-strip.tsx"), "utf8")
+    expect(stripSource).toContain("onOpenChange={props.onMenuOpenChange}")
   })
 })

@@ -69,6 +69,16 @@ export function FormatError(input: unknown) {
     return (input as ErrorLike).data?.message ?? ""
   }
 
+  // ConfigRemoteAuthError: { url: string, remote: string, message: string }
+  if (hasName(input, "ConfigRemoteAuthError")) {
+    const data = (input as ErrorLike).data
+    return [
+      `Failed to load remote config from ${data?.remote}: ${data?.message}.`,
+      "Authentication may be missing or expired.",
+      `Run \`opencode auth login ${data?.url}\` to re-authenticate.`,
+    ].join("\n")
+  }
+
   // ConfigInvalidError: { path?: string, message?: string, issues?: Array<{ message: string, path: string[] }> }
   if (hasName(input, "ConfigInvalidError")) {
     const data = (input as ErrorLike).data

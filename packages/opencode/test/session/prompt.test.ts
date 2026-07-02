@@ -1,21 +1,28 @@
+import fs from "fs/promises"
 import path from "path"
 import { describe, expect, test } from "bun:test"
 import { NamedError } from "@opencode-ai/util/error"
 import { fileURLToPath, pathToFileURL } from "url"
-import { Effect, Layer } from "effect"
+import { Effect, Fiber, Layer } from "effect"
 import { Instance } from "../../src/project/instance"
+import { Permission } from "../../src/permission"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Session } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionPrompt } from "../../src/session/prompt"
+import { MessageID, PartID } from "../../src/session/schema"
 import { Log } from "../../src/util"
+import { Env } from "../../src/env"
 import { tmpdir } from "../fixture/fixture"
 
 void Log.init({ print: false })
 
 function run<A, E>(fx: Effect.Effect<A, E, SessionPrompt.Service | Session.Service>) {
   return Effect.runPromise(
-    fx.pipe(Effect.scoped, Effect.provide(Layer.mergeAll(SessionPrompt.defaultLayer, Session.defaultLayer))),
+    fx.pipe(
+      Effect.scoped,
+      Effect.provide(Layer.mergeAll(SessionPrompt.defaultLayer, Session.defaultLayer, Env.defaultLayer)),
+    ),
   )
 }
 
@@ -442,24 +449,23 @@ describe("session.prompt regression", () => {
               const prompt = yield* SessionPrompt.Service
               const sessions = yield* Session.Service
               const session = yield* sessions.create({ title: "Prompt cancel regression" })
-              const task = Effect.runPromise(
-                prompt.prompt({
+              const task = yield* prompt
+                .prompt({
                   sessionID: session.id,
                   agent: "build",
                   parts: [{ type: "text", text: "Cancel me" }],
-                }),
-              )
+                })
+                .pipe(Effect.forkChild)
 
               yield* Effect.promise(() => ready.promise)
               yield* prompt.cancel(session.id)
 
-              const result = yield* Effect.promise(() =>
-                Promise.race([
-                  task,
-                  new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error("timed out waiting for cancel")), 1000),
+              const result = yield* Fiber.join(task).pipe(
+                Effect.race(
+                  Effect.sleep("1 second").pipe(
+                    Effect.flatMap(() => Effect.fail(new Error("timed out waiting for cancel"))),
                   ),
-                ]),
+                ),
               )
 
               expect(result.info.role).toBe("assistant")
@@ -473,6 +479,253 @@ describe("session.prompt regression", () => {
               if (last?.info.role === "assistant") {
                 expect(last.info.error?.name).toBe("MessageAbortedError")
               }
+            }),
+          ),
+      })
+    } finally {
+      void server.stop(true)
+    }
+  })
+
+  test("loop exits without an LLM request for an interrupted orphan tool call", async () => {
+    let calls = 0
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url)
+        if (!url.pathname.endsWith("/chat/completions")) {
+          return new Response("not found", { status: 404 })
+        }
+        calls++
+        return new Response(chat("should never be requested"), {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        })
+      },
+    })
+
+    try {
+      await using tmp = await tmpdir({
+        git: true,
+        init: async (dir) => {
+          await Bun.write(
+            path.join(dir, "opencode.json"),
+            JSON.stringify({
+              $schema: "https://opencode.ai/config.json",
+              enabled_providers: ["alibaba"],
+              provider: {
+                alibaba: {
+                  options: {
+                    apiKey: "test-key",
+                    baseURL: `${server.url.origin}/v1`,
+                  },
+                },
+              },
+              agent: {
+                build: {
+                  model: "alibaba/qwen-plus",
+                },
+              },
+            }),
+          )
+        },
+      })
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: () =>
+          run(
+            Effect.gen(function* () {
+              const prompt = yield* SessionPrompt.Service
+              const sessions = yield* Session.Service
+              const session = yield* sessions.create({ title: "Interrupted orphan" })
+              const model = { providerID: ProviderID.make("alibaba"), modelID: ModelID.make("qwen-plus") }
+
+              // A finished assistant turn (finish "stop") that still carries a tool part the
+              // interrupt cleanup marked status:"error" + metadata.interrupted — an orphan, not
+              // pending work. With no newer user message the loop must exit, not prefill the LLM.
+              const user = yield* sessions.updateMessage({
+                id: MessageID.ascending(),
+                role: "user",
+                sessionID: session.id,
+                agent: "build",
+                model,
+                time: { created: Date.now() },
+              })
+              yield* sessions.updatePart({
+                id: PartID.ascending(),
+                messageID: user.id,
+                sessionID: session.id,
+                type: "text",
+                text: "do something",
+              })
+
+              const assistant: MessageV2.Assistant = {
+                id: MessageID.ascending(),
+                role: "assistant",
+                sessionID: session.id,
+                parentID: user.id,
+                mode: "build",
+                agent: "build",
+                path: { cwd: tmp.path, root: tmp.path },
+                cost: 0,
+                tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+                modelID: model.modelID,
+                providerID: model.providerID,
+                time: { created: Date.now() },
+                finish: "stop",
+              }
+              yield* sessions.updateMessage(assistant)
+              yield* sessions.updatePart({
+                id: PartID.ascending(),
+                messageID: assistant.id,
+                sessionID: session.id,
+                type: "tool",
+                callID: "interrupted-call",
+                tool: "edit",
+                state: {
+                  status: "error",
+                  input: {},
+                  error: "Tool execution aborted",
+                  metadata: { interrupted: true },
+                  time: { start: 1, end: 2 },
+                },
+              })
+
+              const result = yield* prompt.loop({ sessionID: session.id })
+              expect(result.info.id).toBe(assistant.id)
+              expect(calls).toBe(0)
+            }),
+          ),
+      })
+    } finally {
+      void server.stop(true)
+    }
+  })
+
+  test("loop still continues when an interrupted orphan coexists with a real tool call", async () => {
+    let calls = 0
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url)
+        if (!url.pathname.endsWith("/chat/completions")) {
+          return new Response("not found", { status: 404 })
+        }
+        calls++
+        return new Response(chat("continued"), {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        })
+      },
+    })
+
+    try {
+      await using tmp = await tmpdir({
+        git: true,
+        init: async (dir) => {
+          await Bun.write(
+            path.join(dir, "opencode.json"),
+            JSON.stringify({
+              $schema: "https://opencode.ai/config.json",
+              enabled_providers: ["alibaba"],
+              provider: {
+                alibaba: {
+                  options: {
+                    apiKey: "test-key",
+                    baseURL: `${server.url.origin}/v1`,
+                  },
+                },
+              },
+              agent: {
+                build: {
+                  model: "alibaba/qwen-plus",
+                },
+              },
+            }),
+          )
+        },
+      })
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: () =>
+          run(
+            Effect.gen(function* () {
+              const prompt = yield* SessionPrompt.Service
+              const sessions = yield* Session.Service
+              const session = yield* sessions.create({ title: "Orphan plus real tool" })
+              const model = { providerID: ProviderID.make("alibaba"), modelID: ModelID.make("qwen-plus") }
+
+              const user = yield* sessions.updateMessage({
+                id: MessageID.ascending(),
+                role: "user",
+                sessionID: session.id,
+                agent: "build",
+                model,
+                time: { created: Date.now() },
+              })
+              yield* sessions.updatePart({
+                id: PartID.ascending(),
+                messageID: user.id,
+                sessionID: session.id,
+                type: "text",
+                text: "do something",
+              })
+
+              const assistant: MessageV2.Assistant = {
+                id: MessageID.ascending(),
+                role: "assistant",
+                sessionID: session.id,
+                parentID: user.id,
+                mode: "build",
+                agent: "build",
+                path: { cwd: tmp.path, root: tmp.path },
+                cost: 0,
+                tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+                modelID: model.modelID,
+                providerID: model.providerID,
+                time: { created: Date.now() },
+                finish: "stop",
+              }
+              yield* sessions.updateMessage(assistant)
+              // An interrupted orphan...
+              yield* sessions.updatePart({
+                id: PartID.ascending(),
+                messageID: assistant.id,
+                sessionID: session.id,
+                type: "tool",
+                callID: "interrupted-call",
+                tool: "edit",
+                state: {
+                  status: "error",
+                  input: {},
+                  error: "Tool execution aborted",
+                  metadata: { interrupted: true },
+                  time: { start: 1, end: 2 },
+                },
+              })
+              // ...alongside a real, completed tool call. The real call must keep the
+              // loop alive, so the orphan exclusion must not suppress continuation.
+              yield* sessions.updatePart({
+                id: PartID.ascending(),
+                messageID: assistant.id,
+                sessionID: session.id,
+                type: "tool",
+                callID: "real-call",
+                tool: "bash",
+                state: {
+                  status: "completed",
+                  input: {},
+                  output: "ok",
+                  title: "done",
+                  metadata: {},
+                  time: { start: 1, end: 2 },
+                },
+              })
+
+              yield* prompt.loop({ sessionID: session.id })
+              expect(calls).toBeGreaterThan(0)
             }),
           ),
       })
@@ -655,6 +908,95 @@ describe("session.agent-resolution", () => {
     })
   }, 30000)
 
+  test("$ARGUMENTS command expansion preserves dollar patterns literally", async () => {
+    let requestText = ""
+    const server = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        const url = new URL(req.url)
+        if (!url.pathname.endsWith("/chat/completions")) {
+          return new Response("not found", { status: 404 })
+        }
+
+        const body = (await req.json()) as {
+          messages: Array<{ role: string; content: string | Array<{ type: string; text?: string }> }>
+        }
+        requestText = body.messages
+          .filter((message) => message.role === "user")
+          .map((message) =>
+            typeof message.content === "string"
+              ? message.content
+              : message.content
+                  .map((part) => ("text" in part && typeof part.text === "string" ? part.text : ""))
+                  .join("\n"),
+          )
+          .join("\n")
+
+        return new Response(chat("ok"), {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        })
+      },
+    })
+
+    try {
+      await using tmp = await tmpdir({
+        git: true,
+        init: async (dir) => {
+          await Bun.write(
+            path.join(dir, "opencode.json"),
+            JSON.stringify({
+              $schema: "https://opencode.ai/config.json",
+              enabled_providers: ["alibaba"],
+              provider: {
+                alibaba: {
+                  options: {
+                    apiKey: "test-key",
+                    baseURL: `${server.url.origin}/v1`,
+                  },
+                },
+              },
+              agent: {
+                build: {
+                  model: "alibaba/qwen-plus",
+                },
+              },
+              command: {
+                literal: {
+                  template: "Keep $ARGUMENTS",
+                  agent: "build",
+                },
+              },
+            }),
+          )
+        },
+      })
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await run(Session.Service.use((svc) => svc.create({})))
+          await run(
+            Effect.gen(function* () {
+              const prompt = yield* SessionPrompt.Service
+              yield* prompt.command(
+                SessionPrompt.CommandInput.parse({
+                  sessionID: session.id,
+                  command: "literal",
+                  arguments: "$$PID $& $1",
+                }),
+              )
+            }),
+          )
+        },
+      })
+
+      expect(requestText).toContain("Keep $$PID $& $1")
+    } finally {
+      server.stop(true)
+    }
+  }, 30000)
+
   test("threads locale into system prompts for prompt, resumed loop, and command requests", async () => {
     const systems: string[] = []
     const server = Bun.serve({
@@ -724,26 +1066,31 @@ describe("session.agent-resolution", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const session = await Session.create({})
+          const session = await run(Session.Service.use((svc) => svc.create({})))
 
-          await SessionPrompt.prompt({
-            sessionID: session.id,
-            agent: "build",
-            parts: [{ type: "text", text: "hello" }],
-            locale: "zh-Hans",
-            noReply: true,
-          })
-
-          await SessionPrompt.loop({
-            sessionID: session.id,
-          })
-
-          await SessionPrompt.command({
-            sessionID: session.id,
-            command: "summarize",
-            arguments: "",
-            locale: "pt-BR",
-          })
+          await run(
+            Effect.gen(function* () {
+              const prompt = yield* SessionPrompt.Service
+              yield* prompt.prompt(
+                SessionPrompt.PromptInput.parse({
+                  sessionID: session.id,
+                  agent: "build",
+                  parts: [{ type: "text", text: "hello" }],
+                  locale: "zh-Hans",
+                  noReply: true,
+                }),
+              )
+              yield* prompt.loop(SessionPrompt.LoopInput.parse({ sessionID: session.id }))
+              yield* prompt.command(
+                SessionPrompt.CommandInput.parse({
+                  sessionID: session.id,
+                  command: "summarize",
+                  arguments: "",
+                  locale: "pt-BR",
+                }),
+              )
+            }),
+          )
 
           expect(systems.some((text) => text.includes("User locale: zh-Hans"))).toBe(true)
           expect(systems.some((text) => text.includes("User locale: pt-BR"))).toBe(true)
@@ -752,5 +1099,307 @@ describe("session.agent-resolution", () => {
     } finally {
       server.stop(true)
     }
+  }, 30000)
+})
+
+describe("session.prompt inline skill parts", () => {
+  test("resolves a skill part to a chip plus synthetic template text, position-independent", async () => {
+    await using tmp = await tmpdir({
+      config: {
+        agent: { build: { model: "openai/gpt-5.2" } },
+        skills: { paths: ["skills"] },
+      },
+      async init(dir) {
+        const skillDir = path.join(dir, "skills", "summarize")
+        await fs.mkdir(skillDir, { recursive: true })
+        await fs.writeFile(
+          path.join(skillDir, "SKILL.md"),
+          ["---", "name: summarize", "description: Summarize the thread", "---", "", "Summarize the latest user request."].join(
+            "\n",
+          ),
+        )
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const session = yield* sessions.create({})
+
+            // Skill chip sits AFTER the prose — position-independent activation.
+            const msg = yield* prompt.prompt({
+              sessionID: session.id,
+              agent: "build",
+              noReply: true,
+              parts: [
+                { type: "text", text: "please" },
+                { type: "skill", name: "summarize" },
+              ],
+            })
+            if (msg.info.role !== "user") throw new Error("expected user message")
+
+            // The structured chip part is persisted (renders the chip; not sent to the model).
+            const skill = msg.parts.find((part) => part.type === "skill")
+            expect(skill).toBeDefined()
+            if (skill?.type === "skill") expect(skill.name).toBe("summarize")
+
+            // The expanded template is injected as a synthetic, model-visible text part.
+            expect(
+              msg.parts.some(
+                (part) =>
+                  part.type === "text" && part.synthetic && part.text === "Summarize the latest user request.",
+              ),
+            ).toBe(true)
+
+            // The user's own prose survives as a normal (non-synthetic) text part.
+            expect(
+              msg.parts.some((part) => part.type === "text" && !part.synthetic && part.text === "please"),
+            ).toBe(true)
+
+            yield* sessions.remove(session.id)
+          }),
+        ),
+    })
+  }, 30000)
+
+  test("keeps the chip but injects nothing when the skill name is unknown", async () => {
+    await using tmp = await tmpdir({
+      config: { agent: { build: { model: "openai/gpt-5.2" } } },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const session = yield* sessions.create({})
+
+            const msg = yield* prompt.prompt({
+              sessionID: session.id,
+              agent: "build",
+              noReply: true,
+              parts: [
+                { type: "text", text: "hi" },
+                { type: "skill", name: "does-not-exist" },
+              ],
+            })
+            if (msg.info.role !== "user") throw new Error("expected user message")
+
+            // Unknown skill: the chip is preserved (so the bubble still renders) ...
+            expect(msg.parts.some((part) => part.type === "skill" && part.name === "does-not-exist")).toBe(true)
+            // ... but no synthetic template text is injected.
+            expect(msg.parts.some((part) => part.type === "text" && part.synthetic)).toBe(false)
+
+            yield* sessions.remove(session.id)
+          }),
+        ),
+    })
+  }, 30000)
+
+  test("does not expand a non-skill command delivered as a SkillPart", async () => {
+    await using tmp = await tmpdir({
+      config: {
+        agent: { build: { model: "openai/gpt-5.2" } },
+        command: { brainstorm: { template: "Start a brainstorming session." } },
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const session = yield* sessions.create({})
+
+            const msg = yield* prompt.prompt({
+              sessionID: session.id,
+              agent: "build",
+              noReply: true,
+              parts: [
+                { type: "text", text: "go" },
+                { type: "skill", name: "brainstorm" },
+              ],
+            })
+            if (msg.info.role !== "user") throw new Error("expected user message")
+
+            expect(msg.parts.some((part) => part.type === "skill" && part.name === "brainstorm")).toBe(true)
+            expect(msg.parts.some((part) => part.type === "text" && part.synthetic)).toBe(false)
+
+            yield* sessions.remove(session.id)
+          }),
+        ),
+    })
+  }, 30000)
+})
+
+// #26597: the prompt rebuilds session.permission from the boolean tools map, which can only
+// regenerate whole-tool ("*") rules for the keys it lists. For an agent-tool subagent it must
+// carry forward the caller's inherited rules the map can't regenerate — scoped denies,
+// external_directory rules, and whole-tool denies for keys the map doesn't list (the wildcard
+// "*", MCP/custom tools) — otherwise a caller denied e.g. edit on one path, an external dir, or a
+// whole tool regains it through the child. Whole-tool denies for keys the map DOES list are
+// regenerated from the map instead, so the ruleset doesn't accumulate across turns.
+describe("session.prompt subagent permission rebuild (#26597)", () => {
+  test("carries scoped denies and external_directory forward for an agent-tool subagent", async () => {
+    await using tmp = await tmpdir({
+      config: { agent: { build: { model: "openai/gpt-5.2" } } },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const parent = yield* sessions.create({})
+            const child = yield* sessions.create({
+              parentID: parent.id,
+              createdByAgentTool: true,
+              subagentType: "general",
+              permission: [
+                { permission: "external_directory", pattern: "/tmp/project/*", action: "allow" },
+                { permission: "edit", pattern: "/secret/**", action: "deny" },
+                { permission: "edit", pattern: "*", action: "deny" },
+              ],
+            })
+
+            yield* prompt.prompt({
+              sessionID: child.id,
+              agent: "build",
+              noReply: true,
+              tools: { agent: false, "enter-worktree": false },
+              parts: [{ type: "text", text: "x" }],
+            })
+
+            const after = yield* sessions.get(child.id)
+            // Scoped deny + external_directory survive (the boolean tools map can't express them).
+            expect(after.permission).toContainEqual({
+              permission: "external_directory",
+              pattern: "/tmp/project/*",
+              action: "allow",
+            })
+            expect(after.permission).toContainEqual({ permission: "edit", pattern: "/secret/**", action: "deny" })
+            // The structural denies the boolean tools map lists are regenerated from it.
+            expect(after.permission).toContainEqual({ permission: "agent", pattern: "*", action: "deny" })
+            // The whole-tool ("*") edit deny is ALSO carried forward: "edit" is absent from the
+            // tools map (which lists only agent/enter-worktree here), so the map can't regenerate
+            // it — dropping it would let the caller's edit deny vanish through the child. A
+            // whole-tool deny for a key the map DOES list is regenerated instead (next test).
+            expect(after.permission).toContainEqual({ permission: "edit", pattern: "*", action: "deny" })
+          }),
+        ),
+    })
+  }, 30000)
+
+  test("regenerates a whole-tool deny the map lists instead of double-carrying it", async () => {
+    await using tmp = await tmpdir({
+      config: { agent: { build: { model: "openai/gpt-5.2" } } },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const parent = yield* sessions.create({})
+            const child = yield* sessions.create({
+              parentID: parent.id,
+              createdByAgentTool: true,
+              subagentType: "general",
+              permission: [{ permission: "edit", pattern: "*", action: "deny" }],
+            })
+
+            yield* prompt.prompt({
+              sessionID: child.id,
+              agent: "build",
+              noReply: true,
+              // "edit" is in the map, so its "*" deny is regenerated from the map — the forwarded
+              // copy is dropped from the carry-forward so the ruleset doesn't accumulate.
+              tools: { agent: false, edit: false },
+              parts: [{ type: "text", text: "x" }],
+            })
+
+            const after = yield* sessions.get(child.id)
+            expect((after.permission ?? []).filter((r) => r.permission === "edit" && r.pattern === "*")).toHaveLength(1)
+            expect(Permission.evaluate("edit", "*", after.permission ?? []).action).toBe("deny")
+          }),
+        ),
+    })
+  }, 30000)
+
+  test("carries the caller's wildcard deny forward so tools absent from the map stay denied", async () => {
+    await using tmp = await tmpdir({
+      config: { agent: { build: { model: "openai/gpt-5.2" } } },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const parent = yield* sessions.create({})
+            // A read-only-style caller forwards a wildcard ("*") deny onto the child.
+            const child = yield* sessions.create({
+              parentID: parent.id,
+              createdByAgentTool: true,
+              subagentType: "general",
+              permission: [{ permission: "*", pattern: "*", action: "deny" }],
+            })
+
+            yield* prompt.prompt({
+              sessionID: child.id,
+              agent: "build",
+              noReply: true,
+              tools: { agent: false, edit: false },
+              parts: [{ type: "text", text: "x" }],
+            })
+
+            const after = yield* sessions.get(child.id)
+            // The wildcard deny is preserved, so a tool absent from the boolean tools map
+            // (automate, MCP, custom) still evaluates to deny for the subagent.
+            expect(after.permission).toContainEqual({ permission: "*", pattern: "*", action: "deny" })
+            expect(Permission.evaluate("automate", "*", after.permission ?? []).action).toBe("deny")
+          }),
+        ),
+    })
+  }, 30000)
+
+  test("replaces permission wholesale for a non-agent-tool session", async () => {
+    await using tmp = await tmpdir({
+      config: { agent: { build: { model: "openai/gpt-5.2" } } },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const session = yield* sessions.create({
+              permission: [{ permission: "edit", pattern: "/secret/**", action: "deny" }],
+            })
+
+            yield* prompt.prompt({
+              sessionID: session.id,
+              agent: "build",
+              noReply: true,
+              tools: { agent: false },
+              parts: [{ type: "text", text: "x" }],
+            })
+
+            const after = yield* sessions.get(session.id)
+            // Not an agent-tool child → the rebuild replaces wholesale (pre-existing behavior).
+            expect(after.permission).not.toContainEqual({ permission: "edit", pattern: "/secret/**", action: "deny" })
+            expect(after.permission).toContainEqual({ permission: "agent", pattern: "*", action: "deny" })
+          }),
+        ),
+    })
   }, 30000)
 })

@@ -12,9 +12,15 @@ export function canSubmitPrompt(input: {
   text: string
   submitReady: boolean
   commandsReady: boolean
+  hasSkillPart?: boolean
 }) {
   if (!input.submitReady) return false
   if (input.mode !== "normal") return true
+  // An inline skill chip is already a committed structured reference; it flows
+  // through promptAsync, not the legacy slash-command endpoint, so the
+  // command_ready gate (which disambiguates "/foo" prose from a command) does
+  // not apply even though the flattened text starts with "/".
+  if (input.hasSkillPart) return true
   if (!commandLikeText(input.text)) return true
   return input.commandsReady
 }

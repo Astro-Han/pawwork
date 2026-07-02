@@ -1,52 +1,111 @@
-import { afterEach, describe, expect, test } from "bun:test"
-import { Hono } from "hono"
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
+import { NodeFileSystem, NodeHttpPlatform, NodePath } from "@effect/platform-node"
+import { Effect, Layer, Schema } from "effect"
+import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
 import { Log } from "@opencode-ai/core/util/log"
 import { Automation, AutomationID } from "../../src/automation"
+import { AutomationRunTable } from "../../src/automation/automation.sql"
 import { AutomationScheduler } from "../../src/automation/scheduler"
-import { Bus } from "../../src/bus"
+import { GlobalBus } from "../../src/bus/global"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
-import { ErrorMiddleware } from "../../src/server/middleware"
-import { AutomationRoutes } from "../../src/server/instance/automation"
+import { Server } from "../../src/server/server"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { PermissionID } from "../../src/permission/schema"
 import { SessionID } from "../../src/session/schema"
+import {
+  AutomationApi,
+  AutomationParam,
+  AutomationRunsQuery,
+} from "../../src/server/routes/instance/httpapi/groups/automation"
+import { automationHandlers } from "../../src/server/routes/instance/httpapi/handlers/automation"
+import { Database, eq } from "../../src/storage/db"
 import { Flock } from "../../src/util/flock"
 import { tmpdir } from "../fixture/fixture"
 
 void Log.init({ print: false })
 
+function subscribeAutomationEvent<D extends { type: string; properties: { parse(input: unknown): any } }>(
+  def: D,
+  callback: (event: { type: D["type"]; properties: ReturnType<D["properties"]["parse"]> }) => unknown,
+  options?: { directory?: string },
+) {
+  const listener = (event: { directory?: string; payload?: { type?: string; properties?: unknown } }) => {
+    if (options?.directory && event.directory !== options.directory) return
+    if (event.payload?.type !== def.type) return
+    callback({ type: def.type, properties: def.properties.parse(event.payload.properties) })
+  }
+  GlobalBus.on("event", listener)
+  return () => GlobalBus.off("event", listener)
+}
+
+const previousSkipAutomationModelValidation = process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
+
+beforeAll(() => {
+  process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION = "1"
+})
+
+afterAll(() => {
+  if (previousSkipAutomationModelValidation === undefined) delete process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
+  else process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION = previousSkipAutomationModelValidation
+})
+
 afterEach(async () => {
+  AutomationScheduler.stopProcess({ stopRuns: false })
   await Instance.disposeAll()
 })
 
+type AutomationTestApp = {
+  request(input: string | Request, init?: RequestInit): Promise<Response>
+}
+
+function automationProductionApp(directory: string): AutomationTestApp {
+  return {
+    request(input, init) {
+      const request = input instanceof Request ? input : new Request(new URL(input, "http://localhost"), init)
+      const headers = new Headers(request.headers)
+      if (!headers.has("x-opencode-directory")) headers.set("x-opencode-directory", encodeURIComponent(directory))
+      return Server.Default().app.request(new Request(request, { headers }))
+    },
+  }
+}
+
 async function withAutomationApp<T>(
-  fn: (input: { app: Hono; projectID: ProjectID }) => Promise<T>,
+  fn: (input: { app: AutomationTestApp; projectID: ProjectID }) => Promise<T>,
   options: { git?: boolean } = { git: true },
 ) {
   await using tmp = await tmpdir({ git: options.git ?? true })
   return await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const app = new Hono().route("/automation", AutomationRoutes())
-      app.onError(ErrorMiddleware)
+      const app = automationProductionApp(tmp.path)
       return fn({ app, projectID: Instance.project.id })
     },
   })
 }
 
-async function json(app: Hono, input: string, init?: RequestInit) {
+async function json(app: AutomationTestApp, input: string, init?: RequestInit) {
   const response = await app.request(input, init)
   return response.json()
 }
 
-async function waitForRunCount(automationID: string, count: number) {
-  const deadline = Date.now() + 2_000
-  while (Date.now() < deadline) {
-    const items = Automation.runs({ automationID, limit: 100 }).items
-    if (items.length >= count) return items
-    await Bun.sleep(5)
-  }
-  throw new Error(`Timed out waiting for automation run count: ${count}`)
+function requestAutomationHttpApi(pathname: string, init?: RequestInit) {
+  return AppRuntime.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const router = yield* HttpRouter.toHttpEffect(
+          HttpApiBuilder.layer(AutomationApi).pipe(
+            Layer.provide(automationHandlers),
+            Layer.provide(Layer.mergeAll(NodeFileSystem.layer, NodeHttpPlatform.layer, NodePath.layer, Etag.layer)),
+          ),
+        )
+        const request = HttpServerRequest.fromWeb(new Request(`http://localhost${pathname}`, init))
+        const response = yield* router.pipe(Effect.provideService(HttpServerRequest.HttpServerRequest, request), Effect.orDie)
+        return HttpServerResponse.toWeb(response)
+      }),
+    ) as Effect.Effect<Response>,
+  )
 }
 
 async function waitForRunState(automationID: string, state: Automation.Run["state"]) {
@@ -70,6 +129,8 @@ function deferred<T>() {
 type RecurringCreateInput = Extract<Automation.CreateInput, { kind: "recurring" }>
 type OneshotCreateInput = Extract<Automation.CreateInput, { kind: "oneshot" }>
 
+const fixtureModel = Automation.Model.parse({ providerID: "anthropic", modelID: "claude-sonnet-4-6" })
+
 function recurringInput(projectID: ProjectID, overrides: Partial<RecurringCreateInput> = {}): RecurringCreateInput {
   return {
     kind: "recurring",
@@ -78,6 +139,7 @@ function recurringInput(projectID: ProjectID, overrides: Partial<RecurringCreate
     context: "fresh",
     where: { projectID },
     timezone: "Asia/Shanghai",
+    model: fixtureModel,
     rhythm: { kind: "interval", everyMs: 60_000 },
     stop: { kind: "count", count: 3 },
     ...overrides,
@@ -92,6 +154,7 @@ function oneshotInput(projectID: ProjectID, overrides: Partial<OneshotCreateInpu
     context: "fresh",
     where: { projectID },
     timezone: "Asia/Shanghai",
+    model: fixtureModel,
     fireAt: 1_800_000_000_000,
     ...overrides,
   }
@@ -115,7 +178,228 @@ function run(overrides: Record<string, unknown> = {}) {
   }
 }
 
+describe("automation route 422 wiring with provider validation enabled", () => {
+  // These tests deliberately bypass the suite-wide skip flag to exercise the
+  // real modelValidationDetails -> AppRuntime path that production hits.
+  let restoreBypass: string | undefined
+  const enableValidation = () => {
+    restoreBypass = process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
+    delete process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
+  }
+  const restoreBypassEnv = () => {
+    if (restoreBypass === undefined) delete process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
+    else process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION = restoreBypass
+  }
+
+  test("create rejects with 422 invalid_automation details when provider lookup fails", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      enableValidation()
+      try {
+        const response = await app.request("/automation", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(
+            recurringInput(projectID, {
+              model: Automation.Model.parse({ providerID: "nonexistent", modelID: "missing-model" }),
+            }),
+          ),
+        })
+        expect(response.status).toBe(422)
+        const body = await response.json()
+        expect(body.error).toBe("invalid_automation")
+        expect(body.details).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ field: "model" }),
+          ]),
+        )
+        expect(["model_not_found", "model_lookup_failed"]).toContain(body.details[0].message)
+      } finally {
+        restoreBypassEnv()
+      }
+    })
+  })
+
+  test("update rejects with 422 invalid_automation details when model patch fails provider lookup", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      enableValidation()
+      try {
+        const response = await app.request(`/automation/${created.id}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ model: { providerID: "nonexistent", modelID: "missing-model" } }),
+        })
+        expect(response.status).toBe(422)
+        const body = await response.json()
+        expect(body.error).toBe("invalid_automation")
+        expect(body.details[0].field).toBe("model")
+        expect(["model_not_found", "model_lookup_failed"]).toContain(body.details[0].message)
+      } finally {
+        restoreBypassEnv()
+      }
+    })
+  })
+})
+
 describe("automation routes", () => {
+  test("keeps the automation local HttpApi handler importable", async () => {
+    const mod = await import("../../src/server/routes/instance/httpapi/handlers/automation")
+
+    expect(mod.automationHandlers).toBeDefined()
+  })
+
+  test("declares the automation route group as HttpApi endpoints", () => {
+    const spec = OpenApi.fromApi(AutomationApi) as any
+
+    expect(spec.paths).toHaveProperty("/automation")
+    expect(spec.paths).toHaveProperty("/automation/{automationID}")
+    expect(spec.paths).toHaveProperty("/automation/{automationID}/runs")
+    expect(spec.paths).toHaveProperty("/automation/{automationID}/run")
+    expect(spec.paths).toHaveProperty("/automation/{automationID}/pause")
+    expect(spec.paths).toHaveProperty("/automation/{automationID}/resume")
+    expect(spec.paths["/automation"]).toHaveProperty("get")
+    expect(spec.paths["/automation"]).toHaveProperty("post")
+    expect(spec.paths["/automation/{automationID}"]).toHaveProperty("get")
+    expect(spec.paths["/automation/{automationID}"]).toHaveProperty("put")
+    expect(spec.paths["/automation/{automationID}"]).toHaveProperty("delete")
+    expect(spec.paths["/automation/{automationID}/runs"]).toHaveProperty("get")
+    expect(spec.paths["/automation/{automationID}/run"]).toHaveProperty("post")
+    expect(spec.paths["/automation/{automationID}/pause"]).toHaveProperty("post")
+    expect(spec.paths["/automation/{automationID}/resume"]).toHaveProperty("post")
+    expect(spec.paths["/automation/{automationID}"]?.delete?.description).toContain("Already-started runs continue")
+  })
+
+  test("declares automation run query constraints matching runtime validators", () => {
+    const spec = OpenApi.fromApi(AutomationApi) as any
+    const parameters = spec.paths["/automation/{automationID}/runs"]?.get?.parameters as any[]
+    const parameter = (name: string) => parameters.find((item) => item.name === name)
+    const schemaClauses = (schema: any) => [schema, ...(schema?.allOf ?? [])]
+
+    expect(schemaClauses(parameter("automationID")?.schema)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ pattern: "^automation_(?!run_)" })]),
+    )
+    expect(parameter("limit")?.schema).toMatchObject({
+      type: "integer",
+      exclusiveMinimum: 0,
+      maximum: 100,
+    })
+    expect(schemaClauses(parameter("cursor")?.schema)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ pattern: "^automation_run_" })]),
+    )
+  })
+
+  test("validates automation run params and query through HttpApi schemas", () => {
+    const decodeParam = Schema.decodeUnknownSync(AutomationParam)
+    const decodeQuery = Schema.decodeUnknownSync(AutomationRunsQuery)
+    const automationID = AutomationID.Definition.ascending()
+    const runID = AutomationID.Run.ascending()
+
+    expect(decodeParam({ automationID })).toEqual({ automationID })
+    expect(() => decodeParam({ automationID: runID })).toThrow()
+    expect(decodeQuery({ limit: "100", cursor: runID })).toMatchObject({ limit: 100, cursor: runID })
+    expect(() => decodeQuery({ limit: "0" })).toThrow()
+    expect(() => decodeQuery({ limit: "101" })).toThrow()
+    expect(() => decodeQuery({ limit: "1.5" })).toThrow()
+    expect(() => decodeQuery({ cursor: automationID })).toThrow()
+  })
+
+  test("serves ordinary automation lifecycle routes through the HttpApi handlers", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const create = await requestAutomationHttpApi("/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      const created = await create.json()
+
+      expect(create.status).toBe(200)
+      expect(created).toMatchObject({ title: "Daily repo brief", paused: false, revision: 1 })
+
+      const list = await requestAutomationHttpApi("/automation")
+      expect(list.status).toBe(200)
+      expect(await list.json()).toMatchObject({ items: [expect.objectContaining({ id: created.id })] })
+
+      const get = await requestAutomationHttpApi(`/automation/${created.id}`)
+      expect(get.status).toBe(200)
+      expect(await get.json()).toMatchObject({ id: created.id })
+
+      const update = await requestAutomationHttpApi(`/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "Updated repo brief" }),
+      })
+      expect(update.status).toBe(200)
+      expect(await update.json()).toMatchObject({ id: created.id, title: "Updated repo brief", revision: 2 })
+
+      const paused = await requestAutomationHttpApi(`/automation/${created.id}/pause`, { method: "POST" })
+      expect(paused.status).toBe(200)
+      expect(await paused.json()).toMatchObject({ id: created.id, paused: true, revision: 3 })
+
+      const resumed = await requestAutomationHttpApi(`/automation/${created.id}/resume`, { method: "POST" })
+      expect(resumed.status).toBe(200)
+      expect(await resumed.json()).toMatchObject({ id: created.id, paused: false, revision: 4 })
+
+      const runResponse = await requestAutomationHttpApi(`/automation/${created.id}/run`, { method: "POST" })
+      const runBody = await runResponse.json()
+      expect(runResponse.status).toBe(200)
+      expect(runBody).toMatchObject({ automationID: created.id, state: "scheduled", definitionRevision: 4 })
+
+      const runs = await requestAutomationHttpApi(`/automation/${created.id}/runs?limit=1`)
+      expect(runs.status).toBe(200)
+      expect(await runs.json()).toMatchObject({ items: [expect.objectContaining({ id: runBody.id })] })
+
+      const deleted = await requestAutomationHttpApi(`/automation/${created.id}`, { method: "DELETE" })
+      expect(deleted.status).toBe(200)
+      expect(await deleted.json()).toEqual({ id: created.id, deleted: true, revision: 5 })
+    })
+  })
+
+  test("HttpApi delete keeps already-started run history alive", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const create = await requestAutomationHttpApi("/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      const created = await create.json()
+      const active = Automation.runNow(created.id, { now: 200 })
+      await using _lease = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
+
+      const deleted = await requestAutomationHttpApi(`/automation/${created.id}`, { method: "DELETE" })
+
+      expect(deleted.status).toBe(200)
+      expect(await deleted.json()).toEqual({ id: created.id, deleted: true, revision: 2 })
+      expect(() => Automation.get(created.id)).toThrow()
+      const row = Database.use((db) => db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, active.id)).get())
+      expect(row?.data).toMatchObject({ id: active.id, state: "scheduled", automationID: created.id })
+    })
+  })
+
+  test("maps automation validation and not-found failures through the HttpApi handlers", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const invalid = await requestAutomationHttpApi("/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...recurringInput(projectID), retryPolicy: { attempts: 2 } }),
+      })
+      expect(invalid.status).toBe(422)
+      expect(await invalid.json()).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "retryPolicy", message: "unsupported_automation_field" }],
+      })
+
+      const missing = await requestAutomationHttpApi(`/automation/${AutomationID.Definition.ascending()}`, {
+        method: "DELETE",
+      })
+      expect(missing.status).toBe(404)
+      expect(await missing.json()).toMatchObject({ name: "NotFoundError" })
+    })
+  })
+
   test("reloads definitions and runs from durable storage after instance restart", async () => {
     await using tmp = await tmpdir({ git: true })
     let automationID: string | undefined
@@ -263,7 +547,6 @@ describe("automation routes", () => {
       let responseSettled = false
       AutomationScheduler.install({
         stop: () => undefined,
-        stopOwnedRuns: () => undefined,
         settleOwner: async () => {
           settled = true
           await gate.promise
@@ -295,7 +578,6 @@ describe("automation routes", () => {
       let responseSettled = false
       AutomationScheduler.install({
         stop: () => undefined,
-        stopOwnedRuns: () => undefined,
         settleOwner: async () => {
           settled = true
           await gate.promise
@@ -332,7 +614,6 @@ describe("automation routes", () => {
       const cancelled: string[] = []
       AutomationScheduler.install({
         stop: () => undefined,
-        stopOwnedRuns: () => undefined,
         settleOwner: async () => undefined,
         reschedule: () => undefined,
         cancel: (automationID) => cancelled.push(automationID),
@@ -387,22 +668,54 @@ describe("automation routes", () => {
       expect(body.id).toMatch(/^automation_/)
       expect(body.createdAt).toBeNumber()
       expect(body.updatedAt).toBe(body.createdAt)
-      expect(body.nextFireAt).toBeNull()
-      expect(body.nextFires).toEqual([])
+      expect(body.model).toEqual(fixtureModel)
+      expect(body.nextFireAt).toBeNumber()
+      expect(body.nextFires).toHaveLength(3)
+      expect(body.failureStreak).toBe(0)
     })
   })
 
-  test("create lazily starts the scheduler before publishing definition updates", async () => {
+  test("create settles the scheduler before publishing definition updates", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
-      const created = await json(app, "/automation", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(oneshotInput(projectID, { fireAt: Date.now() + 20 })),
+      const settleStarted = deferred<void>()
+      const releaseSettle = deferred<void>()
+      const publication = deferred<string>()
+      let publishedID: string | undefined
+      const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
+        publishedID = event.properties.id
+        publication.resolve(event.properties.id)
+      }, { directory: Instance.directory })
+      AutomationScheduler.install({
+        stop: () => undefined,
+        settleOwner: async () => {
+          settleStarted.resolve()
+          await releaseSettle.promise
+        },
+        reschedule: () => undefined,
+        cancel: () => undefined,
+        computeNextFireAt: () => null,
       })
 
-      const runs = await waitForRunCount(created.id, 1)
+      try {
+        const create = json(app, "/automation", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(oneshotInput(projectID)),
+        })
+        await settleStarted.promise
+        await Bun.sleep(1)
 
-      expect(runs[0]?.automationID).toBe(created.id)
+        expect(publishedID).toBeUndefined()
+
+        releaseSettle.resolve()
+        const created = await create
+        const emittedID = await publication.promise
+        expect(publishedID).toBe(created.id)
+        expect(emittedID).toBe(created.id)
+      } finally {
+        releaseSettle.resolve()
+        unsubscribe()
+      }
     })
   })
 
@@ -473,7 +786,12 @@ describe("automation routes", () => {
       const body = await response.json()
 
       expect(response.status).toBe(422)
-      expect(body.details).toEqual([{ field: "context", message: "unsupported_continue_with_worktree" }])
+      // Via HTTP a continue create is doubly invalid: it cannot combine a worktree
+      // with continue, and it has no bindable source. Both reasons are reported.
+      expect(body.details).toEqual([
+        { field: "context", message: "unsupported_continue_with_worktree" },
+        { field: "context", message: "unsupported_continue_without_source" },
+      ])
     })
   })
 
@@ -528,19 +846,24 @@ describe("automation routes", () => {
           [{ field: "prompt", message: "prompt_too_long_20000" }],
         ],
         [
+          "stop kind condition rejected with structured detail",
+          recurringInput(projectID, { stop: { kind: "condition", condition: "repo is ready" } }),
+          [{ field: "stop", message: "unsupported_stop_condition" }],
+        ],
+        [
           "condition above replay-safe limit",
           recurringInput(projectID, { stop: { kind: "condition", condition: "x".repeat(4_001) } }),
           [{ field: "stop.condition", message: "condition_too_long_4000" }],
         ],
         [
-          "externally supplied automation session",
-          { ...recurringInput(projectID), automationSessionID: SessionID.descending() },
-          [{ field: "automationSessionID", message: "unsupported_automation_field" }],
-        ],
-        [
           "externally supplied source session",
           { ...recurringInput(projectID), sourceSessionID: SessionID.descending() },
           [{ field: "sourceSessionID", message: "unsupported_automation_field" }],
+        ],
+        [
+          "continue without a bindable source",
+          recurringInput(projectID, { context: "continue" }),
+          [{ field: "context", message: "unsupported_continue_without_source" }],
         ],
         [
           "oneshot fireAt in the past",
@@ -580,6 +903,26 @@ describe("automation routes", () => {
     })
   })
 
+  test("PUT rejects stop kind 'condition' with structured unsupported_stop_condition detail", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      const response = await app.request(`/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ stop: { kind: "condition", condition: "repo is ready" } }),
+      })
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "stop", message: "unsupported_stop_condition" }],
+      })
+    })
+  })
+
   test("lists definitions and returns a tombstone when deleting", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const created = await json(app, "/automation", {
@@ -600,21 +943,28 @@ describe("automation routes", () => {
     })
   })
 
-  test("delete rejects a live run owned by another process", async () => {
+  test("delete removes the definition while a live run is owned by another process", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const created = Automation.create(recurringInput(projectID), { now: 100 })
       const active = Automation.runNow(created.id, { now: 200 })
       await using _ = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
 
-      const response = await app.request(`/automation/${created.id}`, { method: "DELETE" })
+      const deleted = await json(app, `/automation/${created.id}`, { method: "DELETE" })
 
-      expect(response.status).toBe(409)
-      expect(await response.json()).toEqual({ error: "active_run_still_running", runID: active.id })
-      expect(Automation.get(created.id).id).toBe(created.id)
-      expect(Automation.runs({ automationID: created.id }).items[0]).toMatchObject({
+      expect(deleted).toEqual({ id: created.id, deleted: true, revision: 2 })
+      expect(() => Automation.get(created.id)).toThrow()
+      const row = Database.use((db) => db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, active.id)).get())
+      expect(row ? Automation.Run.parse(row.data) : undefined).toMatchObject({
         id: active.id,
         state: "scheduled",
       })
+    })
+  })
+
+  test("delete returns 404 for an unknown automation", async () => {
+    await withAutomationApp(async ({ app }) => {
+      const response = await app.request(`/automation/${AutomationID.Definition.ascending()}`, { method: "DELETE" })
+      expect(response.status).toBe(404)
     })
   })
 
@@ -633,26 +983,13 @@ describe("automation routes", () => {
     })
   })
 
-  test("rejects externally supplied automation session on update", async () => {
+  test("rejects externally supplied source session on update", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const created = await json(app, "/automation", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(recurringInput(projectID)),
       })
-      const response = await app.request(`/automation/${created.id}`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ automationSessionID: SessionID.descending() }),
-      })
-
-      expect(response.status).toBe(422)
-      expect(await response.json()).toEqual({
-        error: "invalid_automation",
-        details: [{ field: "automationSessionID", message: "unsupported_automation_field" }],
-      })
-      expect(Automation.get(created.id)).not.toHaveProperty("automationSessionID")
-
       const sourceResponse = await app.request(`/automation/${created.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -665,6 +1002,207 @@ describe("automation routes", () => {
         details: [{ field: "sourceSessionID", message: "unsupported_automation_field" }],
       })
       expect(Automation.get(created.id)).not.toHaveProperty("sourceSessionID")
+    })
+  })
+
+  test("rejects switching a fresh automation to continue on update", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      const response = await app.request(`/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ context: "continue" }),
+      })
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "context", message: "unsupported_context_change" }],
+      })
+      expect(Automation.get(created.id).context).toBe("fresh")
+    })
+  })
+
+  test("rejects switching a continue automation to fresh on update and keeps the source binding", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      // A continue automation can only be created with a source (the tool path),
+      // so seed one directly rather than through the source-less HTTP create.
+      const sourceSessionID = SessionID.descending()
+      const created = Automation.create(recurringInput(projectID, { context: "continue" }), { sourceSessionID })
+      expect(created.sourceSessionID).toBe(sourceSessionID)
+
+      const response = await app.request(`/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ context: "fresh" }),
+      })
+
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "context", message: "unsupported_context_change" }],
+      })
+      // The rejected switch must not strip the source the continue run depends on.
+      const after = Automation.get(created.id)
+      expect(after.context).toBe("continue")
+      expect(after.sourceSessionID).toBe(sourceSessionID)
+    })
+  })
+
+  test("moves a fresh automation to another project without changing its id or run history", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    let targetProjectID: ProjectID | undefined
+    await Instance.provide({
+      directory: target.path,
+      fn: () => {
+        targetProjectID = Instance.project.id
+      },
+    })
+    await Instance.disposeAll({ mode: "force" })
+
+    let automationID = ""
+    let runID = ""
+    await Instance.provide({
+      directory: source.path,
+      fn: async () => {
+        const app = automationProductionApp(source.path)
+        const sourceProjectID = Instance.project.id
+        if (!targetProjectID) throw new Error("expected target project")
+        const created = Automation.create(recurringInput(sourceProjectID), { now: 100 })
+        if (created.kind !== "recurring") throw new Error("expected recurring automation")
+        await Automation.runNowExecuting(created.id, {
+          now: 200,
+          executor: async () => ({ sessionID: SessionID.descending(), result: "done", cost: 0 }),
+        })
+        const run = await waitForRunState(created.id, "succeeded")
+        automationID = created.id
+        runID = run.id
+
+        const response = await app.request(`/automation/${created.id}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ where: { projectID: targetProjectID } }),
+        })
+        const moved = await response.json()
+
+        expect(response.status).toBe(200)
+        expect(moved).toMatchObject({
+          id: created.id,
+          revision: 2,
+          where: { projectID: targetProjectID },
+          rhythm: created.rhythm,
+          stop: created.stop,
+        })
+        expect(() => Automation.get(created.id)).toThrow()
+      },
+    })
+
+    await Instance.provide({
+      directory: target.path,
+      fn: () => {
+        if (!targetProjectID) throw new Error("expected target project")
+        const moved = Automation.get(automationID)
+        expect(moved.id).toBe(automationID)
+        expect(moved.where.projectID).toBe(targetProjectID)
+        expect(Automation.runs({ automationID }).items.map((run) => run.id)).toEqual([runID])
+      },
+    })
+  })
+
+  test("rejects moving a fresh automation to an unknown project", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = Automation.create(recurringInput(projectID), { now: 100 })
+
+      const response = await app.request(`/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ where: { projectID: ProjectID.make("project-missing") } }),
+      })
+
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "where.projectID", message: "project_not_found" }],
+      })
+      expect(Automation.get(created.id).where.projectID).toBe(projectID)
+    })
+  })
+
+  test("rejects moving a fresh automation while it has an active run", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    let targetProjectID: ProjectID | undefined
+    await Instance.provide({
+      directory: target.path,
+      fn: () => {
+        targetProjectID = Instance.project.id
+      },
+    })
+    await Instance.disposeAll({ mode: "force" })
+
+    await Instance.provide({
+      directory: source.path,
+      fn: async () => {
+        const app = automationProductionApp(source.path)
+        if (!targetProjectID) throw new Error("expected target project")
+        const created = Automation.create(recurringInput(Instance.project.id), { now: 100 })
+        const active = Automation.runNow(created.id, { now: 200 })
+        await using _lease = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
+
+        const response = await app.request(`/automation/${created.id}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ where: { projectID: targetProjectID } }),
+        })
+
+        expect(response.status).toBe(422)
+        expect(await response.json()).toEqual({
+          error: "invalid_automation",
+          details: [{ field: "where.projectID", message: "unsupported_move_with_active_run" }],
+        })
+        expect(Automation.get(created.id).where.projectID).toBe(Instance.project.id)
+      },
+    })
+  })
+
+  test("rejects moving a continue automation to another project", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    let targetProjectID: ProjectID | undefined
+    await Instance.provide({
+      directory: target.path,
+      fn: () => {
+        targetProjectID = Instance.project.id
+      },
+    })
+    await Instance.disposeAll({ mode: "force" })
+
+    await Instance.provide({
+      directory: source.path,
+      fn: async () => {
+        const app = automationProductionApp(source.path)
+        if (!targetProjectID) throw new Error("expected target project")
+        const created = Automation.create(recurringInput(Instance.project.id, { context: "continue" }), {
+          sourceSessionID: SessionID.descending(),
+        })
+
+        const response = await app.request(`/automation/${created.id}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ where: { projectID: targetProjectID } }),
+        })
+
+        expect(response.status).toBe(422)
+        expect(await response.json()).toEqual({
+          error: "invalid_automation",
+          details: [{ field: "where.projectID", message: "unsupported_continue_move" }],
+        })
+        expect(Automation.get(created.id).where.projectID).toBe(Instance.project.id)
+      },
     })
   })
 
@@ -698,9 +1236,9 @@ describe("automation routes", () => {
         body: JSON.stringify(recurringInput(projectID)),
       })
       const revisions: number[] = []
-      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+      const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         revisions.push(event.properties.revision)
-      })
+      }, { directory: Instance.directory })
 
       const empty = await json(app, `/automation/${created.id}`, {
         method: "PUT",
@@ -720,6 +1258,76 @@ describe("automation routes", () => {
     })
   })
 
+  test("metadata-only update preserves pending nextFireAt and nextFires", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const created = Automation.create(recurringInput(projectID), { now: 100 })
+      expect(created.kind).toBe("recurring")
+      if (created.kind !== "recurring") throw new Error("recurring")
+      const updated = Automation.update(created.id, { title: "Renamed" }, { now: 200 })
+      expect(updated).toMatchObject({
+        title: "Renamed",
+        nextFireAt: created.nextFireAt,
+        nextFires: created.nextFires,
+      })
+    })
+  })
+
+  test("rhythm change recomputes nextFireAt from the update timestamp", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const created = Automation.create(recurringInput(projectID), { now: 100 })
+      const updated = Automation.update(
+        created.id,
+        { rhythm: { kind: "interval", everyMs: 120_000 } },
+        { now: 300 },
+      )
+      if (updated.kind !== "recurring") throw new Error("recurring")
+      expect(updated.nextFireAt).toBe(300 + 120_000)
+    })
+  })
+
+  test("update accepts variant: null to clear a previously set effort", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID, { variant: "high" } as Partial<RecurringCreateInput>)),
+      })
+      expect(created.variant).toBe("high")
+      const cleared = await json(app, `/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ variant: null }),
+      })
+      expect(cleared).not.toHaveProperty("variant")
+      expect(Automation.get(created.id)).not.toHaveProperty("variant")
+    })
+  })
+
+  test("update with variant: null on an unset variant is a no-op (no revision bump, no event)", async () => {
+    await withAutomationApp(async ({ app, projectID }) => {
+      const created = await json(app, "/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      expect(created).not.toHaveProperty("variant")
+      const updates: number[] = []
+      const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
+        if (event.properties.id === created.id) updates.push(event.properties.revision)
+      }, { directory: Instance.directory })
+      const noop = await json(app, `/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ variant: null }),
+      })
+      await Bun.sleep(10)
+      unsubscribe()
+      expect(noop.revision).toBe(created.revision)
+      expect(noop.updatedAt).toBe(created.updatedAt)
+      expect(updates).toEqual([])
+    })
+  })
+
   test("pause and resume only revise when paused state changes", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const created = await json(app, "/automation", {
@@ -728,9 +1336,9 @@ describe("automation routes", () => {
         body: JSON.stringify(recurringInput(projectID)),
       })
       const revisions: number[] = []
-      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+      const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         revisions.push(event.properties.revision)
-      })
+      }, { directory: Instance.directory })
 
       const paused = await json(app, `/automation/${created.id}/pause`, { method: "POST" })
       const pausedAgain = await json(app, `/automation/${created.id}/pause`, { method: "POST" })
@@ -838,28 +1446,29 @@ describe("automation routes", () => {
     const update409 = paths["/automation/{automationID}"].put.responses["409"].content["application/json"].schema
     const pause409 = paths["/automation/{automationID}/pause"].post.responses["409"].content["application/json"].schema
     const resume409 = paths["/automation/{automationID}/resume"].post.responses["409"].content["application/json"].schema
-    const delete409 = paths["/automation/{automationID}"].delete.responses["409"].content["application/json"].schema
+    const deleteResponses = paths["/automation/{automationID}"].delete.responses
 
     expect(create422).toEqual({ $ref: "#/components/schemas/AutomationValidationError" })
     expect(update422).toEqual({ $ref: "#/components/schemas/AutomationValidationError" })
     expect(update409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
     expect(pause409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
     expect(resume409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
-    expect(delete409).toEqual({ $ref: "#/components/schemas/AutomationActiveRunStillRunningError" })
+    expect(deleteResponses).not.toHaveProperty("409")
     expect(spec.components?.schemas).toHaveProperty("AutomationValidationError")
     expect(spec.components?.schemas).toHaveProperty("AutomationConflictError")
-    expect(spec.components?.schemas).toHaveProperty("AutomationActiveRunStillRunningError")
+    expect(spec.components?.schemas).not.toHaveProperty("AutomationActiveRunStillRunningError")
   })
 
-  test("openapi describes delete active-run stop side effect", async () => {
+  test("openapi describes delete as preserving already-started runs", async () => {
     const { Server } = await import("../../src/server/server")
     const spec = await Server.openapi()
     const paths = spec.paths as Record<string, any>
     const description = paths["/automation/{automationID}"].delete.description
 
-    expect(description).toContain("If a run is active")
-    expect(description).toContain("publish the stopped run")
-    expect(description).toContain("live run is owned by another process")
+    expect(description).toContain("Already-started runs continue")
+    expect(description).not.toContain("run stop endpoint")
+    expect(description).not.toContain("publish the stopped run")
+    expect(description).not.toContain("live run is owned by another process")
   })
 
   test("runNow returns the queued run before background execution updates it", async () => {

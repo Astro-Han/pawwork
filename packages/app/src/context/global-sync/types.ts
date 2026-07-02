@@ -1,5 +1,7 @@
 import type {
   Agent,
+  AutomationDefinition,
+  AutomationRun,
   Command,
   Config,
   LspStatus,
@@ -36,6 +38,7 @@ export type State = {
   agent: Agent[]
   command: Command[]
   command_ready: boolean
+  external_result_ready: boolean
   project: string
   projectMeta: ProjectMeta | undefined
   icon: string | undefined
@@ -72,6 +75,15 @@ export type State = {
   }
   part: {
     [messageID: string]: Part[]
+  }
+  automation: {
+    [automationID: string]: AutomationDefinition
+  }
+  automation_run: {
+    [runID: string]: AutomationRun
+  }
+  automation_tombstone: {
+    [automationID: string]: number
   }
 }
 

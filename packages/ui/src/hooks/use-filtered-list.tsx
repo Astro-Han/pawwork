@@ -1,8 +1,8 @@
-import fuzzysort from "fuzzysort"
 import { entries, flatMap, groupBy, map, pipe } from "remeda"
 import { createEffect, createMemo, createResource, on } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createList } from "solid-list"
+import { filterListItems } from "./filter-list-items"
 
 export interface FilteredListProps<T> {
   items: T[] | ((filter: string) => T[] | Promise<T[]>)
@@ -12,6 +12,7 @@ export interface FilteredListProps<T> {
   groupBy?: (x: T) => string
   sortBy?: (a: T, b: T) => number
   sortGroupsBy?: (a: { category: string; items: T[] }, b: { category: string; items: T[] }) => number
+  skipFilter?: (item: T) => boolean
   onSelect?: (value: T | undefined, index: number) => void
   noInitialSelection?: boolean
 }
@@ -34,11 +35,7 @@ export function useFilteredList<T>(props: FilteredListProps<T>) {
       const result = pipe(
         all,
         (x) => {
-          if (!needle) return x
-          if (!props.filterKeys && Array.isArray(x) && x.every((e) => typeof e === "string")) {
-            return fuzzysort.go(needle, x).map((x) => x.target) as T[]
-          }
-          return fuzzysort.go(needle, x, { keys: props.filterKeys! }).map((x) => x.obj)
+          return filterListItems(x, needle, props.filterKeys, props.skipFilter)
         },
         groupBy((x) => (props.groupBy ? props.groupBy(x) : "")),
         entries(),

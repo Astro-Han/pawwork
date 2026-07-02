@@ -9,6 +9,8 @@ import {
   getPublishConfig,
   nativeWatcherFileSets,
   nativeWatcherPackageNames,
+  openCliRuntimeFileSets,
+  openCliRuntimePackageNames,
 } from "./electron-builder.config"
 import { serializeAppUpdateConfig } from "./scripts/write-app-update-config"
 
@@ -104,6 +106,20 @@ describe("electron builder app-update config", () => {
     )
   })
 
+  test("third-party notices include bundled OpenCLI attribution", () => {
+    const notices = readFileSync(join(import.meta.dir, "../..", "THIRD_PARTY_NOTICES.md"), "utf8")
+    const opencodePackage = JSON.parse(
+      readFileSync(join(import.meta.dir, "..", "opencode", "package.json"), "utf8"),
+    ) as { dependencies: Record<string, string> }
+    const openCliVersion = opencodePackage.dependencies["@jackwener/opencli"]
+
+    expect(notices).toContain("## OpenCLI")
+    expect(notices).toContain("https://github.com/jackwener/opencli")
+    expect(notices).toContain("`@jackwener/opencli`")
+    expect(notices).toContain(`Version: ${openCliVersion}`)
+    expect(notices).toContain("Apache License 2.0")
+  })
+
   test("native watcher package list covers desktop targets", () => {
     expect(nativeWatcherPackageNames()).toEqual([
       "@parcel/watcher-darwin-arm64",
@@ -133,6 +149,60 @@ describe("electron builder app-update config", () => {
     )
     expect(resources.map((resource) => resource.to)).toEqual(
       nativeWatcherPackageNames().map((packageName) => join("node_modules", ...packageName.split("/"))),
+    )
+  })
+
+  test("packages OpenCLI adapters and runtime dependencies for the embedded server", () => {
+    const config = createConfig("prod")
+    const resources = openCliRuntimeFileSets()
+
+    expect(openCliRuntimePackageNames()).toEqual([
+      "@jackwener/opencli",
+      "@mixmark-io/domino",
+      "@mozilla/readability",
+      "ansi-regex",
+      "argparse",
+      "cli-table3",
+      "commander",
+      "emoji-regex",
+      "is-fullwidth-code-point",
+      "js-yaml",
+      "string-width",
+      "strip-ansi",
+      "turndown",
+      "turndown-plugin-gfm",
+      "undici",
+      "ws",
+    ])
+    expect(config.extraResources).toEqual(
+      expect.arrayContaining(
+        resources.map((resource) =>
+          expect.objectContaining({
+            from: resource.from,
+            to: resource.to,
+          }),
+        ),
+      ),
+    )
+    expect(resources.map((resource) => resource.to)).toEqual(
+      openCliRuntimePackageNames().map((packageName) => join("node_modules", ...packageName.split("/"))),
+    )
+  })
+
+  test("packages only OpenCLI runtime files", () => {
+    const resources = openCliRuntimeFileSets()
+
+    for (const resource of resources) {
+      expect(resource.filter).toEqual(
+        expect.arrayContaining([
+          "!**/.yarn/**",
+          "!**/{test,tests,__tests__,coverage}/**",
+          "!**/*.{test,spec}.{js,mjs,cjs,ts,tsx}",
+        ]),
+      )
+    }
+    expect(resources.find((resource) => resource.to.endsWith(join("@jackwener", "opencli")))?.filter).toContain(
+      "!clis/test-utils.js",
     )
   })
 

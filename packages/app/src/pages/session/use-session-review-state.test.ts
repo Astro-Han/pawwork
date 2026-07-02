@@ -93,8 +93,8 @@ describe("session review state", () => {
   })
 
   test("keys pending VCS diff tasks by execution scope and mode", () => {
-    expect(vcsTaskKey(scope("/repo", 1), "unstaged")).not.toBe(vcsTaskKey(scope("/repo", 3), "unstaged"))
-    expect(vcsTaskKey(scope("/repo", 3), "unstaged")).not.toBe(vcsTaskKey(scope("/repo", 3), "staged"))
+    expect(vcsTaskKey(scope("/repo", 1), "git")).not.toBe(vcsTaskKey(scope("/repo", 3), "git"))
+    expect(vcsTaskKey(scope("/repo", 3), "git")).not.toBe(vcsTaskKey(scope("/repo", 3), "branch"))
   })
 
   test("builds review turn diffs from the shared turn-change display", () => {

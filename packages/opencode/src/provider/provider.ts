@@ -28,7 +28,7 @@ import { InstanceState } from "@/effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { isRecord } from "@/util/record"
 import { withStatics } from "@/util/schema"
-import { makeRuntime } from "../effect/run-service"
+import { withPawWorkProviders } from "./pawwork-providers"
 
 import * as ProviderTransform from "./transform"
 import { ModelID, ProviderID } from "./schema"
@@ -116,6 +116,13 @@ export function stripOpenAIResponseInputIDs(body: unknown) {
   }
 
   return JSON.stringify(parsed)
+}
+
+function googleVertexAnthropicBaseURL(project: string | undefined, location: string | undefined) {
+  if (!project) return
+  if (location !== "eu" && location !== "us") return
+  // Continental multi-regions require Regional Endpoint Platform domains.
+  return `https://aiplatform.${location}.rep.googleapis.com/v1/projects/${project}/locations/${location}/publishers/anthropic/models`
 }
 
 type BundledSDK = {
@@ -459,7 +466,11 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
     "google-vertex": Effect.fnUntraced(function* (provider: Info) {
       const env = yield* dep.env()
       const project =
-        provider.options?.project ?? env["GOOGLE_CLOUD_PROJECT"] ?? env["GCP_PROJECT"] ?? env["GCLOUD_PROJECT"]
+        provider.options?.project ??
+        env["GOOGLE_VERTEX_PROJECT"] ??
+        env["GOOGLE_CLOUD_PROJECT"] ??
+        env["GCP_PROJECT"] ??
+        env["GCLOUD_PROJECT"]
 
       const location = String(
         provider.options?.location ??
@@ -502,10 +513,20 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         },
       }
     }),
-    "google-vertex-anthropic": Effect.fnUntraced(function* () {
+    "google-vertex-anthropic": Effect.fnUntraced(function* (provider: Info) {
       const env = yield* dep.env()
-      const project = env["GOOGLE_CLOUD_PROJECT"] ?? env["GCP_PROJECT"] ?? env["GCLOUD_PROJECT"]
-      const location = env["GOOGLE_CLOUD_LOCATION"] ?? env["VERTEX_LOCATION"] ?? "global"
+      const project =
+        provider.options?.project ??
+        env["GOOGLE_VERTEX_PROJECT"] ??
+        env["GOOGLE_CLOUD_PROJECT"] ??
+        env["GCP_PROJECT"] ??
+        env["GCLOUD_PROJECT"]
+      const location =
+        provider.options?.location ??
+        env["GOOGLE_VERTEX_LOCATION"] ??
+        env["GOOGLE_CLOUD_LOCATION"] ??
+        env["VERTEX_LOCATION"] ??
+        "global"
       const autoload = Boolean(project)
       if (!autoload) return { autoload: false }
       return {
@@ -950,6 +971,19 @@ export const ConfigProvidersResult = Schema.Struct({
 export type ConfigProvidersResult = Types.DeepMutable<Schema.Schema.Type<typeof ConfigProvidersResult>>
 export type Language = LanguageModelV3
 
+// JSON-safe deep clone for handing provider Info to plugin hooks, so a plugin
+// mutating its argument cannot corrupt internal provider state. Drops functions,
+// symbols and undefined; stringifies bigint. Info is plain-data, so it round-trips.
+export function toPublicInfo(provider: Info): Info {
+  return JSON.parse(
+    JSON.stringify(provider, (_, value) => {
+      if (typeof value === "function" || typeof value === "symbol" || value === undefined) return undefined
+      if (typeof value === "bigint") return value.toString()
+      return value
+    }),
+  )
+}
+
 export function defaultModelID<T extends { id?: string; models: Record<string, { id: string }> }>(
   provider: T,
   fallbackID?: string,
@@ -978,7 +1012,7 @@ export interface Interface {
     query: string[],
   ) => Effect.Effect<{ providerID: ProviderID; modelID: string } | undefined>
   readonly getSmallModel: (providerID: ProviderID) => Effect.Effect<Model | undefined>
-  readonly defaultModel: () => Effect.Effect<{ providerID: ProviderID; modelID: ModelID }>
+  readonly defaultModel: () => Effect.Effect<{ providerID: ProviderID; modelID: ModelID }, DefaultModelError>
 }
 
 interface State {
@@ -1102,7 +1136,7 @@ export function fromModelsDevProvider(provider: ModelsDev.Provider): Info {
 const layer: Layer.Layer<
   Service,
   never,
-  Config.Service | Auth.Service | Plugin.Service | AppFileSystem.Service | Env.Service
+  Config.Service | Auth.Service | Plugin.Service | AppFileSystem.Service | Env.Service | ModelsDev.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -1111,13 +1145,27 @@ const layer: Layer.Layer<
     const auth = yield* Auth.Service
     const env = yield* Env.Service
     const plugin = yield* Plugin.Service
+    const modelsService = yield* ModelsDev.Service
 
     const state = yield* InstanceState.make<State>(() =>
       Effect.gen(function* () {
         using _ = log.time("state")
         const bridge = yield* EffectBridge.make()
         const cfg = yield* config.get()
-        const modelsDev = yield* Effect.promise(() => ModelsDev.getWithVersion())
+        const modelsDev = yield* Effect.gen(function* () {
+          while (true) {
+            const before = ModelsDev.version()
+            const result = yield* modelsService.data().pipe(Effect.orDie)
+            const after = ModelsDev.version()
+            if (before === after) {
+              return {
+                providers: withPawWorkProviders(result as Record<string, ModelsDev.Provider>),
+                version: after,
+              }
+            }
+            yield* modelsService.reset()
+          }
+        })
         const database = mapValues(modelsDev.providers, fromModelsDevProvider)
 
         const providers: Record<ProviderID, Info> = {} as Record<ProviderID, Info>
@@ -1195,7 +1243,7 @@ const layer: Layer.Layer<
             }
 
             provider.models = yield* Effect.promise(async () => {
-              const next = await models(provider, { auth: pluginAuth })
+              const next = await models(toPublicInfo(provider), { auth: pluginAuth })
               return Object.fromEntries(
                 Object.entries(next).map(([id, model]) => [
                   id,
@@ -1352,10 +1400,11 @@ const layer: Layer.Layer<
           if (!stored) continue
           if (!plugin.auth.loader) continue
 
+          const authProvider = database[plugin.auth!.provider]
           const options = yield* Effect.promise(() =>
             plugin.auth!.loader!(
               () => bridge.promise(auth.get(providerID).pipe(Effect.orDie)) as any,
-              database[plugin.auth!.provider],
+              authProvider ? toPublicInfo(authProvider) : authProvider,
             ),
           )
           const opts = options ?? {}
@@ -1484,6 +1533,14 @@ const layer: Layer.Layer<
         })
         const provider = s.providers[model.providerID]
         const options = { ...provider.options }
+
+        if (model.api.npm === "@ai-sdk/google-vertex/anthropic" && !options.baseURL && !model.api.url) {
+          const baseURL = googleVertexAnthropicBaseURL(
+            typeof options.project === "string" ? options.project : undefined,
+            typeof options.location === "string" ? options.location : undefined,
+          )
+          if (baseURL) options.baseURL = baseURL
+        }
 
         if (model.providerID === "google-vertex" && !model.api.npm.includes("@ai-sdk/openai-compatible")) {
           delete options.fetch
@@ -1708,7 +1765,14 @@ const layer: Layer.Layer<
 
       if (cfg.small_model) {
         const parsed = parseModel(cfg.small_model)
-        return yield* getModel(parsed.providerID, parsed.modelID)
+        // getModel throws ModelNotFoundError as a defect (Effect.fn), so an invalid
+        // small_model would crash title/summary gen. Swallow only that defect and fall
+        // back to undefined; re-die anything else.
+        return yield* getModel(parsed.providerID, parsed.modelID).pipe(
+          Effect.catchDefect((defect) =>
+            ModelNotFoundError.isInstance(defect) ? Effect.succeed(undefined) : Effect.die(defect),
+          ),
+        )
       }
 
       const s = yield* currentState()
@@ -1784,10 +1848,10 @@ const layer: Layer.Layer<
       }
 
       const provider = Object.values(s.providers).find((p) => !cfg.provider || Object.keys(cfg.provider).includes(p.id))
-      if (!provider) throw new Error("no providers found")
+      if (!provider) return yield* Effect.fail(new NoProvidersError({}))
       const modelID = defaultModelID(provider)
       const model = provider.models[modelID]
-      if (!model) throw new Error("no models found")
+      if (!model) return yield* Effect.fail(new NoModelsError({ providerID: provider.id }))
       return {
         providerID: provider.id,
         modelID: model.id,
@@ -1805,38 +1869,9 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Config.defaultLayer),
     Layer.provide(Auth.defaultLayer),
     Layer.provide(Plugin.defaultLayer),
+    Layer.provide(ModelsDev.defaultLayer),
   ),
 )
-
-const { runPromise } = makeRuntime(Service, defaultLayer)
-
-export async function list() {
-  return runPromise((svc) => svc.list())
-}
-
-export async function getProvider(providerID: ProviderID) {
-  return runPromise((svc) => svc.getProvider(providerID))
-}
-
-export async function getModel(providerID: ProviderID, modelID: ModelID) {
-  return runPromise((svc) => svc.getModel(providerID, modelID))
-}
-
-export async function getLanguage(model: Model) {
-  return runPromise((svc) => svc.getLanguage(model))
-}
-
-export async function closest(providerID: ProviderID, query: string[]) {
-  return runPromise((svc) => svc.closest(providerID, query))
-}
-
-export async function getSmallModel(providerID: ProviderID) {
-  return runPromise((svc) => svc.getSmallModel(providerID))
-}
-
-export async function defaultModel() {
-  return runPromise((svc) => svc.defaultModel())
-}
 
 const priority = ["gpt-5", "claude-sonnet-4", "big-pickle", "gemini-3-pro"]
 export function sort<T extends { id: string }>(models: T[]) {
@@ -1872,6 +1907,17 @@ export const InitError = NamedError.create(
   }),
 )
 
+export const NoProvidersError = NamedError.create("ProviderNoProvidersError", z.object({}))
+
+export const NoModelsError = NamedError.create(
+  "ProviderNoModelsError",
+  z.object({
+    providerID: ProviderID.zod,
+  }),
+)
+
+export type DefaultModelError = InstanceType<typeof NoProvidersError> | InstanceType<typeof NoModelsError>
+
 const ProviderServiceValue = Service
 const ProviderDefaultLayerValue = defaultLayer
 const ProviderModelValue = Model
@@ -1881,17 +1927,12 @@ const ProviderConfigProvidersResultValue = ConfigProvidersResult
 const ProviderDefaultModelIDValue = defaultModelID
 const ProviderDefaultModelIDsValue = defaultModelIDs
 const ProviderFromModelsDevProviderValue = fromModelsDevProvider
-const ProviderListValue = list
-const ProviderGetProviderValue = getProvider
-const ProviderGetModelValue = getModel
-const ProviderGetLanguageValue = getLanguage
-const ProviderClosestValue = closest
-const ProviderGetSmallModelValue = getSmallModel
-const ProviderDefaultModelValue = defaultModel
 const ProviderSortValue = sort
 const ProviderParseModelValue = parseModel
 const ProviderModelNotFoundErrorValue = ModelNotFoundError
 const ProviderInitErrorValue = InitError
+const ProviderNoProvidersErrorValue = NoProvidersError
+const ProviderNoModelsErrorValue = NoModelsError
 
 export namespace Provider {
   export type Interface = import("./provider").Interface
@@ -1909,15 +1950,11 @@ export namespace Provider {
   export const defaultModelID = ProviderDefaultModelIDValue
   export const defaultModelIDs = ProviderDefaultModelIDsValue
   export const fromModelsDevProvider = ProviderFromModelsDevProviderValue
-  export const list = ProviderListValue
-  export const getProvider = ProviderGetProviderValue
-  export const getModel = ProviderGetModelValue
-  export const getLanguage = ProviderGetLanguageValue
-  export const closest = ProviderClosestValue
-  export const getSmallModel = ProviderGetSmallModelValue
-  export const defaultModel = ProviderDefaultModelValue
   export const sort = ProviderSortValue
   export const parseModel = ProviderParseModelValue
   export const ModelNotFoundError = ProviderModelNotFoundErrorValue
   export const InitError = ProviderInitErrorValue
+  export const NoProvidersError = ProviderNoProvidersErrorValue
+  export const NoModelsError = ProviderNoModelsErrorValue
+  export type DefaultModelError = import("./provider").DefaultModelError
 }

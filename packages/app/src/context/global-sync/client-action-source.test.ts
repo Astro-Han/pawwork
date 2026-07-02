@@ -6,7 +6,10 @@ const settingsProvidersSource = readFileSync(
   new URL("../../components/settings-providers.tsx", import.meta.url),
   "utf8",
 )
-const layoutSource = readFileSync(new URL("../../pages/layout.tsx", import.meta.url), "utf8")
+const workspaceLifecycleSource = readFileSync(
+  new URL("../../pages/layout/pawwork-workspace-lifecycle.ts", import.meta.url),
+  "utf8",
+)
 
 describe("global sync client action provenance wiring", () => {
   test("tags global config updates with client action headers", () => {
@@ -24,8 +27,8 @@ describe("global sync client action provenance wiring", () => {
   })
 
   test("tags workspace reset instance disposal with client action headers", () => {
-    expect(layoutSource).toContain("clientActionHeaders")
-    expect(layoutSource).toContain('kind: "workspace.reset"')
-    expect(layoutSource).toContain("actionClient.instance.dispose")
+    expect(workspaceLifecycleSource).toContain("clientActionHeaders")
+    expect(workspaceLifecycleSource).toContain('kind: "workspace.reset"')
+    expect(workspaceLifecycleSource).toContain("actionClient.instance.dispose")
   })
 })

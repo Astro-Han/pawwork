@@ -280,4 +280,22 @@ describe("POST /session/:sessionID/tool/respond", () => {
       },
     })
   })
+
+  test("declares its route-local failure bodies in OpenAPI", async () => {
+    const spec = await Server.openapi()
+    const responses = spec.paths?.["/session/{sessionID}/tool/respond"]?.post?.responses
+
+    // 404 / 409 / 422 carry the inline route-local { error, details? } body,
+    // not the shared NotFoundError envelope. Asserting the inline schema keeps
+    // this robust against component-ref registration order across the suite.
+    for (const status of ["404", "409", "422"] as const) {
+      const response = responses?.[status]
+      if (!response || "$ref" in response) throw new Error(`expected inline ${status} response`)
+      expect(response.content?.["application/json"]?.schema, status).toMatchObject({
+        type: "object",
+        properties: { error: { type: "string" } },
+        required: ["error"],
+      })
+    }
+  })
 })

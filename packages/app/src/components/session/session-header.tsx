@@ -11,9 +11,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { canOpenLocalPath, usePlatform } from "@/context/platform"
 import { useServer } from "@/context/server"
-import { useShellSurface } from "@/context/shell-surface"
 import { useSync } from "@/context/sync"
-import { PawworkWorktreeBadge } from "@/pages/layout/pawwork-worktree-badge"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { decode64 } from "@/utils/base64"
 import { StatusPopover } from "../status-popover"
@@ -23,7 +21,6 @@ export function SessionHeader() {
   const language = useLanguage()
   const platform = usePlatform()
   const server = useServer()
-  const shellSurface = useShellSurface()
   const sync = useSync()
   const location = useLocation()
   const { params, view } = useSessionLayout()
@@ -42,11 +39,6 @@ export function SessionHeader() {
   })
   const sessionInfo = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
   const sessionTitle = createMemo(() => sessionInfo()?.title || params.id || "")
-  const activeWorktree = createMemo(() => {
-    const exec = sessionInfo()?.executionContext
-    if (!exec || exec.activeDirectory === exec.ownerDirectory) return
-    return exec.activeWorktree
-  })
   const homeTitle = createMemo(() => language.t("command.session.new"))
   const onSessionRoute = createMemo(() => location.pathname.includes("/session"))
   const fileManagerLabel = createMemo(() => {
@@ -55,9 +47,7 @@ export function SessionHeader() {
     return language.t("session.header.open.finder")
   })
   const canOpenDirectory = (directory?: string) => canOpenLocalPath(platform) && server.isLocal() && !!directory
-  const activeWorktreeDirectory = createMemo(() => activeWorktree()?.directory ?? "")
   const canOpenProjectDirectory = createMemo(() => canOpenDirectory(projectDirectory()))
-  const canOpenActiveWorktreeDirectory = createMemo(() => canOpenDirectory(activeWorktreeDirectory()))
   const rightPanelOpen = createMemo(() => view().sidePanel.opened())
   const toggleRightPanel = () => {
     if (rightPanelOpen()) {
@@ -77,10 +67,6 @@ export function SessionHeader() {
     })
   }
   const openProjectDirectory = () => openDirectory(projectDirectory())
-  const openActiveWorktree = () => {
-    openDirectory(activeWorktreeDirectory())
-  }
-
   const [leftMount, setLeftMount] = createSignal<HTMLElement>()
   const [rightMount, setRightMount] = createSignal<HTMLElement>()
 
@@ -91,7 +77,7 @@ export function SessionHeader() {
 
   return (
     <>
-      <Show when={!shellSurface.settingsOpen() && leftMount()}>
+      <Show when={leftMount()}>
         {(mount) => (
           <Portal mount={mount()}>
             <div class="hidden md:flex w-full min-w-0 max-w-[720px] items-center overflow-hidden text-h3">
@@ -124,25 +110,13 @@ export function SessionHeader() {
                       <span class="min-w-0 truncate">{name()}</span>
                     </Button>
                   </Show>
-                  <Show when={activeWorktree()}>
-                    {(worktree) => (
-                      <PawworkWorktreeBadge
-                        name={worktree().name}
-                        branch={worktree().branch}
-                        directory={worktree().directory}
-                        onClick={openActiveWorktree}
-                        ariaLabel={language.t("session.header.worktree.open")}
-                        disabled={!canOpenActiveWorktreeDirectory()}
-                      />
-                    )}
-                  </Show>
                 </div>
               </Show>
             </div>
           </Portal>
         )}
       </Show>
-      <Show when={!shellSurface.settingsOpen() && rightMount()}>
+      <Show when={rightMount()}>
         {(mount) => (
           <Portal mount={mount()}>
             <Show

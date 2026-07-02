@@ -15,8 +15,6 @@ import { Storage } from "@/storage/storage"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { Effect, Layer, Context, Schema } from "effect"
 import { isOverflow as overflow, usable } from "./overflow"
-import { makeRuntime } from "@/effect/run-service"
-import { fn } from "@/util/fn"
 
 const log = Log.create({ service: "session.compaction" })
 
@@ -33,7 +31,7 @@ export const PRUNE_MINIMUM = 20_000
 export const PRUNE_PROTECT = 40_000
 const TOOL_OUTPUT_MAX_CHARS = 2_000
 const TOOL_INPUT_MAX_CHARS = 2_000
-const PRUNE_PROTECTED_TOOLS = ["skill"]
+export const PRUNE_PROTECTED_TOOLS = ["skill", "tool_info"]
 const DEFAULT_TAIL_TURNS = 2
 const MIN_PRESERVE_RECENT_TOKENS = 2_000
 const MAX_PRESERVE_RECENT_TOKENS = 8_000
@@ -246,15 +244,13 @@ export const layer: Layer.Layer<
       messages: MessageV2.WithParts[]
       model: Provider.Model
     }) {
-      // Match the serialization options that processCompaction() actually
-      // applies (see line 405-408). Estimating with full media + un-truncated
-      // tool output overstates the post-compaction size, which makes select()
-      // drop recent turns that would have fit through compaction anyway.
-      const msgs = yield* MessageV2.toModelMessagesEffect(input.messages, input.model, {
-        stripMedia: true,
-        toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
-        toolInputMaxChars: TOOL_INPUT_MAX_CHARS,
-      })
+      // Size the retained tail the way it actually re-enters the live prompt:
+      // prompt.ts serializes messages with no options, i.e. full media and
+      // un-truncated tool output. Only the head is summarized cheaply (stripMedia
+      // + truncation in processCompaction()); the tail is kept verbatim. Using
+      // those head options here undercounts the tail, so select()/splitTurn()
+      // keep recent turns that overflow the very next live prompt.
+      const msgs = yield* MessageV2.toModelMessagesEffect(input.messages, input.model)
       return Token.estimate(JSON.stringify(msgs))
     })
 
@@ -767,27 +763,6 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Bus.layer),
     Layer.provide(Config.defaultLayer),
   ),
-)
-
-const { runPromise } = makeRuntime(Service, defaultLayer)
-
-export async function isOverflow(input: { tokens: MessageV2.Assistant["tokens"]; model: Provider.Model }) {
-  return runPromise((svc) => svc.isOverflow(input))
-}
-
-export async function prune(input: { sessionID: SessionID }) {
-  return runPromise((svc) => svc.prune(input))
-}
-
-export const create = fn(
-  z.object({
-    sessionID: SessionID.zod,
-    agent: z.string(),
-    model: z.object({ providerID: ProviderID.zod, modelID: ModelID.zod }),
-    auto: z.boolean(),
-    overflow: z.boolean().optional(),
-  }),
-  (input) => runPromise((svc) => svc.create(input)),
 )
 
 export * as SessionCompaction from "./compaction"
