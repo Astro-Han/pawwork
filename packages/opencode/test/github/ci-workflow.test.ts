@@ -36,6 +36,7 @@ const hardenRunnerJobs = [
   lintJobName,
   frontendArchitectureJobName,
   "unit-ui",
+  "storybook-smoke",
   "unit-app",
   "unit-opencode",
   "unit-desktop",
@@ -350,6 +351,7 @@ describe("ci workflow", () => {
       "typecheck",
       lintJobName,
       frontendArchitectureJobName,
+      "storybook-smoke",
       ...linuxUnitJobs.map((item) => item.jobName),
     ]
 
@@ -833,6 +835,7 @@ describe("ci workflow", () => {
       "typecheck",
       frontendArchitectureJobName,
       "unit-ui",
+      "storybook-smoke",
       "unit-app",
       "unit-opencode",
       "unit-desktop",
@@ -850,12 +853,14 @@ describe("ci workflow", () => {
     expect(validate?.env?.TYPECHECK_RESULT).toBe("${{ needs.typecheck.result }}")
     expect(validate?.env?.FRONTEND_ARCHITECTURE_RESULT).toBe("${{ needs['frontend-architecture'].result }}")
     expect(validate?.env?.UNIT_UI_RESULT).toBe("${{ needs['unit-ui'].result }}")
+    expect(validate?.env?.STORYBOOK_SMOKE_RESULT).toBe("${{ needs['storybook-smoke'].result }}")
     expect(validate?.env?.UNIT_APP_RESULT).toBe("${{ needs['unit-app'].result }}")
     expect(validate?.env?.UNIT_OPENCODE_RESULT).toBe("${{ needs['unit-opencode'].result }}")
     expect(validate?.env?.UNIT_DESKTOP_RESULT).toBe("${{ needs['unit-desktop'].result }}")
     expect(validate?.env?.UNIT_REMOTE_BRIDGE_RESULT).toBe("${{ needs['unit-remote-bridge'].result }}")
     expect(validate?.run).toContain("Docs-only change, daily CI skipped.")
     expect(validate?.run).toContain("FRONTEND_ARCHITECTURE_RESULT")
+    expect(validate?.run).toContain("STORYBOOK_SMOKE_RESULT")
     expect(validate?.run).toContain("UNIT_UI_RESULT")
     expect(validate?.run).toContain("UNIT_APP_RESULT")
     expect(validate?.run).toContain("UNIT_OPENCODE_RESULT")
