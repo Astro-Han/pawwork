@@ -1,4 +1,4 @@
-import type { Preview } from "storybook-solidjs-vite"
+import { createJSXDecorator, type Preview } from "storybook-solidjs-vite"
 import { MetaProvider } from "@solidjs/meta"
 import { ThemeProvider } from "../src/theme/context"
 import { MarkedProvider } from "../src/context/marked"
@@ -7,7 +7,7 @@ import "../src/styles/tailwind/index.css"
 
 const preview: Preview = {
   decorators: [
-    (Story) => (
+    createJSXDecorator((Story) => (
       <MetaProvider>
         <ThemeProvider defaultTheme="pawwork">
           <MarkedProvider>
@@ -17,7 +17,7 @@ const preview: Preview = {
           </MarkedProvider>
         </ThemeProvider>
       </MetaProvider>
-    ),
+    )),
   ],
 }
 
