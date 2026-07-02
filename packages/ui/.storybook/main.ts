@@ -8,7 +8,6 @@ const config: StorybookConfig = {
   // previewable in isolation; their fork stories were removed rather than kept
   // as dead .skip files.
   stories: ["../src/components/*.stories.tsx"],
-  addons: ["@storybook/addon-docs"],
   viteFinal: async (viteConfig) => {
     const drop = (name?: string) =>
       name?.startsWith("icon-spritesheet-generator") || name === "provider-icons-plugin"
