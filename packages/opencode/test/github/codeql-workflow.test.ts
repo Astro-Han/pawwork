@@ -69,8 +69,8 @@ describe("codeql workflow", () => {
     expect(job?.["timeout-minutes"]).toBe(30)
     expect(steps).toHaveLength(3)
     expect(checkoutStep?.uses).toBe("actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0")
-    expect(initStep?.uses).toBe("github/codeql-action/init@68bde559dea0fdcac2102bfdf6230c5f70eb485e")
-    expect(analyzeStep?.uses).toBe("github/codeql-action/analyze@68bde559dea0fdcac2102bfdf6230c5f70eb485e")
+    expect(initStep?.uses).toBe("github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e")
+    expect(analyzeStep?.uses).toBe("github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e")
 
     expect(checkoutStep?.with).toEqual({ "persist-credentials": false })
     expect(initStep?.with).toEqual({ languages: "javascript-typescript" })
