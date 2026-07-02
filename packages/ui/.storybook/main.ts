@@ -3,10 +3,10 @@ import tailwindcss from "@tailwindcss/vite"
 
 const config: StorybookConfig = {
   framework: "storybook-solidjs-vite",
-  // message-part / session-turn / timeline-playground stories are suffixed
-  // *.stories.tsx.skip (storybook's stories glob ignores `!` negation, so files
-  // must be renamed to drop out): app-level components needing runtime data
-  // (sdk messages, tool registry, server context), not previewable in isolation.
+  // App-level components (message-part, session-turn, timeline-playground) that
+  // need runtime data (sdk messages, tool registry, server context) are not
+  // previewable in isolation; their fork stories were removed rather than kept
+  // as dead .skip files.
   stories: ["../src/components/*.stories.tsx"],
   addons: ["@storybook/addon-docs"],
   viteFinal: async (viteConfig) => {

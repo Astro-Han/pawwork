@@ -363,6 +363,33 @@ jobs:
           retention-days: 7
           path: packages/ui/.artifacts/unit/junit.xml
 
+  storybook-smoke:
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # step-security/harden-runner@v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+        with:
+          path: .turbo/cache
+          key: turbo-${{ runner.os }}-build-storybook-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-build-storybook-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
+            turbo-${{ runner.os }}-build-storybook-
+
+      - name: build-storybook
+        run: bun turbo build-storybook --filter=@opencode-ai/ui
+
   unit-opencode:
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
@@ -541,6 +568,7 @@ jobs:
       - typecheck
       - frontend-architecture
       - unit-ui
+      - storybook-smoke
       - unit-app
       - unit-opencode
       - unit-desktop
@@ -553,6 +581,7 @@ jobs:
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
           FRONTEND_ARCHITECTURE_RESULT: ${{ needs['frontend-architecture'].result }}
           UNIT_UI_RESULT: ${{ needs['unit-ui'].result }}
+          STORYBOOK_SMOKE_RESULT: ${{ needs['storybook-smoke'].result }}
           UNIT_APP_RESULT: ${{ needs['unit-app'].result }}
           UNIT_OPENCODE_RESULT: ${{ needs['unit-opencode'].result }}
           UNIT_DESKTOP_RESULT: ${{ needs['unit-desktop'].result }}
@@ -568,6 +597,7 @@ jobs:
           if [ "$TYPECHECK_RESULT" != "success" ] ||
              [ "$FRONTEND_ARCHITECTURE_RESULT" != "success" ] ||
              [ "$UNIT_UI_RESULT" != "success" ] ||
+             [ "$STORYBOOK_SMOKE_RESULT" != "success" ] ||
              [ "$UNIT_APP_RESULT" != "success" ] ||
              [ "$UNIT_OPENCODE_RESULT" != "success" ] ||
              [ "$UNIT_DESKTOP_RESULT" != "success" ] ||
@@ -575,6 +605,7 @@ jobs:
             echo "typecheck=$TYPECHECK_RESULT"
             echo "frontend-architecture=$FRONTEND_ARCHITECTURE_RESULT"
             echo "unit-ui=$UNIT_UI_RESULT"
+            echo "storybook-smoke=$STORYBOOK_SMOKE_RESULT"
             echo "unit-app=$UNIT_APP_RESULT"
             echo "unit-opencode=$UNIT_OPENCODE_RESULT"
             echo "unit-desktop=$UNIT_DESKTOP_RESULT"
