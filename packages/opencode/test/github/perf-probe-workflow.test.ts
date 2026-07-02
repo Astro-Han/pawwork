@@ -7,7 +7,7 @@ const repoRoot = fileURLToPath(new URL("../../../..", import.meta.url))
 const workflowPath = path.join(repoRoot, ".github", "workflows", "perf-probe-baseline.yml")
 
 const pinned = {
-  cacheRestore: "actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae",
+  cacheRestore: "actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
   checkout: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
 }
 
