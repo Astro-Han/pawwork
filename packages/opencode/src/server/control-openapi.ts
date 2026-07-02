@@ -267,6 +267,7 @@ function patchMemorySchemas(document: OpenApiDocument) {
 function patchAdditionalRouteSchemas(document: OpenApiDocument) {
   patchParameterSchemas(document, "/path", "get", {
     ensureConfig: { type: "boolean" },
+    ensureSkills: { type: "boolean" },
   })
   patchJsonResponse(document, "/project", "get", arrayOf(schemaRef("Project")))
   patchJsonResponse(document, "/project/current", "get", schemaRef("Project"))

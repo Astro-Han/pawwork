@@ -12,11 +12,11 @@ const uiPackageJsonPath = path.join(repoRoot, "packages", "ui", "package.json")
 const opencodeTestRoot = path.join(repoRoot, "packages", "opencode", "test")
 
 const pinned = {
-  checkout: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+  checkout: "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
   pathsFilter: "dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d",
   setupNode: "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
   setupBun: "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6",
-  cache: "actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae",
+  cache: "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
   hardenRunner: "step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411",
   junit: "mikepenz/action-junit-report@3a81627bfac62268172037048872e8ebd4207e6d",
   artifact: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
@@ -36,6 +36,7 @@ const hardenRunnerJobs = [
   lintJobName,
   frontendArchitectureJobName,
   "unit-ui",
+  "storybook-smoke",
   "unit-app",
   "unit-opencode",
   "unit-desktop",
@@ -350,6 +351,7 @@ describe("ci workflow", () => {
       "typecheck",
       lintJobName,
       frontendArchitectureJobName,
+      "storybook-smoke",
       ...linuxUnitJobs.map((item) => item.jobName),
     ]
 
@@ -833,6 +835,7 @@ describe("ci workflow", () => {
       "typecheck",
       frontendArchitectureJobName,
       "unit-ui",
+      "storybook-smoke",
       "unit-app",
       "unit-opencode",
       "unit-desktop",
@@ -850,12 +853,14 @@ describe("ci workflow", () => {
     expect(validate?.env?.TYPECHECK_RESULT).toBe("${{ needs.typecheck.result }}")
     expect(validate?.env?.FRONTEND_ARCHITECTURE_RESULT).toBe("${{ needs['frontend-architecture'].result }}")
     expect(validate?.env?.UNIT_UI_RESULT).toBe("${{ needs['unit-ui'].result }}")
+    expect(validate?.env?.STORYBOOK_SMOKE_RESULT).toBe("${{ needs['storybook-smoke'].result }}")
     expect(validate?.env?.UNIT_APP_RESULT).toBe("${{ needs['unit-app'].result }}")
     expect(validate?.env?.UNIT_OPENCODE_RESULT).toBe("${{ needs['unit-opencode'].result }}")
     expect(validate?.env?.UNIT_DESKTOP_RESULT).toBe("${{ needs['unit-desktop'].result }}")
     expect(validate?.env?.UNIT_REMOTE_BRIDGE_RESULT).toBe("${{ needs['unit-remote-bridge'].result }}")
     expect(validate?.run).toContain("Docs-only change, daily CI skipped.")
     expect(validate?.run).toContain("FRONTEND_ARCHITECTURE_RESULT")
+    expect(validate?.run).toContain("STORYBOOK_SMOKE_RESULT")
     expect(validate?.run).toContain("UNIT_UI_RESULT")
     expect(validate?.run).toContain("UNIT_APP_RESULT")
     expect(validate?.run).toContain("UNIT_OPENCODE_RESULT")

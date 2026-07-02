@@ -70,7 +70,7 @@ describe("e2e artifacts workflow", () => {
     expect(job?.if).toBe("needs.changes.outputs.docs_only != 'true'")
     expect(job?.["runs-on"]).toBe("ubuntu-latest")
     expect(job?.["continue-on-error"]).not.toBe(true)
-    expect(checkoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
+    expect(checkoutStep?.uses).toBe("actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0")
     expect(checkoutStep?.with).toEqual({ "persist-credentials": false })
     expect(bunStep?.uses).toBe("oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6")
     expect(playwrightCacheStep).toBeUndefined()

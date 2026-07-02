@@ -44,8 +44,8 @@ describe("desktop smoke workflow", () => {
     expect(parsed.concurrency?.["cancel-in-progress"]).toBe("${{ github.ref != 'refs/heads/dev' }}")
     expect(parsed.permissions).toEqual({ contents: "read", "pull-requests": "read" })
     expect(Object.keys(jobs).sort()).toEqual(["changes", "check", "install-matrix", "smoke-macos-arm64"])
-    expect(changesCheckoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
-    expect(smokeCheckoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
+    expect(changesCheckoutStep?.uses).toBe("actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0")
+    expect(smokeCheckoutStep?.uses).toBe("actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0")
 
     expect(changes?.outputs).toEqual({ docs_only: "${{ steps.filter.outputs.docs_only }}" })
     expect(docsPathsStep?.uses).toBe("dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d")

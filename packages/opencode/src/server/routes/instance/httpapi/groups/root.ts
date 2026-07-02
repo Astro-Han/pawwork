@@ -127,6 +127,7 @@ const PathInfo = Schema.Struct({
   home: Schema.String,
   state: Schema.String,
   config: Schema.String,
+  skills: Schema.String,
   worktree: Schema.String,
   directory: Schema.String,
 })
@@ -163,6 +164,7 @@ export const RootApi = HttpApi.make("root")
           query: Schema.Struct({
             ...WorkspaceRoutingQuery.fields,
             ensureConfig: Schema.optionalKey(Schema.Literals(["true", "false"])),
+            ensureSkills: Schema.optionalKey(Schema.Literals(["true", "false"])),
           }),
           success: PathInfo,
         }).annotateMerge(

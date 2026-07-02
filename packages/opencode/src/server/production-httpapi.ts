@@ -2,6 +2,7 @@ import { mkdirSync } from "fs"
 import os from "os"
 import path from "path"
 import { NodeFileSystem, NodeHttpPlatform, NodePath } from "@effect/platform-node"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Runtime } from "@opencode-ai/core/runtime"
 import { Context, Effect, Layer } from "effect"
 import { Etag, HttpEffect, HttpServerRequest, HttpServerResponse, HttpRouter } from "effect/unstable/http"
@@ -62,7 +63,9 @@ const productionHandlers = Layer.mergeAll(
 
 const productionRouterLayer = HttpApiBuilder.layer(ProductionApi).pipe(
   Layer.provide(productionHandlers),
-  Layer.provide(Layer.mergeAll(NodeFileSystem.layer, NodeHttpPlatform.layer, NodePath.layer, Etag.layer)),
+  Layer.provide(
+    Layer.mergeAll(NodeFileSystem.layer, AppFileSystem.defaultLayer, NodeHttpPlatform.layer, NodePath.layer, Etag.layer),
+  ),
 )
 
 const apiPrefixes = [

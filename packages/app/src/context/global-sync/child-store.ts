@@ -186,7 +186,7 @@ export function createChildStoreManager(input: {
             provider_ready: false,
             provider: { all: [], connected: [], default: {} },
             config: {},
-            path: { state: "", config: "", worktree: "", directory: "", home: "" },
+            path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" },
             status: "loading" as const,
             agent: [],
             command: [],

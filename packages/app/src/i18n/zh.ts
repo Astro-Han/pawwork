@@ -38,6 +38,7 @@ export const dict = {
   "command.settings.openGlobalConfigFolder": "打开全局配置文件夹",
   "command.diagnostics.prepare": "准备诊断包",
   "toast.settings.openGlobalConfigFolderFailed.title": "无法打开全局配置文件夹",
+  "toast.skills.openFolderFailed.title": "无法打开技能文件夹",
 
   "command.session.previous": "上一个会话",
   "command.session.next": "下一个会话",
@@ -769,6 +770,7 @@ export const dict = {
   "sidebar.pawwork.remote": "远程控制",
   "skills.title": "技能",
   "skills.subtitle": "爪印能帮你做这些事。点开任意一项，看看它适合什么场景。",
+  "skills.openFolder": "打开技能文件夹",
   "skills.search.placeholder": "搜索技能",
   "skills.empty.title": "没有匹配的技能",
   "skills.needProject.title": "打开一个项目后即可查看技能",

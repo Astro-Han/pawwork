@@ -1061,6 +1061,14 @@
               "type": "boolean"
             },
             "required": false
+          },
+          {
+            "name": "ensureSkills",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "required": false
           }
         ],
         "security": [],
@@ -1081,6 +1089,9 @@
                     "config": {
                       "type": "string"
                     },
+                    "skills": {
+                      "type": "string"
+                    },
                     "worktree": {
                       "type": "string"
                     },
@@ -1092,6 +1103,7 @@
                     "home",
                     "state",
                     "config",
+                    "skills",
                     "worktree",
                     "directory"
                   ],
