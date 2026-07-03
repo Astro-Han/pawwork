@@ -18,13 +18,15 @@ export function createServerHealthToastPolicy(options: { failureThreshold?: numb
     update(input: ServerHealthToastPolicyInput): ServerHealthToastDecision[] {
       const activeKey = input.activeKey
       for (const key of [...failures.keys()]) {
-        if (key !== activeKey || input.results[key]?.healthy !== false) failures.delete(key)
+        if (!(key in input.results) || input.results[key]?.healthy !== false) failures.delete(key)
+      }
+      for (const [key, result] of Object.entries(input.results)) {
+        if (result?.healthy === false) failures.set(key, (failures.get(key) ?? 0) + 1)
       }
 
       if (!activeKey || input.results[activeKey]?.healthy !== false) return []
 
-      const failureCount = (failures.get(activeKey) ?? 0) + 1
-      failures.set(activeKey, failureCount)
+      const failureCount = failures.get(activeKey) ?? 0
       return failureCount >= failureThreshold ? [{ key: activeKey, failureCount }] : []
     },
     failureCount(key: string) {

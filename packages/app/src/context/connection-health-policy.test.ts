@@ -33,6 +33,29 @@ describe("createServerHealthToastPolicy", () => {
     ).toEqual([])
   })
 
+  test("tracks inactive server failure counts for diagnostics", () => {
+    const policy = createServerHealthToastPolicy({ failureThreshold: 2 })
+
+    policy.update({
+      activeKey: "sidecar",
+      results: {
+        sidecar: { healthy: true },
+        "https://old.example.test": { healthy: false },
+      },
+    })
+    expect(policy.failureCount("https://old.example.test")).toBe(1)
+
+    policy.update({
+      activeKey: "sidecar",
+      results: {
+        sidecar: { healthy: true },
+        "https://old.example.test": { healthy: false },
+      },
+    })
+
+    expect(policy.failureCount("https://old.example.test")).toBe(2)
+  })
+
   test("resets active-server failure count after recovery", () => {
     const policy = createServerHealthToastPolicy({ failureThreshold: 2 })
 
