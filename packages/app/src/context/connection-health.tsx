@@ -3,12 +3,16 @@ import { createStore, reconcile } from "solid-js/store"
 import { useParams } from "@solidjs/router"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { showToast } from "@opencode-ai/ui/toast"
+import { checksum } from "@opencode-ai/util/encode"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { usePlatform } from "@/context/platform"
+import { createRendererDiagnosticsEmitter } from "@/context/renderer-diagnostics"
 import { useServer, ServerConnection } from "@/context/server"
 import { useCheckServerHealth, type ServerHealth } from "@/utils/server-health"
 import { decode64 } from "@/utils/base64"
 import { openSettingsTab } from "@/utils/settings-navigation"
+import { createServerHealthToastPolicy } from "./connection-health-policy"
 
 const POLL_MS = 10_000
 
@@ -33,9 +37,11 @@ export const { use: useConnectionHealth, provider: ConnectionHealthProvider } = 
   name: "ConnectionHealth",
   init: () => {
     const language = useLanguage()
+    const platform = usePlatform()
     const server = useServer()
     const globalSync = useGlobalSync()
     const checkServerHealth = useCheckServerHealth()
+    const emitDiagnostic = createRendererDiagnosticsEmitter({ api: platform })
     const params = useParams()
 
     const directory = createMemo(() => {
@@ -80,19 +86,22 @@ export const { use: useConnectionHealth, provider: ConnectionHealthProvider } = 
         if (!currentBad.has(key)) seen.delete(key)
       }
       // Newly broken (not yet notified) → coalesced count.
-      let newly = 0
+      const newly = new Set<string>()
       for (const key of currentBad) {
         if (!seen.has(key)) {
           seen.add(key)
-          newly++
+          newly.add(key)
         }
       }
-      if (newly > 0) fireToast(category, newly)
+      if (newly.size > 0) fireToast(category, newly.size)
+      return newly
     }
 
     // ── Servers: 10s HTTP probe ─────────────────────────────────────────
     createEffect(() => {
       const list = server.list
+      const activeKey = server.key
+      const toastPolicy = createServerHealthToastPolicy()
       let dead = false
       let inFlight = false
       const refresh = async () => {
@@ -100,24 +109,41 @@ export const { use: useConnectionHealth, provider: ConnectionHealthProvider } = 
         inFlight = true
         try {
           const results: Record<string, ServerHealth | undefined> = {}
+          const durations: Record<string, number> = {}
           await Promise.all(
             list.map(async (conn) => {
               const key = ServerConnection.key(conn)
+              const started = performance.now()
               try {
                 results[key] = await checkServerHealth(conn.http)
               } catch {
                 results[key] = { healthy: false }
+              } finally {
+                durations[key] = Math.round(performance.now() - started)
               }
             }),
           )
           if (dead) return
           setServerHealth(reconcile(results))
-          const bad = new Set<string>()
+          const decisions = toastPolicy.update({ activeKey, results })
+          const bad = new Set(decisions.map((decision) => decision.key))
+          const toasted = reconcileCategory("server", bad)
           for (const conn of list) {
             const key = ServerConnection.key(conn)
-            if (results[key]?.healthy === false) bad.add(key)
+            if (results[key]?.healthy !== false) continue
+            void emitDiagnostic({
+              name: "connection.server.health_probe",
+              data: {
+                server_key_hash: checksum(key) ?? "unknown",
+                server_kind: conn.type,
+                active: key === activeKey,
+                healthy: false,
+                duration_ms: durations[key] ?? 0,
+                failure_count: toastPolicy.failureCount(key),
+                toasted: toasted.has(key),
+              },
+            })
           }
-          reconcileCategory("server", bad)
         } finally {
           inFlight = false
         }
