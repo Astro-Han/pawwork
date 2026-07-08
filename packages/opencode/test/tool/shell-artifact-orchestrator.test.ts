@@ -532,4 +532,47 @@ describe("orchestrateArtifacts", () => {
     expect(harness.writes[0].path).toBe(real) // the real file, not the phantom $OUT.docx
     expect(harness.uncaptured).toHaveLength(0)
   })
+
+  // After `cd reports`, a relative `-o report.docx` is relative to the shell's new
+  // working directory, not the original execution cwd. The parser must not track the
+  // original-cwd phantom; discovery captures the real nested file instead.
+  test("cd before relative -o output path → cwd scan captures the real nested file", async () => {
+    const real = np("/tmp/work/reports/report.docx")
+    const command = "cd reports && uv run python build.py -o report.docx"
+    expect(officeOutputPaths(command)).toEqual([])
+    expect(hasOfficeGenerator(command)).toBe(true)
+
+    const harness = build({
+      states: { [real]: [stateFile("h1")] },
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      hasGeneratorFn: hasOfficeGenerator,
+      sideEffectFn: nonOfficeGeneratorText,
+      discoverPaths: [],
+      discoverPathsAfter: [real],
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        {
+          ctx,
+          cwd: "/tmp/work",
+          directory: "/tmp/work",
+          shell: "/bin/bash",
+          command,
+          expectedOutputs: [],
+        },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.discoverCalls).toBe(2)
+    expect(harness.writes).toHaveLength(1)
+    expect(harness.writes[0].path).toBe(real)
+    expect(harness.uncaptured).toHaveLength(0)
+    const artifacts = (result.metadata as any).artifacts
+    expect(artifacts).toBeArrayOfSize(1)
+    expect(artifacts[0]).toMatchObject({ path: real, changed: true, exists: true })
+  })
 })

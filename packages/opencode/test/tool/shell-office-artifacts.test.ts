@@ -54,6 +54,12 @@ describe("officeOutputPaths", () => {
     'echo "usage: -o report.docx"', // office text lives inside a quoted literal
     'uv run python build.py -o "$OUT.docx"', // dynamic shell value, discovery must find the real file
     "uv run python build.py --out report-*.docx", // glob value, discovery must find the real file
+    'uv run python build.py --out "{draft,final}.docx"', // brace expansion is shell state, not a literal file
+    'uv run python build.py --out "[ab].docx"', // bracket glob is shell state, not a literal file
+    "uv run python build.py --out ~/report.docx", // tilde expansion is shell state, not a literal file
+    "cd reports && uv run python build.py -o report.docx", // relative to a changed cwd, discovery must find it
+    `cd reports && uv run python -c "from docx import Document; Document().save('report.docx')"`,
+    `uv run python build.py && node -e "wb.save('phantom.docx')"`,
     "uv run python read_docx.py input.docx", // office file is an input, no output flag
     "cat report.docx",
     "uv run pytest",
@@ -62,6 +68,12 @@ describe("officeOutputPaths", () => {
     `echo "wb.save('phantom.xlsx')" && uv run python real.py`,
   ])("returns no output path for non-generator / read command %s", (command) => {
     expect(officeOutputPaths(command)).toEqual([])
+  })
+
+  test("still parses absolute outputs after a cwd-changing segment", () => {
+    expect(officeOutputPaths("cd reports && uv run python build.py -o /tmp/report.docx")).toEqual([
+      "/tmp/report.docx",
+    ])
   })
 })
 
