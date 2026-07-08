@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Post-build gate for native PPTX eval routes: verify the finished .pptx
 package really contains the assets the task demands (speaker notes, chart
-XML, embedded media) before the run claims success. Mirrors the judge rules
-in eval.ts (judgeArtifact) so a clean check here means a clean judge there.
+XML, embedded media) before the run claims success. Covers the judge's
+package-asset rules only; the judge additionally checks required text,
+explicit font sizes, out-of-bounds shapes, and visual-slide density, so a
+clean check here does not guarantee a passing judge.
 
 Stdlib only; safe to run with plain python3 on every route.
 """

@@ -9,9 +9,9 @@ Native PPTX and HTML showcase are intentionally scored separately. HTML quality 
 | Route | Passes | Median Score | Median Band |
 |---|---:|---:|---|
 | officecli | 3/6 | 100 | excellent |
-| python-pptx | 2/6 | 84 | usable |
+| python-pptx | 2/8 | 84 | usable |
 | pptxgenjs | 4/6 | 100 | excellent |
-| svg-pptx | 5/6 | 100 | excellent |
+| svg-pptx | 6/8 | 100 | excellent |
 | html-showcase | 2/6 | 84 | usable |
 
 ## Native PPTX Verdict
@@ -56,3 +56,7 @@ HTML verdict should be based on locked layouts, CSS tokens, section count, and v
 | template-following | pptxgenjs | 2 | fail | 84 | usable | 335 | 21 | PptxGenJS route called officecli. |
 | template-following | python-pptx | 2 | fail | 84 | usable | 584 | 22 | Native PPTX is missing speaker notes on content slides. |
 | template-following | svg-pptx | 2 | fail | 72 | usable | 998 | 37 | SVG PPTX route called officecli.; Native PPTX is missing speaker notes on content slides. |
+| report-to-deck | python-pptx | 3 | fail | 76 | usable | 35 | 0 | Python PPTX route did not call uv.; Target artifact does not exist. |
+| template-following | svg-pptx | 3 | fail | 84 | usable | 307 | 27 | artifact-summary.json is missing. |
+| report-to-deck | python-pptx | 4 | fail | 84 | usable | 705 | 9 | Native PPTX has 1 out-of-bounds positioned shapes. |
+| template-following | svg-pptx | 4 | pass | 100 | excellent | 123 | 15 |  |

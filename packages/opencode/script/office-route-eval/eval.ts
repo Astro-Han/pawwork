@@ -407,6 +407,9 @@ async function runOne(taskId: TaskID, routeId: RouteID, round: number, model: st
     packageRoot,
     "src/index.ts",
     "run",
+    // --file is array-typed and would swallow a following positional prompt; keep scalar flags after it.
+    "--file",
+    path.join(workDir, "input", task.fixture),
     "--format",
     "json",
     "--model",
@@ -414,8 +417,6 @@ async function runOne(taskId: TaskID, routeId: RouteID, round: number, model: st
     "--dir",
     workDir,
     "--dangerously-skip-permissions",
-    "--file",
-    path.join(workDir, "input", task.fixture),
   ]
   if (variant) args.push("--variant", variant)
   args.push(prompt)
@@ -652,14 +653,15 @@ async function report() {
       )
     }
   }
-  const pythonByTask = Object.keys(tasks).map((taskId) => {
+  const taskIds = Object.keys(tasks)
+  const pythonByTask = taskIds.map((taskId) => {
     const subset = rows.filter((row) => row.judge.taskId === taskId && row.judge.routeId === "python")
     return subset.filter((row) => row.judge.passed).length
   })
   const replacementReady = pythonByTask.length === 3 && pythonByTask.every((passes) => passes >= 2)
   const verdict = replacementReady
     ? "Python route cleared the replacement bar in this run set. A formal replacement PR is worth opening after a final review of failures, route policy, and artifact samples."
-    : "Do not open a formal OfficeCLI replacement PR yet. Python route beats OfficeCLI on xlsx and ties docx, but pptx still fails 0/3 on explicit font-size XML."
+    : `Do not open a formal OfficeCLI replacement PR yet: the Python route passed ${pythonByTask.map((passes, index) => `${passes} of the ${taskIds[index]} runs`).join(", ")}, below the bar of 2+ passes on all three tasks.`
   const body = [
     "# Office Route Eval Report",
     "",
