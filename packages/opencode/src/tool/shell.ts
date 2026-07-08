@@ -20,6 +20,7 @@ import { Duration, Effect, Fiber, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { envValueCaseInsensitive, prependBundledTools, stripPathKeys, withoutInternalServerAuthEnv } from "@/util/env"
+import { resolveUvMirrorEnv } from "@/util/uv-mirror"
 import { Global } from "@opencode-ai/core/global"
 import { assertExternalDirectoryEffect, resolveExternalPathForPermission } from "./external-directory"
 import { InstanceState } from "@/effect/instance-state"
@@ -485,10 +486,12 @@ export const ShellTool = Tool.define(
       // the inherited system path).
       const currentPath =
         envValueCaseInsensitive(extraEnv, "PATH") ?? envValueCaseInsensitive(process.env, "PATH") ?? ""
+      const uvMirrorEnv = yield* Effect.promise(() => resolveUvMirrorEnv())
       const env = withoutInternalServerAuthEnv({
         ...process.env,
         ...extraEnv,
         OFFICECLI_SKIP_UPDATE: "1",
+        ...uvMirrorEnv,
       } as Record<string, string>)
       stripPathKeys(env)
       env.PATH = prependBundledTools(currentPath)

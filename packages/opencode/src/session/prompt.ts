@@ -53,6 +53,7 @@ import { Truncate } from "@/tool/truncate"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { envValueCaseInsensitive, prependBundledTools, stripPathKeys, withoutInternalServerAuthEnv } from "@/util/env"
+import { resolveUvMirrorEnv } from "@/util/uv-mirror"
 import { Cause, Deferred, Effect, Exit, Layer, Option, Scope, Context } from "effect"
 import { EffectLogger } from "@/effect"
 import { InstanceState } from "@/effect"
@@ -1361,11 +1362,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           // PATH, so the spawned child does not receive duplicate keys.
           const currentPath =
             envValueCaseInsensitive(shellEnvRecord, "PATH") ?? envValueCaseInsensitive(process.env, "PATH") ?? ""
+          const uvMirrorEnv = yield* Effect.promise(() => resolveUvMirrorEnv())
           const env = withoutInternalServerAuthEnv({
             ...process.env,
             ...shellEnvRecord,
             TERM: "dumb",
             OFFICECLI_SKIP_UPDATE: "1",
+            ...uvMirrorEnv,
             ...(shellName === "zsh" || shellName === "bash" ? { OPENCODE_SHELL_CWD: cwd } : {}),
           } as Record<string, string>)
           stripPathKeys(env)
