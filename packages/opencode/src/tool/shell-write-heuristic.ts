@@ -41,6 +41,15 @@ export function isLikelyWriteCommand(command: string) {
   if (powershellWriteCommands.test(stripped)) return true
   if (/(^|\s)(?:&>>?|\d*>\||\d*<>|(?<!<)\d*>>?)\s*[^&\s]/.test(stripped)) return true
 
+  // Native office skills generate files by naming the output after an
+  // -o/--out/--output/--outfile flag (e.g. `uv run python build.py -o report.docx`,
+  // quoted or not). Key on the output flag, not any office path, so parse/read
+  // commands like `uv run python read_docx.py input.docx` (the office file is an
+  // input) stay read-only. Match against the raw command so quoted output paths
+  // are not lost to quote-stripping.
+  const officeOut = command.match(/(?:^|\s)(?:-o|--out(?:put|file)?)[=\s]+["']?([^"'\s]+)/i)
+  if (officeOut && isOfficeOutputPath(officeOut[1] ?? "")) return true
+
   const strippedSegments = commandSegments(stripped)
   for (let index = 0; index < strippedSegments.length; index++) {
     const words = strippedSegments[index]
@@ -61,12 +70,6 @@ export function isLikelyWriteCommand(command: string) {
     if (head === "pip" && ["install", "uninstall"].includes(next ?? "")) return true
     if (head === "uv" && ["add", "remove", "sync"].includes(next ?? "")) return true
     if (head === "uv" && next === "pip" && ["install", "uninstall"].includes(rest[1] ?? "")) return true
-    // Native office skills generate files through python/uv and name the output
-    // path on the command line (e.g. `uv run python build.py -o report.docx`).
-    // The file is not a shell redirect, so a named office output path is the
-    // write signal that lets artifact auto-discovery run. Test/lint commands
-    // like `uv run pytest` name no such path and stay read-only.
-    if (["python", "python3", "uv", "uvx"].includes(head) && words.some((word) => isOfficeOutputPath(word))) return true
     if (head === "vite" && next === "build") return true
     if (head === "tsc" && !rest.some((item) => item === "--noemit")) return true
     if (
