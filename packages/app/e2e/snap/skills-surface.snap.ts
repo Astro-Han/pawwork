@@ -8,28 +8,28 @@ test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
 
 // Seed project-scoped skills (.agents/skills/<name>/SKILL.md) so the gallery has
 // real installed capabilities to render in a clean env. Descriptions mirror the
-// long machine-facing trigger text the real officecli/morph skills carry, since
-// reading well against that text is the design risk the gallery has to clear.
+// long machine-facing trigger text the real office-* skills carry, since reading
+// well against that text is the design risk the gallery has to clear.
 type Seed = { name: string; description: string; body: string }
 
 const SEEDS: Seed[] = [
   {
-    name: "officecli-docx",
+    name: "office-docx",
     description:
       "Use this skill any time a .docx Word document needs to be created, edited, or inspected. Trigger on requests to draft letters, reports, contracts, or any formatted prose that should ship as Word.",
-    body: ["## Overview", "", "Build and edit Word documents from the command line.", "", "```bash", "officecli docx build report.md --out report.docx", "```"].join("\n"),
+    body: ["## Overview", "", "Build and edit Word documents with python-docx.", "", "```bash", "uv run python build_docx.py report.md --out report.docx", "```"].join("\n"),
   },
   {
-    name: "officecli-xlsx",
+    name: "office-xlsx",
     description:
       "Use this skill when a spreadsheet is involved: creating, reading, or modifying .xlsx files, computing tables, or turning data into a workbook the user can open in Excel.",
-    body: ["## Overview", "", "Generate and edit spreadsheets.", "", "```bash", "officecli xlsx build data.csv --out book.xlsx", "```"].join("\n"),
+    body: ["## Overview", "", "Generate and edit spreadsheets with openpyxl.", "", "```bash", "uv run python build_xlsx.py data.csv --out book.xlsx", "```"].join("\n"),
   },
   {
-    name: "officecli-pptx",
+    name: "office-pptx",
     description:
       "Use this skill to produce slide decks. Trigger on any request to build, edit, or restructure a .pptx PowerPoint presentation from an outline or notes.",
-    body: ["## Overview", "", "Assemble slide decks from an outline.", "", "```bash", "officecli pptx build outline.md --out deck.pptx", "```"].join("\n"),
+    body: ["## Overview", "", "Assemble slide decks from an outline.", "", "```bash", "uv run python build_pptx.py outline.md --out deck.pptx", "```"].join("\n"),
   },
   {
     name: "morph-apply",
@@ -81,7 +81,7 @@ test("skills-surface", async ({ page, project }) => {
 
   // Open one capability to read its detail modal: humanized title, verbatim
   // description, and the full SKILL.md markdown body with a copyable code block.
-  await surface.locator('[data-action="skill-open"][data-skill="officecli-docx"]').click()
+  await surface.locator('[data-action="skill-open"][data-skill="office-docx"]').click()
   const detail = page.locator('[data-component="skill-detail"]')
   await detail.waitFor({ state: "visible", timeout: 30_000 })
   const detailShot = await page.screenshot()
@@ -92,7 +92,7 @@ test("skills-surface", async ({ page, project }) => {
   await page.locator('[data-slot="dialog-close-button"]').click()
   await detail.waitFor({ state: "detached", timeout: 10_000 })
   await surface.locator('[data-action="skill-search"]').fill("xlsx")
-  await surface.locator('[data-action="skill-open"][data-skill="officecli-xlsx"]').waitFor({ state: "visible", timeout: 10_000 })
+  await surface.locator('[data-action="skill-open"][data-skill="office-xlsx"]').waitFor({ state: "visible", timeout: 10_000 })
   await expect(page.locator('[data-action="skill-open"][data-skill="web-research"]')).toHaveCount(0)
   const filtered = await page.screenshot()
 

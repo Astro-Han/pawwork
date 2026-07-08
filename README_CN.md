@@ -110,8 +110,6 @@ bun run dev:desktop
 
 感谢 OpenCode 项目和社区。
 
-爪印 PawWork 内置 iOfficeAI 的 [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI)，用于在本地处理 Word、Excel 和 PowerPoint 文件。感谢 iOfficeAI 以 Apache-2.0 开源 OfficeCLI。
-
 爪印 PawWork 内置 [@jackwener](https://github.com/jackwener) 的 [OpenCLI](https://github.com/jackwener/opencli)，用于支持基于浏览器的站点适配器。OpenCLI 提供 CDP bridge 和随包命令适配器，在适配覆盖范围匹配任务时，帮助爪印与 Twitter/X、Bilibili、小红书等网页服务交互。感谢 @jackwener 以 Apache-2.0 开源 OpenCLI 项目。
 
 ## 常见问题
@@ -126,7 +124,7 @@ OpenAI（包括 ChatGPT Plus/Pro OAuth 登录）、Claude、DeepSeek、Gemini、
 可以。爪印是桌面原生应用，对你选择的工作文件夹有完整的读写权限，可以处理文档、表格、PDF、代码项目和生成文件。
 
 **支持哪些文件格式？**
-PDF、Word (.docx)、Excel (.xlsx)、PowerPoint (.pptx)、CSV、Markdown、纯文本、图片和代码文件。Office 文件处理由内置的 OfficeCLI 提供。
+PDF、Word (.docx)、Excel (.xlsx)、PowerPoint (.pptx)、CSV、Markdown、纯文本、图片和代码文件。Office 文件在你本地电脑上读写。
 
 **支持哪些平台？**
 macOS（Apple Silicon 和 Intel，已签名公证）和 Windows x64。

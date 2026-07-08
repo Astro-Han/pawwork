@@ -8,7 +8,7 @@ export interface SkillInfo {
   content: string
 }
 
-// `officecli-docx` -> `Officecli Docx`. Split on - and _, capitalize each word.
+// `office-docx` -> `Office Docx`. Split on - and _, capitalize each word.
 export function skillTitle(name: string): string {
   return name
     .split(/[-_]/)

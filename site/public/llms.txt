@@ -29,7 +29,7 @@ PawWork includes a free tier powered by OpenCode Zen with built-in web search. U
 - Search the web and collect sources for research tasks.
 - Turn notes and attachments into written drafts.
 - Inspect code projects, review pull requests, and debug issues with logs and source files.
-- Handle Word, Excel, and PowerPoint files through bundled OfficeCLI.
+- Handle Word, Excel, and PowerPoint files locally on your machine.
 
 ## Platforms
 
@@ -38,8 +38,8 @@ PawWork includes a free tier powered by OpenCode Zen with built-in web search. U
 
 ## Positioning
 
-PawWork is an open-source alternative to Codex App and Claude Desktop (Cowork). All three have desktop apps for macOS and Windows. PawWork differentiates with: open-source (Apache-2.0), free without a subscription (no $20/month plan required), native BYOK across 75+ providers (not just one vendor), ChatGPT OAuth support, built-in local model support (Ollama, LM Studio) in the desktop app, Office file handling (Word/Excel/PPT via OfficeCLI), and a non-technical user focus with task cards instead of a terminal.
+PawWork is an open-source alternative to Codex App and Claude Desktop (Cowork). All three have desktop apps for macOS and Windows. PawWork differentiates with: open-source (Apache-2.0), free without a subscription (no $20/month plan required), native BYOK across 75+ providers (not just one vendor), ChatGPT OAuth support, built-in local model support (Ollama, LM Studio) in the desktop app, local Office file handling (Word/Excel/PPT), and a non-technical user focus with task cards instead of a terminal.
 
 ## Built On
 
-PawWork is built on a fork of OpenCode (open-source AI coding agent) and bundles OfficeCLI for local Word, Excel, and PowerPoint file handling.
+PawWork is built on a fork of OpenCode (open-source AI coding agent) and handles Word, Excel, and PowerPoint files locally.
