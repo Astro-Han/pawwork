@@ -1,6 +1,6 @@
 ---
 name: office-pdf
-description: "PDF generation (author HTML, then print to PDF with PawWork's bundled Chromium) and PDF parsing (uv + pdfplumber / pypdf). Use this for any PDF request. Hard rule: never use PyMuPDF / fitz (AGPL)."
+description: "PDF parsing (uv + pdfplumber / pypdf) for any PDF, plus PDF generation (author HTML, then print with PawWork's bundled Chromium) when the runtime exposes a print entry point. Use this for any PDF request. Hard rule: never use PyMuPDF / fitz (AGPL)."
 ---
 
 # office-pdf — generate and parse PDF
