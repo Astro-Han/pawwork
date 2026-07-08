@@ -8,13 +8,20 @@ import { promisify } from "node:util"
 import manifest from "../bundled-tools.json"
 
 // Mirrors the OfficeCLI supply pattern in prepare-officecli.ts: version-pinned
-// manifest entry, download from a pinned GitHub release tag, verify against
-// the release's published checksums, then land the binary in
-// resources/tools/ (packaged as extraResources → PATH via bundledToolsDir()
-// in packages/opencode/src/util/env.ts — same mechanism, no special-casing
-// per tool). Unlike OfficeCLI, uv ships its release assets as archives
-// (tar.gz on macOS, zip on Windows) containing both `uv` and `uvx`, so this
-// script additionally extracts before placing binaries in resources/tools/.
+// manifest entry, download from a pinned GitHub release tag, verify, then land
+// the binary in resources/tools/ (packaged as extraResources → PATH via
+// bundledToolsDir() in packages/opencode/src/util/env.ts — same mechanism, no
+// special-casing per tool). Two deliberate differences from OfficeCLI:
+//
+// 1. The expected sha256 for every asset is pinned IN THE REPO (bundled-tools
+//    .json), not fetched from the release at build time. Fetching a checksum
+//    file from the same release it is meant to verify only protects against
+//    transfer corruption — a retargeted or tampered release swaps the assets
+//    and the checksum file together. With the hash pinned in the repo, moving
+//    to a new upstream build always requires a reviewed manifest diff.
+// 2. uv ships its release assets as archives (tar.gz on macOS, zip on Windows)
+//    containing both `uv` and `uvx`, so this script extracts before placing
+//    binaries in resources/tools/.
 
 export type SupportedPlatform = "darwin" | "win32"
 export type SupportedArch = "arm64" | "x64"
@@ -32,10 +39,18 @@ export function uvTargetFor(platform: string, arch: string): UvTarget | null {
   return { platform: platform as SupportedPlatform, arch: arch as SupportedArch }
 }
 
+function assetEntryForTarget(platform: SupportedPlatform, arch: SupportedArch) {
+  const entry = uv.assets[`${platform}-${arch}` as keyof typeof uv.assets]
+  if (!entry) throw new Error(`Unsupported uv target: ${platform}-${arch}`)
+  return entry
+}
+
 export function assetForTarget(platform: SupportedPlatform, arch: SupportedArch) {
-  const asset = uv.assets[`${platform}-${arch}` as keyof typeof uv.assets]
-  if (!asset) throw new Error(`Unsupported uv target: ${platform}-${arch}`)
-  return asset
+  return assetEntryForTarget(platform, arch).name
+}
+
+export function pinnedSha256ForTarget(platform: SupportedPlatform, arch: SupportedArch) {
+  return assetEntryForTarget(platform, arch).sha256.toLowerCase()
 }
 
 export function binaryNameForPlatform(platform: SupportedPlatform) {
@@ -52,25 +67,6 @@ export function runtimeBinaryPath(baseToolsDir: string, platform: SupportedPlatf
 
 export function uvDownloadUrl(version: string, asset: string) {
   return `https://github.com/${uv.repo}/releases/download/${version}/${asset}`
-}
-
-export function uvSha256SumUrl(version: string) {
-  return `https://github.com/${uv.repo}/releases/download/${version}/sha256.sum`
-}
-
-// uv publishes one combined checksum file per release with lines shaped like
-// "<sha256> *<asset-name>" (or without the asterisk) — the same shape as
-// OfficeCLI's SHA256SUMS. The parsing rule is duplicated here (rather than
-// imported from prepare-officecli.ts) so the two vendor scripts stay
-// independent and neither can regress the other on a rename/refactor.
-export function parseSha256Sum(text: string) {
-  const entries = new Map<string, string>()
-  for (const line of text.split(/\r?\n/)) {
-    const match = line.trim().match(/^([a-fA-F0-9]{64})\s+\*?(.+)$/)
-    if (!match) continue
-    entries.set(match[2].trim(), match[1].toLowerCase())
-  }
-  return entries
 }
 
 export function sha256(data: ArrayBuffer) {
@@ -91,12 +87,6 @@ async function fetchBytes(url: string) {
   return response.arrayBuffer()
 }
 
-async function fetchText(url: string) {
-  const response = await fetch(url, { redirect: "follow" })
-  if (!response.ok) throw new Error(`Failed to download ${url}: HTTP ${response.status}`)
-  return response.text()
-}
-
 export async function verifyUvVersion(binaryPath: string, expectedVersion: string) {
   const { stdout } = await execFileAsync(binaryPath, ["--version"])
   if (!uvVersionMatches(stdout, expectedVersion)) {
@@ -106,7 +96,20 @@ export async function verifyUvVersion(binaryPath: string, expectedVersion: strin
 
 async function extractArchive(archivePath: string, asset: string, destDir: string) {
   if (asset.endsWith(".zip")) {
-    await execFileAsync("unzip", ["-o", archivePath, "-d", destDir])
+    if (process.platform === "win32") {
+      // On Windows CI this script runs under bash, where PATH-resolved `tar`
+      // is GNU tar (no zip support) and `unzip` is not guaranteed;
+      // PowerShell's Expand-Archive is always present on windows-* images.
+      await execFileAsync("powershell.exe", [
+        "-NoLogo",
+        "-NoProfile",
+        "-Command",
+        `Expand-Archive -LiteralPath '${archivePath}' -DestinationPath '${destDir}' -Force`,
+      ])
+    } else {
+      // unzip ships on both macos-* and ubuntu-* GitHub runner images.
+      await execFileAsync("unzip", ["-o", archivePath, "-d", destDir])
+    }
     return
   }
   if (asset.endsWith(".tar.gz")) {
@@ -134,17 +137,25 @@ export async function prepareUv(targetPlatform: SupportedPlatform, targetArch: S
   const runtimeName = binaryNameForPlatform(targetPlatform)
   const companionName = companionBinaryNameForPlatform(targetPlatform)
   const assetUrl = uvDownloadUrl(uv.version, asset)
-  const sums = parseSha256Sum(await fetchText(uvSha256SumUrl(uv.version)))
-  const expected = sums.get(asset)
-  if (!expected) throw new Error(`sha256.sum does not include ${asset}`)
+  const expected = pinnedSha256ForTarget(targetPlatform, targetArch)
 
   const data = await fetchBytes(assetUrl)
   const actual = sha256(data)
   if (actual !== expected) {
-    throw new Error(`Checksum mismatch for ${asset}: expected ${expected}, got ${actual}`)
+    throw new Error(
+      `Checksum mismatch for ${asset}: expected ${expected} (pinned in bundled-tools.json), got ${actual}. ` +
+        `If upstream re-released ${uv.version}, review the release and update the pinned sha256 explicitly.`,
+    )
   }
 
   await mkdir(toolsDir, { recursive: true })
+  // Clear every uv binary name regardless of target platform so switching
+  // targets (e.g. darwin → win32 in a shared checkout) never leaves a stale
+  // binary from the previous platform in resources/tools/.
+  for (const stale of ["uv", "uv.exe", "uvx", "uvx.exe"]) {
+    await rm(path.join(toolsDir, stale), { force: true })
+  }
+
   const extractDir = await mkdtemp(path.join(tmpdir(), "uv-extract-"))
   try {
     const archivePath = path.join(extractDir, asset)
@@ -155,7 +166,6 @@ export async function prepareUv(targetPlatform: SupportedPlatform, targetArch: S
       const found = await findFile(extractDir, binaryName)
       if (!found) throw new Error(`Extracted uv archive ${asset} is missing ${binaryName}`)
       const destination = path.join(toolsDir, binaryName)
-      await rm(destination, { force: true })
       // copyFile (not rename): extractDir lives under os.tmpdir(), which can
       // be a different filesystem/device than resources/tools/, and a raw
       // rename() across devices fails with EXDEV.

@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
 
+import manifest from "../bundled-tools.json"
 import {
   assetForTarget,
   binaryNameForPlatform,
   companionBinaryNameForPlatform,
-  parseSha256Sum,
+  pinnedSha256ForTarget,
   runtimeBinaryPath,
   sha256,
   uvDownloadUrl,
-  uvSha256SumUrl,
   uvTargetFor,
   uvVersionMatches,
 } from "./prepare-uv"
@@ -32,6 +32,28 @@ describe("prepare-uv manifest helpers", () => {
     expect(uvTargetFor("linux", "x64")).toBeNull()
   })
 
+  test("pins a lowercase 64-hex sha256 in the repo manifest for every supported target", () => {
+    // The pinned hash is the verification authority: prepare-uv.ts must never
+    // fall back to a checksum file fetched from the release being verified.
+    for (const [platform, arch] of [
+      ["darwin", "arm64"],
+      ["darwin", "x64"],
+      ["win32", "x64"],
+      ["win32", "arm64"],
+    ] as const) {
+      const pinned = pinnedSha256ForTarget(platform, arch)
+      expect(pinned).toMatch(/^[a-f0-9]{64}$/)
+      expect(pinned).toBe(manifest.uv.assets[`${platform}-${arch}`].sha256.toLowerCase())
+    }
+  })
+
+  test("pins distinct hashes per asset (no copy-paste placeholder)", () => {
+    const hashes = (["darwin-arm64", "darwin-x64", "win32-x64", "win32-arm64"] as const).map(
+      (key) => manifest.uv.assets[key].sha256,
+    )
+    expect(new Set(hashes).size).toBe(hashes.length)
+  })
+
   test("uses platform runtime binary names", () => {
     expect(binaryNameForPlatform("darwin")).toBe("uv")
     expect(binaryNameForPlatform("win32")).toBe("uv.exe")
@@ -43,22 +65,6 @@ describe("prepare-uv manifest helpers", () => {
     const url = uvDownloadUrl("0.11.28", "uv-x86_64-pc-windows-msvc.zip")
     expect(url).toBe("https://github.com/astral-sh/uv/releases/download/0.11.28/uv-x86_64-pc-windows-msvc.zip")
     expect(url).not.toContain("/latest/")
-    expect(uvSha256SumUrl("0.11.28")).toBe("https://github.com/astral-sh/uv/releases/download/0.11.28/sha256.sum")
-  })
-
-  test("parses sha256.sum entries by asset name (with and without the leading asterisk)", () => {
-    const parsed = parseSha256Sum(
-      "3a3444224a4a017cd94f4a8471abbd03647d42c2b9a1b9f78102bccab344af67 *source.tar.gz\n" +
-        "33540EB7C883AB857EFF79BD5AC2AA31FE27B595ABECB4A9C003A2C998447232  uv-aarch64-apple-darwin.tar.gz\n",
-    )
-    expect(parsed.get("uv-aarch64-apple-darwin.tar.gz")).toBe(
-      "33540eb7c883ab857eff79bd5ac2aa31fe27b595abecb4a9c003a2c998447232",
-    )
-    expect(parsed.get("source.tar.gz")).toBe("3a3444224a4a017cd94f4a8471abbd03647d42c2b9a1b9f78102bccab344af67")
-  })
-
-  test("ignores malformed sha256.sum lines", () => {
-    expect(parseSha256Sum("not-a-sum  uv\n").size).toBe(0)
   })
 
   test("hashes bytes to lowercase hex sha256", () => {
