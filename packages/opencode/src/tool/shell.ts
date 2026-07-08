@@ -20,6 +20,7 @@ import { Duration, Effect, Fiber, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { envValueCaseInsensitive, prependBundledTools, stripPathKeys, withoutInternalServerAuthEnv } from "@/util/env"
+import { applyUvMirrorEnvDefaults, uvMirrorEnvSnapshot } from "@/util/uv-mirror"
 import { Global } from "@opencode-ai/core/global"
 import { assertExternalDirectoryEffect, resolveExternalPathForPermission } from "./external-directory"
 import { InstanceState } from "@/effect/instance-state"
@@ -492,6 +493,9 @@ export const ShellTool = Tool.define(
       } as Record<string, string>)
       stripPathKeys(env)
       env.PATH = prependBundledTools(currentPath)
+      // Non-blocking: returns the cached probe result (or {} while the first
+      // background probe runs) and never overrides user-set UV_* keys.
+      applyUvMirrorEnvDefaults(env, uvMirrorEnvSnapshot())
       return env
     })
 

@@ -159,6 +159,10 @@ jobs:
         run: bun ./scripts/prepare-officecli.ts --platform darwin --arch arm64
         working-directory: packages/desktop-electron
 
+      - name: Prepare uv
+        run: bun ./scripts/prepare-uv.ts --platform darwin --arch arm64
+        working-directory: packages/desktop-electron
+
       - name: Build desktop app
         run: bun run build
         working-directory: packages/desktop-electron

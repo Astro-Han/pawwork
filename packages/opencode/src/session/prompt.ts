@@ -53,6 +53,7 @@ import { Truncate } from "@/tool/truncate"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { envValueCaseInsensitive, prependBundledTools, stripPathKeys, withoutInternalServerAuthEnv } from "@/util/env"
+import { applyUvMirrorEnvDefaults, uvMirrorEnvSnapshot } from "@/util/uv-mirror"
 import { Cause, Deferred, Effect, Exit, Layer, Option, Scope, Context } from "effect"
 import { EffectLogger } from "@/effect"
 import { InstanceState } from "@/effect"
@@ -1370,6 +1371,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           } as Record<string, string>)
           stripPathKeys(env)
           env.PATH = prependBundledTools(currentPath)
+          // Non-blocking: returns the cached probe result (or {} while the
+          // first background probe runs) and never overrides user-set UV_* keys.
+          applyUvMirrorEnvDefaults(env, uvMirrorEnvSnapshot())
 
           const cmd = ChildProcess.make(sh, args, {
             cwd,
