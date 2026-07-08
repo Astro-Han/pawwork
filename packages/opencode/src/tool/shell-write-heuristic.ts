@@ -1,4 +1,4 @@
-import { commandHead, tokenWords } from "./shell-office-artifacts"
+import { commandHead, isOfficeOutputPath, tokenWords } from "./shell-office-artifacts"
 
 const writeCommands = new Set([
   "apply_patch",
@@ -61,6 +61,12 @@ export function isLikelyWriteCommand(command: string) {
     if (head === "pip" && ["install", "uninstall"].includes(next ?? "")) return true
     if (head === "uv" && ["add", "remove", "sync"].includes(next ?? "")) return true
     if (head === "uv" && next === "pip" && ["install", "uninstall"].includes(rest[1] ?? "")) return true
+    // Native office skills generate files through python/uv and name the output
+    // path on the command line (e.g. `uv run python build.py -o report.docx`).
+    // The file is not a shell redirect, so a named office output path is the
+    // write signal that lets artifact auto-discovery run. Test/lint commands
+    // like `uv run pytest` name no such path and stay read-only.
+    if (["python", "python3", "uv", "uvx"].includes(head) && words.some((word) => isOfficeOutputPath(word))) return true
     if (head === "vite" && next === "build") return true
     if (head === "tsc" && !rest.some((item) => item === "--noemit")) return true
     if (
