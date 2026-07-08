@@ -744,6 +744,37 @@ describe("orchestrateArtifacts", () => {
     expect(artifacts[0]).toMatchObject({ path: real, changed: true })
   })
 
+  // A cwd-scoped .pdf output (`cd reports && ... -o report.pdf`) is neither exactly
+  // capturable (cwd changed) nor discoverable (.pdf excluded from the scan), so it must be
+  // flagged uncaptured rather than vanish silently from the audit.
+  test("cwd-scoped .pdf output → recordUncaptured (explicit deliverable not silently lost)", async () => {
+    const command = "cd reports && uv run python gen.py -o report.pdf"
+    expect(officeOutputPaths(command)).toEqual([]) // relative under cd → not exact
+    expect(hasOfficeOutputIntent(command)).toBe(true) // static office pdf → intent
+
+    const harness = build({
+      states: {},
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      intentFn: hasOfficeOutputIntent,
+      sideEffectFn: nonOfficeGeneratorText,
+      discoverPaths: [], // .pdf is excluded from discovery, so nothing is found
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        { ctx, cwd: "/tmp/work", directory: "/tmp/work", shell: "/bin/bash", command, expectedOutputs: [] },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.discoverCalls).toBeGreaterThan(0)
+    expect(harness.writes).toHaveLength(0)
+    expect(harness.uncaptured).toHaveLength(1) // pdf loss flagged, not silent
+    expect((result.metadata as any).artifacts).toBeUndefined()
+  })
+
   // A generator wrapped across lines with a `\` shell continuation is ONE command; the
   // `-o` must not be orphaned into a headless segment. The office file is captured exactly.
   test("line-continued generator → captures the exact office output, no uncaptured", async () => {

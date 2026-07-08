@@ -11,17 +11,6 @@ const discoverableOfficeExtensions = new Set([".docx", ".xlsx", ".pptx"])
 
 type Segment = {
   text: string
-  // The delimiter that FOLLOWS this segment (separating it from the next): a command
-  // separator (`&&`/`||`/`;`/`|`) or a newline. Undefined on the final segment. Used to
-  // tell a heredoc-body continuation (newline) from a new command (`&&`/`;`), so a
-  // `uv --directory` chdir is scoped to its own invocation, not later commands.
-  delimiter?: string
-}
-
-const commandSeparators = new Set(["&&", "||", ";", "|"])
-
-function isCommandSeparator(delimiter: string | undefined) {
-  return delimiter !== undefined && commandSeparators.has(delimiter)
 }
 
 // Collapse shell line continuations (a backslash immediately before a newline) so a
@@ -78,21 +67,70 @@ export function isDiscoverableOfficeOutput(file: string) {
   return discoverableOfficeExtensions.has(fileExtension(file))
 }
 
+// If a `<<`/`<<-` heredoc opens at `index`, return the index just past its whole body (the
+// newline ending the closing-delimiter line, or the end of the string); else undefined.
+// Newlines inside a heredoc body are stdin, not command separators, so the opener + body +
+// closer stay in one segment — that keeps a `uv --directory ... <<PY .save(...) PY` chdir
+// scoped to its own command instead of leaking to the next newline-separated command.
+function skipHeredocBody(command: string, index: number) {
+  let cursor = index + 2
+  let stripTabs = false
+  if (command[cursor] === "-") {
+    stripTabs = true
+    cursor += 1
+  }
+  while (cursor < command.length && (command[cursor] === " " || command[cursor] === "\t")) cursor += 1
+  let delimiterQuote: "'" | '"' | undefined
+  if (command[cursor] === "'" || command[cursor] === '"') {
+    delimiterQuote = command[cursor] as "'" | '"'
+    cursor += 1
+  }
+  let delimiter = ""
+  while (cursor < command.length && /[A-Za-z0-9_]/.test(command[cursor])) {
+    delimiter += command[cursor]
+    cursor += 1
+  }
+  if (delimiterQuote && command[cursor] === delimiterQuote) cursor += 1
+  if (!delimiter) return undefined
+  // Scan for a line whose content (leading tabs stripped for `<<-`) is exactly the delimiter.
+  while (cursor < command.length) {
+    if (command[cursor] === "\n") {
+      let lineStart = cursor + 1
+      if (stripTabs) while (command[lineStart] === "\t") lineStart += 1
+      let lineEnd = lineStart
+      while (lineEnd < command.length && command[lineEnd] !== "\n") lineEnd += 1
+      if (command.slice(lineStart, lineEnd).trimEnd() === delimiter) return lineEnd
+    }
+    cursor += 1
+  }
+  return command.length // unterminated heredoc: consume to end
+}
+
 export function commandSegments(command: string) {
   command = stripLineContinuations(command)
   const segments: Segment[] = []
   let start = 0
   let quote: "'" | '"' | undefined
-  for (let index = 0; index < command.length; index++) {
+  let index = 0
+  while (index < command.length) {
     const char = command[index]
     if (quote) {
       if (char === quote) quote = undefined
-      if (char === "\\" && quote === '"') index++
+      else if (char === "\\" && quote === '"') index += 1
+      index += 1
       continue
     }
     if (char === "'" || char === '"') {
       quote = char
+      index += 1
       continue
+    }
+    if (char === "<" && command[index + 1] === "<") {
+      const bodyEnd = skipHeredocBody(command, index)
+      if (bodyEnd !== undefined) {
+        index = bodyEnd
+        continue
+      }
     }
 
     const next = command[index + 1]
@@ -106,12 +144,15 @@ export function commandSegments(command: string) {
           : char === ";" || char === "|"
             ? char
             : undefined
-    if (!currentDelimiter) continue
+    if (!currentDelimiter) {
+      index += 1
+      continue
+    }
 
     const text = command.slice(start, index).trim()
-    if (text) segments.push({ text, delimiter: currentDelimiter })
-    index += currentDelimiter.length - 1
-    start = index + 1
+    if (text) segments.push({ text })
+    index += currentDelimiter.length
+    start = index
   }
   const text = command.slice(start).trim()
   if (text) segments.push({ text })
@@ -153,11 +194,11 @@ function isRelativeOutputValue(value: string) {
 // scan; anything else (dynamic, glob, or cwd-relative-after-cd) is an UNRESOLVED intent
 // the backstop must scan for. Shared by officeOutputPaths and hasOfficeOutputIntent so
 // the two never disagree on which outputs are exactly captured.
-function isExactlyCapturableOutput(value: string, cwdChanged: boolean) {
+function isExactlyCapturableOutput(value: string, relativeUnresolved: boolean) {
   return (
     isOfficeOutputPath(value) &&
     isStaticOutputValue(value) &&
-    !(cwdChanged && isRelativeOutputValue(value))
+    !(relativeUnresolved && isRelativeOutputValue(value))
   )
 }
 
@@ -172,6 +213,20 @@ function dynamicOutputCouldBeDiscoverable(value: string) {
   if (isDiscoverableOfficeOutput(value)) return true
   if (!isStaticOutputValue(value)) return fileExtension(value) === ""
   return false
+}
+
+// Whether an office output the exact parser could NOT capture still counts as intent — so
+// the backstop scans and, if nothing is found, flags the turn uncaptured instead of losing
+// the deliverable. A STATIC office path (a KNOWN filename, including `.pdf`) always counts
+// when unresolved: even though `.pdf` is excluded from discovery, an explicitly-named
+// `cd reports && ... -o report.pdf` must become an uncaptured mark rather than vanish. A
+// DYNAMIC value counts only when it could be a discoverable office output — a visible
+// dynamic `.pdf` (`-o "$OUT.pdf"`) can't be found and names no concrete file, so it stays
+// out. An exactly-capturable output is not intent (it is captured precisely).
+function unresolvedOfficeIntent(value: string, relativeUnresolved: boolean) {
+  if (isExactlyCapturableOutput(value, relativeUnresolved)) return false
+  if (isOfficeOutputPath(value) && isStaticOutputValue(value)) return true
+  return dynamicOutputCouldBeDiscoverable(value)
 }
 
 // The path argument of a python `.save(...)` call — the documented python-docx / openpyxl
@@ -271,17 +326,12 @@ export function hasOfficeOutputIntent(command: string) {
   const isGeneratorCommand = segments.some((segment) => isOfficeGeneratorSegment(shellWords(segment.text)))
   if (!isGeneratorCommand) return false
   // `cd` changes the parent shell cwd persistently (across `&&`/`;`); `uv --directory` only
-  // changes its own invocation's cwd, so its scope carries into a heredoc body (newline
-  // continuation) but resets at the next command separator.
+  // changes its own command's cwd, and its heredoc body is now one segment, so it is judged
+  // per segment with no cross-command propagation.
   let cdChanged = false
-  let uvDirScoped = false
-  let precededByDelimiter: string | undefined
   for (const segment of segments) {
-    if (isCommandSeparator(precededByDelimiter)) uvDirScoped = false
-    precededByDelimiter = segment.delimiter
     const words = shellWords(segment.text)
-    const uvDir = uvChangesDirectory(words)
-    const relativeUnresolved = cdChanged || uvDirScoped || uvDir
+    const relativeUnresolved = cdChanged || uvChangesDirectory(words)
     if (isOfficeGeneratorSegment(words)) {
       for (let index = 0; index < words.length; index++) {
         const word = words[index]
@@ -289,24 +339,17 @@ export function hasOfficeOutputIntent(command: string) {
         const flag = (equals >= 0 ? word.slice(0, equals) : word).toLowerCase()
         if (!outputFlags.has(flag)) continue
         const value = equals >= 0 ? word.slice(equals + 1) : words[index + 1]
-        // Skip outputs officeOutputPaths already captures exactly — intent means an
-        // UNRESOLVED office output, so a command mixing an exact output with a dynamic
-        // one still reports intent for the dynamic part and triggers the cwd scan.
-        if (
-          value &&
-          !isExactlyCapturableOutput(value, relativeUnresolved) &&
-          dynamicOutputCouldBeDiscoverable(value)
-        )
-          return true
+        // Intent means an office output officeOutputPaths could NOT capture exactly, so a
+        // command mixing an exact output with a dynamic one still reports intent for the
+        // dynamic part and triggers the cwd scan.
+        if (value && unresolvedOfficeIntent(value, relativeUnresolved)) return true
       }
     }
     if (shouldScanSaveSegment(words, isGeneratorCommand)) {
       for (const value of saveOutputValues(segment.text)) {
-        if (!isExactlyCapturableOutput(value, relativeUnresolved) && dynamicOutputCouldBeDiscoverable(value))
-          return true
+        if (unresolvedOfficeIntent(value, relativeUnresolved)) return true
       }
     }
-    if (uvDir) uvDirScoped = true
     if (isCwdChangeSegment(words)) cdChanged = true
   }
   return false
@@ -323,17 +366,12 @@ export function officeOutputPaths(command: string) {
   const isGeneratorCommand = segments.some((segment) => isOfficeGeneratorSegment(shellWords(segment.text)))
   const paths: string[] = []
   // `cd` changes the parent shell cwd persistently (across `&&`/`;`); `uv --directory` only
-  // changes its own invocation's cwd — its scope carries into a heredoc body (newline
-  // continuation) but resets at the next command separator.
+  // changes its own command's cwd, and its heredoc body is one segment, so it is judged per
+  // segment with no cross-command propagation.
   let cdChanged = false
-  let uvDirScoped = false
-  let precededByDelimiter: string | undefined
   for (const segment of segments) {
-    if (isCommandSeparator(precededByDelimiter)) uvDirScoped = false
-    precededByDelimiter = segment.delimiter
     const words = shellWords(segment.text)
-    const uvDir = uvChangesDirectory(words)
-    const relativeUnresolved = cdChanged || uvDirScoped || uvDir
+    const relativeUnresolved = cdChanged || uvChangesDirectory(words)
     // Output flags are gated per segment so a non-output `-o` on another tool in a
     // chained command (e.g. `grep -o report.docx file && ...`) is not read as a write.
     if (isOfficeGeneratorSegment(words)) {
@@ -346,16 +384,14 @@ export function officeOutputPaths(command: string) {
         if (value && isExactlyCapturableOutput(value, relativeUnresolved)) paths.push(value)
       }
     }
-    // `.save(...)` is python-specific. Scan generator segments directly, and scan a
-    // split heredoc/python body only when the segment itself looks like a save call;
-    // do not let arbitrary later commands like `node -e "...save('x.docx')"` create
-    // phantom exact artifacts.
+    // `.save(...)` is python-specific. Scan generator segments (a heredoc body is part of
+    // the generator segment); do not let arbitrary later commands like
+    // `node -e "...save('x.docx')"` create phantom exact artifacts.
     if (shouldScanSaveSegment(words, isGeneratorCommand)) {
       for (const value of saveOutputValues(segment.text)) {
         if (isExactlyCapturableOutput(value, relativeUnresolved)) paths.push(value)
       }
     }
-    if (uvDir) uvDirScoped = true
     if (isCwdChangeSegment(words)) cdChanged = true
   }
   return Array.from(new Set(paths))

@@ -70,6 +70,12 @@ describe("officeOutputPaths", () => {
       "uv --directory work run python a.py -o /tmp/a.docx && uv run python b.py -o b.docx",
       ["/tmp/a.docx", "b.docx"],
     ],
+    // a NEWLINE separates two independent commands too (not just a heredoc body), so the
+    // --directory chdir must not leak to the second command's relative b.docx
+    [
+      "uv --directory work run python a.py -o /tmp/a.docx\nuv run python b.py -o b.docx",
+      ["/tmp/a.docx", "b.docx"],
+    ],
   ])("parses the output path from %s", (command, expected) => {
     expect(officeOutputPaths(command)).toEqual(expected)
   })
@@ -129,6 +135,10 @@ describe("hasOfficeOutputIntent", () => {
     "uv run --directory work python build.py -o report.docx", // --directory as a `uv run` option also chdirs
     "uv --directory work run python <<'PY'\ndoc.save('out.docx')\nPY", // heredoc .save inherits the --directory chdir
     "uv run --python python3 --directory work python build.py -o report.docx", // --python value collision must still see --directory
+    // a STATIC .pdf under a changed cwd can't be exactly captured (cwd) and can't be
+    // discovered (.pdf excluded) — it must still be intent so the turn is flagged uncaptured
+    "cd reports && uv run python gen.py -o report.pdf",
+    "uv --directory reports run python gen.py -o report.pdf",
   ])("detects office-output intent in %s", (command) => {
     expect(hasOfficeOutputIntent(command)).toBe(true)
   })
