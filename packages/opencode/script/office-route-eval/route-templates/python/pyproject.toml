@@ -1,9 +1,0 @@
-[project]
-name = "office-route-eval-workspace"
-version = "0.0.0"
-requires-python = ">=3.11"
-dependencies = [
-  "openpyxl==3.1.5",
-  "python-docx==1.2.0",
-  "python-pptx==1.0.2",
-]
