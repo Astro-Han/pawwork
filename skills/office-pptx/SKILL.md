@@ -1,11 +1,22 @@
 ---
 name: office-pptx
-description: "Native .pptx generation by authoring one SVG per slide and converting with the bundled offline svg_to_pptx tool — every shape stays natively editable in PowerPoint / Keynote / WPS. Use this for any presentation, pitch deck, slides, or .pptx request."
+description: "Native .pptx generation by authoring one SVG per slide and converting with the bundled offline svg_to_pptx tool — every shape stays natively editable in PowerPoint / Keynote / WPS. Also reads and parses existing decks with python-pptx. Use this for any presentation, pitch deck, slides, or .pptx request, and for reading or modifying an existing .pptx."
 ---
 
 # office-pptx — native PPTX from SVG
 
 You build an editable native `.pptx` by hand-authoring one SVG per slide and converting the deck with the bundled, offline `svg_to_pptx` converter. No LibreOffice, no LLM-rendered image slides — every shape stays natively editable in PowerPoint / Keynote / WPS.
+
+## Reading / editing an existing deck
+
+To **read or modify a deck the user already has**, use `python-pptx` directly — you do not need the SVG authoring flow below (reserve that for building a new deck from scratch). `python-pptx` is pinned in this skill's `pyproject.toml`, so set up the working project (see below) and run through `uv run`:
+
+```bash
+uv run python -c "from pptx import Presentation; import sys; prs=Presentation(sys.argv[1]); \
+[print(shape.text) for slide in prs.slides for shape in slide.shapes if shape.has_text_frame]" input.pptx
+```
+
+`Presentation(path)` opens the file; iterate `prs.slides` then each `slide.shapes` to extract text, tables, or images, edit them in place, and `prs.save('out.pptx')`. Use this for requests like "pull the text out of this deck" or "change the title on slide 3".
 
 ## Runtime contract
 
