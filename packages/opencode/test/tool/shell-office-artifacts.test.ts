@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
-  hasOfficeGenerator,
+  hasOfficeOutputIntent,
   isDiscoverableOfficeOutput,
   isOfficeOutputPath,
   nonOfficeGeneratorText,
@@ -53,6 +53,7 @@ describe("officeOutputPaths", () => {
     "grep -o report.docx README.md", // grep's -o is "only matching", not an output file
     'echo "usage: -o report.docx"', // office text lives inside a quoted literal
     'uv run python build.py -o "$OUT.docx"', // dynamic shell value, discovery must find the real file
+    'uv run python build.py -o "%OUT%.docx"', // Windows cmd variable, discovery must find the real file
     "uv run python build.py --out report-*.docx", // glob value, discovery must find the real file
     'uv run python build.py --out "{draft,final}.docx"', // brace expansion is shell state, not a literal file
     'uv run python build.py --out "[ab].docx"', // bracket glob is shell state, not a literal file
@@ -77,15 +78,31 @@ describe("officeOutputPaths", () => {
   })
 })
 
-describe("hasOfficeGenerator", () => {
-  test("detects native python office generators", () => {
-    expect(hasOfficeGenerator("uv run python build.py")).toBe(true)
-    expect(hasOfficeGenerator("python -c \"from docx import Document\"")).toBe(true)
+describe("hasOfficeOutputIntent", () => {
+  // A generator that named an office output the parser couldn't pin to an exact path
+  // (dynamic / glob / cwd-relative-after-cd) still shows intent → the cwd backstop must
+  // scan for the real file.
+  test.each([
+    'uv run python build.py -o "$OUT.docx"', // dynamic POSIX variable
+    'uv run python build.py -o "%OUT%.docx"', // dynamic Windows cmd variable
+    "uv run python build.py --out report-*.docx", // glob
+    "cd reports && uv run python build.py -o report.docx", // relative after cd
+    `cd reports && uv run python -c "from docx import Document; Document().save('report.docx')"`,
+  ])("detects office-output intent in %s", (command) => {
+    expect(hasOfficeOutputIntent(command)).toBe(true)
   })
 
-  test("ignores non-generator commands", () => {
-    expect(hasOfficeGenerator("grep -o report.docx README.md")).toBe(false)
-    expect(hasOfficeGenerator("cat report.docx")).toBe(false)
+  // A bare generator that names NO output, or a read-only invocation, has no intent —
+  // so the backstop never speculatively scans (and never false-flags) it.
+  test.each([
+    "uv run python build.py", // bare script; internal save relies on expected_outputs
+    "uv run pytest",
+    "uv run python read_docx.py input.docx", // office file is an INPUT, no output flag
+    "grep -o report.docx README.md", // not a generator
+    "cat report.docx",
+    "uv run python build.py --out report.txt", // output flag, but non-office target
+  ])("reports no intent for %s", (command) => {
+    expect(hasOfficeOutputIntent(command)).toBe(false)
   })
 })
 

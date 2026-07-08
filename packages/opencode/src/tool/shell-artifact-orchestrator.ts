@@ -32,7 +32,7 @@ export type ArtifactDeps<DepR = never> = {
   discoverOfficeOutputs: (cwd: string, projectRoot: string) => Effect.Effect<OutputDiscovery, never, DepR>
   isLikelyWriteCommand: (command: string) => boolean
   parseOfficeOutputs: (command: string) => readonly string[]
-  hasOfficeGenerator: (command: string) => boolean
+  hasOfficeOutputIntent: (command: string) => boolean
   sideEffectCommand: (command: string) => string
   recordWrite: (input: RecordWriteInput) => Effect.Effect<void, never, DepR>
   recordUncaptured: (input: RecordUncapturedInput) => Effect.Effect<void, never, DepR>
@@ -102,18 +102,20 @@ export const orchestrateArtifacts = <RunR, DepR>(
     //    are stripped (`... -o a.docx && echo x > notes.txt` leaves `echo x > notes.txt`;
     //    a pure `... -o a.docx` leaves nothing). This scans AND flags the turn
     //    uncaptured, because the office-only scan can't capture such a file.
-    //  - `generatorWithoutExactOutput`: a native office generator that named no output
-    //    on the command line (a script whose python code calls `doc.save(...)` internally,
-    //    invisible to the parser). This scans to CAPTURE the deliverable, but does not
-    //    flag uncaptured on its own — if the scan finds the file it is captured, not lost.
+    //  - `dynamicOfficeOutput`: a native office generator that NAMED an office output
+    //    the parser could not resolve to an exact path (a dynamic `-o "$OUT.docx"` /
+    //    `-o "%OUT%.docx"`). The intent to write is clear, so this scans to CAPTURE the
+    //    real file. It is gated on `hasOfficeOutputIntent`, NOT on "is a generator", so a
+    //    read-only `uv run pytest` / `uv run python read_docx.py input.docx` — which names
+    //    no output — never scans and can never false-flag the turn uncaptured.
     //
     // A generator that DID name an exact output (parsed non-empty) is captured precisely
     // and skips the scan entirely, staying immune to a nested or overflowing cwd.
     const sideEffectWrite =
       declared.length === 0 && hasMessage && deps.isLikelyWriteCommand(deps.sideEffectCommand(command))
-    const generatorWithoutExactOutput =
-      declared.length === 0 && hasMessage && parsed.length === 0 && deps.hasOfficeGenerator(command)
-    const shouldAutoDiscover = sideEffectWrite || generatorWithoutExactOutput
+    const dynamicOfficeOutput =
+      declared.length === 0 && hasMessage && parsed.length === 0 && deps.hasOfficeOutputIntent(command)
+    const shouldAutoDiscover = sideEffectWrite || dynamicOfficeOutput
 
     const autoDiscoveredBefore = shouldAutoDiscover
       ? yield* Effect.gen(function* () {

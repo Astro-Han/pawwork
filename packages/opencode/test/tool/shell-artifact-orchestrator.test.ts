@@ -3,7 +3,11 @@ import { Effect } from "effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { orchestrateArtifacts, type ArtifactDeps } from "../../src/tool/shell-artifact-orchestrator"
 import { isLikelyWriteCommand } from "../../src/tool/shell-write-heuristic"
-import { hasOfficeGenerator, nonOfficeGeneratorText, officeOutputPaths } from "../../src/tool/shell-office-artifacts"
+import {
+  hasOfficeOutputIntent,
+  nonOfficeGeneratorText,
+  officeOutputPaths,
+} from "../../src/tool/shell-office-artifacts"
 import type { TrackedOutputState, OutputDiscovery } from "../../src/tool/shell-output-capture"
 import type { RecordWriteInput, RecordUncapturedInput } from "../../src/session/turn-change"
 import { MessageID, SessionID } from "../../src/session/schema"
@@ -63,7 +67,7 @@ function build(opts: {
   isWrite?: boolean
   isWriteFn?: (command: string) => boolean
   parseFn?: (command: string) => readonly string[]
-  hasGeneratorFn?: (command: string) => boolean
+  intentFn?: (command: string) => boolean
   sideEffectFn?: (command: string) => string
   discoverPaths?: string[]
   discoverOverflowed?: boolean
@@ -104,7 +108,7 @@ function build(opts: {
     discoverOfficeOutputs,
     isLikelyWriteCommand: opts.isWriteFn ?? (() => opts.isWrite ?? false),
     parseOfficeOutputs: opts.parseFn ?? (() => []),
-    hasOfficeGenerator: opts.hasGeneratorFn ?? (() => false),
+    hasOfficeOutputIntent: opts.intentFn ?? (() => false),
     sideEffectCommand: opts.sideEffectFn ?? ((command) => command),
     recordWrite: (input) =>
       Effect.sync(() => {
@@ -259,7 +263,7 @@ describe("orchestrateArtifacts", () => {
       discoverOfficeOutputs: () => Effect.succeed({ paths: [], overflowed: false }),
       isLikelyWriteCommand: () => false,
       parseOfficeOutputs: () => [],
-      hasOfficeGenerator: () => false,
+      hasOfficeOutputIntent: () => false,
       sideEffectCommand: (command) => command,
       recordWrite: () => Effect.void,
       recordUncaptured: () => Effect.void,
@@ -338,7 +342,7 @@ describe("orchestrateArtifacts", () => {
       states: { [file]: [stateMissing(), stateFile("h1")] },
       isWriteFn: isLikelyWriteCommand,
       parseFn: officeOutputPaths,
-      hasGeneratorFn: hasOfficeGenerator,
+      intentFn: hasOfficeOutputIntent,
       sideEffectFn: nonOfficeGeneratorText,
     })
 
@@ -378,7 +382,7 @@ describe("orchestrateArtifacts", () => {
       states: { [file]: [stateMissing(), stateFile("h1")] },
       isWriteFn: isLikelyWriteCommand,
       parseFn: officeOutputPaths,
-      hasGeneratorFn: hasOfficeGenerator,
+      intentFn: hasOfficeOutputIntent,
       sideEffectFn: nonOfficeGeneratorText,
     })
 
@@ -419,7 +423,7 @@ describe("orchestrateArtifacts", () => {
       states: { [file]: [stateMissing(), stateFile("h1")] },
       isWriteFn: isLikelyWriteCommand,
       parseFn: officeOutputPaths,
-      hasGeneratorFn: hasOfficeGenerator,
+      intentFn: hasOfficeOutputIntent,
       sideEffectFn: nonOfficeGeneratorText,
       discoverPaths: [], // the cwd scan finds no office side-effect files
     })
@@ -448,26 +452,26 @@ describe("orchestrateArtifacts", () => {
     expect(artifacts[0]).toMatchObject({ path: file, changed: true })
   })
 
-  // A native office generator that names NO output on the command line — its python
-  // code calls doc.save("out.docx") inside a script file the parser can't see — must
-  // still have its deliverable captured by the cwd backstop, and must NOT be flagged
-  // uncaptured (the scan caught it, so nothing was lost). Guards the backstop against
-  // regressing to "exact-output-or-nothing" for script-file generators.
-  test("office generator with no command-visible output → cwd scan captures it, no uncaptured", async () => {
-    const file = np("/tmp/work/out.docx")
-    const command = "uv run python build_docx.py"
-    expect(officeOutputPaths(command)).toEqual([]) // no -o, no inline .save
-    expect(hasOfficeGenerator(command)).toBe(true)
-    // stripping the generator leaves nothing, so it is not a "non-office side effect"
+  // A bare generator that names NO output on the command line — `uv run pytest`, or a
+  // script whose ONLY write is an internal doc.save() the parser can't see — is
+  // indistinguishable from a read-only invocation, so it does NOT trigger a speculative
+  // cwd scan (which would false-flag read-only python in an office-heavy workspace).
+  // Its deliverable, if any, is captured via the model-declared expected_outputs, the
+  // instructed primary path. Guards against the fallback over-triggering on any python.
+  test("bare generator with no named output → no scan, no uncaptured (relies on expected_outputs)", async () => {
+    const command = "uv run pytest"
+    expect(officeOutputPaths(command)).toEqual([])
+    expect(hasOfficeOutputIntent(command)).toBe(false) // names no office output
     expect(isLikelyWriteCommand(nonOfficeGeneratorText(command))).toBe(false)
 
     const harness = build({
-      states: { [file]: [stateMissing(), stateFile("h1")] },
+      states: {},
       isWriteFn: isLikelyWriteCommand,
       parseFn: officeOutputPaths,
-      hasGeneratorFn: hasOfficeGenerator,
+      intentFn: hasOfficeOutputIntent,
       sideEffectFn: nonOfficeGeneratorText,
-      discoverPaths: [file],
+      discoverPaths: [np("/tmp/work/ambient.docx")], // office clutter that must NOT be scanned
+      discoverOverflowed: true,
     })
 
     const result = await Effect.runPromise(
@@ -485,13 +489,46 @@ describe("orchestrateArtifacts", () => {
       ),
     )
 
-    expect(harness.discoverCalls).toBeGreaterThan(0) // backstop scanned for the internal save
-    expect(harness.uncaptured).toHaveLength(0) // captured, not lost
-    expect(harness.writes).toHaveLength(1)
-    expect(harness.writes[0].path).toBe(file)
-    const artifacts = (result.metadata as any).artifacts
-    expect(artifacts).toBeArrayOfSize(1)
-    expect(artifacts[0]).toMatchObject({ path: file, changed: true, exists: true })
+    expect(harness.discoverCalls).toBe(0) // no speculative scan for a read-only invocation
+    expect(harness.uncaptured).toHaveLength(0) // and therefore no false uncaptured
+    expect(harness.writes).toHaveLength(0)
+    expect((result.metadata as any).artifacts).toBeUndefined()
+  })
+
+  // A read-only python invocation that takes an office file as INPUT (no output flag)
+  // must not be mistaken for a generator: no scan, no uncaptured.
+  test("uv run python read_docx.py input.docx → no scan, no uncaptured", async () => {
+    const command = "uv run python read_docx.py input.docx"
+    expect(officeOutputPaths(command)).toEqual([])
+    expect(hasOfficeOutputIntent(command)).toBe(false)
+
+    const harness = build({
+      states: {},
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      intentFn: hasOfficeOutputIntent,
+      sideEffectFn: nonOfficeGeneratorText,
+      discoverPaths: [np("/tmp/work/other.xlsx")],
+    })
+
+    await Effect.runPromise(
+      orchestrateArtifacts(
+        {
+          ctx,
+          cwd: "/tmp/work",
+          directory: "/tmp/work",
+          shell: "/bin/bash",
+          command,
+          expectedOutputs: [],
+        },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.discoverCalls).toBe(0)
+    expect(harness.uncaptured).toHaveLength(0)
+    expect(harness.writes).toHaveLength(0)
   })
 
   // A dynamic -o value (an unexpanded shell variable) is NOT tracked verbatim — the
@@ -501,13 +538,13 @@ describe("orchestrateArtifacts", () => {
     const real = np("/tmp/work/report.docx")
     const command = 'OUT=report; uv run python build.py -o "$OUT.docx"'
     expect(officeOutputPaths(command)).toEqual([]) // $OUT.docx dropped as non-static
-    expect(hasOfficeGenerator(command)).toBe(true)
+    expect(hasOfficeOutputIntent(command)).toBe(true)
 
     const harness = build({
       states: { [real]: [stateMissing(), stateFile("h1")] },
       isWriteFn: isLikelyWriteCommand,
       parseFn: officeOutputPaths,
-      hasGeneratorFn: hasOfficeGenerator,
+      intentFn: hasOfficeOutputIntent,
       sideEffectFn: nonOfficeGeneratorText,
       discoverPaths: [real],
     })
@@ -540,13 +577,13 @@ describe("orchestrateArtifacts", () => {
     const real = np("/tmp/work/reports/report.docx")
     const command = "cd reports && uv run python build.py -o report.docx"
     expect(officeOutputPaths(command)).toEqual([])
-    expect(hasOfficeGenerator(command)).toBe(true)
+    expect(hasOfficeOutputIntent(command)).toBe(true)
 
     const harness = build({
       states: { [real]: [stateFile("h1")] },
       isWriteFn: isLikelyWriteCommand,
       parseFn: officeOutputPaths,
-      hasGeneratorFn: hasOfficeGenerator,
+      intentFn: hasOfficeOutputIntent,
       sideEffectFn: nonOfficeGeneratorText,
       discoverPaths: [],
       discoverPathsAfter: [real],

@@ -80,12 +80,13 @@ const outputFlags = new Set(["-o", "--out", "--output", "--outfile"])
 const saveScanSkipHeads = new Set(["echo", "printf", "cat", "grep", "rg", "egrep", "fgrep", "sed", "awk"])
 
 // An output path is only trackable when it is a static literal. A value carrying an
-// unexpanded shell variable, command substitution, or glob (e.g. `-o "$OUT.docx"`,
-// ``-o `date`.docx``, `-o report-*.docx`) cannot be tracked verbatim — the artifact
-// layer never runs the shell, so the literal would never match the real file. Drop
-// it and let the cwd backstop discover the real output instead of tracking a phantom.
+// unexpanded shell variable (POSIX `$OUT`, Windows cmd `%OUT%`), command
+// substitution, or glob (e.g. `-o "$OUT.docx"`, `-o "%OUT%.docx"`, ``-o `date`.docx``,
+// `-o report-*.docx`) cannot be tracked verbatim — the artifact layer never runs the
+// shell, so the literal would never match the real file. Drop it and let the cwd
+// backstop discover the real output instead of tracking a phantom.
 function isStaticOutputValue(value: string) {
-  return !/[$`*?[\]{}]/.test(value) && !value.startsWith("~")
+  return !/[$`*?%[\]{}]/.test(value) && !value.startsWith("~")
 }
 
 function isRelativeOutputValue(value: string) {
@@ -118,13 +119,40 @@ function shouldScanSaveSegment(words: string[], isGeneratorCommand: boolean) {
   return head.includes(".save(")
 }
 
-// Whether the command runs a native office generator (python / uv-run) at all,
-// regardless of whether it names its output on the command line. When such a
-// generator names no exact output (its python code calls `doc.save(...)` inside a
-// script file the command text can't see), the caller still needs the cwd backstop
-// to scan for the deliverable.
-export function hasOfficeGenerator(command: string) {
-  return commandSegments(command).some((segment) => isOfficeGeneratorSegment(shellWords(segment.text)))
+// Whether a native office generator NAMED an office deliverable that could not be
+// tracked to an exact path — an -o/--out flag or a python `.save(...)` whose value is
+// an office file (`.docx/.xlsx/.pptx/.pdf`) but is dynamic (`-o "$OUT.docx"`,
+// `-o "%OUT%.docx"`) or otherwise unresolvable. Such a command clearly intends to
+// write an office file, so the cwd backstop must scan to discover it. Crucially this
+// is NOT true for a bare read-only invocation that names no output at all — e.g.
+// `uv run pytest` or `uv run python read_docx.py input.docx` — so those never trigger
+// a scan (and can never false-flag the turn uncaptured). A generator whose ONLY
+// output is an internal `doc.save(...)` inside a script file it runs (invisible to the
+// command text) is likewise not scanned here; that deliverable is captured via the
+// model-declared `expected_outputs`, the instructed primary path.
+export function hasOfficeOutputIntent(command: string) {
+  const segments = commandSegments(command)
+  const isGeneratorCommand = segments.some((segment) => isOfficeGeneratorSegment(shellWords(segment.text)))
+  if (!isGeneratorCommand) return false
+  for (const segment of segments) {
+    const words = shellWords(segment.text)
+    if (isOfficeGeneratorSegment(words)) {
+      for (let index = 0; index < words.length; index++) {
+        const word = words[index]
+        const equals = word.indexOf("=")
+        const flag = (equals >= 0 ? word.slice(0, equals) : word).toLowerCase()
+        if (!outputFlags.has(flag)) continue
+        const value = equals >= 0 ? word.slice(equals + 1) : words[index + 1]
+        if (value && isOfficeOutputPath(value)) return true
+      }
+    }
+    if (shouldScanSaveSegment(words, isGeneratorCommand)) {
+      for (const match of segment.text.matchAll(/\.save\(\s*\\?["']([^"'\\]+)/gi)) {
+        if (isOfficeOutputPath(match[1])) return true
+      }
+    }
+  }
+  return false
 }
 
 // Explicit office output paths a generator command names for itself: either an
