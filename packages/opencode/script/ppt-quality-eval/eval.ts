@@ -605,12 +605,13 @@ async function runOne(taskId: TaskID, routeId: RouteID, round: number, model: st
     "run",
     "--format",
     "json",
+    // --file is array-typed and would swallow a following positional prompt; keep scalar flags after it.
+    ...task.fixtures.flatMap((fixture) => ["--file", path.join(workDir, "input", fixture.target)]),
     "--model",
     model,
     "--dir",
     workDir,
     "--dangerously-skip-permissions",
-    ...task.fixtures.flatMap((fixture) => ["--file", path.join(workDir, "input", fixture.target)]),
   ]
   if (variant) args.push("--variant", variant)
   args.push(prompt)
