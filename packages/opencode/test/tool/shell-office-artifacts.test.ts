@@ -47,6 +47,8 @@ describe("officeOutputPaths", () => {
     ["uv --project app run python3 build.py --out book.xlsx", ["book.xlsx"]],
     // a non-directory global option (--offline) still recognizes the generator + exact output
     ["uv --offline run python build.py -o report.docx", ["report.docx"]],
+    // a `--directory` AFTER the python command is the script's own arg, not uv's chdir → exact
+    ["uv run python build.py --directory sub -o report.docx", ["report.docx"]],
     ["python build_xlsx.py data.csv --out book.xlsx", ["book.xlsx"]],
     ["python gen.py --output=slides.pdf", ["slides.pdf"]],
     // python .save(...) — the documented python-docx / openpyxl / python-pptx call
@@ -68,7 +70,9 @@ describe("officeOutputPaths", () => {
     'uv run python build.py -o "$OUT.docx"', // dynamic shell value, discovery must find the real file
     'uv run python build.py -o "%OUT%.docx"', // Windows cmd variable, discovery must find the real file
     "uv run python build.py --out report-*.docx", // glob value, discovery must find the real file
-    "uv --directory work run python build.py -o report.docx", // relative under --directory chdir, discovery must find work/report.docx
+    "uv --directory work run python build.py -o report.docx", // relative under --directory (global) chdir
+    "uv run --directory work python build.py -o report.docx", // relative under --directory (run option) chdir
+    "uv --directory work run python <<'PY'\ndoc.save('out.docx')\nPY", // heredoc .save under --directory chdir
     'uv run python build.py --out "{draft,final}.docx"', // brace expansion is shell state, not a literal file
     'uv run python build.py --out "[ab].docx"', // bracket glob is shell state, not a literal file
     "uv run python build.py --out ~/report.docx", // tilde expansion is shell state, not a literal file
@@ -110,6 +114,8 @@ describe("hasOfficeOutputIntent", () => {
     'uv --directory work run python build.py -o "$OUT.docx"',
     // a RELATIVE output under `uv --directory` chdir is unresolved → intent → cwd scan
     "uv --directory work run python build.py -o report.docx",
+    "uv run --directory work python build.py -o report.docx", // --directory as a `uv run` option also chdirs
+    "uv --directory work run python <<'PY'\ndoc.save('out.docx')\nPY", // heredoc .save inherits the --directory chdir
   ])("detects office-output intent in %s", (command) => {
     expect(hasOfficeOutputIntent(command)).toBe(true)
   })

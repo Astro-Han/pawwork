@@ -140,17 +140,28 @@ function isOfficeGeneratorSegment(words: string[]) {
   return false
 }
 
+// The python program token in a `uv run` invocation — `python`, `python3`, a versioned
+// `python3.12`, or a bare `script.py`. Marks where uv's own options end and the executed
+// command (and its args) begin.
+function isPythonCommandToken(word: string) {
+  const low = word.toLowerCase()
+  return low === "python" || /^python\d/.test(low) || low.endsWith(".py")
+}
+
 // uv's `--directory <dir>` (unlike `--project`, which only affects project discovery)
 // changes the working directory before running the command, so a RELATIVE output names a
 // file under that directory, not the shell cwd. The exact parser cannot resolve it, so —
-// like a prior `cd` — it must defer to the discovery backstop.
+// like a prior `cd` — it must defer to the discovery backstop. `--directory` is accepted
+// both as a global option (`uv --directory x run ...`) and as a `uv run` option
+// (`uv run --directory x python ...`) — both chdir — so scan up to the executed python
+// command; a `--directory` after that belongs to the script's own args, not uv.
 function uvChangesDirectory(words: string[]) {
   const { head, rest } = commandHead(words)
   if (head?.toLowerCase() !== "uv") return false
   for (const word of rest) {
     const low = word.toLowerCase()
-    if (low === "run") break // options after the subcommand belong to the script, not uv
     if (low === "--directory" || low.startsWith("--directory=")) return true
+    if (isPythonCommandToken(word)) break // reached the executed command; later flags are its args
   }
   return false
 }
@@ -188,8 +199,11 @@ export function hasOfficeOutputIntent(command: string) {
   for (const segment of segments) {
     const words = shellWords(segment.text)
     // A relative output is unresolved when a prior `cd` changed the cwd, or when this uv
-    // invocation itself changes into `--directory <dir>` before running.
-    const relativeUnresolved = cwdChangedBeforeSegment || uvChangesDirectory(words)
+    // invocation changes into `--directory <dir>`. A `uv --directory` also propagates to
+    // the segments that follow it (a heredoc body's `.save(...)` runs under that dir), so
+    // it sets the persistent flag too.
+    const uvDir = uvChangesDirectory(words)
+    const relativeUnresolved = cwdChangedBeforeSegment || uvDir
     if (isOfficeGeneratorSegment(words)) {
       for (let index = 0; index < words.length; index++) {
         const word = words[index]
@@ -217,7 +231,7 @@ export function hasOfficeOutputIntent(command: string) {
           return true
       }
     }
-    if (isCwdChangeSegment(words)) cwdChangedBeforeSegment = true
+    if (isCwdChangeSegment(words) || uvDir) cwdChangedBeforeSegment = true
   }
   return false
 }
@@ -236,8 +250,11 @@ export function officeOutputPaths(command: string) {
   for (const segment of segments) {
     const words = shellWords(segment.text)
     // A relative output is unresolved (defer to discovery) when a prior `cd` changed the
-    // cwd, or when this uv invocation itself changes into `--directory <dir>`.
-    const relativeUnresolved = cwdChangedBeforeSegment || uvChangesDirectory(words)
+    // cwd, or when this uv invocation changes into `--directory <dir>`. A `uv --directory`
+    // also propagates to the following segments (a heredoc body's `.save(...)` runs under
+    // that dir), so it sets the persistent flag too.
+    const uvDir = uvChangesDirectory(words)
+    const relativeUnresolved = cwdChangedBeforeSegment || uvDir
     // Output flags are gated per segment so a non-output `-o` on another tool in a
     // chained command (e.g. `grep -o report.docx file && ...`) is not read as a write.
     if (isOfficeGeneratorSegment(words)) {
@@ -262,7 +279,7 @@ export function officeOutputPaths(command: string) {
         if (isExactlyCapturableOutput(match[1], relativeUnresolved)) paths.push(match[1])
       }
     }
-    if (isCwdChangeSegment(words)) cwdChangedBeforeSegment = true
+    if (isCwdChangeSegment(words) || uvDir) cwdChangedBeforeSegment = true
   }
   return Array.from(new Set(paths))
 }
