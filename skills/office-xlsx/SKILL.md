@@ -53,7 +53,7 @@ wb.save("out.xlsx")
 
 ## Reading / parsing
 
-`load_workbook(path)` reads formulas; `load_workbook(path, data_only=True)` reads the last cached computed values. Use `data_only=True` when you need results, `data_only=False` when you need to inspect or preserve formulas.
+`load_workbook(path)` reads formulas; `load_workbook(path, data_only=True)` reads the last cached computed values. Use `data_only=True` when you need results, `data_only=False` when you need to inspect or preserve formulas. To **edit** an existing workbook, `load_workbook(path)`, change cells (respecting the formula-injection rule above for any user-supplied values), then `wb.save('out.xlsx')`.
 
 ## Gate — structure check (before delivering)
 
