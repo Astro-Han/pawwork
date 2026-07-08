@@ -8,6 +8,7 @@ import { pipeline } from "node:stream/promises"
 import path from "node:path"
 
 import { officeCliTargetFor, prepareOfficeCli } from "./prepare-officecli"
+import { prepareUv, uvTargetFor } from "./prepare-uv"
 
 const TOOLS_DIR = path.resolve(import.meta.dirname, "../resources/tools")
 
@@ -191,6 +192,12 @@ async function main() {
     await prepareOfficeCli(officeCliTarget.platform, officeCliTarget.arch)
   } else {
     console.log(`  Skipping officecli (no URL for ${platform}-${arch})`)
+  }
+  const uvTarget = uvTargetFor(platform, arch)
+  if (uvTarget) {
+    await prepareUv(uvTarget.platform, uvTarget.arch)
+  } else {
+    console.log(`  Skipping uv (no URL for ${platform}-${arch})`)
   }
   for (const tool of tools) {
     if (tool.name === "lark-cli") continue // handled separately
