@@ -34,3 +34,7 @@ logs/
 *.bun-build
 tsconfig.tsbuildinfo
 .superpowers/
+
+# Python bytecode (bundled skills under skills/ ship .py sources)
+__pycache__/
+*.pyc
