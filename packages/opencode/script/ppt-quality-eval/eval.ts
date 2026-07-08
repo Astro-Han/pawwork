@@ -241,11 +241,11 @@ function routeConfig(route: RouteID) {
 
 function decodeXml(value: string) {
   return value
-    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&")
 }
 
 function textFromXml(xml: string) {
