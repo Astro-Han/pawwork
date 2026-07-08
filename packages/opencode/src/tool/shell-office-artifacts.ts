@@ -126,24 +126,31 @@ function dynamicOutputCouldBeDiscoverable(value: string) {
 // "only matching" flag in `grep -o report.docx file` — from being read as an
 // office write.
 function isOfficeGeneratorSegment(words: string[]) {
-  const { head, next, rest } = commandHead(words)
+  const { head, rest } = commandHead(words)
   const lower = head?.toLowerCase()
   if (lower === "python" || lower === "python3") return true
-  if (lower === "uv") {
-    // Plain `uv run ...`.
-    if (next?.toLowerCase() === "run") return true
-    // uv permits global options before the subcommand
-    // (`uv --directory work run python ...`, `uv --project x run python3 ...`),
-    // which pushes `run` past the immediate next token. Detect a `run python`
-    // pair anywhere in the invocation so those valid generators are not misread
-    // as read-only. Requiring `python`/`python3` right after `run` keeps a
-    // globally-optioned non-python subcommand (`uv --offline run pytest`) from
-    // matching — safe, since it names no office output anyway.
-    for (let index = 0; index < rest.length - 1; index++) {
-      if (rest[index].toLowerCase() !== "run") continue
-      const after = rest[index + 1]?.toLowerCase()
-      if (after === "python" || after === "python3") return true
-    }
+  // A `uv run ...` invocation — the office-* skills always run through `uv run`, and uv
+  // permits global options before the subcommand (`uv --directory work run ...`,
+  // `uv --offline run ...`), so the `run` subcommand token is the signal rather than its
+  // position. This deliberately admits `uv run <anything>` (including `uv run script.py`,
+  // where uv runs a bare script with no explicit `python`); the office-output value gates
+  // (isOfficeOutputPath / dynamicOutputCouldBeDiscoverable) keep a non-office `uv run`
+  // from producing a phantom capture.
+  if (lower === "uv" && rest.some((word) => word.toLowerCase() === "run")) return true
+  return false
+}
+
+// uv's `--directory <dir>` (unlike `--project`, which only affects project discovery)
+// changes the working directory before running the command, so a RELATIVE output names a
+// file under that directory, not the shell cwd. The exact parser cannot resolve it, so —
+// like a prior `cd` — it must defer to the discovery backstop.
+function uvChangesDirectory(words: string[]) {
+  const { head, rest } = commandHead(words)
+  if (head?.toLowerCase() !== "uv") return false
+  for (const word of rest) {
+    const low = word.toLowerCase()
+    if (low === "run") break // options after the subcommand belong to the script, not uv
+    if (low === "--directory" || low.startsWith("--directory=")) return true
   }
   return false
 }
@@ -180,6 +187,9 @@ export function hasOfficeOutputIntent(command: string) {
   let cwdChangedBeforeSegment = false
   for (const segment of segments) {
     const words = shellWords(segment.text)
+    // A relative output is unresolved when a prior `cd` changed the cwd, or when this uv
+    // invocation itself changes into `--directory <dir>` before running.
+    const relativeUnresolved = cwdChangedBeforeSegment || uvChangesDirectory(words)
     if (isOfficeGeneratorSegment(words)) {
       for (let index = 0; index < words.length; index++) {
         const word = words[index]
@@ -192,7 +202,7 @@ export function hasOfficeOutputIntent(command: string) {
         // one still reports intent for the dynamic part and triggers the cwd scan.
         if (
           value &&
-          !isExactlyCapturableOutput(value, cwdChangedBeforeSegment) &&
+          !isExactlyCapturableOutput(value, relativeUnresolved) &&
           dynamicOutputCouldBeDiscoverable(value)
         )
           return true
@@ -201,7 +211,7 @@ export function hasOfficeOutputIntent(command: string) {
     if (shouldScanSaveSegment(words, isGeneratorCommand)) {
       for (const match of segment.text.matchAll(/\.save\s*\(\s*[rbuf]*\\?["']([^"'\\]+)/gi)) {
         if (
-          !isExactlyCapturableOutput(match[1], cwdChangedBeforeSegment) &&
+          !isExactlyCapturableOutput(match[1], relativeUnresolved) &&
           dynamicOutputCouldBeDiscoverable(match[1])
         )
           return true
@@ -225,6 +235,9 @@ export function officeOutputPaths(command: string) {
   let cwdChangedBeforeSegment = false
   for (const segment of segments) {
     const words = shellWords(segment.text)
+    // A relative output is unresolved (defer to discovery) when a prior `cd` changed the
+    // cwd, or when this uv invocation itself changes into `--directory <dir>`.
+    const relativeUnresolved = cwdChangedBeforeSegment || uvChangesDirectory(words)
     // Output flags are gated per segment so a non-output `-o` on another tool in a
     // chained command (e.g. `grep -o report.docx file && ...`) is not read as a write.
     if (isOfficeGeneratorSegment(words)) {
@@ -234,7 +247,7 @@ export function officeOutputPaths(command: string) {
         const flag = (equals >= 0 ? word.slice(0, equals) : word).toLowerCase()
         if (!outputFlags.has(flag)) continue
         const value = equals >= 0 ? word.slice(equals + 1) : words[index + 1]
-        if (value && isExactlyCapturableOutput(value, cwdChangedBeforeSegment)) paths.push(value)
+        if (value && isExactlyCapturableOutput(value, relativeUnresolved)) paths.push(value)
       }
     }
     // `.save(...)` is python-specific. Scan generator segments directly, and scan a
@@ -246,7 +259,7 @@ export function officeOutputPaths(command: string) {
       // (`r`/`b`/`u`/`f`, e.g. `.save(r"out.docx")`), and an optional backslash before the
       // quote so an escaped inner quote in `-c "...save(\"out.docx\")"` is matched too.
       for (const match of segment.text.matchAll(/\.save\s*\(\s*[rbuf]*\\?["']([^"'\\]+)/gi)) {
-        if (isExactlyCapturableOutput(match[1], cwdChangedBeforeSegment)) paths.push(match[1])
+        if (isExactlyCapturableOutput(match[1], relativeUnresolved)) paths.push(match[1])
       }
     }
     if (isCwdChangeSegment(words)) cwdChangedBeforeSegment = true

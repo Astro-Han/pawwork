@@ -40,9 +40,13 @@ describe("officeOutputPaths", () => {
     ['uv run python build.py -o "Quarterly Report.docx"', ["Quarterly Report.docx"]],
     ["uv run python build.py -o 'Q1 deck.pptx'", ["Q1 deck.pptx"]],
     ["uv run python scripts/svg_to_pptx.py deck -o artifacts/deck.pptx", ["artifacts/deck.pptx"]],
-    // uv permits global options (--directory / --project) before the `run` subcommand
-    ["uv --directory work run python build.py -o report.docx", ["report.docx"]],
+    // uv permits global options before the `run` subcommand; an ABSOLUTE output is still
+    // captured exactly even when `--directory` changes the cwd
+    ["uv --directory work run python build.py -o /tmp/report.docx", ["/tmp/report.docx"]],
+    // --project only affects project discovery (no chdir), so a relative output is exact
     ["uv --project app run python3 build.py --out book.xlsx", ["book.xlsx"]],
+    // a non-directory global option (--offline) still recognizes the generator + exact output
+    ["uv --offline run python build.py -o report.docx", ["report.docx"]],
     ["python build_xlsx.py data.csv --out book.xlsx", ["book.xlsx"]],
     ["python gen.py --output=slides.pdf", ["slides.pdf"]],
     // python .save(...) — the documented python-docx / openpyxl / python-pptx call
@@ -64,6 +68,7 @@ describe("officeOutputPaths", () => {
     'uv run python build.py -o "$OUT.docx"', // dynamic shell value, discovery must find the real file
     'uv run python build.py -o "%OUT%.docx"', // Windows cmd variable, discovery must find the real file
     "uv run python build.py --out report-*.docx", // glob value, discovery must find the real file
+    "uv --directory work run python build.py -o report.docx", // relative under --directory chdir, discovery must find work/report.docx
     'uv run python build.py --out "{draft,final}.docx"', // brace expansion is shell state, not a literal file
     'uv run python build.py --out "[ab].docx"', // bracket glob is shell state, not a literal file
     "uv run python build.py --out ~/report.docx", // tilde expansion is shell state, not a literal file
@@ -103,6 +108,8 @@ describe("hasOfficeOutputIntent", () => {
     'uv run python a.py -o a.docx && OUT=b uv run python b.py -o "$OUT.docx"',
     // uv global options before `run` must not hide the dynamic output
     'uv --directory work run python build.py -o "$OUT.docx"',
+    // a RELATIVE output under `uv --directory` chdir is unresolved → intent → cwd scan
+    "uv --directory work run python build.py -o report.docx",
   ])("detects office-output intent in %s", (command) => {
     expect(hasOfficeOutputIntent(command)).toBe(true)
   })
@@ -118,7 +125,9 @@ describe("hasOfficeOutputIntent", () => {
     "uv run python build.py --out report.txt", // output flag, but non-office target
     'uv run python build.py -o "$OUT.pdf"', // dynamic .pdf — discovery can't find it
     "uv run python build.py -o report.docx", // exact static output — captured, not scanned
-    "uv --directory work run python build.py -o report.docx", // exact even with uv global opts
+    "uv --offline run python build.py -o report.docx", // exact under a non-directory global opt
+    "uv --offline run pytest", // read-only under a global opt — same as bare `uv run pytest`
+    "uv --project app run python build.py -o report.docx", // --project does not chdir → exact
   ])("reports no intent for %s", (command) => {
     expect(hasOfficeOutputIntent(command)).toBe(false)
   })

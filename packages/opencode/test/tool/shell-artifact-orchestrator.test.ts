@@ -216,6 +216,42 @@ describe("orchestrateArtifacts", () => {
     expect((result.metadata as any).artifacts).toBeUndefined()
   })
 
+  // Overflow WITH a parsed exact output: the exact `a.docx` is still captured, but the
+  // dynamic sibling forced a scan that overflowed, so the turn is conservatively flagged
+  // uncaptured (the office-only scan had to drop captures). Guards the overflow branch
+  // when exact artifacts are also present.
+  test("auto-discovery overflow with a parsed exact output → exact captured AND recordUncaptured", async () => {
+    const exact = np("a.docx")
+    const command = 'uv run python a.py -o a.docx && OUT=b uv run python b.py -o "$OUT.docx"'
+    expect(officeOutputPaths(command)).toEqual(["a.docx"])
+    expect(hasOfficeOutputIntent(command)).toBe(true)
+
+    const harness = build({
+      states: { [exact]: [stateMissing(), stateFile("h1")] },
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      intentFn: hasOfficeOutputIntent,
+      sideEffectFn: nonOfficeGeneratorText,
+      discoverPaths: [],
+      discoverOverflowed: true,
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        { ctx, cwd: "/tmp/work", directory: "/tmp/work", shell: "/bin/bash", command, expectedOutputs: [] },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.writes).toHaveLength(1)
+    expect(harness.writes[0].path).toBe(exact) // a.docx still captured despite overflow
+    expect(harness.uncaptured).toHaveLength(1) // overflow → conservative uncaptured
+    const artifacts = (result.metadata as any).artifacts
+    expect(artifacts).toBeArrayOfSize(1)
+    expect(artifacts[0]).toMatchObject({ path: exact, changed: true })
+  })
+
   test("read-only command → no orchestration noise, no recordUncaptured, no artifacts", async () => {
     const harness = build({
       states: {},
@@ -671,6 +707,41 @@ describe("orchestrateArtifacts", () => {
     expect(harness.uncaptured).toHaveLength(1) // b.docx loss not masked by a.docx change
     const artifacts = (result.metadata as any).artifacts
     expect(artifacts).toBeArrayOfSize(1)
+  })
+
+  // `uv --directory work` chdirs into `work/` before running, so a relative `-o report.docx`
+  // names `work/report.docx`, not `${cwd}/report.docx`. The parser must NOT track the phantom
+  // original-cwd path; discovery captures the real nested file instead.
+  test("uv --directory relative output → not tracked verbatim; cwd scan captures the nested file", async () => {
+    const real = np("/tmp/work/work/report.docx")
+    const command = "uv --directory work run python build.py -o report.docx"
+    expect(officeOutputPaths(command)).toEqual([]) // relative under --directory chdir
+    expect(hasOfficeOutputIntent(command)).toBe(true)
+
+    const harness = build({
+      states: { [real]: [stateMissing(), stateFile("h1")] },
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      intentFn: hasOfficeOutputIntent,
+      sideEffectFn: nonOfficeGeneratorText,
+      discoverPaths: [real],
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        { ctx, cwd: "/tmp/work", directory: "/tmp/work", shell: "/bin/bash", command, expectedOutputs: [] },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.discoverCalls).toBeGreaterThan(0)
+    expect(harness.writes).toHaveLength(1)
+    expect(harness.writes[0].path).toBe(real) // the real nested file, not the phantom cwd path
+    expect(harness.uncaptured).toHaveLength(0)
+    const artifacts = (result.metadata as any).artifacts
+    expect(artifacts).toBeArrayOfSize(1)
+    expect(artifacts[0]).toMatchObject({ path: real, changed: true })
   })
 
   // After `cd reports`, a relative `-o report.docx` is relative to the shell's new
