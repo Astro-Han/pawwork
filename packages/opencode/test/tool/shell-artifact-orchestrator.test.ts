@@ -317,12 +317,12 @@ describe("orchestrateArtifacts", () => {
   })
 
   // Integration guard for the native office route: drives the REAL
-  // isLikelyWriteCommand + officeOutputPaths (not mocks), so a real
-  // `-o <office file>` generator with no declared expected_outputs is captured from
-  // the explicit output path even when the cwd scan returns nothing (a nested
-  // `artifacts/` target the scan misses). This replaces the OfficeCLI E2E coverage
-  // for the office output path and guards the parsed-path-into-tracking fix.
-  test("real -o office generator, no declared outputs, empty cwd scan → still captures explicit path", async () => {
+  // isLikelyWriteCommand + officeOutputPaths (not mocks). A real `-o <office file>`
+  // generator with no declared expected_outputs is tracked as an exact target — so it
+  // is captured without a cwd scan (immune to a nested/overflowing directory) and,
+  // critically, does NOT get a false uncaptured marker. Replaces the OfficeCLI E2E
+  // coverage for the office output path.
+  test("real -o office generator, no declared outputs → captures exact path, no cwd scan, no uncaptured", async () => {
     const file = np("artifacts/deck.pptx")
     const command = "uv run python scripts/svg_to_pptx.py deck -o artifacts/deck.pptx"
     expect(isLikelyWriteCommand(command)).toBe(true)
@@ -332,7 +332,6 @@ describe("orchestrateArtifacts", () => {
       states: { [file]: [stateMissing(), stateFile("h1")] },
       isWriteFn: isLikelyWriteCommand,
       parseFn: officeOutputPaths,
-      discoverPaths: [], // cwd scan finds nothing — capture must come from the -o path
     })
 
     const result = await Effect.runPromise(
@@ -350,10 +349,48 @@ describe("orchestrateArtifacts", () => {
       ),
     )
 
+    expect(harness.discoverCalls).toBe(0) // exact target → no best-effort cwd scan
+    expect(harness.uncaptured).toHaveLength(0) // the deliverable was captured, not uncaptured
     expect(harness.writes).toHaveLength(1)
     expect(harness.writes[0].path).toBe(file)
     const artifacts = (result.metadata as any).artifacts
     expect(artifacts).toBeArrayOfSize(1)
     expect(artifacts[0]).toMatchObject({ path: file, changed: true, exists: true, binary: true })
+  })
+
+  // A python .save("out.docx") generator (no -o flag) — the documented docx/xlsx
+  // pattern — is still recognized as an exact output and captured.
+  test("real .save() office generator, no -o flag → captures exact path, no uncaptured", async () => {
+    const file = np("out.docx")
+    const command = `uv run python -c "from docx import Document; d=Document(); d.save('out.docx')"`
+    expect(isLikelyWriteCommand(command)).toBe(true)
+    expect(officeOutputPaths(command)).toEqual(["out.docx"])
+
+    const harness = build({
+      states: { [file]: [stateMissing(), stateFile("h1")] },
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        {
+          ctx,
+          cwd: "/tmp/work",
+          directory: "/tmp/work",
+          shell: "/bin/bash",
+          command,
+          expectedOutputs: [],
+        },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.discoverCalls).toBe(0)
+    expect(harness.uncaptured).toHaveLength(0)
+    expect(harness.writes).toHaveLength(1)
+    expect(harness.writes[0].path).toBe(file)
+    expect((result.metadata as any).artifacts).toBeArrayOfSize(1)
   })
 })

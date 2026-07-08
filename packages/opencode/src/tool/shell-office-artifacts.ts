@@ -11,7 +11,6 @@ const discoverableOfficeExtensions = new Set([".docx", ".xlsx", ".pptx"])
 
 type Segment = {
   text: string
-  delimiter?: string
 }
 
 function fileExtension(file: string) {
@@ -29,7 +28,6 @@ export function isDiscoverableOfficeOutput(file: string) {
 export function commandSegments(command: string) {
   const segments: Segment[] = []
   let start = 0
-  let delimiter: string | undefined
   let quote: "'" | '"' | undefined
   for (let index = 0; index < command.length; index++) {
     const char = command[index]
@@ -57,13 +55,12 @@ export function commandSegments(command: string) {
     if (!currentDelimiter) continue
 
     const text = command.slice(start, index).trim()
-    if (text) segments.push({ text, delimiter })
-    delimiter = currentDelimiter
+    if (text) segments.push({ text })
     index += currentDelimiter.length - 1
     start = index + 1
   }
   const text = command.slice(start).trim()
-  if (text) segments.push({ text, delimiter })
+  if (text) segments.push({ text })
   return segments
 }
 
@@ -88,25 +85,42 @@ function isOfficeGeneratorSegment(words: string[]) {
   return false
 }
 
-// Explicit office output paths named after an -o/--out/--output/--outfile flag on
-// a generator command. Case-preserving (the returned path is tracked verbatim) and
-// quote-aware via shellWords, so `-o "Quarterly Report.docx"` is captured while an
-// office-looking string inside a quoted literal (`echo "usage: -o x.docx"`) is not.
+// Explicit office output paths a generator command names for itself: either an
+// -o/--out/--output/--outfile flag, or a python `.save("out.docx")` call (the
+// documented python-docx / openpyxl / python-pptx persistence call, which has no
+// output flag). Case-preserving (the returned path is tracked verbatim) and
+// quote-aware, so `-o "Quarterly Report.docx"` is captured while an office-looking
+// string inside a quoted literal (`echo "usage: -o x.docx"`) is not.
 export function officeOutputPaths(command: string) {
+  const segments = commandSegments(command)
+  const isGeneratorCommand = segments.some((segment) => isOfficeGeneratorSegment(shellWords(segment.text)))
   const paths: string[] = []
-  for (const segment of commandSegments(command)) {
+  for (const segment of segments) {
     const words = shellWords(segment.text)
-    if (!isOfficeGeneratorSegment(words)) continue
-    for (let index = 0; index < words.length; index++) {
-      const word = words[index]
-      const equals = word.indexOf("=")
-      const flag = (equals >= 0 ? word.slice(0, equals) : word).toLowerCase()
-      if (!outputFlags.has(flag)) continue
-      const value = equals >= 0 ? word.slice(equals + 1) : words[index + 1]
-      if (value && isOfficeOutputPath(value)) paths.push(value)
+    // Output flags are gated per segment so a non-output `-o` on another tool in a
+    // chained command (e.g. `grep -o report.docx file && ...`) is not read as a write.
+    if (isOfficeGeneratorSegment(words)) {
+      for (let index = 0; index < words.length; index++) {
+        const word = words[index]
+        const equals = word.indexOf("=")
+        const flag = (equals >= 0 ? word.slice(0, equals) : word).toLowerCase()
+        if (!outputFlags.has(flag)) continue
+        const value = equals >= 0 ? word.slice(equals + 1) : words[index + 1]
+        if (value && isOfficeOutputPath(value)) paths.push(value)
+      }
+    }
+    // `.save(...)` is python-specific, so once the command is a python/uv generator it
+    // is safe to scan every segment — a heredoc body or inline `-c` script may split
+    // the call into its own segment on a `;` or newline.
+    if (isGeneratorCommand) {
+      // Allow an optional backslash before the quote so an escaped inner quote in a
+      // double-quoted `-c "...save(\"out.docx\")"` is matched as well as `save('x')`.
+      for (const match of segment.text.matchAll(/\.save\(\s*\\?["']([^"'\\]+)/gi)) {
+        if (isOfficeOutputPath(match[1])) paths.push(match[1])
+      }
     }
   }
-  return paths
+  return Array.from(new Set(paths))
 }
 
 export function commandHead(words: string[]) {

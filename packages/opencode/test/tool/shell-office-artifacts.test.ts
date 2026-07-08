@@ -39,6 +39,10 @@ describe("officeOutputPaths", () => {
     ["uv run python scripts/svg_to_pptx.py deck -o artifacts/deck.pptx", ["artifacts/deck.pptx"]],
     ["python build_xlsx.py data.csv --out book.xlsx", ["book.xlsx"]],
     ["python gen.py --output=slides.pdf", ["slides.pdf"]],
+    // python .save(...) — the documented python-docx / openpyxl / python-pptx call
+    [`uv run python -c "from docx import Document; Document().save('out.docx')"`, ["out.docx"]],
+    [`python -c "wb.save(\\"book.xlsx\\")"`, ["book.xlsx"]],
+    ["uv run python <<'PY'\nprs.save('deck.pptx')\nPY", ["deck.pptx"]],
   ])("parses the output path from %s", (command, expected) => {
     expect(officeOutputPaths(command)).toEqual(expected)
   })
@@ -49,6 +53,7 @@ describe("officeOutputPaths", () => {
     "uv run python read_docx.py input.docx", // office file is an input, no output flag
     "cat report.docx",
     "uv run pytest",
+    `echo "x.save('a.docx')"`, // .save text inside a non-generator command
   ])("returns no output path for non-generator / read command %s", (command) => {
     expect(officeOutputPaths(command)).toEqual([])
   })
