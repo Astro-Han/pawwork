@@ -159,10 +159,10 @@ const tasks: Record<TaskID, TaskSpec> = {
 
 function usage() {
   console.log(`Usage:
-  bun run office:eval calibrate --model openai/gpt-5.4-mini --variant low
-  bun run office:eval full --model openai/gpt-5.4-mini --variant low --rounds 3
-  bun run office:eval full --model openai/gpt-5.4-mini --variant low --start-round 2 --rounds 3
-  bun run office:eval run --task xlsx-dashboard --route officecli --round 1 --model openai/gpt-5.4-mini --variant low
+  bun run office:eval calibrate --model ollama-cloud/deepseek-v4-flash --variant low
+  bun run office:eval full --model ollama-cloud/deepseek-v4-flash --variant low --rounds 3
+  bun run office:eval full --model ollama-cloud/deepseek-v4-flash --variant low --start-round 2 --rounds 3
+  bun run office:eval run --task xlsx-dashboard --route officecli --round 1 --model ollama-cloud/deepseek-v4-flash --variant low
   bun run office:eval judge --run script/office-route-eval/runs/<run-id>
   bun run office:eval report`)
 }
@@ -701,13 +701,13 @@ async function main() {
       assertTask(args.task),
       assertRoute(args.route),
       Number(args.round ?? 1),
-      String(args.model ?? "openai/gpt-5.4-mini"),
+      String(args.model ?? "ollama-cloud/deepseek-v4-flash"),
       typeof args.variant === "string" ? args.variant : undefined,
     )
     return
   }
   if (command === "calibrate") {
-    await matrix(1, 1, String(args.model ?? "openai/gpt-5.4-mini"), typeof args.variant === "string" ? args.variant : undefined)
+    await matrix(1, 1, String(args.model ?? "ollama-cloud/deepseek-v4-flash"), typeof args.variant === "string" ? args.variant : undefined)
     await report()
     return
   }
@@ -715,7 +715,7 @@ async function main() {
     await matrix(
       Number(args["start-round"] ?? 1),
       Number(args.rounds ?? 3),
-      String(args.model ?? "openai/gpt-5.4-mini"),
+      String(args.model ?? "ollama-cloud/deepseek-v4-flash"),
       typeof args.variant === "string" ? args.variant : undefined,
     )
     await report()

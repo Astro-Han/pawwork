@@ -144,9 +144,9 @@ const tasks: Record<TaskID, TaskSpec> = {
 
 function usage() {
   console.log(`Usage:
-  bun run ppt:eval calibrate --model openai/gpt-5.4-mini --variant medium
-  bun run ppt:eval full --model openai/gpt-5.4-mini --variant medium --rounds 2
-  bun run ppt:eval run --task investor-update --route pptxgenjs --round 1 --model openai/gpt-5.4-mini --variant medium
+  bun run ppt:eval calibrate --model ollama-cloud/deepseek-v4-flash --variant medium
+  bun run ppt:eval full --model ollama-cloud/deepseek-v4-flash --variant medium --rounds 2
+  bun run ppt:eval run --task investor-update --route pptxgenjs --round 1 --model ollama-cloud/deepseek-v4-flash --variant medium
   bun run ppt:eval judge --run script/ppt-quality-eval/runs/<run-id>
   bun run ppt:eval report`)
 }
@@ -800,13 +800,13 @@ async function main() {
       assertTask(args.task),
       assertRoute(args.route),
       Number(args.round ?? 1),
-      String(args.model ?? "openai/gpt-5.4-mini"),
+      String(args.model ?? "ollama-cloud/deepseek-v4-flash"),
       typeof args.variant === "string" ? args.variant : undefined,
     )
     return
   }
   if (command === "calibrate") {
-    await matrix(1, 1, String(args.model ?? "openai/gpt-5.4-mini"), typeof args.variant === "string" ? args.variant : undefined, selectedTasks(args.tasks), selectedRoutes(args.routes))
+    await matrix(1, 1, String(args.model ?? "ollama-cloud/deepseek-v4-flash"), typeof args.variant === "string" ? args.variant : undefined, selectedTasks(args.tasks), selectedRoutes(args.routes))
     await report()
     return
   }
@@ -814,7 +814,7 @@ async function main() {
     await matrix(
       Number(args["start-round"] ?? 1),
       Number(args.rounds ?? 2),
-      String(args.model ?? "openai/gpt-5.4-mini"),
+      String(args.model ?? "ollama-cloud/deepseek-v4-flash"),
       typeof args.variant === "string" ? args.variant : undefined,
       selectedTasks(args.tasks),
       selectedRoutes(args.routes),
