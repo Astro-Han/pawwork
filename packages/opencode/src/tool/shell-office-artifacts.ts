@@ -1,4 +1,4 @@
-const officeOutputExtensions = new Set([".docx", ".xlsx", ".pptx"])
+const officeOutputExtensions = new Set([".docx", ".xlsx", ".pptx", ".pdf"])
 
 type Segment = {
   text: string

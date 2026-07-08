@@ -253,7 +253,10 @@ async function commandOutput(command: string, args: string[]) {
 
 async function officeManifestVersion() {
   const raw = await readFile(officeManifestPath, "utf8")
-  return JSON.parse(raw).officecli.version as string
+  // officecli was removed from the bundle (#1494); the officecli eval route is
+  // kept only as historical decision evidence and can no longer resolve a
+  // version, so degrade to "removed" instead of throwing on the missing entry.
+  return (JSON.parse(raw).officecli?.version as string) ?? "removed"
 }
 
 function routeConfig(route: RouteID) {
