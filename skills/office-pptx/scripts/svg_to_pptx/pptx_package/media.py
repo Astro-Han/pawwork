@@ -147,10 +147,18 @@ def convert_svg_to_png_cached(
     try:
         os.replace(tmp_path, cached)
     except OSError:
+        # Cache write failed: use the rendered temp file directly so the PNG is not lost.
         try:
-            tmp_path.unlink()
-        except OSError:
-            pass
+            shutil.copy(tmp_path, png_path)
+            return True
+        except OSError as e:
+            print(f"  Warning: Render succeeded but delivery failed ({svg_path.name}): {e}")
+            return False
+        finally:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
     try:
         shutil.copy(cached, png_path)

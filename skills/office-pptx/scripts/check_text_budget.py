@@ -38,7 +38,8 @@ def estimate_text_width(text: str, font_size: float, font_weight: str = "400") -
     return width
 
 def attr(source: str, name: str) -> str | None:
-    match = re.search(rf'{name}="([^"]*)"', source) or re.search(rf"{name}:\s*([^;\"']+)", source)
+    # Anchor on a word boundary so short names like "x" do not match inside "dx="/"rx=".
+    match = re.search(rf'\b{re.escape(name)}="([^"]*)"', source) or re.search(rf"\b{re.escape(name)}:\s*([^;\"']+)", source)
     return match.group(1).strip() if match else None
 
 

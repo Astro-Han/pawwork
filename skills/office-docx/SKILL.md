@@ -21,7 +21,7 @@ This is a **dark-launched preview**. It does not replace the default Word path. 
 
 ```bash
 SKILL_DIR="<plain filesystem path from the skill-load output, no file:// prefix>"
-uv --version || { echo "office-docx requires 'uv' on PATH (see Runtime contract)"; exit 1; }
+uv --version >/dev/null 2>&1 || { echo "office-docx requires 'uv' on PATH, but 'uv --version' failed. This is an environment problem — uv should be provisioned by the PawWork runtime. Do not fall back to system pip or officecli; report the missing uv instead."; exit 1; }
 mkdir -p work && cp "$SKILL_DIR/pyproject.toml" work/pyproject.toml   # pins python-docx==1.1.2
 ```
 

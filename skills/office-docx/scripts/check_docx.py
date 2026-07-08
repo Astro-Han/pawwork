@@ -36,17 +36,23 @@ def main() -> int:
         print(f"FAIL: cannot open {args.docx}: {error}")
         return 1
 
-    non_empty = [p for p in doc.paragraphs if p.text.strip()]
     headings = [
         p
         for p in doc.paragraphs
         if (p.style is not None and p.style.name is not None and p.style.name.startswith("Heading"))
     ]
+    # Count real body paragraphs only: a heading-only doc must not satisfy --min-paragraphs.
+    body_paragraphs = [
+        p
+        for p in doc.paragraphs
+        if p.text.strip()
+        and not (p.style is not None and p.style.name is not None and p.style.name.startswith("Heading"))
+    ]
     tables = doc.tables
 
     problems: list[str] = []
-    if len(non_empty) < args.min_paragraphs:
-        problems.append(f"expected at least {args.min_paragraphs} non-empty paragraph(s), found {len(non_empty)}")
+    if len(body_paragraphs) < args.min_paragraphs:
+        problems.append(f"expected at least {args.min_paragraphs} body paragraph(s), found {len(body_paragraphs)}")
     if args.require_heading and len(headings) < 1:
         problems.append("task needs headings but no paragraph uses a real Heading style (do not fake headings with bold body text)")
     if args.require_table and len(tables) < 1:
@@ -58,7 +64,7 @@ def main() -> int:
         print(f"FAIL: {len(problems)} structure gap(s). Fix the generator and rebuild; do not hand-edit the zip.")
         return 1
     print(
-        f"OK: {len(non_empty)} non-empty paragraph(s), {len(headings)} heading(s), "
+        f"OK: {len(body_paragraphs)} body paragraph(s), {len(headings)} heading(s), "
         f"{len(tables)} table(s) — document matches the brief."
     )
     return 0

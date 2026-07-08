@@ -231,8 +231,9 @@ def _relax_output_permissions(output_path: Path) -> list[str]:
             capture_output=True,
             text=True,
             check=False,
+            timeout=10,
         )
-    except OSError as exc:
+    except (OSError, subprocess.TimeoutExpired) as exc:
         warnings.append(f"icacls skipped for {output_path}: {exc}")
     else:
         if result.returncode != 0:
@@ -479,7 +480,7 @@ def _prerender_legacy_pngs(
     return results
 
 
-_REL_TARGET_RE = re.compile(r'<Relationship\b[^/]*?/>', re.DOTALL)
+_REL_TARGET_RE = re.compile(r'<Relationship\b[^>]*/>', re.DOTALL)
 _TARGET_ATTR_RE = re.compile(r'Target="([^"]+)"')
 _TARGET_MODE_EXT_RE = re.compile(r'TargetMode="External"')
 

@@ -221,7 +221,7 @@ def build_scaffold(project_path: Path) -> dict[str, Any]:
     return {
         'version': 1,
         'defaults': {
-            'transition': {'effect': 'fade', 'duration': 0.4},
+            'transition': {'effect': 'fade' if 'fade' in TRANSITIONS else 'none', 'duration': 0.4},
             'animation': {
                 'effect': 'auto',
                 'duration': 0.4,
