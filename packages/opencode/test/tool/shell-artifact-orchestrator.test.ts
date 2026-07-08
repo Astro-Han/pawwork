@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { orchestrateArtifacts, type ArtifactDeps } from "../../src/tool/shell-artifact-orchestrator"
+import { isLikelyWriteCommand } from "../../src/tool/shell-write-heuristic"
 import type { TrackedOutputState, OutputDiscovery } from "../../src/tool/shell-output-capture"
 import type { RecordWriteInput, RecordUncapturedInput } from "../../src/session/turn-change"
 import { MessageID, SessionID } from "../../src/session/schema"
@@ -59,6 +60,7 @@ type MockHarness = {
 function build(opts: {
   states: Record<string, TrackedOutputState[]>
   isWrite?: boolean
+  isWriteFn?: (command: string) => boolean
   discoverPaths?: string[]
   discoverOverflowed?: boolean
   discoverPathsAfter?: string[]
@@ -96,7 +98,7 @@ function build(opts: {
     assertExternalDirectory: (_ctx, filepath, _opts) => Effect.succeed(filepath),
     readTrackedState,
     discoverOfficeOutputs,
-    isLikelyWriteCommand: () => opts.isWrite ?? false,
+    isLikelyWriteCommand: opts.isWriteFn ?? (() => opts.isWrite ?? false),
     recordWrite: (input) =>
       Effect.sync(() => {
         writes.push(input)
@@ -308,5 +310,45 @@ describe("orchestrateArtifacts", () => {
     const artifacts = (result.metadata as any).artifacts
     expect(artifacts).toBeArrayOfSize(1)
     expect(artifacts[0].path).toBe(declared)
+  })
+
+  // Integration guard for the native office route: drives the REAL
+  // isLikelyWriteCommand (not the mock), so a real `-o <office file>` generator
+  // command with no declared expected_outputs flows heuristic → auto-discovery →
+  // captured binary artifact end to end. This is the coverage the removed
+  // OfficeCLI E2E used to provide for the office output path.
+  test("real -o office generator, no declared outputs → auto-discovers and captures binary artifact", async () => {
+    const file = np("/tmp/work/artifacts/deck.pptx")
+    const command = "uv run python scripts/svg_to_pptx.py deck -o artifacts/deck.pptx"
+    expect(isLikelyWriteCommand(command)).toBe(true)
+
+    const harness = build({
+      states: { [file]: [stateMissing(), stateFile("h1")] },
+      isWriteFn: isLikelyWriteCommand,
+      discoverPaths: [file],
+      discoverPathsAfter: [file],
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        {
+          ctx,
+          cwd: "/tmp/work",
+          directory: "/tmp/work",
+          shell: "/bin/bash",
+          command,
+          expectedOutputs: [],
+        },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.discoverCalls).toBeGreaterThan(0)
+    expect(harness.writes).toHaveLength(1)
+    expect(harness.writes[0].path).toBe(file)
+    const artifacts = (result.metadata as any).artifacts
+    expect(artifacts).toBeArrayOfSize(1)
+    expect(artifacts[0]).toMatchObject({ path: file, changed: true, exists: true, binary: true })
   })
 })
