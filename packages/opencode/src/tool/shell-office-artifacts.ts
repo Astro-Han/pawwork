@@ -11,6 +11,59 @@ const discoverableOfficeExtensions = new Set([".docx", ".xlsx", ".pptx"])
 
 type Segment = {
   text: string
+  // The delimiter that FOLLOWS this segment (separating it from the next): a command
+  // separator (`&&`/`||`/`;`/`|`) or a newline. Undefined on the final segment. Used to
+  // tell a heredoc-body continuation (newline) from a new command (`&&`/`;`), so a
+  // `uv --directory` chdir is scoped to its own invocation, not later commands.
+  delimiter?: string
+}
+
+const commandSeparators = new Set(["&&", "||", ";", "|"])
+
+function isCommandSeparator(delimiter: string | undefined) {
+  return delimiter !== undefined && commandSeparators.has(delimiter)
+}
+
+// Collapse shell line continuations (a backslash immediately before a newline) so a
+// generator wrapped across lines — `uv run python build.py \<newline> -o report.docx` — is
+// treated as the single command the shell runs, not split at the newline. A backslash
+// inside single quotes is literal (no continuation); elsewhere (unquoted or double-quoted)
+// `\<newline>` is removed. Every other backslash sequence is preserved verbatim so the
+// downstream tokenizer still sees escaped quotes like `-c "...save(\"x.docx\")"`.
+function stripLineContinuations(command: string) {
+  let out = ""
+  let quote: "'" | '"' | undefined
+  for (let index = 0; index < command.length; index++) {
+    const char = command[index]
+    if (char === "\\" && quote !== "'") {
+      if (command[index + 1] === "\n") {
+        index += 1
+        continue
+      }
+      if (command[index + 1] === "\r" && command[index + 2] === "\n") {
+        index += 2
+        continue
+      }
+      out += char
+      if (index + 1 < command.length) {
+        out += command[index + 1]
+        index += 1
+      }
+      continue
+    }
+    if (quote) {
+      out += char
+      if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "'" || char === '"') {
+      quote = char
+      out += char
+      continue
+    }
+    out += char
+  }
+  return out
 }
 
 function fileExtension(file: string) {
@@ -26,6 +79,7 @@ export function isDiscoverableOfficeOutput(file: string) {
 }
 
 export function commandSegments(command: string) {
+  command = stripLineContinuations(command)
   const segments: Segment[] = []
   let start = 0
   let quote: "'" | '"' | undefined
@@ -55,7 +109,7 @@ export function commandSegments(command: string) {
     if (!currentDelimiter) continue
 
     const text = command.slice(start, index).trim()
-    if (text) segments.push({ text })
+    if (text) segments.push({ text, delimiter: currentDelimiter })
     index += currentDelimiter.length - 1
     start = index + 1
   }
@@ -118,6 +172,22 @@ function dynamicOutputCouldBeDiscoverable(value: string) {
   if (isDiscoverableOfficeOutput(value)) return true
   if (!isStaticOutputValue(value)) return fileExtension(value) === ""
   return false
+}
+
+// The path argument of a python `.save(...)` call — the documented python-docx / openpyxl
+// / python-pptx persistence call. Allows optional whitespace before `(`, python string
+// prefixes (`r`/`b`/`u`/`f`, e.g. `.save(r"out.docx")`), and an optional leading backslash
+// so an escaped opening quote in `-c "...save(\"out.docx\")"` is matched. The value run
+// `(?:[^"'\\]|\\[^"'])*` allows backslash PATH SEPARATORS (Windows `r"C:\dir\out.docx"`)
+// while still ending at an escaped closing quote (`\"`/`\'`), which the run rejects. Built
+// fresh per call so the shared /g lastIndex never leaks between callers.
+const saveOutputPattern = String.raw`\.save\s*\(\s*[rbuf]*\\?["']((?:[^"'\\]|\\[^"'])*)`
+function saveOutputValues(text: string) {
+  const values: string[] = []
+  for (const match of text.matchAll(new RegExp(saveOutputPattern, "gi"))) {
+    if (match[1]) values.push(match[1])
+  }
+  return values
 }
 
 // A native office deliverable is produced by a python / uv-run generator command
@@ -195,15 +265,18 @@ export function hasOfficeOutputIntent(command: string) {
   const segments = commandSegments(command)
   const isGeneratorCommand = segments.some((segment) => isOfficeGeneratorSegment(shellWords(segment.text)))
   if (!isGeneratorCommand) return false
-  let cwdChangedBeforeSegment = false
+  // `cd` changes the parent shell cwd persistently (across `&&`/`;`); `uv --directory` only
+  // changes its own invocation's cwd, so its scope carries into a heredoc body (newline
+  // continuation) but resets at the next command separator.
+  let cdChanged = false
+  let uvDirScoped = false
+  let precededByDelimiter: string | undefined
   for (const segment of segments) {
+    if (isCommandSeparator(precededByDelimiter)) uvDirScoped = false
+    precededByDelimiter = segment.delimiter
     const words = shellWords(segment.text)
-    // A relative output is unresolved when a prior `cd` changed the cwd, or when this uv
-    // invocation changes into `--directory <dir>`. A `uv --directory` also propagates to
-    // the segments that follow it (a heredoc body's `.save(...)` runs under that dir), so
-    // it sets the persistent flag too.
     const uvDir = uvChangesDirectory(words)
-    const relativeUnresolved = cwdChangedBeforeSegment || uvDir
+    const relativeUnresolved = cdChanged || uvDirScoped || uvDir
     if (isOfficeGeneratorSegment(words)) {
       for (let index = 0; index < words.length; index++) {
         const word = words[index]
@@ -223,15 +296,13 @@ export function hasOfficeOutputIntent(command: string) {
       }
     }
     if (shouldScanSaveSegment(words, isGeneratorCommand)) {
-      for (const match of segment.text.matchAll(/\.save\s*\(\s*[rbuf]*\\?["']([^"'\\]+)/gi)) {
-        if (
-          !isExactlyCapturableOutput(match[1], relativeUnresolved) &&
-          dynamicOutputCouldBeDiscoverable(match[1])
-        )
+      for (const value of saveOutputValues(segment.text)) {
+        if (!isExactlyCapturableOutput(value, relativeUnresolved) && dynamicOutputCouldBeDiscoverable(value))
           return true
       }
     }
-    if (isCwdChangeSegment(words) || uvDir) cwdChangedBeforeSegment = true
+    if (uvDir) uvDirScoped = true
+    if (isCwdChangeSegment(words)) cdChanged = true
   }
   return false
 }
@@ -246,15 +317,18 @@ export function officeOutputPaths(command: string) {
   const segments = commandSegments(command)
   const isGeneratorCommand = segments.some((segment) => isOfficeGeneratorSegment(shellWords(segment.text)))
   const paths: string[] = []
-  let cwdChangedBeforeSegment = false
+  // `cd` changes the parent shell cwd persistently (across `&&`/`;`); `uv --directory` only
+  // changes its own invocation's cwd — its scope carries into a heredoc body (newline
+  // continuation) but resets at the next command separator.
+  let cdChanged = false
+  let uvDirScoped = false
+  let precededByDelimiter: string | undefined
   for (const segment of segments) {
+    if (isCommandSeparator(precededByDelimiter)) uvDirScoped = false
+    precededByDelimiter = segment.delimiter
     const words = shellWords(segment.text)
-    // A relative output is unresolved (defer to discovery) when a prior `cd` changed the
-    // cwd, or when this uv invocation changes into `--directory <dir>`. A `uv --directory`
-    // also propagates to the following segments (a heredoc body's `.save(...)` runs under
-    // that dir), so it sets the persistent flag too.
     const uvDir = uvChangesDirectory(words)
-    const relativeUnresolved = cwdChangedBeforeSegment || uvDir
+    const relativeUnresolved = cdChanged || uvDirScoped || uvDir
     // Output flags are gated per segment so a non-output `-o` on another tool in a
     // chained command (e.g. `grep -o report.docx file && ...`) is not read as a write.
     if (isOfficeGeneratorSegment(words)) {
@@ -272,14 +346,12 @@ export function officeOutputPaths(command: string) {
     // do not let arbitrary later commands like `node -e "...save('x.docx')"` create
     // phantom exact artifacts.
     if (shouldScanSaveSegment(words, isGeneratorCommand)) {
-      // Allow optional whitespace before `(`, optional python string prefixes
-      // (`r`/`b`/`u`/`f`, e.g. `.save(r"out.docx")`), and an optional backslash before the
-      // quote so an escaped inner quote in `-c "...save(\"out.docx\")"` is matched too.
-      for (const match of segment.text.matchAll(/\.save\s*\(\s*[rbuf]*\\?["']([^"'\\]+)/gi)) {
-        if (isExactlyCapturableOutput(match[1], relativeUnresolved)) paths.push(match[1])
+      for (const value of saveOutputValues(segment.text)) {
+        if (isExactlyCapturableOutput(value, relativeUnresolved)) paths.push(value)
       }
     }
-    if (isCwdChangeSegment(words) || uvDir) cwdChangedBeforeSegment = true
+    if (uvDir) uvDirScoped = true
+    if (isCwdChangeSegment(words)) cdChanged = true
   }
   return Array.from(new Set(paths))
 }
@@ -356,8 +428,8 @@ function segmentIsCapturedOfficeOutput(segmentText: string, isGeneratorCommand: 
   // A heredoc / split python body line whose `.save('...office')` the cross-segment scan
   // already captured for the whole generator command.
   if (isGeneratorCommand && shouldScanSaveSegment(words, isGeneratorCommand)) {
-    for (const match of segmentText.matchAll(/\.save\s*\(\s*[rbuf]*\\?["']([^"'\\]+)/gi)) {
-      if (isOfficeOutputPath(match[1])) return true
+    for (const value of saveOutputValues(segmentText)) {
+      if (isOfficeOutputPath(value)) return true
     }
   }
   return false

@@ -744,6 +744,36 @@ describe("orchestrateArtifacts", () => {
     expect(artifacts[0]).toMatchObject({ path: real, changed: true })
   })
 
+  // A generator wrapped across lines with a `\` shell continuation is ONE command; the
+  // `-o` must not be orphaned into a headless segment. The office file is captured exactly.
+  test("line-continued generator → captures the exact office output, no uncaptured", async () => {
+    const file = np("report.docx")
+    const command = "uv run python build.py \\\n-o report.docx"
+    expect(officeOutputPaths(command)).toEqual(["report.docx"]) // continuation collapsed
+
+    const harness = build({
+      states: { [file]: [stateMissing(), stateFile("h1")] },
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      intentFn: hasOfficeOutputIntent,
+      sideEffectFn: nonOfficeGeneratorText,
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        { ctx, cwd: "/tmp/work", directory: "/tmp/work", shell: "/bin/bash", command, expectedOutputs: [] },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.discoverCalls).toBe(0) // exact capture, no speculative scan
+    expect(harness.writes).toHaveLength(1)
+    expect(harness.writes[0].path).toBe(file)
+    expect(harness.uncaptured).toHaveLength(0)
+    expect((result.metadata as any).artifacts).toBeArrayOfSize(1)
+  })
+
   // A heredoc `.save()` under `uv --directory work`: the save call sits in a later split
   // segment that has no uv prefix, but the --directory chdir propagates to it, so the real
   // file is `work/out.docx`. The parser must not track the phantom cwd path; discovery

@@ -60,6 +60,16 @@ describe("officeOutputPaths", () => {
     [`uv run python -c "doc.save(f'report.docx')"`, ["report.docx"]],
     // whitespace before the call paren
     [`uv run python -c "doc.save ('spaced.docx')"`, ["spaced.docx"]],
+    // Windows absolute path with backslash separators — the capture must not truncate at `C:`
+    [String.raw`uv run python -c "doc.save(r'C:\logs\report.docx')"`, [String.raw`C:\logs\report.docx`]],
+    // a shell line continuation (backslash-newline) is one command, not two segments
+    ["uv run python build.py \\\n-o report.docx", ["report.docx"]],
+    // uv --directory is scoped to its own command: the absolute a.docx is captured, and the
+    // second command's relative b.docx (parent cwd restored after `&&`) is captured exactly
+    [
+      "uv --directory work run python a.py -o /tmp/a.docx && uv run python b.py -o b.docx",
+      ["/tmp/a.docx", "b.docx"],
+    ],
   ])("parses the output path from %s", (command, expected) => {
     expect(officeOutputPaths(command)).toEqual(expected)
   })
@@ -134,6 +144,9 @@ describe("hasOfficeOutputIntent", () => {
     "uv --offline run python build.py -o report.docx", // exact under a non-directory global opt
     "uv --offline run pytest", // read-only under a global opt — same as bare `uv run pytest`
     "uv --project app run python build.py -o report.docx", // --project does not chdir → exact
+    // uv --directory is scoped: after `&&` the parent cwd is restored, so the second
+    // command's relative b.docx is exactly captured, not an unresolved intent
+    "uv --directory work run python a.py -o /tmp/a.docx && uv run python b.py -o b.docx",
   ])("reports no intent for %s", (command) => {
     expect(hasOfficeOutputIntent(command)).toBe(false)
   })
