@@ -4,7 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { BlobReader, TextWriter, ZipReader } from "@zip.js/zip.js"
 
-export type RouteID = "officecli" | "python-pptx" | "pptxgenjs" | "html-showcase"
+export type RouteID = "officecli" | "python-pptx" | "pptxgenjs" | "svg-pptx" | "html-showcase"
 export type TaskID = "investor-update" | "template-following" | "report-to-deck"
 
 export type CommandAudit = {
@@ -79,6 +79,7 @@ const officeCliPath = path.join(toolsDir, process.platform === "win32" ? "office
 const bundledRuntimeRoot = path.join(os.homedir(), ".cache/codex-runtimes/codex-primary-runtime/dependencies")
 const bundledNodePath = process.env.PPTX_EVAL_NODE ?? path.join(bundledRuntimeRoot, "node/bin/node")
 const bundledNodeModules = process.env.PPTX_EVAL_NODE_MODULES ?? path.join(bundledRuntimeRoot, "node/node_modules")
+const svgPptxScript = path.join(evalRoot, "route-skills/svg-pptx-native/scripts/svg_to_pptx.py")
 
 const tasks: Record<TaskID, TaskSpec> = {
   "investor-update": {
@@ -172,7 +173,7 @@ function assertTask(value: unknown): TaskID {
 }
 
 function assertRoute(value: unknown): RouteID {
-  if (value === "officecli" || value === "python-pptx" || value === "pptxgenjs" || value === "html-showcase") return value
+  if (value === "officecli" || value === "python-pptx" || value === "pptxgenjs" || value === "svg-pptx" || value === "html-showcase") return value
   throw new Error(`Unknown route: ${String(value)}`)
 }
 
@@ -182,7 +183,7 @@ function selectedTasks(value: unknown): TaskID[] {
 }
 
 function selectedRoutes(value: unknown): RouteID[] {
-  if (typeof value !== "string") return ["officecli", "python-pptx", "pptxgenjs", "html-showcase"]
+  if (typeof value !== "string") return ["officecli", "python-pptx", "pptxgenjs", "svg-pptx", "html-showcase"]
   return value.split(",").map((item) => assertRoute(item.trim()))
 }
 
@@ -220,7 +221,9 @@ function routeConfig(route: RouteID) {
         ? "python-pptx-native"
         : route === "pptxgenjs"
           ? "pptxgenjs-native"
-          : "html-showcase"
+          : route === "svg-pptx"
+            ? "svg-pptx-native"
+            : "html-showcase"
   return {
     skills: {
       paths: [path.join(evalRoot, "route-skills", skillName)],
@@ -350,6 +353,11 @@ export function commandPolicyFailures(route: RouteID, commands: CommandAudit[]) 
     if (/\bofficecli\b/.test(joined)) failures.push("PptxGenJS route called officecli.")
     if (/\buv\b|python-pptx|python_pptx|from pptx\b/.test(joined)) failures.push("PptxGenJS route used Python PPTX tooling.")
   }
+  if (route === "svg-pptx") {
+    if (!/\buv\b/.test(joined)) failures.push("SVG PPTX route did not call uv.")
+    if (/\bofficecli\b/.test(joined)) failures.push("SVG PPTX route called officecli.")
+    if (/\bpptxgenjs\b/.test(joined)) failures.push("SVG PPTX route called PptxGenJS.")
+  }
   if (route === "html-showcase") {
     if (/\bofficecli\b/.test(joined)) failures.push("HTML showcase route called officecli.")
     if (/\b(libreoffice|soffice|lowriter|localc|loffice)\b/.test(joined)) failures.push("HTML showcase route used LibreOffice.")
@@ -393,17 +401,30 @@ function slideNumber(name: string) {
   return Number(name.match(/slide(\d+)\.xml$/)?.[1] ?? 0)
 }
 
-function countOutOfBoundsShapes(slideXmls: string[]) {
+export function countOutOfBoundsShapes(slideXmls: string[]) {
   const maxX = 33.87 * 360000
   const maxY = 19.05 * 360000
   let count = 0
   for (const xml of slideXmls) {
-    for (const match of xml.matchAll(/<a:off x="(-?\d+)" y="(-?\d+)"\/>\s*<a:ext cx="(\d+)" cy="(\d+)"\/>/g)) {
-      const x = Number(match[1])
-      const y = Number(match[2])
-      const width = Number(match[3])
-      const height = Number(match[4])
-      if (x < -2000 || y < -2000 || x + width > maxX + 2000 || y + height > maxY + 2000) count += 1
+    for (const match of xml.matchAll(/<p:(sp|pic|graphicFrame)(?:\s[^>]*)?>([\s\S]*?)<\/p:\1>/g)) {
+      const kind = match[1]
+      const body = match[2]
+      const geom = body.match(/<a:off x="(-?\d+)" y="(-?\d+)"\/>\s*<a:ext cx="(\d+)" cy="(\d+)"\/>/)
+      if (!geom) continue
+      const x = Number(geom[1])
+      const y = Number(geom[2])
+      const width = Number(geom[3])
+      const height = Number(geom[4])
+      if (x >= -2000 && y >= -2000 && x + width <= maxX + 2000 && y + height <= maxY + 2000) continue
+      const carriesContent = kind !== "sp" || /<a:t[\s>]/.test(body)
+      if (carriesContent) {
+        count += 1
+        continue
+      }
+      // Decorative shapes may bleed off the edge by design; fail only when most of the shape is off-canvas.
+      const centerX = x + width / 2
+      const centerY = y + height / 2
+      if (centerX < 0 || centerY < 0 || centerX > maxX || centerY > maxY) count += 1
     }
   }
   return count
@@ -514,6 +535,9 @@ async function prepareRunDir(task: TaskSpec, route: RouteID, round: number) {
   if (route === "python-pptx") {
     await copyFile(path.join(evalRoot, "route-templates/python/pyproject.toml"), path.join(workDir, "pyproject.toml"))
   }
+  if (route === "svg-pptx") {
+    await copyFile(path.join(evalRoot, "route-templates/svg-pptx/pyproject.toml"), path.join(workDir, "pyproject.toml"))
+  }
   return { runId, runDir, workDir }
 }
 
@@ -526,7 +550,9 @@ function buildPrompt(task: TaskSpec, route: RouteID, workDir: string) {
         ? "Use the Python + uv + python-pptx route. You must use uv and must not call officecli."
         : route === "pptxgenjs"
           ? "Use the PptxGenJS route. Use $PPTX_EVAL_NODE and bundled NODE_PATH; do not call officecli or uv."
-          : "Use the HTML showcase route. Create a single HTML deck, not a PPTX."
+          : route === "svg-pptx"
+            ? "Use the SVG-to-PPTX route. Author one SVG per slide, then convert with the bundled svg_to_pptx tool via uv as the skill describes. Do not call officecli or PptxGenJS."
+            : "Use the HTML showcase route. Create a single HTML deck, not a PPTX."
   return [
     "# PPT quality eval task",
     "",
@@ -601,6 +627,7 @@ async function runOne(taskId: TaskID, routeId: RouteID, round: number, model: st
     OPENCODE_CONFIG_CONTENT: JSON.stringify(routeConfig(routeId)),
     OFFICECLI_SKIP_UPDATE: "1",
     PPTX_EVAL_NODE: bundledNodePath,
+    SVG_PPTX_SCRIPT: svgPptxScript,
     NODE_PATH: `${bundledNodeModules}${process.env.NODE_PATH ? path.delimiter + process.env.NODE_PATH : ""}`,
     PATH: routePath,
   }
@@ -704,7 +731,7 @@ async function report() {
   }
   rows.sort((a, b) => a.summary.round - b.summary.round || a.judge.taskId.localeCompare(b.judge.taskId) || a.judge.routeId.localeCompare(b.judge.routeId))
   const aggregateRows: string[] = []
-  for (const routeId of ["officecli", "python-pptx", "pptxgenjs", "html-showcase"] as RouteID[]) {
+  for (const routeId of ["officecli", "python-pptx", "pptxgenjs", "svg-pptx", "html-showcase"] as RouteID[]) {
     const subset = rows.filter((row) => row.judge.routeId === routeId)
     if (!subset.length) continue
     const passes = subset.filter((row) => row.judge.passed).length

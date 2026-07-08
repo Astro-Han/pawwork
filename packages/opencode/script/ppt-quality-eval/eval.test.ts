@@ -2,7 +2,14 @@ import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import path from "node:path"
 
-import { commandPolicyFailures, htmlFeatureFailures, qualityBand, scoreFromFindings, taskGateInstructions } from "./eval"
+import {
+  commandPolicyFailures,
+  countOutOfBoundsShapes,
+  htmlFeatureFailures,
+  qualityBand,
+  scoreFromFindings,
+  taskGateInstructions,
+} from "./eval"
 
 describe("ppt quality eval harness", () => {
   test("enforces native route tool boundaries", () => {
@@ -15,6 +22,11 @@ describe("ppt quality eval harness", () => {
     expect(commandPolicyFailures("python-pptx", [{ tool: "bash", command: "officecli create out.pptx" }])).toContain(
       "Python PPTX route did not call uv.",
     )
+
+    expect(commandPolicyFailures("svg-pptx", [{ tool: "bash", command: "uv run python scripts/svg_to_pptx.py deck" }])).toEqual([])
+    expect(commandPolicyFailures("svg-pptx", [{ tool: "bash", command: "officecli create out.pptx" }])).toContain(
+      "SVG PPTX route did not call uv.",
+    )
   })
 
   test("keeps html showcase separate from native pptx scoring", () => {
@@ -22,6 +34,18 @@ describe("ppt quality eval harness", () => {
     expect(commandPolicyFailures("html-showcase", [{ tool: "bash", command: "officecli create out.pptx" }])).toContain(
       "HTML showcase route called officecli.",
     )
+  })
+
+  test("counts content overflow but tolerates decorative edge bleed", () => {
+    const inBounds = `<p:sp><a:off x="100" y="100"/><a:ext cx="1000" cy="1000"/></p:sp>`
+    const textOverflow = `<p:sp><a:off x="647700" y="303848"/><a:ext cx="15229119" cy="962025"/><a:t>long single-line title</a:t></p:sp>`
+    const decorativeBleed = `<p:sp><a:off x="8667750" y="-381000"/><a:ext cx="3238500" cy="3238500"/></p:sp>`
+    const decorativeGone = `<p:sp><a:off x="12500000" y="0"/><a:ext cx="3238500" cy="3238500"/></p:sp>`
+    const picOverflow = `<p:pic><a:off x="12000000" y="0"/><a:ext cx="1000000" cy="1000000"/></p:pic>`
+    expect(countOutOfBoundsShapes([inBounds + textOverflow + decorativeBleed])).toBe(1)
+    expect(countOutOfBoundsShapes([decorativeGone])).toBe(1)
+    expect(countOutOfBoundsShapes([picOverflow])).toBe(1)
+    expect(countOutOfBoundsShapes([inBounds])).toBe(0)
   })
 
   test("maps quality scores into stable report bands", () => {
@@ -62,7 +86,7 @@ describe("ppt quality eval harness", () => {
   })
 
   test("native route skills make the title-size floor concrete", () => {
-    for (const skillName of ["officecli-current", "python-pptx-native", "pptxgenjs-native"]) {
+    for (const skillName of ["officecli-current", "python-pptx-native", "pptxgenjs-native", "svg-pptx-native"]) {
       const skillPath = path.join(import.meta.dir, "route-skills", skillName, "SKILL.md")
       const skill = readFileSync(skillPath, "utf8")
       expect(skill).toContain("44pt")

@@ -9,6 +9,9 @@ decks must not be scored as the same artifact type.
 - `officecli`: current PawWork OfficeCLI route.
 - `python-pptx`: Python + uv + `python-pptx`.
 - `pptxgenjs`: bundled Node + PptxGenJS.
+- `svg-pptx`: model-authored SVG per slide, converted to native DrawingML PPTX
+  by the vendored ppt-master `svg_to_pptx` converter (MIT, pinned version; see
+  `route-skills/svg-pptx-native/VENDORED.md`).
 - `html-showcase`: single-file HTML deck inspired by locked-layout showcase
   skills such as Guizang. This route is scored separately from native PPTX.
 
@@ -26,10 +29,13 @@ All routes fail if they call LibreOffice or aliases.
 From `packages/opencode`:
 
 ```bash
-bun run ppt:eval calibrate --model openai/gpt-5.4-mini --variant medium
-bun run ppt:eval full --model openai/gpt-5.4-mini --variant medium --rounds 2
+bun run ppt:eval calibrate --model anthropic/claude-haiku-4-5
+bun run ppt:eval full --model anthropic/claude-haiku-4-5 --rounds 2
 bun run ppt:eval report
 ```
+
+Weak-model policy (2026-07-08): use Anthropic Sonnet or Haiku as the weak
+model, not GPT-5.4 Mini.
 
 Output lands in `script/ppt-quality-eval/runs/` and is ignored by git.
 
