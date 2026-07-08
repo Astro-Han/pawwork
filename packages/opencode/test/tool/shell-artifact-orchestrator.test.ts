@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { orchestrateArtifacts, type ArtifactDeps } from "../../src/tool/shell-artifact-orchestrator"
 import { isLikelyWriteCommand } from "../../src/tool/shell-write-heuristic"
-import { officeOutputPaths } from "../../src/tool/shell-office-artifacts"
+import { nonOfficeGeneratorText, officeOutputPaths } from "../../src/tool/shell-office-artifacts"
 import type { TrackedOutputState, OutputDiscovery } from "../../src/tool/shell-output-capture"
 import type { RecordWriteInput, RecordUncapturedInput } from "../../src/session/turn-change"
 import { MessageID, SessionID } from "../../src/session/schema"
@@ -63,6 +63,7 @@ function build(opts: {
   isWrite?: boolean
   isWriteFn?: (command: string) => boolean
   parseFn?: (command: string) => readonly string[]
+  sideEffectFn?: (command: string) => string
   discoverPaths?: string[]
   discoverOverflowed?: boolean
   discoverPathsAfter?: string[]
@@ -102,6 +103,7 @@ function build(opts: {
     discoverOfficeOutputs,
     isLikelyWriteCommand: opts.isWriteFn ?? (() => opts.isWrite ?? false),
     parseOfficeOutputs: opts.parseFn ?? (() => []),
+    sideEffectCommand: opts.sideEffectFn ?? ((command) => command),
     recordWrite: (input) =>
       Effect.sync(() => {
         writes.push(input)
@@ -255,6 +257,7 @@ describe("orchestrateArtifacts", () => {
       discoverOfficeOutputs: () => Effect.succeed({ paths: [], overflowed: false }),
       isLikelyWriteCommand: () => false,
       parseOfficeOutputs: () => [],
+      sideEffectCommand: (command) => command,
       recordWrite: () => Effect.void,
       recordUncaptured: () => Effect.void,
     }
@@ -332,6 +335,7 @@ describe("orchestrateArtifacts", () => {
       states: { [file]: [stateMissing(), stateFile("h1")] },
       isWriteFn: isLikelyWriteCommand,
       parseFn: officeOutputPaths,
+      sideEffectFn: nonOfficeGeneratorText,
     })
 
     const result = await Effect.runPromise(
@@ -370,6 +374,7 @@ describe("orchestrateArtifacts", () => {
       states: { [file]: [stateMissing(), stateFile("h1")] },
       isWriteFn: isLikelyWriteCommand,
       parseFn: officeOutputPaths,
+      sideEffectFn: nonOfficeGeneratorText,
     })
 
     const result = await Effect.runPromise(
@@ -392,5 +397,48 @@ describe("orchestrateArtifacts", () => {
     expect(harness.writes).toHaveLength(1)
     expect(harness.writes[0].path).toBe(file)
     expect((result.metadata as any).artifacts).toBeArrayOfSize(1)
+  })
+
+  // A chained side effect alongside an exact office output: the -o file is captured,
+  // but the trailing `echo ... > notes.txt` write is not, so the turn must still be
+  // flagged uncaptured. Guards against the parsed-output path silently swallowing
+  // side-effect visibility.
+  test("exact -o output plus a chained non-office write → captures the office file AND marks uncaptured", async () => {
+    const file = np("report.docx")
+    const command = "uv run python build.py -o report.docx && echo notes > notes.txt"
+    expect(officeOutputPaths(command)).toEqual(["report.docx"])
+    // stripping the generator leaves the redirect, which reads as a write
+    expect(isLikelyWriteCommand(nonOfficeGeneratorText(command))).toBe(true)
+
+    const harness = build({
+      states: { [file]: [stateMissing(), stateFile("h1")] },
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      sideEffectFn: nonOfficeGeneratorText,
+      discoverPaths: [], // the cwd scan finds no office side-effect files
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        {
+          ctx,
+          cwd: "/tmp/work",
+          directory: "/tmp/work",
+          shell: "/bin/bash",
+          command,
+          expectedOutputs: [],
+        },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.discoverCalls).toBeGreaterThan(0) // side-effect scan ran
+    expect(harness.uncaptured).toHaveLength(1) // notes.txt write flagged
+    expect(harness.writes).toHaveLength(1)
+    expect(harness.writes[0].path).toBe(file) // the office deliverable is still captured
+    const artifacts = (result.metadata as any).artifacts
+    expect(artifacts).toBeArrayOfSize(1)
+    expect(artifacts[0]).toMatchObject({ path: file, changed: true })
   })
 })

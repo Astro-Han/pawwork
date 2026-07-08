@@ -123,6 +123,19 @@ export function officeOutputPaths(command: string) {
   return Array.from(new Set(paths))
 }
 
+// The command with its office-generator segments removed. An office generator's
+// output is captured exactly (via officeOutputPaths), so the caller checks whether
+// what *remains* is still a write — a chained side effect like
+// `... -o a.docx && echo x > notes.txt` leaves `echo x > notes.txt`, while a pure
+// `... -o a.docx` leaves nothing. Segments are re-joined with `;` (any delimiter
+// works — the write heuristic re-splits on it).
+export function nonOfficeGeneratorText(command: string) {
+  return commandSegments(command)
+    .filter((segment) => !isOfficeGeneratorSegment(shellWords(segment.text)))
+    .map((segment) => segment.text)
+    .join(" ; ")
+}
+
 export function commandHead(words: string[]) {
   let index = 0
   while (true) {

@@ -32,6 +32,7 @@ export type ArtifactDeps<DepR = never> = {
   discoverOfficeOutputs: (cwd: string, projectRoot: string) => Effect.Effect<OutputDiscovery, never, DepR>
   isLikelyWriteCommand: (command: string) => boolean
   parseOfficeOutputs: (command: string) => readonly string[]
+  sideEffectCommand: (command: string) => string
   recordWrite: (input: RecordWriteInput) => Effect.Effect<void, never, DepR>
   recordUncaptured: (input: RecordUncapturedInput) => Effect.Effect<void, never, DepR>
 }
@@ -79,21 +80,27 @@ export const orchestrateArtifacts = <RunR, DepR>(
         }
       })
 
-    // Explicit office outputs parsed from the command (an -o/--out flag or a python
-    // .save("out.docx") call on a generator). These are exact named targets, so we
-    // track them like declared expected_outputs — exact, shown whether or not they
-    // changed, and never flagged uncaptured — instead of the best-effort cwd scan.
-    // This also captures a nested target, or one in an office-heavy directory that
-    // would overflow discovery, that the scan would miss.
+    // Declared expected_outputs are exact and always shown. Office outputs parsed
+    // from the command (an -o/--out flag or a python .save("out.docx") call) are also
+    // exact — captured without a cwd scan, immune to a nested target or discovery
+    // overflow — but, being inferred rather than declared, are shown only when they
+    // changed, like a discovered artifact.
     const parsed = declared.length === 0 && hasMessage ? deps.parseOfficeOutputs(command) : []
-    const exactOutputs = declared.length ? declared : parsed
 
-    const trackedOutputs = dedupeByNormalized(
-      yield* Effect.forEach(exactOutputs, resolveTrackedInput, { concurrency: 4 }),
+    const declaredTracked = dedupeByNormalized(
+      yield* Effect.forEach(declared, resolveTrackedInput, { concurrency: 4 }),
+    )
+    const parsedTracked = dedupeByNormalized(
+      yield* Effect.forEach(parsed, resolveTrackedInput, { concurrency: 4 }),
     )
 
-    // Only fall back to the cwd scan when nothing exact was declared or parsed.
-    const shouldAutoDiscover = exactOutputs.length === 0 && hasMessage && deps.isLikelyWriteCommand(command)
+    // Best-effort cwd scan for undeclared writes *beyond* the office generators whose
+    // outputs we already capture exactly. `sideEffectCommand` strips those generators,
+    // so a pure `... -o a.docx` leaves nothing (no scan, no uncaptured marker) while a
+    // chained `... -o a.docx && echo x > notes.txt` leaves a write that still flags
+    // the turn uncaptured.
+    const shouldAutoDiscover =
+      declared.length === 0 && hasMessage && deps.isLikelyWriteCommand(deps.sideEffectCommand(command))
 
     const autoDiscoveredBefore = shouldAutoDiscover
       ? yield* Effect.gen(function* () {
@@ -116,110 +123,85 @@ export const orchestrateArtifacts = <RunR, DepR>(
 
     const result = yield* run()
 
-    let outputsToRecord: TrackedOutput[] = trackedOutputs
-    let autoDiscovered = false
+    // office-targeted outputs (parsed exact outputs + discovered files) are shown only
+    // when changed; declared outputs are always shown.
+    const declaredKeys = new Set(declaredTracked.map((item) => AppFileSystem.normalizePath(item.path)))
+    const officeTracked = new Map<string, TrackedOutput>()
+    for (const item of parsedTracked) {
+      officeTracked.set(AppFileSystem.normalizePath(item.path), { path: item.path, before: item.before })
+    }
 
-    if (!trackedOutputs.length && shouldAutoDiscover) {
-      autoDiscovered = true
+    if (shouldAutoDiscover) {
       let overflowed = autoDiscoveredBefore?.overflowed ?? false
-      const deduped = new Map<string, TrackedOutput>()
       if (!overflowed) {
         for (const item of autoDiscoveredBefore?.outputs ?? []) {
           const normalized = AppFileSystem.normalizePath(item.path)
-          if (deduped.has(normalized)) continue
-          deduped.set(normalized, item)
+          if (declaredKeys.has(normalized) || officeTracked.has(normalized)) continue
+          officeTracked.set(normalized, item)
         }
         const discoveredAfter = yield* deps.discoverOfficeOutputs(cwd, directory)
         overflowed = discoveredAfter.overflowed
         if (!overflowed) {
           for (const filepath of discoveredAfter.paths) {
             const normalized = AppFileSystem.normalizePath(filepath)
-            if (deduped.has(normalized)) continue
-            deduped.set(normalized, {
+            if (declaredKeys.has(normalized) || officeTracked.has(normalized)) continue
+            officeTracked.set(normalized, {
               path: filepath,
               before: { state: { exists: false }, comparable: true, kind: "missing" },
             })
           }
         }
       }
+      // On overflow we keep whatever exact/parsed outputs we already have.
+    }
 
-      if (overflowed) {
-        if (deduped.size > 0) {
-          outputsToRecord = Array.from(deduped.values())
-        } else {
-          yield* deps.recordUncaptured({
+    const buildArtifact = (tracked: TrackedOutput) =>
+      Effect.gen(function* () {
+        const after = yield* deps.readTrackedState(tracked.path)
+        const changed =
+          tracked.before.comparable && after.comparable && !sameTrackedState(tracked.before.state, after.state)
+        if (changed) {
+          yield* deps.recordWrite({
             sessionID: ctx.sessionID,
             messageID: ctx.messageID,
-          })
-          return result
-        }
-      } else {
-        outputsToRecord = Array.from(deduped.values())
-      }
-    }
-
-    if (!outputsToRecord.length) {
-      if (shouldAutoDiscover) {
-        yield* deps.recordUncaptured({
-          sessionID: ctx.sessionID,
-          messageID: ctx.messageID,
-        })
-      }
-      return result
-    }
-
-    const artifacts = yield* Effect.forEach(
-      outputsToRecord,
-      (tracked) =>
-        Effect.gen(function* () {
-          const after = yield* deps.readTrackedState(tracked.path)
-          const changed =
-            tracked.before.comparable &&
-            after.comparable &&
-            !sameTrackedState(tracked.before.state, after.state)
-          if (changed) {
-            yield* deps.recordWrite({
-              sessionID: ctx.sessionID,
-              messageID: ctx.messageID,
-              path: tracked.path,
-              before: tracked.before.state,
-              after: after.state,
-            })
-          }
-          return {
             path: tracked.path,
-            exists: after.state.exists,
-            changed,
-            ...(after.kind === "directory" ? { directory: true } : {}),
-            ...(after.state.binary && after.kind !== "directory" ? { binary: true } : {}),
-            ...(after.state.large ? { large: true } : {}),
-            ...(!tracked.before.comparable || !after.comparable
-              ? {
-                  comparable: false,
-                  errorCode: tracked.before.errorCode ?? after.errorCode,
-                }
-              : {}),
-          }
-        }),
-      { concurrency: 4 },
-    )
+            before: tracked.before.state,
+            after: after.state,
+          })
+        }
+        return {
+          path: tracked.path,
+          exists: after.state.exists,
+          changed,
+          ...(after.kind === "directory" ? { directory: true } : {}),
+          ...(after.state.binary && after.kind !== "directory" ? { binary: true } : {}),
+          ...(after.state.large ? { large: true } : {}),
+          ...(!tracked.before.comparable || !after.comparable
+            ? {
+                comparable: false,
+                errorCode: tracked.before.errorCode ?? after.errorCode,
+              }
+            : {}),
+        }
+      })
 
-    const visibleArtifacts = autoDiscovered ? artifacts.filter((item) => item.changed) : artifacts
+    const declaredArtifacts = yield* Effect.forEach(declaredTracked, buildArtifact, { concurrency: 4 })
+    const officeArtifacts = yield* Effect.forEach(Array.from(officeTracked.values()), buildArtifact, {
+      concurrency: 4,
+    })
 
-    if (autoDiscovered && visibleArtifacts.length === 0) {
+    // An undeclared write flags the turn uncaptured: the cwd scan is best-effort and
+    // may miss non-office side effects (a plain `> notes.txt`).
+    if (shouldAutoDiscover) {
       yield* deps.recordUncaptured({
         sessionID: ctx.sessionID,
         messageID: ctx.messageID,
       })
-      return result
     }
 
-    if (autoDiscovered) {
-      yield* deps.recordUncaptured({
-        sessionID: ctx.sessionID,
-        messageID: ctx.messageID,
-      })
-    }
+    const visibleArtifacts = [...declaredArtifacts, ...officeArtifacts.filter((item) => item.changed)]
+
+    if (visibleArtifacts.length === 0) return result
 
     return {
       ...result,
