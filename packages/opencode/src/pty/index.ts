@@ -10,7 +10,7 @@ import { Shell } from "@/shell/shell"
 import { Plugin } from "@/plugin"
 import { envValueCaseInsensitive, prependBundledTools, stripPathKeys, withoutInternalServerAuthEnv } from "@/util/env"
 import { Process } from "@/util/process"
-import { resolveUvMirrorEnv } from "@/util/uv-mirror"
+import { applyUvMirrorEnvDefaults, uvMirrorEnvSnapshot } from "@/util/uv-mirror"
 import { PtyID } from "./schema"
 import { Effect, Layer, Context } from "effect"
 import * as EffectLogger from "@opencode-ai/core/effect/logger"
@@ -265,17 +265,18 @@ export namespace Pty {
           envValueCaseInsensitive(inputEnvRecord, "PATH") ??
           envValueCaseInsensitive(process.env, "PATH") ??
           ""
-        const uvMirrorEnv = yield* Effect.promise(() => resolveUvMirrorEnv())
         const env = withoutInternalServerAuthEnv({
           ...process.env,
           ...inputEnvRecord,
           ...shellEnvRecord,
           TERM: "xterm-256color",
           OPENCODE_TERMINAL: "1",
-          ...uvMirrorEnv,
         } as Record<string, string>)
         stripPathKeys(env)
         env.PATH = prependBundledTools(currentPath)
+        // Non-blocking: returns the cached probe result (or {} while the first
+        // background probe runs) and never overrides user-set UV_* keys.
+        applyUvMirrorEnvDefaults(env, uvMirrorEnvSnapshot())
         // bun-pty merges with the parent process environment internally, so
         // deleting these keys is not enough for PTY sessions. Override with
         // empty values to prevent PawWork's internal server credentials from
