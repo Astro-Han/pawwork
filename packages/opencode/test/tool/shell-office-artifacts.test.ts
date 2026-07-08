@@ -48,6 +48,8 @@ describe("officeOutputPaths", () => {
     // python raw / f-string prefixes on the .save() argument
     [`uv run python -c "doc.save(r'out.docx')"`, ["out.docx"]],
     [`uv run python -c "doc.save(f'report.docx')"`, ["report.docx"]],
+    // whitespace before the call paren
+    [`uv run python -c "doc.save ('spaced.docx')"`, ["spaced.docx"]],
   ])("parses the output path from %s", (command, expected) => {
     expect(officeOutputPaths(command)).toEqual(expected)
   })
@@ -88,6 +90,7 @@ describe("hasOfficeOutputIntent", () => {
   test.each([
     'uv run python build.py -o "$OUT.docx"', // dynamic POSIX variable
     'uv run python build.py -o "%OUT%.docx"', // dynamic Windows cmd variable
+    'uv run python build.py -o "$OUT"', // whole filename in a variable — extension hidden
     "uv run python build.py --out report-*.docx", // glob
     "cd reports && uv run python build.py -o report.docx", // relative after cd
     `cd reports && uv run python -c "from docx import Document; Document().save('report.docx')"`,
@@ -104,6 +107,7 @@ describe("hasOfficeOutputIntent", () => {
     "grep -o report.docx README.md", // not a generator
     "cat report.docx",
     "uv run python build.py --out report.txt", // output flag, but non-office target
+    'uv run python build.py -o "$OUT.pdf"', // dynamic .pdf — discovery can't find it
   ])("reports no intent for %s", (command) => {
     expect(hasOfficeOutputIntent(command)).toBe(false)
   })
@@ -118,5 +122,16 @@ describe("nonOfficeGeneratorText", () => {
     expect(nonOfficeGeneratorText("uv run python build.py -o report.docx && echo notes > notes.txt")).toBe(
       "echo notes > notes.txt",
     )
+  })
+
+  test("keeps a write-redirection attached to the generator segment itself", () => {
+    // command is dropped, but its `> log.txt` side effect survives for the write heuristic
+    expect(nonOfficeGeneratorText("uv run python build.py -o report.docx > log.txt")).toBe("> log.txt")
+    expect(nonOfficeGeneratorText("uv run python analyze.py > results.txt")).toBe("> results.txt")
+    expect(nonOfficeGeneratorText("uv run python build.py 2> err.log")).toBe("2> err.log")
+  })
+
+  test("does not mistake a redirect inside a python string for a real redirect", () => {
+    expect(nonOfficeGeneratorText(`uv run python -c "print('a > b')"`)).toBe("")
   })
 })

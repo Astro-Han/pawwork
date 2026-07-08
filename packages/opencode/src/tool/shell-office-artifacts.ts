@@ -93,6 +93,19 @@ function isRelativeOutputValue(value: string) {
   return !value.startsWith("/") && !value.startsWith("\\") && !/^[a-zA-Z]:[\\/]/.test(value)
 }
 
+// Whether an output-flag / .save value names something the cwd backstop could actually
+// discover — a `.docx/.xlsx/.pptx` (NOT `.pdf`: discovery excludes it, so a dynamic
+// `.pdf` would trigger a scan that can never find it; static `-o report.pdf` is still
+// captured exactly by officeOutputPaths). Also true when the extension is HIDDEN inside
+// a dynamic value (`-o "$OUT"`, `-o "%OUT%"`) — it may expand to a discoverable office
+// file, so the backstop should scan. A visible non-discoverable extension (`$OUT.pdf`,
+// `$OUT.txt`) is not.
+function dynamicOutputCouldBeDiscoverable(value: string) {
+  if (isDiscoverableOfficeOutput(value)) return true
+  if (!isStaticOutputValue(value)) return fileExtension(value) === ""
+  return false
+}
+
 // A native office deliverable is produced by a python / uv-run generator command
 // (the office-* skills run everything through `uv run python ...`). Gating on the
 // generator command keeps a non-output `-o` on some other tool — e.g. grep's
@@ -119,17 +132,18 @@ function shouldScanSaveSegment(words: string[], isGeneratorCommand: boolean) {
   return head.includes(".save(")
 }
 
-// Whether a native office generator NAMED an office deliverable that could not be
-// tracked to an exact path — an -o/--out flag or a python `.save(...)` whose value is
-// an office file (`.docx/.xlsx/.pptx/.pdf`) but is dynamic (`-o "$OUT.docx"`,
-// `-o "%OUT%.docx"`) or otherwise unresolvable. Such a command clearly intends to
-// write an office file, so the cwd backstop must scan to discover it. Crucially this
-// is NOT true for a bare read-only invocation that names no output at all — e.g.
-// `uv run pytest` or `uv run python read_docx.py input.docx` — so those never trigger
-// a scan (and can never false-flag the turn uncaptured). A generator whose ONLY
-// output is an internal `doc.save(...)` inside a script file it runs (invisible to the
-// command text) is likewise not scanned here; that deliverable is captured via the
-// model-declared `expected_outputs`, the instructed primary path.
+// Whether a native office generator NAMED a discoverable office deliverable that the
+// parser could not track to an exact path — an -o/--out flag or a python `.save(...)`
+// whose value is `.docx/.xlsx/.pptx` but is dynamic (`-o "$OUT.docx"`, `-o "%OUT%.docx"`,
+// a glob, a cwd-relative path after `cd`), OR whose whole name is hidden in a variable
+// (`-o "$OUT"`). Such a command clearly intends to write an office file the cwd backstop
+// can find, so it must scan. Crucially this is NOT true for a bare read-only invocation
+// that names no output at all — `uv run pytest`, `uv run python read_docx.py input.docx`
+// — nor for a dynamic `.pdf` (discovery can't find it; that relies on expected_outputs
+// or an exact `-o report.pdf`). A generator whose ONLY output is an internal
+// `doc.save(...)` inside a script file it runs (invisible to the command text) is also
+// not scanned here; that deliverable is captured via the model-declared
+// `expected_outputs`, the instructed primary path.
 export function hasOfficeOutputIntent(command: string) {
   const segments = commandSegments(command)
   const isGeneratorCommand = segments.some((segment) => isOfficeGeneratorSegment(shellWords(segment.text)))
@@ -143,12 +157,12 @@ export function hasOfficeOutputIntent(command: string) {
         const flag = (equals >= 0 ? word.slice(0, equals) : word).toLowerCase()
         if (!outputFlags.has(flag)) continue
         const value = equals >= 0 ? word.slice(equals + 1) : words[index + 1]
-        if (value && isOfficeOutputPath(value)) return true
+        if (value && dynamicOutputCouldBeDiscoverable(value)) return true
       }
     }
     if (shouldScanSaveSegment(words, isGeneratorCommand)) {
-      for (const match of segment.text.matchAll(/\.save\(\s*[rbuf]*\\?["']([^"'\\]+)/gi)) {
-        if (isOfficeOutputPath(match[1])) return true
+      for (const match of segment.text.matchAll(/\.save\s*\(\s*[rbuf]*\\?["']([^"'\\]+)/gi)) {
+        if (dynamicOutputCouldBeDiscoverable(match[1])) return true
       }
     }
   }
@@ -191,10 +205,10 @@ export function officeOutputPaths(command: string) {
     // do not let arbitrary later commands like `node -e "...save('x.docx')"` create
     // phantom exact artifacts.
     if (shouldScanSaveSegment(words, isGeneratorCommand)) {
-      // Allow optional python string prefixes (`r`/`b`/`u`/`f`, e.g. `.save(r"out.docx")`)
-      // and an optional backslash before the quote so an escaped inner quote in a
-      // double-quoted `-c "...save(\"out.docx\")"` is matched as well as `save('x')`.
-      for (const match of segment.text.matchAll(/\.save\(\s*[rbuf]*\\?["']([^"'\\]+)/gi)) {
+      // Allow optional whitespace before `(`, optional python string prefixes
+      // (`r`/`b`/`u`/`f`, e.g. `.save(r"out.docx")`), and an optional backslash before the
+      // quote so an escaped inner quote in `-c "...save(\"out.docx\")"` is matched too.
+      for (const match of segment.text.matchAll(/\.save\s*\(\s*[rbuf]*\\?["']([^"'\\]+)/gi)) {
         if (
           isOfficeOutputPath(match[1]) &&
           isStaticOutputValue(match[1]) &&
@@ -208,16 +222,75 @@ export function officeOutputPaths(command: string) {
   return Array.from(new Set(paths))
 }
 
-// The command with its office-generator segments removed. An office generator's
-// output is captured exactly (via officeOutputPaths), so the caller checks whether
-// what *remains* is still a write — a chained side effect like
-// `... -o a.docx && echo x > notes.txt` leaves `echo x > notes.txt`, while a pure
-// `... -o a.docx` leaves nothing. Segments are re-joined with `;` (any delimiter
-// works — the write heuristic re-splits on it).
+// The write-redirections carried by a single command segment, extracted quote-aware so
+// a `>` inside a python string (`-c "print('a > b')"`) is not mistaken for one. Returns
+// e.g. `> log.txt` / `2> err.txt` / `>> out`. Bare input `<` is not a write.
+function segmentWriteRedirects(segmentText: string) {
+  const parts: string[] = []
+  let index = 0
+  let quote: "'" | '"' | undefined
+  while (index < segmentText.length) {
+    const char = segmentText[index]
+    if (quote) {
+      if (char === "\\" && quote === '"') {
+        index += 2
+        continue
+      }
+      if (char === quote) quote = undefined
+      index++
+      continue
+    }
+    if (char === "'" || char === '"') {
+      quote = char
+      index++
+      continue
+    }
+    const op = segmentText.slice(index).match(/^(?:&>>?|[0-9]*>>?|[0-9]*>\||[0-9]*<>)/)
+    if (op) {
+      let cursor = index + op[0].length
+      while (cursor < segmentText.length && /\s/.test(segmentText[cursor])) cursor++
+      let target = ""
+      let targetQuote: "'" | '"' | undefined
+      while (cursor < segmentText.length) {
+        const tc = segmentText[cursor]
+        if (targetQuote) {
+          if (tc === targetQuote) targetQuote = undefined
+          else target += tc
+          cursor++
+          continue
+        }
+        if (tc === "'" || tc === '"') {
+          targetQuote = tc
+          cursor++
+          continue
+        }
+        if (/\s/.test(tc)) break
+        target += tc
+        cursor++
+      }
+      if (target) parts.push(`${op[0]} ${target}`)
+      index = cursor
+      continue
+    }
+    index++
+  }
+  return parts.join(" ")
+}
+
+// The command with its office-generator COMMANDS removed but their write-redirections
+// kept, so the caller can check whether what *remains* is still a write. An office
+// generator's -o/.save output is captured exactly (via officeOutputPaths), so dropping
+// the command keeps a pure `... -o a.docx` from reading as a write, while a chained
+// `... -o a.docx && echo x > notes.txt` leaves `echo x > notes.txt` and a same-segment
+// redirect `uv run python build.py -o a.docx > log.txt` leaves `> log.txt` — both real
+// side effects the write heuristic must still see. Segments are re-joined with `;` (any
+// delimiter works — the write heuristic re-splits on it).
 export function nonOfficeGeneratorText(command: string) {
   return commandSegments(command)
-    .filter((segment) => !isOfficeGeneratorSegment(shellWords(segment.text)))
-    .map((segment) => segment.text)
+    .map((segment) =>
+      isOfficeGeneratorSegment(shellWords(segment.text)) ? segmentWriteRedirects(segment.text) : segment.text,
+    )
+    .filter((text) => text.length > 0)
     .join(" ; ")
 }
 

@@ -612,4 +612,69 @@ describe("orchestrateArtifacts", () => {
     expect(artifacts).toBeArrayOfSize(1)
     expect(artifacts[0]).toMatchObject({ path: real, changed: true, exists: true })
   })
+
+  // A generator with a non-office redirect and NO office output — the redirected file is
+  // a real side effect the office-only scan can't capture, so it must be flagged
+  // uncaptured (regression guard: dropping the whole generator segment would hide it).
+  test("generator with a redirect side effect, no office output → recordUncaptured", async () => {
+    const command = "uv run python analyze.py > results.txt"
+    expect(officeOutputPaths(command)).toEqual([])
+    expect(hasOfficeOutputIntent(command)).toBe(false)
+    // the redirect survives the generator strip and reads as a write
+    expect(isLikelyWriteCommand(nonOfficeGeneratorText(command))).toBe(true)
+
+    const harness = build({
+      states: {},
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      intentFn: hasOfficeOutputIntent,
+      sideEffectFn: nonOfficeGeneratorText,
+      discoverPaths: [],
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        { ctx, cwd: "/tmp/work", directory: "/tmp/work", shell: "/bin/bash", command, expectedOutputs: [] },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.discoverCalls).toBeGreaterThan(0)
+    expect(harness.uncaptured).toHaveLength(1) // results.txt flagged
+    expect((result.metadata as any).artifacts).toBeUndefined()
+  })
+
+  // An exact -o office output PLUS a same-segment redirect: the office file is captured
+  // exactly, and the redirect side effect still marks the turn uncaptured.
+  test("exact -o output plus same-segment redirect → captures office file AND marks uncaptured", async () => {
+    const file = np("report.docx")
+    const command = "uv run python build.py -o report.docx > log.txt"
+    expect(officeOutputPaths(command)).toEqual(["report.docx"])
+    expect(isLikelyWriteCommand(nonOfficeGeneratorText(command))).toBe(true) // `> log.txt` survives
+
+    const harness = build({
+      states: { [file]: [stateMissing(), stateFile("h1")] },
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      intentFn: hasOfficeOutputIntent,
+      sideEffectFn: nonOfficeGeneratorText,
+      discoverPaths: [],
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        { ctx, cwd: "/tmp/work", directory: "/tmp/work", shell: "/bin/bash", command, expectedOutputs: [] },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.uncaptured).toHaveLength(1) // log.txt flagged
+    expect(harness.writes).toHaveLength(1)
+    expect(harness.writes[0].path).toBe(file) // report.docx captured exactly
+    const artifacts = (result.metadata as any).artifacts
+    expect(artifacts).toBeArrayOfSize(1)
+    expect(artifacts[0]).toMatchObject({ path: file, changed: true })
+  })
 })
