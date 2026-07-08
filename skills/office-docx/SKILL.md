@@ -7,10 +7,6 @@ description: "Native .docx generation and editing with Python python-docx: real 
 
 You build editable `.docx` documents with Python `python-docx`: real Heading styles that drive the navigation pane and table of contents, explicit fonts and sizes, native tables, and clean paragraph structure. You can also read and parse existing documents. No LibreOffice.
 
-This is a **dark-launched preview**. It does not replace the default Word path. Only run it when explicitly routed here.
-
-> Known limitation of this dark launch: preview status is enforced only by this skill's description — there is no hard runtime switch yet, and the skill is visible in the Skills page. The hard on/off switch lands with the routing change (PR 4).
-
 ## Runtime contract
 
 - `uv` must be on `PATH`. All Python runs through `uv run`; the runtime injects the package-mirror environment variables so `uv` resolves `python-docx` from the internal mirror. You do not configure the mirror.

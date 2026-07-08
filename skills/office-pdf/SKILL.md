@@ -7,10 +7,6 @@ description: "PDF generation (author HTML, then print to PDF with PawWork's bund
 
 Two independent paths: **generate** a PDF from HTML using PawWork's bundled Chromium, and **parse** an existing PDF with permissively-licensed Python libraries.
 
-This is a **dark-launched preview**. It does not replace any default route. Only run it when explicitly routed here.
-
-> Known limitation of this dark launch: preview status is enforced only by this skill's description — there is no hard runtime switch yet, and the skill is visible in the Skills page. The hard on/off switch lands with the routing change (PR 4).
-
 ## License hard rule (non-negotiable)
 
 **Never use PyMuPDF / `fitz` / `pymupdf` — it is AGPL and must not enter the product.** Also avoid any tool that shells out to it. Allowed parsers are `pdfplumber` (MIT) and `pypdf` (BSD) only. For rendering, use the bundled Chromium — not `wkhtmltopdf`, not LibreOffice, not a system-installed browser.
@@ -32,7 +28,7 @@ Author a **self-contained HTML file** built for print:
 - Use `page-break-before/after` / `break-inside: avoid` to control pagination; design against print CSS, not screen scroll.
 - Prefer real text and CSS/SVG vector graphics over rasterized screenshots so the PDF stays selectable and crisp.
 
-Then render it to PDF through the runtime's bundled-Chromium print entry point (`Page.printToPDF` over the browser bridge). **If the current build exposes no PDF/print tool, report that the generation path is not available in this runtime rather than shelling out to an unbundled browser or an AGPL library** — this is expected while the route is dark-launched.
+Then render it to PDF through the runtime's bundled-Chromium print entry point (`Page.printToPDF` over the browser bridge). **If the current build exposes no PDF/print tool, report that the generation path is not available in this runtime rather than shelling out to an unbundled browser or an AGPL library** — this can happen while the bundled-Chromium print entry point is still being wired up, so degrade gracefully instead of substituting another tool.
 
 ## Path 2 — Parse (uv + pdfplumber / pypdf)
 

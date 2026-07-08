@@ -7,10 +7,6 @@ description: "Native .pptx generation by authoring one SVG per slide and convert
 
 You build an editable native `.pptx` by hand-authoring one SVG per slide and converting the deck with the bundled, offline `svg_to_pptx` converter. No LibreOffice, no LLM-rendered image slides — every shape stays natively editable in PowerPoint / Keynote / WPS.
 
-This is a **dark-launched preview**. It does not replace the default office path. Only run it when explicitly routed here.
-
-> Known limitation of this dark launch: preview status is enforced only by this skill's description (the model is told not to pick it by default) — there is no hard runtime switch yet, and the skill is visible in the Skills page. The hard on/off switch lands with the routing change (PR 4).
-
 ## Runtime contract
 
 - `uv` must be on `PATH`. This skill runs all Python through `uv run`; the runtime injects the package-mirror environment variables so `uv` resolves `python-pptx` from the internal mirror. You do not configure the mirror yourself.

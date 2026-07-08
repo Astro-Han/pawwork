@@ -7,10 +7,6 @@ description: "Native .xlsx generation and editing with Python openpyxl: real for
 
 You build editable `.xlsx` workbooks with Python `openpyxl`: real formulas the recipient can recalc, explicit number formats and fonts, and native charts. You can also read and parse existing workbooks. No LibreOffice.
 
-This is a **dark-launched preview**. It does not replace the default spreadsheet path. Only run it when explicitly routed here.
-
-> Known limitation of this dark launch: preview status is enforced only by this skill's description — there is no hard runtime switch yet, and the skill is visible in the Skills page. The hard on/off switch lands with the routing change (PR 4).
-
 ## Runtime contract
 
 - `uv` must be on `PATH`. All Python runs through `uv run`; the runtime injects the package-mirror environment variables so `uv` resolves `openpyxl` from the internal mirror. You do not configure the mirror.
