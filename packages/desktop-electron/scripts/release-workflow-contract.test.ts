@@ -41,15 +41,15 @@ describe("release workflow app-update verification", () => {
     expect(workflow).toContain('npx electron-builder --mac dmg zip --${{ matrix.arch_label }} --prepackaged "$APP_PATH"')
   })
 
-  test("prepares OfficeCLI before signed macOS packaging", () => {
-    expectBefore(workflow, "Prepare OfficeCLI", "npx electron-builder --mac dir")
-    expect(workflow).toContain("bun ./scripts/prepare-officecli.ts")
-    expect(workflow).toContain('officecli_platform="darwin"')
+  test("prepares uv before signed macOS packaging", () => {
+    expectBefore(workflow, "Prepare uv", "npx electron-builder --mac dir")
+    expect(workflow).toContain("bun ./scripts/prepare-uv.ts")
+    expect(workflow).toContain('uv_platform="darwin"')
   })
 
-  test("prepares OfficeCLI before Windows packaging", () => {
-    expectBefore(workflow, "Prepare OfficeCLI", "npx electron-builder ${{ matrix.platform_flag }}")
-    expect(workflow).toContain('officecli_platform="win32"')
+  test("prepares uv before Windows packaging", () => {
+    expectBefore(workflow, "Prepare uv", "npx electron-builder ${{ matrix.platform_flag }}")
+    expect(workflow).toContain('uv_platform="win32"')
   })
 })
 

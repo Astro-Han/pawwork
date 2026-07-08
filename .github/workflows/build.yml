@@ -281,21 +281,6 @@ jobs:
         run: bun test ./src
         working-directory: packages/remote-bridge
 
-      - name: Prepare OfficeCLI
-        if: ${{ inputs.phase != 'finalize' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          case "${{ matrix.target }}" in
-            macos) officecli_platform="darwin" ;;
-            windows) officecli_platform="win32" ;;
-            *) echo "Unsupported OfficeCLI target: ${{ matrix.target }}"; exit 1 ;;
-          esac
-
-          bun ./scripts/prepare-officecli.ts --platform "$officecli_platform" --arch "${{ matrix.arch_label }}"
-        working-directory: packages/desktop-electron
-
       - name: Prepare uv
         if: ${{ inputs.phase != 'finalize' }}
         shell: bash

@@ -16,7 +16,6 @@
     "smoke:ci": "bun ./scripts/ci-smoke.ts",
     "smoke:cdp-bridge-ws": "bun ./scripts/smoke-cdp-bridge-ws.ts",
     "smoke:report": "node ./scripts/report-problem-smoke.mjs",
-    "sync-skills": "bun ./scripts/sync-officecli-skills.ts",
     "predev": "bun ./scripts/predev.ts",
     "dev": "electron-vite dev",
     "prebuild": "bun ./scripts/prebuild.ts",

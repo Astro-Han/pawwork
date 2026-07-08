@@ -7,11 +7,11 @@ import { promisify } from "node:util"
 
 import manifest from "../bundled-tools.json"
 
-// Mirrors the OfficeCLI supply pattern in prepare-officecli.ts: version-pinned
-// manifest entry, download from a pinned GitHub release tag, verify, then land
-// the binary in resources/tools/ (packaged as extraResources → PATH via
-// bundledToolsDir() in packages/opencode/src/util/env.ts — same mechanism, no
-// special-casing per tool). Two deliberate differences from OfficeCLI:
+// Bundled-tool supply pattern: version-pinned manifest entry, download from a
+// pinned GitHub release tag, verify, then land the binary in resources/tools/
+// (packaged as extraResources → PATH via bundledToolsDir() in
+// packages/opencode/src/util/env.ts — no special-casing per tool). Two notable
+// properties:
 //
 // 1. The expected sha256 for every asset is pinned IN THE REPO (bundled-tools
 //    .json), not fetched from the release at build time. Fetching a checksum

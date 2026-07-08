@@ -128,7 +128,7 @@ describe("pr triage workflow", () => {
 
 describe("pr priority triage helper", () => {
   test("marks doc/workflow/test only changes as P3", () => {
-    expect(classifyPriority([".github/workflows/officecli-bump.yml"]).priority).toBe("P3")
+    expect(classifyPriority([".github/workflows/pr-title-lint.yml"]).priority).toBe("P3")
     expect(classifyPriority(["packages/app/e2e/session/session-composer-dock.spec.ts"]).priority).toBe("P3")
     expect(classifyPriority(["docs/release.md", "README.md"]).priority).toBe("P3")
   })
@@ -257,8 +257,8 @@ describe("pr priority triage helper", () => {
     expect(classifyPriority(["packages/app/e2e/session/session-composer-dock.spec.ts"]).priority).toBe("P3")
     expect(
       classifyPriority([
-        ".github/workflows/officecli-bump.yml",
-        "packages/opencode/test/github/officecli-bump-workflow.test.ts",
+        ".github/workflows/codeql.yml",
+        "packages/opencode/test/github/codeql-workflow.test.ts",
       ]).priority,
     ).toBe("P3")
   })
