@@ -30,8 +30,6 @@ export type ArtifactDeps<DepR = never> = {
   ) => Effect.Effect<string | undefined, never, DepR>
   readTrackedState: (file: string) => Effect.Effect<TrackedOutputState, never, DepR>
   discoverOfficeOutputs: (cwd: string, projectRoot: string) => Effect.Effect<OutputDiscovery, never, DepR>
-  officeCliTargets: (command: string) => readonly string[]
-  nonOfficeCliCommandText: (command: string) => string
   isLikelyWriteCommand: (command: string) => boolean
   recordWrite: (input: RecordWriteInput) => Effect.Effect<void, never, DepR>
   recordUncaptured: (input: RecordUncapturedInput) => Effect.Effect<void, never, DepR>
@@ -84,20 +82,7 @@ export const orchestrateArtifacts = <RunR, DepR>(
       yield* Effect.forEach(declared, resolveTrackedInput, { concurrency: 4 }),
     )
 
-    const exactOfficeOutputs = dedupeByNormalized(
-      yield* Effect.forEach(
-        declared.length === 0 && hasMessage ? deps.officeCliTargets(command) : [],
-        resolveTrackedInput,
-        { concurrency: 4 },
-      ),
-    )
-
-    const shouldAutoDiscover =
-      declared.length === 0 &&
-      hasMessage &&
-      deps.isLikelyWriteCommand(
-        exactOfficeOutputs.length ? deps.nonOfficeCliCommandText(command) : command,
-      )
+    const shouldAutoDiscover = declared.length === 0 && hasMessage && deps.isLikelyWriteCommand(command)
 
     const autoDiscoveredBefore = shouldAutoDiscover
       ? yield* Effect.gen(function* () {
@@ -122,22 +107,11 @@ export const orchestrateArtifacts = <RunR, DepR>(
 
     let outputsToRecord: TrackedOutput[] = trackedOutputs
     let autoDiscovered = false
-    let exactOfficeTargeted = false
-
-    if (!outputsToRecord.length && exactOfficeOutputs.length) {
-      outputsToRecord = exactOfficeOutputs
-      exactOfficeTargeted = true
-    }
 
     if (!trackedOutputs.length && shouldAutoDiscover) {
       autoDiscovered = true
       let overflowed = autoDiscoveredBefore?.overflowed ?? false
       const deduped = new Map<string, TrackedOutput>()
-      for (const item of exactOfficeOutputs) {
-        const normalized = AppFileSystem.normalizePath(item.path)
-        if (deduped.has(normalized)) continue
-        deduped.set(normalized, item)
-      }
       if (!overflowed) {
         for (const item of autoDiscoveredBefore?.outputs ?? []) {
           const normalized = AppFileSystem.normalizePath(item.path)
@@ -219,8 +193,7 @@ export const orchestrateArtifacts = <RunR, DepR>(
       { concurrency: 4 },
     )
 
-    const visibleArtifacts =
-      autoDiscovered || exactOfficeTargeted ? artifacts.filter((item) => item.changed) : artifacts
+    const visibleArtifacts = autoDiscovered ? artifacts.filter((item) => item.changed) : artifacts
 
     if (autoDiscovered && visibleArtifacts.length === 0) {
       yield* deps.recordUncaptured({
@@ -229,8 +202,6 @@ export const orchestrateArtifacts = <RunR, DepR>(
       })
       return result
     }
-
-    if (exactOfficeTargeted && visibleArtifacts.length === 0) return result
 
     if (autoDiscovered) {
       yield* deps.recordUncaptured({

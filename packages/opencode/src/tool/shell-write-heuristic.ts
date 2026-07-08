@@ -1,12 +1,4 @@
-import {
-  commandHead,
-  commandSegments as rawCommandSegments,
-  hasMutatingOfficeCliBatchCommand,
-  hasOfficeCliBatchDynamicInput,
-  isOfficeCli,
-  isOfficeCliWriteCommand,
-  tokenWords,
-} from "./shell-office-artifacts"
+import { commandHead, tokenWords } from "./shell-office-artifacts"
 
 const writeCommands = new Set([
   "apply_patch",
@@ -49,21 +41,11 @@ export function isLikelyWriteCommand(command: string) {
   if (powershellWriteCommands.test(stripped)) return true
   if (/(^|\s)(?:&>>?|\d*>\||\d*<>|(?<!<)\d*>>?)\s*[^&\s]/.test(stripped)) return true
 
-  const rawSegments = rawCommandSegments(command)
   const strippedSegments = commandSegments(stripped)
   for (let index = 0; index < strippedSegments.length; index++) {
     const words = strippedSegments[index]
     const { head, next, rest } = commandHead(words)
     if (!head) continue
-    const rawSegment = rawSegments[index]
-    if (
-      isOfficeCli(head) &&
-      next === "batch" &&
-      rawSegment &&
-      (hasMutatingOfficeCliBatchCommand(rawSegment.text) || hasOfficeCliBatchDynamicInput(rawSegment))
-    )
-      return true
-    if (isOfficeCli(head) && isOfficeCliWriteCommand(next)) return true
     if (writeCommands.has(head)) return true
     if (head === "sed" && rest.slice(0, 3).some((item) => item === "-i" || item.startsWith("-i"))) return true
     if (head === "perl" && rest.slice(0, 3).some((item) => item.includes("i"))) return true

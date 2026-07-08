@@ -1366,7 +1366,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             ...process.env,
             ...shellEnvRecord,
             TERM: "dumb",
-            OFFICECLI_SKIP_UPDATE: "1",
             ...(shellName === "zsh" || shellName === "bash" ? { OPENCODE_SHELL_CWD: cwd } : {}),
           } as Record<string, string>)
           stripPathKeys(env)

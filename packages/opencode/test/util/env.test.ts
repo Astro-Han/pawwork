@@ -80,7 +80,7 @@ describe("util.env.bundledTools", () => {
   test("prepend with empty currentPath returns bundled dir alone, never a trailing-delimiter PATH (cwd-shadowing guard)", () => {
     // POSIX treats an empty PATH segment (leading/trailing/double colon) as
     // the current directory, so emitting "/r/tools:" would let a malicious
-    // file in cwd shadow officecli. The helper must drop the delimiter.
+    // file in cwd shadow a bundled tool. The helper must drop the delimiter.
     setResourcesPath("/r")
     expect(prependBundledTools("")).toBe(path.join("/r", "tools"))
   })
@@ -96,12 +96,12 @@ describe("util.env.stripPathKeys", () => {
       PATH: "/our/override",
       path: "/lowercase",
       TERM: "xterm",
-      OFFICECLI_SKIP_UPDATE: "1",
+      FOO: "bar",
     }
 
     stripPathKeys(env)
 
-    expect(env).toEqual({ TERM: "xterm", OFFICECLI_SKIP_UPDATE: "1" })
+    expect(env).toEqual({ TERM: "xterm", FOO: "bar" })
   })
 
   test("is safe on an env that has no path keys at all", () => {

@@ -58,13 +58,11 @@ type MockHarness = {
 
 function build(opts: {
   states: Record<string, TrackedOutputState[]>
-  officeTargets?: string[]
   isWrite?: boolean
   discoverPaths?: string[]
   discoverOverflowed?: boolean
   discoverPathsAfter?: string[]
   discoverOverflowedAfter?: boolean
-  nonOfficeCommandText?: (cmd: string) => string
 }): MockHarness {
   const writes: RecordWriteInput[] = []
   const uncaptured: RecordUncapturedInput[] = []
@@ -98,8 +96,6 @@ function build(opts: {
     assertExternalDirectory: (_ctx, filepath, _opts) => Effect.succeed(filepath),
     readTrackedState,
     discoverOfficeOutputs,
-    officeCliTargets: () => opts.officeTargets ?? [],
-    nonOfficeCliCommandText: opts.nonOfficeCommandText ?? ((cmd) => cmd),
     isLikelyWriteCommand: () => opts.isWrite ?? false,
     recordWrite: (input) =>
       Effect.sync(() => {
@@ -135,7 +131,7 @@ describe("orchestrateArtifacts", () => {
           cwd: "/tmp/work",
           directory: "/tmp/work",
           shell: "/bin/bash",
-          command: "officecli docx create out.docx",
+          command: "python build.py out.docx",
           expectedOutputs: [file],
         },
         () => Effect.succeed(buildResult()),
@@ -164,7 +160,7 @@ describe("orchestrateArtifacts", () => {
           cwd: "/tmp/work",
           directory: "/tmp/work",
           shell: "/bin/bash",
-          command: "officecli docx set same.docx --key x",
+          command: "python build.py same.docx",
           expectedOutputs: [file],
         },
         () => Effect.succeed(buildResult()),
@@ -179,41 +175,9 @@ describe("orchestrateArtifacts", () => {
     expect(artifacts[0]).toMatchObject({ path: file, changed: false, exists: true })
   })
 
-  test("exact OfficeCLI target, no declared outputs, file changed → recordWrite + visible only when changed", async () => {
-    const file = np("/tmp/work/x.xlsx")
-    const harness = build({
-      states: { [file]: [stateMissing(), stateFile("hx")] },
-      officeTargets: [file],
-      isWrite: false,
-    })
-
-    const result = await Effect.runPromise(
-      orchestrateArtifacts(
-        {
-          ctx,
-          cwd: "/tmp/work",
-          directory: "/tmp/work",
-          shell: "/bin/bash",
-          command: "officecli xlsx create x.xlsx",
-          expectedOutputs: [],
-        },
-        () => Effect.succeed(buildResult()),
-        harness.deps,
-      ),
-    )
-
-    expect(harness.writes).toHaveLength(1)
-    expect(harness.writes[0].path).toBe(file)
-    expect(harness.uncaptured).toHaveLength(0)
-    const artifacts = (result.metadata as any).artifacts
-    expect(artifacts).toBeArrayOfSize(1)
-    expect(artifacts[0].changed).toBe(true)
-  })
-
   test("auto-discovery overflow with no captured items → recordUncaptured, no artifacts metadata", async () => {
     const harness = build({
       states: {},
-      officeTargets: [],
       isWrite: true,
       discoverPaths: [],
       discoverOverflowed: true,
@@ -242,7 +206,6 @@ describe("orchestrateArtifacts", () => {
   test("read-only command → no orchestration noise, no recordUncaptured, no artifacts", async () => {
     const harness = build({
       states: {},
-      officeTargets: [],
       isWrite: false, // isLikelyWriteCommand returns false
     })
 
@@ -285,8 +248,6 @@ describe("orchestrateArtifacts", () => {
       assertExternalDirectory: (_ctx, fp) => Effect.succeed(fp),
       readTrackedState,
       discoverOfficeOutputs: () => Effect.succeed({ paths: [], overflowed: false }),
-      officeCliTargets: () => [],
-      nonOfficeCliCommandText: (c) => c,
       isLikelyWriteCommand: () => false,
       recordWrite: () => Effect.void,
       recordUncaptured: () => Effect.void,
@@ -299,7 +260,7 @@ describe("orchestrateArtifacts", () => {
           cwd: "/tmp/work",
           directory: "/tmp/work",
           shell: "/bin/bash",
-          command: "officecli docx create ordered.docx",
+          command: "python build.py ordered.docx",
           expectedOutputs: [file],
         },
         () =>
@@ -321,7 +282,6 @@ describe("orchestrateArtifacts", () => {
     const declared = np("/tmp/work/decl.docx")
     const harness = build({
       states: { [declared]: [stateMissing(), stateFile("d1")] },
-      officeTargets: [np("/tmp/work/should-be-ignored.docx")], // would surface if expected_outputs were empty
       isWrite: true,
       discoverPaths: [np("/tmp/work/side.docx")],
     })
@@ -333,7 +293,7 @@ describe("orchestrateArtifacts", () => {
           cwd: "/tmp/work",
           directory: "/tmp/work",
           shell: "/bin/bash",
-          command: "officecli docx create decl.docx",
+          command: "python build.py decl.docx",
           expectedOutputs: [declared],
         },
         () => Effect.succeed(buildResult()),
