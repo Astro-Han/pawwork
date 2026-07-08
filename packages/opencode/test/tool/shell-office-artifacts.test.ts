@@ -51,6 +51,9 @@ describe("officeOutputPaths", () => {
     ["uv run python build.py --directory sub -o report.docx", ["report.docx"]],
     ["python build_xlsx.py data.csv --out book.xlsx", ["book.xlsx"]],
     ["python gen.py --output=slides.pdf", ["slides.pdf"]],
+    // a versioned python interpreter (`python3.12`) is a generator too, matching
+    // isPythonCommandToken's `/^python\d/` — else the output is silently lost
+    ["python3.12 build.py -o report.docx", ["report.docx"]],
     // python .save(...) — the documented python-docx / openpyxl / python-pptx call
     [`uv run python -c "from docx import Document; Document().save('out.docx')"`, ["out.docx"]],
     [`python -c "wb.save(\\"book.xlsx\\")"`, ["book.xlsx"]],
@@ -201,5 +204,15 @@ describe("nonOfficeGeneratorText", () => {
     const remainder = nonOfficeGeneratorText(cmd)
     expect(remainder).not.toContain("deck.pptx") // the .save body line is dropped
     expect(isLikelyWriteCommand(remainder)).toBe(false) // so it is not double-counted as a write
+  })
+
+  test("does not read a > inside a heredoc python body as a real write-redirect", () => {
+    // the heredoc body is stdin, not shell — `if total > 0:` must not surface a phantom
+    // `> 0:` redirect that would falsely mark the captured deck's turn as uncaptured
+    const cmd = "uv run python <<'PY'\nif total > 0:\n    prs.save('deck.pptx')\nPY"
+    expect(officeOutputPaths(cmd)).toEqual(["deck.pptx"]) // captured exactly
+    const remainder = nonOfficeGeneratorText(cmd)
+    expect(remainder).toBe("") // no phantom `> 0:` redirect leaks out of the heredoc body
+    expect(isLikelyWriteCommand(remainder)).toBe(false)
   })
 })

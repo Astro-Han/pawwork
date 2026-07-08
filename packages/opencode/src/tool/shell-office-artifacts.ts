@@ -253,7 +253,11 @@ function saveOutputValues(text: string) {
 function isOfficeGeneratorSegment(words: string[]) {
   const { head, rest } = commandHead(words)
   const lower = head?.toLowerCase()
-  if (lower === "python" || lower === "python3") return true
+  // A direct python interpreter head — `python`, `python3`, or a versioned `python3.12` /
+  // `python2` (`/^python\d/`, the same rule `isPythonCommandToken` uses under `uv run`). A
+  // versioned interpreter must be recognized here too, else `python3.12 build.py -o x.docx`
+  // is judged a non-generator and its office output is silently neither captured nor flagged.
+  if (lower && (lower === "python" || /^python\d/.test(lower))) return true
   // A `uv run ...` invocation — the office-* skills always run through `uv run`, and uv
   // permits global options before the subcommand (`uv --directory work run ...`,
   // `uv --offline run ...`), so the `run` subcommand token is the signal rather than its
@@ -399,7 +403,9 @@ export function officeOutputPaths(command: string) {
 
 // The write-redirections carried by a single command segment, extracted quote-aware so
 // a `>` inside a python string (`-c "print('a > b')"`) is not mistaken for one. Returns
-// e.g. `> log.txt` / `2> err.txt` / `>> out`. Bare input `<` is not a write.
+// e.g. `> log.txt` / `2> err.txt` / `>> out`. Bare input `<` is not a write. A `<<`
+// heredoc body is stdin, not shell — its whole body is skipped so ordinary python code
+// there (`if total > 0:`, an SVG/HTML `>` literal) is never read as a redirect.
 function segmentWriteRedirects(segmentText: string) {
   const parts: string[] = []
   let index = 0
@@ -419,6 +425,13 @@ function segmentWriteRedirects(segmentText: string) {
       quote = char
       index++
       continue
+    }
+    if (char === "<" && segmentText[index + 1] === "<") {
+      const bodyEnd = skipHeredocBody(segmentText, index)
+      if (bodyEnd !== undefined) {
+        index = bodyEnd
+        continue
+      }
     }
     const op = segmentText.slice(index).match(/^(?:&>>?|[0-9]*>>?|[0-9]*>\||[0-9]*<>)/)
     if (op) {
