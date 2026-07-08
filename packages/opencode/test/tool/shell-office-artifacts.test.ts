@@ -54,6 +54,8 @@ describe("officeOutputPaths", () => {
     "cat report.docx",
     "uv run pytest",
     `echo "x.save('a.docx')"`, // .save text inside a non-generator command
+    // .save inside an echo literal, even when a real generator runs later in the chain
+    `echo "wb.save('phantom.xlsx')" && uv run python real.py`,
   ])("returns no output path for non-generator / read command %s", (command) => {
     expect(officeOutputPaths(command)).toEqual([])
   })

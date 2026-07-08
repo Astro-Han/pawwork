@@ -72,6 +72,13 @@ export function tokenWords(command: string) {
 
 const outputFlags = new Set(["-o", "--out", "--output", "--outfile"])
 
+// Commands whose arguments are plain text, not python — an office-looking
+// `.save('x.docx')` inside `echo "...save('x.docx')..."` is a quoted literal, not a
+// write. The cross-segment `.save` scan skips these heads so such literals do not
+// surface a phantom artifact; a heredoc's python body (head like `doc.save(...)`) is
+// not a known command and is still scanned.
+const saveScanSkipHeads = new Set(["echo", "printf", "cat", "grep", "rg", "egrep", "fgrep", "sed", "awk"])
+
 // A native office deliverable is produced by a python / uv-run generator command
 // (the office-* skills run everything through `uv run python ...`). Gating on the
 // generator command keeps a non-output `-o` on some other tool — e.g. grep's
@@ -111,8 +118,10 @@ export function officeOutputPaths(command: string) {
     }
     // `.save(...)` is python-specific, so once the command is a python/uv generator it
     // is safe to scan every segment — a heredoc body or inline `-c` script may split
-    // the call into its own segment on a `;` or newline.
-    if (isGeneratorCommand) {
+    // the call into its own segment on a `;` or newline. Skip segments headed by a
+    // known text command so `.save` inside `echo "...save('x.docx')..."` stays a
+    // literal.
+    if (isGeneratorCommand && !saveScanSkipHeads.has(commandHead(words).head?.toLowerCase() ?? "")) {
       // Allow an optional backslash before the quote so an escaped inner quote in a
       // double-quoted `-c "...save(\"out.docx\")"` is matched as well as `save('x')`.
       for (const match of segment.text.matchAll(/\.save\(\s*\\?["']([^"'\\]+)/gi)) {
