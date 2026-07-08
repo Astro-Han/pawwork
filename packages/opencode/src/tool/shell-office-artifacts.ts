@@ -224,14 +224,19 @@ function isPythonCommandToken(word: string) {
 // like a prior `cd` — it must defer to the discovery backstop. `--directory` is accepted
 // both as a global option (`uv --directory x run ...`) and as a `uv run` option
 // (`uv run --directory x python ...`) — both chdir — so scan up to the executed python
-// command; a `--directory` after that belongs to the script's own args, not uv.
+// command; a `--directory` after that belongs to the script's own args, not uv. A
+// python-ish token that is the VALUE of uv's `--python`/`-p` interpreter selector
+// (`uv run --python python3 --directory work python x.py`) is NOT the command, so it does
+// not stop the scan.
 function uvChangesDirectory(words: string[]) {
   const { head, rest } = commandHead(words)
   if (head?.toLowerCase() !== "uv") return false
+  let previous: string | undefined
   for (const word of rest) {
     const low = word.toLowerCase()
     if (low === "--directory" || low.startsWith("--directory=")) return true
-    if (isPythonCommandToken(word)) break // reached the executed command; later flags are its args
+    if (isPythonCommandToken(word) && previous !== "--python" && previous !== "-p") break
+    previous = low
   }
   return false
 }

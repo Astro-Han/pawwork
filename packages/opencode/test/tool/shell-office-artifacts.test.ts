@@ -82,6 +82,8 @@ describe("officeOutputPaths", () => {
     "uv run python build.py --out report-*.docx", // glob value, discovery must find the real file
     "uv --directory work run python build.py -o report.docx", // relative under --directory (global) chdir
     "uv run --directory work python build.py -o report.docx", // relative under --directory (run option) chdir
+    "uv run --python python3 --directory work python build.py -o report.docx", // --python value must not hide --directory
+    "uv run -p python3 --directory work python build.py -o report.docx", // short -p form too
     "uv --directory work run python <<'PY'\ndoc.save('out.docx')\nPY", // heredoc .save under --directory chdir
     'uv run python build.py --out "{draft,final}.docx"', // brace expansion is shell state, not a literal file
     'uv run python build.py --out "[ab].docx"', // bracket glob is shell state, not a literal file
@@ -126,6 +128,7 @@ describe("hasOfficeOutputIntent", () => {
     "uv --directory work run python build.py -o report.docx",
     "uv run --directory work python build.py -o report.docx", // --directory as a `uv run` option also chdirs
     "uv --directory work run python <<'PY'\ndoc.save('out.docx')\nPY", // heredoc .save inherits the --directory chdir
+    "uv run --python python3 --directory work python build.py -o report.docx", // --python value collision must still see --directory
   ])("detects office-output intent in %s", (command) => {
     expect(hasOfficeOutputIntent(command)).toBe(true)
   })
