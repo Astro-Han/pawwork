@@ -9,5 +9,15 @@
       "win32-arm64": "officecli-win-arm64.exe"
     },
     "skillsTarballSha256": "933f63e5a73d3c136bacfd10f435af775355cc170ab69f4a42dbcf5648b9cb6a"
+  },
+  "uv": {
+    "version": "0.11.28",
+    "repo": "astral-sh/uv",
+    "assets": {
+      "darwin-arm64": "uv-aarch64-apple-darwin.tar.gz",
+      "darwin-x64": "uv-x86_64-apple-darwin.tar.gz",
+      "win32-x64": "uv-x86_64-pc-windows-msvc.zip",
+      "win32-arm64": "uv-aarch64-pc-windows-msvc.zip"
+    }
   }
 }
