@@ -54,6 +54,8 @@ const positive = [
   "uv add foo",
   "uv run python build.py -o report.docx",
   'uv run python build.py -o "report.docx"',
+  'uv run python build.py -o "Quarterly Report.docx"',
+  "uv run python build.py -o 'Q1 deck.pptx'",
   "uv run python scripts/svg_to_pptx.py deck -o artifacts/deck.pptx",
   "python build_xlsx.py data.csv --out book.xlsx",
   "python gen.py --output=slides.pdf",

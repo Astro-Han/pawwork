@@ -42,13 +42,14 @@ export function isLikelyWriteCommand(command: string) {
   if (/(^|\s)(?:&>>?|\d*>\||\d*<>|(?<!<)\d*>>?)\s*[^&\s]/.test(stripped)) return true
 
   // Native office skills generate files by naming the output after an
-  // -o/--out/--output/--outfile flag (e.g. `uv run python build.py -o report.docx`,
-  // quoted or not). Key on the output flag, not any office path, so parse/read
-  // commands like `uv run python read_docx.py input.docx` (the office file is an
-  // input) stay read-only. Match against the raw command so quoted output paths
-  // are not lost to quote-stripping.
-  const officeOut = command.match(/(?:^|\s)(?:-o|--out(?:put|file)?)[=\s]+["']?([^"'\s]+)/i)
-  if (officeOut && isOfficeOutputPath(officeOut[1] ?? "")) return true
+  // -o/--out/--output/--outfile flag (e.g. `uv run python build.py -o report.docx`).
+  // Key on the output flag, not any office path, so parse/read commands like
+  // `uv run python read_docx.py input.docx` (the office file is an input) stay
+  // read-only. Match the raw command (quoted paths survive) and capture the full
+  // quoted value so paths with spaces like `-o "Quarterly Report.docx"` count.
+  const officeOut = command.match(/(?:^|\s)(?:-o|--out(?:put|file)?)[=\s]+(?:"([^"]+)"|'([^']+)'|([^"'\s]+))/i)
+  const officeOutPath = officeOut ? (officeOut[1] ?? officeOut[2] ?? officeOut[3]) : undefined
+  if (officeOutPath && isOfficeOutputPath(officeOutPath)) return true
 
   const strippedSegments = commandSegments(stripped)
   for (let index = 0; index < strippedSegments.length; index++) {
