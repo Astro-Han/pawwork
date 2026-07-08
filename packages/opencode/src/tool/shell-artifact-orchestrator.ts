@@ -113,8 +113,12 @@ export const orchestrateArtifacts = <RunR, DepR>(
     // and skips the scan entirely, staying immune to a nested or overflowing cwd.
     const sideEffectWrite =
       declared.length === 0 && hasMessage && deps.isLikelyWriteCommand(deps.sideEffectCommand(command))
+    // `hasOfficeOutputIntent` reports only UNRESOLVED office outputs (it excludes the ones
+    // `parseOfficeOutputs` captures exactly), so a command mixing an exact output with a
+    // dynamic one — `... -o a.docx && ... -o "$OUT.docx"` — still scans for the dynamic
+    // one instead of being suppressed by the exact parse.
     const dynamicOfficeOutput =
-      declared.length === 0 && hasMessage && parsed.length === 0 && deps.hasOfficeOutputIntent(command)
+      declared.length === 0 && hasMessage && deps.hasOfficeOutputIntent(command)
     const shouldAutoDiscover = sideEffectWrite || dynamicOfficeOutput
 
     const autoDiscoveredBefore = shouldAutoDiscover
@@ -213,10 +217,14 @@ export const orchestrateArtifacts = <RunR, DepR>(
     //  - a dynamic office output the command clearly intended (`-o "$OUT.docx"`) that the
     //    cwd scan did not find — it may have expanded outside cwd or deeper than the scan,
     //    so a real write must not silently vanish from the audit.
-    // A generator whose output the scan actually captured (a changed office artifact) is
-    // NOT flagged — it was caught, not lost.
-    const capturedOfficeChange = officeArtifacts.some((item) => item.changed)
-    if (sideEffectWrite || discoveryOverflowed || (dynamicOfficeOutput && !capturedOfficeChange)) {
+    // Only a DISCOVERED (non-parsed) office change clears the dynamic-output flag: an
+    // exact sibling output (`... -o a.docx && ... -o "$OUT.docx"`) changing does not prove
+    // the dynamic one was captured, so its loss is still flagged.
+    const parsedKeys = new Set(parsedTracked.map((item) => AppFileSystem.normalizePath(item.path)))
+    const capturedDynamicOutput = officeArtifacts.some(
+      (item) => item.changed && !parsedKeys.has(AppFileSystem.normalizePath(item.path)),
+    )
+    if (sideEffectWrite || discoveryOverflowed || (dynamicOfficeOutput && !capturedDynamicOutput)) {
       yield* deps.recordUncaptured({
         sessionID: ctx.sessionID,
         messageID: ctx.messageID,

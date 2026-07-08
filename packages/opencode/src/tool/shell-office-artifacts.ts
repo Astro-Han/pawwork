@@ -93,6 +93,20 @@ function isRelativeOutputValue(value: string) {
   return !value.startsWith("/") && !value.startsWith("\\") && !/^[a-zA-Z]:[\\/]/.test(value)
 }
 
+// Whether an output value is one officeOutputPaths captures verbatim: a static office
+// literal that isn't a cwd-relative path after a `cd` (which would resolve against the
+// wrong directory). Such a value is handled by the exact-capture path and needs no cwd
+// scan; anything else (dynamic, glob, or cwd-relative-after-cd) is an UNRESOLVED intent
+// the backstop must scan for. Shared by officeOutputPaths and hasOfficeOutputIntent so
+// the two never disagree on which outputs are exactly captured.
+function isExactlyCapturableOutput(value: string, cwdChanged: boolean) {
+  return (
+    isOfficeOutputPath(value) &&
+    isStaticOutputValue(value) &&
+    !(cwdChanged && isRelativeOutputValue(value))
+  )
+}
+
 // Whether an output-flag / .save value names something the cwd backstop could actually
 // discover — a `.docx/.xlsx/.pptx` (NOT `.pdf`: discovery excludes it, so a dynamic
 // `.pdf` would trigger a scan that can never find it; static `-o report.pdf` is still
@@ -112,10 +126,25 @@ function dynamicOutputCouldBeDiscoverable(value: string) {
 // "only matching" flag in `grep -o report.docx file` — from being read as an
 // office write.
 function isOfficeGeneratorSegment(words: string[]) {
-  const { head, next } = commandHead(words)
+  const { head, next, rest } = commandHead(words)
   const lower = head?.toLowerCase()
   if (lower === "python" || lower === "python3") return true
-  if (lower === "uv" && next?.toLowerCase() === "run") return true
+  if (lower === "uv") {
+    // Plain `uv run ...`.
+    if (next?.toLowerCase() === "run") return true
+    // uv permits global options before the subcommand
+    // (`uv --directory work run python ...`, `uv --project x run python3 ...`),
+    // which pushes `run` past the immediate next token. Detect a `run python`
+    // pair anywhere in the invocation so those valid generators are not misread
+    // as read-only. Requiring `python`/`python3` right after `run` keeps a
+    // globally-optioned non-python subcommand (`uv --offline run pytest`) from
+    // matching — safe, since it names no office output anyway.
+    for (let index = 0; index < rest.length - 1; index++) {
+      if (rest[index].toLowerCase() !== "run") continue
+      const after = rest[index + 1]?.toLowerCase()
+      if (after === "python" || after === "python3") return true
+    }
+  }
   return false
 }
 
@@ -148,6 +177,7 @@ export function hasOfficeOutputIntent(command: string) {
   const segments = commandSegments(command)
   const isGeneratorCommand = segments.some((segment) => isOfficeGeneratorSegment(shellWords(segment.text)))
   if (!isGeneratorCommand) return false
+  let cwdChangedBeforeSegment = false
   for (const segment of segments) {
     const words = shellWords(segment.text)
     if (isOfficeGeneratorSegment(words)) {
@@ -157,14 +187,27 @@ export function hasOfficeOutputIntent(command: string) {
         const flag = (equals >= 0 ? word.slice(0, equals) : word).toLowerCase()
         if (!outputFlags.has(flag)) continue
         const value = equals >= 0 ? word.slice(equals + 1) : words[index + 1]
-        if (value && dynamicOutputCouldBeDiscoverable(value)) return true
+        // Skip outputs officeOutputPaths already captures exactly — intent means an
+        // UNRESOLVED office output, so a command mixing an exact output with a dynamic
+        // one still reports intent for the dynamic part and triggers the cwd scan.
+        if (
+          value &&
+          !isExactlyCapturableOutput(value, cwdChangedBeforeSegment) &&
+          dynamicOutputCouldBeDiscoverable(value)
+        )
+          return true
       }
     }
     if (shouldScanSaveSegment(words, isGeneratorCommand)) {
       for (const match of segment.text.matchAll(/\.save\s*\(\s*[rbuf]*\\?["']([^"'\\]+)/gi)) {
-        if (dynamicOutputCouldBeDiscoverable(match[1])) return true
+        if (
+          !isExactlyCapturableOutput(match[1], cwdChangedBeforeSegment) &&
+          dynamicOutputCouldBeDiscoverable(match[1])
+        )
+          return true
       }
     }
+    if (isCwdChangeSegment(words)) cwdChangedBeforeSegment = true
   }
   return false
 }
@@ -191,13 +234,7 @@ export function officeOutputPaths(command: string) {
         const flag = (equals >= 0 ? word.slice(0, equals) : word).toLowerCase()
         if (!outputFlags.has(flag)) continue
         const value = equals >= 0 ? word.slice(equals + 1) : words[index + 1]
-        if (
-          value &&
-          isOfficeOutputPath(value) &&
-          isStaticOutputValue(value) &&
-          !(cwdChangedBeforeSegment && isRelativeOutputValue(value))
-        )
-          paths.push(value)
+        if (value && isExactlyCapturableOutput(value, cwdChangedBeforeSegment)) paths.push(value)
       }
     }
     // `.save(...)` is python-specific. Scan generator segments directly, and scan a
@@ -209,12 +246,7 @@ export function officeOutputPaths(command: string) {
       // (`r`/`b`/`u`/`f`, e.g. `.save(r"out.docx")`), and an optional backslash before the
       // quote so an escaped inner quote in `-c "...save(\"out.docx\")"` is matched too.
       for (const match of segment.text.matchAll(/\.save\s*\(\s*[rbuf]*\\?["']([^"'\\]+)/gi)) {
-        if (
-          isOfficeOutputPath(match[1]) &&
-          isStaticOutputValue(match[1]) &&
-          !(cwdChangedBeforeSegment && isRelativeOutputValue(match[1]))
-        )
-          paths.push(match[1])
+        if (isExactlyCapturableOutput(match[1], cwdChangedBeforeSegment)) paths.push(match[1])
       }
     }
     if (isCwdChangeSegment(words)) cwdChangedBeforeSegment = true

@@ -40,6 +40,9 @@ describe("officeOutputPaths", () => {
     ['uv run python build.py -o "Quarterly Report.docx"', ["Quarterly Report.docx"]],
     ["uv run python build.py -o 'Q1 deck.pptx'", ["Q1 deck.pptx"]],
     ["uv run python scripts/svg_to_pptx.py deck -o artifacts/deck.pptx", ["artifacts/deck.pptx"]],
+    // uv permits global options (--directory / --project) before the `run` subcommand
+    ["uv --directory work run python build.py -o report.docx", ["report.docx"]],
+    ["uv --project app run python3 build.py --out book.xlsx", ["book.xlsx"]],
     ["python build_xlsx.py data.csv --out book.xlsx", ["book.xlsx"]],
     ["python gen.py --output=slides.pdf", ["slides.pdf"]],
     // python .save(...) — the documented python-docx / openpyxl / python-pptx call
@@ -95,6 +98,11 @@ describe("hasOfficeOutputIntent", () => {
     "uv run python build.py --out report-*.docx", // glob
     "cd reports && uv run python build.py -o report.docx", // relative after cd
     `cd reports && uv run python -c "from docx import Document; Document().save('report.docx')"`,
+    // mixed: an exact output AND a dynamic one — intent still fires for the dynamic part
+    // (so the cwd scan runs) even though the exact `a.docx` is captured precisely
+    'uv run python a.py -o a.docx && OUT=b uv run python b.py -o "$OUT.docx"',
+    // uv global options before `run` must not hide the dynamic output
+    'uv --directory work run python build.py -o "$OUT.docx"',
   ])("detects office-output intent in %s", (command) => {
     expect(hasOfficeOutputIntent(command)).toBe(true)
   })
@@ -109,6 +117,8 @@ describe("hasOfficeOutputIntent", () => {
     "cat report.docx",
     "uv run python build.py --out report.txt", // output flag, but non-office target
     'uv run python build.py -o "$OUT.pdf"', // dynamic .pdf — discovery can't find it
+    "uv run python build.py -o report.docx", // exact static output — captured, not scanned
+    "uv --directory work run python build.py -o report.docx", // exact even with uv global opts
   ])("reports no intent for %s", (command) => {
     expect(hasOfficeOutputIntent(command)).toBe(false)
   })

@@ -604,6 +604,75 @@ describe("orchestrateArtifacts", () => {
     expect((result.metadata as any).artifacts).toBeUndefined()
   })
 
+  // A command mixing an EXACT office output with a DYNAMIC one — the exact `a.docx` is
+  // captured precisely, but `-o "$OUT.docx"` needs the cwd scan. The exact parse must not
+  // suppress the dynamic scan: both deliverables are surfaced.
+  test("mixed exact + dynamic office outputs → exact captured AND dynamic discovered", async () => {
+    const exact = np("a.docx")
+    const dyn = np("/tmp/work/b.docx")
+    const command = 'uv run python a.py -o a.docx && OUT=b uv run python b.py -o "$OUT.docx"'
+    expect(officeOutputPaths(command)).toEqual(["a.docx"]) // only the exact one parses
+    expect(hasOfficeOutputIntent(command)).toBe(true) // dynamic b.docx still shows intent
+
+    const harness = build({
+      states: {
+        [exact]: [stateMissing(), stateFile("h1")],
+        [dyn]: [stateMissing(), stateFile("h2")],
+      },
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      intentFn: hasOfficeOutputIntent,
+      sideEffectFn: nonOfficeGeneratorText,
+      discoverPaths: [dyn], // the scan finds the dynamic file
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        { ctx, cwd: "/tmp/work", directory: "/tmp/work", shell: "/bin/bash", command, expectedOutputs: [] },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.discoverCalls).toBeGreaterThan(0) // exact parse did NOT suppress the scan
+    expect(harness.writes).toHaveLength(2) // both a.docx and b.docx captured
+    expect(harness.writes.map((w) => w.path).sort()).toEqual([exact, dyn].sort())
+    expect(harness.uncaptured).toHaveLength(0) // nothing lost
+    const artifacts = (result.metadata as any).artifacts
+    expect(artifacts).toBeArrayOfSize(2)
+  })
+
+  // Same mix, but the dynamic file lands outside the scan. The exact `a.docx` changing must
+  // NOT mask the lost dynamic `b.docx`: only a DISCOVERED change clears the dynamic flag, so
+  // the turn is still marked uncaptured.
+  test("mixed exact + dynamic, dynamic not found → exact captured AND uncaptured flagged", async () => {
+    const exact = np("a.docx")
+    const command = 'uv run python a.py -o a.docx && OUT=b uv run python b.py -o "$OUT.docx"'
+
+    const harness = build({
+      states: { [exact]: [stateMissing(), stateFile("h1")] },
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      intentFn: hasOfficeOutputIntent,
+      sideEffectFn: nonOfficeGeneratorText,
+      discoverPaths: [], // dynamic b.docx landed outside the scan
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        { ctx, cwd: "/tmp/work", directory: "/tmp/work", shell: "/bin/bash", command, expectedOutputs: [] },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.writes).toHaveLength(1)
+    expect(harness.writes[0].path).toBe(exact) // a.docx still surfaced
+    expect(harness.uncaptured).toHaveLength(1) // b.docx loss not masked by a.docx change
+    const artifacts = (result.metadata as any).artifacts
+    expect(artifacts).toBeArrayOfSize(1)
+  })
+
   // After `cd reports`, a relative `-o report.docx` is relative to the shell's new
   // working directory, not the original execution cwd. The parser must not track the
   // original-cwd phantom; discovery captures the real nested file instead.
