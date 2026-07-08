@@ -92,7 +92,7 @@ describe("release workflow", () => {
       const cleanupSnapshotTag = parsed.jobs?.["cleanup-snapshot-tag"]
       const steps = buildElectron?.steps ?? []
       const checkoutSteps = steps.filter(
-        (step) => step.uses === "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+        (step) => step.uses === "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
       )
       const setupNodeStep = steps.find(
         (step) => step.uses === "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
@@ -103,6 +103,8 @@ describe("release workflow", () => {
       const nonMacArtifactStep = steps.find((step) => step.name === "Upload packaged app artifact")
       const buildElectronAppStep = steps.find((step) => step.name === "Build Electron app")
       const runtimeImportGuardStep = steps.find((step) => step.name === "Check desktop runtime imports")
+      const remoteBridgeTestStep = steps.find((step) => step.name === "Test remote bridge")
+      const remoteBridgeRaceStep = steps.find((step) => step.name === "Race test remote bridge")
       const setupAppleApiKeyStep = steps.find((step) => step.name === "Setup Apple API Key")
       const deleteAppleApiKeyAfterSubmitStep = steps.find(
         (step) => step.name === "Delete Apple API Key after submit",
@@ -195,6 +197,11 @@ describe("release workflow", () => {
       expect(runtimeImportGuardStep?.if).toBe("${{ inputs.phase != 'finalize' }}")
       expect(runtimeImportGuardStep?.run).toBe("bun ./scripts/runtime-import-guard.ts")
       expect(runtimeImportGuardStep?.["working-directory"]).toBe("packages/desktop-electron")
+      expect(remoteBridgeTestStep?.if).toBe("${{ inputs.phase != 'finalize' }}")
+      expect(remoteBridgeTestStep?.run).toBe("bun test ./src")
+      expect(remoteBridgeTestStep?.["working-directory"]).toBe("packages/remote-bridge")
+      // The Go race step retired with the TypeScript port; the bun suite replaces it.
+      expect(remoteBridgeRaceStep).toBeUndefined()
       expect(steps.indexOf(runtimeImportGuardStep!)).toBeGreaterThan(steps.indexOf(buildElectronAppStep!))
       expect(steps.indexOf(runtimeImportGuardStep!)).toBeLessThan(steps.indexOf(setupAppleApiKeyStep!))
       expect(submitNotarizationStep).toBeDefined()

@@ -1,4 +1,4 @@
-import { Effect, Layer, ManagedRuntime } from "effect"
+import { Effect, Layer } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { Skill } from "../../src/skill"
 import { Ripgrep } from "../../src/file/ripgrep"
@@ -13,6 +13,7 @@ import { SkillTool } from "../../src/tool/skill"
 import { ToolRegistry } from "../../src/tool/registry"
 import { tmpdir } from "../fixture/fixture"
 import { SessionID, MessageID } from "../../src/session/schema"
+import { AppRuntime } from "../../src/effect/app-runtime"
 
 const baseCtx: Omit<Tool.Context, "ask"> = {
   sessionID: SessionID.make("ses_test"),
@@ -24,9 +25,15 @@ const baseCtx: Omit<Tool.Context, "ask"> = {
   metadata: () => Effect.void,
 }
 
+const testLayer = Layer.mergeAll(Skill.defaultLayer, Ripgrep.defaultLayer, Truncate.defaultLayer, Agent.defaultLayer)
+
 afterEach(async () => {
   await Instance.disposeAll()
 })
+
+function registryTools(input: Parameters<ToolRegistry.Interface["tools"]>[0]) {
+  return AppRuntime.runPromise(ToolRegistry.Service.use((svc) => svc.tools(input)))
+}
 
 describe("tool.skill", () => {
   test("description does not duplicate the available skill catalog", async () => {
@@ -54,7 +61,7 @@ description: Skill for tool tests.
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const desc = await ToolRegistry.tools({
+          const desc = await registryTools({
             providerID: "opencode" as any,
             modelID: "gpt-5" as any,
             agent: { name: "build", mode: "primary" as const, permission: [], options: {} },
@@ -102,7 +109,7 @@ description: ${description}
         fn: async () => {
           const agent = { name: "build", mode: "primary" as const, permission: [], options: {} }
           const load = () =>
-            ToolRegistry.tools({
+            registryTools({
               providerID: "opencode" as any,
               modelID: "gpt-5" as any,
               agent,
@@ -154,7 +161,7 @@ name: manual-skill
             ],
             options: {},
           }
-          const desc = await ToolRegistry.tools({
+          const desc = await registryTools({
             providerID: "opencode" as any,
             modelID: "gpt-5" as any,
             agent,
@@ -199,11 +206,6 @@ Use this skill.
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const runtime = ManagedRuntime.make(
-            Layer.mergeAll(Skill.defaultLayer, Ripgrep.defaultLayer, Truncate.defaultLayer, Agent.defaultLayer),
-          )
-          const info = await runtime.runPromise(SkillTool)
-          const tool = await runtime.runPromise(info.init())
           const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
           const ctx: Tool.Context = {
             ...baseCtx,
@@ -213,7 +215,13 @@ Use this skill.
               }),
           }
 
-          const result = await runtime.runPromise(tool.execute({ name: "tool-skill" }, ctx))
+          const result = await Effect.runPromise(
+            Effect.gen(function* () {
+              const info = yield* SkillTool
+              const tool = yield* info.init()
+              return yield* tool.execute({ name: "tool-skill" }, ctx)
+            }).pipe(Effect.scoped, Effect.provide(testLayer)),
+          )
           const dir = path.join(tmp.path, ".opencode", "skill", "tool-skill")
           const file = path.resolve(dir, "scripts", "demo.txt")
 

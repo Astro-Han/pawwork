@@ -38,10 +38,9 @@ export function isElectronInstallComplete(electronDir, platform = process.platfo
       "Frameworks",
       "Electron Framework.framework",
     )
-    return [
-      join(frameworkDir, "Electron Framework"),
-      join(frameworkDir, "Versions", "A", "Electron Framework"),
-    ].some((candidate) => existsSync(candidate))
+    return [join(frameworkDir, "Electron Framework"), join(frameworkDir, "Versions", "A", "Electron Framework")].some(
+      (candidate) => existsSync(candidate),
+    )
   }
 
   return true
@@ -216,6 +215,56 @@ export function repairElectronInstall() {
   repairElectronInstallAt(electronDir)
 }
 
+export function assertElectronInstallComplete(
+  electronDir = join(require.resolve("electron/package.json"), ".."),
+  platform = process.platform,
+) {
+  const platformPath = platformPathForElectron(platform)
+  const binaryPath = join(electronDir, "dist", platformPath)
+
+  if (!existsSync(binaryPath)) {
+    throw new Error(`Electron binary missing: ${binaryPath}`)
+  }
+
+  if (platform === "darwin" || platform === "mas") {
+    const frameworkDir = join(
+      electronDir,
+      "dist",
+      "Electron.app",
+      "Contents",
+      "Frameworks",
+      "Electron Framework.framework",
+    )
+    const frameworkBinary = [
+      join(frameworkDir, "Electron Framework"),
+      join(frameworkDir, "Versions", "A", "Electron Framework"),
+    ].find((candidate) => existsSync(candidate))
+
+    if (!frameworkBinary) {
+      throw new Error(`Electron Framework binary missing in ${frameworkDir}`)
+    }
+  }
+
+  let pathContent
+  try {
+    pathContent = readFileSync(join(electronDir, "path.txt"), "utf8").trim()
+  } catch {
+    throw new Error(`Electron path.txt missing: ${join(electronDir, "path.txt")}`)
+  }
+
+  if (pathContent !== platformPath) {
+    throw new Error(
+      `Electron path.txt content mismatch: expected ${JSON.stringify(platformPath)}, got ${JSON.stringify(pathContent)}`,
+    )
+  }
+
+  console.log(`Electron install complete: binary, Framework, and path.txt verified at ${electronDir}`)
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
-  repairElectronInstall()
+  if (process.argv.includes("--assert-complete")) {
+    assertElectronInstallComplete()
+  } else {
+    repairElectronInstall()
+  }
 }

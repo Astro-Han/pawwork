@@ -1,5 +1,7 @@
 import { afterEach, test, expect } from "bun:test"
+import type { Effect } from "effect"
 import { Skill } from "../../src/skill"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import path from "path"
@@ -11,6 +13,10 @@ const processWithResourcesPath = process as NodeJS.Process & { resourcesPath?: s
 afterEach(async () => {
   await Instance.disposeAll()
 })
+
+function runSkill<A>(fn: (skill: Skill.Interface) => Effect.Effect<A>) {
+  return AppRuntime.runPromise(Skill.Service.use(fn))
+}
 
 async function createBundledSkill(resourcesDir: string, name: string, description = "A bundled skill for testing.") {
   const skillDir = path.join(resourcesDir, "skills", name)
@@ -50,7 +56,7 @@ Instructions here.
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const skills = await Skill.all()
+      const skills = await runSkill((skill) => skill.all())
       const testSkill = skills.find((s) => s.name === "test-skill")
       expect(testSkill).toBeDefined()
       expect(testSkill!.description).toBe("A test skill for verification.")
@@ -84,7 +90,7 @@ description: Skill for dirs test.
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const dirs = await Skill.dirs()
+        const dirs = await runSkill((skill) => skill.dirs())
         const skillDir = path.join(tmp.path, ".opencode", "skill", "dir-skill")
         expect(dirs).toContain(skillDir)
         expect(dirs.length).toBeGreaterThanOrEqual(1)
@@ -127,7 +133,7 @@ description: Second test skill.
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const skills = await Skill.all()
+      const skills = await runSkill((skill) => skill.all())
       expect(skills.find((s) => s.name === "skill-one")).toBeDefined()
       expect(skills.find((s) => s.name === "skill-two")).toBeDefined()
     },
@@ -152,7 +158,7 @@ Just some content without YAML frontmatter.
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const skills = await Skill.all()
+      const skills = await runSkill((skill) => skill.all())
       expect(skills.find((s) => s.name === "no-frontmatter")).toBeUndefined()
     },
   })
@@ -180,7 +186,7 @@ Instructions here.
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const skills = await Skill.all()
+      const skills = await runSkill((skill) => skill.all())
       const item = skills.find((s) => s.name === "manual-skill")
       expect(item).toBeDefined()
       expect(item!.description).toBeUndefined()
@@ -198,7 +204,7 @@ test("returns empty array when no skills exist", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const skills = await Skill.all()
+      const skills = await runSkill((skill) => skill.all())
       expect(
         skills.find(
           (s) =>
@@ -240,7 +246,7 @@ description: A skill in the .agents/skills directory.
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const skills = await Skill.all()
+      const skills = await runSkill((skill) => skill.all())
       const agentSkill = skills.find((s) => s.name === "agent-skill")
       expect(agentSkill).toBeDefined()
       expect(agentSkill!.location).toContain(path.join(".agents", "skills", "agent-skill", "SKILL.md"))
@@ -273,7 +279,7 @@ This skill is loaded from the global home directory.
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const skills = await Skill.all()
+        const skills = await runSkill((skill) => skill.all())
         const skill = skills.find((item) => item.name === "global-agent-skill")
         expect(skill).toBeDefined()
         expect(skill!.description).toBe("A global skill from ~/.agents/skills for testing.")
@@ -314,7 +320,7 @@ description: A global skill from ~/.agents/skills for testing.
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const skills = await Skill.all()
+        const skills = await runSkill((skill) => skill.all())
         expect(skills.filter((item) => item.name === "global-agent-skill")).toHaveLength(1)
       },
     })
@@ -362,7 +368,7 @@ description: Duplicate skill name from ${folder}.
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const skill = await Skill.get("shared-skill")
+        const skill = await runSkill((skill) => skill.get("shared-skill"))
         expect(skill).toBeDefined()
       },
     })
@@ -409,7 +415,7 @@ description: A skill in the .claude/skills directory.
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const skills = await Skill.all()
+      const skills = await runSkill((skill) => skill.all())
       expect(skills.find((s) => s.name === "agent-skill")).toBeDefined()
       expect(skills.find((s) => s.name === "claude-skill")).toBeUndefined()
     },
@@ -452,7 +458,7 @@ description: A skill in the .claude/skills directory.
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const skills = await Skill.all()
+        const skills = await runSkill((skill) => skill.all())
         expect(skills.find((s) => s.name === "agent-skill")).toBeDefined()
         expect(skills.find((s) => s.name === "claude-skill")).toBeUndefined()
       },
@@ -506,7 +512,7 @@ description: A skill in the .opencode/skills directory.
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const dirs = await Skill.dirs()
+      const dirs = await runSkill((skill) => skill.dirs())
       expect(dirs).toContain(path.join(tmp.path, ".opencode", "skill", "agent-skill"))
       expect(dirs).toContain(path.join(tmp.path, ".opencode", "skills", "agent-skill"))
       expect(dirs).toContain(path.join(tmp.path, ".agents", "skills", "agent-skill"))
@@ -526,7 +532,7 @@ test("discovers bundled skills from process.resourcesPath", async () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const skills = await Skill.all()
+        const skills = await runSkill((skill) => skill.all())
         const bundled = skills.find((item) => item.name === "packaged-only-skill")
         expect(bundled).toBeDefined()
         expect(bundled!.description).toBe("A bundled packaged skill.")
@@ -548,7 +554,7 @@ test("discovers bundled skills from the repo skills directory in dev", async () 
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const skills = await Skill.all()
+        const skills = await runSkill((skill) => skill.all())
         // Positive: every vendored officecli/morph skill must be present. Missing entries
         // signal upstream layout drift or a broken sync that ships an incomplete bundle.
         const vendoredNames = [

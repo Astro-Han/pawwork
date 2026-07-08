@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Cause, Effect, Layer } from "effect"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Session } from "../../src/session"
 import { Instance } from "../../src/project/instance"
 import { Log } from "@opencode-ai/core/util/log"
@@ -17,6 +18,8 @@ const ref = {
 }
 
 void Log.init({ print: false })
+
+const runSession = <A>(fn: (svc: Session.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Session.Service.use(fn))
 
 describe("SubtaskPart backward compat", () => {
   test("decodes a legacy row lacking lifecycle fields as terminal-completed", () => {
@@ -422,12 +425,14 @@ describe("Session.create new fields", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const created = await Session.create({
-          title: "child",
-          createdByAgentTool: true,
-          subagentType: "reviewer",
-        })
-        const fetched = await Session.get(created.id)
+        const created = await runSession((svc) =>
+          svc.create({
+            title: "child",
+            createdByAgentTool: true,
+            subagentType: "reviewer",
+          }),
+        )
+        const fetched = await runSession((svc) => svc.get(created.id))
         expect(fetched.createdByAgentTool).toBe(true)
         expect(fetched.subagentType).toBe("reviewer")
       },
@@ -439,8 +444,8 @@ describe("Session.create new fields", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const created = await Session.create({ title: "plain" })
-        const fetched = await Session.get(created.id)
+        const created = await runSession((svc) => svc.create({ title: "plain" }))
+        const fetched = await runSession((svc) => svc.get(created.id))
         expect(fetched.createdByAgentTool).toBe(false)
         expect(fetched.subagentType).toBeNull()
       },

@@ -41,6 +41,48 @@ describe("renderer diagnostics recorder", () => {
     expect(JSON.parse(lines[1])["event.name"]).toBe("session.action.submit")
   })
 
+  test("records connection health probe diagnostics without exporting server URLs", async () => {
+    const root = await tempRoot()
+    const recorder = createRendererDiagnosticsRecorder({
+      root,
+      appLaunchID: "launch_1",
+      now: () => new Date("2026-05-02T10:30:12.123Z"),
+    })
+
+    await recorder.record(
+      {
+        name: "connection.server.health_probe",
+        monotonic_ms: 4,
+        data: {
+          server_key_hash: "abc123",
+          server_kind: "sidecar",
+          active: true,
+          healthy: false,
+          duration_ms: 3001,
+          failure_count: 1,
+          toasted: false,
+          server_url: "https://example.com/token=secret",
+        },
+      },
+      { windowID: 1 },
+    )
+
+    const lines = (await readFile(recorder.path, "utf8")).trim().split("\n")
+    expect(lines).toHaveLength(1)
+    const event = JSON.parse(lines[0])
+    expect(event["event.name"]).toBe("connection.server.health_probe")
+    expect(event.data).toEqual({
+      server_key_hash: "abc123",
+      server_kind: "sidecar",
+      active: true,
+      healthy: false,
+      duration_ms: 3001,
+      failure_count: 1,
+      toasted: false,
+    })
+    expect(JSON.stringify(event)).not.toContain("token=secret")
+  })
+
   test("drops high-frequency duplicate scroll controller diagnostics", async () => {
     const root = await tempRoot()
     const recorder = createRendererDiagnosticsRecorder({

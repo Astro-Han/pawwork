@@ -41,6 +41,11 @@ describe("automate tool", () => {
     const tool = createAutomateDefinition(fakeProviderInterface, automation)
     expect(tool.description).toContain("reminder")
     expect(tool.description).toContain("one time")
+    expect(tool.description).toContain("monitor")
+    expect(tool.description).toContain("poll")
+    expect(tool.description).toContain("check periodically")
+    expect(tool.description).toContain("every 5 minutes")
+    expect(tool.description).toContain("until a status changes")
     expect(tool.description).toContain("Never set up OS schedulers")
     // The exception must stay aligned with pawwork.txt's scheduling section:
     // an explicit user request for a system-level scheduler is legitimate work.

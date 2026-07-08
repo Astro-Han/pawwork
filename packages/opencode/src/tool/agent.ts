@@ -178,7 +178,7 @@ export const AgentTool = Tool.define(
     const subagentRun = yield* SubagentRun.Service
     const readLastCompletedAssistantText = makeReadLastCompletedAssistantText(sessions)
 
-    const run = Effect.fn("AgentTool.execute")(function* (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) {
+    const execute = Effect.fn("AgentTool.execute")(function* (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) {
       const cfg = yield* config.get()
 
       if (!ctx.callID) return yield* Effect.fail(new Error("AgentTool.execute requires ctx.callID"))
@@ -542,12 +542,12 @@ export const AgentTool = Tool.define(
           )
         }),
       )
-    })
+    }, Effect.orDie)
 
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) => run(params, ctx).pipe(Effect.orDie),
+      execute,
     }
   }),
 )

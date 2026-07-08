@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test"
+import { Effect } from "effect"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { Pty } from "../../src/pty"
 import { tmpdir } from "../fixture/fixture"
@@ -14,6 +16,10 @@ const wait = async (fn: () => boolean, ms = 5000) => {
   throw new Error(`timeout waiting ${ms}ms for pty output`)
 }
 
+function pty<A, E>(fn: (svc: Pty.Interface) => Effect.Effect<A, E>) {
+  return AppRuntime.runPromise(Pty.Service.use(fn))
+}
+
 describe("pty", () => {
   test("does not leak output when websocket objects are reused", async () => {
     await using dir = await tmpdir({ git: true })
@@ -21,8 +27,8 @@ describe("pty", () => {
     await Instance.provide({
       directory: dir.path,
       fn: async () => {
-        const a = await Pty.create({ command: "cat", title: "a" })
-        const b = await Pty.create({ command: "cat", title: "b" })
+        const a = await pty((svc) => svc.create({ command: "cat", title: "a" }))
+        const b = await pty((svc) => svc.create({ command: "cat", title: "b" }))
         try {
           const outA: string[] = []
           const outB: string[] = []
@@ -39,27 +45,27 @@ describe("pty", () => {
           }
 
           // Connect "a" first with ws.
-          await Pty.connect(a.id, ws as any)
+          await pty((svc) => svc.connect(a.id, ws as any))
 
           // Now "reuse" the same ws object for another connection.
           ws.data = { events: { connection: "b" } }
           ws.send = (data: unknown) => {
             outB.push(typeof data === "string" ? data : Buffer.from(data as Uint8Array).toString("utf8"))
           }
-          await Pty.connect(b.id, ws as any)
+          await pty((svc) => svc.connect(b.id, ws as any))
 
           // Clear connect metadata writes.
           outA.length = 0
           outB.length = 0
 
           // Output from a must never show up in b.
-          await Pty.write(a.id, "AAA\n")
+          await pty((svc) => svc.write(a.id, "AAA\n"))
           await sleep(100)
 
           expect(outB.join("")).not.toContain("AAA")
         } finally {
-          await Pty.remove(a.id)
-          await Pty.remove(b.id)
+          await pty((svc) => svc.remove(a.id))
+          await pty((svc) => svc.remove(b.id))
         }
       },
     })
@@ -71,7 +77,7 @@ describe("pty", () => {
     await Instance.provide({
       directory: dir.path,
       fn: async () => {
-        const a = await Pty.create({ command: "cat", title: "a" })
+        const a = await pty((svc) => svc.create({ command: "cat", title: "a" }))
         try {
           const outA: string[] = []
           const outB: string[] = []
@@ -88,7 +94,7 @@ describe("pty", () => {
           }
 
           // Connect "a" first.
-          await Pty.connect(a.id, ws as any)
+          await pty((svc) => svc.connect(a.id, ws as any))
           outA.length = 0
 
           // Simulate Bun reusing the same websocket object for another
@@ -98,12 +104,12 @@ describe("pty", () => {
             outB.push(typeof data === "string" ? data : Buffer.from(data as Uint8Array).toString("utf8"))
           }
 
-          await Pty.write(a.id, "AAA\n")
+          await pty((svc) => svc.write(a.id, "AAA\n"))
           await sleep(100)
 
           expect(outB.join("")).not.toContain("AAA")
         } finally {
-          await Pty.remove(a.id)
+          await pty((svc) => svc.remove(a.id))
         }
       },
     })
@@ -115,7 +121,7 @@ describe("pty", () => {
     await Instance.provide({
       directory: dir.path,
       fn: async () => {
-        const a = await Pty.create({ command: "cat", title: "a" })
+        const a = await pty((svc) => svc.create({ command: "cat", title: "a" }))
         try {
           const out: string[] = []
 
@@ -131,19 +137,19 @@ describe("pty", () => {
             },
           }
 
-          await Pty.connect(a.id, ws as any)
+          await pty((svc) => svc.connect(a.id, ws as any))
           out.length = 0
 
           // Mutating fields on ws.data should not look like a new
           // connection lifecycle when the object identity stays stable.
           ctx.connId = 2
 
-          await Pty.write(a.id, "AAA\n")
+          await pty((svc) => svc.write(a.id, "AAA\n"))
           await wait(() => out.join("").includes("AAA"))
 
           expect(out.join("")).toContain("AAA")
         } finally {
-          await Pty.remove(a.id)
+          await pty((svc) => svc.remove(a.id))
         }
       },
     })

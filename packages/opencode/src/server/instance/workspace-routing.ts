@@ -83,12 +83,16 @@ export function shouldCreateLegacyConfigBeforeNoWorkspacePath(input: {
   return input.pathname === "/path" && input.ensureConfig && !input.isPawWork
 }
 
-async function getSessionWorkspace(pathname: string) {
+function getSessionWorkspace(pathname: string) {
   const id = sessionIDForWorkspaceRouting(pathname)
-  if (!id) return null
+  if (!id) return Effect.succeed(undefined)
 
-  const session = await Session.get(id).catch(() => undefined)
-  return session?.workspaceID
+  return Session.Service.use((sessions) =>
+    sessions.get(id).pipe(
+      Effect.map((session) => session.workspaceID),
+      Effect.catchCause(() => Effect.succeed(undefined)),
+    ),
+  )
 }
 
 export function resolveWorkspaceRoute(input: {
@@ -99,12 +103,9 @@ export function resolveWorkspaceRoute(input: {
   ensureConfig: boolean
   isPawWork: boolean
   isWebSocketUpgrade?: boolean
-}): Effect.Effect<WorkspaceRouteResolution, WorkspaceRoutingError> {
+}): Effect.Effect<WorkspaceRouteResolution, WorkspaceRoutingError, Workspace.Service | Session.Service> {
   return Effect.gen(function* () {
-    const sessionWorkspaceID = yield* Effect.tryPromise({
-      try: () => getSessionWorkspace(input.pathname),
-      catch: workspaceRoutingFailure("session-workspace", "Failed to resolve session workspace"),
-    })
+    const sessionWorkspaceID = yield* getSessionWorkspace(input.pathname)
     const workspaceID = sessionWorkspaceID || input.workspaceID
 
     if (!workspaceID) {
@@ -124,10 +125,10 @@ export function resolveWorkspaceRoute(input: {
       try: () => WorkspaceID.make(workspaceID),
       catch: workspaceRoutingFailure("workspace-id", `Invalid workspace id: ${workspaceID}`),
     })
-    const workspace = yield* Effect.tryPromise({
-      try: () => Workspace.record(id),
-      catch: workspaceRoutingFailure("workspace-record", `Failed to read workspace: ${id}`),
-    })
+    const workspaceService = yield* Workspace.Service
+    const workspace = yield* workspaceService
+      .record(id)
+      .pipe(Effect.mapError(workspaceRoutingFailure("workspace-record", `Failed to read workspace: ${id}`)))
 
     if (!workspace) {
       const decision = classifyWorkspaceRoute({
@@ -141,19 +142,16 @@ export function resolveWorkspaceRoute(input: {
       return { action: "missing-workspace-error", workspaceID: id }
     }
 
-    yield* Effect.try({
-      try: () => Workspace.ensureSync(workspace, input.directory),
-      catch: workspaceRoutingFailure("workspace-sync", `Failed to start workspace sync: ${id}`),
-    })
+    yield* workspaceService
+      .ensureSync(workspace, input.directory)
+      .pipe(Effect.mapError(workspaceRoutingFailure("workspace-sync", `Failed to start workspace sync: ${id}`)))
 
-    const adaptor = yield* Effect.tryPromise({
-      try: () =>
-        Workspace.resolveAdaptor({
-          ...workspace,
-          hint: input.directory,
-        }),
-      catch: workspaceRoutingFailure("workspace-adaptor", `Failed to resolve workspace adaptor: ${id}`),
-    })
+    const adaptor = yield* workspaceService
+      .resolveAdaptor({
+        ...workspace,
+        hint: input.directory,
+      })
+      .pipe(Effect.mapError(workspaceRoutingFailure("workspace-adaptor", `Failed to resolve workspace adaptor: ${id}`)))
     const target = yield* Effect.tryPromise({
       try: async () => {
         const next = await adaptor.target(workspace)

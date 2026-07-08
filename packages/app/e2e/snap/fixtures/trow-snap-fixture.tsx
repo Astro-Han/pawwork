@@ -17,6 +17,7 @@ import {
   metadataDetailParts,
   mixedRealToolParts,
   questionDetailParts,
+  readyQuestionMarkerParts,
   reasoningOnlyParts,
   runningReasoningParts,
   reasoningWithToolsParts,
@@ -238,6 +239,9 @@ function TrowSnapFixture() {
       </div>
       <div data-snap="dismissed-question-collapsed">
         <AssistantPartsCase parts={dismissedQuestionParts} />
+      </div>
+      <div data-snap="ready-question-marker">
+        <AssistantPartsCase parts={readyQuestionMarkerParts} working />
       </div>
       <div data-snap="metadata-detail-collapsed">
         <TrowBlock

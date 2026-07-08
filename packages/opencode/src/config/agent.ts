@@ -3,7 +3,7 @@ export * as ConfigAgent from "./agent"
 import path from "path"
 import { Schema } from "effect"
 import z from "zod"
-import { Bus } from "@/bus"
+import { GlobalBus } from "@/bus/global"
 import { zod } from "@/util/effect-zod"
 import { Log } from "../util"
 import { NamedError } from "@opencode-ai/util/error"
@@ -120,7 +120,10 @@ export type Info = z.infer<typeof Info>
 
 async function reportLoadError(error: { toObject(): any }, context: Record<string, unknown>) {
   const { Session } = await import("@/session")
-  void Bus.publish(Session.Event.Error, { error: error.toObject() })
+  GlobalBus.emit("event", {
+    directory: "global",
+    payload: { type: Session.Event.Error.type, properties: { error: error.toObject() } },
+  })
   log.error("failed to load agent", context)
 }
 
@@ -137,7 +140,10 @@ export async function load(dir: string) {
         ? err.data.message
         : `Failed to parse agent ${item}`
       const { Session } = await import("@/session")
-      void Bus.publish(Session.Event.Error, { error: new NamedError.Unknown({ message }).toObject() })
+      GlobalBus.emit("event", {
+        directory: "global",
+        payload: { type: Session.Event.Error.type, properties: { error: new NamedError.Unknown({ message }).toObject() } },
+      })
       log.error("failed to load agent", { agent: item, err })
       return undefined
     })
@@ -174,7 +180,10 @@ export async function loadMode(dir: string) {
         ? err.data.message
         : `Failed to parse mode ${item}`
       const { Session } = await import("@/session")
-      void Bus.publish(Session.Event.Error, { error: new NamedError.Unknown({ message }).toObject() })
+      GlobalBus.emit("event", {
+        directory: "global",
+        payload: { type: Session.Event.Error.type, properties: { error: new NamedError.Unknown({ message }).toObject() } },
+      })
       log.error("failed to load mode", { mode: item, err })
       return undefined
     })

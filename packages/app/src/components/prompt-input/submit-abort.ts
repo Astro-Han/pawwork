@@ -2,7 +2,7 @@ import type { useSDK } from "@/context/sdk"
 import { emitRendererDiagnostic, sessionAbortDiagnosticEvent } from "@/context/renderer-diagnostics"
 import { rendererAbortDiagnosticSource, type RendererAbortSource } from "@/session/abort-source"
 
-export type AbortSource = Extract<RendererAbortSource, "ctrlG" | "emptyEnter" | "escape" | "stopButton">
+export type AbortSource = Extract<RendererAbortSource, "ctrlG" | "escape" | "stopButton">
 
 export type PendingPrompt = {
   abort: AbortController

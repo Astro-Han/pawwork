@@ -56,6 +56,17 @@ describe("classifyRetry — free_quota_exhausted positive", () => {
       expect(classification.resetAt).toBeDefined()
     }
   })
+
+  test("typed FreeUsageLimitError stream body still routes to free_quota_exhausted", () => {
+    // Real FreeUsageLimitError arrives as an APICallError 429, but the typed
+    // stream shape must classify end-to-end too: fromError keeps it kind=unknown
+    // and retryable, so classifyRetry can reach the free-quota branch.
+    const error = MessageV2.fromError(
+      { type: "error", error: { type: "FreeUsageLimitError", message: "FreeUsageLimitError" } },
+      { providerID: ProviderID.opencode },
+    )
+    expect(classifyRetry(error)?.kind).toBe("free_quota_exhausted")
+  })
 })
 
 describe("classifyRetry — reverse guards", () => {
@@ -128,13 +139,29 @@ describe("classifyRetry — reads providerFailure.kind (slice ④)", () => {
 
   // Transient kinds always retry, even if isRetryable is false and the status is
   // not 5xx — the classification, not the SDK flag, is the source of truth.
-  for (const kind of ["rate_limit", "server_overload", "transport_disconnect", "decompression"] as const) {
+  for (const kind of ["rate_limit", "server_overload", "decompression"] as const) {
     test(`transient kind ${kind} retries even when isRetryable is false and status is not 5xx`, () => {
       expect(
         classifyRetry(makeAPIError({ isRetryable: false, statusCode: 400, providerFailure: { kind } }))?.kind,
       ).toBe("unknown")
     })
   }
+
+  // transport_disconnect honors the per-errno isRetryable the stream classifier
+  // sets (#1105b): most transport errnos are transient, but a permanent one
+  // (e.g. ENOTFOUND — unresolved host) is marked isRetryable=false and must not
+  // auto-retry into a stall.
+  test("transport_disconnect retries when the classifier marked it retryable", () => {
+    expect(
+      classifyRetry(makeAPIError({ isRetryable: true, providerFailure: { kind: "transport_disconnect" } }))?.kind,
+    ).toBe("unknown")
+  })
+
+  test("transport_disconnect does not retry when the classifier marked it non-retryable", () => {
+    expect(
+      classifyRetry(makeAPIError({ isRetryable: false, providerFailure: { kind: "transport_disconnect" } })),
+    ).toBeUndefined()
+  })
 
   test("unknown kind falls back to the legacy isRetryable + 5xx gate", () => {
     expect(

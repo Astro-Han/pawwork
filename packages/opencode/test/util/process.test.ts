@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { Effect } from "effect"
 import fs from "fs/promises"
 import path from "path"
 import { Process } from "../../src/util/process"
@@ -18,6 +19,13 @@ async function waitForFile(file: string) {
 }
 
 describe("util.process", () => {
+  test("captures stdout and stderr through the Effect path", async () => {
+    const out = await Effect.runPromise(Process.runEffect(node('process.stdout.write("out");process.stderr.write("err")')))
+    expect(out.code).toBe(0)
+    expect(out.stdout.toString()).toBe("out")
+    expect(out.stderr.toString()).toBe("err")
+  })
+
   test("captures stdout and stderr", async () => {
     const out = await Process.run(node('process.stdout.write("out");process.stderr.write("err")'))
     expect(out.code).toBe(0)

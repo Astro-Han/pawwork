@@ -191,6 +191,32 @@ export const singleResultParts = [tool("single-result", "prints one line", "echo
 export const singleErrorParts = [tool("single-error", "Command blocked", "rm -rf /", "error")]
 export const singleRunningParts = [tool("single-running", "long command", "sleep 30", "running")]
 
+export const readyQuestionMarkerParts: Part[] = [
+  tool("ready-question-before", "prepare question", "echo before"),
+  {
+    id: "ready-question-marker",
+    sessionID: "snap-session",
+    messageID: "snap-message",
+    type: "tool",
+    callID: "call-ready-question-marker",
+    tool: "question",
+    state: {
+      status: "running",
+      input: {
+        questions: [
+          {
+            header: "Follow up",
+            question: "这个问题应该在下方回答吗?",
+            options: [{ label: "是" }],
+          },
+        ],
+      },
+      metadata: { externalResultReady: true },
+      time: { start: 0 },
+    },
+  },
+]
+
 export const toolOutputParts = [
   realTool(
     "glob-output",

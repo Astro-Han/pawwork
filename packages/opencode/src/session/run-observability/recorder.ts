@@ -17,6 +17,7 @@ import {
 import { safeErrorFingerprint } from "./sanitize"
 import { RunIncident } from "../run-incident"
 import { cloneRequest, type LifecycleRequest } from "../lifecycle-provenance"
+import { isProviderApiError, type ProviderApiErrorKind } from "@/provider/error"
 
 type AttemptMutable = AttemptSummary & { lastMonotonicMs: number }
 
@@ -29,6 +30,15 @@ type Failure =
       evidence: string[]
       attemptID?: AttemptID
       retryable?: boolean
+    }
+  | {
+      type: "provider_api"
+      at: number
+      monotonicMs: number
+      error: unknown
+      kind: ProviderApiErrorKind
+      retryable?: boolean
+      attemptID?: AttemptID
     }
   | { type: "setup"; at: number; monotonicMs: number; error: unknown }
   | {
@@ -150,7 +160,7 @@ export function createRecorder(input: RecorderInput): Recorder {
       parentMessageID: input.parentMessageID,
       createdAt: input.createdAt,
       completedAt,
-      retryable: failure?.type === "transport" ? failure.retryable : undefined,
+      retryable: failure?.type === "transport" || failure?.type === "provider_api" ? failure.retryable : undefined,
       evidence: options?.includeRecoveredTerminal ? evidence : terminalEvidence(),
       unsafeSideEffectKinds: unsafeKinds,
       sideEffectFactsComplete,
@@ -201,6 +211,36 @@ export function createRecorder(input: RecorderInput): Recorder {
         toolExecutionStarted: factsAtFailure.toolExecutionStarted,
         toolExecutionCompleted: factsAtFailure.toolExecutionCompleted,
       }),
+    })
+    rememberEvent(next.monotonicMs)
+  }
+  const recordProviderApiFailureEvidence = (next: {
+    attemptID?: AttemptID
+    at: number
+    monotonicMs: number
+    error: unknown
+    kind: ProviderApiErrorKind
+    retryable?: boolean
+  }) => {
+    const error = safeErrorFingerprint(next.error)
+    failure ??= {
+      type: "provider_api",
+      at: next.at,
+      monotonicMs: next.monotonicMs,
+      error: next.error,
+      kind: next.kind,
+      retryable: next.retryable,
+      attemptID: next.attemptID,
+    }
+    appendEvidence({
+      monotonic_ms: next.monotonicMs,
+      source: "provider_stream",
+      attempt_id: next.attemptID,
+      event_type: "provider_api_error",
+      terminal_candidate: true,
+      confidence: "high",
+      error,
+      cause: RunIncident.providerApiCause({ kind: next.kind, retryable: next.retryable, error }),
     })
     rememberEvent(next.monotonicMs)
   }
@@ -528,6 +568,11 @@ export function createRecorder(input: RecorderInput): Recorder {
     recordAttemptFailureAndDeriveRecovery(next) {
       if (next.watchdog) {
         recordWatchdogFailureEvidence({ ...next, phase: next.watchdog.phase })
+      } else if (next.providerFailure && isProviderApiError(next.providerFailure)) {
+        // A provider returned an API-level rejection (an HTTP response, or a typed
+        // provider error body) — not a connection drop. Route it to its own
+        // terminal cause so it is not mislabeled a transport disconnect.
+        recordProviderApiFailureEvidence({ ...next, kind: next.providerFailure.kind })
       } else {
         recordTransportFailureEvidence(next)
       }
@@ -675,7 +720,7 @@ export function createRecorder(input: RecorderInput): Recorder {
         reasoningOutputStarted: terminalAttempt?.reasoning_output_started ?? incident?.facts.reasoning_output_started ?? false,
         toolExecutionStarted: terminalAttempt?.tool_execution_started ?? toolExecutionStarted,
         unsafeSideEffectStarted: terminalAttempt?.unsafe_side_effect_started ?? unsafeSideEffectStarted,
-        retryable: failure?.type === "transport" ? failure.retryable : undefined,
+        retryable: failure?.type === "transport" || failure?.type === "provider_api" ? failure.retryable : undefined,
       })
       const completedAt = final.completedAt
       const failureMonotonicMs = failure?.monotonicMs
@@ -750,12 +795,15 @@ function classify(failure: Failure | undefined): Classification {
       return "local_instance_dispose"
     return failure.lifecycleActionID ? "known_lifecycle_close" : "unknown_scope_close"
   }
+  if (failure.type === "provider_api") return "provider_api_error"
   if (failure.type === "transport") return "external_stream_disconnect"
   return "unknown_failure"
 }
 
 function classificationForIncident(cause: RunIncident.TerminalCause): Classification {
   switch (cause.category) {
+    case "provider_api_error":
+      return "provider_api_error"
     case "provider_transport_disconnect":
     case "watchdog_timeout":
       return "external_stream_disconnect"
@@ -780,6 +828,7 @@ function classificationForIncident(cause: RunIncident.TerminalCause): Classifica
 }
 
 function summarySuffixForIncident(cause: RunIncident.TerminalCause, input: { providerProgressSeen: boolean }) {
+  if (cause.category === "provider_api_error") return cause.subcategory
   if (cause.category === "watchdog_timeout") return "watchdog_timeout"
   if (cause.category === "provider_transport_disconnect") {
     if (!input.providerProgressSeen) return "transport_failure"
@@ -799,6 +848,7 @@ function summarySuffixForIncident(cause: RunIncident.TerminalCause, input: { pro
 }
 
 function summarySuffix(input: { failure: Failure | undefined; providerProgressSeen: boolean }) {
+  if (input.failure?.type === "provider_api") return input.failure.kind
   if (input.failure?.type === "transport") {
     const error = safeErrorFingerprint(input.failure.error)
     if (input.providerProgressSeen && error.cause_code === "UND_ERR_SOCKET") return "provider_progress_socket_closed"
@@ -895,6 +945,21 @@ function retrySafetyFor(input: {
         confidence: "medium",
         reason: "reasoning_only_without_final_text_or_tool_activity",
       }
+    }
+    return {
+      ...base,
+      recommendation: "candidate_safe_auto_retry",
+      confidence: "medium",
+      reason: "no_visible_output_or_tool_execution",
+    }
+  }
+  if (input.classification === "provider_api_error") {
+    // Same side-effect-safety axis as #1118: a terminal provider rejection
+    // (retryable=false) is a hard stop; a retryable one that reached finalize
+    // exhausted its budget but auto-retrying it would still be side-effect-safe
+    // here (no visible output, no tool execution — those are gated above).
+    if (input.retryable === false) {
+      return { ...base, recommendation: "do_not_auto_retry", confidence: "high", reason: "provider_terminal_failure" }
     }
     return {
       ...base,

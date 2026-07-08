@@ -113,7 +113,9 @@ export function SessionRetry(props: {
               <div data-slot="session-turn-safe-retry" class="flex items-center gap-2 text-caption text-fg-weak">
                 <Spinner class="size-3.5" />
                 <div data-slot="session-turn-safe-retry-message">
-                  {i18n.t("ui.sessionTurn.retry.recovery")}
+                  {current().attempt > 0
+                    ? i18n.t("ui.sessionTurn.retry.recoveryAttempt", { attempt: current().attempt })
+                    : i18n.t("ui.sessionTurn.retry.recovery")}
                 </div>
               </div>
             )}

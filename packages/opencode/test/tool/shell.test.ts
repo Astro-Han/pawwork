@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { spyOn } from "bun:test"
-import { Effect, Layer, ManagedRuntime } from "effect"
+import { Effect, Layer } from "effect"
 import fs from "node:fs"
 import nodefs from "node:fs/promises"
 import os from "os"
@@ -11,7 +11,7 @@ import { Shell } from "../../src/shell/shell"
 import { ShellTool } from "../../src/tool/shell"
 import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
-import { tmpdir } from "../fixture/fixture"
+import { provideTmpdirInstance, tmpdir } from "../fixture/fixture"
 import type { Permission } from "../../src/permission"
 import { Agent } from "../../src/agent/agent"
 import { Truncate } from "../../src/tool/truncate"
@@ -21,25 +21,93 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Plugin } from "../../src/plugin"
 import { Global } from "@opencode-ai/core/global"
 import { TurnChange } from "../../src/session/turn-change"
-import { Session as SessionNs } from "../../src/session"
+import { Session as SessionCore } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { resetDatabase } from "../fixture/db"
+import { testEffect } from "../lib/effect"
+import { AppRuntime } from "../../src/effect/app-runtime"
 
-const runtime = ManagedRuntime.make(
-  Layer.mergeAll(
-    CrossSpawnSpawner.defaultLayer,
-    AppFileSystem.defaultLayer,
-    Plugin.defaultLayer,
-    Truncate.defaultLayer,
-    Agent.defaultLayer,
-    TurnChange.defaultLayer,
-  ),
-)
 
-function initBash() {
-  return runtime.runPromise(ShellTool.pipe(Effect.flatMap((info) => info.init())))
+const SessionNs = {
+  ...SessionCore,
+  create(input?: SessionCore.CreateInput) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.create(input)))
+  },
+  get(id: Parameters<SessionCore.Interface["get"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.get(id)))
+  },
+  children(parentID: Parameters<SessionCore.Interface["children"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.children(parentID)))
+  },
+  fork(input: Parameters<SessionCore.Interface["fork"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.fork(input)))
+  },
+  remove(id: Parameters<SessionCore.Interface["remove"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.remove(id)))
+  },
+  setTitle(input: Parameters<SessionCore.Interface["setTitle"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.setTitle(input)))
+  },
+  setArchived(input: Parameters<SessionCore.Interface["setArchived"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.setArchived(input)))
+  },
+  setPermission(input: Parameters<SessionCore.Interface["setPermission"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.setPermission(input)))
+  },
+  messages(input: Parameters<SessionCore.Interface["messages"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.messages(input)))
+  },
+  messagesPage(input: Parameters<SessionCore.Interface["messagesPage"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.messagesPage(input)))
+  },
+  removePart(input: Parameters<SessionCore.Interface["removePart"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.removePart(input)))
+  },
+  updateMessage(input: Parameters<SessionCore.Interface["updateMessage"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.updateMessage(input)))
+  },
+  updatePart(input: Parameters<SessionCore.Interface["updatePart"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.updatePart(input)))
+  },
+  updateExecutionContext(input: Parameters<SessionCore.Interface["updateExecutionContext"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.updateExecutionContext(input)))
+  },
+  findActiveWorktreeBinding(directory: Parameters<SessionCore.Interface["findActiveWorktreeBinding"]>[0]) {
+    return AppRuntime.runPromise(SessionCore.Service.use((svc) => svc.findActiveWorktreeBinding(directory)))
+  },
 }
+
+namespace SessionNs {
+  export type Info = SessionCore.Info
+  export type Interface = SessionCore.Interface
+  export type Service = SessionCore.Service
+  export type CreateInput = SessionCore.CreateInput
+  export type GlobalInfo = SessionCore.GlobalInfo
+}
+const testLayer = Layer.mergeAll(
+  CrossSpawnSpawner.defaultLayer,
+  AppFileSystem.defaultLayer,
+  Plugin.defaultLayer,
+  Truncate.defaultLayer,
+  Agent.defaultLayer,
+  TurnChange.defaultLayer,
+)
+const it = testEffect(testLayer)
+const turnChange = await AppRuntime.runPromise(TurnChange.Service)
+const finalize = (input: Parameters<typeof turnChange.finalize>[0]) => AppRuntime.runSync(turnChange.finalize(input))
+const aggregateTurnUnion = (input: Parameters<typeof turnChange.aggregateTurnUnion>[0]) =>
+  AppRuntime.runSync(turnChange.aggregateTurnUnion(input))
+
+const initBashEffect = Effect.gen(function* () {
+  const info = yield* ShellTool
+  return yield* info.init()
+})
+
+type InitializedBash = typeof initBashEffect extends Effect.Effect<infer A, any, any> ? A : never
+
+const runBash = <A, E>(fn: (tool: InitializedBash) => Effect.Effect<A, E>) =>
+  initBashEffect.pipe(Effect.flatMap(fn), Effect.scoped, Effect.provide(testLayer), Effect.runPromise)
 
 const ctx = {
   sessionID: SessionID.make("ses_test"),
@@ -177,14 +245,23 @@ const mustTruncate = (result: {
 }
 
 describe("tool.bash", () => {
+  it.live("initializes through Effect", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const tool = yield* initBashEffect
+        expect(tool.description).toContain("Executes one command in the selected shell")
+        expect(tool.parameters).toBeDefined()
+      }),
+    ),
+  )
+
   each(
     "basic",
     async () => {
       await Instance.provide({
         directory: projectRoot,
         fn: async () => {
-          const bash = await initBash()
-          const result = await Effect.runPromise(
+          const result = await runBash((bash) =>
             bash.execute(
               {
                 command: "echo test",
@@ -237,8 +314,7 @@ describe("tool.bash", () => {
       await Instance.provide({
         directory: projectRoot,
         fn: async () => {
-          const bash = await initBash()
-          const result = await Effect.runPromise(
+          const result = await runBash((bash) =>
             bash.execute(
               {
                 command,
@@ -281,7 +357,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "report.docx")
         const script = path.join(tmp.path, "write-docx.cjs")
@@ -291,7 +366,7 @@ describe("tool.bash expected_outputs", () => {
           "utf-8",
         )
         const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))}`
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -311,7 +386,7 @@ describe("tool.bash expected_outputs", () => {
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
 
-        const display = TurnChange.finalize(turn)
+        const display = finalize(turn)
         expect(display?.files).toEqual([
           {
             path: "report.docx",
@@ -331,13 +406,12 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "notes.txt")
         const script = path.join(tmp.path, "write-text.cjs")
         await fs.promises.writeFile(script, "require('node:fs').writeFileSync(process.argv[2], 'hello\\n')\n", "utf-8")
         const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))}`
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -357,7 +431,7 @@ describe("tool.bash expected_outputs", () => {
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true }])
 
-        expect(TurnChange.finalize(turn)?.files).toMatchObject([
+        expect(finalize(turn)?.files).toMatchObject([
           {
             path: "notes.txt",
             status: "added",
@@ -376,7 +450,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "notes-bom.txt")
         const script = path.join(tmp.path, "write-bom-text.cjs")
@@ -386,7 +459,7 @@ describe("tool.bash expected_outputs", () => {
           "utf-8",
         )
         const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))}`
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -402,7 +475,7 @@ describe("tool.bash expected_outputs", () => {
           (result.metadata as { artifacts?: Array<{ path: string; exists: boolean; changed: boolean }> }).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true }])
 
-        expect(TurnChange.finalize(turn)?.files).toMatchObject([
+        expect(finalize(turn)?.files).toMatchObject([
           {
             path: "notes-bom.txt",
             status: "added",
@@ -421,7 +494,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "partial.docx")
         const script = path.join(tmp.path, "write-then-fail.cjs")
@@ -431,7 +503,7 @@ describe("tool.bash expected_outputs", () => {
           "utf-8",
         )
         const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))}`
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -443,7 +515,7 @@ describe("tool.bash expected_outputs", () => {
         )
 
         expect(result.metadata.exit).toBe(1)
-        const display = TurnChange.finalize(turn)
+        const display = finalize(turn)
         expect(display?.files[0]).toMatchObject({
           path: "partial.docx",
           status: "added",
@@ -464,7 +536,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const nested = path.join(tmp.path, "nested")
         const target = path.join(nested, "report.txt")
@@ -475,7 +546,7 @@ describe("tool.bash expected_outputs", () => {
           "utf-8",
         )
         const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} report.txt`
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -492,7 +563,7 @@ describe("tool.bash expected_outputs", () => {
           (result.metadata as { artifacts?: Array<{ path: string; exists: boolean; changed: boolean }> }).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true }])
         expect(
-          TurnChange.finalize(turn)?.files?.some(
+          finalize(turn)?.files?.some(
             (file) => file.path === "nested/report.txt" && file.status === "added",
           ),
         ).toBe(true)
@@ -510,10 +581,9 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "stable.txt")
-        await Effect.runPromise(
+        await runBash((bash) =>
           bash.execute(
             {
               command: "echo noop",
@@ -524,7 +594,7 @@ describe("tool.bash expected_outputs", () => {
           ),
         )
 
-        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(finalize(turn)).toBeUndefined()
       },
     })
   })
@@ -535,7 +605,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "undeclared.txt")
         const shell = sh()
@@ -544,7 +613,7 @@ describe("tool.bash expected_outputs", () => {
           : shell === "cmd"
             ? `echo hello> ${quote(target.replaceAll("\\", "/"))}`
             : `printf 'hello\\n' > ${quote(target.replaceAll("\\", "/"))}`
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -556,9 +625,9 @@ describe("tool.bash expected_outputs", () => {
 
         expect(result.metadata.exit).toBe(0)
         expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
-        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(finalize(turn)).toBeUndefined()
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "uncaptured",
           count: 1,
@@ -573,7 +642,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "Report.DOCX")
         const marker = path.join(tmp.path, "marker.txt")
@@ -587,7 +655,7 @@ describe("tool.bash expected_outputs", () => {
           "utf-8",
         )
         const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))} > ${quote(marker.replaceAll("\\", "/"))}`
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -606,7 +674,7 @@ describe("tool.bash expected_outputs", () => {
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
 
-        expect(TurnChange.finalize(turn)?.files).toEqual([
+        expect(finalize(turn)?.files).toEqual([
           {
             path: "Report.DOCX",
             status: "added",
@@ -629,7 +697,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "report.docx")
         const marker = path.join(tmp.path, "marker.txt")
@@ -640,7 +707,7 @@ describe("tool.bash expected_outputs", () => {
           "utf-8",
         )
         const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))} > ${quote(marker.replaceAll("\\", "/"))}`
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -658,7 +725,7 @@ describe("tool.bash expected_outputs", () => {
             }
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
-        expect(TurnChange.finalize(turn)?.files).toEqual([
+        expect(finalize(turn)?.files).toEqual([
           {
             path: "report.docx",
             status: "modified",
@@ -677,7 +744,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "report.docx")
         const script = path.join(tmp.path, "write-office-and-text.cjs")
@@ -691,7 +757,7 @@ describe("tool.bash expected_outputs", () => {
           "utf-8",
         )
         const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))} ${quote(path.join(tmp.path, "notes.txt").replaceAll("\\", "/"))} > ${quote(path.join(tmp.path, "marker.txt").replaceAll("\\", "/"))}`
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -702,9 +768,9 @@ describe("tool.bash expected_outputs", () => {
         )
 
         expect(result.metadata.exit).toBe(0)
-        TurnChange.finalize(turn)
+        finalize(turn)
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "mixed",
           count: 1,
@@ -731,7 +797,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "nested", "Report.XLSX")
         const script = path.join(tmp.path, "write-office-workdir.cjs")
@@ -741,7 +806,7 @@ describe("tool.bash expected_outputs", () => {
           "utf-8",
         )
         const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} Report.XLSX > marker.txt`
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -760,7 +825,7 @@ describe("tool.bash expected_outputs", () => {
             }
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
-        expect(TurnChange.finalize(turn)?.files?.[0]).toMatchObject({
+        expect(finalize(turn)?.files?.[0]).toMatchObject({
           path: "nested/Report.XLSX",
           status: "added",
           binary: true,
@@ -780,7 +845,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "node_modules", "hidden.docx")
         const script = path.join(tmp.path, "write-ignored-office.cjs")
@@ -790,7 +854,7 @@ describe("tool.bash expected_outputs", () => {
           "utf-8",
         )
         const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))} > ${quote(path.join(tmp.path, "marker.txt").replaceAll("\\", "/"))}`
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -802,9 +866,9 @@ describe("tool.bash expected_outputs", () => {
 
         expect(result.metadata.exit).toBe(0)
         expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
-        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(finalize(turn)).toBeUndefined()
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "uncaptured",
           count: 1,
@@ -823,7 +887,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "node_modules", "hidden.docx")
         const script = path.join(tmp.path, "write-ignored-workdir-office.cjs")
@@ -833,7 +896,7 @@ describe("tool.bash expected_outputs", () => {
           "utf-8",
         )
         const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} hidden.docx > marker.txt`
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -847,9 +910,9 @@ describe("tool.bash expected_outputs", () => {
         expect(result.metadata.exit).toBe(0)
         expect(fs.existsSync(target)).toBe(true)
         expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
-        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(finalize(turn)).toBeUndefined()
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "uncaptured",
           count: 1,
@@ -872,7 +935,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "budget-report.docx")
         const script = path.join(tmp.path, "write-budget-office.cjs")
@@ -882,7 +944,7 @@ describe("tool.bash expected_outputs", () => {
           "utf-8",
         )
         const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))} > ${quote(path.join(tmp.path, "marker.txt").replaceAll("\\", "/"))}`
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -894,9 +956,9 @@ describe("tool.bash expected_outputs", () => {
 
         expect(result.metadata.exit).toBe(0)
         expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
-        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(finalize(turn)).toBeUndefined()
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "uncaptured",
           count: 1,
@@ -920,7 +982,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "report.docx")
         const notes = path.join(tmp.path, "notes.txt")
@@ -953,7 +1014,7 @@ describe("tool.bash expected_outputs", () => {
           command = `PATH=${quote(tmp.path.replaceAll("\\", "/"))}:$PATH officecli batch ${quote(target.replaceAll("\\", "/"))} --commands '[{"op":"set","path":"/body/p[1]","props":{"text":"Done"}}]'; printf 'side-effect\\n' > ${quote(notes.replaceAll("\\", "/"))}`
         }
 
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -972,7 +1033,7 @@ describe("tool.bash expected_outputs", () => {
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "mixed",
           count: 1,
@@ -995,9 +1056,8 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command: "echo hi",
@@ -1009,7 +1069,7 @@ describe("tool.bash expected_outputs", () => {
 
         expect(result.metadata.exit).toBe(0)
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "empty",
         })
@@ -1023,7 +1083,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const shell = sh()
         let command: string
@@ -1039,7 +1098,7 @@ describe("tool.bash expected_outputs", () => {
           command = `PATH=${quote(tmp.path.replaceAll("\\", "/"))}:$PATH officecli batch readonly.officecli`
         }
 
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -1051,9 +1110,9 @@ describe("tool.bash expected_outputs", () => {
 
         expect(result.metadata.exit).toBe(0)
         expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
-        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(finalize(turn)).toBeUndefined()
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "empty",
         })
@@ -1071,7 +1130,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "report.docx")
         const shell = sh()
@@ -1102,7 +1160,7 @@ describe("tool.bash expected_outputs", () => {
           command = `PATH=${quote(tmp.path.replaceAll("\\", "/"))}:$PATH officecli batch ${quote(target.replaceAll("\\", "/"))} --commands '[{"op":"set","path":"/body/p[1]","props":{"text":"Done"}}]'`
         }
 
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -1120,7 +1178,7 @@ describe("tool.bash expected_outputs", () => {
             }
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
-        expect(TurnChange.finalize(turn)?.files).toEqual([
+        expect(finalize(turn)?.files).toEqual([
           {
             path: "report.docx",
             status: "modified",
@@ -1143,7 +1201,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "report.docx")
         const notes = path.join(tmp.path, "notes.txt")
@@ -1176,7 +1233,7 @@ describe("tool.bash expected_outputs", () => {
           command = `PATH=${quote(tmp.path.replaceAll("\\", "/"))}:$PATH officecli batch ${quote(target.replaceAll("\\", "/"))} --commands '[{"op":"set","path":"/body/p[1]","props":{"text":"Done"}}]'; printf 'side-effect\\n' > ${quote(notes.replaceAll("\\", "/"))}`
         }
 
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -1195,7 +1252,7 @@ describe("tool.bash expected_outputs", () => {
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "mixed",
           count: 1,
@@ -1223,7 +1280,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "build", "report.docx")
         const notes = path.join(tmp.path, "notes.txt")
@@ -1256,7 +1312,7 @@ describe("tool.bash expected_outputs", () => {
           command = `PATH=${quote(tmp.path.replaceAll("\\", "/"))}:$PATH officecli batch ${quote(target.replaceAll("\\", "/"))} --commands '[{"op":"set","path":"/body/p[1]","props":{"text":"Done"}}]'; printf 'side-effect\\n' > ${quote(notes.replaceAll("\\", "/"))}`
         }
 
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -1275,7 +1331,7 @@ describe("tool.bash expected_outputs", () => {
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "mixed",
           count: 1,
@@ -1302,7 +1358,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "report.xlsx")
         const shell = sh()
@@ -1334,7 +1389,7 @@ describe("tool.bash expected_outputs", () => {
           command = `PATH=${quote(tmp.path.replaceAll("\\", "/"))}:$PATH; printf '[{"command":"set","path":"/Sheet1/A1","props":{"value":"x"}}]' | officecli batch ${quote(target.replaceAll("\\", "/"))}`
         }
 
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -1352,7 +1407,7 @@ describe("tool.bash expected_outputs", () => {
             }
           ).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true, binary: true }])
-        expect(TurnChange.finalize(turn)?.files).toEqual([
+        expect(finalize(turn)?.files).toEqual([
           {
             path: "report.xlsx",
             status: "modified",
@@ -1375,7 +1430,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "report.xlsx")
         const shell = sh()
@@ -1402,7 +1456,7 @@ describe("tool.bash expected_outputs", () => {
           command = `PATH=${quote(tmp.path.replaceAll("\\", "/"))}:$PATH; printf '[{"command":"get","path":"/Sheet1/A1"}]' | officecli batch ${quote(target.replaceAll("\\", "/"))}`
         }
 
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command,
@@ -1414,9 +1468,9 @@ describe("tool.bash expected_outputs", () => {
 
         expect(result.metadata.exit).toBe(0)
         expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
-        expect(TurnChange.finalize(turn)).toBeUndefined()
+        expect(finalize(turn)).toBeUndefined()
         expect(
-          TurnChange.aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
+          aggregateTurnUnion({ sessionID: turn.sessionID, userMessageID: MessageID.make("msg_user") }),
         ).toMatchObject({
           kind: "empty",
         })
@@ -1435,7 +1489,6 @@ describe("tool.bash expected_outputs", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const turn = await createTurn()
         const target = path.join(tmp.path, "restricted.txt")
         const originalReadFile = nodefs.readFile
@@ -1448,7 +1501,7 @@ describe("tool.bash expected_outputs", () => {
           return await (originalReadFile as any)(...args)
         })
         try {
-          const result = await Effect.runPromise(
+          const result = await runBash((bash) =>
             bash.execute(
               {
                 command: `rm ${quote(target.replaceAll("\\", "/"))}`,
@@ -1473,7 +1526,7 @@ describe("tool.bash expected_outputs", () => {
               }
             ).artifacts,
           ).toEqual([{ path: target, exists: false, changed: false, comparable: false, errorCode: "EACCES" }])
-          expect(TurnChange.finalize(turn)).toBeUndefined()
+          expect(finalize(turn)).toBeUndefined()
         } finally {
           readSpy.mockRestore()
         }
@@ -1488,9 +1541,8 @@ describe("tool.bash permissions", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
-        await Effect.runPromise(
+        await runBash((bash) =>
           bash.execute(
             {
               command: "echo hello",
@@ -1511,9 +1563,8 @@ describe("tool.bash permissions", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
-        await Effect.runPromise(
+        await runBash((bash) =>
           bash.execute(
             {
               command: "echo foo && echo bar",
@@ -1537,9 +1588,8 @@ describe("tool.bash permissions", () => {
         await Instance.provide({
           directory: projectRoot,
           fn: async () => {
-            const bash = await initBash()
             const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
-            await Effect.runPromise(
+            await runBash((bash) =>
               bash.execute(
                 {
                   command: "Write-Host foo; if ($?) { Write-Host bar }",
@@ -1563,7 +1613,6 @@ describe("tool.bash permissions", () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
-        const bash = await initBash()
         const err = new Error("stop after permission")
         const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
         const file = process.platform === "win32" ? `${process.env.WINDIR!.replaceAll("\\", "/")}/*` : "/etc/*"
@@ -1572,7 +1621,7 @@ describe("tool.bash permissions", () => {
             ? glob(path.join(process.env.WINDIR!, "*"))
             : path.join(await fs.promises.realpath("/etc"), "*")
         await expect(
-          Effect.runPromise(
+          runBash((bash) =>
             bash.execute(
               {
                 command: `cat ${file}`,
@@ -1604,7 +1653,6 @@ describe("tool.bash permissions", () => {
       await Instance.provide({
         directory: projectRoot,
         fn: async () => {
-          const bash = await initBash()
           const err = new Error("stop after permission")
           const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
           const dir = process.platform === "win32" ? process.env.WINDIR!.replaceAll("\\", "/") : "/etc"
@@ -1613,7 +1661,7 @@ describe("tool.bash permissions", () => {
               ? glob(path.join(process.env.WINDIR!, "*"))
               : path.join(await fs.promises.realpath("/etc"), "*")
           await expect(
-            Effect.runPromise(
+            runBash((bash) =>
               bash.execute(
                 {
                   command: `${changer} ${dir}`,
@@ -1640,11 +1688,10 @@ describe("tool.bash permissions", () => {
       await Instance.provide({
         directory: projectRoot,
         fn: async () => {
-          const bash = await initBash()
           const err = new Error("stop after permission")
           const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
           await expect(
-            Effect.runPromise(
+            runBash((bash) =>
               bash.execute(
                 { command: `${changer} src`, description: `In-project ${changer}` },
                 capture(requests, err),
@@ -1673,10 +1720,9 @@ describe("tool.bash permissions", () => {
           await Instance.provide({
             directory: projectRoot,
             fn: async () => {
-              const bash = await initBash()
               const file = path.join(outerTmp.path, "outside.txt").replaceAll("\\", "/")
               const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
-              await Effect.runPromise(
+              await runBash((bash) =>
                 bash.execute(
                   {
                     command: `echo $(cat "${file}")`,
@@ -1706,11 +1752,10 @@ describe("tool.bash permissions", () => {
           await Instance.provide({
             directory: projectRoot,
             fn: async () => {
-              const bash = await initBash()
               const err = new Error("stop after permission")
               const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
               await expect(
-                Effect.runPromise(
+                runBash((bash) =>
                   bash.execute(
                     {
                       command: `Copy-Item -PassThru "${process.env.WINDIR!.replaceAll("\\", "/")}/win.ini" ./out`,
@@ -1747,11 +1792,10 @@ describe("tool.bash permissions", () => {
             await Instance.provide({
               directory: tmp.path,
               fn: async () => {
-                const bash = await initBash()
                 const err = new Error("stop after permission")
                 const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
                 await expect(
-                  Effect.runPromise(
+                  runBash((bash) =>
                     bash.execute(
                       {
                         command: `Get-Content "${path.join(link, "secret.txt")}"`,
@@ -1786,11 +1830,10 @@ describe("tool.bash permissions", () => {
             await Instance.provide({
               directory: tmp.path,
               fn: async () => {
-                const bash = await initBash()
                 const err = new Error("stop after permission")
                 const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
                 await expect(
-                  Effect.runPromise(
+                  runBash((bash) =>
                     bash.execute(
                       {
                         command: `New-Item -ItemType File "${path.join(link, "new.txt")}"`,
@@ -1825,12 +1868,11 @@ describe("tool.bash permissions", () => {
             await Instance.provide({
               directory: tmp.path,
               fn: async () => {
-                const bash = await initBash()
                 const err = new Error("stop after permission")
                 const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
                 const target = `${link}\\..\\new.txt`
                 await expect(
-                  Effect.runPromise(
+                  runBash((bash) =>
                     bash.execute(
                       {
                         command: `Set-Content "${target}" "x"`,
@@ -1864,12 +1906,11 @@ describe("tool.bash permissions", () => {
           await Instance.provide({
             directory: tmp.path,
             fn: async () => {
-              const bash = await initBash()
               const err = new Error("stop after permission")
               const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
               const workdir = `${link}\\..`
               await expect(
-                Effect.runPromise(
+                runBash((bash) =>
                   bash.execute(
                     {
                       command: "Write-Output ok",
@@ -1897,10 +1938,9 @@ describe("tool.bash permissions", () => {
           await Instance.provide({
             directory: projectRoot,
             fn: async () => {
-              const bash = await initBash()
               const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
               const file = `${process.env.WINDIR!.replaceAll("\\", "/")}/win.ini`
-              await Effect.runPromise(
+              await runBash((bash) =>
                 bash.execute(
                   {
                     command: `Write-Output $(Get-Content ${file})`,
@@ -1929,11 +1969,10 @@ describe("tool.bash permissions", () => {
           await Instance.provide({
             directory: tmp.path,
             fn: async () => {
-              const bash = await initBash()
               const err = new Error("stop after permission")
               const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
               await expect(
-                Effect.runPromise(
+                runBash((bash) =>
                   bash.execute(
                     {
                       command: 'Get-Content "C:../outside.txt"',
@@ -1959,11 +1998,10 @@ describe("tool.bash permissions", () => {
           await Instance.provide({
             directory: projectRoot,
             fn: async () => {
-              const bash = await initBash()
               const err = new Error("stop after permission")
               const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
               await expect(
-                Effect.runPromise(
+                runBash((bash) =>
                   bash.execute(
                     {
                       command: 'Get-Content "$HOME/.ssh/config"',
@@ -1990,11 +2028,10 @@ describe("tool.bash permissions", () => {
           await Instance.provide({
             directory: tmp.path,
             fn: async () => {
-              const bash = await initBash()
               const err = new Error("stop after permission")
               const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
               await expect(
-                Effect.runPromise(
+                runBash((bash) =>
                   bash.execute(
                     {
                       command: 'Get-Content "$PWD/../outside.txt"',
@@ -2020,11 +2057,10 @@ describe("tool.bash permissions", () => {
           await Instance.provide({
             directory: projectRoot,
             fn: async () => {
-              const bash = await initBash()
               const err = new Error("stop after permission")
               const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
               await expect(
-                Effect.runPromise(
+                runBash((bash) =>
                   bash.execute(
                     {
                       command: 'Get-Content "$PSHOME/outside.txt"',
@@ -2054,12 +2090,11 @@ describe("tool.bash permissions", () => {
             await Instance.provide({
               directory: projectRoot,
               fn: async () => {
-                const bash = await initBash()
                 const err = new Error("stop after permission")
                 const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
                 const root = path.parse(process.env.WINDIR!).root.replace(/[\\/]+$/, "")
                 await expect(
-                  Effect.runPromise(
+                  runBash((bash) =>
                     bash.execute(
                       {
                         command: `Get-Content -Path "${root}$env:${key}\\Windows\\win.ini"`,
@@ -2089,9 +2124,8 @@ describe("tool.bash permissions", () => {
           await Instance.provide({
             directory: projectRoot,
             fn: async () => {
-              const bash = await initBash()
               const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
-              await Effect.runPromise(
+              await runBash((bash) =>
                 bash.execute(
                   {
                     command: "Get-Content $env:WINDIR/win.ini",
@@ -2118,11 +2152,10 @@ describe("tool.bash permissions", () => {
           await Instance.provide({
             directory: projectRoot,
             fn: async () => {
-              const bash = await initBash()
               const err = new Error("stop after permission")
               const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
               await expect(
-                Effect.runPromise(
+                runBash((bash) =>
                   bash.execute(
                     {
                       command: `Get-Content -Path FileSystem::${process.env.WINDIR!.replaceAll("\\", "/")}/win.ini`,
@@ -2150,11 +2183,10 @@ describe("tool.bash permissions", () => {
           await Instance.provide({
             directory: projectRoot,
             fn: async () => {
-              const bash = await initBash()
               const err = new Error("stop after permission")
               const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
               await expect(
-                Effect.runPromise(
+                runBash((bash) =>
                   bash.execute(
                     {
                       command: "Get-Content ${env:WINDIR}/win.ini",
@@ -2182,9 +2214,8 @@ describe("tool.bash permissions", () => {
           await Instance.provide({
             directory: projectRoot,
             fn: async () => {
-              const bash = await initBash()
               const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
-              await Effect.runPromise(
+              await runBash((bash) =>
                 bash.execute(
                   {
                     command: "Set-Location C:/Windows",
@@ -2213,9 +2244,8 @@ describe("tool.bash permissions", () => {
           await Instance.provide({
             directory: projectRoot,
             fn: async () => {
-              const bash = await initBash()
               const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
-              await Effect.runPromise(
+              await runBash((bash) =>
                 bash.execute(
                   {
                     command: "Write-Output ('a' * 3)",
@@ -2240,11 +2270,10 @@ describe("tool.bash permissions", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const err = new Error("stop after permission")
         const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
         await expect(
-          Effect.runPromise(
+          runBash((bash) =>
             bash.execute(
               {
                 command: "cd ../",
@@ -2265,11 +2294,10 @@ describe("tool.bash permissions", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const err = new Error("stop after permission")
         const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
         await expect(
-          Effect.runPromise(
+          runBash((bash) =>
             bash.execute(
               {
                 command: "echo ok",
@@ -2295,13 +2323,12 @@ describe("tool.bash permissions", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const bash = await initBash()
           const want = Filesystem.normalizePathPattern(path.join(outerTmp.path, "*"))
 
           for (const dir of forms(outerTmp.path)) {
             const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
             await expect(
-              Effect.runPromise(
+              runBash((bash) =>
                 bash.execute(
                   {
                     command: "echo ok",
@@ -2331,12 +2358,11 @@ describe("tool.bash permissions", () => {
           await Instance.provide({
             directory: projectRoot,
             fn: async () => {
-              const bash = await initBash()
               const err = new Error("stop after permission")
               const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
               const want = glob(path.join(os.tmpdir(), "*"))
               await expect(
-                Effect.runPromise(
+                runBash((bash) =>
                   bash.execute(
                     {
                       command: "echo ok",
@@ -2363,12 +2389,11 @@ describe("tool.bash permissions", () => {
           await Instance.provide({
             directory: projectRoot,
             fn: async () => {
-              const bash = await initBash()
               const err = new Error("stop after permission")
               const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
               const want = glob(path.join(os.tmpdir(), "*"))
               await expect(
-                Effect.runPromise(
+                runBash((bash) =>
                   bash.execute(
                     {
                       command: "cat /tmp/opencode-does-not-exist",
@@ -2400,12 +2425,11 @@ describe("tool.bash permissions", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const err = new Error("stop after permission")
         const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
         const filepath = path.join(outerTmp.path, "outside.txt")
         await expect(
-          Effect.runPromise(
+          runBash((bash) =>
             bash.execute(
               {
                 command: `cat ${filepath}`,
@@ -2440,11 +2464,10 @@ describe("tool.bash permissions", () => {
         await Instance.provide({
           directory: tmp.path,
           fn: async () => {
-            const bash = await initBash()
             const err = new Error("stop after permission")
             const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
             await expect(
-              Effect.runPromise(
+              runBash((bash) =>
                 bash.execute(
                   {
                     command: `cat ${link}/secret.txt`,
@@ -2476,11 +2499,10 @@ describe("tool.bash permissions", () => {
         await Instance.provide({
           directory: tmp.path,
           fn: async () => {
-            const bash = await initBash()
             const err = new Error("stop after permission")
             const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
             await expect(
-              Effect.runPromise(
+              runBash((bash) =>
                 bash.execute(
                   {
                     command: `touch ${link}/new.txt`,
@@ -2512,12 +2534,11 @@ describe("tool.bash permissions", () => {
         await Instance.provide({
           directory: tmp.path,
           fn: async () => {
-            const bash = await initBash()
             const err = new Error("stop after permission")
             const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
             const target = `${link}/../new.txt`
             await expect(
-              Effect.runPromise(
+              runBash((bash) =>
                 bash.execute(
                   {
                     command: `touch ${target}`,
@@ -2548,12 +2569,11 @@ describe("tool.bash permissions", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const bash = await initBash()
           const err = new Error("stop after permission")
           const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
           const workdir = `${link}/..`
           await expect(
-            Effect.runPromise(
+            runBash((bash) =>
               bash.execute(
                 {
                   command: "echo ok",
@@ -2582,9 +2602,8 @@ describe("tool.bash permissions", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
-        await Effect.runPromise(
+        await runBash((bash) =>
           bash.execute(
             {
               command: `rm -rf ${path.join(tmp.path, "nested")}`,
@@ -2604,9 +2623,8 @@ describe("tool.bash permissions", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
-        await Effect.runPromise(
+        await runBash((bash) =>
           bash.execute(
             {
               command: "git log --oneline -5",
@@ -2627,9 +2645,8 @@ describe("tool.bash permissions", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
-        await Effect.runPromise(
+        await runBash((bash) =>
           bash.execute(
             {
               command: "cd .",
@@ -2649,11 +2666,10 @@ describe("tool.bash permissions", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const err = new Error("stop after permission")
         const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
         await expect(
-          Effect.runPromise(
+          runBash((bash) =>
             bash.execute(
               { command: "echo test > output.txt", description: "Redirect test output" },
               capture(requests, err),
@@ -2672,9 +2688,8 @@ describe("tool.bash permissions", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const bash = await initBash()
         const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
-        await Effect.runPromise(bash.execute({ command: "ls -la", description: "List" }, capture(requests)))
+        await runBash((bash) => bash.execute({ command: "ls -la", description: "List" }, capture(requests)))
         const bashReq = requests.find((r) => r.permission === "bash")
         expect(bashReq).toBeDefined()
         expect(bashReq!.always[0]).toBe("ls *")
@@ -2688,10 +2703,9 @@ describe("tool.bash abort", () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
-        const bash = await initBash()
         const controller = new AbortController()
         const collected: string[] = []
-        const res = await Effect.runPromise(
+        const res = await runBash((bash) =>
           bash.execute(
             {
               command: `echo before && sleep 30`,
@@ -2726,11 +2740,10 @@ describe("tool.bash abort", () => {
     await Instance.provide({
       directory: dir.path,
       fn: async () => {
-        const bash = await initBash()
         const controller = new AbortController()
         const pidFile = path.join(dir.path, "bash-child.pid")
         const child = `trap '' HUP TERM; echo $$ > ${JSON.stringify(pidFile)}; while :; do sleep 1; done`
-        const res = await Effect.runPromise(
+        const res = await runBash((bash) =>
           bash.execute(
             {
               command: `/bin/sh -c ${JSON.stringify(child)} & echo before; wait`,
@@ -2768,8 +2781,7 @@ describe("tool.bash abort", () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
-        const bash = await initBash()
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command: `echo started && sleep 60`,
@@ -2790,8 +2802,7 @@ describe("tool.bash abort", () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
-        const bash = await initBash()
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command: `echo stdout_msg && echo stderr_msg >&2`,
@@ -2811,8 +2822,7 @@ describe("tool.bash abort", () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
-        const bash = await initBash()
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command: `exit 42`,
@@ -2830,9 +2840,8 @@ describe("tool.bash abort", () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
-        const bash = await initBash()
         const updates: string[] = []
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command: `echo first && sleep 0.1 && echo second`,
@@ -2861,9 +2870,8 @@ describe("tool.bash truncation", () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
-        const bash = await initBash()
         const lineCount = Truncate.MAX_LINES + 500
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command: fill("lines", lineCount),
@@ -2883,9 +2891,8 @@ describe("tool.bash truncation", () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
-        const bash = await initBash()
         const byteCount = Truncate.MAX_BYTES + 10000
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command: fill("bytes", byteCount),
@@ -2905,8 +2912,7 @@ describe("tool.bash truncation", () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
-        const bash = await initBash()
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command: "echo hello",
@@ -2925,9 +2931,8 @@ describe("tool.bash truncation", () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
-        const bash = await initBash()
         const lineCount = Truncate.MAX_LINES + 100
-        const result = await Effect.runPromise(
+        const result = await runBash((bash) =>
           bash.execute(
             {
               command: fill("lines", lineCount),

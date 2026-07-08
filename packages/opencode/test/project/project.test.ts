@@ -16,6 +16,27 @@ Log.init({ print: false })
 
 const encoder = new TextEncoder()
 
+const projectFromDirectory = (directory: string) =>
+  Effect.runPromise(Project.Service.use((project) => project.fromDirectory(directory)).pipe(Effect.provide(Project.defaultLayer)))
+const projectDiscover = (input: Project.Info) =>
+  Effect.runPromise(Project.Service.use((project) => project.discover(input)).pipe(Effect.provide(Project.defaultLayer)))
+const projectUpdate = (input: Project.UpdateInput) =>
+  Effect.runPromise(Project.Service.use((project) => project.update(input)).pipe(Effect.provide(Project.defaultLayer)))
+const projectList = () =>
+  Effect.runSync(Project.Service.use((project) => project.list()).pipe(Effect.provide(Project.defaultLayer)))
+const projectGet = (id: Project.Info["id"]) =>
+  Effect.runSync(Project.Service.use((project) => project.get(id)).pipe(Effect.provide(Project.defaultLayer)))
+const projectSetInitialized = (id: Project.Info["id"]) =>
+  Effect.runSync(Project.Service.use((project) => project.setInitialized(id)).pipe(Effect.provide(Project.defaultLayer)))
+const projectAddSandbox = (id: Project.Info["id"], directory: string) =>
+  Effect.runPromise(
+    Project.Service.use((project) => project.addSandbox(id, directory)).pipe(Effect.provide(Project.defaultLayer)),
+  )
+const projectRemoveSandbox = (id: Project.Info["id"], directory: string) =>
+  Effect.runPromise(
+    Project.Service.use((project) => project.removeSandbox(id, directory)).pipe(Effect.provide(Project.defaultLayer)),
+  )
+
 /**
  * Creates a mock ChildProcessSpawner layer that intercepts git subcommands
  * matching `failArg` and returns exit code 128, while delegating everything
@@ -64,7 +85,7 @@ describe("Project.fromDirectory", () => {
     await using tmp = await tmpdir()
     await $`git init`.cwd(tmp.path).quiet()
 
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
 
     expect(project).toBeDefined()
     expect(project.id).toBe(ProjectID.global)
@@ -78,7 +99,7 @@ describe("Project.fromDirectory", () => {
   test("should handle git repository with commits", async () => {
     await using tmp = await tmpdir({ git: true })
 
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
 
     expect(project).toBeDefined()
     expect(project.id).not.toBe(ProjectID.global)
@@ -91,14 +112,14 @@ describe("Project.fromDirectory", () => {
 
   test("returns global for non-git directory", async () => {
     await using tmp = await tmpdir()
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
     expect(project.id).toBe(ProjectID.global)
   })
 
   test("derives stable project ID from root commit", async () => {
     await using tmp = await tmpdir({ git: true })
-    const { project: a } = await Project.fromDirectory(tmp.path)
-    const { project: b } = await Project.fromDirectory(tmp.path)
+    const { project: a } = await projectFromDirectory(tmp.path)
+    const { project: b } = await projectFromDirectory(tmp.path)
     expect(b.id).toBe(a.id)
   })
 })
@@ -109,7 +130,7 @@ describe("Project.fromDirectory git failure paths", () => {
     await $`git init`.cwd(tmp.path).quiet()
 
     // rev-list fails because HEAD doesn't exist yet — this is the natural scenario
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
     expect(project.vcs).toBe("git")
     expect(project.id).toBe(ProjectID.global)
     expect(project.worktree).toBe(tmp.path)
@@ -142,7 +163,7 @@ describe("Project.fromDirectory with worktrees", () => {
   test("should set worktree to root when called from root", async () => {
     await using tmp = await tmpdir({ git: true })
 
-    const { project, sandbox } = await Project.fromDirectory(tmp.path)
+    const { project, sandbox } = await projectFromDirectory(tmp.path)
 
     expect(project.worktree).toBe(tmp.path)
     expect(sandbox).toBe(tmp.path)
@@ -156,7 +177,7 @@ describe("Project.fromDirectory with worktrees", () => {
     try {
       await $`git worktree add ${worktreePath} -b test-branch-${Date.now()}`.cwd(tmp.path).quiet()
 
-      const { project, sandbox } = await Project.fromDirectory(worktreePath)
+      const { project, sandbox } = await projectFromDirectory(worktreePath)
 
       expect(project.worktree).toBe(tmp.path)
       expect(sandbox).toBe(worktreePath)
@@ -173,13 +194,13 @@ describe("Project.fromDirectory with worktrees", () => {
   test("worktree should share project ID with main repo", async () => {
     await using tmp = await tmpdir({ git: true })
 
-    const { project: main } = await Project.fromDirectory(tmp.path)
+    const { project: main } = await projectFromDirectory(tmp.path)
 
     const worktreePath = path.join(tmp.path, "..", path.basename(tmp.path) + "-wt-shared")
     try {
       await $`git worktree add ${worktreePath} -b shared-${Date.now()}`.cwd(tmp.path).quiet()
 
-      const { project: wt } = await Project.fromDirectory(worktreePath)
+      const { project: wt } = await projectFromDirectory(worktreePath)
 
       expect(wt.id).toBe(main.id)
 
@@ -205,8 +226,8 @@ describe("Project.fromDirectory with worktrees", () => {
       await $`git clone --bare ${tmp.path} ${bare}`.quiet()
       await $`git clone ${bare} ${clone}`.quiet()
 
-      const { project: a } = await Project.fromDirectory(tmp.path)
-      const { project: b } = await Project.fromDirectory(clone)
+      const { project: a } = await projectFromDirectory(tmp.path)
+      const { project: b } = await projectFromDirectory(clone)
 
       expect(b.id).toBe(a.id)
     } finally {
@@ -223,8 +244,8 @@ describe("Project.fromDirectory with worktrees", () => {
       await $`git worktree add ${worktree1} -b branch-${Date.now()}`.cwd(tmp.path).quiet()
       await $`git worktree add ${worktree2} -b branch-${Date.now() + 1}`.cwd(tmp.path).quiet()
 
-      await Project.fromDirectory(worktree1)
-      const { project } = await Project.fromDirectory(worktree2)
+      await projectFromDirectory(worktree1)
+      const { project } = await projectFromDirectory(worktree2)
 
       expect(project.worktree).toBe(tmp.path)
       expect(project.sandboxes).toContain(worktree1)
@@ -246,14 +267,14 @@ describe("Project.fromDirectory with worktrees", () => {
 describe("Project.discover", () => {
   test("should discover favicon.png in root", async () => {
     await using tmp = await tmpdir({ git: true })
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
 
     const pngData = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
     await Bun.write(path.join(tmp.path, "favicon.png"), pngData)
 
-    await Project.discover(project)
+    await projectDiscover(project)
 
-    const updated = Project.get(project.id)
+    const updated = projectGet(project.id)
     expect(updated).toBeDefined()
     expect(updated!.icon).toBeDefined()
     expect(updated!.icon?.url).toStartWith("data:")
@@ -263,13 +284,13 @@ describe("Project.discover", () => {
 
   test("should not discover non-image files", async () => {
     await using tmp = await tmpdir({ git: true })
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
 
     await Bun.write(path.join(tmp.path, "favicon.txt"), "not an image")
 
-    await Project.discover(project)
+    await projectDiscover(project)
 
-    const updated = Project.get(project.id)
+    const updated = projectGet(project.id)
     expect(updated).toBeDefined()
     expect(updated!.icon).toBeUndefined()
   })
@@ -278,67 +299,67 @@ describe("Project.discover", () => {
 describe("Project.update", () => {
   test("should update name", async () => {
     await using tmp = await tmpdir({ git: true })
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
 
-    const updated = await Project.update({
+    const updated = await projectUpdate({
       projectID: project.id,
       name: "New Project Name",
     })
 
     expect(updated.name).toBe("New Project Name")
 
-    const fromDb = Project.get(project.id)
+    const fromDb = projectGet(project.id)
     expect(fromDb?.name).toBe("New Project Name")
   })
 
   test("should update icon url", async () => {
     await using tmp = await tmpdir({ git: true })
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
 
-    const updated = await Project.update({
+    const updated = await projectUpdate({
       projectID: project.id,
       icon: { url: "https://example.com/icon.png" },
     })
 
     expect(updated.icon?.url).toBe("https://example.com/icon.png")
 
-    const fromDb = Project.get(project.id)
+    const fromDb = projectGet(project.id)
     expect(fromDb?.icon?.url).toBe("https://example.com/icon.png")
   })
 
   test("should update icon color", async () => {
     await using tmp = await tmpdir({ git: true })
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
 
-    const updated = await Project.update({
+    const updated = await projectUpdate({
       projectID: project.id,
       icon: { color: "#ff0000" },
     })
 
     expect(updated.icon?.color).toBe("#ff0000")
 
-    const fromDb = Project.get(project.id)
+    const fromDb = projectGet(project.id)
     expect(fromDb?.icon?.color).toBe("#ff0000")
   })
 
   test("should update commands", async () => {
     await using tmp = await tmpdir({ git: true })
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
 
-    const updated = await Project.update({
+    const updated = await projectUpdate({
       projectID: project.id,
       commands: { start: "npm run dev" },
     })
 
     expect(updated.commands?.start).toBe("npm run dev")
 
-    const fromDb = Project.get(project.id)
+    const fromDb = projectGet(project.id)
     expect(fromDb?.commands?.start).toBe("npm run dev")
   })
 
   test("should throw error when project not found", async () => {
     await expect(
-      Project.update({
+      projectUpdate({
         projectID: ProjectID.make("nonexistent-project-id"),
         name: "Should Fail",
       }),
@@ -350,7 +371,7 @@ describe("Project.update", () => {
 
   test("should emit GlobalBus event on update", async () => {
     await using tmp = await tmpdir({ git: true })
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
 
     let eventPayload: any = null
     const on = (data: any) => {
@@ -359,7 +380,7 @@ describe("Project.update", () => {
     GlobalBus.on("event", on)
 
     try {
-      await Project.update({
+      await projectUpdate({
         projectID: project.id,
         name: "Updated Name",
       })
@@ -374,9 +395,9 @@ describe("Project.update", () => {
 
   test("should update multiple fields at once", async () => {
     await using tmp = await tmpdir({ git: true })
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
 
-    const updated = await Project.update({
+    const updated = await projectUpdate({
       projectID: project.id,
       name: "Multi Update",
       icon: { url: "https://example.com/favicon.ico", color: "#00ff00" },
@@ -393,24 +414,24 @@ describe("Project.update", () => {
 describe("Project.list and Project.get", () => {
   test("list returns all projects", async () => {
     await using tmp = await tmpdir({ git: true })
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
 
-    const all = Project.list()
+    const all = projectList()
     expect(all.length).toBeGreaterThan(0)
     expect(all.find((p) => p.id === project.id)).toBeDefined()
   })
 
   test("get returns project by id", async () => {
     await using tmp = await tmpdir({ git: true })
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
 
-    const found = Project.get(project.id)
+    const found = projectGet(project.id)
     expect(found).toBeDefined()
     expect(found!.id).toBe(project.id)
   })
 
   test("get returns undefined for unknown id", () => {
-    const found = Project.get(ProjectID.make("nonexistent"))
+    const found = projectGet(ProjectID.make("nonexistent"))
     expect(found).toBeUndefined()
   })
 })
@@ -418,13 +439,13 @@ describe("Project.list and Project.get", () => {
 describe("Project.setInitialized", () => {
   test("sets time_initialized on project", async () => {
     await using tmp = await tmpdir({ git: true })
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
 
     expect(project.time.initialized).toBeUndefined()
 
-    Project.setInitialized(project.id)
+    projectSetInitialized(project.id)
 
-    const updated = Project.get(project.id)
+    const updated = projectGet(project.id)
     expect(updated?.time.initialized).toBeDefined()
   })
 })
@@ -432,30 +453,30 @@ describe("Project.setInitialized", () => {
 describe("Project.addSandbox and Project.removeSandbox", () => {
   test("addSandbox adds directory and removeSandbox removes it", async () => {
     await using tmp = await tmpdir({ git: true })
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
     const sandboxDir = path.join(tmp.path, "sandbox-test")
 
-    await Project.addSandbox(project.id, sandboxDir)
+    await projectAddSandbox(project.id, sandboxDir)
 
-    let found = Project.get(project.id)
+    let found = projectGet(project.id)
     expect(found?.sandboxes).toContain(sandboxDir)
 
-    await Project.removeSandbox(project.id, sandboxDir)
+    await projectRemoveSandbox(project.id, sandboxDir)
 
-    found = Project.get(project.id)
+    found = projectGet(project.id)
     expect(found?.sandboxes).not.toContain(sandboxDir)
   })
 
   test("addSandbox emits GlobalBus event", async () => {
     await using tmp = await tmpdir({ git: true })
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project } = await projectFromDirectory(tmp.path)
     const sandboxDir = path.join(tmp.path, "sandbox-event")
 
     const events: any[] = []
     const on = (evt: any) => events.push(evt)
     GlobalBus.on("event", on)
 
-    await Project.addSandbox(project.id, sandboxDir)
+    await projectAddSandbox(project.id, sandboxDir)
 
     GlobalBus.off("event", on)
     expect(events.some((e) => e.payload.type === Project.Event.Updated.type)).toBe(true)

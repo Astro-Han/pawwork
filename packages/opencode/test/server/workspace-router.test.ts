@@ -70,6 +70,10 @@ async function readEffectContext() {
   )
 }
 
+function runPlugin<A>(fn: (plugin: Plugin.Interface) => Effect.Effect<A>) {
+  return AppRuntime.runPromise(Plugin.Service.use(fn))
+}
+
 async function writeOpencodeConfig(dir: string, pluginFile: string) {
   await Bun.write(
     path.join(dir, "opencode.json"),
@@ -153,7 +157,7 @@ async function persistRemoteWorkspace(input: { directory: string; type: string; 
   return Instance.provide({
     directory: input.directory,
     fn: async () => {
-      await Plugin.init()
+      await runPlugin((plugin) => plugin.init())
       const id = WorkspaceID.ascending()
       Database.use((db) =>
         db.insert(WorkspaceTable)
@@ -178,7 +182,7 @@ async function createLocalWorkspace(input: { directory: string; type: string }) 
   return Instance.provide({
     directory: input.directory,
     fn: async () => {
-      await Plugin.init()
+      await runPlugin((plugin) => plugin.init())
       return Workspace.create({
         type: input.type,
         branch: null,
@@ -465,12 +469,13 @@ describe("workspace router", () => {
     const localWorkspace = await createLocalWorkspace({ directory: second.path, type: second.extra.type })
     const session = await Instance.provide({
       directory: first.path,
-      fn: () => Session.create({ workspaceID: remoteWorkspace.id }),
+      fn: () => AppRuntime.runPromise(Session.Service.use((svc) => svc.create({ workspaceID: remoteWorkspace.id }))),
     })
 
     await Instance.disposeAll()
 
     const ensureSync = disableWorkspaceSync()
+    const proxyHttp = spyOn(ServerProxy, "http")
 
     try {
       const app = Server.Default().app
@@ -486,8 +491,14 @@ describe("workspace router", () => {
       expect(response.status).toBe(200)
       expect(await response.json()).toEqual({ routed: "session-workspace" })
       expect(remoteHits).toBe(1)
+      expect(proxyHttp).toHaveBeenCalledTimes(1)
+      const call = proxyHttp.mock.calls[0] as unknown as [URL | string, HeadersInit | undefined, Request, unknown]
+      expect(call[0].toString()).toBe(remote.url.origin)
+      expect(call[3]).toBe(remoteWorkspace.id)
+      expect(call[2].headers.has("x-opencode-workspace")).toBe(false)
     } finally {
       ensureSync.mockRestore()
+      proxyHttp.mockRestore()
     }
   })
 
@@ -809,7 +820,7 @@ describe("workspace router", () => {
       const workspace = await Instance.provide({
         directory: root.path,
         fn: async () => {
-          await Plugin.init()
+          await runPlugin((plugin) => plugin.init())
           return Workspace.create({
             type,
             branch: null,
@@ -821,7 +832,7 @@ describe("workspace router", () => {
 
       await Instance.provide({
         directory: worktreePath,
-        fn: async () => Plugin.init(),
+        fn: async () => runPlugin((plugin) => plugin.init()),
       })
 
       await Instance.provide({
@@ -862,7 +873,7 @@ describe("workspace router", () => {
 
     await Instance.provide({
       directory: second.path,
-      fn: async () => Plugin.init(),
+      fn: async () => runPlugin((plugin) => plugin.init()),
     })
 
     await Instance.provide({
@@ -1010,7 +1021,7 @@ describe("workspace router", () => {
       const workspace = await Instance.provide({
         directory: root.path,
         fn: async () => {
-          await Plugin.init()
+          await runPlugin((plugin) => plugin.init())
           return Workspace.create({
             type,
             branch: null,
@@ -1026,7 +1037,7 @@ describe("workspace router", () => {
 
       await Instance.provide({
         directory: worktreePath,
-        fn: async () => Plugin.init(),
+        fn: async () => runPlugin((plugin) => plugin.init()),
       })
 
       const app = Server.Default().app
@@ -1083,7 +1094,7 @@ describe("workspace router", () => {
     const workspace = await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        await Plugin.init()
+        await runPlugin((plugin) => plugin.init())
         return Workspace.create({
           type,
           branch: null,
@@ -1184,7 +1195,7 @@ describe("workspace router", () => {
     const workspace = await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        await Plugin.init()
+        await runPlugin((plugin) => plugin.init())
         const id = WorkspaceID.ascending()
         Database.use((db) =>
           db.insert(WorkspaceTable)

@@ -39,9 +39,9 @@ function assistant(parts: unknown[]): MessageV2.WithParts {
 }
 
 describe("tool-info", () => {
-  test("DEFERRED_TOOL_IDS is exactly the worktree tools plus lsp plus the browser and opencli groups", () => {
+  test("DEFERRED_TOOL_IDS is exactly the standalone deferred tools plus the browser and opencli groups", () => {
     expect([...DEFERRED_TOOL_IDS].sort()).toEqual(
-      [...BROWSER_TOOLS, ...OPENCLI_TOOLS, "enter-worktree", "exit-worktree", "lsp"].sort(),
+      [...BROWSER_TOOLS, ...OPENCLI_TOOLS, "automate_manage", "enter-worktree", "exit-worktree", "lsp"].sort(),
     )
     expect([...DEFERRED_GROUP_IDS].sort()).toEqual(["browser", "opencli"].sort())
     expect(deferredGroupMembers("browser").sort()).toEqual([...BROWSER_TOOLS].sort())
@@ -70,8 +70,10 @@ describe("tool-info", () => {
   })
 
   test("buildCardList lists available deferred tools with their cards", () => {
-    const list = buildCardList(["enter-worktree", "exit-worktree", "lsp"])
-    expect(list).not.toContain("automate")
+    const list = buildCardList(["automate_manage", "enter-worktree", "exit-worktree", "lsp"])
+    expect(list).not.toContain("**automate**")
+    expect(list).toContain("automate_manage")
+    expect(list).toContain("pause")
     expect(list).toContain("enter-worktree")
     expect(list).toContain("exit-worktree")
     expect(list).toContain("lsp")
@@ -164,6 +166,7 @@ describe("tool-info", () => {
     expect(canonicalDeferredId("enter-worktree")).toBe("enter-worktree")
     expect(canonicalDeferredId("Enter-Worktree")).toBe("enter-worktree")
     expect(canonicalDeferredId("ENTER-WORKTREE")).toBe("enter-worktree")
+    expect(canonicalDeferredId("Automate_Manage")).toBe("automate_manage")
     expect(canonicalDeferredId("Automate")).toBeUndefined()
     expect(canonicalDeferredId("LSP")).toBe("lsp")
     expect(canonicalDeferredId("read")).toBeUndefined()
@@ -191,6 +194,7 @@ describe("tool-info", () => {
     expect(canonicalActivationTarget("browser")).toEqual({ kind: "group", id: "browser" })
     expect(canonicalActivationTarget("BROWSER")).toEqual({ kind: "group", id: "browser" })
     expect(canonicalActivationTarget("browser_click")).toEqual({ kind: "group", id: "browser" })
+    expect(canonicalActivationTarget("automate_manage")).toEqual({ kind: "tool", id: "automate_manage" })
     expect(canonicalActivationTarget("enter-worktree")).toEqual({ kind: "tool", id: "enter-worktree" })
     expect(canonicalActivationTarget("read")).toBeUndefined()
   })

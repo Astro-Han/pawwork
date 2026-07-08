@@ -15,9 +15,6 @@ import { ModelsPage } from "./models"
 // (width / background / border) is inherited from the shell slots instead of being
 // re-declared, which removes the alignment drift the old standalone overlay had
 // (its fixed 200px nav + surface-raised content diverged from the real sidebar).
-// Remote access is not part of this surface yet: its page has no content branch, so it is
-// intentionally absent from both the type and TAB_VALUES. It comes back — type, TAB_VALUES,
-// NAV_ITEMS and a content Match together — when its page lands.
 export type SettingsTab = "general" | "shortcuts" | "models" | "integrations" | "worktrees" | "memory"
 
 const TAB_VALUES: SettingsTab[] = ["general", "shortcuts", "models", "integrations", "worktrees", "memory"]

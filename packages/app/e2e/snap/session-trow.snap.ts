@@ -225,6 +225,12 @@ test("session-trow", async ({ page }) => {
   await expect(dismissedQuestion.getByText("问题已忽略")).toBeVisible({ timeout: 30_000 })
   shots.push(await captureBlock("dismissed-question-expanded", dismissedQuestion))
 
+  const readyQuestionMarker = page.locator('[data-snap="ready-question-marker"]')
+  const readyQuestionMarkerInline = readyQuestionMarker.locator('[data-component="question-inline-marker"]')
+  await expect(readyQuestionMarkerInline).toBeVisible({ timeout: 30_000 })
+  await expect(readyQuestionMarkerInline).toContainText("在下方回答这个问题", { timeout: 30_000 })
+  shots.push(await captureBlock("ready-question-marker", readyQuestionMarker))
+
   const metadataDetailCollapsed = page.locator('[data-snap="metadata-detail-collapsed"]')
   await expect(metadataDetailCollapsed.locator('[data-slot="trow-summary-chev"]')).toBeVisible({ timeout: 30_000 })
   await expect(metadataDetailCollapsed).not.toContainText("这组工具详情还能看到吗?", { timeout: 30_000 })

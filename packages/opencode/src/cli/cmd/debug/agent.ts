@@ -2,6 +2,7 @@ import { EOL } from "os"
 import { basename } from "path"
 import { Effect } from "effect"
 import { Agent } from "../../../agent/agent"
+import { AppRuntime } from "../../../effect/app-runtime"
 import { Provider } from "../../../provider/provider"
 import { Session } from "../../../session"
 import type { MessageV2 } from "../../../session/message-v2"
@@ -34,7 +35,7 @@ export const AgentCommand = cmd({
   async handler(args) {
     await bootstrap(process.cwd(), async () => {
       const agentName = args.name as string
-      const agent = await Agent.get(agentName)
+      const agent = await AppRuntime.runPromise(Agent.Service.use((svc) => svc.get(agentName)))
       if (!agent) {
         process.stderr.write(
           `Agent ${agentName} not found, run '${basename(process.execPath)} agent list' to get an agent list` + EOL,
@@ -71,11 +72,16 @@ export const AgentCommand = cmd({
 })
 
 async function getAvailableTools(agent: Agent.Info) {
-  const model = agent.model ?? (await Provider.defaultModel())
-  return ToolRegistry.tools({
-    ...model,
-    agent,
-  })
+  const model =
+    agent.model ?? (await AppRuntime.runPromise(Provider.Service.use((provider) => provider.defaultModel())))
+  return AppRuntime.runPromise(
+    ToolRegistry.Service.use((registry) =>
+      registry.tools({
+        ...model,
+        agent,
+      }),
+    ),
+  )
 }
 
 async function resolveTools(agent: Agent.Info, availableTools: Awaited<ReturnType<typeof getAvailableTools>>) {
@@ -117,9 +123,12 @@ function parseToolParams(input?: string) {
 }
 
 async function createToolContext(agent: Agent.Info) {
-  const session = await Session.create({ title: `Debug tool run (${agent.name})` })
+  const session = await AppRuntime.runPromise(
+    Session.Service.use((svc) => svc.create({ title: `Debug tool run (${agent.name})` })),
+  )
   const messageID = MessageID.ascending()
-  const model = agent.model ?? (await Provider.defaultModel())
+  const model =
+    agent.model ?? (await AppRuntime.runPromise(Provider.Service.use((provider) => provider.defaultModel())))
   const now = Date.now()
   const message: MessageV2.Assistant = {
     id: messageID,
@@ -148,7 +157,7 @@ async function createToolContext(agent: Agent.Info) {
       },
     },
   }
-  await Session.updateMessage(message)
+  await AppRuntime.runPromise(Session.Service.use((svc) => svc.updateMessage(message)))
 
   const ruleset = Permission.merge(agent.permission, session.permission ?? [])
 

@@ -25,9 +25,6 @@ permissions:
   contents: read
   pull-requests: read
 
-env:
-  PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
-
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -117,7 +114,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # actions/checkout@v7.0.0
         with:
           persist-credentials: false
 
@@ -135,30 +132,21 @@ jobs:
           # Load-bearing for `bun audit` exit semantics; do not bump without re-verifying advisory exit codes.
           bun-version: "1.3.14"
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # actions/cache@v6.1.0
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: |
             bun-${{ runner.os }}-
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
-        with:
-          path: ${{ github.workspace }}/.playwright-browsers
-          key: playwright-${{ runner.os }}-${{ hashFiles('packages/app/package.json', 'bun.lock') }}
-          restore-keys: |-
-            playwright-${{ runner.os }}-
-
       - run: bun install --frozen-lockfile
 
-      # Avoid Playwright's browser download path here; on this runner it can
-      # hang after reaching 100%. Use the GitHub-hosted Chrome install instead.
-      - name: Install Playwright system dependencies
-        timeout-minutes: 10
-        working-directory: packages/app
-        run: |
-          bunx playwright install-deps chromium
-          google-chrome --version
+      # This workflow runs Playwright against GitHub-hosted Chrome. Do not call
+      # `playwright install-deps chromium` here: on Ubuntu 24.04 it installs
+      # extra apt font packages and can time out before e2e starts.
+      - name: Verify GitHub-hosted Chrome
+        timeout-minutes: 2
+        run: google-chrome --version
 
       - name: Run e2e
         id: run_e2e

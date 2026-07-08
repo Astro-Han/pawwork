@@ -45,7 +45,6 @@ export const dict = {
   "ui.sessionTurn.retry.geminiHot": "gemini مزدحم حاليا",
   "ui.sessionTurn.retry.recovery": "Recovering...",
   "ui.sessionTurn.retry.safeRecovery": "Network connection dropped, retrying automatically",
-  "ui.sessionTurn.notice.safeRetryFailed": "Recovery failed. Try again later or switch models.",
   "ui.sessionTurn.error.freeUsageExceeded": "تم تجاوز حد الاستخدام المجاني",
   "ui.sessionTurn.error.addCredits": "إضافة رصيد",
 

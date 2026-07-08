@@ -1,9 +1,14 @@
 import log from "electron-log/main.js"
-import { readFileSync, readdirSync, statSync, unlinkSync } from "node:fs"
+import { closeSync, fstatSync, openSync, readdirSync, readSync, statSync, unlinkSync } from "node:fs"
 import { dirname, join } from "node:path"
 
 const MAX_LOG_AGE_DAYS = 7
 const TAIL_LINES = 1000
+// Read at most this many bytes from the END of each log file. The main log rotates at 5 MB (maxSize
+// below), but the backend log path is external and unbounded — without this a multi-GB log would
+// load fully into memory just to take the tail. This also bounds any single line, so no separate
+// per-line cap is needed (and a pre-redaction per-line cut would risk slicing a secret's prefix off).
+const TAIL_MAX_BYTES = 512 * 1024
 const CONSOLE_TRANSPORT_INITIALIZED = Symbol.for("pawwork.consoleTransportInitialized")
 
 export function initLogging() {
@@ -29,10 +34,39 @@ export function diagnosticsLogTail(input: { backendLogPath?: string | null } = {
   return sections.join("\n\n")
 }
 
+// Read up to maxBytes from the end of the file without loading the whole thing. truncatedHead is
+// true when the file was larger, so the caller can drop the (likely partial) first line.
+function readTailBytes(path: string, maxBytes: number): { text: string; truncatedHead: boolean } {
+  let fd: number | undefined
+  try {
+    fd = openSync(path, "r")
+    const size = fstatSync(fd).size
+    const readBytes = Math.min(size, maxBytes)
+    const start = size - readBytes
+    const buffer = Buffer.allocUnsafe(readBytes)
+    let offset = 0
+    while (offset < readBytes) {
+      const read = readSync(fd, buffer, offset, readBytes - offset, start + offset)
+      if (read <= 0) break
+      offset += read
+    }
+    return { text: buffer.toString("utf8", 0, offset), truncatedHead: start > 0 }
+  } finally {
+    if (fd !== undefined) closeSync(fd)
+  }
+}
+
 function tailFile(path: string): string {
   try {
-    const contents = readFileSync(path, "utf8")
-    const lines = contents.split("\n")
+    const { text, truncatedHead } = readTailBytes(path, TAIL_MAX_BYTES)
+    const lines = text.split("\n")
+    // Started mid-file: the first line is a fragment (and may begin on a split multibyte char). Drop it
+    // even when it is the only line, so only COMPLETE lines are emitted — emitting a mid-line fragment,
+    // or head-cutting a long line here (before redaction), could leave a token with its recognizable
+    // prefix sliced off so the downstream redactor no longer matches it. A multi-line secret whose
+    // header (e.g. a PEM key's BEGIN) is stranded outside the window is handled at the redaction layer,
+    // which scrubs bare base64 key bodies directly (problem-report-redact.ts) — not by line surgery here.
+    if (truncatedHead) lines.shift()
     return lines.slice(Math.max(0, lines.length - TAIL_LINES)).join("\n")
   } catch {
     return ""

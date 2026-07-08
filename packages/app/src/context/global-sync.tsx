@@ -117,7 +117,7 @@ function createGlobalSync() {
 
   const [globalStore, setGlobalStore] = createStore<GlobalStore>({
     ready: false,
-    path: { state: "", config: "", worktree: "", directory: "", home: "" },
+    path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" },
     project: projectCache.value,
     session_todo: {},
     pendingQuestions: {},
@@ -731,6 +731,7 @@ function createGlobalSync() {
     child: children.child,
     peek: children.peek,
     peekExisting: children.peekExisting,
+    mountedDirectories: children.directories,
     retainDirectory,
     // Register a rising-edge side effect for live question arrivals (the
     // notification provider hooks OS notify / sound / Dock attention here).

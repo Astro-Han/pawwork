@@ -12,7 +12,6 @@ import { LSP } from "../lsp"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import DESCRIPTION from "./apply_patch.txt"
 import { File } from "../file"
-import { Format } from "../format"
 import * as Bom from "@/util/bom"
 import { isSensitiveTargetPath, type SensitiveStatus } from "./sensitive"
 import { TurnChange } from "@/session/turn-change"
@@ -44,16 +43,40 @@ function safeTotalDiff(changes: Array<{ diff: string; sensitive: boolean }>) {
     .join("")
 }
 
+const VERIFICATION_ERROR_PREFIX = "apply_patch verification failed:"
+
+function verificationError(error: unknown) {
+  if (error instanceof Error && error.message.startsWith(VERIFICATION_ERROR_PREFIX)) return error
+  const message = error instanceof Error ? error.message : String(error)
+  return new Error(`${VERIFICATION_ERROR_PREFIX} ${message}`, { cause: error })
+}
+
+const parseHunks = Effect.fn("ApplyPatchTool.parseHunks")(function* (patchText: string) {
+  return yield* Effect.try({
+    try: () => Patch.parsePatch(patchText).hunks,
+    catch: verificationError,
+  })
+})
+
+const deriveNewContents = Effect.fn("ApplyPatchTool.deriveNewContents")(function* (
+  filePath: string,
+  chunks: Patch.UpdateFileChunk[],
+) {
+  return yield* Effect.try({
+    try: () => Patch.deriveNewContentsFromChunks(filePath, chunks),
+    catch: verificationError,
+  })
+})
+
 export const ApplyPatchTool = Tool.define(
   "apply_patch",
   Effect.gen(function* () {
     const lsp = yield* LSP.Service
     const afs = yield* AppFileSystem.Service
-    const format = yield* Format.Service
     const bus = yield* Bus.Service
     const turnChange = yield* TurnChange.Service
 
-    const run = Effect.fn("ApplyPatchTool.execute")(function* (
+    const execute = Effect.fn("ApplyPatchTool.execute")(function* (
       params: Schema.Schema.Type<typeof Parameters>,
       ctx: Tool.Context,
     ) {
@@ -62,20 +85,14 @@ export const ApplyPatchTool = Tool.define(
       }
 
       // Parse the patch to get hunks
-      let hunks: Patch.Hunk[]
-      try {
-        const parseResult = Patch.parsePatch(params.patchText)
-        hunks = parseResult.hunks
-      } catch (error) {
-        return yield* Effect.fail(new Error(`apply_patch verification failed: ${error}`))
-      }
+      const hunks = yield* parseHunks(params.patchText)
 
       if (hunks.length === 0) {
         const normalized = params.patchText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim()
         if (normalized === "*** Begin Patch\n*** End Patch") {
           return yield* Effect.fail(new Error("patch rejected: empty patch"))
         }
-        return yield* Effect.fail(new Error("apply_patch verification failed: no hunks found"))
+        return yield* Effect.fail(new Error(`${VERIFICATION_ERROR_PREFIX} no hunks found`))
       }
 
       // Validate file paths and check permissions
@@ -97,8 +114,6 @@ export const ApplyPatchTool = Tool.define(
         moveBeforeExists?: boolean
         sensitive: boolean
       }> = []
-
-      let totalDiff = ""
 
       for (const hunk of hunks) {
         const rawFilePath = path.resolve(Instance.directory, hunk.path)
@@ -137,8 +152,6 @@ export const ApplyPatchTool = Tool.define(
               moveBeforeExists: undefined,
               sensitive: isSensitiveFile(filePath),
             })
-
-            totalDiff += diff + "\n"
             break
           }
 
@@ -147,7 +160,7 @@ export const ApplyPatchTool = Tool.define(
             const stats = yield* afs.stat(filePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
             if (!stats || stats.type === "Directory") {
               return yield* Effect.fail(
-                new Error(`apply_patch verification failed: Failed to read file to update: ${filePath}`),
+                new Error(`${VERIFICATION_ERROR_PREFIX} Failed to read file to update: ${filePath}`),
               )
             }
 
@@ -157,13 +170,9 @@ export const ApplyPatchTool = Tool.define(
             let bom = source.bom
 
             // Apply the update chunks to get new content
-            try {
-              const fileUpdate = Patch.deriveNewContentsFromChunks(filePath, hunk.chunks)
-              newContent = fileUpdate.content
-              bom = fileUpdate.bom
-            } catch (error) {
-              return yield* Effect.fail(new Error(`apply_patch verification failed: ${error}`))
-            }
+            const fileUpdate = yield* deriveNewContents(filePath, hunk.chunks)
+            newContent = fileUpdate.content
+            bom = fileUpdate.bom
 
             const diff = trimDiff(createTwoFilesPatch(filePath, filePath, oldContent, newContent))
 
@@ -199,20 +208,12 @@ export const ApplyPatchTool = Tool.define(
               moveBeforeExists: !!moveBefore,
               sensitive: isSensitiveFile(filePath) || (movePath ? isSensitiveFile(movePath) : false),
             })
-
-            totalDiff += diff + "\n"
             break
           }
 
           case "delete": {
             const source = yield* Bom.readFile(afs, filePath).pipe(
-              Effect.catch((error) =>
-                Effect.fail(
-                  new Error(
-                    `apply_patch verification failed: ${error instanceof Error ? error.message : String(error)}`,
-                  ),
-                ),
-              ),
+              Effect.catch((error) => Effect.fail(verificationError(error))),
             )
             const contentToDelete = source.text
             const deleteDiff = trimDiff(createTwoFilesPatch(filePath, filePath, contentToDelete, ""))
@@ -232,8 +233,6 @@ export const ApplyPatchTool = Tool.define(
               beforeBom: source.bom,
               sensitive: isSensitiveFile(filePath),
             })
-
-            totalDiff += deleteDiff + "\n"
             break
           }
         }
@@ -318,25 +317,6 @@ export const ApplyPatchTool = Tool.define(
         }
 
         if (edited) {
-          if (yield* format.file(edited)) {
-            // Mirror the recompute-after-format pattern in edit.ts/write.ts:
-            // formatters can rewrite the file after we've already built the
-            // diff/additions/deletions, so re-read the bytes and refresh this
-            // change's metadata. Without this, the patch metadata (and the
-            // aggregated `totalDiff` returned to the caller) describes content
-            // that no longer matches what's on disk.
-            const synced = yield* Bom.syncFile(afs, edited, change.bom)
-            change.newContent = synced
-            change.diff = trimDiff(createTwoFilesPatch(edited, edited, change.oldContent, synced))
-            let additions = 0
-            let deletions = 0
-            for (const piece of diffLines(change.oldContent, synced)) {
-              if (piece.added) additions += piece.count || 0
-              if (piece.removed) deletions += piece.count || 0
-            }
-            change.additions = additions
-            change.deletions = deletions
-          }
           yield* bus.publish(File.Event.Edited, { file: edited })
         }
 
@@ -367,20 +347,6 @@ export const ApplyPatchTool = Tool.define(
               : { exists: false },
             after: change.type === "delete" ? { exists: false } : { exists: true, content: change.newContent, bom: change.bom },
           })
-        }
-      }
-
-      // Rebuild the aggregated diff and per-file metadata so the caller-visible
-      // `totalDiff` / `files` reflect any post-format mutations applied above.
-      totalDiff = ""
-      for (let i = 0; i < fileChanges.length; i++) {
-        const c = fileChanges[i]!
-        totalDiff += c.diff + (c.diff.endsWith("\n") ? "" : "\n")
-        const f = files[i]
-        if (f && !c.sensitive) {
-          f.patch = c.diff
-          f.additions = c.additions
-          f.deletions = c.deletions
         }
       }
 
@@ -429,13 +395,12 @@ export const ApplyPatchTool = Tool.define(
         },
         output,
       }
-    })
+    }, Effect.orDie)
 
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-        run(params, ctx).pipe(Effect.orDie),
+      execute,
     }
   }),
 )

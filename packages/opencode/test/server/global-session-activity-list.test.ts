@@ -18,7 +18,7 @@ function run<A, E>(fx: Effect.Effect<A, E, SessionNs.Service>) {
 
 const svc = {
   ...SessionNs,
-  create(input?: Parameters<typeof SessionNs.create>[0]) {
+  create(input?: SessionNs.CreateInput) {
     return run(SessionNs.Service.use((svc) => svc.create(input)))
   },
   updateMessage(input: MessageV2.Info) {
@@ -36,7 +36,7 @@ describe("session.listGlobal activity order", () => {
   const touchSessionAt = (sessionID: SessionID, time: number) =>
     SyncEvent.run(SessionNs.Event.Updated, { sessionID, info: { time: { updated: time } } }, { publish: false })
 
-  const createSessionAt = (directory: string, time: number, input?: Parameters<typeof SessionNs.create>[0]) =>
+  const createSessionAt = (directory: string, time: number, input?: SessionNs.CreateInput) =>
     Instance.provide({
       directory,
       fn: async () => {

@@ -17,7 +17,7 @@ function run<A, E>(fx: Effect.Effect<A, E, SessionNs.Service>) {
 
 const svc = {
   ...SessionNs,
-  create(input?: Parameters<typeof SessionNs.create>[0]) {
+  create(input?: SessionNs.CreateInput) {
     return run(SessionNs.Service.use((svc) => svc.create(input)))
   },
   remove(id: SessionID) {
@@ -29,7 +29,7 @@ const svc = {
   updatePart<T extends MessageV2.Part>(part: T) {
     return run(SessionNs.Service.use((svc) => svc.updatePart(part)))
   },
-  messages(input: Parameters<typeof SessionNs.messages>[0]) {
+  messages(input: Parameters<SessionNs.Interface["messages"]>[0]) {
     return run(SessionNs.Service.use((svc) => svc.messages(input)))
   },
 }
@@ -514,16 +514,51 @@ describe("session messages endpoint", () => {
 })
 
 describe("session.prompt_async error handling", () => {
+  test("prompt route strips client-supplied automation provenance", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await withoutWatcher(() =>
+      Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await svc.create({})
+          const app = Server.Default().app
+
+          const res = await app.request(`/session/${session.id}/message`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              automationID: "run_forged",
+              noReply: true,
+              model: { providerID: "test", modelID: "test" },
+              parts: [{ type: "text", text: "hello" }],
+            }),
+          })
+          expect(res.status).toBe(200)
+          const body = JSON.parse(await res.text()) as MessageV2.WithParts
+          expect(body.info.role).toBe("user")
+          expect((body.info as { automationID?: string }).automationID).toBeUndefined()
+
+          const persisted = (await svc.messages({ sessionID: session.id })).find((msg) => msg.info.id === body.info.id)
+          expect((persisted?.info as { automationID?: string } | undefined)?.automationID).toBeUndefined()
+
+          await svc.remove(session.id)
+        },
+      }),
+    )
+  })
+
   test("prompt_async route has error handler for detached prompt call", async () => {
-    const src = await Bun.file(new URL("../../src/server/instance/session.ts", import.meta.url)).text()
-    const start = src.indexOf('"/:sessionID/prompt_async"')
-    const end = src.indexOf('"/:sessionID/command"', start)
+    const src = await Bun.file(
+      new URL("../../src/server/routes/instance/httpapi/handlers/session.ts", import.meta.url),
+    ).text()
+    const start = src.indexOf('.handleRaw("promptAsync"')
+    const end = src.indexOf('.handleRaw("command"', start)
 
     expect(start).toBeGreaterThan(-1)
     expect(end).toBeGreaterThan(start)
 
     const route = src.slice(start, end)
-    expect(route).toContain(".catch(")
-    expect(route).toContain("Bus.publish(Session.Event.Error")
+    expect(route).toContain("Effect.forkDetach")
+    expect(route).toContain("publishPromptAsyncError")
   })
 })

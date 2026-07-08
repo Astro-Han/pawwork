@@ -1,6 +1,5 @@
 import z from "zod"
 import { Effect, Layer, Context } from "effect"
-import { makeRuntime } from "@/effect/run-service"
 import { Bus } from "../bus"
 import { Snapshot } from "../snapshot"
 import { SyncEvent } from "../sync"
@@ -170,12 +169,5 @@ export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(()
     Layer.provide(Bus.layer),
   ),
 )
-
-const { runPromise } = makeRuntime(Service, defaultLayer)
-
-export const revert = (input: RevertInput) => runPromise((svc) => svc.revert(RevertInput.parse(input)))
-export const unrevert = (input: z.infer<typeof UnrevertInput>) =>
-  runPromise((svc) => svc.unrevert(UnrevertInput.parse(input)))
-export const cleanup = (session: Session.Info) => runPromise((svc) => svc.cleanup(Session.Info.parse(session)))
 
 export * as SessionRevert from "./revert"

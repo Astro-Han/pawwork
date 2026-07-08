@@ -1,6 +1,6 @@
 import z from "zod"
 import { setTimeout as sleep } from "node:timers/promises"
-import { Effect } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 import { fn } from "@/util/fn"
 import { Database, eq } from "@/storage/db"
 import { Project } from "@/project/project"
@@ -13,19 +13,19 @@ import { ProjectID } from "@/project/schema"
 import { Instance } from "@/project/instance"
 import { Plugin } from "@/plugin"
 import { Auth } from "@/auth"
-import { AppRuntime } from "@/effect/app-runtime"
 import { WorkspaceTable } from "./workspace.sql"
 import { getAdaptor, getBuiltinAdaptor, ownerKey } from "./adaptors"
-import { WorkspaceInfo } from "./types"
+import { type Adaptor, WorkspaceInfo } from "./types"
 import { WorkspaceID } from "./schema"
 import { parseSSE } from "./sse"
+import { AppRuntime } from "@/effect/app-runtime"
 
 export namespace Workspace {
   export const Info = WorkspaceInfo.meta({
     ref: "Workspace",
   })
   export type Info = z.infer<typeof Info>
-  type StoredInfo = Info & {
+  export type StoredInfo = Info & {
     owner: string | null
   }
 
@@ -84,12 +84,100 @@ export namespace Workspace {
     projectID: ProjectID.zod,
     extra: Info.shape.extra,
   })
+  export type CreateInput = z.infer<typeof CreateInput>
+
+  const WorkspaceErrorReason = Schema.Union([
+    Schema.Literal("create"),
+    Schema.Literal("list"),
+    Schema.Literal("record"),
+    Schema.Literal("get"),
+    Schema.Literal("sync"),
+    Schema.Literal("remove"),
+    Schema.Literal("adaptor"),
+    Schema.Literal("status"),
+  ])
+
+  export class WorkspaceError extends Schema.TaggedErrorClass<WorkspaceError>()("WorkspaceError", {
+    reason: WorkspaceErrorReason,
+    message: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
+  }) {}
+
+  export interface Interface {
+    readonly create: (input: CreateInput) => Effect.Effect<Info, WorkspaceError>
+    readonly list: (project: Project.Info) => Effect.Effect<Info[], WorkspaceError>
+    readonly record: (id: WorkspaceID) => Effect.Effect<StoredInfo | undefined, WorkspaceError>
+    readonly get: (id: WorkspaceID) => Effect.Effect<Info | undefined, WorkspaceError>
+    readonly ensureSync: (space: StoredInfo | undefined, hint?: string | null) => Effect.Effect<void, WorkspaceError>
+    readonly remove: (id: WorkspaceID) => Effect.Effect<Info | undefined, WorkspaceError>
+    readonly resolveAdaptor: (
+      input: Pick<StoredInfo, "projectID" | "type" | "owner"> & { hint?: string | null },
+    ) => Effect.Effect<Adaptor, WorkspaceError>
+    readonly status: () => Effect.Effect<ConnectionStatus[], WorkspaceError>
+  }
+
+  export class Service extends Context.Service<Service, Interface>()("@opencode/Workspace") {}
+
+  const workspaceFailure =
+    (reason: WorkspaceError["reason"], message: string) =>
+    (cause: unknown) => {
+      if (cause instanceof WorkspaceError) return cause
+      const causeMessage =
+        cause instanceof Error ? cause.message : typeof cause === "string" && cause.length > 0 ? cause : undefined
+      return new WorkspaceError({
+        reason,
+        message: causeMessage ? `${message}: ${causeMessage}` : message,
+        cause,
+      })
+    }
+
+  const effect = <A>(reason: WorkspaceError["reason"], message: string, run: () => A) =>
+    Effect.try({
+      try: run,
+      catch: workspaceFailure(reason, message),
+    })
+
+  const promise = <A>(reason: WorkspaceError["reason"], message: string, run: () => Promise<A>) =>
+    Effect.tryPromise({
+      try: run,
+      catch: workspaceFailure(reason, message),
+    })
+
+  const preserveError = (cause: unknown) => (cause instanceof Error ? cause : new Error(String(cause)))
+
+  export const layer: Layer.Layer<Service, never, Auth.Service> = Layer.effect(
+    Service,
+    Effect.gen(function* () {
+      const auth = yield* Auth.Service
+      return Service.of({
+        create: (input) =>
+          createWithAuth(input).pipe(
+            Effect.provideService(Auth.Service, auth),
+            Effect.mapError(workspaceFailure("create", "Failed to create workspace")),
+          ),
+        list: (project) => effect("list", "Failed to list workspaces", () => Workspace.list(project)),
+        record: (id) => promise("record", `Failed to read workspace: ${id}`, () => Workspace.record(id)),
+        get: (id) => promise("get", `Failed to get workspace: ${id}`, () => Workspace.get(id)),
+        ensureSync: (space, hint) =>
+          effect("sync", space ? `Failed to start workspace sync: ${space.id}` : "Failed to start workspace sync", () =>
+            Workspace.ensureSync(space, hint),
+          ),
+        remove: (id) => promise("remove", `Failed to remove workspace: ${id}`, () => Workspace.remove(id)),
+        resolveAdaptor: (input) =>
+          promise("adaptor", `Failed to resolve workspace adaptor: ${input.type}`, () =>
+            Workspace.resolveAdaptor(input),
+          ),
+        status: () => effect("status", "Failed to read workspace status", () => Workspace.status()),
+      })
+    }),
+  )
+  export const defaultLayer = layer.pipe(Layer.provide(Auth.defaultLayer))
 
   async function bootstrapAdaptor(
     input: Pick<StoredInfo, "projectID" | "type" | "owner"> & { hint?: string | null },
     error: unknown,
   ) {
-    const project = Project.get(input.projectID)
+    const project = AppRuntime.runSync(Project.Service.use((project) => project.get(input.projectID)))
     if (!project) throw error
     const projectWorktree = project.worktree === "/" ? undefined : project.worktree
 
@@ -101,18 +189,18 @@ export namespace Workspace {
       ),
     ]
     let lastError = error
-    const resolved: { owner: string; adaptor: Awaited<ReturnType<typeof getAdaptor>> }[] = []
+    const resolved: { owner: string; adaptor: ReturnType<typeof getAdaptor> }[] = []
 
     for (const directory of candidates) {
       try {
         const match = await Instance.provide({
           directory,
           fn: async () => {
-            await Plugin.init()
+            await AppRuntime.runPromise(Plugin.Service.use((plugin) => plugin.init()))
             const owner = ownerKey(Instance.directory, Instance.worktree)
             return {
               owner,
-              adaptor: await getAdaptor(input.projectID, input.type, owner),
+              adaptor: getAdaptor(input.projectID, input.type, owner),
             }
           },
         })
@@ -155,16 +243,16 @@ export namespace Workspace {
 
     if (input.owner) {
       try {
-        return await getAdaptor(input.projectID, input.type, input.owner)
+        return getAdaptor(input.projectID, input.type, input.owner)
       } catch (error) {
         return bootstrapAdaptor({ ...input, hint }, error)
       }
     }
 
     const builtin = getBuiltinAdaptor(input.type)
-    if (builtin) return builtin()
+    if (builtin) return builtin
 
-    const project = Project.get(input.projectID)
+    const project = AppRuntime.runSync(Project.Service.use((project) => project.get(input.projectID)))
     if (project?.worktree === "/" && !hint) {
       throw new Error(`Missing workspace owner for non-git adaptor: ${input.type}`)
     }
@@ -172,12 +260,16 @@ export namespace Workspace {
     return bootstrapAdaptor({ ...input, hint }, new Error(`Missing workspace owner for adaptor: ${input.type}`))
   }
 
-  export const create = fn(CreateInput, async (input) => {
+  const createWithAuth = Effect.fn("Workspace.create")(function* (input: CreateInput) {
+    const auth = yield* Auth.Service
     const id = WorkspaceID.ascending(input.id)
     const owner = ownerKey(Instance.directory, Instance.worktree)
-    const adaptor = await getAdaptor(input.projectID, input.type, owner)
+    const adaptor = getAdaptor(input.projectID, input.type, owner)
 
-    const config = await adaptor.configure({ ...input, id, name: null, directory: null })
+    const config = yield* Effect.tryPromise({
+      try: () => Promise.resolve(adaptor.configure({ ...input, id, name: null, directory: null })),
+      catch: preserveError,
+    })
 
     const info: StoredInfo = {
       id,
@@ -206,20 +298,14 @@ export namespace Workspace {
     })
 
     const requestedProviders = [...new Set(adaptor.auth?.providers ?? [])]
+    const authData = requestedProviders.length === 0 ? undefined : yield* auth.all()
     const scopedAuth =
       requestedProviders.length === 0
         ? undefined
-        : await AppRuntime.runPromise(
-            Auth.Service.use((auth) =>
-              Effect.gen(function* () {
-                const all = yield* auth.all()
-                return Object.fromEntries(
-                  requestedProviders
-                    .map((provider) => [provider, all[provider]] as const)
-                    .filter(([, value]) => value !== undefined),
-                )
-              }),
-            ),
+        : Object.fromEntries(
+            requestedProviders
+              .map((provider) => [provider, authData?.[provider]] as const)
+              .filter(([, value]) => value !== undefined),
           )
 
     const env = Object.fromEntries(
@@ -233,12 +319,19 @@ export namespace Workspace {
         OTEL_RESOURCE_ATTRIBUTES: process.env.OTEL_RESOURCE_ATTRIBUTES,
       }).filter(([, value]) => value !== undefined),
     ) as Record<string, string>
-    await adaptor.create(config, env)
+    yield* Effect.tryPromise({
+      try: () => adaptor.create(config, env),
+      catch: preserveError,
+    })
 
     startSync({ space: info })
 
     return toInfo(info)
   })
+
+  export const create = fn(CreateInput, (input) =>
+    Effect.runPromise(createWithAuth(input).pipe(Effect.provide(Auth.defaultLayer))),
+  )
 
   export function list(project: Project.Info) {
     const rows = Database.use((db) =>

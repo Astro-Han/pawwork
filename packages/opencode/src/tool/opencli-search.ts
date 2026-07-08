@@ -2,6 +2,7 @@ import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import DESCRIPTION from "./opencli-search.txt"
 import { searchOpenCliCommands, type OpenCliCommandSummary } from "@/opencli/adapter-registry"
+import { highRiskCommandNotice } from "./high-risk-site"
 
 export const Parameters = Schema.Struct({
   query: Schema.String.annotate({
@@ -41,7 +42,19 @@ export function formatOpenCliSearchOutput(results: OpenCliCommandSummary[]) {
     results.length === 0
       ? "No bundled OpenCLI adapter commands matched this query."
       : results.map(formatOpenCliCommand).join("\n\n")
-  return body
+  // Warn at discovery — BEFORE the model decides to run anything — when a matched
+  // command targets a high-risk site. Dedupe by notice text so several commands
+  // for the same site add a single caution.
+  const cautions = [
+    ...new Set(
+      results
+        .map((command) => highRiskCommandNotice(command))
+        .filter((notice): notice is string => notice !== null),
+    ),
+  ]
+  // Lead with the cautions: tool output is truncated head-first, so cautions
+  // after a long result list could be dropped before the model sees them.
+  return cautions.length > 0 ? `${cautions.join("\n\n")}\n\n${body}` : body
 }
 
 export const OpenCliSearchTool = Tool.define(
@@ -50,18 +63,18 @@ export const OpenCliSearchTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>) =>
-        Effect.tryPromise({
-          try: async () => {
-            const results = await searchOpenCliCommands(params.query, { limit: params.limit })
-            return {
-              title: `OpenCLI commands for "${params.query}"`,
-              output: formatOpenCliSearchOutput(results),
-              metadata: { query: params.query, count: results.length },
-            }
-          },
+      execute: Effect.fn("OpenCliSearchTool.execute")(function* (params: Schema.Schema.Type<typeof Parameters>) {
+        const results = yield* Effect.tryPromise({
+          try: () => searchOpenCliCommands(params.query, { limit: params.limit }),
           catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-        }),
+        })
+
+        return {
+          title: `OpenCLI commands for "${params.query}"`,
+          output: formatOpenCliSearchOutput(results),
+          metadata: { query: params.query, count: results.length },
+        }
+      }),
     }
   }),
 )

@@ -79,6 +79,9 @@ export const PawworkSidebar = (props: {
   onOpenAutomations: () => void
   automationsActive: Accessor<boolean>
   automationsLabel: Accessor<string>
+  onOpenRemote: () => void
+  remoteActive: Accessor<boolean>
+  remoteLabel: Accessor<string>
   onOpenSettings: () => void
   settingsLabel: Accessor<string>
   settingsKeybind: Accessor<string | undefined>
@@ -390,11 +393,14 @@ export const PawworkSidebar = (props: {
         skillsLabel={props.skillsLabel}
         automationsActive={props.automationsActive}
         automationsLabel={props.automationsLabel}
+        remoteActive={props.remoteActive}
+        remoteLabel={props.remoteLabel}
         onNew={props.onNew}
         onSearch={props.onSearch}
         searchAvailable={props.searchAvailable}
         onOpenSkills={props.onOpenSkills}
         onOpenAutomations={props.onOpenAutomations}
+        onOpenRemote={props.onOpenRemote}
       />
 
       <Show

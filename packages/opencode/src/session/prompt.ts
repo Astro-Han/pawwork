@@ -44,6 +44,7 @@ import { LoopRenderer } from "./loop-renderer"
 import * as Tool from "@/tool/tool"
 import { ExternalResult } from "@/tool/external-result"
 import { Permission } from "@/permission"
+import { Env } from "@/env"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
 import { Shell } from "@/shell/shell"
@@ -59,7 +60,7 @@ import { AgentTool, type AgentPromptOps } from "@/tool/agent"
 import { SessionRunState } from "./run-state"
 import { RunLifecycle } from "./run-lifecycle"
 import { EffectBridge } from "@/effect"
-import { attachWith, makeRuntime } from "@/effect/run-service"
+import { attachWith } from "@/effect/run-service"
 import { Instance } from "@/project/instance"
 import { MemoryFile } from "@/memory/memory"
 import { MemoryService } from "@/memory/service"
@@ -840,6 +841,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             }
           }),
       })
+      const completeToolExecution = (
+        toolCallID: string,
+        output: Parameters<SessionProcessor.Handle["completeToolCall"]>[1],
+      ) => input.processor.completeToolExecution({ toolCallID, output })
+      const failToolExecution = (toolCallID: string, error: unknown, abortSignal?: AbortSignal) => {
+        if (abortSignal?.aborted) {
+          return input.processor.recordToolExecutionFailed({ toolCallID, error })
+        }
+        return input.processor.failToolExecution({ toolCallID, error })
+      }
 
       for (const item of yield* registry.tools({
         modelID: ModelID.make(input.model.api.id),
@@ -867,49 +878,45 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 if (outcome.kind === "stop") return yield* Effect.fail(new LoopStopError(outcome.toolErrorMessage))
                 const output = yield* runInSessionContext(
                   Effect.gen(function* () {
-                    yield* plugin.trigger(
-                      "tool.execute.before",
-                      { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
-                      { args },
-                    )
-                    if (input.processor.recordToolExecutionStarted) {
+                    yield* input.processor.recordToolInputCaptured({
+                      tool: item.id,
+                      toolCallID: options.toolCallId,
+                      input: args,
+                    })
+                    try {
+                      yield* plugin.trigger(
+                        "tool.execute.before",
+                        { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
+                        { args },
+                      )
                       yield* input.processor.recordToolExecutionStarted({
                         tool: item.id,
                         toolCallID: options.toolCallId,
+                        input: args,
                       })
-                    }
-                    let result: Tool.ExecuteResult
-                    try {
-                      result = yield* item.execute(args, ctx)
-                    } catch (error) {
-                      if (input.processor.recordToolExecutionFailed) {
-                        yield* input.processor.recordToolExecutionFailed({ toolCallID: options.toolCallId, error })
+                      const result = yield* item.execute(args, ctx)
+                      const output = {
+                        ...result,
+                        attachments: result.attachments?.map((attachment) => ({
+                          ...attachment,
+                          id: PartID.ascending(),
+                          sessionID: ctx.sessionID,
+                          messageID: input.processor.message.id,
+                        })),
                       }
+                      yield* plugin.trigger(
+                        "tool.execute.after",
+                        { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
+                        output,
+                      )
+                      return output
+                    } catch (error) {
+                      yield* failToolExecution(options.toolCallId, error, options.abortSignal)
                       throw error
                     }
-                    if (input.processor.recordToolExecutionCompleted) {
-                      yield* input.processor.recordToolExecutionCompleted({ toolCallID: options.toolCallId })
-                    }
-                    const output = {
-                      ...result,
-                      attachments: result.attachments?.map((attachment) => ({
-                        ...attachment,
-                        id: PartID.ascending(),
-                        sessionID: ctx.sessionID,
-                        messageID: input.processor.message.id,
-                      })),
-                    }
-                    yield* plugin.trigger(
-                      "tool.execute.after",
-                      { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
-                      output,
-                    )
-                    return output
                   }),
                 )
-                if (options.abortSignal?.aborted) {
-                  yield* input.processor.completeToolCall(options.toolCallId, output)
-                }
+                yield* completeToolExecution(options.toolCallId, output)
                 return output
               }),
             )
@@ -940,17 +947,24 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               if (outcome.kind === "stop") return yield* Effect.fail(new LoopStopError(outcome.toolErrorMessage))
               const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* runInSessionContext(
                 Effect.gen(function* () {
-                  yield* plugin.trigger(
-                    "tool.execute.before",
-                    { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId },
-                    { args },
-                  )
                   const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.gen(function* () {
-                    yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
-                    if (input.processor.recordToolExecutionStarted) {
-                      yield* input.processor.recordToolExecutionStarted({ tool: key, toolCallID: opts.toolCallId })
-                    }
+                    yield* input.processor.recordToolInputCaptured({
+                      tool: key,
+                      toolCallID: opts.toolCallId,
+                      input: args,
+                    })
                     try {
+                      yield* plugin.trigger(
+                        "tool.execute.before",
+                        { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId },
+                        { args },
+                      )
+                      yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
+                      yield* input.processor.recordToolExecutionStarted({
+                        tool: key,
+                        toolCallID: opts.toolCallId,
+                        input: args,
+                      })
                       const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.promise(() =>
                         execute(args, opts),
                       )
@@ -961,19 +975,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                         const error = new Error(
                           failure.kind === "error" ? failure.message : `MCP tool ${key} reported an error`,
                         )
-                        if (input.processor.recordToolExecutionFailed) {
-                          yield* input.processor.recordToolExecutionFailed({ toolCallID: opts.toolCallId, error })
-                        }
                         return yield* Effect.fail(error)
                       }
-                      if (input.processor.recordToolExecutionCompleted) {
-                        yield* input.processor.recordToolExecutionCompleted({ toolCallID: opts.toolCallId })
-                      }
+                      yield* plugin.trigger(
+                        "tool.execute.after",
+                        { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId, args },
+                        result,
+                      )
                       return result
                     } catch (error) {
-                      if (input.processor.recordToolExecutionFailed) {
-                        yield* input.processor.recordToolExecutionFailed({ toolCallID: opts.toolCallId, error })
-                      }
+                      yield* failToolExecution(opts.toolCallId, error, opts.abortSignal)
                       throw error
                     }
                   }).pipe(
@@ -986,18 +997,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                       },
                     }),
                   )
-                  yield* plugin.trigger(
-                    "tool.execute.after",
-                    { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId, args },
-                    result,
-                  )
                   return result
                 }),
               )
 
               const parsed = parseMcpToolResult(key, result)
               if (parsed.kind === "error") {
-                return yield* Effect.fail(new Error(parsed.message))
+                const error = new Error(parsed.message)
+                yield* failToolExecution(opts.toolCallId, error, opts.abortSignal)
+                return yield* Effect.fail(error)
               }
               const { textParts, attachments } = parsed
 
@@ -1020,9 +1028,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 })),
                 content: result.content,
               }
-              if (opts.abortSignal?.aborted) {
-                yield* input.processor.completeToolCall(opts.toolCallId, output)
-              }
+              yield* completeToolExecution(opts.toolCallId, output)
               return output
             }),
           )
@@ -1490,10 +1496,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const shellMatches = ConfigMarkdown.shell(template)
       if (shellMatches.length > 0) {
         const sh = Shell.preferred()
-        const results = yield* Effect.promise(() =>
-          Promise.all(
-            shellMatches.map(async ([, shellCmd]) => (await Process.text([shellCmd], { shell: sh, nothrow: true })).text),
+        const results = yield* Effect.all(
+          shellMatches.map(([, shellCmd]) =>
+            Process.textEffect([shellCmd], { shell: sh, nothrow: true }).pipe(
+              Effect.map((result) => result.text),
+              Effect.orDie,
+            ),
           ),
+          { concurrency: "unbounded" },
         )
         let index = 0
         template = template.replace(bashRegex, () => results[index++])
@@ -2078,8 +2088,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       }
     })
 
-    const runLoop: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
-      function* (sessionID: SessionID) {
+    const runLoop: (
+      sessionID: SessionID,
+      options?: { onProcessor?: (handle: SessionProcessor.Handle) => void },
+    ) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
+      function* (sessionID: SessionID, options?: { onProcessor?: (handle: SessionProcessor.Handle) => void }) {
         const ctx = yield* InstanceState.context
         const automation = yield* AutomationRunContext.current
         const slog = elog.with({ sessionID })
@@ -2286,6 +2299,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             sessionID,
             model,
           })
+          options?.onProcessor?.(handle)
 
           const outcome: "break" | "continue" = yield* Effect.gen(function* () {
             const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
@@ -2453,6 +2467,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     ) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
       "SessionPrompt.loop",
     )(function* (input: z.infer<typeof LoopInput>, options?: PromptRuntimeOptions) {
+      let activeProcessor: SessionProcessor.Handle | undefined
       const onInterrupt = (meta?: {
         source?: string
         reason?: string
@@ -2648,7 +2663,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             auto: input.prelude.auto,
           })
         }
-        return yield* runLoop(input.sessionID)
+        return yield* runLoop(input.sessionID, {
+          onProcessor: (handle) => {
+            activeProcessor = handle
+          },
+        })
       })
       // rejectIfBusy is the prelude path's safety net: a prelude's side
       // effects (writing the compaction marker) only run when ensureRunning
@@ -2672,6 +2691,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       return yield* state.ensureRunning(input.sessionID, onInterrupt, work, {
         rejectIfBusy: input.prelude !== undefined,
         runLifecycle,
+        onCancel: () => activeProcessor?.abortTools?.() ?? Effect.void,
       })
     })
 
@@ -2830,6 +2850,7 @@ export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(()
     Layer.provide(Session.defaultLayer),
     Layer.provide(SessionRevert.defaultLayer),
     Layer.provide(SessionSummary.defaultLayer),
+    Layer.provide(Env.defaultLayer),
     Layer.provide(
       Layer.mergeAll(
         Agent.defaultLayer,
@@ -2841,7 +2862,6 @@ export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(()
     ),
   ),
 )
-const { runPromise } = makeRuntime(Service, defaultLayer)
 
 export const PromptInput = z.object({
   sessionID: SessionID.zod,
@@ -2922,35 +2942,6 @@ export const PromptInput = z.object({
 })
 export type PromptInput = z.infer<typeof PromptInput>
 
-export async function prompt(input: PromptInput) {
-  // automationID is automation-run provenance, set only by the runner through
-  // promptWithAutomationContext (which also provides the trusted
-  // AutomationRunContext). Strip any client-supplied value here so HTTP callers
-  // (POST /:sessionID/message, /prompt_async both route through this) cannot
-  // forge the "sent via automation" attribution.
-  return runPromise((svc) => svc.prompt(PromptInput.parse({ ...input, automationID: undefined })))
-}
-
-export async function promptWithAutomationContext(
-  input: PromptInput,
-  context: import("@/automation/run-context").AutomationRunContext,
-  options?: PromptRuntimeOptions,
-) {
-  return runPromise((svc) =>
-    svc
-      .prompt(PromptInput.parse(input), options)
-      .pipe(Effect.provideService(AutomationRunContext.service, context)),
-  )
-}
-
-export async function resolvePromptParts(template: string) {
-  return runPromise((svc) => svc.resolvePromptParts(z.string().parse(template)))
-}
-
-export async function cancel(sessionID: SessionID, options?: { source?: string }) {
-  return runPromise((svc) => svc.cancel(SessionID.zod.parse(sessionID), options))
-}
-
 export const LoopInput = z.object({
   sessionID: SessionID.zod,
   traceMessageID: MessageID.zod.optional(),
@@ -2970,10 +2961,6 @@ export const LoopInput = z.object({
     .optional(),
 })
 
-export async function loop(input: z.infer<typeof LoopInput>) {
-  return runPromise((svc) => svc.loop(LoopInput.parse(input)))
-}
-
 export const ShellInput = z.object({
   sessionID: SessionID.zod,
   messageID: MessageID.zod.optional(),
@@ -2987,10 +2974,6 @@ export const ShellInput = z.object({
   command: z.string(),
 })
 export type ShellInput = z.infer<typeof ShellInput>
-
-export async function shell(input: ShellInput) {
-  return runPromise((svc) => svc.shell(ShellInput.parse(input)))
-}
 
 export const CommandInput = z.object({
   messageID: MessageID.zod.optional(),
@@ -3015,10 +2998,6 @@ export const CommandInput = z.object({
     .optional(),
 })
 export type CommandInput = z.infer<typeof CommandInput>
-
-export async function command(input: CommandInput) {
-  return runPromise((svc) => svc.command(CommandInput.parse(input)))
-}
 
 type McpContentItem =
   | { type: "text"; text: string }

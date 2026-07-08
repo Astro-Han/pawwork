@@ -18,7 +18,10 @@ export type RouteRow = {
   openapi: boolean
   legacySdk: boolean
   v2Sdk: boolean
+  localHttpApi: boolean
   upstreamHttpApi: boolean
+  nativeSpecial: boolean
+  compatibilityBoundary: boolean
   classification: string
   specialSurface: string
 }
@@ -33,12 +36,14 @@ export type RouteInventory = {
     openapi: number
     legacySdk: number
     v2Sdk: number
+    localHttpApi: number
     upstreamHttpApi: number
   }
   hono: { routes: Route[] }
   openapi: { routes: Route[] }
   legacySdk: { routes: Route[] }
   v2Sdk: { routes: Route[] }
+  localHttpApi: { routes: Route[] }
   upstreamHttpApi: { routes: Route[] }
   rows: RouteRow[]
 }
@@ -52,34 +57,14 @@ export type HonoRouteSourceCoverage = {
 type BuildOptions = {
   root?: string
   upstreamRef?: string
+  upstreamHttpApiRoutes?: Route[]
   requireUpstream?: boolean
 }
 
 const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"])
 
 const honoRouteSources = [
-  ["packages/opencode/src/server/instance/automation.ts", "/automation"],
-  ["packages/opencode/src/server/control/index.ts", ""],
-  ["packages/opencode/src/server/instance/config.ts", "/config"],
   ["packages/opencode/src/server/instance/event.ts", ""],
-  ["packages/opencode/src/server/instance/experimental.ts", "/experimental"],
-  ["packages/opencode/src/server/instance/external-result.ts", "/external-result"],
-  ["packages/opencode/src/server/instance/file.ts", ""],
-  ["packages/opencode/src/server/instance/global.ts", "/global"],
-  ["packages/opencode/src/server/instance/index.ts", ""],
-  ["packages/opencode/src/server/instance/mcp.ts", "/mcp"],
-  ["packages/opencode/src/server/instance/memory.ts", "/memory"],
-  ["packages/opencode/src/server/instance/permission.ts", "/permission"],
-  ["packages/opencode/src/server/instance/project.ts", "/project"],
-  ["packages/opencode/src/server/instance/provider.ts", "/provider"],
-  ["packages/opencode/src/server/instance/pty.ts", "/pty"],
-  ["packages/opencode/src/server/instance/session.ts", "/session"],
-  ["packages/opencode/src/server/instance/workspace.ts", "/experimental/workspace"],
-] as const
-
-const supplementalHonoRouteSources = [
-  "packages/opencode/src/server/ui/index.ts",
-  "packages/opencode/src/server/proxy.ts",
 ] as const
 
 const honoRouteModuleSearchRoots = [
@@ -100,6 +85,22 @@ const specialSurfaces: Array<[RegExp, string]> = [
   [/\/auth\b|\/oauth\//, "auth"],
   [/^\/experimental\/workspace\b/, "workspace"],
 ]
+
+const nativeSpecialRoutes = new Set([
+  "GET /event",
+  "GET /global/event",
+  "GET /global/sync-event",
+  "GET /pty/:ptyID/connect",
+  "GET /__workspace_ws",
+  "ALL /*",
+])
+
+const nativeSpecialRouteEntries: Route[] = [
+  { method: "GET", path: "/__workspace_ws", source: "packages/opencode/src/server/websocket-compatibility.ts" },
+  { method: "ALL", path: "/*", source: "packages/opencode/src/server/ui/index.ts" },
+]
+
+const compatibilityBoundaryRoutes = new Set<string>()
 
 const pawworkOwned = new Set([
   "GET /global/sync-event",
@@ -132,6 +133,10 @@ const explicitlyDeferred = [
   /^GET \/api\/provider\/:providerID$/,
   /^\/tui\//,
   /^\/sync\//,
+  /^GET \/formatter$/,
+  /^POST \/experimental\/control-plane\/move-session$/,
+  /^POST \/experimental\/project\/:projectID\/copy\/generate-name$/,
+  /^POST \/experimental\/session\/:sessionID\/background$/,
   /^\/experimental\/workspace\/(?:adapter|sync-list|warp)$/,
 ]
 
@@ -237,9 +242,7 @@ async function discoverHonoRouteModules(root: string): Promise<string[]> {
 }
 
 export function getMissingHonoRouteSources(expected: string[]): string[] {
-  const covered = [...honoRouteSources.map(([relative]) => relative), ...supplementalHonoRouteSources].map(
-    normalizeRouteSourcePath,
-  )
+  const covered = honoRouteSources.map(([relative]) => normalizeRouteSourcePath(relative))
   const coveredSet = new Set<string>(covered)
   return expected.map(normalizeRouteSourcePath).filter((relative) => !coveredSet.has(relative))
 }
@@ -247,9 +250,7 @@ export function getMissingHonoRouteSources(expected: string[]): string[] {
 export async function getHonoRouteSourceCoverage(rootInput?: string): Promise<HonoRouteSourceCoverage> {
   const root = repoRoot(rootInput)
   const expected = await discoverHonoRouteModules(root)
-  const covered = [...honoRouteSources.map(([relative]) => relative), ...supplementalHonoRouteSources]
-    .map(normalizeRouteSourcePath)
-    .sort()
+  const covered = honoRouteSources.map(([relative]) => normalizeRouteSourcePath(relative)).sort()
   return {
     expected,
     covered,
@@ -271,9 +272,6 @@ async function discoverHonoRoutes(root: string): Promise<Route[]> {
       routes.push({ method, path: joinRoute(prefix, routePath), source: relative })
     }
   }
-  // These runtime routes are wired through UI/proxy setup instead of ordinary route modules.
-  routes.push({ method: "ALL", path: "/*", source: "packages/opencode/src/server/ui/index.ts" })
-  routes.push({ method: "GET", path: "/__workspace_ws", source: "packages/opencode/src/server/proxy.ts" })
   return uniqueRoutes(routes)
 }
 
@@ -293,7 +291,7 @@ async function readOpenApiRoutes(root: string): Promise<Route[]> {
 
 export function parseSdkRoutesFromText(text: string, source: string): Route[] {
   const routes: Route[] = []
-  const routePattern = /\.(get|post|put|patch|delete)(?:\.sse)?<[^>]*>\(\{\s*url:\s*(["'`])([^"'`]+)\2/g
+  const routePattern = /\.(get|post|put|patch|delete)(?:\.sse)?<[^>]*>\(\s*\{\s*url:\s*(["'`])([^"'`]+)\2/g
   for (const match of text.matchAll(routePattern)) {
     routes.push({ method: match[1]!.toUpperCase(), path: normalizePath(match[3]!), source })
   }
@@ -355,7 +353,7 @@ export function parseHttpApiRoutesFromText(text: string, source: string): Route[
     if (literal) routePath = resolveTemplatePath(literal[2]!, constants)
     else {
       const key = pathExpr.split(".").pop()
-      routePath = pathValues.get(pathExpr) ?? (key ? pathValues.get(key) : undefined)
+      routePath = pathValues.get(pathExpr) ?? constants.get(pathExpr) ?? (key ? pathValues.get(key) : undefined)
     }
     if (routePath) routes.push({ method, path: normalizePath(routePath), source })
   }
@@ -395,9 +393,26 @@ async function readUpstreamHttpApiRoutes(root: string, ref: string, required: bo
   return unique
 }
 
+async function readLocalHttpApiRoutes(root: string): Promise<Route[]> {
+  const files = await listTypeScriptFiles(root, "packages/opencode/src/server/routes/instance/httpapi")
+  const routes: Route[] = []
+  for (const file of files) {
+    routes.push(...parseHttpApiRoutesFromText(await readText(path.join(root, file)), file))
+  }
+  return uniqueRoutes(routes)
+}
+
 function specialSurfaceFor(method: string, routePath: string) {
   const key = `${method} ${routePath}`
   return specialSurfaces.find(([pattern]) => pattern.test(key) || pattern.test(routePath))?.[1] ?? "-"
+}
+
+function isCompatibilityBoundary(method: string, routePath: string) {
+  return compatibilityBoundaryRoutes.has(`${method} ${routePath}`)
+}
+
+function isNativeSpecial(method: string, routePath: string) {
+  return nativeSpecialRoutes.has(`${method} ${routePath}`)
 }
 
 function classify(input: {
@@ -407,10 +422,18 @@ function classify(input: {
   openapi: boolean
   legacySdk: boolean
   v2Sdk: boolean
+  localHttpApi: boolean
   upstreamHttpApi: boolean
 }) {
   const key = `${input.method} ${input.path}`
+  if (isNativeSpecial(input.method, input.path) && !input.localHttpApi) {
+    return "production-native-special-surface"
+  }
+  if (isCompatibilityBoundary(input.method, input.path) && input.hono && !input.localHttpApi) {
+    return "adapter-compatibility-boundary"
+  }
   if (explicitlyDeferred.some((pattern) => pattern.test(key) || pattern.test(input.path))) return "explicitly-deferred"
+  if (pawworkOwned.has(key) && !input.hono && input.localHttpApi) return "pawwork-owned"
   if (pawworkOwned.has(key) && input.hono && !input.openapi && !input.legacySdk && input.v2Sdk) {
     return "pawwork-owned-sdk-v2-only"
   }
@@ -418,6 +441,8 @@ function classify(input: {
   if (input.hono && input.openapi && input.v2Sdk) return input.legacySdk ? "all-public-surfaces" : "openapi-v2-sdk"
   if (input.hono && input.v2Sdk && !input.openapi) return "hono-v2-sdk"
   if (input.hono && !input.openapi) return "hono-only"
+  if (!input.hono && input.localHttpApi && input.upstreamHttpApi) return "local-httpapi-upstream-only"
+  if (!input.hono && input.localHttpApi) return "local-httpapi-only"
   if (!input.hono && input.upstreamHttpApi) return "onlyHttpApi"
   if (input.openapi && !input.hono) return "openapi-only"
   if (input.legacySdk || input.v2Sdk) return "sdk-only"
@@ -432,12 +457,15 @@ export async function buildRouteInventory(options: BuildOptions = {}): Promise<R
   if (sourceCoverage.missing.length > 0) {
     throw new Error(`Hono route inventory source list is missing: ${sourceCoverage.missing.join(", ")}`)
   }
-  const [hono, openapi, legacySdk, v2Sdk, upstreamHttpApi] = await Promise.all([
+  const [hono, openapi, legacySdk, v2Sdk, localHttpApi, upstreamHttpApi] = await Promise.all([
     discoverHonoRoutes(root),
     readOpenApiRoutes(root),
     readSdkRoutes(root, "packages/sdk/js/src/gen/sdk.gen.ts"),
     readSdkRoutes(root, "packages/sdk/js/src/v2/gen/sdk.gen.ts"),
-    readUpstreamHttpApiRoutes(root, upstreamRef, requireUpstream),
+    readLocalHttpApiRoutes(root),
+    options.upstreamHttpApiRoutes
+      ? Promise.resolve(uniqueRoutes(options.upstreamHttpApiRoutes))
+      : readUpstreamHttpApiRoutes(root, upstreamRef, requireUpstream),
   ])
 
   const sets = {
@@ -445,11 +473,13 @@ export async function buildRouteInventory(options: BuildOptions = {}): Promise<R
     openapi: new Set(openapi.map(routeKey)),
     legacySdk: new Set(legacySdk.map(routeKey)),
     v2Sdk: new Set(v2Sdk.map(routeKey)),
+    localHttpApi: new Set(localHttpApi.map(routeKey)),
     upstreamHttpApi: new Set(upstreamHttpApi.map(routeKey)),
   }
 
   const keys = new Set<string>()
   for (const set of Object.values(sets)) for (const key of set) keys.add(key)
+  for (const route of nativeSpecialRouteEntries) keys.add(routeKey(route))
 
   const rows = [...keys]
     .sort()
@@ -463,10 +493,13 @@ export async function buildRouteInventory(options: BuildOptions = {}): Promise<R
         openapi: sets.openapi.has(key),
         legacySdk: sets.legacySdk.has(key),
         v2Sdk: sets.v2Sdk.has(key),
+        localHttpApi: sets.localHttpApi.has(key),
         upstreamHttpApi: sets.upstreamHttpApi.has(key),
       }
       return {
         ...flags,
+        nativeSpecial: isNativeSpecial(flags.method, flags.path),
+        compatibilityBoundary: isCompatibilityBoundary(flags.method, flags.path),
         classification: classify(flags),
         specialSurface: specialSurfaceFor(flags.method, flags.path),
       }
@@ -496,12 +529,14 @@ export async function buildRouteInventory(options: BuildOptions = {}): Promise<R
       openapi: openapi.length,
       legacySdk: legacySdk.length,
       v2Sdk: v2Sdk.length,
+      localHttpApi: localHttpApi.length,
       upstreamHttpApi: upstreamHttpApi.length,
     },
     hono: { routes: hono },
     openapi: { routes: openapi },
     legacySdk: { routes: legacySdk },
     v2Sdk: { routes: v2Sdk },
+    localHttpApi: { routes: localHttpApi },
     upstreamHttpApi: { routes: upstreamHttpApi },
     rows,
   }
@@ -528,17 +563,18 @@ export function renderRouteInventoryReport(inventory: RouteInventory) {
     `- Checked-in OpenAPI method routes: ${inventory.counts.openapi}`,
     `- Legacy generated SDK route calls: ${inventory.counts.legacySdk}`,
     `- v2 generated SDK route calls: ${inventory.counts.v2Sdk}`,
+    `- Local HttpApi method routes: ${inventory.counts.localHttpApi}`,
     `- Upstream parsed HttpApi method routes: ${inventory.counts.upstreamHttpApi}`,
     "",
     "## Main Table",
     "",
-    "| Path | Method | Hono | OpenAPI | Legacy SDK | v2 SDK | Upstream HttpApi | Classification | Special surface |",
-    "|---|---:|---:|---:|---:|---:|---:|---|---|",
+    "| Path | Method | Hono | OpenAPI | Legacy SDK | v2 SDK | Local HttpApi | Upstream HttpApi | Native Special | Compatibility Boundary | Classification | Special surface |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
   ]
 
   for (const row of inventory.rows) {
     lines.push(
-      `| \`${row.path}\` | \`${row.method}\` | ${mark(row.hono)} | ${mark(row.openapi)} | ${mark(row.legacySdk)} | ${mark(row.v2Sdk)} | ${mark(row.upstreamHttpApi)} | \`${row.classification}\` | ${row.specialSurface} |`,
+      `| \`${row.path}\` | \`${row.method}\` | ${mark(row.hono)} | ${mark(row.openapi)} | ${mark(row.legacySdk)} | ${mark(row.v2Sdk)} | ${mark(row.localHttpApi)} | ${mark(row.upstreamHttpApi)} | ${mark(row.nativeSpecial)} | ${mark(row.compatibilityBoundary)} | \`${row.classification}\` | ${row.specialSurface} |`,
     )
   }
 
@@ -546,7 +582,9 @@ export function renderRouteInventoryReport(inventory: RouteInventory) {
     "",
     "## Special Surfaces",
     "",
-    "- `/doc`, UI static routing, workspace proxy WebSocket, SSE/event streams, and PTY WebSocket are compatibility boundaries rather than ordinary JSON route parity.",
+    "- UI static routing and SSE/event streams are native production special surfaces rather than ordinary JSON route parity.",
+    "- Workspace proxy WebSocket and PTY WebSocket are native production special surfaces; adapter-specific Hono helpers stay isolated inside the adapter upgrade bridge.",
+    "- `/doc` is tracked as an OpenAPI-source HttpApi route, not a compatibility boundary.",
     "- PawWork-owned routes must be preserved during future HttpApi migration even when they are absent upstream or absent from the checked-in OpenAPI file.",
     "- v2 SDK coverage is tracked separately from the legacy SDK because PawWork-owned app/runtime routes currently appear in the v2 generated SDK surface.",
     "",
@@ -563,9 +601,24 @@ function mark(value: boolean) {
   return value ? "yes" : "no"
 }
 
+export function fetchOpencodeDev(root: string) {
+  try {
+    git(root, ["fetch", "opencode", "dev"])
+  } catch (cause) {
+    throw new Error(
+      [
+        "Failed to fetch opencode/dev.",
+        "Ensure remote 'opencode' exists (for example: git remote rename upstream opencode,",
+        "or git remote add opencode https://github.com/anomalyco/opencode.git).",
+      ].join(" "),
+      { cause },
+    )
+  }
+}
+
 async function main() {
   const root = repoRoot()
-  git(root, ["fetch", "upstream", "dev"])
+  fetchOpencodeDev(root)
   const inventory = await buildRouteInventory({ root, requireUpstream: true })
   const report = renderRouteInventoryReport(inventory)
   const date = new Date().toISOString().slice(0, 10)

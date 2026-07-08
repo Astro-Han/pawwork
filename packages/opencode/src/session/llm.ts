@@ -16,7 +16,6 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
 import { TOOL_INFO_ID, buildDeferredHint } from "../tool/tool-info"
-import { Bus } from "@/bus"
 import { Wildcard } from "@/util/wildcard"
 import { SessionID } from "@/session/schema"
 import { Auth } from "@/auth"
@@ -49,6 +48,7 @@ export type StreamInput = {
   connectTimeoutMs?: number
   streamTimeoutMs?: number
   toolChoice?: "auto" | "required" | "none"
+  toolAbortSignal?: AbortSignal
   trace?: Pick<
     LLMTrace.Recorder,
     | "request"
@@ -73,11 +73,7 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/LLM") {}
 
-const live: Layer.Layer<
-  Service,
-  never,
-  Auth.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service
-> = Layer.effect(
+const live: Layer.Layer<Service, never, Auth.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service> = Layer.effect(
   Service,
   Effect.gen(function* () {
     const auth = yield* Auth.Service
@@ -210,7 +206,7 @@ const live: Layer.Layer<
         },
       )
 
-      const tools = resolveTools(input)
+      const tools = wrapToolsWithAbortSignal(resolveTools(input), input.toolAbortSignal)
       const traceToolCount = Object.keys(tools).filter((x) => x !== "invalid").length
 
       // LiteLLM and some Anthropic proxies require the tools parameter to be present
@@ -296,11 +292,7 @@ const live: Layer.Layer<
           }
 
           const id = PermissionID.ascending()
-          let unsub: (() => void) | undefined
           try {
-            unsub = Bus.subscribe(Permission.Event.Replied, (evt) => {
-              if (evt.properties.requestID === id) void evt.properties.reply
-            })
             const toolPatterns = approvalTools.map((t: { name: string; args: string }) => {
               try {
                 const parsed = JSON.parse(t.args) as Record<string, unknown>
@@ -327,8 +319,6 @@ const live: Layer.Layer<
             return { approved: true }
           } catch {
             return { approved: false }
-          } finally {
-            unsub?.()
           }
         })
       }
@@ -683,6 +673,28 @@ export function resolveTools(input: Pick<StreamInput, "tools" | "agent" | "permi
     Permission.merge(input.agent.permission, input.permission ?? []),
   )
   return Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))
+}
+
+function wrapToolsWithAbortSignal(tools: Record<string, Tool>, toolAbortSignal?: AbortSignal) {
+  if (!toolAbortSignal) return tools
+
+  return Object.fromEntries(
+    Object.entries(tools).map(([name, item]) => {
+      const execute = item.execute
+      if (!execute) return [name, item]
+
+      return [
+        name,
+        {
+          ...item,
+          execute: async (...args: Parameters<NonNullable<typeof execute>>) => {
+            const [parameters, options] = args
+            return execute(parameters, { ...options, abortSignal: toolAbortSignal })
+          },
+        } satisfies Tool,
+      ]
+    }),
+  )
 }
 
 export function buildInvalidToolRepairInput(

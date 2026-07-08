@@ -11,11 +11,12 @@ export const InvalidTool = Tool.define(
   Effect.succeed({
     description: "Do not use",
     parameters: Parameters,
-    execute: (params: { tool: string; error: string }) =>
+    execute: Effect.fn("InvalidTool.execute")((params: Schema.Schema.Type<typeof Parameters>) =>
       Effect.succeed({
         title: "Invalid Tool",
         output: `The arguments provided to the tool are invalid: ${params.error}`,
         metadata: {},
       }),
+    ),
   }),
 )

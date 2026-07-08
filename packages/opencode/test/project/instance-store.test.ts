@@ -11,7 +11,7 @@ import { InstanceStore } from "../../src/project/instance-store"
 import { Project } from "../../src/project/project"
 import { ProjectTable } from "../../src/project/project.sql"
 import { Database, eq } from "../../src/storage/db"
-import { currentLifecycleCloseAction, directoryKey } from "../../src/session/lifecycle-provenance"
+import { currentLifecycleCloseAction, directoryKey, trackActiveRun } from "../../src/session/lifecycle-provenance"
 import { disposeAllInstances, tmpdir, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
@@ -24,6 +24,8 @@ const noopBootstrap = Layer.succeed(
 const it = testEffect(
   Layer.mergeAll(InstanceStore.defaultLayer.pipe(Layer.provide(noopBootstrap)), CrossSpawnSpawner.defaultLayer),
 )
+const projectGet = (id: Project.Info["id"]) =>
+  Effect.runSync(Project.Service.use((project) => project.get(id)).pipe(Effect.provide(Project.defaultLayer)))
 
 afterEach(async () => {
   bootstrapRun = Effect.void
@@ -187,6 +189,135 @@ describe("InstanceStore", () => {
     }),
   )
 
+  it.live("does not gate new runs while a maintenance dispose waits for idle", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const store = yield* InstanceStore.Service
+      const completed = Promise.withResolvers<void>()
+      yield* store.load({ directory: dir })
+
+      const first = trackActiveRun(dir)
+      const releaseFirst = yield* Effect.promise(() => first.promise)
+      let releaseSecond: (() => void) | undefined
+      try {
+        const result = yield* store.disposeDirectory(dir, { onCompleted: () => completed.resolve() })
+        expect(result).toBe(false)
+
+        const second = trackActiveRun(dir)
+        expect(second.wait).toBeUndefined()
+        releaseSecond = yield* Effect.promise(() => second.promise)
+      } finally {
+        releaseSecond?.()
+        releaseFirst()
+      }
+
+      const completedExit = yield* Effect.promise(() => completed.promise).pipe(Effect.timeout("1 second"), Effect.exit)
+      expect(Exit.isSuccess(completedExit)).toBe(true)
+    }),
+  )
+
+  it.live("does not close when a run starts after maintenance dispose becomes idle", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const store = yield* InstanceStore.Service
+      const disposed = Promise.withResolvers<void>()
+      const completed = Promise.withResolvers<void>()
+      const off = registerDisposer(async (directory) => {
+        if (directory === dir) disposed.resolve()
+      })
+      yield* Effect.addFinalizer(() => Effect.sync(off))
+
+      const firstContext = yield* store.load({ directory: dir })
+      const first = trackActiveRun(dir)
+      const releaseFirst = yield* Effect.promise(() => first.promise)
+
+      const result = yield* store.disposeDirectory(dir, { onCompleted: () => completed.resolve() })
+      expect(result).toBe(false)
+
+      releaseFirst()
+      const second = trackActiveRun(dir)
+      let releaseSecond: (() => void) | undefined
+      expect(second.wait).toBeUndefined()
+      releaseSecond = yield* Effect.promise(() => second.promise)
+
+      try {
+        const earlyDispose = yield* Effect.promise(() => disposed.promise).pipe(Effect.timeout("100 millis"), Effect.exit)
+        expect(Exit.isFailure(earlyDispose)).toBe(true)
+      } finally {
+        releaseSecond?.()
+      }
+
+      const completedExit = yield* Effect.promise(() => completed.promise).pipe(Effect.timeout("1 second"), Effect.exit)
+      expect(Exit.isSuccess(completedExit)).toBe(true)
+      const current = yield* store.load({ directory: dir })
+      expect(current).not.toBe(firstContext)
+    }),
+  )
+
+  it.live("does not gate new runs while a maintenance reload waits for idle", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const store = yield* InstanceStore.Service
+      const disposed = Promise.withResolvers<void>()
+      const off = registerDisposer(async (directory) => {
+        if (directory === dir) disposed.resolve()
+      })
+      yield* Effect.addFinalizer(() => Effect.sync(off))
+
+      const firstContext = yield* store.load({ directory: dir })
+      const first = trackActiveRun(dir)
+      const releaseFirst = yield* Effect.promise(() => first.promise)
+      let releaseSecond: (() => void) | undefined
+      try {
+        const reloaded = yield* store.reload({ directory: dir })
+        expect(reloaded).toBe(firstContext)
+
+        const second = trackActiveRun(dir)
+        expect(second.wait).toBeUndefined()
+        releaseSecond = yield* Effect.promise(() => second.promise)
+      } finally {
+        releaseSecond?.()
+        releaseFirst()
+      }
+
+      const disposedExit = yield* Effect.promise(() => disposed.promise).pipe(Effect.timeout("1 second"), Effect.exit)
+      expect(Exit.isSuccess(disposedExit)).toBe(true)
+      const current = yield* store.load({ directory: dir })
+      expect(current).not.toBe(firstContext)
+    }),
+  )
+
+  it.live("does not gate new runs while a maintenance disposeAll waits for idle", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const store = yield* InstanceStore.Service
+      yield* store.load({ directory: dir })
+
+      const first = trackActiveRun(dir)
+      const releaseFirst = yield* Effect.promise(() => first.promise)
+      let releaseSecond: (() => void) | undefined
+      let completed: Promise<void> | undefined
+      try {
+        const result = yield* store.disposeAll()
+        expect(result.status).toBe("deferred")
+        completed = result.completed
+
+        const second = trackActiveRun(dir)
+        expect(second.wait).toBeUndefined()
+        releaseSecond = yield* Effect.promise(() => second.promise)
+      } finally {
+        releaseSecond?.()
+        releaseFirst()
+      }
+
+      const completedExit = yield* Effect.promise(() => completed ?? Promise.resolve()).pipe(
+        Effect.timeout("1 second"),
+        Effect.exit,
+      )
+      expect(Exit.isSuccess(completedExit)).toBe(true)
+    }),
+  )
+
   it.live("drops failed loads so the next attempt can boot again", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped()
@@ -217,7 +348,7 @@ describe("InstanceStore", () => {
       directory: dir.path,
       fn: () => {
         projectID = Instance.project.id
-        expect(Project.get(projectID!)).toBeDefined()
+        expect(projectGet(projectID!)).toBeDefined()
       },
     })
 
@@ -227,7 +358,7 @@ describe("InstanceStore", () => {
       directory: dir.path,
       fn: () => {
         expect(Instance.project.id).toBe(projectID!)
-        expect(Project.get(projectID!)).toBeDefined()
+        expect(projectGet(projectID!)).toBeDefined()
       },
     })
   })

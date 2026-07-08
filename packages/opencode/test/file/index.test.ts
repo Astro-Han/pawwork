@@ -3,7 +3,8 @@ import { $ } from "bun"
 import path from "path"
 import fs from "fs/promises"
 import { Effect } from "effect"
-import { File } from "../../src/file"
+import { File as FileCore } from "../../src/file"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { InstanceRef } from "../../src/effect/instance-ref"
 import { Instance } from "../../src/project/instance"
 import { Project } from "../../src/project/project"
@@ -14,13 +15,26 @@ afterEach(async () => {
   await Instance.disposeAll()
 })
 
+const projectFromDirectory = (directory: string) =>
+  Effect.runPromise(Project.Service.use((project) => project.fromDirectory(directory)).pipe(Effect.provide(Project.defaultLayer)))
+
+const File = {
+  ...FileCore,
+  init: () => AppRuntime.runPromise(FileCore.Service.use((svc) => svc.init())),
+  status: () => AppRuntime.runPromise(FileCore.Service.use((svc) => svc.status())),
+  read: (file: string) => AppRuntime.runPromise(FileCore.Service.use((svc) => svc.read(file))),
+  list: (dir?: string) => AppRuntime.runPromise(FileCore.Service.use((svc) => svc.list(dir))),
+  search: (input: Parameters<FileCore.Interface["search"]>[0]) =>
+    AppRuntime.runPromise(FileCore.Service.use((svc) => svc.search(input))),
+}
+
 test("File service init works with InstanceRef and no legacy ALS", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await fs.writeFile(path.join(dir, "visible.txt"), "hello", "utf-8")
     },
   })
-  const { project, sandbox } = await Project.fromDirectory(tmp.path)
+  const { project, sandbox } = await projectFromDirectory(tmp.path)
 
   await Effect.runPromise(
     Effect.scoped(

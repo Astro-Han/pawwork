@@ -14,8 +14,10 @@ export const ExitWorktreeTool = Tool.define(
     const sessions = yield* Session.Service
     const subagents = yield* SubagentRun.Service
 
-    const run = (_params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-      Effect.gen(function* () {
+    const execute = Effect.fn("ExitWorktreeTool.execute")(function* (
+      _params: Schema.Schema.Type<typeof Parameters>,
+      ctx: Tool.Context,
+    ) {
         if (ctx.callID) {
           const inFlight = yield* hasInFlightToolCallsExcept(sessions, ctx.sessionID, ctx.messageID, ctx.callID)
           if (inFlight) {
@@ -67,13 +69,12 @@ export const ExitWorktreeTool = Tool.define(
           output: `Returned to project root ${exec.ownerDirectory}. Subsequent paths resolve from this directory.`,
           metadata,
         }
-      })
+    }, Effect.orDie)
 
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-        run(params, ctx).pipe(Effect.orDie),
+      execute,
     }
   }),
 )

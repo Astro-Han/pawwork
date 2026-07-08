@@ -64,15 +64,6 @@
   }
 
 
-  .error-card {
-    color: var(--error-text);
-    max-height: 240px;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    word-break: break-word;
-    overflow-y: auto;
-  }
-
   [data-slot="session-turn-assistant-content"] {
     width: 100%;
     min-width: 0;

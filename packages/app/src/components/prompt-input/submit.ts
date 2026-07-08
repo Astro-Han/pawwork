@@ -30,6 +30,11 @@ import { createPromptDraftLifecycle } from "./prompt-draft-lifecycle"
 import { createWaitForWorktree } from "./wait-for-worktree"
 import { buildAttachmentRequestParts } from "./build-request-parts"
 
+// How a submit was initiated. Only "submitButton" (the Stop button / form
+// submit) may interrupt a running task on an empty prompt; keyboard Enter never
+// does. Making the trigger explicit avoids guessing intent from the DOM event.
+export type SubmitTrigger = "keyboard" | "submitButton"
+
 type PromptSubmitInput = {
   sessionID?: Accessor<string | undefined>
   isNewSession?: Accessor<boolean>
@@ -106,7 +111,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     })
   }
 
-  const handleSubmit = async (event: Event) => {
+  const handleSubmit = async (event: Event, trigger: SubmitTrigger = "submitButton") => {
     event.preventDefault()
 
     const currentPrompt = prompt.current()
@@ -120,7 +125,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const hasSkillPart = currentPrompt.some((part) => part.type === "skill")
 
     if (text.trim().length === 0 && images.length === 0 && input.commentCount() === 0) {
-      if (input.working()) abort(event instanceof KeyboardEvent ? "emptyEnter" : "stopButton")
+      // Enter never interrupts a running task — ESC does. Only the explicit Stop
+      // button (a "submitButton" trigger) aborts on an empty prompt.
+      if (input.working() && trigger === "submitButton") abort("stopButton")
       return
     }
     if (

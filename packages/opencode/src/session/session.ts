@@ -40,8 +40,6 @@ import { Snapshot } from "@/snapshot"
 import { ProjectID } from "../project/schema"
 import { WorkspaceID } from "../control-plane/schema"
 import { SessionID, MessageID, PartID } from "./schema"
-import { fn } from "../util/fn"
-import { makeRuntime } from "../effect/run-service"
 import { Runtime } from "@opencode-ai/core/runtime"
 
 import type { Provider } from "@/provider"
@@ -80,6 +78,15 @@ type GlobalListRow = SessionRow & {
   lastUserMessageAt?: number | null
 }
 type ProjectFallback = { worktree?: string | null; vcs?: string | null }
+type ListInput = {
+  directory?: string
+  workspaceID?: WorkspaceID
+  roots?: boolean
+  start?: number
+  search?: string
+  limit?: number
+  sort?: SessionListSort
+}
 
 function legacyExecutionContext(row: SessionRow, project: ProjectFallback | undefined) {
   const ownerDirectoryRaw = project?.vcs === "git" ? (project.worktree ?? row.directory) : row.directory
@@ -514,6 +521,7 @@ export interface Interface {
   }) => Effect.Effect<Info>
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
+  readonly list: (input?: ListInput) => Effect.Effect<Info[]>
   readonly get: (id: SessionID) => Effect.Effect<Info>
   readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
   readonly setArchived: (input: { sessionID: SessionID; time?: number }) => Effect.Effect<void>
@@ -679,6 +687,11 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
           )
         : undefined
       return fromRow(row, project)
+    })
+
+    const list = Effect.fn("Session.list")(function* (input?: ListInput) {
+      const ctx = yield* InstanceState.context
+      return yield* Effect.sync(() => listForProject(ctx.project, input))
     })
 
     const children = Effect.fn("Session.children")(function* (parentID: SessionID) {
@@ -1143,6 +1156,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       getPart,
       updatePartDelta,
       findMessage,
+      list,
     })
   }),
 )
@@ -1150,28 +1164,6 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
 export const defaultLayer: Layer.Layer<Service, never, never> = layer.pipe(
   Layer.provide(Bus.layer),
   Layer.provide(Storage.defaultLayer),
-)
-
-const { runPromise } = makeRuntime(Service, defaultLayer)
-
-export const create = fn(CreateInput, (input) => runPromise((svc) => svc.create(input)))
-export const get = fn(GetInput, (input) => runPromise((svc) => svc.get(input)))
-export const children = fn(ChildrenInput, (input) => runPromise((svc) => svc.children(input)))
-export const fork = fn(ForkInput, (input) => runPromise((svc) => svc.fork(input)))
-export const remove = fn(RemoveInput, (input) => runPromise((svc) => svc.remove(input)))
-export const setTitle = fn(SetTitleInput, (input) => runPromise((svc) => svc.setTitle(input)))
-export const setArchived = fn(SetArchivedInput, (input) => runPromise((svc) => svc.setArchived(input)))
-export const setPermission = fn(SetPermissionInput, (input) => runPromise((svc) => svc.setPermission(input)))
-export const messages = fn(MessagesInput, (input) => runPromise((svc) => svc.messages(input)))
-export const messagesPage = fn(MessagesPageInput, (input) => runPromise((svc) => svc.messagesPage(input)))
-export const removePart = fn(RemovePartInput, (input) => runPromise((svc) => svc.removePart(input)))
-export const updateMessage = fn(MessageV2.Info, (input) => runPromise((svc) => svc.updateMessage(input)))
-export const updatePart = fn(MessageV2.Part, (input) => runPromise((svc) => svc.updatePart(input)))
-export const updateExecutionContext = fn(UpdateExecutionContextInput, (input) =>
-  runPromise((svc) => svc.updateExecutionContext(input)),
-)
-export const findActiveWorktreeBinding = fn(FindActiveWorktreeBindingInput, (directory) =>
-  runPromise((svc) => svc.findActiveWorktreeBinding(directory)),
 )
 
 type SessionListSort = "updated" | "created"
@@ -1233,16 +1225,7 @@ const activitySelect = {
   lastUserMessageAt: lastUserMessageAtExpr,
 }
 
-export function* list(input?: {
-  directory?: string
-  workspaceID?: WorkspaceID
-  roots?: boolean
-  start?: number
-  search?: string
-  limit?: number
-  sort?: SessionListSort
-}) {
-  const project = Instance.project
+function listForProject(project: { id: ProjectID }, input?: ListInput) {
   const conditions = [eq(SessionTable.project_id, project.id)]
 
   if (input?.workspaceID) {
@@ -1286,9 +1269,11 @@ export function* list(input?: {
     )
     for (const item of items) projects.set(item.id, item)
   }
-  for (const row of rows) {
-    yield fromRow(row, projects.get(row.project_id))
-  }
+  return rows.map((row) => fromRow(row, projects.get(row.project_id)))
+}
+
+export function* list(input?: ListInput) {
+  yield* listForProject(Instance.project, input)
 }
 
 export function* listGlobal(input?: {

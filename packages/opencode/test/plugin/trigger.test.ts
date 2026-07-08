@@ -1,4 +1,6 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
+import type { Effect } from "effect"
+import type { Plugin as PluginNamespace } from "../../src/plugin/index"
 import path from "path"
 import { pathToFileURL } from "url"
 import { tmpdir } from "../fixture/fixture"
@@ -8,6 +10,7 @@ process.env.OPENCODE_DISABLE_DEFAULT_PLUGINS = "1"
 
 const { Plugin } = await import("../../src/plugin/index")
 const { Instance } = await import("../../src/project/instance")
+const { AppRuntime } = await import("../../src/effect/app-runtime")
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -41,6 +44,25 @@ async function project(source: string) {
   })
 }
 
+function runPlugin<A>(fn: (plugin: PluginNamespace.Interface) => Effect.Effect<A>) {
+  return AppRuntime.runPromise(Plugin.Service.use(fn))
+}
+
+function triggerSystemTransform(output: { system: string[] }) {
+  return runPlugin((plugin) =>
+    plugin.trigger(
+      "experimental.chat.system.transform",
+      {
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-sonnet-4-6",
+        } as any,
+      },
+      output,
+    ),
+  )
+}
+
 describe("plugin.trigger", () => {
   test("runs synchronous hooks without crashing", async () => {
     await using tmp = await project(
@@ -58,16 +80,7 @@ describe("plugin.trigger", () => {
       directory: tmp.path,
       fn: async () => {
         const out = { system: [] as string[] }
-        await Plugin.trigger(
-          "experimental.chat.system.transform",
-          {
-            model: {
-              providerID: "anthropic",
-              modelID: "claude-sonnet-4-6",
-            } as any,
-          },
-          out,
-        )
+        await triggerSystemTransform(out)
         return out
       },
     })
@@ -92,16 +105,7 @@ describe("plugin.trigger", () => {
       directory: tmp.path,
       fn: async () => {
         const out = { system: [] as string[] }
-        await Plugin.trigger(
-          "experimental.chat.system.transform",
-          {
-            model: {
-              providerID: "anthropic",
-              modelID: "claude-sonnet-4-6",
-            } as any,
-          },
-          out,
-        )
+        await triggerSystemTransform(out)
         return out
       },
     })

@@ -13,3 +13,40 @@
   padding-top: 12px;
   border-top: 1px solid var(--border-weaker);
 }
+
+/*
+ * safe_retry_failed reads as its own terminal step, separate from the completed
+ * tool card above it (#1358): a stroked status icon in ink (no semantic color
+ * flood — the operation usually succeeded, so it must not read as an error),
+ * an ink title, then the explanation. Typography sets size/weight/line-height
+ * only, never font-family, so the CJK stack is inherited.
+ */
+[data-component="notice-part"][data-kind="safe_retry_failed"] {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+}
+
+[data-component="notice-part"] [data-slot="notice-icon"] {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--fg-weak);
+}
+
+[data-component="notice-part"] [data-slot="notice-text"] {
+  min-width: 0;
+}
+
+[data-component="notice-part"] [data-slot="notice-title"] {
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-emphasis);
+  line-height: var(--line-height-h3);
+  color: var(--fg-strong);
+}
+
+[data-component="notice-part"] [data-slot="notice-body"] {
+  margin-top: 2px;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-h3);
+  color: var(--fg-base);
+}

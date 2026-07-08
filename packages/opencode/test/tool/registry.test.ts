@@ -12,6 +12,7 @@ import { ProviderTransform } from "../../src/provider"
 import { localToolImportSpec, ToolRegistry } from "../../src/tool/registry"
 import { deferredGroupMembers } from "../../src/tool/tool-info"
 import { Settings } from "../../src/settings"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { MessageID, SessionID } from "../../src/session/schema"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { LLM } from "../../src/session/llm"
@@ -22,6 +23,30 @@ import { Permission } from "../../src/permission"
 afterEach(async () => {
   await Instance.disposeAll()
 })
+
+function settings<A, E>(fn: (svc: Settings.Interface) => Effect.Effect<A, E>) {
+  return AppRuntime.runPromise(Settings.Service.use(fn))
+}
+
+function toolRegistry<A, E>(fn: (svc: ToolRegistry.Interface) => Effect.Effect<A, E>) {
+  return AppRuntime.runPromise(ToolRegistry.Service.use(fn))
+}
+
+function registryIds() {
+  return toolRegistry((svc) => svc.ids())
+}
+
+function registryTools(input: Parameters<ToolRegistry.Interface["tools"]>[0]) {
+  return toolRegistry((svc) => svc.tools(input))
+}
+
+function registryAvailableDeferred(input: Parameters<ToolRegistry.Interface["availableDeferred"]>[0]) {
+  return toolRegistry((svc) => svc.availableDeferred(input))
+}
+
+function registryInvalidate() {
+  return toolRegistry((svc) => svc.invalidate())
+}
 
 async function withMockedConfigInstall<T>(fn: () => Promise<T>): Promise<T> {
   return await withConfigDepsLock(async () => {
@@ -42,7 +67,7 @@ describe("tool.registry", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const ids = await ToolRegistry.ids()
+          const ids = await registryIds()
           expect(ids).not.toContain("trash")
         },
       })
@@ -56,18 +81,89 @@ describe("tool.registry", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const ids = await ToolRegistry.ids()
+          const ids = await registryIds()
           expect(ids).toContain("automate")
 
-          const tools = await ToolRegistry.tools({
+          const tools = await registryTools({
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
           })
           const surface = tools.map((tool) => tool.id)
           expect(surface).toContain("automate")
+          expect(surface).not.toContain("automate_manage")
           const card = tools.find((tool) => tool.id === "tool_info")!.description
-          expect(card).not.toContain("automate")
+          expect(card).not.toContain("**automate**")
+          expect(card).toContain("**automate_manage**")
+        },
+      })
+    })
+  })
+
+  test("defers automate_manage until activated while keeping automate resident", async () => {
+    await using tmp = await tmpdir()
+
+    await withMockedConfigInstall(async () => {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const base = {
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary" as const, permission: [], options: {} },
+          }
+
+          const def = await registryTools(base)
+          const defIds = def.map((tool) => tool.id)
+          expect(defIds).toContain("automate")
+          expect(defIds).not.toContain("automate_manage")
+          expect(def.find((tool) => tool.id === "tool_info")!.description).toContain("**automate_manage**")
+
+          const act = await registryTools({ ...base, activatedTools: new Set(["automate_manage"]) })
+          const actIds = act.map((tool) => tool.id)
+          expect(actIds).toContain("automate")
+          expect(actIds).toContain("automate_manage")
+          expect(act.find((tool) => tool.id === "tool_info")!.description).not.toContain("**automate_manage**")
+
+          const denied = await registryTools({
+            ...base,
+            activatedTools: new Set(["automate_manage"]),
+            deferredAvailable: () => false,
+          })
+          expect(denied.map((tool) => tool.id)).toContain("automate")
+          expect(denied.map((tool) => tool.id)).not.toContain("automate_manage")
+          expect(denied.find((tool) => tool.id === "tool_info")!.description).toContain("No deferred tools")
+        },
+      })
+    })
+  })
+
+  test("tool_info describes automate_manage delete as preserving already-started runs", async () => {
+    await using tmp = await tmpdir()
+
+    await withMockedConfigInstall(async () => {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const tools = await registryTools({
+            providerID: ProviderID.make("openai"),
+            modelID: ModelID.make("gpt-5"),
+            agent: { name: "build", mode: "primary" as const, permission: [], options: {} },
+          })
+          const toolInfo = tools.find((tool) => tool.id === "tool_info")!
+          const ctx = {
+            sessionID: SessionID.descending(),
+            messageID: MessageID.ascending(),
+            agent: "build",
+            abort: new AbortController().signal,
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          }
+
+          const result = await Effect.runPromise(toolInfo.execute({ name: "automate_manage" }, ctx))
+          expect(result.output).toContain("already-started runs continue")
+          expect(result.output).not.toContain("active run prevents removal")
         },
       })
     })
@@ -108,28 +204,70 @@ describe("tool.registry", () => {
   test("keeps scheduling routing contract across prompt surfaces", async () => {
     const shellDescription = await Bun.file(new URL("../../src/tool/shell.txt", import.meta.url)).text()
     expect(shellDescription).toContain("Scheduled or delayed tasks: Use the automate tool")
+    expect(shellDescription).toContain("polling, monitoring, or repeated-check tasks")
+    expect(shellDescription).toContain("over 60 seconds")
+    expect(shellDescription).toContain("Existing PawWork Automations: Use automate_manage via tool_info")
 
     const systemPrompt = await Bun.file(new URL("../../src/session/prompt/pawwork.txt", import.meta.url)).text()
     expect(systemPrompt).toContain("# Scheduling, reminders, and recurring work")
     expect(systemPrompt).toContain("`automate` tool")
+    expect(systemPrompt).toContain("monitor, poll, or watch something over time")
+    expect(systemPrompt).toContain("every N minutes")
+    expect(systemPrompt).toContain("until a status changes")
+    expect(systemPrompt).toContain("short bounded waits")
+    expect(systemPrompt).toContain("60 seconds total")
+    expect(systemPrompt).toContain("minute-scale polling")
+    expect(systemPrompt).toContain("`automate_manage`")
     expect(systemPrompt).toContain("launchd")
     expect(systemPrompt).toContain("by writing files")
   })
 
-  // Web tasks must route to the embedded browser tools, never to curl/wget
-  // sessions or a premature "can't access the web". The tools are deferred
-  // (one tool_info card), so the resident surfaces carry the routing: the
-  // system prompt names the trigger intents and the bash redirect list
-  // catches the entry point models drift into.
+  // Web tasks route adapter-first: a specific site checks opencli_search for a
+  // bundled adapter before falling back to the embedded browser tools, never to
+  // curl/wget sessions or a premature "can't access the web". Both tool groups
+  // are deferred (one tool_info card each), so the resident surfaces carry the
+  // routing — the system prompt names the trigger intents, the adapter→browser
+  // fallback order, the one-retry cap, and the permission-denial stop; the bash
+  // redirect list catches the entry point models drift into.
   test("keeps browsing routing contract across prompt surfaces", async () => {
     const shellDescription = await Bun.file(new URL("../../src/tool/shell.txt", import.meta.url)).text()
-    expect(shellDescription).toContain("Browsing or operating websites: Use the browser tools, activated via tool_info")
+    // The redirect triggers on acting on a site, not on merely visiting one, so it
+    // stays in step with the system prompt's action-intent routing and doesn't push
+    // opencli_search ahead of a one-shot read.
+    expect(shellDescription).toContain("To act on a specific site (sign in, search, book, post, pull data)")
+    expect(shellDescription).toContain("check opencli_search for an adapter first")
+    expect(shellDescription).toContain("a one-shot page read can use webfetch")
+
+    // The redirect must not drift back to a browser-first rule or a visit-based trigger.
+    expect(shellDescription).not.toContain("Use the browser tools, activated via tool_info")
+    expect(shellDescription).not.toContain("For a specific site, check opencli_search")
 
     const systemPrompt = await Bun.file(new URL("../../src/session/prompt/pawwork.txt", import.meta.url)).text()
     expect(systemPrompt).toContain("# Browsing and operating websites")
+    expect(systemPrompt).toContain("`opencli` tool group via `tool_info`")
+    expect(systemPrompt).toContain("opencli_search")
+    expect(systemPrompt).toContain("opencli_run")
     expect(systemPrompt).toContain("`browser` tool group via `tool_info`")
+    expect(systemPrompt).toContain("do not retry the same adapter more than once")
+    // Permission denial is held distinct from an adapter failure so the stop is not
+    // read as just another fall-back-to-browser case.
+    expect(systemPrompt).toContain("is not an adapter failure to route around")
+    expect(systemPrompt).toContain("do not switch to another tool to carry out the same action they just declined")
     expect(systemPrompt).toContain("Never simulate a browser session with `curl` or `wget`")
     expect(systemPrompt).toContain("never declare a web task impossible")
+    // The "try first" pointer names the actual tools, not an ambiguous "these tools".
+    expect(systemPrompt).toContain("trying the `opencli` or `browser` tool groups first")
+    expect(systemPrompt).not.toContain("trying these tools first")
+    // Adapter-first ordering: opencli_search is reached before the browser fallback.
+    expect(systemPrompt.indexOf("opencli_search")).toBeLessThan(systemPrompt.indexOf("Fall back to the `browser`"))
+
+    // The tool_info group cards are resident surfaces too: the browser card must
+    // not re-route every website task back to the browser, or it would undo the
+    // adapter-first routing the prompt and shell redirect establish.
+    const toolInfoSource = await Bun.file(new URL("../../src/tool/tool-info.ts", import.meta.url)).text()
+    expect(toolInfoSource).not.toContain("use for any task that needs to browse, read, or operate a website")
+    expect(toolInfoSource).toContain("for a specific site, check the opencli group first")
+    expect(toolInfoSource).toContain("prefer these over the browser tools when one matches")
   })
 
   test("loads tools from .opencode/tool (singular)", async () => {
@@ -161,7 +299,7 @@ describe("tool.registry", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const ids = await ToolRegistry.ids()
+          const ids = await registryIds()
           expect(ids).toContain("hello")
         },
       })
@@ -197,7 +335,7 @@ describe("tool.registry", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const ids = await ToolRegistry.ids()
+          const ids = await registryIds()
           expect(ids).toContain("hello")
         },
       })
@@ -229,7 +367,7 @@ describe("tool.registry", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const ids = await ToolRegistry.ids()
+          const ids = await registryIds()
           // The valid default export still loads.
           expect(ids).toContain("mixed")
           // The non-tool string export must not be wrapped into a phantom tool —
@@ -280,7 +418,7 @@ describe("tool.registry", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const ids = await ToolRegistry.ids()
+          const ids = await registryIds()
           expect(ids).not.toContain("mixed")
           expect(ids).not.toContain("mixed_helper")
         },
@@ -315,7 +453,7 @@ describe("tool.registry", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const tools = await ToolRegistry.tools({
+          const tools = await registryTools({
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -424,7 +562,7 @@ describe("tool.registry", () => {
         await Instance.provide({
           directory: tmp.path,
           fn: async () => {
-            const tools = await ToolRegistry.tools({
+            const tools = await registryTools({
               providerID: ProviderID.make("openai"),
               modelID: ModelID.make("gpt-5"),
               agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -510,7 +648,7 @@ describe("tool.registry", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const ids = await ToolRegistry.ids()
+          const ids = await registryIds()
           expect(ids).toContain("cowsay")
         },
       })
@@ -558,7 +696,7 @@ describe("tool.registry", () => {
         await Instance.provide({
           directory: tmp.path,
           fn: async () => {
-            const ids = await ToolRegistry.ids()
+            const ids = await registryIds()
             expect(ids).toContain("late")
           },
         })
@@ -613,7 +751,7 @@ describe("tool.registry", () => {
         await Instance.provide({
           directory: tmp.path,
           fn: async () => {
-            const ids = await ToolRegistry.ids()
+            const ids = await registryIds()
             expect(ids).not.toContain("late")
             expect(ids).toContain("local")
           },
@@ -664,7 +802,7 @@ describe("tool.registry", () => {
         await Instance.provide({
           directory: tmp.path,
           fn: async () => {
-            const ids = await ToolRegistry.ids()
+            const ids = await registryIds()
             expect(ids).toContain("late")
           },
         })
@@ -710,7 +848,7 @@ describe("tool.registry", () => {
         await Instance.provide({
           directory: tmp.path,
           fn: async () => {
-            const ids = await ToolRegistry.ids()
+            const ids = await registryIds()
             expect(ids).toContain("late")
           },
         })
@@ -752,7 +890,7 @@ describe("tool.registry", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const ids = await ToolRegistry.ids()
+        const ids = await registryIds()
         expect(ids).not.toContain("boom")
       },
     })
@@ -793,7 +931,7 @@ describe("tool.registry", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const ids = await ToolRegistry.ids()
+        const ids = await registryIds()
         expect(ids).not.toContain("math_add")
         expect(ids).not.toContain("math_multiply")
       },
@@ -829,7 +967,7 @@ describe("tool.registry", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const ids = await ToolRegistry.ids()
+        const ids = await registryIds()
         expect(ids).not.toContain("boom")
       },
     })
@@ -837,11 +975,11 @@ describe("tool.registry", () => {
 
   test("excludes lsp tool when Settings.lspEnabled=false", async () => {
     await using tmp = await tmpdir()
-    await Settings.setLspEnabled(false)
+    await settings((svc) => svc.setLspEnabled(false))
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const ids = await ToolRegistry.ids()
+        const ids = await registryIds()
         expect(ids).not.toContain("lsp")
       },
     })
@@ -852,7 +990,7 @@ describe("tool.registry", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const ids = await ToolRegistry.ids()
+        const ids = await registryIds()
         expect(ids).not.toContain("codesearch")
       },
     })
@@ -860,15 +998,15 @@ describe("tool.registry", () => {
 
   test("registers lsp when Settings.lspEnabled=true but defers it out of the default model surface", async () => {
     await using tmp = await tmpdir()
-    await Settings.setLspEnabled(true)
+    await settings((svc) => svc.setLspEnabled(true))
     try {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const ids = await ToolRegistry.ids()
+          const ids = await registryIds()
           expect(ids).toContain("lsp")
 
-          const tools = await ToolRegistry.tools({
+          const tools = await registryTools({
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -880,7 +1018,7 @@ describe("tool.registry", () => {
         },
       })
     } finally {
-      await Settings.setLspEnabled(false)
+      await settings((svc) => svc.setLspEnabled(false))
     }
   })
 
@@ -890,36 +1028,36 @@ describe("tool.registry", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          await Settings.setLspEnabled(true)
-          const before = await ToolRegistry.ids()
+          await settings((svc) => svc.setLspEnabled(true))
+          const before = await registryIds()
           expect(before).toContain("lsp")
 
-          await Settings.setLspEnabled(false)
-          await ToolRegistry.invalidate()
-          const off = await ToolRegistry.ids()
+          await settings((svc) => svc.setLspEnabled(false))
+          await registryInvalidate()
+          const off = await registryIds()
           expect(off).not.toContain("lsp")
 
-          await Settings.setLspEnabled(true)
-          await ToolRegistry.invalidate()
-          const on = await ToolRegistry.ids()
+          await settings((svc) => svc.setLspEnabled(true))
+          await registryInvalidate()
+          const on = await registryIds()
           expect(on).toContain("lsp")
         },
       })
     } finally {
-      await Settings.setLspEnabled(false)
+      await settings((svc) => svc.setLspEnabled(false))
     }
   })
 
   test("exposes websearch for non-opencode providers without codesearch", async () => {
     await using tmp = await tmpdir()
-    const previous = await Settings.webSearchEnabled()
+    const previous = await settings((svc) => svc.webSearchEnabled())
     try {
-      await Settings.setWebSearchEnabled(true)
+      await settings((svc) => svc.setWebSearchEnabled(true))
 
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const tools = await ToolRegistry.tools({
+          const tools = await registryTools({
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -932,7 +1070,7 @@ describe("tool.registry", () => {
         },
       })
     } finally {
-      await Settings.setWebSearchEnabled(previous)
+      await settings((svc) => svc.setWebSearchEnabled(previous))
     }
   })
 
@@ -942,26 +1080,26 @@ describe("tool.registry", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          await Settings.setWebSearchEnabled(true)
-          await ToolRegistry.invalidate()
+          await settings((svc) => svc.setWebSearchEnabled(true))
+          await registryInvalidate()
 
-          const visibleIds = await ToolRegistry.ids()
+          const visibleIds = await registryIds()
           expect(visibleIds).toContain("websearch")
 
-          const visible = await ToolRegistry.tools({
+          const visible = await registryTools({
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
           })
           expect(visible.map((tool) => tool.id)).toContain("websearch")
 
-          await Settings.setWebSearchEnabled(false)
-          await ToolRegistry.invalidate()
+          await settings((svc) => svc.setWebSearchEnabled(false))
+          await registryInvalidate()
 
-          const hiddenRegistryIds = await ToolRegistry.ids()
+          const hiddenRegistryIds = await registryIds()
           expect(hiddenRegistryIds).not.toContain("websearch")
 
-          const hidden = await ToolRegistry.tools({
+          const hidden = await registryTools({
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -972,17 +1110,17 @@ describe("tool.registry", () => {
         },
       })
     } finally {
-      await Settings.setWebSearchEnabled(true)
+      await settings((svc) => svc.setWebSearchEnabled(true))
     }
   })
 
   test("does not advertise lsp as deferred when Settings.lspEnabled=false", async () => {
     await using tmp = await tmpdir()
-    await Settings.setLspEnabled(false)
+    await settings((svc) => svc.setLspEnabled(false))
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const tools = await ToolRegistry.tools({
+        const tools = await registryTools({
           providerID: ProviderID.make("openai"),
           modelID: ModelID.make("gpt-5"),
           agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -1000,7 +1138,7 @@ describe("tool.registry", () => {
       fn: async () => {
         // Default: deferred worktree tools are not in the surface; tool_info is,
         // and advertises both as cards.
-        const def = await ToolRegistry.tools({
+        const def = await registryTools({
           providerID: ProviderID.make("openai"),
           modelID: ModelID.make("gpt-5"),
           agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -1017,7 +1155,7 @@ describe("tool.registry", () => {
         expect(card).not.toContain("browser")
 
         // Activated: enter-worktree becomes callable; tool_info stops listing it.
-        const act = await ToolRegistry.tools({
+        const act = await registryTools({
           providerID: ProviderID.make("openai"),
           modelID: ModelID.make("gpt-5"),
           agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -1031,7 +1169,7 @@ describe("tool.registry", () => {
         expect(actCard).toContain("exit-worktree")
 
         // Permission-disabled: even activated, it stays hidden and uncarded.
-        const denied = await ToolRegistry.tools({
+        const denied = await registryTools({
           providerID: ProviderID.make("openai"),
           modelID: ModelID.make("gpt-5"),
           agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -1046,11 +1184,11 @@ describe("tool.registry", () => {
 
   test("rejects direct tool_info activation for lsp when Settings.lspEnabled=false", async () => {
     await using tmp = await tmpdir()
-    await Settings.setLspEnabled(false)
+    await settings((svc) => svc.setLspEnabled(false))
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const tools = await ToolRegistry.tools({
+        const tools = await registryTools({
           providerID: ProviderID.make("openai"),
           modelID: ModelID.make("gpt-5"),
           agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -1076,11 +1214,11 @@ describe("tool.registry", () => {
 
   test("omits deferred repair hint for lsp when Settings.lspEnabled=false", async () => {
     await using tmp = await tmpdir()
-    await Settings.setLspEnabled(false)
+    await settings((svc) => svc.setLspEnabled(false))
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const availableDeferredTools = await ToolRegistry.availableDeferred({
+        const availableDeferredTools = await registryAvailableDeferred({
           deferredAvailable: () => true,
         })
         const repair = JSON.parse(
@@ -1104,12 +1242,12 @@ describe("tool.registry", () => {
 
   test("omits deferred repair hint for lsp after it is activated", async () => {
     await using tmp = await tmpdir()
-    await Settings.setLspEnabled(true)
+    await settings((svc) => svc.setLspEnabled(true))
     try {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const availableDeferredTools = await ToolRegistry.availableDeferred({
+          const availableDeferredTools = await registryAvailableDeferred({
             activatedTools: new Set(["lsp"]),
             deferredAvailable: () => true,
           })
@@ -1131,38 +1269,40 @@ describe("tool.registry", () => {
         },
       })
     } finally {
-      await Settings.setLspEnabled(false)
+      await settings((svc) => svc.setLspEnabled(false))
     }
   })
 
   test("defers lsp and worktree tools until activated, and advertises them via tool_info", async () => {
     await using tmp = await tmpdir()
-    await Settings.setLspEnabled(true)
+    await settings((svc) => svc.setLspEnabled(true))
     try {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
           // Default: deferred tools are not in the surface; tool_info is,
           // and advertises each available tool as a card.
-          const def = await ToolRegistry.tools({
+          const def = await registryTools({
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
           })
           const defIds = def.map((tool) => tool.id)
           expect(defIds).toContain("automate")
+          expect(defIds).not.toContain("automate_manage")
           expect(defIds).not.toContain("enter-worktree")
           expect(defIds).not.toContain("exit-worktree")
           expect(defIds).not.toContain("lsp")
           expect(defIds).toContain("tool_info")
           const card = def.find((tool) => tool.id === "tool_info")!.description
-          expect(card).not.toContain("automate")
+          expect(card).not.toContain("**automate**")
+          expect(card).toContain("automate_manage")
           expect(card).toContain("enter-worktree")
           expect(card).toContain("exit-worktree")
           expect(card).toContain("lsp")
 
           // Activated: selected tools become callable; tool_info stops listing them.
-          const act = await ToolRegistry.tools({
+          const act = await registryTools({
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -1170,17 +1310,19 @@ describe("tool.registry", () => {
           })
           const actIds = act.map((tool) => tool.id)
           expect(actIds).toContain("automate")
+          expect(actIds).not.toContain("automate_manage")
           expect(actIds).toContain("enter-worktree")
           expect(actIds).not.toContain("exit-worktree")
           expect(actIds).toContain("lsp")
           const actCard = act.find((tool) => tool.id === "tool_info")!.description
-          expect(actCard).not.toContain("automate")
+          expect(actCard).not.toContain("**automate**")
+          expect(actCard).toContain("automate_manage")
           expect(actCard).not.toContain("enter-worktree")
           expect(actCard).toContain("exit-worktree")
           expect(actCard).not.toContain("lsp")
 
           // Permission-disabled: even activated, it stays hidden and uncarded.
-          const denied = await ToolRegistry.tools({
+          const denied = await registryTools({
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -1188,13 +1330,14 @@ describe("tool.registry", () => {
             deferredAvailable: () => false,
           })
           expect(denied.map((tool) => tool.id)).toContain("automate")
+          expect(denied.map((tool) => tool.id)).not.toContain("automate_manage")
           expect(denied.map((tool) => tool.id)).not.toContain("enter-worktree")
           expect(denied.map((tool) => tool.id)).not.toContain("lsp")
           expect(denied.find((tool) => tool.id === "tool_info")!.description).toContain("No deferred tools")
         },
       })
     } finally {
-      await Settings.setLspEnabled(false)
+      await settings((svc) => svc.setLspEnabled(false))
     }
   })
 
@@ -1211,7 +1354,7 @@ describe("tool.registry", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const tools = await ToolRegistry.tools({
+          const tools = await registryTools({
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -1238,7 +1381,7 @@ describe("tool.registry", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const tools = await ToolRegistry.tools({
+          const tools = await registryTools({
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -1254,7 +1397,7 @@ describe("tool.registry", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const deferred = await ToolRegistry.tools({
+          const deferred = await registryTools({
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -1263,7 +1406,7 @@ describe("tool.registry", () => {
           expect(deferredIds).not.toContain("opencli_search")
           expect(deferred.find((tool) => tool.id === "tool_info")!.description).toContain("**opencli**")
 
-          const activated = await ToolRegistry.tools({
+          const activated = await registryTools({
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
@@ -1271,22 +1414,27 @@ describe("tool.registry", () => {
           })
           expect(activated.map((tool) => tool.id)).toContain("opencli_search")
 
-          const browserDenied = [{ permission: "browser", pattern: "*", action: "deny" as const }]
-          const browserDeniedDeferredAvailable = (id: string) => !Permission.disabled([id], browserDenied).has(id)
-          const deniedDeferred = await ToolRegistry.tools({
+          // The opencli group is gated by its own opencli_read / opencli_write keys
+          // (a `browser` deny no longer hides it); both halves denied hides the group.
+          const opencliDenied = [
+            { permission: "opencli_read", pattern: "*", action: "deny" as const },
+            { permission: "opencli_write", pattern: "*", action: "deny" as const },
+          ]
+          const opencliDeniedDeferredAvailable = (id: string) => !Permission.disabled([id], opencliDenied).has(id)
+          const deniedDeferred = await registryTools({
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
-            deferredAvailable: browserDeniedDeferredAvailable,
+            deferredAvailable: opencliDeniedDeferredAvailable,
           })
           expect(deniedDeferred.find((tool) => tool.id === "tool_info")!.description).not.toContain("**opencli**")
 
-          const deniedActivated = await ToolRegistry.tools({
+          const deniedActivated = await registryTools({
             providerID: ProviderID.make("openai"),
             modelID: ModelID.make("gpt-5"),
             agent: { name: "build", mode: "primary", permission: [], options: {} },
             activatedTools: new Set(deferredGroupMembers("opencli")),
-            deferredAvailable: browserDeniedDeferredAvailable,
+            deferredAvailable: opencliDeniedDeferredAvailable,
           })
           expect(deniedActivated.map((tool) => tool.id)).not.toContain("opencli_search")
           expect(deniedActivated.map((tool) => tool.id)).not.toContain("opencli_run")
@@ -1310,7 +1458,7 @@ describe("tool.registry", () => {
         }
 
         // Step 1: enter-worktree carries no full schema in the surface; only tool_info does.
-        const deferred = await ToolRegistry.tools(base)
+        const deferred = await registryTools(base)
         expect(deferred.map((tool) => tool.id)).not.toContain("enter-worktree")
         const toolInfo = deferred.find((tool) => tool.id === "tool_info")!
 
@@ -1324,7 +1472,7 @@ describe("tool.registry", () => {
         } as unknown as Parameters<typeof ProviderTransform.schema>[0]
 
         // The schema the model will see once enter-worktree is activated, transformed.
-        const activated = await ToolRegistry.tools({ ...base, activatedTools: new Set(["enter-worktree"]) })
+        const activated = await registryTools({ ...base, activatedTools: new Set(["enter-worktree"]) })
         const enterWorktree = activated.find((tool) => tool.id === "enter-worktree")!
         const expectedSchema = ProviderTransform.schema(model, EffectZod.toJsonSchema(enterWorktree.parameters))
 

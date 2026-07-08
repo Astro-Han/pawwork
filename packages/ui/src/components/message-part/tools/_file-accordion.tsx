@@ -31,7 +31,9 @@ export function ToolFileAccordion(props: { path: string; actions?: JSX.Element; 
               </div>
               <div data-slot="apply-patch-trigger-actions">
                 {props.actions}
-                <Icon name="chevron-grabber-vertical" />
+                <span data-slot="accordion-chevron">
+                  <Icon name="chevron-down" />
+                </span>
               </div>
             </div>
           </Accordion.Trigger>

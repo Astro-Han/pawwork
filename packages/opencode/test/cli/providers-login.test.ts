@@ -2,16 +2,21 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test"
 import { Readable } from "node:stream"
 import { Auth } from "../../src/auth"
 import { ProvidersLoginCommand } from "../../src/cli/cmd/providers"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { Process } from "../../src/util/process"
 
 const originalFetch = globalThis.fetch
 const loginUrl = "https://enterprise-auth.test"
 
+function runAuth<A, E>(fn: (auth: Auth.Interface) => import("effect").Effect.Effect<A, E, never>) {
+  return AppRuntime.runPromise(Auth.Service.use(fn))
+}
+
 afterEach(async () => {
   globalThis.fetch = originalFetch
   mock.restore()
-  await Auth.remove(loginUrl).catch(() => {})
+  await runAuth((auth) => auth.remove(loginUrl)).catch(() => {})
 })
 
 test("url login skips instance bootstrap so stale remote config cannot block re-auth", async () => {
@@ -66,7 +71,7 @@ test("url login stores the refreshed well-known credential outside instance boot
   await ProvidersLoginCommand.handler({ url: `${loginUrl}/` } as never)
 
   expect(provide).not.toHaveBeenCalled()
-  expect(await Auth.get(loginUrl)).toEqual({
+  expect(await runAuth((auth) => auth.get(loginUrl))).toEqual({
     type: "wellknown",
     key: "TEST_TOKEN",
     token: "fresh-token",

@@ -32,7 +32,7 @@ describe("officecli bump workflow", () => {
       issues: "write",
     })
 
-    expect(checkout?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
+    expect(checkout?.uses).toBe("actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0")
     expect(checkout?.with?.["persist-credentials"]).toBe(false)
     expect(setupNode?.uses).toBe("actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e")
     expect(setupNode?.with).toEqual({ "node-version": "24" })

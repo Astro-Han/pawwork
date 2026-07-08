@@ -35,29 +35,31 @@ export const TodoWriteTool = Tool.define<typeof Parameters, Metadata, Todo.Servi
     return {
       description: DESCRIPTION_WRITE,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context<Metadata>) =>
-        Effect.gen(function* () {
-          yield* ctx.ask({
-            permission: "todowrite",
-            patterns: ["*"],
-            always: ["*"],
-            metadata: {},
-          })
+      execute: Effect.fn("TodoWriteTool.execute")(function* (
+        params: Schema.Schema.Type<typeof Parameters>,
+        ctx: Tool.Context<Metadata>,
+      ) {
+        yield* ctx.ask({
+          permission: "todowrite",
+          patterns: ["*"],
+          always: ["*"],
+          metadata: {},
+        })
 
-          const snapshot = yield* todo.update({
-            sessionID: ctx.sessionID,
-            todos: params.todos.map((todo) => ({
-              ...todo,
-              id: todo.id as Todo.TodoID | undefined,
-            })),
-          })
+        const snapshot = yield* todo.update({
+          sessionID: ctx.sessionID,
+          todos: params.todos.map((todo) => ({
+            ...todo,
+            id: todo.id as Todo.TodoID | undefined,
+          })),
+        })
 
-          return {
-            title: `${snapshot.todos.filter((x) => x.status !== "completed").length} todos`,
-            output: JSON.stringify(snapshot.todos, null, 2),
-            metadata: snapshot,
-          }
-        }),
+        return {
+          title: `${snapshot.todos.filter((x) => x.status !== "completed").length} todos`,
+          output: JSON.stringify(snapshot.todos, null, 2),
+          metadata: snapshot,
+        }
+      }),
     } satisfies Tool.DefWithoutID<typeof Parameters, Metadata>
   }),
 )

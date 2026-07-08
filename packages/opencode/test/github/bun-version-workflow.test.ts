@@ -48,7 +48,7 @@ describe("GitHub workflow Bun version pin", () => {
     }
 
     expect(collectSetupBunPins(workflow, "synthetic.yml")).toEqual([
-      "synthetic.yml:unpinned:step-1:bun-version: \"<missing>\"",
+      'synthetic.yml:unpinned:step-1:bun-version: "<missing>"',
     ])
   })
 
@@ -83,15 +83,16 @@ describe("GitHub workflow Bun version pin", () => {
     }
 
     expect(setupBunPins).toEqual([
-      ".github/workflows/build.yml:build-electron:step-5:bun-version: \"1.3.14\"",
-      ".github/workflows/deploy-site.yml:build-and-deploy:step-2:bun-version: \"1.3.14\"",
-      ".github/workflows/desktop-smoke.yml:smoke-macos-arm64:step-3:bun-version: \"1.3.14\"",
-      ".github/workflows/dev-dep-audit.yml:dev-dep-audit:step-3:bun-version: \"1.3.14\"",
-      ".github/workflows/e2e-artifacts.yml:e2e-artifacts:step-3:bun-version: \"1.3.14\"",
-      ".github/workflows/mirror-release-to-r2.yml:mirror:step-2:bun-version: \"1.3.14\"",
-      ".github/workflows/officecli-bump.yml:officecli-bump:step-3:bun-version: \"1.3.14\"",
-      ".github/workflows/perf-probe-baseline.yml:perf-probe-baseline:step-7:bun-version: \"1.3.14\"",
-      ".github/workflows/windows-advisory.yml:unit-windows:step-3:bun-version: \"1.3.14\"",
+      '.github/workflows/build.yml:build-electron:step-5:bun-version: "1.3.14"',
+      '.github/workflows/deploy-site.yml:build-and-deploy:step-2:bun-version: "1.3.14"',
+      '.github/workflows/desktop-smoke.yml:smoke-macos-arm64:step-3:bun-version: "1.3.14"',
+      '.github/workflows/desktop-smoke.yml:install-matrix:step-3:bun-version: "1.3.14"',
+      '.github/workflows/dev-dep-audit.yml:dev-dep-audit:step-3:bun-version: "1.3.14"',
+      '.github/workflows/e2e-artifacts.yml:e2e-artifacts:step-3:bun-version: "1.3.14"',
+      '.github/workflows/mirror-release-to-r2.yml:mirror:step-2:bun-version: "1.3.14"',
+      '.github/workflows/officecli-bump.yml:officecli-bump:step-3:bun-version: "1.3.14"',
+      '.github/workflows/perf-probe-baseline.yml:perf-probe-baseline:step-7:bun-version: "1.3.14"',
+      '.github/workflows/windows-advisory.yml:unit-windows:step-3:bun-version: "1.3.14"',
     ])
     expect(missingComments).toEqual([])
 

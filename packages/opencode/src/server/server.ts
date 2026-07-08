@@ -1,19 +1,17 @@
-import { generateSpecs } from "hono-openapi"
-import { Hono } from "hono"
 import { adapter } from "#hono"
-import { AutomationScheduler } from "@/automation/scheduler"
+import { HTTPException } from "hono/http-exception"
 import { lazy } from "@/util/lazy"
 import { Log } from "@/util"
+import { Provider } from "@/provider"
+import { Session } from "@/session"
+import { NotFoundError } from "@/storage/db"
+import { NamedError } from "@opencode-ai/util/error"
+import { AutomationScheduler } from "@/automation/scheduler"
 import { MDNS } from "./mdns"
-import { AuthMiddleware, CompressionMiddleware, CorsMiddleware, ErrorMiddleware, LoggerMiddleware } from "./middleware"
-import { FenceMiddleware } from "./fence"
+import { ServerAuth } from "./auth"
 import { initProjectors } from "./projectors"
-import { InstanceRoutes } from "./routes/instance"
-import { ControlPlaneRoutes } from "./routes/control"
-import { UIRoutes } from "./routes/ui"
-import { GlobalRoutes } from "./routes/global"
-import { InstanceMiddleware } from "./routes/instance/middleware"
-import { WorkspaceRoutes } from "./routes/control/workspace"
+import { createProductionHttpApiDispatcher, isProductionHttpApiRequest } from "./production-httpapi"
+import { createProductionSpecialHandler } from "./production-special"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -21,6 +19,12 @@ globalThis.AI_SDK_LOG_WARNINGS = false
 initProjectors()
 
 const log = Log.create({ service: "server" })
+const PROVIDER_AUTH_BAD_REQUEST = new Set([
+  "ProviderAuthValidationFailed",
+  "ProviderAuthOauthMissing",
+  "ProviderAuthOauthCodeMissing",
+  "ProviderAuthOauthCallbackFailed",
+])
 
 export type Listener = {
   hostname: string
@@ -29,46 +33,140 @@ export type Listener = {
   stop: (close?: boolean) => Promise<void>
 }
 
+type ServerApp = {
+  fetch: (request: Request, env?: unknown) => Promise<Response>
+  request: (input: string | Request, init?: RequestInit) => Promise<Response>
+}
+
 export const Default = lazy(() => create({}))
 
-function create(opts: { cors?: string[] }) {
-  const app = new Hono()
-    .onError(ErrorMiddleware)
-    .use(CorsMiddleware(opts))
-    .use(LoggerMiddleware)
-    .use(AuthMiddleware)
-    .use(CompressionMiddleware)
-    .route("/global", GlobalRoutes())
+function corsOrigin(origin: string | null, opts: { cors?: string[] }) {
+  if (!origin) return
+  if (origin.startsWith("http://localhost:")) return origin
+  if (origin.startsWith("http://127.0.0.1:")) return origin
+  if (/^https:\/\/([a-z0-9-]+\.)*opencode\.ai$/.test(origin)) return origin
+  if (opts.cors?.includes(origin)) return origin
+}
 
-  const runtime = adapter.create(app)
+function applyCors(request: Request, response: Response, opts: { cors?: string[] }) {
+  const origin = corsOrigin(request.headers.get("origin"), opts)
+  if (!origin) return response
+
+  const headers = new Headers(response.headers)
+  headers.set("access-control-allow-origin", origin)
+  headers.append("vary", "Origin")
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
+
+function corsPreflight(request: Request, opts: { cors?: string[] }) {
+  const origin = corsOrigin(request.headers.get("origin"), opts)
+  const headers = new Headers()
+  if (origin) {
+    headers.set("access-control-allow-origin", origin)
+    headers.set("access-control-allow-methods", "GET,HEAD,PUT,POST,DELETE,PATCH,OPTIONS")
+    const requestedHeaders = request.headers.get("access-control-request-headers")
+    if (requestedHeaders) headers.set("access-control-allow-headers", requestedHeaders)
+    headers.set("access-control-max-age", "86400")
+    headers.append("vary", "Origin")
+  }
+  return new Response(null, { status: 204, headers })
+}
+
+function errorResponse(error: unknown) {
+  if (error instanceof NamedError) {
+    const status =
+      error instanceof NotFoundError
+        ? 404
+        : error instanceof Provider.ModelNotFoundError ||
+            PROVIDER_AUTH_BAD_REQUEST.has(error.name) ||
+            error.name.startsWith("Worktree")
+          ? 400
+          : 500
+    if (!(error instanceof NotFoundError)) log.error("failed", { error })
+    return Response.json(error.toObject(), { status })
+  }
+  log.error("failed", { error })
+  if (error instanceof Session.BusyError) {
+    return Response.json(new NamedError.Unknown({ message: error.message }).toObject(), { status: 409 })
+  }
+  if (error instanceof HTTPException) return error.getResponse()
+  return Response.json(new NamedError.Unknown({ message: "Unexpected server error. Check server logs for details." }).toObject(), {
+    status: 500,
+  })
+}
+
+async function maybeCompress(request: Request, response: Response) {
+  const url = new URL(request.url)
+  if (!request.headers.get("accept-encoding")?.includes("gzip")) return response
+  if (response.headers.has("content-encoding")) return response
+  if (url.pathname === "/event" || url.pathname === "/global/event" || url.pathname === "/global/sync-event") {
+    return response
+  }
+  if (request.method === "POST" && /\/session\/[^/]+\/(message|prompt_async)$/.test(url.pathname)) return response
+  if (!response.body || !("CompressionStream" in globalThis)) return response
+
+  const headers = new Headers(response.headers)
+  headers.set("content-encoding", "gzip")
+  headers.delete("content-length")
+  return new Response(response.body.pipeThrough(new CompressionStream("gzip")), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
+
+function create(opts: { cors?: string[] }) {
+  let app: ServerApp
+  const runtime = adapter.create({
+    fetch(request: Request, env?: unknown) {
+      return app.fetch(request, env)
+    },
+  })
+  const special = createProductionSpecialHandler({ upgradeWebSocket: runtime.upgradeWebSocket })
+  const dispatcher = createProductionHttpApiDispatcher(runtime.upgradeWebSocket, {
+    specialHandler: special,
+  })
+
+  app = {
+    async fetch(request, env) {
+      const pathname = new URL(request.url).pathname
+      const skip = pathname === "/log"
+      if (!skip) log.info("request", { method: request.method, path: pathname })
+      const timer = log.time("request", { method: request.method, path: pathname })
+      try {
+        const response =
+          request.method === "OPTIONS"
+            ? corsPreflight(request, opts)
+            : (ServerAuth.authorizeRequest(request) ??
+              (isProductionHttpApiRequest(request) ? await dispatcher.handle(request, env) : await special.handleUI(request)))
+        return await maybeCompress(request, applyCors(request, response, opts))
+      } catch (error) {
+        return applyCors(request, errorResponse(error), opts)
+      } finally {
+        if (!skip) timer.stop()
+      }
+    },
+    request(input, init) {
+      const request =
+        input instanceof Request ? input : new Request(new URL(input, "http://localhost"), init)
+      return this.fetch(request)
+    },
+  }
 
   return {
-    app: app
-      .route("/", ControlPlaneRoutes())
-      .route("/experimental/workspace", new Hono().use(InstanceMiddleware()).route("/", WorkspaceRoutes()))
-      .route("/", new Hono().use(FenceMiddleware).route("/", InstanceRoutes(runtime.upgradeWebSocket)))
-      .route("/", UIRoutes()),
+    app,
     runtime,
+    dispose: dispatcher.dispose,
   }
 }
 
 export async function openapi() {
-  // Build a fresh app with all routes registered directly so
-  // hono-openapi can see describeRoute metadata (`.route()` wraps
-  // handlers when the sub-app has a custom errorHandler, which
-  // strips the metadata symbol).
-  const { app } = create({})
-  const result = await generateSpecs(app, {
-    documentation: {
-      info: {
-        title: "opencode",
-        version: "1.0.0",
-        description: "opencode api",
-      },
-      openapi: "3.1.1",
-    },
-  })
-  return result
+  const { controlOpenApi } = await import("./control-openapi")
+  return controlOpenApi()
 }
 
 export let url: URL
@@ -89,6 +187,7 @@ export async function listen(opts: {
     AutomationScheduler.stopProcess({ stopRuns: false })
     try {
       await server.stop(true)
+      await built.dispose()
     } catch (stopError) {
       log.error("server cleanup after scheduler settle failure failed", { error: stopError })
     }
@@ -122,6 +221,7 @@ export async function listen(opts: {
         if (mdns) MDNS.unpublish()
         AutomationScheduler.stopProcess({ stopRuns: false })
         await server.stop(close)
+        await built.dispose()
       })()
       return closing
     },

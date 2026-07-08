@@ -14,7 +14,7 @@ import { decode64 } from "@/utils/base64"
 import { EventSessionError } from "@opencode-ai/sdk/v2"
 import { Persist, persisted } from "@/utils/persist"
 import { playSoundById } from "@/utils/sound"
-import { workspaceKey } from "@/pages/layout/helpers"
+import { workspaceKey } from "@/utils/workspace-key"
 import {
   badgeSessionCount,
   buildNotificationIndex,
@@ -22,6 +22,7 @@ import {
   type NotificationIndex,
 } from "./notification-derive"
 import { pendingRootSessionIDs } from "./global-sync/pending-question-index"
+import { rootSessionIDsWithDescendantExternalResultQuestions } from "./global-sync/external-result-question"
 
 type NotificationBase = {
   directory?: string
@@ -305,18 +306,42 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       unsubQuestionAlert()
     })
 
-    // Dock/taskbar badge: how many sessions are waiting for the user. Two
-    // sources unioned by session (see badgeSessionCount): unseen turn-complete /
-    // error notifications from *this* app run (launch-scoped so a fresh start
-    // shows zero instead of resurfacing the persisted backlog), plus the root
-    // sessions of every live pending question (a current condition, so never
-    // launch-scoped — a question still outstanding across a restart should
-    // badge). Follows the notify level (suppressed when off). macOS/Linux only
-    // (platform.setBadgeCount is undefined elsewhere).
+    // Dock/taskbar badge: mounted projects with a hydrated external-result
+    // snapshot use the same reachable session-tree selector as the sidebar;
+    // background or still-hydrating projects continue to use the pending index.
     const launchTime = Date.now()
-    const badgeCount = createMemo(() =>
-      badgeSessionCount(store.list, pendingRootSessionIDs(globalSync.data.pendingQuestions), launchTime),
-    )
+    const mountedQuestionRoots = createMemo(() => {
+      const roots = new Set<string>()
+      const directories: string[] = []
+      for (const directory of globalSync.mountedDirectories()) {
+        const child = globalSync.peekExisting(directory)
+        if (!child) continue
+        const [childStore] = child
+        if (!childStore.external_result_ready) continue
+        directories.push(directory)
+        for (const root of rootSessionIDsWithDescendantExternalResultQuestions({
+          sessions: childStore.session,
+          messages: childStore.message,
+          partsByMessageID: childStore.part,
+        })) {
+          roots.add(root)
+        }
+      }
+      return { roots, directories }
+    })
+    const badgeCount = createMemo(() => {
+      const mounted = mountedQuestionRoots()
+      return badgeSessionCount(
+        store.list,
+        [
+          ...mounted.roots,
+          ...pendingRootSessionIDs(globalSync.data.pendingQuestions, {
+            excludeDirectories: mounted.directories,
+          }),
+        ],
+        launchTime,
+      )
+    })
     createEffect(() => {
       const count = settings.notify.level() === "never" ? 0 : badgeCount()
       void platform.setBadgeCount?.(count)

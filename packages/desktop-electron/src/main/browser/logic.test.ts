@@ -4,6 +4,7 @@ import {
   computeViewBounds,
   deriveBrowserState,
   displayDecision,
+  isDefaultGrantedPermission,
   parseNavigable,
   safeExternalUrl,
   type BrowserStateSnapshot,
@@ -134,5 +135,34 @@ describe("displayDecision", () => {
     // The exact race this exists for: a resize frame in flight when the
     // display changed hands must not steal the view back.
     expect(displayDecision({ isHost: false, hasLiveHost: true, claim: false })).toBe("drop")
+  })
+})
+
+describe("isDefaultGrantedPermission", () => {
+  test("grants exactly what a fresh Chrome grants without prompting", () => {
+    // Verified against real Chrome: these four return "granted" by default.
+    for (const p of ["clipboard-sanitized-write", "background-sync", "sensors", "payment-handler"]) {
+      expect(isDefaultGrantedPermission(p)).toBe(true)
+    }
+  })
+
+  test("grants the user-gesture permissions Chrome allows without a prompt (fullscreen, pointer lock)", () => {
+    for (const p of ["fullscreen", "pointerLock"]) {
+      expect(isDefaultGrantedPermission(p)).toBe(true)
+    }
+  })
+
+  test("denies sensitive / prompt-type permissions (Electron would default them to granted)", () => {
+    // "media" is what camera AND microphone queries arrive as. "midi" belongs
+    // here: Chrome gates Web MIDI behind a prompt (Chrome 124+), so it must NOT
+    // be auto-granted.
+    for (const p of ["media", "geolocation", "notifications", "clipboard-read", "persistent-storage", "midi", "midiSysex"]) {
+      expect(isDefaultGrantedPermission(p)).toBe(false)
+    }
+  })
+
+  test("denies unknown permissions", () => {
+    expect(isDefaultGrantedPermission("unknown")).toBe(false)
+    expect(isDefaultGrantedPermission("")).toBe(false)
   })
 })

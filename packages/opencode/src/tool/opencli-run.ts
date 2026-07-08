@@ -5,6 +5,7 @@ import DESCRIPTION from "./opencli-run.txt"
 import { openCliCommand, openCliCommandSummaryFromCommand, type OpenCliCommandSummary } from "@/opencli/adapter-registry"
 import { prepareOpenCliCommandArgs, runOpenCliAdapterCommand } from "@/opencli/adapter-runner"
 import { browserAlwaysPatterns, runBrowserAction } from "./browser-shared"
+import { highRiskCommandNotice } from "./high-risk-site"
 
 const OPENCLI_RUN_TIMEOUT_MS = 60_000
 type OpenCliCommand = NonNullable<Awaited<ReturnType<typeof openCliCommand>>>
@@ -117,39 +118,45 @@ export const OpenCliRunTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-        Effect.gen(function* () {
-          const requestedArgs = params.args ?? {}
-          const command = yield* Effect.tryPromise({
-            try: () => openCliCommand(params.command),
-            catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-          })
-          if (!command) {
-            return yield* Effect.fail(
-              new Error(`Unknown or unsupported OpenCLI command "${params.command}". Run opencli_search to find one.`),
-            )
-          }
-          const args = prepareOpenCliCommandArgs(command, requestedArgs)
-          yield* askOpenCliAccessPermission(ctx, openCliCommandSummaryFromCommand(command), args)
+      execute: Effect.fn("OpenCliRunTool.execute")(function* (
+        params: Schema.Schema.Type<typeof Parameters>,
+        ctx: Tool.Context,
+      ) {
+        const requestedArgs = params.args ?? {}
+        const command = yield* Effect.tryPromise({
+          try: () => openCliCommand(params.command),
+          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+        })
+        if (!command) {
+          return yield* Effect.fail(
+            new Error(`Unknown or unsupported OpenCLI command "${params.command}". Run opencli_search to find one.`),
+          )
+        }
+        const args = prepareOpenCliCommandArgs(command, requestedArgs)
+        yield* askOpenCliAccessPermission(ctx, openCliCommandSummaryFromCommand(command), args)
 
-          const value = command.browser === false
-            ? yield* Effect.tryPromise({
-                try: () => runNonBrowserCommand(command, args, ctx.abort),
-                catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-              })
-            : yield* runBrowserCommand(command, args, ctx)
+        const value = command.browser === false
+          ? yield* Effect.tryPromise({
+              try: () => runNonBrowserCommand(command, args, ctx.abort),
+              catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+            })
+          : yield* runBrowserCommand(command, args, ctx)
 
-          return {
-            title: `OpenCLI ${fullName(command)}`,
-            output: formatAdapterOutput(value),
-            metadata: {
-              command: fullName(command),
-              access: command.access,
-              browser: command.browser !== false,
-              domain: command.domain,
-            },
-          }
-        }),
+        const riskNotice =
+          command.browser !== false ? highRiskCommandNotice(openCliCommandSummaryFromCommand(command)) : null
+        return {
+          title: `OpenCLI ${fullName(command)}`,
+          // Lead with the caution: tool output is truncated head-first, so a
+          // caution after a long adapter body would be silently dropped.
+          output: (riskNotice ? `${riskNotice}\n\n` : "") + formatAdapterOutput(value),
+          metadata: {
+            command: fullName(command),
+            access: command.access,
+            browser: command.browser !== false,
+            domain: command.domain,
+          },
+        }
+      }),
     }
   }),
 )

@@ -12,11 +12,11 @@ const uiPackageJsonPath = path.join(repoRoot, "packages", "ui", "package.json")
 const opencodeTestRoot = path.join(repoRoot, "packages", "opencode", "test")
 
 const pinned = {
-  checkout: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+  checkout: "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
   pathsFilter: "dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d",
   setupNode: "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
   setupBun: "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6",
-  cache: "actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae",
+  cache: "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
   hardenRunner: "step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411",
   junit: "mikepenz/action-junit-report@3a81627bfac62268172037048872e8ebd4207e6d",
   artifact: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
@@ -36,9 +36,11 @@ const hardenRunnerJobs = [
   lintJobName,
   frontendArchitectureJobName,
   "unit-ui",
+  "storybook-smoke",
   "unit-app",
   "unit-opencode",
   "unit-desktop",
+  "unit-remote-bridge",
 ] as const
 
 type CompositeActionMetadata = {
@@ -71,6 +73,11 @@ const linuxUnitPackages = [
     command: "bun turbo test:ci --filter=@opencode-ai/desktop-electron",
     reportPath: "packages/desktop-electron/.artifacts/unit/junit.xml",
   },
+  {
+    suffix: "remote-bridge",
+    command: "bun turbo test:ci --filter=@opencode-ai/remote-bridge",
+    reportPath: "packages/remote-bridge/.artifacts/unit/junit.xml",
+  },
 ] as const
 
 const windowsOpencodeShards = [
@@ -80,6 +87,7 @@ const windowsOpencodeShards = [
   {
     suffix: "opencode-session",
     usesTurbo: false,
+    timeoutMinutes: 30,
     command:
       "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-session.xml test/session test/plugin test/permission test/util test/skill test/index-runtime-namespace.test.ts test/permission-agent.test.ts test/permission-cleanup.test.ts",
     reportPath: "packages/opencode/.artifacts/unit/junit-windows-session.xml",
@@ -87,6 +95,7 @@ const windowsOpencodeShards = [
   {
     suffix: "opencode-config-project",
     usesTurbo: false,
+    timeoutMinutes: 20,
     command:
       "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-config-project.xml test/config test/project test/worktree test/file/ test/github test/opencli test/settings test/settings.test.ts",
     reportPath: "packages/opencode/.artifacts/unit/junit-windows-config-project.xml",
@@ -94,9 +103,45 @@ const windowsOpencodeShards = [
   {
     suffix: "opencode-server-tools",
     usesTurbo: false,
+    timeoutMinutes: 50,
+    attemptTimeoutMinutes: 20,
     command:
-      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-server-tools.xml test/server test/snapshot test/tool test/browser test/mcp test/question test/effect test/agent test/git/ test/storage test/provider test/pty test/share/ test/script test/memory test/lsp test/fixture test/acp test/bus test/cli test/global test/format test/account test/sync test/filesystem test/patch test/shell test/control-plane test/ide test/installation test/auth test/automation",
+      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-server-tools.xml test/server",
     reportPath: "packages/opencode/.artifacts/unit/junit-windows-server-tools.xml",
+  },
+  {
+    suffix: "opencode-browser-agent",
+    usesTurbo: false,
+    timeoutMinutes: 30,
+    attemptTimeoutMinutes: 10,
+    command:
+      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-browser-agent.xml test/browser test/agent test/question",
+    reportPath: "packages/opencode/.artifacts/unit/junit-windows-browser-agent.xml",
+  },
+  {
+    suffix: "opencode-server-support",
+    usesTurbo: false,
+    timeoutMinutes: 30,
+    attemptTimeoutMinutes: 10,
+    command:
+      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-server-support.xml test/snapshot test/mcp test/effect test/git/ test/storage",
+    reportPath: "packages/opencode/.artifacts/unit/junit-windows-server-support.xml",
+  },
+  {
+    suffix: "opencode-tool-runtime",
+    usesTurbo: false,
+    timeoutMinutes: 20,
+    command:
+      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-tool-runtime.xml test/tool test/provider test/pty test/share/ test/script test/memory test/lsp",
+    reportPath: "packages/opencode/.artifacts/unit/junit-windows-tool-runtime.xml",
+  },
+  {
+    suffix: "opencode-platform",
+    usesTurbo: false,
+    timeoutMinutes: 20,
+    command:
+      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-platform.xml test/fixture test/acp test/bus test/cli test/global test/account test/sync test/filesystem test/patch test/shell test/control-plane test/ide test/installation test/auth test/automation",
+    reportPath: "packages/opencode/.artifacts/unit/junit-windows-platform.xml",
   },
 ] as const
 
@@ -104,6 +149,7 @@ const windowsUnitPackages = [
   {
     suffix: "app",
     usesTurbo: true,
+    timeoutMinutes: 20,
     command: "bun turbo test:ci --filter=@opencode-ai/app",
     reportPath: "packages/app/.artifacts/unit/junit.xml",
   },
@@ -111,6 +157,7 @@ const windowsUnitPackages = [
   {
     suffix: "desktop",
     usesTurbo: true,
+    timeoutMinutes: 20,
     command: "bun turbo test:ci --filter=@opencode-ai/desktop-electron",
     reportPath: "packages/desktop-electron/.artifacts/unit/junit.xml",
   },
@@ -304,6 +351,7 @@ describe("ci workflow", () => {
       "typecheck",
       lintJobName,
       frontendArchitectureJobName,
+      "storybook-smoke",
       ...linuxUnitJobs.map((item) => item.jobName),
     ]
 
@@ -551,7 +599,7 @@ describe("ci workflow", () => {
     expect(job?.needs).toBe("changes")
     expect(job?.if).toBe("needs.changes.outputs.docs_only != 'true'")
     expect(job?.["runs-on"]).toBe("windows-latest")
-    expect(job?.["timeout-minutes"]).toBe(20)
+    expect(job?.["timeout-minutes"] as unknown).toBe("${{ matrix.timeout_minutes }}")
     expect(job?.["continue-on-error"]).toBeUndefined()
     expect(job?.strategy?.["fail-fast"]).toBe(false)
     expect(job?.permissions).toEqual({ contents: "read" })
@@ -615,9 +663,11 @@ describe("ci workflow", () => {
     // Retry budget: exactly one extra attempt (max_attempts=2).
     expect(unitRun).toContain("attempts=2")
 
-    // Each attempt runs in a subshell so `cd packages/...` in matrix.command
-    // does not leak working directory across attempts.
-    expect(unitRun).toContain("( ${{ matrix.command }} )")
+    // Each time-boxed attempt runs in a fresh shell so `cd packages/...` in
+    // matrix.command does not leak working directory across attempts.
+    expect(unitRun).toContain('attempt_timeout_minutes="${{ matrix.attempt_timeout_minutes }}"')
+    expect(unitRun).toContain('timeout "${attempt_timeout_minutes}m" bash -lc')
+    expect(unitRun).toContain("Windows unit attempt timed out")
 
     // First-attempt exit code must be exported so downstream steps and humans
     // can tell a recovered run apart from a clean-first-pass run.
@@ -645,12 +695,19 @@ describe("ci workflow", () => {
     const matrixIncludes = job?.strategy?.matrix?.include ?? []
 
     expect(matrixIncludes).toEqual(
-      windowsUnitJobs.map(({ jobName, usesTurbo, command, reportPath }) => ({
-        package: jobName.replace("unit-windows-", ""),
-        uses_turbo: usesTurbo,
-        command,
-        report_path: reportPath,
-      })),
+      windowsUnitJobs.map((pkg) => {
+        const matrixItem: Record<string, string | number | boolean> = {
+          package: pkg.jobName.replace("unit-windows-", ""),
+          uses_turbo: pkg.usesTurbo,
+          timeout_minutes: pkg.timeoutMinutes,
+          command: pkg.command,
+          report_path: pkg.reportPath,
+        }
+        if ("attemptTimeoutMinutes" in pkg) {
+          matrixItem.attempt_timeout_minutes = pkg.attemptTimeoutMinutes
+        }
+        return matrixItem
+      }),
     )
 
     for (const { jobName, artifactName } of windowsUnitJobs) {
@@ -675,6 +732,10 @@ describe("ci workflow", () => {
       "opencode-session",
       "opencode-config-project",
       "opencode-server-tools",
+      "opencode-browser-agent",
+      "opencode-server-support",
+      "opencode-tool-runtime",
+      "opencode-platform",
     ])
 
     for (const item of opencodeShards) {
@@ -721,6 +782,38 @@ describe("ci workflow", () => {
     })
   })
 
+  test("time-boxes server-derived Windows opencode shards below the job budget", () => {
+    const parsed = parseWorkflow(windowsAdvisoryWorkflowPath)
+    const matrixIncludes = parsed.jobs?.[windowsUnitJobName]?.strategy?.matrix?.include ?? []
+    const serverDerivedShards = matrixIncludes.filter((item) =>
+      ["opencode-server-tools", "opencode-browser-agent", "opencode-server-support"].includes(String(item.package)),
+    )
+
+    expect(
+      serverDerivedShards.map((item) => ({
+        package: item.package,
+        timeout_minutes: item.timeout_minutes,
+        attempt_timeout_minutes: item.attempt_timeout_minutes,
+      })),
+    ).toEqual([
+      { package: "opencode-server-tools", timeout_minutes: 50, attempt_timeout_minutes: 20 },
+      { package: "opencode-browser-agent", timeout_minutes: 30, attempt_timeout_minutes: 10 },
+      { package: "opencode-server-support", timeout_minutes: 30, attempt_timeout_minutes: 10 },
+    ])
+
+    for (const item of serverDerivedShards) {
+      const timeoutMinutes = item.timeout_minutes
+      const attemptTimeoutMinutes = item.attempt_timeout_minutes
+
+      expect(typeof timeoutMinutes).toBe("number")
+      expect(typeof attemptTimeoutMinutes).toBe("number")
+      if (typeof timeoutMinutes !== "number" || typeof attemptTimeoutMinutes !== "number") {
+        throw new Error(`Invalid timeout shape for ${String(item.package)}`)
+      }
+      expect(timeoutMinutes).toBeGreaterThanOrEqual(attemptTimeoutMinutes * 2 + 10)
+    }
+  })
+
   test("keeps Windows opencode shard paths from prefix-matching sibling test directories", () => {
     const parsed = parseWorkflow(windowsAdvisoryWorkflowPath)
     const matrixIncludes = parsed.jobs?.[windowsUnitJobName]?.strategy?.matrix?.include ?? []
@@ -742,9 +835,11 @@ describe("ci workflow", () => {
       "typecheck",
       frontendArchitectureJobName,
       "unit-ui",
+      "storybook-smoke",
       "unit-app",
       "unit-opencode",
       "unit-desktop",
+      "unit-remote-bridge",
     ])
     expect(needs).not.toContain(lintJobName)
     expect(needs).not.toContain("unit-windows")
@@ -758,14 +853,18 @@ describe("ci workflow", () => {
     expect(validate?.env?.TYPECHECK_RESULT).toBe("${{ needs.typecheck.result }}")
     expect(validate?.env?.FRONTEND_ARCHITECTURE_RESULT).toBe("${{ needs['frontend-architecture'].result }}")
     expect(validate?.env?.UNIT_UI_RESULT).toBe("${{ needs['unit-ui'].result }}")
+    expect(validate?.env?.STORYBOOK_SMOKE_RESULT).toBe("${{ needs['storybook-smoke'].result }}")
     expect(validate?.env?.UNIT_APP_RESULT).toBe("${{ needs['unit-app'].result }}")
     expect(validate?.env?.UNIT_OPENCODE_RESULT).toBe("${{ needs['unit-opencode'].result }}")
     expect(validate?.env?.UNIT_DESKTOP_RESULT).toBe("${{ needs['unit-desktop'].result }}")
+    expect(validate?.env?.UNIT_REMOTE_BRIDGE_RESULT).toBe("${{ needs['unit-remote-bridge'].result }}")
     expect(validate?.run).toContain("Docs-only change, daily CI skipped.")
     expect(validate?.run).toContain("FRONTEND_ARCHITECTURE_RESULT")
+    expect(validate?.run).toContain("STORYBOOK_SMOKE_RESULT")
     expect(validate?.run).toContain("UNIT_UI_RESULT")
     expect(validate?.run).toContain("UNIT_APP_RESULT")
     expect(validate?.run).toContain("UNIT_OPENCODE_RESULT")
     expect(validate?.run).toContain("UNIT_DESKTOP_RESULT")
+    expect(validate?.run).toContain("UNIT_REMOTE_BRIDGE_RESULT")
   })
 })

@@ -22,6 +22,7 @@ const TROW_RESULT_BODY = `${TROW_BLOCK} [data-slot="trow-result-body"]`
 const TROW_INNER_TRIGGER = `${TROW_BLOCK} [data-slot="trow-body"] [data-component="tool-trigger"]`
 const BASH_SCROLL = `${TROW_BLOCK} [data-slot="bash-scroll"]`
 const THINKING = '[data-slot="session-turn-thinking"]'
+const CONNECTING = '[data-slot="session-turn-thinking"][data-phase="connecting"]'
 const USER_TEXT = '[data-component="user-message"] [data-slot="user-message-text"]'
 const AGENT_PROSE = '[data-component="text-part"]'
 const AGENT_REASONING = '[data-component="reasoning-body"]'
@@ -170,7 +171,7 @@ test("@smoke W1 rendered turn locks chevron, selectability, and trow typography"
   })
 })
 
-test("@smoke W1 thinking indicator shows while the turn is working with nothing visible", async ({
+test("@smoke W1 connecting indicator shows before first provider progress (nothing visible)", async ({
   page,
   project,
   assistant,
@@ -181,7 +182,7 @@ test("@smoke W1 thinking indicator shows while the turn is working with nothing 
 
   // Submit by hand: project.prompt() waits for the session to go idle, which
   // never happens while the reply hangs. Type + Enter and only wait for the
-  // thinking shimmer to surface.
+  // status shimmer to surface.
   const text = "Hold the turn open with nothing rendered yet."
   const prompt = page.locator(promptSelector).first()
   await expect(prompt).toBeVisible()
@@ -191,9 +192,12 @@ test("@smoke W1 thinking indicator shows while the turn is working with nothing 
   await expect.poll(async () => (await prompt.textContent())?.replace(/\u200B/g, "").trim()).toBe(text)
   await page.keyboard.press("Enter")
 
-  const thinking = page.locator(THINKING)
-  await expect(thinking).toBeVisible({ timeout: 30_000 })
-  await expect(thinking.locator('[data-component="text-shimmer"]')).toBeVisible()
+  // The reply hangs with no provider progress (#1358), so the status reads as
+  // "connecting", not "thinking" \u2014 the model hasn't started responding yet.
+  const connecting = page.locator(CONNECTING)
+  await expect(connecting).toBeVisible({ timeout: 30_000 })
+  await expect(connecting.locator('[data-component="text-shimmer"]')).toBeVisible()
+  await expect(page.locator('[data-slot="session-turn-thinking"][data-phase="thinking"]')).toHaveCount(0)
 
   // Manual submit bypasses project.prompt(), so register the session the UI
   // created. Otherwise teardown only drops the project directory and leaves the

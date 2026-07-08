@@ -3,7 +3,6 @@ import { formatPatch, structuredPatch } from "diff"
 import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
 import { InstanceState } from "@/effect/instance-state"
-import { makeRuntime } from "@/effect/run-service"
 import { FileWatcher } from "@/file/watcher"
 import { Git } from "@/git"
 import { Log } from "@opencode-ai/core/util/log"
@@ -386,34 +385,4 @@ export namespace Vcs {
   )
 
   export const defaultLayer = layer.pipe(Layer.provide(Git.defaultLayer), Layer.provide(Bus.layer))
-
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export async function init() {
-    return runPromise((svc) => svc.init())
-  }
-
-  export async function branch() {
-    return runPromise((svc) => svc.branch())
-  }
-
-  export async function defaultBranch() {
-    return runPromise((svc) => svc.defaultBranch())
-  }
-
-  export async function status() {
-    return runPromise((svc) => svc.status())
-  }
-
-  export async function diff(mode: Mode) {
-    return runPromise((svc) => svc.diff(mode))
-  }
-
-  export async function diffRaw() {
-    return runPromise((svc) => svc.diffRaw())
-  }
-
-  export async function apply(input: ApplyInput) {
-    return runPromise((svc) => svc.apply(input))
-  }
 }

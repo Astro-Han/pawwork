@@ -18,7 +18,6 @@ import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Plugin } from "@/plugin"
 import { Effect, Context, Layer } from "effect"
 import { InstanceState } from "@/effect/instance-state"
-import { makeRuntime } from "@/effect/run-service"
 import { Global } from "@opencode-ai/core/global"
 import { aiSdkTracer } from "@opencode-ai/core/effect/observability"
 import path from "path"
@@ -75,6 +74,7 @@ export namespace Agent {
       const config = yield* Config.Service
       const auth = yield* Auth.Service
       const provider = yield* Provider.Service
+      const plugin = yield* Plugin.Service
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("Agent.state")(function* (ctx) {
@@ -83,8 +83,15 @@ export namespace Agent {
           const defaults = Permission.fromConfig({
             "*": "allow",
             doom_loop: "ask",
-            opencli_read: "ask",
-            opencli_write: "ask",
+            // Web automation (browser_* tools and the opencli adapters) inherits
+            // the "*": "allow" baseline by design. Browser-backed actions are safe
+            // because the embedded browser is local and fully visible to the user
+            // (browser design §9). Non-browser adapters reach here read-only only —
+            // non-browser write adapters are hidden and rejected before running —
+            // so they are no riskier than webfetch, which is also default-allow.
+            // Either way this stays consistent with default-allow file editing.
+            // Tighten per target with permission rules if ever needed — the gate is
+            // default-open, not absent.
             question: "deny",
             plan_enter: "deny",
             plan_exit: "deny",
@@ -320,9 +327,7 @@ export namespace Agent {
           const language = yield* provider.getLanguage(resolved)
 
           const system = [PROMPT_GENERATE]
-          yield* Effect.promise(() =>
-            Plugin.trigger("experimental.chat.system.transform", { model: resolved }, { system }),
-          )
+          yield* plugin.trigger("experimental.chat.system.transform", { model: resolved }, { system })
           const existing = yield* InstanceState.useEffect(state, (s) => s.list())
 
           // TODO: clean this up so provider specific logic doesnt bleed over
@@ -388,26 +393,9 @@ export namespace Agent {
   )
 
   export const defaultLayer = layer.pipe(
+    Layer.provide(Plugin.defaultLayer),
     Layer.provide(Provider.defaultLayer),
     Layer.provide(Auth.defaultLayer),
     Layer.provide(Config.defaultLayer),
   )
-
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export async function get(agent: string) {
-    return runPromise((svc) => svc.get(agent))
-  }
-
-  export async function list() {
-    return runPromise((svc) => svc.list())
-  }
-
-  export async function defaultAgent() {
-    return runPromise((svc) => svc.defaultAgent())
-  }
-
-  export async function generate(input: { description: string; model?: { providerID: ProviderID; modelID: ModelID } }) {
-    return runPromise((svc) => svc.generate(input))
-  }
 }

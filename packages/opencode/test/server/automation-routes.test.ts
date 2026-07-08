@@ -1,19 +1,44 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
-import { Hono } from "hono"
+import { NodeFileSystem, NodeHttpPlatform, NodePath } from "@effect/platform-node"
+import { Effect, Layer, Schema } from "effect"
+import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
 import { Log } from "@opencode-ai/core/util/log"
 import { Automation, AutomationID } from "../../src/automation"
+import { AutomationRunTable } from "../../src/automation/automation.sql"
 import { AutomationScheduler } from "../../src/automation/scheduler"
-import { Bus } from "../../src/bus"
+import { GlobalBus } from "../../src/bus/global"
 import { Instance } from "../../src/project/instance"
 import { ProjectID } from "../../src/project/schema"
-import { ErrorMiddleware } from "../../src/server/middleware"
-import { AutomationRoutes } from "../../src/server/instance/automation"
+import { Server } from "../../src/server/server"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { PermissionID } from "../../src/permission/schema"
 import { SessionID } from "../../src/session/schema"
+import {
+  AutomationApi,
+  AutomationParam,
+  AutomationRunsQuery,
+} from "../../src/server/routes/instance/httpapi/groups/automation"
+import { automationHandlers } from "../../src/server/routes/instance/httpapi/handlers/automation"
+import { Database, eq } from "../../src/storage/db"
 import { Flock } from "../../src/util/flock"
 import { tmpdir } from "../fixture/fixture"
 
 void Log.init({ print: false })
+
+function subscribeAutomationEvent<D extends { type: string; properties: { parse(input: unknown): any } }>(
+  def: D,
+  callback: (event: { type: D["type"]; properties: ReturnType<D["properties"]["parse"]> }) => unknown,
+  options?: { directory?: string },
+) {
+  const listener = (event: { directory?: string; payload?: { type?: string; properties?: unknown } }) => {
+    if (options?.directory && event.directory !== options.directory) return
+    if (event.payload?.type !== def.type) return
+    callback({ type: def.type, properties: def.properties.parse(event.payload.properties) })
+  }
+  GlobalBus.on("event", listener)
+  return () => GlobalBus.off("event", listener)
+}
 
 const previousSkipAutomationModelValidation = process.env.OPENCODE_SKIP_AUTOMATION_MODEL_VALIDATION
 
@@ -31,24 +56,56 @@ afterEach(async () => {
   await Instance.disposeAll()
 })
 
+type AutomationTestApp = {
+  request(input: string | Request, init?: RequestInit): Promise<Response>
+}
+
+function automationProductionApp(directory: string): AutomationTestApp {
+  return {
+    request(input, init) {
+      const request = input instanceof Request ? input : new Request(new URL(input, "http://localhost"), init)
+      const headers = new Headers(request.headers)
+      if (!headers.has("x-opencode-directory")) headers.set("x-opencode-directory", encodeURIComponent(directory))
+      return Server.Default().app.request(new Request(request, { headers }))
+    },
+  }
+}
+
 async function withAutomationApp<T>(
-  fn: (input: { app: Hono; projectID: ProjectID }) => Promise<T>,
+  fn: (input: { app: AutomationTestApp; projectID: ProjectID }) => Promise<T>,
   options: { git?: boolean } = { git: true },
 ) {
   await using tmp = await tmpdir({ git: options.git ?? true })
   return await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const app = new Hono().route("/automation", AutomationRoutes())
-      app.onError(ErrorMiddleware)
+      const app = automationProductionApp(tmp.path)
       return fn({ app, projectID: Instance.project.id })
     },
   })
 }
 
-async function json(app: Hono, input: string, init?: RequestInit) {
+async function json(app: AutomationTestApp, input: string, init?: RequestInit) {
   const response = await app.request(input, init)
   return response.json()
+}
+
+function requestAutomationHttpApi(pathname: string, init?: RequestInit) {
+  return AppRuntime.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const router = yield* HttpRouter.toHttpEffect(
+          HttpApiBuilder.layer(AutomationApi).pipe(
+            Layer.provide(automationHandlers),
+            Layer.provide(Layer.mergeAll(NodeFileSystem.layer, NodeHttpPlatform.layer, NodePath.layer, Etag.layer)),
+          ),
+        )
+        const request = HttpServerRequest.fromWeb(new Request(`http://localhost${pathname}`, init))
+        const response = yield* router.pipe(Effect.provideService(HttpServerRequest.HttpServerRequest, request), Effect.orDie)
+        return HttpServerResponse.toWeb(response)
+      }),
+    ) as Effect.Effect<Response>,
+  )
 }
 
 async function waitForRunState(automationID: string, state: Automation.Run["state"]) {
@@ -189,6 +246,160 @@ describe("automation route 422 wiring with provider validation enabled", () => {
 })
 
 describe("automation routes", () => {
+  test("keeps the automation local HttpApi handler importable", async () => {
+    const mod = await import("../../src/server/routes/instance/httpapi/handlers/automation")
+
+    expect(mod.automationHandlers).toBeDefined()
+  })
+
+  test("declares the automation route group as HttpApi endpoints", () => {
+    const spec = OpenApi.fromApi(AutomationApi) as any
+
+    expect(spec.paths).toHaveProperty("/automation")
+    expect(spec.paths).toHaveProperty("/automation/{automationID}")
+    expect(spec.paths).toHaveProperty("/automation/{automationID}/runs")
+    expect(spec.paths).toHaveProperty("/automation/{automationID}/run")
+    expect(spec.paths).toHaveProperty("/automation/{automationID}/pause")
+    expect(spec.paths).toHaveProperty("/automation/{automationID}/resume")
+    expect(spec.paths["/automation"]).toHaveProperty("get")
+    expect(spec.paths["/automation"]).toHaveProperty("post")
+    expect(spec.paths["/automation/{automationID}"]).toHaveProperty("get")
+    expect(spec.paths["/automation/{automationID}"]).toHaveProperty("put")
+    expect(spec.paths["/automation/{automationID}"]).toHaveProperty("delete")
+    expect(spec.paths["/automation/{automationID}/runs"]).toHaveProperty("get")
+    expect(spec.paths["/automation/{automationID}/run"]).toHaveProperty("post")
+    expect(spec.paths["/automation/{automationID}/pause"]).toHaveProperty("post")
+    expect(spec.paths["/automation/{automationID}/resume"]).toHaveProperty("post")
+    expect(spec.paths["/automation/{automationID}"]?.delete?.description).toContain("Already-started runs continue")
+  })
+
+  test("declares automation run query constraints matching runtime validators", () => {
+    const spec = OpenApi.fromApi(AutomationApi) as any
+    const parameters = spec.paths["/automation/{automationID}/runs"]?.get?.parameters as any[]
+    const parameter = (name: string) => parameters.find((item) => item.name === name)
+    const schemaClauses = (schema: any) => [schema, ...(schema?.allOf ?? [])]
+
+    expect(schemaClauses(parameter("automationID")?.schema)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ pattern: "^automation_(?!run_)" })]),
+    )
+    expect(parameter("limit")?.schema).toMatchObject({
+      type: "integer",
+      exclusiveMinimum: 0,
+      maximum: 100,
+    })
+    expect(schemaClauses(parameter("cursor")?.schema)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ pattern: "^automation_run_" })]),
+    )
+  })
+
+  test("validates automation run params and query through HttpApi schemas", () => {
+    const decodeParam = Schema.decodeUnknownSync(AutomationParam)
+    const decodeQuery = Schema.decodeUnknownSync(AutomationRunsQuery)
+    const automationID = AutomationID.Definition.ascending()
+    const runID = AutomationID.Run.ascending()
+
+    expect(decodeParam({ automationID })).toEqual({ automationID })
+    expect(() => decodeParam({ automationID: runID })).toThrow()
+    expect(decodeQuery({ limit: "100", cursor: runID })).toMatchObject({ limit: 100, cursor: runID })
+    expect(() => decodeQuery({ limit: "0" })).toThrow()
+    expect(() => decodeQuery({ limit: "101" })).toThrow()
+    expect(() => decodeQuery({ limit: "1.5" })).toThrow()
+    expect(() => decodeQuery({ cursor: automationID })).toThrow()
+  })
+
+  test("serves ordinary automation lifecycle routes through the HttpApi handlers", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const create = await requestAutomationHttpApi("/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      const created = await create.json()
+
+      expect(create.status).toBe(200)
+      expect(created).toMatchObject({ title: "Daily repo brief", paused: false, revision: 1 })
+
+      const list = await requestAutomationHttpApi("/automation")
+      expect(list.status).toBe(200)
+      expect(await list.json()).toMatchObject({ items: [expect.objectContaining({ id: created.id })] })
+
+      const get = await requestAutomationHttpApi(`/automation/${created.id}`)
+      expect(get.status).toBe(200)
+      expect(await get.json()).toMatchObject({ id: created.id })
+
+      const update = await requestAutomationHttpApi(`/automation/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "Updated repo brief" }),
+      })
+      expect(update.status).toBe(200)
+      expect(await update.json()).toMatchObject({ id: created.id, title: "Updated repo brief", revision: 2 })
+
+      const paused = await requestAutomationHttpApi(`/automation/${created.id}/pause`, { method: "POST" })
+      expect(paused.status).toBe(200)
+      expect(await paused.json()).toMatchObject({ id: created.id, paused: true, revision: 3 })
+
+      const resumed = await requestAutomationHttpApi(`/automation/${created.id}/resume`, { method: "POST" })
+      expect(resumed.status).toBe(200)
+      expect(await resumed.json()).toMatchObject({ id: created.id, paused: false, revision: 4 })
+
+      const runResponse = await requestAutomationHttpApi(`/automation/${created.id}/run`, { method: "POST" })
+      const runBody = await runResponse.json()
+      expect(runResponse.status).toBe(200)
+      expect(runBody).toMatchObject({ automationID: created.id, state: "scheduled", definitionRevision: 4 })
+
+      const runs = await requestAutomationHttpApi(`/automation/${created.id}/runs?limit=1`)
+      expect(runs.status).toBe(200)
+      expect(await runs.json()).toMatchObject({ items: [expect.objectContaining({ id: runBody.id })] })
+
+      const deleted = await requestAutomationHttpApi(`/automation/${created.id}`, { method: "DELETE" })
+      expect(deleted.status).toBe(200)
+      expect(await deleted.json()).toEqual({ id: created.id, deleted: true, revision: 5 })
+    })
+  })
+
+  test("HttpApi delete keeps already-started run history alive", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const create = await requestAutomationHttpApi("/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(recurringInput(projectID)),
+      })
+      const created = await create.json()
+      const active = Automation.runNow(created.id, { now: 200 })
+      await using _lease = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
+
+      const deleted = await requestAutomationHttpApi(`/automation/${created.id}`, { method: "DELETE" })
+
+      expect(deleted.status).toBe(200)
+      expect(await deleted.json()).toEqual({ id: created.id, deleted: true, revision: 2 })
+      expect(() => Automation.get(created.id)).toThrow()
+      const row = Database.use((db) => db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, active.id)).get())
+      expect(row?.data).toMatchObject({ id: active.id, state: "scheduled", automationID: created.id })
+    })
+  })
+
+  test("maps automation validation and not-found failures through the HttpApi handlers", async () => {
+    await withAutomationApp(async ({ projectID }) => {
+      const invalid = await requestAutomationHttpApi("/automation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...recurringInput(projectID), retryPolicy: { attempts: 2 } }),
+      })
+      expect(invalid.status).toBe(422)
+      expect(await invalid.json()).toEqual({
+        error: "invalid_automation",
+        details: [{ field: "retryPolicy", message: "unsupported_automation_field" }],
+      })
+
+      const missing = await requestAutomationHttpApi(`/automation/${AutomationID.Definition.ascending()}`, {
+        method: "DELETE",
+      })
+      expect(missing.status).toBe(404)
+      expect(await missing.json()).toMatchObject({ name: "NotFoundError" })
+    })
+  })
+
   test("reloads definitions and runs from durable storage after instance restart", async () => {
     await using tmp = await tmpdir({ git: true })
     let automationID: string | undefined
@@ -470,10 +681,10 @@ describe("automation routes", () => {
       const releaseSettle = deferred<void>()
       const publication = deferred<string>()
       let publishedID: string | undefined
-      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+      const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         publishedID = event.properties.id
         publication.resolve(event.properties.id)
-      })
+      }, { directory: Instance.directory })
       AutomationScheduler.install({
         stop: () => undefined,
         settleOwner: async () => {
@@ -732,18 +943,18 @@ describe("automation routes", () => {
     })
   })
 
-  test("delete rejects a live run owned by another process", async () => {
+  test("delete removes the definition while a live run is owned by another process", async () => {
     await withAutomationApp(async ({ app, projectID }) => {
       const created = Automation.create(recurringInput(projectID), { now: 100 })
       const active = Automation.runNow(created.id, { now: 200 })
       await using _ = await Flock.acquire(`automation-run:${Instance.directory}:${active.id}`)
 
-      const response = await app.request(`/automation/${created.id}`, { method: "DELETE" })
+      const deleted = await json(app, `/automation/${created.id}`, { method: "DELETE" })
 
-      expect(response.status).toBe(409)
-      expect(await response.json()).toEqual({ error: "active_run_still_running", runID: active.id })
-      expect(Automation.get(created.id).id).toBe(created.id)
-      expect(Automation.runs({ automationID: created.id }).items[0]).toMatchObject({
+      expect(deleted).toEqual({ id: created.id, deleted: true, revision: 2 })
+      expect(() => Automation.get(created.id)).toThrow()
+      const row = Database.use((db) => db.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, active.id)).get())
+      expect(row ? Automation.Run.parse(row.data) : undefined).toMatchObject({
         id: active.id,
         state: "scheduled",
       })
@@ -858,8 +1069,7 @@ describe("automation routes", () => {
     await Instance.provide({
       directory: source.path,
       fn: async () => {
-        const app = new Hono().route("/automation", AutomationRoutes())
-        app.onError(ErrorMiddleware)
+        const app = automationProductionApp(source.path)
         const sourceProjectID = Instance.project.id
         if (!targetProjectID) throw new Error("expected target project")
         const created = Automation.create(recurringInput(sourceProjectID), { now: 100 })
@@ -937,8 +1147,7 @@ describe("automation routes", () => {
     await Instance.provide({
       directory: source.path,
       fn: async () => {
-        const app = new Hono().route("/automation", AutomationRoutes())
-        app.onError(ErrorMiddleware)
+        const app = automationProductionApp(source.path)
         if (!targetProjectID) throw new Error("expected target project")
         const created = Automation.create(recurringInput(Instance.project.id), { now: 100 })
         const active = Automation.runNow(created.id, { now: 200 })
@@ -975,8 +1184,7 @@ describe("automation routes", () => {
     await Instance.provide({
       directory: source.path,
       fn: async () => {
-        const app = new Hono().route("/automation", AutomationRoutes())
-        app.onError(ErrorMiddleware)
+        const app = automationProductionApp(source.path)
         if (!targetProjectID) throw new Error("expected target project")
         const created = Automation.create(recurringInput(Instance.project.id, { context: "continue" }), {
           sourceSessionID: SessionID.descending(),
@@ -1028,9 +1236,9 @@ describe("automation routes", () => {
         body: JSON.stringify(recurringInput(projectID)),
       })
       const revisions: number[] = []
-      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+      const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         revisions.push(event.properties.revision)
-      })
+      }, { directory: Instance.directory })
 
       const empty = await json(app, `/automation/${created.id}`, {
         method: "PUT",
@@ -1104,9 +1312,9 @@ describe("automation routes", () => {
       })
       expect(created).not.toHaveProperty("variant")
       const updates: number[] = []
-      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+      const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         if (event.properties.id === created.id) updates.push(event.properties.revision)
-      })
+      }, { directory: Instance.directory })
       const noop = await json(app, `/automation/${created.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -1128,9 +1336,9 @@ describe("automation routes", () => {
         body: JSON.stringify(recurringInput(projectID)),
       })
       const revisions: number[] = []
-      const unsubscribe = Bus.subscribe(Automation.Event.DefinitionUpdated, (event) => {
+      const unsubscribe = subscribeAutomationEvent(Automation.Event.DefinitionUpdated, (event) => {
         revisions.push(event.properties.revision)
-      })
+      }, { directory: Instance.directory })
 
       const paused = await json(app, `/automation/${created.id}/pause`, { method: "POST" })
       const pausedAgain = await json(app, `/automation/${created.id}/pause`, { method: "POST" })
@@ -1238,28 +1446,29 @@ describe("automation routes", () => {
     const update409 = paths["/automation/{automationID}"].put.responses["409"].content["application/json"].schema
     const pause409 = paths["/automation/{automationID}/pause"].post.responses["409"].content["application/json"].schema
     const resume409 = paths["/automation/{automationID}/resume"].post.responses["409"].content["application/json"].schema
-    const delete409 = paths["/automation/{automationID}"].delete.responses["409"].content["application/json"].schema
+    const deleteResponses = paths["/automation/{automationID}"].delete.responses
 
     expect(create422).toEqual({ $ref: "#/components/schemas/AutomationValidationError" })
     expect(update422).toEqual({ $ref: "#/components/schemas/AutomationValidationError" })
     expect(update409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
     expect(pause409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
     expect(resume409).toEqual({ $ref: "#/components/schemas/AutomationConflictError" })
-    expect(delete409).toEqual({ $ref: "#/components/schemas/AutomationActiveRunStillRunningError" })
+    expect(deleteResponses).not.toHaveProperty("409")
     expect(spec.components?.schemas).toHaveProperty("AutomationValidationError")
     expect(spec.components?.schemas).toHaveProperty("AutomationConflictError")
-    expect(spec.components?.schemas).toHaveProperty("AutomationActiveRunStillRunningError")
+    expect(spec.components?.schemas).not.toHaveProperty("AutomationActiveRunStillRunningError")
   })
 
-  test("openapi describes delete active-run stop side effect", async () => {
+  test("openapi describes delete as preserving already-started runs", async () => {
     const { Server } = await import("../../src/server/server")
     const spec = await Server.openapi()
     const paths = spec.paths as Record<string, any>
     const description = paths["/automation/{automationID}"].delete.description
 
-    expect(description).toContain("If a run is active")
-    expect(description).toContain("publish the stopped run")
-    expect(description).toContain("live run is owned by another process")
+    expect(description).toContain("Already-started runs continue")
+    expect(description).not.toContain("run stop endpoint")
+    expect(description).not.toContain("publish the stopped run")
+    expect(description).not.toContain("live run is owned by another process")
   })
 
   test("runNow returns the queued run before background execution updates it", async () => {

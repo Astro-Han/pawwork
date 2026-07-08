@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach, afterAll } from "bun:test"
+import { Cause, Effect, Exit } from "effect"
 import { tmpdir } from "../fixture/fixture"
 import z from "zod"
-import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
 import { SyncEvent } from "../../src/sync"
 import { Database } from "../../src/storage/db"
@@ -9,8 +9,11 @@ import { EventTable } from "../../src/sync/event.sql"
 import { Identifier } from "../../src/id/id"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { initProjectors } from "../../src/server/projectors"
+import { testEffect } from "../lib/effect"
+import { GlobalBus } from "../../src/bus/global"
 
 const original = Flag.OPENCODE_EXPERIMENTAL_WORKSPACES
+const syncIt = testEffect(SyncEvent.defaultLayer)
 
 beforeEach(() => {
   Database.close()
@@ -111,10 +114,12 @@ describe("SyncEvent", () => {
           properties: { id: string; name: string }
         }> = []
         const received = new Promise<void>((resolve) => {
-          Bus.subscribeAll((event) => {
-            events.push(event)
+          const handler = (event: { payload: { type: string; properties: { id: string; name: string } } }) => {
+            GlobalBus.off("event", handler)
+            events.push(event.payload)
             resolve()
-          })
+          }
+          GlobalBus.on("event", handler)
         })
 
         SyncEvent.run(Created, { id: "evt_1", name: "test" })
@@ -133,6 +138,32 @@ describe("SyncEvent", () => {
   })
 
   describe("replay", () => {
+    syncIt.effect(
+      "returns a typed Effect failure for unknown event types",
+      Effect.gen(function* () {
+        setup()
+
+        const exit = yield*
+          SyncEvent.Service.use((sync) =>
+            sync.replay({
+              id: "evt_1",
+              type: "unknown.event.1",
+              seq: 0,
+              aggregateID: "x",
+              data: {},
+            }),
+          ).pipe(Effect.exit)
+
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isSuccess(exit)) return
+        const failure = Cause.squash(exit.cause)
+        const syncError = failure as SyncEvent.SyncEventError
+        expect(syncError).toBeInstanceOf(SyncEvent.SyncEventError)
+        expect(syncError.reason).toBe("unknown-event-type")
+        expect(syncError.message).toContain("Unknown event type")
+      }),
+    )
+
     test(
       "inserts event from external payload",
       withInstance(() => {

@@ -2,6 +2,10 @@ import { Effect } from "effect"
 import type { IPage } from "@jackwener/opencli/types"
 import * as Tool from "./tool"
 import { browserPageProbe, withBrowserPage } from "@/browser/session"
+import { highRiskSiteNotice } from "./high-risk-site"
+
+/** Info handed to every browser action's `run` callback and used to build the trailing notes on its output. */
+export type BrowserActionInfo = { takeoverReloaded: boolean; highRiskNotice: string | null }
 
 /**
  * Shared execution path for the browser_* tools: ask the `browser` permission
@@ -23,7 +27,7 @@ export function runBrowserAction<T>(input: {
   patterns?: string[]
   metadata?: Record<string, unknown>
   timeoutMs?: number
-  run: (page: IPage, info: { takeoverReloaded: boolean }) => Promise<T>
+  run: (page: IPage, info: BrowserActionInfo) => Promise<T>
 }) {
   return Effect.gen(function* () {
     // EVERY action starts by reading the session's own page URL. The
@@ -52,12 +56,16 @@ export function runBrowserAction<T>(input: {
     // An unchanged URL — the common case — skips this entirely. Explicit-
     // pattern actions (navigate) were judged against their destination, which
     // no amount of meanwhile-browsing changes.
+    // The URL the action actually operates on: navigate's destination, or the
+    // page the session is on (updated if it moved while the ask was open).
+    let actedUrl = input.patterns?.[0] ?? probe.url
     if (!input.patterns) {
       const recheck = yield* Effect.tryPromise({
         try: () => browserPageProbe(input.ctx.sessionID),
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       })
       if (recheck.url !== probe.url) {
+        actedUrl = recheck.url
         const moved = [recheck.url ?? "*"]
         yield* input.ctx.ask({
           permission: "browser",
@@ -67,15 +75,42 @@ export function runBrowserAction<T>(input: {
         })
       }
     }
+    // Compute the high-risk caution once, here, so EVERY browser action (not
+    // just navigate) surfaces it when it touches a flagged site — the tools
+    // surface it via withNotes(info), which leads the output so head-first
+    // truncation can't drop it.
+    const highRiskNotice = actedUrl ? highRiskSiteNotice(actedUrl) : null
     return yield* Effect.tryPromise({
       try: () =>
-        withBrowserPage(input.ctx.sessionID, input.label, input.run, {
-          timeoutMs: input.timeoutMs,
-          // User stop must reach the page driver: on abort the session severs
-          // the CDP connection so the in-flight action cannot keep operating
-          // the page after the user canceled it.
-          abort: input.ctx.abort,
-        }),
+        withBrowserPage(
+          input.ctx.sessionID,
+          input.label,
+          async (page, info) => {
+            // The tools surface this object via withNotes(info); they return the
+            // same reference as result.info, so filling it post-action below
+            // reaches their output.
+            const actionInfo = { ...info, highRiskNotice }
+            const result = await input.run(page, actionInfo)
+            // A navigable action — a click or submit on a link — can land on a
+            // high-risk site the PRE-action URL never named, so the pre-action
+            // caution above would miss it. When the start page wasn't already
+            // flagged, re-read the page's real URL and fill the caution from
+            // where it ended up. Additive: it can only add a missing caution,
+            // never drop one.
+            if (!actionInfo.highRiskNotice) {
+              const landed = await page.evaluate<string>("window.location.href").catch(() => null)
+              if (typeof landed === "string" && landed) actionInfo.highRiskNotice = highRiskSiteNotice(landed)
+            }
+            return result
+          },
+          {
+            timeoutMs: input.timeoutMs,
+            // User stop must reach the page driver: on abort the session severs
+            // the CDP connection so the in-flight action cannot keep operating
+            // the page after the user canceled it.
+            abort: input.ctx.abort,
+          },
+        ),
       catch: (err) => (err instanceof Error ? err : new Error(String(err))),
     })
   })
@@ -101,6 +136,21 @@ export function browserAlwaysPatterns(patterns: string[]): string[] {
 /** One-line note appended to the first action after the agent takes over an already-open page. */
 export function takeoverNote(info: { takeoverReloaded: boolean }): string {
   return info.takeoverReloaded ? "\n\nNote: attached to the page that was already open; it was reloaded once to apply automation hardening." : ""
+}
+
+/**
+ * Compose a browser tool's output with its notes, safety-first. Tool results are
+ * truncated head-first (the tail is dropped and replaced by a "...truncated..."
+ * hint), so the high-risk caution must LEAD the output — appended after a large
+ * body (a full snapshot, extracted page text) it would be silently cut on
+ * exactly the high-risk pages that matter. The informational takeover note (fine
+ * to lose) stays trailing. Both are computed centrally in runBrowserAction and
+ * carried on `info`, so every browser tool gets identical coverage from this one
+ * call.
+ */
+export function withNotes(info: BrowserActionInfo, body: string): string {
+  const lead = info.highRiskNotice ? `${info.highRiskNotice}\n\n` : ""
+  return lead + body + takeoverNote(info)
 }
 
 /**

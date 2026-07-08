@@ -72,6 +72,7 @@ import { createCurrentProjectMemo } from "./layout/layout-current-project"
 import { createNavigateProjectByOffset } from "./layout/layout-navigate-project"
 import { sessionNotificationHref, useSDKNotificationToasts } from "./layout/layout-sdk-event-effects"
 import { registerLayoutCommands } from "./layout/layout-commands"
+import { openDiagnosticsReview } from "@/components/diagnostics-review"
 import { LayoutShellFrame } from "./layout/layout-shell-frame"
 import { createPawworkSessionPrefetch } from "./layout/pawwork-session-prefetch"
 import { createPawworkSessionController } from "./layout/pawwork-session-controller"
@@ -109,6 +110,7 @@ export default function Layout(props: ParentProps) {
   const settingsOpen = createMemo(() => surfaceRoute() === "settings")
   const automationsOpen = createMemo(() => surfaceRoute() === "automations")
   const skillsOpen = createMemo(() => surfaceRoute() === "skills")
+  const remoteOpen = createMemo(() => surfaceRoute() === "remote")
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const layout = useLayout()
@@ -558,6 +560,10 @@ export default function Layout(props: ParentProps) {
 
   function openSkillsSurface() {
     openSurface("skills")
+  }
+
+  function openRemoteSurface() {
+    openSurface("remote")
   }
 
   // Open the Automations page focused on one automation. Wired to the
@@ -1011,6 +1017,10 @@ export default function Layout(props: ParentProps) {
       connectProvider,
       switchServer: openServer,
     },
+    diagnosticsActions: {
+      prepare: () => void openDiagnosticsReview({ platform, dialog, language }),
+      canPrepare: () => Boolean(platform.prepareReport),
+    },
   })
 
   const workspaceSidebarCtx: WorkspaceSidebarContext = {
@@ -1088,6 +1098,9 @@ export default function Layout(props: ParentProps) {
       onOpenAutomations={openAutomationsSurface}
       automationsActive={automationsOpen}
       automationsLabel={() => language.t("sidebar.pawwork.automations")}
+      onOpenRemote={openRemoteSurface}
+      remoteActive={remoteOpen}
+      remoteLabel={() => language.t("sidebar.pawwork.remote")}
       onOpenSettings={() => openSettings()}
       settingsLabel={() => language.t("sidebar.settings")}
       settingsKeybind={() => command.keybind("settings.open")}

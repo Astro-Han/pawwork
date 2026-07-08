@@ -42,6 +42,7 @@ import { useSessionRouteKey } from "@/pages/session/session-layout"
 import { usePlatform } from "@/context/platform"
 import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import { openSettingsTab } from "@/utils/settings-navigation"
+import { trackEvent } from "@/utils/events"
 import { useSync } from "@/context/sync"
 import { webSearchRecoveryToast } from "./websearch-toasts"
 
@@ -290,6 +291,10 @@ export function MessageTimeline(props: {
           active={active()}
           status={active() ? sessionStatus() : undefined}
           rateLimitCardSlot={(classification) => <RateLimitCardWiring classification={classification} />}
+          onErrorAction={(target) => {
+            trackEvent("error_card.action_click", { target })
+            openSettingsTab(target)
+          }}
           turnChanges={props.turnChangeController.turnChanges}
           turnChangeActions={{
             ...props.turnChangeController.actions,

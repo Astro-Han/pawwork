@@ -28,7 +28,7 @@ async function withVcs(directory: string, body: () => Promise<void>) {
     directory,
     fn: async () => {
       void AppRuntime.runPromise(FileWatcher.Service.use((svc) => svc.init()))
-      Vcs.init()
+      vcsInit()
       await Bun.sleep(500)
       await body()
     },
@@ -48,6 +48,17 @@ function withVcsOnly(directory: string, body: () => Promise<void>) {
 type BranchEvent = { directory?: string; payload: { type: string; properties: { branch?: string } } }
 const weird = process.platform === "win32" ? "space file.txt" : "tab\tfile.txt"
 const vcsIt = testEffect(Vcs.defaultLayer)
+const vcsInit = () => Effect.runPromise(Vcs.Service.use((vcs) => vcs.init()).pipe(Effect.provide(Vcs.defaultLayer)))
+const vcsBranch = () => Effect.runPromise(Vcs.Service.use((vcs) => vcs.branch()).pipe(Effect.provide(Vcs.defaultLayer)))
+const vcsDefaultBranch = () =>
+  Effect.runPromise(Vcs.Service.use((vcs) => vcs.defaultBranch()).pipe(Effect.provide(Vcs.defaultLayer)))
+const vcsStatus = () => Effect.runPromise(Vcs.Service.use((vcs) => vcs.status()).pipe(Effect.provide(Vcs.defaultLayer)))
+const vcsDiff = (mode: Vcs.Mode) =>
+  Effect.runPromise(Vcs.Service.use((vcs) => vcs.diff(mode)).pipe(Effect.provide(Vcs.defaultLayer)))
+const vcsDiffRaw = () =>
+  Effect.runPromise(Vcs.Service.use((vcs) => vcs.diffRaw()).pipe(Effect.provide(Vcs.defaultLayer)))
+const vcsApply = (input: Vcs.ApplyInput) =>
+  Effect.runPromise(Vcs.Service.use((vcs) => vcs.apply(input)).pipe(Effect.provide(Vcs.defaultLayer)))
 
 type TmpdirOptions = Parameters<typeof tmpdir>[0]
 const scopedTmpdir = (options?: TmpdirOptions) =>
@@ -135,7 +146,7 @@ describeVcs("Vcs", () => {
     await using tmp = await tmpdir({ git: true })
 
     await withVcs(tmp.path, async () => {
-      const branch = await Vcs.branch()
+      const branch = await vcsBranch()
       expect(branch).toBeDefined()
       expect(typeof branch).toBe("string")
     })
@@ -145,7 +156,7 @@ describeVcs("Vcs", () => {
     await using tmp = await tmpdir()
 
     await withVcs(tmp.path, async () => {
-      const branch = await Vcs.branch()
+      const branch = await vcsBranch()
       expect(branch).toBeUndefined()
     })
   })
@@ -178,7 +189,7 @@ describeVcs("Vcs", () => {
       await fs.writeFile(head, `ref: refs/heads/${branch}\n`)
 
       await pending
-      const current = await Vcs.branch()
+      const current = await vcsBranch()
       expect(current).toBe(branch)
     })
   })
@@ -256,7 +267,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const status = await Vcs.status()
+        const status = await vcsStatus()
         expect(status).toEqual([
           { file: "staged.txt", additions: 1, deletions: 0, status: "added" },
           { file: "tracked.txt", additions: 1, deletions: 1, status: "modified" },
@@ -274,7 +285,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const branch = await Vcs.defaultBranch()
+        const branch = await vcsDefaultBranch()
         expect(branch).toBe("main")
       })
     }),
@@ -289,7 +300,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const branch = await Vcs.defaultBranch()
+        const branch = await vcsDefaultBranch()
         expect(branch).toBe("trunk")
       })
     }),
@@ -306,7 +317,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(dir, async () => {
-        const [branch, base] = await Promise.all([Vcs.branch(), Vcs.defaultBranch()])
+        const [branch, base] = await Promise.all([vcsBranch(), vcsDefaultBranch()])
         expect(branch).toBe("feature/test")
         expect(base).toBe("main")
       })
@@ -327,7 +338,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("git")
+        const diff = await vcsDiff("git")
         expect(diff).toEqual(
           expect.arrayContaining([
             expect.objectContaining({ file: "tracked.txt", status: "modified" }),
@@ -359,7 +370,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("git")
+        const diff = await vcsDiff("git")
         const entry = diff.find((item) => item.file === "tracked.txt")
         expect(entry).toBeDefined()
         expect(entry?.patch).toContain("+v2")
@@ -380,7 +391,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const patch = await Vcs.diffRaw()
+        const patch = await vcsDiffRaw()
         expect(patch).toContain("diff --git a/tracked.txt b/tracked.txt")
         expect(patch).toContain("-original")
         expect(patch).toContain("+changed")
@@ -402,7 +413,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const patch = await Vcs.diffRaw()
+        const patch = await vcsDiffRaw()
         expect(patch).toContain("+staged-content")
         expect(patch).toMatch(/deleted file|\+\+\+ \/dev\/null/)
       })
@@ -421,7 +432,7 @@ describe("Vcs diff", () => {
 
       let patch = ""
       yield* withVcsOnly(source.path, async () => {
-        patch = await Vcs.diffRaw()
+        patch = await vcsDiffRaw()
       })
 
       const target = yield* scopedTmpdir({ git: true })
@@ -432,7 +443,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(target.path, async () => {
-        await expect(Vcs.apply({ patch })).resolves.toEqual({ applied: true })
+        await expect(vcsApply({ patch })).resolves.toEqual({ applied: true })
         await expect(fs.readFile(path.join(target.path, "tracked.txt"), "utf-8")).resolves.toBe("changed\n")
       })
     }),
@@ -443,7 +454,7 @@ describe("Vcs diff", () => {
       const tmp = yield* scopedTmpdir()
 
       yield* withVcsOnly(tmp.path, async () => {
-        await expect(Vcs.apply({ patch: "diff --git a/file.txt b/file.txt\n" })).rejects.toMatchObject({
+        await expect(vcsApply({ patch: "diff --git a/file.txt b/file.txt\n" })).rejects.toMatchObject({
           reason: "non-git",
         })
       })
@@ -471,7 +482,7 @@ describe("Vcs diff", () => {
       ].join("\n")
 
       yield* withVcsOnly(tmp.path, async () => {
-        await expect(Vcs.apply({ patch })).rejects.toMatchObject({
+        await expect(vcsApply({ patch })).rejects.toMatchObject({
           reason: "not-clean",
         })
         await expect(fs.readFile(path.join(tmp.path, "tracked.txt"), "utf-8")).resolves.toBe("different\n")
@@ -485,7 +496,7 @@ describe("Vcs diff", () => {
       yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, weird), "hello\n", "utf-8"))
 
       yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("git")
+        const diff = await vcsDiff("git")
         expect(diff).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
@@ -508,7 +519,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("git")
+        const diff = await vcsDiff("git")
         expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "first.txt", status: "added" })]))
       })
     }),
@@ -532,7 +543,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("branch")
+        const diff = await vcsDiff("branch")
         // Branch view must reflect the full delta the user sees against the default branch,
         // not just commits — this guards against the regression where `git diff <ref> HEAD`
         // silently dropped staged and working-tree changes.
@@ -560,7 +571,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("branch")
+        const diff = await vcsDiff("branch")
         expect(diff).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
@@ -591,7 +602,7 @@ describe("Vcs diff", () => {
       })
 
       yield* withVcsOnly(tmp.path, async () => {
-        const diff = await Vcs.diff("branch")
+        const diff = await vcsDiff("branch")
         const branch = diff.find((item) => item.file === "branch.txt")
         expect(branch?.patch).toContain("+dirty")
         expect(branch?.additions).toBeGreaterThan(0)

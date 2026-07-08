@@ -75,8 +75,14 @@ export const dict: Record<string, string> = {
   "ui.sessionTurn.retry.attemptLine": "{{line}} - attempt #{{attempt}}",
   "ui.sessionTurn.retry.geminiHot": "gemini is way too hot right now",
   "ui.sessionTurn.retry.recovery": "Recovering...",
+  "ui.sessionTurn.retry.recoveryAttempt": "Recovering... attempt #{{attempt}}",
   "ui.sessionTurn.retry.safeRecovery": "Recovering...",
-  "ui.sessionTurn.notice.safeRetryFailed": "Recovery failed. Try again later or switch models.",
+  "ui.sessionTurn.notice.safeRetryFailed.sideEffect.title": "Action completed",
+  "ui.sessionTurn.notice.safeRetryFailed.sideEffect.body":
+    "The previous action already went through, so no need to repeat it. The network or model provider may be having connection issues. You can regenerate the reply later, or switch models.",
+  "ui.sessionTurn.notice.safeRetryFailed.default.title": "Reply incomplete",
+  "ui.sessionTurn.notice.safeRetryFailed.default.body":
+    "The model's reply couldn't be generated. The network or model provider may be having connection issues. Try again later, or switch models.",
   "ui.sessionTurn.error.freeUsageExceeded": "Free usage exceeded",
   "ui.sessionTurn.error.addCredits": "Add credits",
 
@@ -88,6 +94,7 @@ export const dict: Record<string, string> = {
   "ui.sessionTurn.status.searchingWeb": "Searching the web",
   "ui.sessionTurn.status.makingEdits": "Making edits",
   "ui.sessionTurn.status.runningCommands": "Running commands",
+  "ui.sessionTurn.status.connecting": "Connecting",
   "ui.sessionTurn.status.thinking": "Thinking",
   "ui.sessionTurn.status.thinkingWithTopic": "Thinking - {{topic}}",
   "ui.sessionTurn.status.gatheringThoughts": "Gathering thoughts",
@@ -271,4 +278,30 @@ export const dict: Record<string, string> = {
   "ui.rateLimitCard.actionBYO": "Or use your own model",
   "ui.rateLimitCard.noteSubscribe": "Requires GitHub or Google sign-in",
   "ui.rateLimitCard.noteDeepSeek": "Sign up with phone or email",
+
+  // Session error card, keyed by providerFailure.kind. Plain-language title +
+  // body; the provider's verbatim reason lives in the "detail" disclosure.
+  "ui.errorCard.detail": "Details",
+  "ui.errorCard.auth.title": "Sign-in expired",
+  "ui.errorCard.auth.body":
+    "The model service rejected this request, usually an expired key or a permissions change. Sign in again to continue.",
+  "ui.errorCard.auth.action": "Sign in again",
+  "ui.errorCard.quota_exhausted.title": "Out of balance",
+  "ui.errorCard.quota_exhausted.body":
+    "This model's account balance or quota is used up. Top up with the provider to retry, or switch to another model.",
+  "ui.errorCard.quota_exhausted.action": "Switch model",
+  "ui.errorCard.invalid_request.title": "Request can't be processed",
+  "ui.errorCard.invalid_request.body":
+    "The model service didn't accept this request. The selected model may be unavailable, or the conversation may exceed its limits.",
+  "ui.errorCard.invalid_request.action": "Switch model",
+  "ui.errorCard.rate_limit.title": "Too many requests",
+  "ui.errorCard.rate_limit.body": "Too many requests in a short time. This usually clears up on its own in a moment.",
+  "ui.errorCard.server_overload.title": "Service is busy",
+  "ui.errorCard.server_overload.body": "The model service is briefly overloaded. Trying again shortly usually works.",
+  "ui.errorCard.transport_disconnect.title": "Connection dropped",
+  "ui.errorCard.transport_disconnect.body":
+    "The connection to the model dropped before the reply finished. The network or service may be unstable; you can send it again.",
+  "ui.errorCard.decompression.title": "Response error",
+  "ui.errorCard.decompression.body": "The response couldn't be read. Sending it again usually recovers.",
+  "ui.errorCard.unknown.title": "Couldn't complete",
 }

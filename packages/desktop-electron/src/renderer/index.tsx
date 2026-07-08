@@ -245,7 +245,9 @@ const createPlatform = (): Platform => {
       return window.api.checkUpdate()
     },
 
-    reportProblem: (input) => window.api.reportProblem(input),
+    prepareReport: (input) => window.api.prepareReport(input),
+    revealReport: (reportId) => window.api.revealReport(reportId),
+    submitReport: (reportId) => window.api.submitReport(reportId),
 
     emitRendererDiagnostic: (event) => window.api.emitRendererDiagnostic(event),
 

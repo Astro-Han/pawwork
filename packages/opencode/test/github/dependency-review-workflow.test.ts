@@ -7,7 +7,7 @@ const repoRoot = fileURLToPath(new URL("../../../..", import.meta.url))
 const workflowsRoot = path.join(repoRoot, ".github", "workflows")
 
 const pinned = {
-  checkout: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+  checkout: "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
   dependencyReview: "actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294",
   setupBun: "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6",
   setupNode: "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
