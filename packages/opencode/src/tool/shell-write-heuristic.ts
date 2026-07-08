@@ -1,4 +1,4 @@
-import { commandHead, isOfficeOutputPath, tokenWords } from "./shell-office-artifacts"
+import { commandHead, officeOutputPaths, tokenWords } from "./shell-office-artifacts"
 
 const writeCommands = new Set([
   "apply_patch",
@@ -41,26 +41,14 @@ export function isLikelyWriteCommand(command: string) {
   if (powershellWriteCommands.test(stripped)) return true
   if (/(^|\s)(?:&>>?|\d*>\||\d*<>|(?<!<)\d*>>?)\s*[^&\s]/.test(stripped)) return true
 
-  // Native office skills name their output after an -o/--out/--output/--outfile
-  // flag (e.g. `uv run python build.py -o report.docx`). Detect the flag as a real
-  // shell token via tokenWords, which respects quoting: a quoted output path with
-  // spaces (`-o "Quarterly Report.docx"`) is captured as one token, while an
-  // office-looking string that only appears *inside* a quoted literal
-  // (`echo "usage: -o x.docx"`, `grep "-o x.docx" file`) is not, because there `-o`
-  // is not a standalone token. Key on the output flag, not any office path, so read
-  // commands like `uv run python read_docx.py input.docx` (office file is an input)
-  // stay read-only.
-  const outputFlags = new Set(["-o", "--out", "--output", "--outfile"])
-  for (const words of tokenWords(command)) {
-    for (let index = 0; index < words.length; index++) {
-      const word = words[index]
-      const equals = word.indexOf("=")
-      const flag = equals >= 0 ? word.slice(0, equals) : word
-      if (!outputFlags.has(flag)) continue
-      const value = equals >= 0 ? word.slice(equals + 1) : words[index + 1]
-      if (value && isOfficeOutputPath(value)) return true
-    }
-  }
+  // Native office skills name their deliverable after an -o/--out/--output/--outfile
+  // flag on a python / uv-run generator (e.g. `uv run python build.py -o report.docx`).
+  // officeOutputPaths is quote-aware and only counts generator commands, so office
+  // text inside a quoted literal (`echo "usage: -o x.docx"`) or a non-output `-o` on
+  // another tool (`grep -o report.docx file`) is not treated as a write, while a
+  // parse/read command like `uv run python read_docx.py input.docx` (office file is an
+  // input, no output flag) stays read-only.
+  if (officeOutputPaths(command).length > 0) return true
 
   const strippedSegments = commandSegments(stripped)
   for (let index = 0; index < strippedSegments.length; index++) {

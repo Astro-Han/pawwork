@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { orchestrateArtifacts, type ArtifactDeps } from "../../src/tool/shell-artifact-orchestrator"
 import { isLikelyWriteCommand } from "../../src/tool/shell-write-heuristic"
+import { officeOutputPaths } from "../../src/tool/shell-office-artifacts"
 import type { TrackedOutputState, OutputDiscovery } from "../../src/tool/shell-output-capture"
 import type { RecordWriteInput, RecordUncapturedInput } from "../../src/session/turn-change"
 import { MessageID, SessionID } from "../../src/session/schema"
@@ -61,6 +62,7 @@ function build(opts: {
   states: Record<string, TrackedOutputState[]>
   isWrite?: boolean
   isWriteFn?: (command: string) => boolean
+  parseFn?: (command: string) => readonly string[]
   discoverPaths?: string[]
   discoverOverflowed?: boolean
   discoverPathsAfter?: string[]
@@ -99,6 +101,7 @@ function build(opts: {
     readTrackedState,
     discoverOfficeOutputs,
     isLikelyWriteCommand: opts.isWriteFn ?? (() => opts.isWrite ?? false),
+    parseOfficeOutputs: opts.parseFn ?? (() => []),
     recordWrite: (input) =>
       Effect.sync(() => {
         writes.push(input)
@@ -251,6 +254,7 @@ describe("orchestrateArtifacts", () => {
       readTrackedState,
       discoverOfficeOutputs: () => Effect.succeed({ paths: [], overflowed: false }),
       isLikelyWriteCommand: () => false,
+      parseOfficeOutputs: () => [],
       recordWrite: () => Effect.void,
       recordUncaptured: () => Effect.void,
     }
@@ -313,20 +317,22 @@ describe("orchestrateArtifacts", () => {
   })
 
   // Integration guard for the native office route: drives the REAL
-  // isLikelyWriteCommand (not the mock), so a real `-o <office file>` generator
-  // command with no declared expected_outputs flows heuristic → auto-discovery →
-  // captured binary artifact end to end. This is the coverage the removed
-  // OfficeCLI E2E used to provide for the office output path.
-  test("real -o office generator, no declared outputs → auto-discovers and captures binary artifact", async () => {
-    const file = np("/tmp/work/artifacts/deck.pptx")
+  // isLikelyWriteCommand + officeOutputPaths (not mocks), so a real
+  // `-o <office file>` generator with no declared expected_outputs is captured from
+  // the explicit output path even when the cwd scan returns nothing (a nested
+  // `artifacts/` target the scan misses). This replaces the OfficeCLI E2E coverage
+  // for the office output path and guards the parsed-path-into-tracking fix.
+  test("real -o office generator, no declared outputs, empty cwd scan → still captures explicit path", async () => {
+    const file = np("artifacts/deck.pptx")
     const command = "uv run python scripts/svg_to_pptx.py deck -o artifacts/deck.pptx"
     expect(isLikelyWriteCommand(command)).toBe(true)
+    expect(officeOutputPaths(command)).toEqual(["artifacts/deck.pptx"])
 
     const harness = build({
       states: { [file]: [stateMissing(), stateFile("h1")] },
       isWriteFn: isLikelyWriteCommand,
-      discoverPaths: [file],
-      discoverPathsAfter: [file],
+      parseFn: officeOutputPaths,
+      discoverPaths: [], // cwd scan finds nothing — capture must come from the -o path
     })
 
     const result = await Effect.runPromise(
@@ -344,7 +350,6 @@ describe("orchestrateArtifacts", () => {
       ),
     )
 
-    expect(harness.discoverCalls).toBeGreaterThan(0)
     expect(harness.writes).toHaveLength(1)
     expect(harness.writes[0].path).toBe(file)
     const artifacts = (result.metadata as any).artifacts

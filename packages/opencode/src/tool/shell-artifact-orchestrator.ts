@@ -31,6 +31,7 @@ export type ArtifactDeps<DepR = never> = {
   readTrackedState: (file: string) => Effect.Effect<TrackedOutputState, never, DepR>
   discoverOfficeOutputs: (cwd: string, projectRoot: string) => Effect.Effect<OutputDiscovery, never, DepR>
   isLikelyWriteCommand: (command: string) => boolean
+  parseOfficeOutputs: (command: string) => readonly string[]
   recordWrite: (input: RecordWriteInput) => Effect.Effect<void, never, DepR>
   recordUncaptured: (input: RecordUncapturedInput) => Effect.Effect<void, never, DepR>
 }
@@ -84,6 +85,13 @@ export const orchestrateArtifacts = <RunR, DepR>(
 
     const shouldAutoDiscover = declared.length === 0 && hasMessage && deps.isLikelyWriteCommand(command)
 
+    // Explicit -o/--out office output paths parsed from the command. These are known
+    // deliverables, so we track them directly rather than relying only on the cwd
+    // scan, which can miss a nested target or overflow in an office-heavy directory.
+    const parsedBefore = shouldAutoDiscover
+      ? yield* Effect.forEach(deps.parseOfficeOutputs(command), resolveTrackedInput, { concurrency: 4 })
+      : []
+
     const autoDiscoveredBefore = shouldAutoDiscover
       ? yield* Effect.gen(function* () {
           const discovered = yield* deps.discoverOfficeOutputs(cwd, directory)
@@ -112,6 +120,11 @@ export const orchestrateArtifacts = <RunR, DepR>(
       autoDiscovered = true
       let overflowed = autoDiscoveredBefore?.overflowed ?? false
       const deduped = new Map<string, TrackedOutput>()
+      // Seed explicit -o outputs first so a named deliverable survives even when the
+      // cwd scan misses it (nested path) or discovery overflows.
+      for (const item of parsedBefore) {
+        deduped.set(item.normalized, { path: item.path, before: item.before })
+      }
       if (!overflowed) {
         for (const item of autoDiscoveredBefore?.outputs ?? []) {
           const normalized = AppFileSystem.normalizePath(item.path)

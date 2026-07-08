@@ -5,7 +5,7 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { FileIgnore } from "@/file/ignore"
 import type { FileState } from "@/session/turn-change"
 import * as Bom from "@/util/bom"
-import { isOfficeOutputPath } from "./shell-office-artifacts"
+import { isDiscoverableOfficeOutput, isOfficeOutputPath } from "./shell-office-artifacts"
 import { Effect } from "effect"
 
 const TRACKED_OUTPUT_LIMIT = 20 * 1024 * 1024
@@ -91,7 +91,7 @@ export const discoverOfficeOutputs = Effect.fn("ShellOutputCapture.discoverOffic
             return
           }
           files++
-          if (isOfficeOutputPath(entry.name)) {
+          if (isDiscoverableOfficeOutput(entry.name)) {
             if (paths.length >= AUTO_DISCOVERY_BUDGET.maxCaptures) {
               overflow()
               return

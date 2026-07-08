@@ -125,6 +125,7 @@ const negative = [
   "cat report.docx",
   'echo "usage: -o report.docx"',
   'grep "-o report.docx" README.md',
+  "grep -o report.docx README.md",
   "vite --version",
   "tsc --noEmit",
 ]
