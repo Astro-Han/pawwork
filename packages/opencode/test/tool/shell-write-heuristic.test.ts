@@ -123,6 +123,8 @@ const negative = [
   "uv run python read_docx.py input.docx",
   "uv run python parse_pdf.py report.pdf",
   "cat report.docx",
+  'echo "usage: -o report.docx"',
+  'grep "-o report.docx" README.md',
   "vite --version",
   "tsc --noEmit",
 ]
