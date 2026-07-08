@@ -1,9 +1,9 @@
 ---
 name: office-pdf
-description: "PREVIEW / dark-launched. PDF generation (author HTML, then print to PDF with PawWork's bundled Chromium) and PDF parsing (uv + pdfplumber / pypdf). NOT a default route — only use office-pdf when the user (or an experiment) explicitly asks for the preview PDF route by name. Hard rule: never use PyMuPDF / fitz (AGPL)."
+description: "PDF generation (author HTML, then print to PDF with PawWork's bundled Chromium) and PDF parsing (uv + pdfplumber / pypdf). Use this for any PDF request. Hard rule: never use PyMuPDF / fitz (AGPL)."
 ---
 
-# office-pdf — generate and parse PDF (preview)
+# office-pdf — generate and parse PDF
 
 Two independent paths: **generate** a PDF from HTML using PawWork's bundled Chromium, and **parse** an existing PDF with permissively-licensed Python libraries.
 
