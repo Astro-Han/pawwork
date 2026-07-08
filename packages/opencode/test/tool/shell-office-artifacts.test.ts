@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import {
+  hasOfficeGenerator,
   isDiscoverableOfficeOutput,
   isOfficeOutputPath,
+  nonOfficeGeneratorText,
   officeOutputPaths,
 } from "../../src/tool/shell-office-artifacts"
 
@@ -50,6 +52,8 @@ describe("officeOutputPaths", () => {
   test.each([
     "grep -o report.docx README.md", // grep's -o is "only matching", not an output file
     'echo "usage: -o report.docx"', // office text lives inside a quoted literal
+    'uv run python build.py -o "$OUT.docx"', // dynamic shell value, discovery must find the real file
+    "uv run python build.py --out report-*.docx", // glob value, discovery must find the real file
     "uv run python read_docx.py input.docx", // office file is an input, no output flag
     "cat report.docx",
     "uv run pytest",
@@ -58,5 +62,29 @@ describe("officeOutputPaths", () => {
     `echo "wb.save('phantom.xlsx')" && uv run python real.py`,
   ])("returns no output path for non-generator / read command %s", (command) => {
     expect(officeOutputPaths(command)).toEqual([])
+  })
+})
+
+describe("hasOfficeGenerator", () => {
+  test("detects native python office generators", () => {
+    expect(hasOfficeGenerator("uv run python build.py")).toBe(true)
+    expect(hasOfficeGenerator("python -c \"from docx import Document\"")).toBe(true)
+  })
+
+  test("ignores non-generator commands", () => {
+    expect(hasOfficeGenerator("grep -o report.docx README.md")).toBe(false)
+    expect(hasOfficeGenerator("cat report.docx")).toBe(false)
+  })
+})
+
+describe("nonOfficeGeneratorText", () => {
+  test("strips pure office generators", () => {
+    expect(nonOfficeGeneratorText("uv run python build.py -o report.docx")).toBe("")
+  })
+
+  test("leaves chained non-office side effects", () => {
+    expect(nonOfficeGeneratorText("uv run python build.py -o report.docx && echo notes > notes.txt")).toBe(
+      "echo notes > notes.txt",
+    )
   })
 })

@@ -32,6 +32,7 @@ export type ArtifactDeps<DepR = never> = {
   discoverOfficeOutputs: (cwd: string, projectRoot: string) => Effect.Effect<OutputDiscovery, never, DepR>
   isLikelyWriteCommand: (command: string) => boolean
   parseOfficeOutputs: (command: string) => readonly string[]
+  hasOfficeGenerator: (command: string) => boolean
   sideEffectCommand: (command: string) => string
   recordWrite: (input: RecordWriteInput) => Effect.Effect<void, never, DepR>
   recordUncaptured: (input: RecordUncapturedInput) => Effect.Effect<void, never, DepR>
@@ -94,13 +95,25 @@ export const orchestrateArtifacts = <RunR, DepR>(
       yield* Effect.forEach(parsed, resolveTrackedInput, { concurrency: 4 }),
     )
 
-    // Best-effort cwd scan for undeclared writes *beyond* the office generators whose
-    // outputs we already capture exactly. `sideEffectCommand` strips those generators,
-    // so a pure `... -o a.docx` leaves nothing (no scan, no uncaptured marker) while a
-    // chained `... -o a.docx && echo x > notes.txt` leaves a write that still flags
-    // the turn uncaptured.
-    const shouldAutoDiscover =
+    // The cwd backstop scans for two distinct kinds of undeclared write, and each is
+    // treated differently:
+    //
+    //  - `sideEffectWrite`: a non-office write that remains after the office generators
+    //    are stripped (`... -o a.docx && echo x > notes.txt` leaves `echo x > notes.txt`;
+    //    a pure `... -o a.docx` leaves nothing). This scans AND flags the turn
+    //    uncaptured, because the office-only scan can't capture such a file.
+    //  - `generatorWithoutExactOutput`: a native office generator that named no output
+    //    on the command line (a script whose python code calls `doc.save(...)` internally,
+    //    invisible to the parser). This scans to CAPTURE the deliverable, but does not
+    //    flag uncaptured on its own — if the scan finds the file it is captured, not lost.
+    //
+    // A generator that DID name an exact output (parsed non-empty) is captured precisely
+    // and skips the scan entirely, staying immune to a nested or overflowing cwd.
+    const sideEffectWrite =
       declared.length === 0 && hasMessage && deps.isLikelyWriteCommand(deps.sideEffectCommand(command))
+    const generatorWithoutExactOutput =
+      declared.length === 0 && hasMessage && parsed.length === 0 && deps.hasOfficeGenerator(command)
+    const shouldAutoDiscover = sideEffectWrite || generatorWithoutExactOutput
 
     const autoDiscoveredBefore = shouldAutoDiscover
       ? yield* Effect.gen(function* () {
@@ -131,17 +144,18 @@ export const orchestrateArtifacts = <RunR, DepR>(
       officeTracked.set(AppFileSystem.normalizePath(item.path), { path: item.path, before: item.before })
     }
 
+    let discoveryOverflowed = false
     if (shouldAutoDiscover) {
-      let overflowed = autoDiscoveredBefore?.overflowed ?? false
-      if (!overflowed) {
+      discoveryOverflowed = autoDiscoveredBefore?.overflowed ?? false
+      if (!discoveryOverflowed) {
         for (const item of autoDiscoveredBefore?.outputs ?? []) {
           const normalized = AppFileSystem.normalizePath(item.path)
           if (declaredKeys.has(normalized) || officeTracked.has(normalized)) continue
           officeTracked.set(normalized, item)
         }
         const discoveredAfter = yield* deps.discoverOfficeOutputs(cwd, directory)
-        overflowed = discoveredAfter.overflowed
-        if (!overflowed) {
+        discoveryOverflowed = discoveredAfter.overflowed
+        if (!discoveryOverflowed) {
           for (const filepath of discoveredAfter.paths) {
             const normalized = AppFileSystem.normalizePath(filepath)
             if (declaredKeys.has(normalized) || officeTracked.has(normalized)) continue
@@ -190,9 +204,12 @@ export const orchestrateArtifacts = <RunR, DepR>(
       concurrency: 4,
     })
 
-    // An undeclared write flags the turn uncaptured: the cwd scan is best-effort and
-    // may miss non-office side effects (a plain `> notes.txt`).
-    if (shouldAutoDiscover) {
+    // Flag the turn uncaptured when a write escaped exact capture: a non-office side
+    // effect (the cwd scan is office-only, so a plain `> notes.txt` is never captured),
+    // or a discovery overflow that forced us to drop office captures. A generator whose
+    // internal `.save(...)` the scan actually captured is NOT flagged — it was caught,
+    // not lost.
+    if (sideEffectWrite || discoveryOverflowed) {
       yield* deps.recordUncaptured({
         sessionID: ctx.sessionID,
         messageID: ctx.messageID,

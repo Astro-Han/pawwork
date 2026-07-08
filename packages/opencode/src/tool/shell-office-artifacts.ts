@@ -79,6 +79,15 @@ const outputFlags = new Set(["-o", "--out", "--output", "--outfile"])
 // not a known command and is still scanned.
 const saveScanSkipHeads = new Set(["echo", "printf", "cat", "grep", "rg", "egrep", "fgrep", "sed", "awk"])
 
+// An output path is only trackable when it is a static literal. A value carrying an
+// unexpanded shell variable, command substitution, or glob (e.g. `-o "$OUT.docx"`,
+// ``-o `date`.docx``, `-o report-*.docx`) cannot be tracked verbatim — the artifact
+// layer never runs the shell, so the literal would never match the real file. Drop
+// it and let the cwd backstop discover the real output instead of tracking a phantom.
+function isStaticOutputValue(value: string) {
+  return !/[$`*?]/.test(value)
+}
+
 // A native office deliverable is produced by a python / uv-run generator command
 // (the office-* skills run everything through `uv run python ...`). Gating on the
 // generator command keeps a non-output `-o` on some other tool — e.g. grep's
@@ -90,6 +99,15 @@ function isOfficeGeneratorSegment(words: string[]) {
   if (lower === "python" || lower === "python3") return true
   if (lower === "uv" && next?.toLowerCase() === "run") return true
   return false
+}
+
+// Whether the command runs a native office generator (python / uv-run) at all,
+// regardless of whether it names its output on the command line. When such a
+// generator names no exact output (its python code calls `doc.save(...)` inside a
+// script file the command text can't see), the caller still needs the cwd backstop
+// to scan for the deliverable.
+export function hasOfficeGenerator(command: string) {
+  return commandSegments(command).some((segment) => isOfficeGeneratorSegment(shellWords(segment.text)))
 }
 
 // Explicit office output paths a generator command names for itself: either an
@@ -113,7 +131,7 @@ export function officeOutputPaths(command: string) {
         const flag = (equals >= 0 ? word.slice(0, equals) : word).toLowerCase()
         if (!outputFlags.has(flag)) continue
         const value = equals >= 0 ? word.slice(equals + 1) : words[index + 1]
-        if (value && isOfficeOutputPath(value)) paths.push(value)
+        if (value && isOfficeOutputPath(value) && isStaticOutputValue(value)) paths.push(value)
       }
     }
     // `.save(...)` is python-specific, so once the command is a python/uv generator it
@@ -125,7 +143,7 @@ export function officeOutputPaths(command: string) {
       // Allow an optional backslash before the quote so an escaped inner quote in a
       // double-quoted `-c "...save(\"out.docx\")"` is matched as well as `save('x')`.
       for (const match of segment.text.matchAll(/\.save\(\s*\\?["']([^"'\\]+)/gi)) {
-        if (isOfficeOutputPath(match[1])) paths.push(match[1])
+        if (isOfficeOutputPath(match[1]) && isStaticOutputValue(match[1])) paths.push(match[1])
       }
     }
   }

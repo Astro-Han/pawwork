@@ -26,7 +26,7 @@ import { assertExternalDirectoryEffect, resolveExternalPathForPermission } from 
 import { InstanceState } from "@/effect/instance-state"
 import { TurnChange } from "@/session/turn-change"
 import { isLikelyWriteCommand } from "./shell-write-heuristic"
-import { nonOfficeGeneratorText, officeOutputPaths } from "./shell-office-artifacts"
+import { hasOfficeGenerator, nonOfficeGeneratorText, officeOutputPaths } from "./shell-office-artifacts"
 import { discoverOfficeOutputs, readTrackedState } from "./shell-output-capture"
 import { Parameters, render as renderDescription, type Limits } from "./shell/prompt"
 import { ToolID as ShellToolID } from "./shell/id"
@@ -695,6 +695,7 @@ export const ShellTool = Tool.define(
         discoverOfficeOutputs,
         isLikelyWriteCommand,
         parseOfficeOutputs: officeOutputPaths,
+        hasOfficeGenerator,
         sideEffectCommand: nonOfficeGeneratorText,
         recordWrite: (input) => turnChange.recordWrite(input),
         recordUncaptured: (input) => turnChange.recordUncaptured(input),

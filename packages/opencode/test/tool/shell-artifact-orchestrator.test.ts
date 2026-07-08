@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { orchestrateArtifacts, type ArtifactDeps } from "../../src/tool/shell-artifact-orchestrator"
 import { isLikelyWriteCommand } from "../../src/tool/shell-write-heuristic"
-import { nonOfficeGeneratorText, officeOutputPaths } from "../../src/tool/shell-office-artifacts"
+import { hasOfficeGenerator, nonOfficeGeneratorText, officeOutputPaths } from "../../src/tool/shell-office-artifacts"
 import type { TrackedOutputState, OutputDiscovery } from "../../src/tool/shell-output-capture"
 import type { RecordWriteInput, RecordUncapturedInput } from "../../src/session/turn-change"
 import { MessageID, SessionID } from "../../src/session/schema"
@@ -63,6 +63,7 @@ function build(opts: {
   isWrite?: boolean
   isWriteFn?: (command: string) => boolean
   parseFn?: (command: string) => readonly string[]
+  hasGeneratorFn?: (command: string) => boolean
   sideEffectFn?: (command: string) => string
   discoverPaths?: string[]
   discoverOverflowed?: boolean
@@ -103,6 +104,7 @@ function build(opts: {
     discoverOfficeOutputs,
     isLikelyWriteCommand: opts.isWriteFn ?? (() => opts.isWrite ?? false),
     parseOfficeOutputs: opts.parseFn ?? (() => []),
+    hasOfficeGenerator: opts.hasGeneratorFn ?? (() => false),
     sideEffectCommand: opts.sideEffectFn ?? ((command) => command),
     recordWrite: (input) =>
       Effect.sync(() => {
@@ -257,6 +259,7 @@ describe("orchestrateArtifacts", () => {
       discoverOfficeOutputs: () => Effect.succeed({ paths: [], overflowed: false }),
       isLikelyWriteCommand: () => false,
       parseOfficeOutputs: () => [],
+      hasOfficeGenerator: () => false,
       sideEffectCommand: (command) => command,
       recordWrite: () => Effect.void,
       recordUncaptured: () => Effect.void,
@@ -335,6 +338,7 @@ describe("orchestrateArtifacts", () => {
       states: { [file]: [stateMissing(), stateFile("h1")] },
       isWriteFn: isLikelyWriteCommand,
       parseFn: officeOutputPaths,
+      hasGeneratorFn: hasOfficeGenerator,
       sideEffectFn: nonOfficeGeneratorText,
     })
 
@@ -374,6 +378,7 @@ describe("orchestrateArtifacts", () => {
       states: { [file]: [stateMissing(), stateFile("h1")] },
       isWriteFn: isLikelyWriteCommand,
       parseFn: officeOutputPaths,
+      hasGeneratorFn: hasOfficeGenerator,
       sideEffectFn: nonOfficeGeneratorText,
     })
 
@@ -414,6 +419,7 @@ describe("orchestrateArtifacts", () => {
       states: { [file]: [stateMissing(), stateFile("h1")] },
       isWriteFn: isLikelyWriteCommand,
       parseFn: officeOutputPaths,
+      hasGeneratorFn: hasOfficeGenerator,
       sideEffectFn: nonOfficeGeneratorText,
       discoverPaths: [], // the cwd scan finds no office side-effect files
     })
@@ -440,5 +446,90 @@ describe("orchestrateArtifacts", () => {
     const artifacts = (result.metadata as any).artifacts
     expect(artifacts).toBeArrayOfSize(1)
     expect(artifacts[0]).toMatchObject({ path: file, changed: true })
+  })
+
+  // A native office generator that names NO output on the command line — its python
+  // code calls doc.save("out.docx") inside a script file the parser can't see — must
+  // still have its deliverable captured by the cwd backstop, and must NOT be flagged
+  // uncaptured (the scan caught it, so nothing was lost). Guards the backstop against
+  // regressing to "exact-output-or-nothing" for script-file generators.
+  test("office generator with no command-visible output → cwd scan captures it, no uncaptured", async () => {
+    const file = np("/tmp/work/out.docx")
+    const command = "uv run python build_docx.py"
+    expect(officeOutputPaths(command)).toEqual([]) // no -o, no inline .save
+    expect(hasOfficeGenerator(command)).toBe(true)
+    // stripping the generator leaves nothing, so it is not a "non-office side effect"
+    expect(isLikelyWriteCommand(nonOfficeGeneratorText(command))).toBe(false)
+
+    const harness = build({
+      states: { [file]: [stateMissing(), stateFile("h1")] },
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      hasGeneratorFn: hasOfficeGenerator,
+      sideEffectFn: nonOfficeGeneratorText,
+      discoverPaths: [file],
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        {
+          ctx,
+          cwd: "/tmp/work",
+          directory: "/tmp/work",
+          shell: "/bin/bash",
+          command,
+          expectedOutputs: [],
+        },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.discoverCalls).toBeGreaterThan(0) // backstop scanned for the internal save
+    expect(harness.uncaptured).toHaveLength(0) // captured, not lost
+    expect(harness.writes).toHaveLength(1)
+    expect(harness.writes[0].path).toBe(file)
+    const artifacts = (result.metadata as any).artifacts
+    expect(artifacts).toBeArrayOfSize(1)
+    expect(artifacts[0]).toMatchObject({ path: file, changed: true, exists: true })
+  })
+
+  // A dynamic -o value (an unexpanded shell variable) is NOT tracked verbatim — the
+  // literal `$OUT.docx` would never match the real file. With no parsed exact output,
+  // the generator falls back to the cwd scan, which captures the real report.docx.
+  test("dynamic -o output path → not tracked verbatim; cwd scan captures the real file", async () => {
+    const real = np("/tmp/work/report.docx")
+    const command = 'OUT=report; uv run python build.py -o "$OUT.docx"'
+    expect(officeOutputPaths(command)).toEqual([]) // $OUT.docx dropped as non-static
+    expect(hasOfficeGenerator(command)).toBe(true)
+
+    const harness = build({
+      states: { [real]: [stateMissing(), stateFile("h1")] },
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      hasGeneratorFn: hasOfficeGenerator,
+      sideEffectFn: nonOfficeGeneratorText,
+      discoverPaths: [real],
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        {
+          ctx,
+          cwd: "/tmp/work",
+          directory: "/tmp/work",
+          shell: "/bin/bash",
+          command,
+          expectedOutputs: [],
+        },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.discoverCalls).toBeGreaterThan(0)
+    expect(harness.writes).toHaveLength(1)
+    expect(harness.writes[0].path).toBe(real) // the real file, not the phantom $OUT.docx
+    expect(harness.uncaptured).toHaveLength(0)
   })
 })
