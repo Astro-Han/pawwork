@@ -27,6 +27,12 @@ Authoring floor:
   Each series `values` length must equal `categories` length. `type` may be `column`, `bar`, `line`, `pie`, `doughnut`, or `area`. Keep a plain fallback shape inside the group.
 - Image (required for image tasks): use `<image x=".." y=".." width=".." height=".." xlink:href="pic.png"/>` and place `pic.png` next to the SVGs in `svg_output/`. Base64 `data:` hrefs also work.
 
+Before converting, run the text budget check and fix every reported line (shorten the copy or split it into more `<text>` lines) until it prints OK:
+
+```
+uv run python "$(dirname "$SVG_PPTX_SCRIPT")/check_text_budget.py" ./deck/svg_output
+```
+
 Conversion command (run from the working directory that holds `pyproject.toml`):
 
 ```
