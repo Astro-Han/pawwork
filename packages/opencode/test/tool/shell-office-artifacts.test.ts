@@ -45,6 +45,9 @@ describe("officeOutputPaths", () => {
     [`uv run python -c "from docx import Document; Document().save('out.docx')"`, ["out.docx"]],
     [`python -c "wb.save(\\"book.xlsx\\")"`, ["book.xlsx"]],
     ["uv run python <<'PY'\nprs.save('deck.pptx')\nPY", ["deck.pptx"]],
+    // python raw / f-string prefixes on the .save() argument
+    [`uv run python -c "doc.save(r'out.docx')"`, ["out.docx"]],
+    [`uv run python -c "doc.save(f'report.docx')"`, ["report.docx"]],
   ])("parses the output path from %s", (command, expected) => {
     expect(officeOutputPaths(command)).toEqual(expected)
   })

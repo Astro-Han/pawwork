@@ -147,7 +147,7 @@ export function hasOfficeOutputIntent(command: string) {
       }
     }
     if (shouldScanSaveSegment(words, isGeneratorCommand)) {
-      for (const match of segment.text.matchAll(/\.save\(\s*\\?["']([^"'\\]+)/gi)) {
+      for (const match of segment.text.matchAll(/\.save\(\s*[rbuf]*\\?["']([^"'\\]+)/gi)) {
         if (isOfficeOutputPath(match[1])) return true
       }
     }
@@ -191,9 +191,10 @@ export function officeOutputPaths(command: string) {
     // do not let arbitrary later commands like `node -e "...save('x.docx')"` create
     // phantom exact artifacts.
     if (shouldScanSaveSegment(words, isGeneratorCommand)) {
-      // Allow an optional backslash before the quote so an escaped inner quote in a
+      // Allow optional python string prefixes (`r`/`b`/`u`/`f`, e.g. `.save(r"out.docx")`)
+      // and an optional backslash before the quote so an escaped inner quote in a
       // double-quoted `-c "...save(\"out.docx\")"` is matched as well as `save('x')`.
-      for (const match of segment.text.matchAll(/\.save\(\s*\\?["']([^"'\\]+)/gi)) {
+      for (const match of segment.text.matchAll(/\.save\(\s*[rbuf]*\\?["']([^"'\\]+)/gi)) {
         if (
           isOfficeOutputPath(match[1]) &&
           isStaticOutputValue(match[1]) &&
