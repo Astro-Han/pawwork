@@ -9,16 +9,18 @@ You build editable `.docx` documents with Python `python-docx`: real Heading sty
 
 This is a **dark-launched preview**. It does not replace the default Word path. Only run it when explicitly routed here.
 
+> Known limitation of this dark launch: preview status is enforced only by this skill's description — there is no hard runtime switch yet, and the skill is visible in the Skills page. The hard on/off switch lands with the routing change (PR 4).
+
 ## Runtime contract
 
 - `uv` must be on `PATH`. All Python runs through `uv run`; the runtime injects the package-mirror environment variables so `uv` resolves `python-docx` from the internal mirror. You do not configure the mirror.
 - **If `uv` is missing**, stop and report exactly: `office-docx requires 'uv' on PATH, but 'uv --version' failed. This is an environment problem — uv should be provisioned by the PawWork runtime. Do not fall back to system pip or officecli; report the missing uv instead.` Do not attempt `pip install` or any other fallback.
 - The skill directory ships read-only inside the app bundle. **Never write into it.** Work in a fresh directory.
 
-`SKILL_DIR` below means the base directory printed when this skill loaded.
+`SKILL_DIR` below means the skill's base directory **as a plain filesystem path** — copy the line labeled "Base directory as a plain filesystem path" from the skill-load output. Do **not** use the `file://` URL form; if only a `file://` URL is available, strip the `file://` prefix first.
 
 ```bash
-SKILL_DIR="<the base directory shown when this skill loaded>"
+SKILL_DIR="<plain filesystem path from the skill-load output, no file:// prefix>"
 uv --version || { echo "office-docx requires 'uv' on PATH (see Runtime contract)"; exit 1; }
 mkdir -p work && cp "$SKILL_DIR/pyproject.toml" work/pyproject.toml   # pins python-docx==1.1.2
 ```

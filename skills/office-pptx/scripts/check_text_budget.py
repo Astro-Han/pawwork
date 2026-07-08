@@ -3,6 +3,8 @@
 would render past the slide safe edge. Uses the converter's own width
 estimator so the check matches the DrawingML boxes it will produce."""
 
+from __future__ import annotations
+
 import re
 import sys
 import unicodedata
@@ -40,6 +42,14 @@ def attr(source: str, name: str) -> str | None:
     return match.group(1).strip() if match else None
 
 
+def numeric(value: str | None, fallback: float) -> float:
+    # Tolerate unit suffixes like "60px": fail with a report line, not a traceback.
+    if value is None:
+        return fallback
+    match = re.match(r"[-+]?\d*\.?\d+", value)
+    return float(match.group(0)) if match else fallback
+
+
 def check_file(svg_path: Path) -> list[str]:
     problems: list[str] = []
     content = svg_path.read_text(encoding="utf-8")
@@ -48,8 +58,8 @@ def check_file(svg_path: Path) -> list[str]:
         text = re.sub(r"<[^>]+>", "", body).strip()
         if not text:
             continue
-        x = float(attr(attrs, "x") or 0)
-        font_size = float(attr(attrs, "font-size") or 16)
+        x = numeric(attr(attrs, "x"), 0)
+        font_size = numeric(attr(attrs, "font-size"), 16)
         weight = attr(attrs, "font-weight") or "400"
         anchor = attr(attrs, "text-anchor") or "start"
         width = estimate_text_width(text, font_size, weight)

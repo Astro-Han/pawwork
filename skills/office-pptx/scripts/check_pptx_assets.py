@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Post-build gate for native PPTX eval routes: verify the finished .pptx
+"""Post-build gate for the office-pptx route: verify the finished .pptx
 package really contains the assets the task demands (speaker notes, chart
-XML, embedded media) before the run claims success. Mirrors the judge rules
-in eval.ts (judgeArtifact) so a clean check here means a clean judge there.
+XML, embedded media) before the run claims success. Covers package-asset
+rules only; it does not check required text, explicit font sizes,
+out-of-bounds shapes, or visual-slide density.
 
-Stdlib only; safe to run with plain python3 on every route.
+Stdlib only, but run it through uv for consistency with the rest of the
+skill: uv run python <skill>/scripts/check_pptx_assets.py ...
 """
 
 import argparse
+import json
 import pathlib
 import re
 import sys
@@ -48,6 +51,20 @@ def main() -> int:
     summary = pathlib.Path(args.pptx).parent / "artifact-summary.json"
     if not summary.is_file():
         problems.append(f"missing {summary} (write it before running this gate)")
+    else:
+        try:
+            data = json.loads(summary.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            problems.append(f"{summary} is not valid JSON: {error}")
+        else:
+            if not isinstance(data, dict):
+                problems.append(f"{summary} must be a JSON object")
+            else:
+                if not isinstance(data.get("renderer"), str) or not data["renderer"].strip():
+                    problems.append(f"{summary} needs a non-empty string key 'renderer'")
+                slides_meta = data.get("slides")
+                if not isinstance(slides_meta, list) or len(slides_meta) == 0:
+                    problems.append(f"{summary} needs a non-empty array key 'slides' (one entry per slide)")
 
     for problem in problems:
         print(f"FAIL: {problem}")

@@ -9,16 +9,18 @@ You build an editable native `.pptx` by hand-authoring one SVG per slide and con
 
 This is a **dark-launched preview**. It does not replace the default office path. Only run it when explicitly routed here.
 
+> Known limitation of this dark launch: preview status is enforced only by this skill's description (the model is told not to pick it by default) — there is no hard runtime switch yet, and the skill is visible in the Skills page. The hard on/off switch lands with the routing change (PR 4).
+
 ## Runtime contract
 
 - `uv` must be on `PATH`. This skill runs all Python through `uv run`; the runtime injects the package-mirror environment variables so `uv` resolves `python-pptx` from the internal mirror. You do not configure the mirror yourself.
 - **If `uv` is missing**, stop and report exactly: `office-pptx requires 'uv' on PATH, but 'uv --version' failed. This is an environment problem — uv should be provisioned by the PawWork runtime. Do not fall back to system pip or officecli; report the missing uv instead.` Do not attempt `pip install`, `brew install`, or any other fallback.
 - The skill directory ships read-only inside the app bundle. **Never write into it.** Do all work in a fresh working directory (e.g. `./office-pptx-work/`).
 
-Below, `SKILL_DIR` means the base directory printed when this skill loaded (shown as "Base directory for this skill"). Set it once:
+Below, `SKILL_DIR` means the skill's base directory **as a plain filesystem path** — copy the line labeled "Base directory as a plain filesystem path" from the skill-load output. Do **not** use the `file://` URL form; if only a `file://` URL is available, strip the `file://` prefix first. Set it once:
 
 ```bash
-SKILL_DIR="<the base directory shown when this skill loaded>"
+SKILL_DIR="<plain filesystem path from the skill-load output, no file:// prefix>"
 uv --version || { echo "office-pptx requires 'uv' on PATH (see Runtime contract)"; exit 1; }
 ```
 
@@ -69,11 +71,11 @@ uv run python "$SKILL_DIR/scripts/svg_to_pptx.py" deck --only native --no-compat
 
 Finish in this order:
 
-1. Write `artifacts/artifact-summary.json` describing renderer, slide titles, layout names, visual rules applied, and limitations.
-2. Run the package gate as the **last** step and fix every reported gap by rebuilding the deck source — **never hand-edit the zip** — until it prints `OK`:
+1. Write `artifacts/artifact-summary.json`. It must at least contain the keys `renderer` (string) and `slides` (non-empty array, one entry per slide with its title and layout); also record visual rules applied and limitations.
+2. Run the package gate as the **last** step and fix every reported gap by rebuilding the deck source — **never hand-edit the zip** — until it prints `OK` (run from `work/`, same as every other command — all Python goes through `uv run`, never a bare `python3`):
 
 ```bash
-python3 "$SKILL_DIR/scripts/check_pptx_assets.py" artifacts/<name>.pptx --slides <N> [--require-chart] [--require-media]
+uv run python "$SKILL_DIR/scripts/check_pptx_assets.py" artifacts/<name>.pptx --slides <N> [--require-chart] [--require-media]
 ```
 
 Pass `--require-chart` for data-backed decks and `--require-media` when the deck must embed an image. The gate also requires `artifact-summary.json` to already exist next to the artifact, and checks the slide count and speaker-note coverage.

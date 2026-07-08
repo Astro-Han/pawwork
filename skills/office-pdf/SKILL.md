@@ -9,6 +9,8 @@ Two independent paths: **generate** a PDF from HTML using PawWork's bundled Chro
 
 This is a **dark-launched preview**. It does not replace any default route. Only run it when explicitly routed here.
 
+> Known limitation of this dark launch: preview status is enforced only by this skill's description — there is no hard runtime switch yet, and the skill is visible in the Skills page. The hard on/off switch lands with the routing change (PR 4).
+
 ## License hard rule (non-negotiable)
 
 **Never use PyMuPDF / `fitz` / `pymupdf` — it is AGPL and must not enter the product.** Also avoid any tool that shells out to it. Allowed parsers are `pdfplumber` (MIT) and `pypdf` (BSD) only. For rendering, use the bundled Chromium — not `wkhtmltopdf`, not LibreOffice, not a system-installed browser.
@@ -34,13 +36,15 @@ Then render it to PDF through the runtime's bundled-Chromium print entry point (
 
 ## Path 2 — Parse (uv + pdfplumber / pypdf)
 
+`SKILL_DIR` is the skill's base directory **as a plain filesystem path** — copy the line labeled "Base directory as a plain filesystem path" from the skill-load output. Do **not** use the `file://` URL form; if only a `file://` URL is available, strip the `file://` prefix first.
+
 ```bash
-SKILL_DIR="<the base directory shown when this skill loaded>"
+SKILL_DIR="<plain filesystem path from the skill-load output, no file:// prefix>"
 uv --version || { echo "office-pdf parsing requires 'uv' on PATH (see Runtime contract)"; exit 1; }
 mkdir -p work && cp "$SKILL_DIR/pyproject.toml" work/pyproject.toml   # pdfplumber (MIT) + pypdf (BSD)
 ```
 
-Choose by need, both run from `work/`:
+The shipped `pyproject.toml` pins both parsers so either import resolves offline, but you only need **one** per task — choose by need, both run from `work/`:
 
 - **`pdfplumber`** — layout-aware text and **table** extraction; use when you need columns, tables, or word positions.
   ```bash
