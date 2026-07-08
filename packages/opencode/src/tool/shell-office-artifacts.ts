@@ -277,18 +277,46 @@ function segmentWriteRedirects(segmentText: string) {
   return parts.join(" ")
 }
 
-// The command with its office-generator COMMANDS removed but their write-redirections
-// kept, so the caller can check whether what *remains* is still a write. An office
-// generator's -o/.save output is captured exactly (via officeOutputPaths), so dropping
-// the command keeps a pure `... -o a.docx` from reading as a write, while a chained
-// `... -o a.docx && echo x > notes.txt` leaves `echo x > notes.txt` and a same-segment
-// redirect `uv run python build.py -o a.docx > log.txt` leaves `> log.txt` — both real
-// side effects the write heuristic must still see. Segments are re-joined with `;` (any
-// delimiter works — the write heuristic re-splits on it).
+// Whether a single segment's write IS an office output we capture exactly (a static
+// -o/.save), will discover (a dynamic office output), or is the heredoc/split python
+// body carrying a generator command's `.save('...office')` (captured by officeOutputPaths'
+// cross-segment scan). Only such a segment may be dropped from the side-effect check; a
+// python segment that named NO office output — `python setup.py build`, a bare
+// `python analyze.py > log` — is a potential non-office write and must be kept so the
+// write heuristic can judge it.
+function segmentIsCapturedOfficeOutput(segmentText: string, isGeneratorCommand: boolean) {
+  const words = shellWords(segmentText)
+  if (
+    isOfficeGeneratorSegment(words) &&
+    (officeOutputPaths(segmentText).length > 0 || hasOfficeOutputIntent(segmentText))
+  )
+    return true
+  // A heredoc / split python body line whose `.save('...office')` the cross-segment scan
+  // already captured for the whole generator command.
+  if (isGeneratorCommand && shouldScanSaveSegment(words, isGeneratorCommand)) {
+    for (const match of segmentText.matchAll(/\.save\s*\(\s*[rbuf]*\\?["']([^"'\\]+)/gi)) {
+      if (isOfficeOutputPath(match[1])) return true
+    }
+  }
+  return false
+}
+
+// The command with its office-output-producing COMMANDS removed but their
+// write-redirections kept, so the caller can check whether what *remains* is still a
+// write. An office generator's -o/.save output is captured exactly (via
+// officeOutputPaths), so dropping that command keeps a pure `... -o a.docx` from reading
+// as a write, while a same-segment redirect `... -o a.docx > log.txt` leaves `> log.txt`.
+// A python segment that named no office output is kept intact, so `python setup.py build`
+// or `uv run python analyze.py > results.txt` still reads as the write it is. Segments
+// are re-joined with `;` (any delimiter works — the write heuristic re-splits on it).
 export function nonOfficeGeneratorText(command: string) {
-  return commandSegments(command)
+  const segments = commandSegments(command)
+  const isGeneratorCommand = segments.some((segment) => isOfficeGeneratorSegment(shellWords(segment.text)))
+  return segments
     .map((segment) =>
-      isOfficeGeneratorSegment(shellWords(segment.text)) ? segmentWriteRedirects(segment.text) : segment.text,
+      segmentIsCapturedOfficeOutput(segment.text, isGeneratorCommand)
+        ? segmentWriteRedirects(segment.text)
+        : segment.text,
     )
     .filter((text) => text.length > 0)
     .join(" ; ")

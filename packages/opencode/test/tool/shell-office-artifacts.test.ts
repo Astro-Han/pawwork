@@ -6,6 +6,7 @@ import {
   nonOfficeGeneratorText,
   officeOutputPaths,
 } from "../../src/tool/shell-office-artifacts"
+import { isLikelyWriteCommand } from "../../src/tool/shell-write-heuristic"
 
 describe("isOfficeOutputPath", () => {
   test.each([".docx", ".xlsx", ".pptx", ".pdf"])("treats %s as an office output", (ext) => {
@@ -124,14 +125,30 @@ describe("nonOfficeGeneratorText", () => {
     )
   })
 
-  test("keeps a write-redirection attached to the generator segment itself", () => {
-    // command is dropped, but its `> log.txt` side effect survives for the write heuristic
+  test("drops an office-output generator but keeps its own write-redirection", () => {
+    // the office command is dropped, but its `> log.txt` side effect survives
     expect(nonOfficeGeneratorText("uv run python build.py -o report.docx > log.txt")).toBe("> log.txt")
-    expect(nonOfficeGeneratorText("uv run python analyze.py > results.txt")).toBe("> results.txt")
-    expect(nonOfficeGeneratorText("uv run python build.py 2> err.log")).toBe("2> err.log")
   })
 
-  test("does not mistake a redirect inside a python string for a real redirect", () => {
-    expect(nonOfficeGeneratorText(`uv run python -c "print('a > b')"`)).toBe("")
+  test("keeps a python segment that named no office output (a real non-office write)", () => {
+    // setup.py build / a redirected analyze script are real writes, NOT office outputs —
+    // they must stay intact so the write heuristic still sees them
+    expect(nonOfficeGeneratorText("python setup.py build")).toBe("python setup.py build")
+    expect(nonOfficeGeneratorText("uv run python analyze.py > results.txt")).toBe(
+      "uv run python analyze.py > results.txt",
+    )
+  })
+
+  test("does not mistake a redirect inside a python string for a real redirect when stripping", () => {
+    // office-output segment (out.docx) is dropped; the `>` inside the python string is not a redirect
+    expect(nonOfficeGeneratorText(`uv run python -c "doc.save('out.docx'); x='a > b'"`)).toBe("")
+  })
+
+  test("strips a heredoc-body office .save() so a captured deck is not re-read as a write", () => {
+    const cmd = "uv run python <<'PY'\nfrom pptx import Presentation\nprs.save('deck.pptx')\nPY"
+    expect(officeOutputPaths(cmd)).toEqual(["deck.pptx"]) // captured exactly
+    const remainder = nonOfficeGeneratorText(cmd)
+    expect(remainder).not.toContain("deck.pptx") // the .save body line is dropped
+    expect(isLikelyWriteCommand(remainder)).toBe(false) // so it is not double-counted as a write
   })
 })

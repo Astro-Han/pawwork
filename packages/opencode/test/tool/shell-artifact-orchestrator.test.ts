@@ -570,6 +570,40 @@ describe("orchestrateArtifacts", () => {
     expect(harness.uncaptured).toHaveLength(0)
   })
 
+  // A dynamic office output the command clearly intended (`-o "$OUT.docx"`) that the cwd
+  // scan does NOT find — it expanded outside cwd, or deeper than the scan reaches. With no
+  // exact parse and no discovered file, the intended write must not silently vanish: the
+  // turn is flagged uncaptured so the audit still records that a write was attempted.
+  test("dynamic office output the scan can't find → recordUncaptured (write not silently lost)", async () => {
+    const command = 'OUT=/tmp/elsewhere/report; uv run python build.py -o "$OUT.docx"'
+    expect(officeOutputPaths(command)).toEqual([]) // dynamic value → no exact parse
+    expect(hasOfficeOutputIntent(command)).toBe(true) // but intent is clear
+    // stripping the office generator leaves no real non-office write
+    expect(isLikelyWriteCommand(nonOfficeGeneratorText(command))).toBe(false)
+
+    const harness = build({
+      states: {},
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      intentFn: hasOfficeOutputIntent,
+      sideEffectFn: nonOfficeGeneratorText,
+      discoverPaths: [], // scan finds nothing — the file landed outside cwd
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        { ctx, cwd: "/tmp/work", directory: "/tmp/work", shell: "/bin/bash", command, expectedOutputs: [] },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.discoverCalls).toBeGreaterThan(0) // intent scan ran
+    expect(harness.writes).toHaveLength(0) // nothing captured
+    expect(harness.uncaptured).toHaveLength(1) // but the intended write is flagged
+    expect((result.metadata as any).artifacts).toBeUndefined()
+  })
+
   // After `cd reports`, a relative `-o report.docx` is relative to the shell's new
   // working directory, not the original execution cwd. The parser must not track the
   // original-cwd phantom; discovery captures the real nested file instead.
@@ -642,6 +676,37 @@ describe("orchestrateArtifacts", () => {
 
     expect(harness.discoverCalls).toBeGreaterThan(0)
     expect(harness.uncaptured).toHaveLength(1) // results.txt flagged
+    expect((result.metadata as any).artifacts).toBeUndefined()
+  })
+
+  // A non-office python write (`python setup.py build` — a write per the heuristic) that
+  // names no office output must NOT be stripped from side-effect detection: its build/dist
+  // changes still flag the turn uncaptured.
+  test("python setup.py build (non-office write, no office output) → recordUncaptured", async () => {
+    const command = "python setup.py build"
+    expect(officeOutputPaths(command)).toEqual([])
+    expect(hasOfficeOutputIntent(command)).toBe(false)
+    // the segment is kept intact, so the heuristic still sees the setup.py write
+    expect(isLikelyWriteCommand(nonOfficeGeneratorText(command))).toBe(true)
+
+    const harness = build({
+      states: {},
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      intentFn: hasOfficeOutputIntent,
+      sideEffectFn: nonOfficeGeneratorText,
+      discoverPaths: [],
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        { ctx, cwd: "/tmp/work", directory: "/tmp/work", shell: "/bin/bash", command, expectedOutputs: [] },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.uncaptured).toHaveLength(1)
     expect((result.metadata as any).artifacts).toBeUndefined()
   })
 

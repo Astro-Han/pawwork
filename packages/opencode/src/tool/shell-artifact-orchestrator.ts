@@ -206,12 +206,17 @@ export const orchestrateArtifacts = <RunR, DepR>(
       concurrency: 4,
     })
 
-    // Flag the turn uncaptured when a write escaped exact capture: a non-office side
-    // effect (the cwd scan is office-only, so a plain `> notes.txt` is never captured),
-    // or a discovery overflow that forced us to drop office captures. A generator whose
-    // internal `.save(...)` the scan actually captured is NOT flagged — it was caught,
-    // not lost.
-    if (sideEffectWrite || discoveryOverflowed) {
+    // Flag the turn uncaptured when a write escaped exact capture:
+    //  - a non-office side effect (the cwd scan is office-only, so a plain `> notes.txt`
+    //    is never captured),
+    //  - a discovery overflow that forced us to drop office captures, or
+    //  - a dynamic office output the command clearly intended (`-o "$OUT.docx"`) that the
+    //    cwd scan did not find — it may have expanded outside cwd or deeper than the scan,
+    //    so a real write must not silently vanish from the audit.
+    // A generator whose output the scan actually captured (a changed office artifact) is
+    // NOT flagged — it was caught, not lost.
+    const capturedOfficeChange = officeArtifacts.some((item) => item.changed)
+    if (sideEffectWrite || discoveryOverflowed || (dynamicOfficeOutput && !capturedOfficeChange)) {
       yield* deps.recordUncaptured({
         sessionID: ctx.sessionID,
         messageID: ctx.messageID,
