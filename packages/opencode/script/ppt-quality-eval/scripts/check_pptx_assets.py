@@ -8,6 +8,7 @@ Stdlib only; safe to run with plain python3 on every route.
 """
 
 import argparse
+import pathlib
 import re
 import sys
 import zipfile
@@ -44,6 +45,9 @@ def main() -> int:
         problems.append("data-backed task but no ppt/charts/chart*.xml (native editable chart missing)")
     if args.require_media and media < 1:
         problems.append("image task but ppt/media/ is empty (image was not embedded in the package)")
+    summary = pathlib.Path(args.pptx).parent / "artifact-summary.json"
+    if not summary.is_file():
+        problems.append(f"missing {summary} (write it before running this gate)")
 
     for problem in problems:
         print(f"FAIL: {problem}")

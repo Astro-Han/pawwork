@@ -22,11 +22,11 @@ Quality floor:
 - Use conclusion titles, not topic labels.
 - Include a visual object on every slide: chart, image, process diagram, KPI block, or structured shape system.
 - Add speaker notes (`slide.notes_slide.notes_text_frame.text = ...`) to every content slide; embed task images with `add_picture` so the package contains `ppt/media/`.
-- Verify before claiming success — run the package gate and fix every reported gap (rebuild via your script; never hand-edit the zip) until it prints OK:
+- Write `./artifacts/artifact-summary.json` with renderer, slide titles, layout names, visual rules applied, and limitations.
+- Then run the package gate as the LAST step and fix every reported gap (rebuild via your script; never hand-edit the zip) until it prints OK:
 
   ```
   python3 "$PPTX_CHECK_SCRIPT" ./artifacts/<artifact-name>.pptx --slides <N> [--require-chart] [--require-media]
   ```
 
-  Pass `--require-chart` for data-backed tasks and `--require-media` for image tasks, matching the task brief.
-- Write `./artifacts/artifact-summary.json` with renderer, slide titles, layout names, visual rules applied, and limitations.
+  Pass `--require-chart` for data-backed tasks and `--require-media` for image tasks, matching the task brief. It also requires `artifact-summary.json` to already exist next to the artifact.

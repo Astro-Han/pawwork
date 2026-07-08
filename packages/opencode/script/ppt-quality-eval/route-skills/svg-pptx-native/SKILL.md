@@ -41,10 +41,10 @@ uv run python "$SVG_PPTX_SCRIPT" ./deck --only native --no-compat --native-objec
 
 `--no-compat` skips the PNG fallback (no cairosvg needed); `--native-objects` turns the chart markers into real `ppt/charts/chart*.xml`.
 
-Verify before claiming success — run the package gate and fix every reported gap (rebuild the deck source; never hand-edit the zip) until it prints OK:
+Finish in this order: (1) write `./artifacts/artifact-summary.json` with renderer, slide titles, layout names, visual rules applied, and limitations; (2) run the package gate as the LAST step and fix every reported gap (rebuild the deck source; never hand-edit the zip) until it prints OK:
 
 ```
 python3 "$PPTX_CHECK_SCRIPT" ./artifacts/<artifact-name>.pptx --slides <N> [--require-chart] [--require-media]
 ```
 
-Pass `--require-chart` for data-backed tasks and `--require-media` for image tasks, matching the task brief. Also confirm the title run's `<a:rPr sz="...">` is >= 4400. Then write `./artifacts/artifact-summary.json` with renderer, slide titles, layout names, visual rules applied, and limitations.
+Pass `--require-chart` for data-backed tasks and `--require-media` for image tasks, matching the task brief. It also requires `artifact-summary.json` to already exist next to the artifact. Also confirm the title run's `<a:rPr sz="...">` is >= 4400.
