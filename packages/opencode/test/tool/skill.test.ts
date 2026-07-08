@@ -233,6 +233,7 @@ Use this skill.
           expect(result.metadata.dir).toBe(dir)
           expect(result.output).toContain(`<skill_content name="tool-skill">`)
           expect(result.output).toContain(`Base directory for this skill: ${pathToFileURL(dir).href}`)
+          expect(result.output).toContain(`Base directory as a plain filesystem path (use this in shell commands): ${dir}`)
           expect(result.output).toContain(`<file>${file}</file>`)
         },
       })
