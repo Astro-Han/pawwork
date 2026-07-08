@@ -80,6 +80,7 @@ const bundledRuntimeRoot = path.join(os.homedir(), ".cache/codex-runtimes/codex-
 const bundledNodePath = process.env.PPTX_EVAL_NODE ?? path.join(bundledRuntimeRoot, "node/bin/node")
 const bundledNodeModules = process.env.PPTX_EVAL_NODE_MODULES ?? path.join(bundledRuntimeRoot, "node/node_modules")
 const svgPptxScript = path.join(evalRoot, "route-skills/svg-pptx-native/scripts/svg_to_pptx.py")
+const pptxCheckScript = path.join(evalRoot, "scripts/check_pptx_assets.py")
 
 const tasks: Record<TaskID, TaskSpec> = {
   "investor-update": {
@@ -278,7 +279,7 @@ function addRequiredTextFailures(failures: string[], text: string, required: str
   }
 }
 
-async function readZipEntries(file: string) {
+export async function readZipEntries(file: string) {
   const bytes = await readFile(file)
   const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
   const reader = new ZipReader(new BlobReader(new Blob([arrayBuffer])))
@@ -287,7 +288,11 @@ async function readZipEntries(file: string) {
     const result = new Map<string, string>()
     for (const entry of entries) {
       if (entry.directory || !entry.getData) continue
-      if (!/\.(xml|rels)$/i.test(entry.filename) && !entry.filename.endsWith("[Content_Types].xml")) continue
+      if (!/\.(xml|rels)$/i.test(entry.filename) && !entry.filename.endsWith("[Content_Types].xml")) {
+        // Keep the name so presence checks (e.g. ppt/media/*) see binary entries.
+        result.set(entry.filename, "")
+        continue
+      }
       result.set(entry.filename, await entry.getData(new TextWriter()))
     }
     return result
@@ -629,6 +634,7 @@ async function runOne(taskId: TaskID, routeId: RouteID, round: number, model: st
     OFFICECLI_SKIP_UPDATE: "1",
     PPTX_EVAL_NODE: bundledNodePath,
     SVG_PPTX_SCRIPT: svgPptxScript,
+    PPTX_CHECK_SCRIPT: pptxCheckScript,
     NODE_PATH: `${bundledNodeModules}${process.env.NODE_PATH ? path.delimiter + process.env.NODE_PATH : ""}`,
     PATH: routePath,
   }

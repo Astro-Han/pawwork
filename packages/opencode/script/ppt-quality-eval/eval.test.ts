@@ -7,6 +7,7 @@ import {
   countOutOfBoundsShapes,
   htmlFeatureFailures,
   qualityBand,
+  readZipEntries,
   scoreFromFindings,
   taskGateInstructions,
 } from "./eval"
@@ -46,6 +47,23 @@ describe("ppt quality eval harness", () => {
     expect(countOutOfBoundsShapes([decorativeGone])).toBe(1)
     expect(countOutOfBoundsShapes([picOverflow])).toBe(1)
     expect(countOutOfBoundsShapes([inBounds])).toBe(0)
+  })
+
+  test("keeps binary entry names visible for media presence checks", async () => {
+    const { BlobWriter, TextReader, Uint8ArrayReader, ZipWriter } = await import("@zip.js/zip.js")
+    const writer = new ZipWriter(new BlobWriter())
+    await writer.add("ppt/presentation.xml", new TextReader("<p:presentation/>"))
+    await writer.add("ppt/media/image1.png", new Uint8ArrayReader(new Uint8Array([0x89, 0x50, 0x4e, 0x47])))
+    const blob = await writer.close()
+    const file = path.join(import.meta.dir, "runs", ".test-media-probe.pptx")
+    await Bun.write(file, await blob.arrayBuffer())
+    try {
+      const zip = await readZipEntries(file)
+      expect([...zip.keys()].filter((name) => name.startsWith("ppt/media/")).length).toBe(1)
+      expect(zip.get("ppt/presentation.xml")).toContain("presentation")
+    } finally {
+      await Bun.file(file).delete()
+    }
   })
 
   test("maps quality scores into stable report bands", () => {
