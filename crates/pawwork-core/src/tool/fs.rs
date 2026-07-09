@@ -1,11 +1,18 @@
 //! Built-in read-only tools: `read` and `list`.
 //!
 //! Both are auto-allowed (no confirmation) and fenced to the workspace. Their
-//! filesystem work is synchronous inside the returned future: the reads are small
-//! and the outputs are capped, so for M0 an inline `std::fs` call is simpler than
-//! a `spawn_blocking` hop (which would also force the core to pull a runtime
-//! feature it otherwise avoids). Moving to `spawn_blocking` is a later concern if
-//! a tool reads large files.
+//! filesystem work is synchronous inside the returned future: the reads are
+//! bounded (see the caps below), so for M0 an inline `std::fs` call is simpler
+//! than a `spawn_blocking` hop (which would also force the core to pull a runtime
+//! feature it otherwise avoids). Moving to `spawn_blocking` is a later concern.
+//!
+//! The caps bound *work*, not just output: `read` reads at most one byte past the
+//! limit instead of slurping a whole file then truncating, and `list` stops
+//! scanning at a ceiling instead of collecting an unbounded directory. A model
+//! pointing at a huge file or directory therefore cannot stall the turn or blow
+//! memory.
+
+use std::io::Read;
 
 use serde_json::Value;
 
@@ -16,6 +23,10 @@ use super::{BoxFuture, PreparedCall, Tool, ToolContext, ToolResult};
 const MAX_READ_BYTES: usize = 64 * 1024;
 /// Cap on entries returned by `list`.
 const MAX_LIST_ENTRIES: usize = 1000;
+/// Ceiling on directory entries `list` will scan into memory before it stops and
+/// marks the result truncated. Well above [`MAX_LIST_ENTRIES`] so a normal
+/// directory still sorts correctly, but bounded so a pathological one cannot OOM.
+const MAX_LIST_SCAN: usize = 10_000;
 
 /// Pull the required `path` string argument out of a tool call's JSON.
 fn path_arg(args: &Value) -> Result<&str, String> {
@@ -56,11 +67,17 @@ impl Tool for ReadTool {
         prepared: &'a PreparedCall,
     ) -> BoxFuture<'a, ToolResult> {
         Box::pin(async move {
-            let bytes =
-                std::fs::read(&prepared.path).map_err(|err| format!("read failed: {err}"))?;
+            // Read at most one byte past the cap: enough to know the file was
+            // longer, without pulling a multi-gigabyte file into memory.
+            let file =
+                std::fs::File::open(&prepared.path).map_err(|err| format!("read failed: {err}"))?;
+            let mut bytes = Vec::new();
+            file.take((MAX_READ_BYTES + 1) as u64)
+                .read_to_end(&mut bytes)
+                .map_err(|err| format!("read failed: {err}"))?;
             let truncated = bytes.len() > MAX_READ_BYTES;
-            let slice = &bytes[..bytes.len().min(MAX_READ_BYTES)];
-            let mut text = String::from_utf8_lossy(slice).into_owned();
+            bytes.truncate(MAX_READ_BYTES);
+            let mut text = String::from_utf8_lossy(&bytes).into_owned();
             if truncated {
                 text.push_str("\n… [truncated]");
             }
@@ -104,12 +121,19 @@ impl Tool for ListTool {
             let entries =
                 std::fs::read_dir(&prepared.path).map_err(|err| format!("list failed: {err}"))?;
             let mut names = Vec::new();
+            let mut overflowed = false;
             for entry in entries {
+                if names.len() >= MAX_LIST_SCAN {
+                    // Stop scanning a pathological directory; the result is marked
+                    // truncated below.
+                    overflowed = true;
+                    break;
+                }
                 let entry = entry.map_err(|err| format!("list failed: {err}"))?;
                 names.push(entry.file_name().to_string_lossy().into_owned());
             }
             names.sort();
-            let truncated = names.len() > MAX_LIST_ENTRIES;
+            let truncated = overflowed || names.len() > MAX_LIST_ENTRIES;
             names.truncate(MAX_LIST_ENTRIES);
             let mut out = names.join("\n");
             if truncated {

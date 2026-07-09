@@ -57,6 +57,12 @@ impl TurnOutcome {
     }
 }
 
+/// Default cap on model rounds within a single turn. A runaway or adversarial
+/// model that keeps returning tool calls would otherwise loop forever, growing
+/// the ledger and context without end; this bounds one turn to a finite number
+/// of model requests. Generous enough that real multi-step tasks are unaffected.
+const DEFAULT_MAX_MODEL_ROUNDS: usize = 64;
+
 /// Internal per-call control flow.
 enum CallFlow {
     /// Move on to the next tool call (the result, error, or denial was recorded).
@@ -73,6 +79,7 @@ pub struct Agent<L: LlmClient, G: PermissionGate> {
     gate: G,
     workspace_root: PathBuf,
     history: Vec<ChatMessage>,
+    max_model_rounds: usize,
 }
 
 impl<L: LlmClient, G: PermissionGate> Agent<L, G> {
@@ -93,7 +100,14 @@ impl<L: LlmClient, G: PermissionGate> Agent<L, G> {
             gate,
             workspace_root,
             history: Vec::new(),
+            max_model_rounds: DEFAULT_MAX_MODEL_ROUNDS,
         })
+    }
+
+    /// Override the per-turn model-round budget (see [`DEFAULT_MAX_MODEL_ROUNDS`]).
+    pub fn with_max_model_rounds(mut self, max_model_rounds: usize) -> Self {
+        self.max_model_rounds = max_model_rounds;
+        self
     }
 
     /// Run one user turn: record the message, then loop model rounds — executing
@@ -122,9 +136,29 @@ impl<L: LlmClient, G: PermissionGate> Agent<L, G> {
         )?;
         self.history.push(ChatMessage::User(user_text.to_string()));
 
+        let mut round = 0usize;
         loop {
             if cancel.is_cancelled() {
                 return self.finalize_interrupted(&turn_id, "cancelled", tx);
+            }
+
+            // Runaway guard: a model that keeps returning tool calls must not loop
+            // forever. Record an error and interrupt once the round budget is spent.
+            round += 1;
+            if round > self.max_model_rounds {
+                let reason = format!(
+                    "budget exceeded: max model rounds ({})",
+                    self.max_model_rounds
+                );
+                emit(
+                    &mut self.store,
+                    tx,
+                    &turn_id,
+                    EventKind::Error {
+                        message: reason.clone(),
+                    },
+                )?;
+                return self.finalize_interrupted(&turn_id, &reason, tx);
             }
 
             // Ask the model, cancellable. `None` means the token fired first.
@@ -909,6 +943,49 @@ mod tests {
         assert!(events.iter().any(|e| matches!(
             &e.kind,
             EventKind::Error { message } if message == "boom"
+        )));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e.kind, EventKind::TurnInterrupted { .. })));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn model_round_budget_interrupts_a_runaway_loop() {
+        let dirs = TempDirs::new();
+        dirs.write("a.txt", b"x");
+        // A model that keeps asking for a tool every round would loop forever.
+        let (agent, session_dir) = build(
+            MockLlmClient::new(vec![
+                turn_with(vec![call("c1", "read", r#"{"path":"a.txt"}"#)]),
+                turn_with(vec![call("c2", "read", r#"{"path":"a.txt"}"#)]),
+                turn_with(vec![call("c3", "read", r#"{"path":"a.txt"}"#)]),
+            ]),
+            AllowGate,
+            ToolRuntime::with_read_only(),
+            &dirs,
+        );
+        let mut agent = agent.with_max_model_rounds(2);
+        let cancel = CancellationToken::new();
+        let (tx, _rx) = channel();
+        let outcome = agent.run_turn("loop forever", &cancel, &tx).await.unwrap();
+        match outcome {
+            TurnOutcome::Interrupted { reason } => {
+                assert!(reason.contains("budget"), "got: {reason}")
+            }
+            other => panic!("expected budget interruption, got {other:?}"),
+        }
+        let events = project(&session_dir).unwrap();
+        let rounds = events
+            .iter()
+            .filter(|e| matches!(e.kind, EventKind::ModelMessage { .. }))
+            .count();
+        assert_eq!(
+            rounds, 2,
+            "budget stops after exactly max_model_rounds calls"
+        );
+        assert!(events.iter().any(|e| matches!(
+            &e.kind,
+            EventKind::Error { message } if message.contains("budget")
         )));
         assert!(events
             .iter()
