@@ -17,7 +17,12 @@ pub fn ledger_root() -> PathBuf {
 }
 
 /// Directory holding one session's `events.jsonl`, `meta.json`, and `.lock`.
-pub fn sessions_dir(root: &Path, id: &str) -> PathBuf {
+///
+/// Crate-private on purpose: `id` is currently only ever an internally
+/// generated UUID. When a resume-by-id path takes user input (later PR), this
+/// must validate the id (reject separators / `..` / absolute paths) before it
+/// can be exposed, so it is not part of the public API yet.
+pub(crate) fn sessions_dir(root: &Path, id: &str) -> PathBuf {
     root.join("sessions").join(id)
 }
 
