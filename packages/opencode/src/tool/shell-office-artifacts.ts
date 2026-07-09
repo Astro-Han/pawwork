@@ -86,11 +86,23 @@ function skipHeredocBody(command: string, index: number) {
     cursor += 1
   }
   let delimiter = ""
-  while (cursor < command.length && /[A-Za-z0-9_]/.test(command[cursor])) {
-    delimiter += command[cursor]
-    cursor += 1
+  if (delimiterQuote) {
+    // A quoted delimiter word runs to its closing quote and may hold any char — `<<'PY-END'`.
+    while (cursor < command.length && command[cursor] !== delimiterQuote) {
+      delimiter += command[cursor]
+      cursor += 1
+    }
+    if (command[cursor] === delimiterQuote) cursor += 1
+  } else {
+    // An unquoted delimiter word is any run of non-metacharacter chars, so `<<PY-END` and
+    // `<<EOF.1` are valid delimiters — stop only at whitespace, a redirection/pipe/quote
+    // separator, not at the first hyphen or dot (which the old `[A-Za-z0-9_]` scan dropped,
+    // leaving the closing marker unmatched and swallowing the rest of the command).
+    while (cursor < command.length && !/[ \t\r\n;&|()<>'"]/.test(command[cursor])) {
+      delimiter += command[cursor]
+      cursor += 1
+    }
   }
-  if (delimiterQuote && command[cursor] === delimiterQuote) cursor += 1
   if (!delimiter) return undefined
   // Scan for a line whose content (leading tabs stripped for `<<-`) is exactly the delimiter.
   while (cursor < command.length) {
@@ -264,12 +276,30 @@ function isOfficeGeneratorSegment(words: string[]) {
   if (lower && (lower === "python" || /^python\d/.test(lower))) return true
   // A `uv run ...` invocation — the office-* skills always run through `uv run`, and uv
   // permits global options before the subcommand (`uv --directory work run ...`,
-  // `uv --offline run ...`), so the `run` subcommand token is the signal rather than its
+  // `uv --offline run ...`), so scan past options for the subcommand rather than fixing its
   // position. This deliberately admits `uv run <anything>` (including `uv run script.py`,
   // where uv runs a bare script with no explicit `python`); the office-output value gates
   // (isOfficeOutputPath / dynamicOutputCouldBeDiscoverable) keep a non-office `uv run`
   // from producing a phantom capture.
-  if (lower === "uv" && rest.some((word) => word.toLowerCase() === "run")) return true
+  if (lower === "uv") return uvRunsSubcommand(rest)
+  return false
+}
+
+// uv's own subcommands other than `run`. `uv` is only an office generator when `run` is the
+// SUBCOMMAND — scanning for `run` anywhere would misread `uv pip install run -o report.docx`
+// (where `run` is a package argument) as a generator and capture a phantom `-o` output. So
+// bail as soon as a different uv subcommand appears before `run`. Global options and their
+// values (`--directory work`) are neither `run` nor a known subcommand, so they are skipped.
+const uvNonRunSubcommands = new Set([
+  "pip", "tool", "tree", "add", "remove", "sync", "lock", "export", "venv", "build", "publish",
+  "init", "cache", "self", "python", "version", "help", "format",
+])
+function uvRunsSubcommand(rest: string[]) {
+  for (const word of rest) {
+    const low = word.toLowerCase()
+    if (low === "run") return true
+    if (uvNonRunSubcommands.has(low)) return false
+  }
   return false
 }
 

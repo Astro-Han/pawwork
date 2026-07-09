@@ -103,6 +103,8 @@ describe("officeOutputPaths", () => {
     "uv run python read_docx.py input.docx", // office file is an input, no output flag
     "cat report.docx",
     "uv run pytest",
+    "uv pip install run -o report.docx", // `run` is an install arg, not the uv subcommand
+    "uv tool run ruff -o report.docx", // a different uv subcommand, not `uv run`
     `echo "x.save('a.docx')"`, // .save text inside a non-generator command
     // .save inside an echo literal, even when a real generator runs later in the chain
     `echo "wb.save('phantom.xlsx')" && uv run python real.py`,
@@ -163,6 +165,7 @@ describe("hasOfficeOutputIntent", () => {
     // uv --directory is scoped: after `&&` the parent cwd is restored, so the second
     // command's relative b.docx is exactly captured, not an unresolved intent
     "uv --directory work run python a.py -o /tmp/a.docx && uv run python b.py -o b.docx",
+    "uv pip install run -o report.docx", // `run` is an install arg, not the uv subcommand
   ])("reports no intent for %s", (command) => {
     expect(hasOfficeOutputIntent(command)).toBe(false)
   })
@@ -234,5 +237,14 @@ describe("nonOfficeGeneratorText", () => {
     const cmd = "uv run python <<'PY' > log.txt\nprs.save('deck.pptx')\nPY"
     expect(officeOutputPaths(cmd)).toEqual(["deck.pptx"]) // deck still captured exactly
     expect(nonOfficeGeneratorText(cmd)).toBe("> log.txt") // opener-line write survives
+  })
+
+  test("terminates a hyphenated heredoc delimiter so a trailing side-effect write survives", () => {
+    // `<<PY-END` is a valid delimiter; if the parser stopped at `PY` the closing marker would
+    // never match and the whole rest of the command (incl. `echo done > side.txt`) would be
+    // swallowed into the heredoc body, hiding the real side-effect write
+    const cmd = "uv run python <<PY-END\ndoc.save('a.docx')\nPY-END\necho done > side.txt"
+    expect(officeOutputPaths(cmd)).toEqual(["a.docx"]) // deck captured, heredoc bounded
+    expect(nonOfficeGeneratorText(cmd)).toBe("echo done > side.txt") // trailing write survives
   })
 })
