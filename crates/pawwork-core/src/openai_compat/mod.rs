@@ -92,7 +92,7 @@ impl LlmClient for OpenAiClient {
                 .map_err(|err| LlmError::new(format!("request failed: {err}")))?;
             let status = response.status();
             if !status.is_success() {
-                let body = response.text().await.unwrap_or_default();
+                let body = read_capped_error_body(&mut response).await;
                 return Err(status_error(status.as_u16(), api_key_env.as_deref(), &body));
             }
 
@@ -123,6 +123,28 @@ impl LlmClient for OpenAiClient {
             accumulator.finish()
         }
     }
+}
+
+/// Cap on how much of a non-2xx response body the client reads. We only ever echo
+/// a short truncated summary, so a pathological endpoint — a wrong base_url, or a
+/// proxy returning a huge HTML error page — must not make the client buffer an
+/// unbounded body just to drop nearly all of it.
+const ERROR_BODY_CAP: usize = 8 * 1024;
+
+/// Read at most [`ERROR_BODY_CAP`] bytes of an error response, then stop draining.
+/// Reuses the same chunked read as the success stream, so a giant error body is
+/// bounded the same way a giant stream would be. A read error mid-body just ends
+/// the read early — a truncated detail is still better than none.
+async fn read_capped_error_body(response: &mut reqwest::Response) -> String {
+    let mut buf: Vec<u8> = Vec::new();
+    while buf.len() < ERROR_BODY_CAP {
+        match response.chunk().await {
+            Ok(Some(bytes)) => buf.extend_from_slice(&bytes),
+            Ok(None) | Err(_) => break,
+        }
+    }
+    buf.truncate(ERROR_BODY_CAP);
+    String::from_utf8_lossy(&buf).into_owned()
 }
 
 /// Turn a non-2xx status into an [`LlmError`], naming the key env var on 401 so a

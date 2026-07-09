@@ -66,9 +66,10 @@ const DEFAULT_MAX_MODEL_ROUNDS: usize = 64;
 /// Default cap on tool calls the model may request in a single round. Sibling to
 /// [`DEFAULT_MAX_MODEL_ROUNDS`]: that bounds how many rounds a turn runs, this
 /// bounds one round's batch. A runaway or adversarial model that returns a huge
-/// batch would otherwise have the whole batch written to the ledger and executed
-/// before the next round-budget check; this stops the turn first. Generous enough
-/// that real multi-tool steps are unaffected.
+/// batch would otherwise have the whole batch written to the ledger and history —
+/// and, since it is never executed, replayed on every later request; this stops
+/// the turn before the batch enters the record. Generous enough that real
+/// multi-tool steps are unaffected.
 const DEFAULT_MAX_TOOL_CALLS_PER_TURN: usize = 32;
 
 /// Internal per-call control flow.
@@ -198,6 +199,31 @@ impl<L: LlmClient, G: PermissionGate> Agent<L, G> {
                 Some(Ok(turn)) => turn,
             };
 
+            // Batch guard: reject an oversized batch *before* it is recorded or
+            // run. A runaway or adversarial model returning a huge batch would
+            // otherwise have the whole thing written to the ledger and in-memory
+            // history — and, since the batch is never executed, every later request
+            // would replay it and synthesize a cancelled result per call (see
+            // openai_compat::wire, docs §13 P2-1/P2-2), bloating the record and the
+            // context without bound. Record a bounded error and stop before the
+            // batch enters the record.
+            if turn.tool_calls.len() > self.max_tool_calls_per_turn {
+                let reason = format!(
+                    "budget exceeded: max tool calls per turn ({}), got {}",
+                    self.max_tool_calls_per_turn,
+                    turn.tool_calls.len()
+                );
+                emit(
+                    &mut self.store,
+                    tx,
+                    &turn_id,
+                    EventKind::Error {
+                        message: reason.clone(),
+                    },
+                )?;
+                return self.finalize_interrupted(&turn_id, &reason, tx);
+            }
+
             emit(
                 &mut self.store,
                 tx,
@@ -215,28 +241,6 @@ impl<L: LlmClient, G: PermissionGate> Agent<L, G> {
             if turn.tool_calls.is_empty() {
                 emit(&mut self.store, tx, &turn_id, EventKind::TurnCompleted)?;
                 return Ok(TurnOutcome::Completed);
-            }
-
-            // Batch guard: a model returning an oversized batch in one round would
-            // otherwise execute the whole thing before the next round-budget check.
-            // Interrupt before executing any of it. The recorded (now unanswered)
-            // tool_calls are sanitized on the next turn's request, not rewritten
-            // here — see openai_compat::wire and docs §13 (P2-1/P2-2).
-            if turn.tool_calls.len() > self.max_tool_calls_per_turn {
-                let reason = format!(
-                    "budget exceeded: max tool calls per turn ({}), got {}",
-                    self.max_tool_calls_per_turn,
-                    turn.tool_calls.len()
-                );
-                emit(
-                    &mut self.store,
-                    tx,
-                    &turn_id,
-                    EventKind::Error {
-                        message: reason.clone(),
-                    },
-                )?;
-                return self.finalize_interrupted(&turn_id, &reason, tx);
             }
 
             let ctx = ToolContext {
@@ -1061,6 +1065,20 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e.kind, EventKind::ToolStarted { .. })),
             "an oversized batch must not execute a single call"
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e.kind, EventKind::ModelMessage { .. })),
+            "an oversized batch must not be recorded to the ledger"
+        );
+        assert!(
+            !agent.history.iter().any(|m| matches!(
+                m,
+                ChatMessage::Assistant { tool_calls, .. } if !tool_calls.is_empty()
+            )),
+            "an oversized batch must not poison the in-memory history (it would be \
+             replayed on every later request)"
         );
         assert!(events.iter().any(|e| matches!(
             &e.kind,
