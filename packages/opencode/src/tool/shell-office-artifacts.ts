@@ -654,6 +654,13 @@ export function commandHead(words: string[]) {
 // already backstops such a name, rather than being tracked exactly.
 const shellEscapableChars = new Set([" ", "\t", "&", ";", "|", "(", ")", '"', "'"])
 
+// Inside double quotes, POSIX keeps a backslash special ONLY before these characters (and a
+// newline, already collapsed by stripLineContinuations); before anything else the backslash is
+// a literal. So `"C:\Users\me\deck.pptx"` retains its separators (real Windows path) while an
+// escaped quote `"...save(\"x.docx\")"` still resolves to a literal `"` that does not close the
+// string.
+const dquoteEscapableChars = new Set(['"', "\\", "$", "`"])
+
 function shellWords(text: string) {
   const words: string[] = []
   let current = ""
@@ -665,7 +672,7 @@ function shellWords(text: string) {
         quote = undefined
         continue
       }
-      if (char === "\\" && quote === '"' && index + 1 < text.length) {
+      if (char === "\\" && quote === '"' && dquoteEscapableChars.has(text[index + 1])) {
         index++
         current += text[index]
         continue

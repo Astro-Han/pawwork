@@ -93,6 +93,11 @@ describe("officeOutputPaths", () => {
     // the backslash-space unescape must NOT touch backslashes before non-space chars, so a
     // Windows-style `-o` path keeps its separators (still captured exactly, verbatim)
     [String.raw`uv run python build.py -o C:\out\report.docx`, [String.raw`C:\out\report.docx`]],
+    // a DOUBLE-QUOTED Windows path keeps its separators too: POSIX drops a backslash inside
+    // double quotes only before " \ $ `, so `C:\Users\me\deck.pptx` is captured verbatim, not
+    // mangled to `C:Usersmedeck.pptx`. Quoting is the natural form when the path has spaces.
+    [String.raw`uv run python build.py -o "C:\Users\me\deck.pptx"`, [String.raw`C:\Users\me\deck.pptx`]],
+    [String.raw`uv run python build.py -o "C:\Program Files\report.docx"`, [String.raw`C:\Program Files\report.docx`]],
     // an unquoted backslash-escaped shell metacharacter is a literal in the filename: the real
     // file is `R&D.docx`, so capture that, not the literal-backslash `R\&D.docx`
     [String.raw`uv run python build.py -o R\&D.docx`, ["R&D.docx"]],
