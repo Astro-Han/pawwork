@@ -118,7 +118,7 @@ describe("bash prompt", () => {
       expect(EXPECTED_OUTPUTS_DESCRIPTION).toContain("deliverable artifact")
       expect(EXPECTED_OUTPUTS_DESCRIPTION).toContain("DO NOT set it for")
       expect(EXPECTED_OUTPUTS_DESCRIPTION).toContain("read-only inspection")
-      expect(EXPECTED_OUTPUTS_DESCRIPTION).toContain("officecli")
+      expect(EXPECTED_OUTPUTS_DESCRIPTION).toContain(".docx")
     })
 
     test("expected_outputs description: routine builds DO NOT set; named build deliverables DO", () => {

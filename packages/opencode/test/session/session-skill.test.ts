@@ -17,14 +17,14 @@ describe("session.skill", () => {
         const created = await runSession((svc) =>
           svc.create({
             title: "Document workflow",
-            skill: "officecli-docx",
+            skill: "office-docx",
           }),
         )
 
-        expect(created.skill).toBe("officecli-docx")
+        expect(created.skill).toBe("office-docx")
 
         const loaded = await runSession((svc) => svc.get(created.id))
-        expect(loaded.skill).toBe("officecli-docx")
+        expect(loaded.skill).toBe("office-docx")
       },
     })
   })

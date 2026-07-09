@@ -1,14 +1,5 @@
 # Third-Party Notices
 
-## OfficeCLI
-
-PawWork bundles OfficeCLI by iOfficeAI to read and edit Word, Excel, and PowerPoint files locally.
-
-PawWork also bundles OfficeCLI's `officecli-*` and `morph-ppt*` skill directories, vendored from the same repository under the same Apache-2.0 license. Each vendored directory includes its `SKILL.md` plus any companion files (for example `editing.md`, `creating.md`, and assets under `reference/**` such as decision rules, helper scripts, and style templates). Each `SKILL.md` has a PawWork override blockquote injected after the frontmatter; companion files and the rest of each `SKILL.md`'s upstream content are otherwise byte-for-byte unmodified. Vendored content is synced via `packages/desktop-electron/scripts/sync-officecli-skills.ts`.
-
-- Project: https://github.com/iOfficeAI/OfficeCLI
-- License: Apache License 2.0
-
 ## OpenCLI
 
 PawWork bundles `@jackwener/opencli` by @jackwener to power browser-based adapters for supported sites.
@@ -28,7 +19,7 @@ PawWork bundles `uv` by Astral to supply a Python runtime for Excel/Word/PowerPo
 - Version: 0.11.28
 - License: MIT OR Apache-2.0 (dual-licensed; PawWork relies on the Apache-2.0 grant, whose text is included below)
 
-The Apache License 2.0 text for OfficeCLI, OpenCLI, and uv follows.
+The Apache License 2.0 text for OpenCLI and uv follows.
 
 ## Apache License 2.0
 
@@ -221,7 +212,7 @@ The Apache License 2.0 text for OfficeCLI, OpenCLI, and uv follows.
 
       SPDX-License-Identifier: Apache-2.0
 
-      Copyright 2026 OfficeCli (https://OfficeCli.AI)
+      Copyright [yyyy] [name of copyright owner]
 
       Licensed under the Apache License, Version 2.0 (the "License");
       you may not use this file except in compliance with the License.

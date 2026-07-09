@@ -1,20 +1,16 @@
 ---
 name: office-xlsx
-description: "PREVIEW / dark-launched. Native .xlsx generation with Python openpyxl (real formulas, explicit number formats and fonts, charts), plus reading/parsing existing workbooks. NOT the default spreadsheet path — for a normal Excel / spreadsheet / financial-model request keep using officecli-xlsx. Only use office-xlsx when the user (or an experiment) explicitly asks for the openpyxl / native-Python preview route by name."
+description: "Native .xlsx generation and editing with Python openpyxl: real formulas the recipient can recalc, explicit number formats and fonts, native charts. Also reads and parses existing workbooks. Use this for any Excel, spreadsheet, or financial-model request, and for reading or modifying an existing .xlsx."
 ---
 
-# office-xlsx — native XLSX with openpyxl (preview)
+# office-xlsx — native XLSX with openpyxl
 
-You build editable `.xlsx` workbooks with Python `openpyxl`: real formulas the recipient can recalc, explicit number formats and fonts, and native charts. You can also read and parse existing workbooks. No officecli, no LibreOffice.
-
-This is a **dark-launched preview**. It does not replace the default spreadsheet path. Only run it when explicitly routed here.
-
-> Known limitation of this dark launch: preview status is enforced only by this skill's description — there is no hard runtime switch yet, and the skill is visible in the Skills page. The hard on/off switch lands with the routing change (PR 4).
+You build editable `.xlsx` workbooks with Python `openpyxl`: real formulas the recipient can recalc, explicit number formats and fonts, and native charts. You can also read and parse existing workbooks. No LibreOffice.
 
 ## Runtime contract
 
 - `uv` must be on `PATH`. All Python runs through `uv run`; the runtime injects the package-mirror environment variables so `uv` resolves `openpyxl` from the internal mirror. You do not configure the mirror.
-- **If `uv` is missing**, stop and report exactly: `office-xlsx requires 'uv' on PATH, but 'uv --version' failed. This is an environment problem — uv should be provisioned by the PawWork runtime. Do not fall back to system pip or officecli; report the missing uv instead.` Do not attempt `pip install` or any other fallback.
+- **If `uv` is missing**, stop and report exactly: `office-xlsx requires 'uv' on PATH, but 'uv --version' failed. This is an environment problem — uv should be provisioned by the PawWork runtime. Do not fall back to system pip; report the missing uv instead.` Do not attempt `pip install` or any other fallback.
 - The skill directory ships read-only inside the app bundle. **Never write into it.** Work in a fresh directory.
 
 `SKILL_DIR` below means the skill's base directory **as a plain filesystem path** — copy the line labeled "Base directory as a plain filesystem path" from the skill-load output. Do **not** use the `file://` URL form; if only a `file://` URL is available, strip the `file://` prefix first.
@@ -57,7 +53,7 @@ wb.save("out.xlsx")
 
 ## Reading / parsing
 
-`load_workbook(path)` reads formulas; `load_workbook(path, data_only=True)` reads the last cached computed values. Use `data_only=True` when you need results, `data_only=False` when you need to inspect or preserve formulas.
+`load_workbook(path)` reads formulas; `load_workbook(path, data_only=True)` reads the last cached computed values. Use `data_only=True` when you need results, `data_only=False` when you need to inspect or preserve formulas. To **edit** an existing workbook, `load_workbook(path)`, change cells (respecting the formula-injection rule above for any user-supplied values), then `wb.save('out.xlsx')`.
 
 ## Gate — structure check (before delivering)
 

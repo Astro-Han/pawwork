@@ -15,7 +15,7 @@ export function envValueCaseInsensitive(env: Record<string, string | undefined> 
   return Object.entries(env ?? {}).find(([key]) => key.toLowerCase() === normalized)?.[1]
 }
 
-// Returns the directory holding PawWork's bundled CLI tools (officecli, ...),
+// Returns the directory holding PawWork's bundled CLI tools (uv, ...),
 // or "" when not running inside the packaged Electron app (e.g. plain `bun dev`).
 // In dev:desktop, process.resourcesPath points to the Electron framework's
 // Resources, not PawWork's — there's no tools/ subdir there, so the prepend
@@ -26,7 +26,7 @@ export function bundledToolsDir(): string {
 }
 
 // Prepends bundledToolsDir to a PATH string so child processes can resolve
-// PawWork's bundled CLIs (e.g. `officecli`) by bare name. Pass the PATH that
+// PawWork's bundled CLIs (e.g. `uv`) by bare name. Pass the PATH that
 // will end up in the spawned env; pass "" if unknown.
 export function prependBundledTools(currentPath: string): string {
   const dir = bundledToolsDir()

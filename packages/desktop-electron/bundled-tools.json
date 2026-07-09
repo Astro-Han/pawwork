@@ -1,15 +1,4 @@
 {
-  "officecli": {
-    "version": "v1.0.102",
-    "repo": "iOfficeAI/OfficeCLI",
-    "assets": {
-      "darwin-arm64": "officecli-mac-arm64",
-      "darwin-x64": "officecli-mac-x64",
-      "win32-x64": "officecli-win-x64.exe",
-      "win32-arm64": "officecli-win-arm64.exe"
-    },
-    "skillsTarballSha256": "933f63e5a73d3c136bacfd10f435af775355cc170ab69f4a42dbcf5648b9cb6a"
-  },
   "uv": {
     "version": "0.11.28",
     "repo": "astral-sh/uv",

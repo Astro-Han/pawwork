@@ -36,7 +36,7 @@ PawWork is built for people who want AI agents to do real desktop work, not only
 | Local file access | Full workspace access | Sandboxed by default | User-selected folders |
 | Browser automation | Yes (supported OpenCLI adapters; coverage varies) | No | No |
 | Local models | Yes (Ollama, LM Studio, etc.) | CLI only (Ollama) | Via gateway (Requesty) |
-| Office files (Word/Excel/PPT) | Yes (via OfficeCLI) | No | No |
+| Office files (Word/Excel/PPT) | Yes | No | No |
 | Non-technical user focus | Yes (task cards, no terminal) | Developer-focused | Knowledge work + coding |
 
 ## What You Can Ask PawWork To Do
@@ -108,8 +108,6 @@ PawWork is built on a fork of [OpenCode](https://github.com/anomalyco/opencode).
 
 Thanks to the OpenCode project and community.
 
-PawWork bundles [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI) by iOfficeAI to handle Word, Excel, and PowerPoint files locally. Thanks to iOfficeAI for the Apache-2.0 open-source OfficeCLI project.
-
 PawWork bundles [OpenCLI](https://github.com/jackwener/opencli) by [@jackwener](https://github.com/jackwener) to power browser-based adapters for supported sites. OpenCLI provides the CDP bridge and bundled command adapters that help PawWork interact with web services like Twitter/X, Bilibili, Xiaohongshu, and more where the adapter coverage fits the task. Thanks to @jackwener for the Apache-2.0 open-source OpenCLI project.
 
 ## FAQ
@@ -124,7 +122,7 @@ OpenAI (including ChatGPT Plus/Pro via OAuth), Claude, DeepSeek, Gemini, Kimi, G
 Yes. PawWork runs as a native desktop app with full access to your local workspace. It can read and write documents, spreadsheets, PDFs, code projects, and generated output files.
 
 **What file formats does PawWork handle?**
-PawWork works with PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), CSV, Markdown, plain text, images, and code files. Office file handling is powered by the bundled OfficeCLI.
+PawWork works with PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), CSV, Markdown, plain text, images, and code files. Office files are read and written locally on your machine.
 
 **What platforms does PawWork support?**
 macOS (Apple Silicon and Intel, signed and notarized) and Windows x64.

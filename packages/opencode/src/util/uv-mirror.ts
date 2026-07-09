@@ -15,10 +15,9 @@ import { envValueCaseInsensitive } from "@/util/env"
 // deliberately do NOT switch away from a reachable official source.
 //
 // Callers (shell tool, pty, session prompt bash) apply the snapshot into the
-// child env unconditionally, the same way OFFICECLI_SKIP_UPDATE is always
-// set — but only for keys the user has not already defined, so an explicitly
-// configured UV_DEFAULT_INDEX / UV_PYTHON_INSTALL_MIRROR (e.g. a corporate
-// index) is never overridden.
+// child env on every spawn, but only for keys the user has not already
+// defined, so an explicitly configured UV_DEFAULT_INDEX /
+// UV_PYTHON_INSTALL_MIRROR (e.g. a corporate index) is never overridden.
 
 export interface MirrorCandidate {
   /** Human-readable id, used only for logging/tests. */

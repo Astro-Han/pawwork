@@ -6,7 +6,6 @@
   },
   "include": [
     "electron-builder.config.ts",
-    "scripts/write-app-update-config.ts",
-    "scripts/sync-officecli-skills.ts"
+    "scripts/write-app-update-config.ts"
   ]
 }

@@ -1,15 +1,11 @@
 ---
 name: office-pdf
-description: "PREVIEW / dark-launched. PDF generation (author HTML, then print to PDF with PawWork's bundled Chromium) and PDF parsing (uv + pdfplumber / pypdf). NOT a default route — only use office-pdf when the user (or an experiment) explicitly asks for the preview PDF route by name. Hard rule: never use PyMuPDF / fitz (AGPL)."
+description: "PDF parsing (uv + pdfplumber / pypdf): use this for reading or extracting text/tables from any PDF. PDF generation (author print-ready HTML, then print with PawWork's bundled Chromium) is best-effort — where the runtime exposes no print entry point, report that generation is unavailable rather than substituting another tool. Hard rule: never use PyMuPDF / fitz (AGPL)."
 ---
 
-# office-pdf — generate and parse PDF (preview)
+# office-pdf — generate and parse PDF
 
 Two independent paths: **generate** a PDF from HTML using PawWork's bundled Chromium, and **parse** an existing PDF with permissively-licensed Python libraries.
-
-This is a **dark-launched preview**. It does not replace any default route. Only run it when explicitly routed here.
-
-> Known limitation of this dark launch: preview status is enforced only by this skill's description — there is no hard runtime switch yet, and the skill is visible in the Skills page. The hard on/off switch lands with the routing change (PR 4).
 
 ## License hard rule (non-negotiable)
 
@@ -32,7 +28,7 @@ Author a **self-contained HTML file** built for print:
 - Use `page-break-before/after` / `break-inside: avoid` to control pagination; design against print CSS, not screen scroll.
 - Prefer real text and CSS/SVG vector graphics over rasterized screenshots so the PDF stays selectable and crisp.
 
-Then render it to PDF through the runtime's bundled-Chromium print entry point (`Page.printToPDF` over the browser bridge). **If the current build exposes no PDF/print tool, report that the generation path is not available in this runtime rather than shelling out to an unbundled browser or an AGPL library** — this is expected while the route is dark-launched.
+Then render it to PDF through the runtime's bundled-Chromium print entry point (`Page.printToPDF` over the browser bridge). **If the current build exposes no PDF/print tool, report that the generation path is not available in this runtime rather than shelling out to an unbundled browser or an AGPL library** — this can happen while the bundled-Chromium print entry point is still being wired up, so degrade gracefully instead of substituting another tool.
 
 ## Path 2 — Parse (uv + pdfplumber / pypdf)
 
