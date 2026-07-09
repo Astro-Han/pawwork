@@ -121,6 +121,10 @@ describe("officeOutputPaths", () => {
     // a python-like VALUE of any value-option (`--project python`) must not stop the scan and
     // hide the later `--directory` chdir — else the relative output looks exact in the shell cwd
     "uv --project python --directory work run python make.py -o report.docx",
+    // the value-option table must cover uv run's selection flags too (`--package`, `--extra`,
+    // `--group`, ...) — a python-shaped value there must not hide the later `--directory` chdir
+    "uv run --package python --directory work python make.py -o report.docx",
+    "uv run --group python --directory work python make.py -o report.docx",
     "uv --directory work run python <<'PY'\ndoc.save('out.docx')\nPY", // heredoc .save under --directory chdir
     'uv run python build.py --out "{draft,final}.docx"', // brace expansion is shell state, not a literal file
     'uv run python build.py --out "[ab].docx"', // bracket glob is shell state, not a literal file
@@ -171,6 +175,10 @@ describe("hasOfficeOutputIntent", () => {
     // a value-option value (`--project python`) shaped like a python command must not hide the
     // later `--directory` chdir → the relative output stays unresolved intent
     "uv --project python --directory work run python make.py -o report.docx",
+    // uv run selection flags take a value too — `--package python` / `--group python` must not
+    // stop the scan on their python-shaped value and hide the `--directory` chdir
+    "uv run --package python --directory work python make.py -o report.docx",
+    "uv run --group python --directory work python make.py -o report.docx",
     // a --directory value that collides with a uv subcommand name (`build`) must not hide the
     // real `run`; the relative output under that chdir is still unresolved intent
     "uv --directory build run python make.py -o report.docx",
@@ -271,6 +279,18 @@ describe("nonOfficeGeneratorText", () => {
     const cmd = "uv run python <<'PY' > log.txt\nprs.save('deck.pptx')\nPY"
     expect(officeOutputPaths(cmd)).toEqual(["deck.pptx"]) // deck still captured exactly
     expect(nonOfficeGeneratorText(cmd)).toBe("> log.txt") // opener-line write survives
+  })
+
+  test("keeps a command chained on the heredoc opener line as its own side-effect write", () => {
+    // `<<'PY'; touch side.txt` / `<<'PY' && touch side.txt` put `touch` on the opener line
+    // (shell), before the body (stdin). Skipping the whole heredoc span would bury `touch` inside
+    // the captured office segment and hide it from the audit — the body must be re-attached to the
+    // generator segment while the trailing command splits off into its own segment.
+    for (const sep of [";", "&&"]) {
+      const cmd = `uv run python <<'PY' ${sep} touch side.txt\ndoc.save('out.docx')\nPY`
+      expect(officeOutputPaths(cmd)).toEqual(["out.docx"]) // generator + body still captured
+      expect(isLikelyWriteCommand(nonOfficeGeneratorText(cmd))).toBe(true) // touch survives the audit
+    }
   })
 
   test("terminates a hyphenated heredoc delimiter so a trailing side-effect write survives", () => {

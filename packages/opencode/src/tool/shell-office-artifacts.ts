@@ -147,12 +147,39 @@ export function commandSegments(command: string) {
   let start = 0
   let quote: "'" | '"' | undefined
   let index = 0
+  // A heredoc BODY is stdin, but the rest of the opener LINE after `<<DELIM` is still shell:
+  // `uv run python <<'PY'; touch x` runs `touch x` as its own command. So we keep scanning the
+  // opener line for delimiters and skip only the body, re-attaching that body to whichever
+  // segment owns the heredoc — which may be split off from a trailing `; touch` / `&& rm` by a
+  // delimiter. Jumping straight past the whole span (the old behavior) buried such trailing
+  // writes inside the office segment, hiding them from the side-effect audit.
+  let pendingBodyEnd: number | undefined
+  let pendingBodyStart = 0
+  let pendingBodyText = ""
+  const pushSegment = (endIndex: number) => {
+    let text = command.slice(start, endIndex)
+    if (pendingBodyText) {
+      text += pendingBodyText
+      pendingBodyText = ""
+    }
+    text = text.trim()
+    if (text) segments.push({ text })
+  }
   while (index < command.length) {
     const char = command[index]
     if (quote) {
       if (char === quote) quote = undefined
       else if (char === "\\" && quote === '"') index += 1
       index += 1
+      continue
+    }
+    // Reached the opener line's terminating newline: emit the segment up to here (the heredoc
+    // owner + its body if still pending, otherwise a trailing command), then jump past the body.
+    if (pendingBodyEnd !== undefined && index >= pendingBodyStart) {
+      pushSegment(index)
+      index = pendingBodyEnd
+      start = pendingBodyEnd
+      pendingBodyEnd = undefined
       continue
     }
     // An unquoted backslash escapes the next character, so an escaped delimiter
@@ -168,10 +195,15 @@ export function commandSegments(command: string) {
       index += 1
       continue
     }
-    if (char === "<" && command[index + 1] === "<") {
+    if (pendingBodyEnd === undefined && char === "<" && command[index + 1] === "<") {
       const bodyEnd = skipHeredocBody(command, index)
       if (bodyEnd !== undefined) {
-        index = bodyEnd
+        // The body runs from the opener line's terminating newline to the closing delimiter.
+        const newlineIndex = command.indexOf("\n", index)
+        pendingBodyStart = newlineIndex === -1 ? command.length : newlineIndex
+        pendingBodyEnd = bodyEnd
+        pendingBodyText = command.slice(pendingBodyStart, bodyEnd)
+        index += 2
         continue
       }
     }
@@ -192,13 +224,11 @@ export function commandSegments(command: string) {
       continue
     }
 
-    const text = command.slice(start, index).trim()
-    if (text) segments.push({ text })
+    pushSegment(index)
     index += currentDelimiter.length
     start = index
   }
-  const text = command.slice(start).trim()
-  if (text) segments.push({ text })
+  pushSegment(command.length)
   return segments
 }
 
@@ -329,12 +359,29 @@ const uvNonRunSubcommands = new Set([
   "init", "cache", "self", "python", "version", "help", "format",
 ])
 // uv options that consume the NEXT token as their value. Their value must not be read as the
-// subcommand, so a `--directory build` whose value collides with a subcommand name (`build`,
-// `pip`, `python`) does not make `uv --directory build run ...` look like `uv build`.
+// subcommand OR as the executed command, so a `--directory build` whose value collides with a
+// subcommand name (`build`, `pip`, `python`) does not make `uv --directory build run ...` look
+// like `uv build`, and a `--package python` value does not hide a later `--directory` chdir from
+// uvChangesDirectory. This is the single maintenance point: it must list every value-taking uv
+// (global) / `uv run` option, since a missing entry lets a python-shaped value stop the option
+// scan early. Booleans are deliberately excluded — wrongly listing one would skip the token after
+// it (possibly a real `--directory`). Long `--opt=value` forms carry the value inline and never
+// defer, so only the space-separated `--opt value` forms need listing.
 const uvValueOptions = new Set([
-  "--directory", "--project", "--config-file", "--cache-dir", "--color", "--python", "-p",
-  "--python-preference", "--env-file", "--with", "--with-requirements", "--index",
-  "--default-index", "--index-url", "--extra-index-url", "--find-links",
+  // global + resolver options
+  "--directory", "--project", "--package", "--config-file", "--cache-dir", "--color",
+  "--python", "-p", "--python-preference", "--python-platform", "--env-file",
+  // dependency / group / extra selection
+  "--with", "--with-editable", "--with-requirements", "--extra", "--group", "--no-group",
+  "--only-group",
+  // index / source configuration
+  "--index", "--default-index", "--index-url", "--extra-index-url", "--find-links",
+  "--index-strategy", "--keyring-provider",
+  // resolution / build tuning
+  "--resolution", "--prerelease", "--fork-strategy", "--exclude-newer", "--link-mode",
+  "--config-setting", "-C", "--override", "--constraint", "--build-constraint",
+  "--refresh-package", "--upgrade-package", "-P", "--reinstall-package",
+  "--no-binary-package", "--no-build-package", "--no-build-isolation-package",
 ])
 function uvRunsSubcommand(rest: string[]) {
   let previous: string | undefined
