@@ -63,6 +63,15 @@ impl TurnOutcome {
 /// of model requests. Generous enough that real multi-step tasks are unaffected.
 const DEFAULT_MAX_MODEL_ROUNDS: usize = 64;
 
+/// Default cap on tool calls the model may request in a single round. Sibling to
+/// [`DEFAULT_MAX_MODEL_ROUNDS`]: that bounds how many rounds a turn runs, this
+/// bounds one round's batch. A runaway or adversarial model that returns a huge
+/// batch would otherwise have the whole batch written to the ledger and history —
+/// and, since it is never executed, replayed on every later request; this stops
+/// the turn before the batch enters the record. Generous enough that real
+/// multi-tool steps are unaffected.
+const DEFAULT_MAX_TOOL_CALLS_PER_TURN: usize = 32;
+
 /// Internal per-call control flow.
 enum CallFlow {
     /// Move on to the next tool call (the result, error, or denial was recorded).
@@ -80,6 +89,7 @@ pub struct Agent<L: LlmClient, G: PermissionGate> {
     workspace_root: PathBuf,
     history: Vec<ChatMessage>,
     max_model_rounds: usize,
+    max_tool_calls_per_turn: usize,
 }
 
 impl<L: LlmClient, G: PermissionGate> Agent<L, G> {
@@ -101,12 +111,19 @@ impl<L: LlmClient, G: PermissionGate> Agent<L, G> {
             workspace_root,
             history: Vec::new(),
             max_model_rounds: DEFAULT_MAX_MODEL_ROUNDS,
+            max_tool_calls_per_turn: DEFAULT_MAX_TOOL_CALLS_PER_TURN,
         })
     }
 
     /// Override the per-turn model-round budget (see [`DEFAULT_MAX_MODEL_ROUNDS`]).
     pub fn with_max_model_rounds(mut self, max_model_rounds: usize) -> Self {
         self.max_model_rounds = max_model_rounds;
+        self
+    }
+
+    /// Override the per-round tool-call cap (see [`DEFAULT_MAX_TOOL_CALLS_PER_TURN`]).
+    pub fn with_max_tool_calls_per_turn(mut self, max_tool_calls_per_turn: usize) -> Self {
+        self.max_tool_calls_per_turn = max_tool_calls_per_turn;
         self
     }
 
@@ -181,6 +198,31 @@ impl<L: LlmClient, G: PermissionGate> Agent<L, G> {
                 }
                 Some(Ok(turn)) => turn,
             };
+
+            // Batch guard: reject an oversized batch *before* it is recorded or
+            // run. A runaway or adversarial model returning a huge batch would
+            // otherwise have the whole thing written to the ledger and in-memory
+            // history — and, since the batch is never executed, every later request
+            // would replay it and synthesize a cancelled result per call (see
+            // openai_compat::wire, docs §13 P2-1/P2-2), bloating the record and the
+            // context without bound. Record a bounded error and stop before the
+            // batch enters the record.
+            if turn.tool_calls.len() > self.max_tool_calls_per_turn {
+                let reason = format!(
+                    "budget exceeded: max tool calls per turn ({}), got {}",
+                    self.max_tool_calls_per_turn,
+                    turn.tool_calls.len()
+                );
+                emit(
+                    &mut self.store,
+                    tx,
+                    &turn_id,
+                    EventKind::Error {
+                        message: reason.clone(),
+                    },
+                )?;
+                return self.finalize_interrupted(&turn_id, &reason, tx);
+            }
 
             emit(
                 &mut self.store,
@@ -990,5 +1032,148 @@ mod tests {
         assert!(events
             .iter()
             .any(|e| matches!(e.kind, EventKind::TurnInterrupted { .. })));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn oversized_tool_batch_interrupts_before_executing() {
+        let dirs = TempDirs::new();
+        dirs.write("a.txt", b"x");
+        // One round returning more calls than the cap allows.
+        let (agent, session_dir) = build(
+            MockLlmClient::new(vec![turn_with(vec![
+                call("c1", "read", r#"{"path":"a.txt"}"#),
+                call("c2", "read", r#"{"path":"a.txt"}"#),
+                call("c3", "read", r#"{"path":"a.txt"}"#),
+            ])]),
+            AllowGate,
+            ToolRuntime::with_read_only(),
+            &dirs,
+        );
+        let mut agent = agent.with_max_tool_calls_per_turn(2);
+        let cancel = CancellationToken::new();
+        let (tx, _rx) = channel();
+        let outcome = agent.run_turn("go", &cancel, &tx).await.unwrap();
+        match outcome {
+            TurnOutcome::Interrupted { reason } => {
+                assert!(reason.contains("tool calls"), "got: {reason}")
+            }
+            other => panic!("expected batch-cap interruption, got {other:?}"),
+        }
+        let events = project(&session_dir).unwrap();
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e.kind, EventKind::ToolStarted { .. })),
+            "an oversized batch must not execute a single call"
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e.kind, EventKind::ModelMessage { .. })),
+            "an oversized batch must not be recorded to the ledger"
+        );
+        assert!(
+            !agent.history.iter().any(|m| matches!(
+                m,
+                ChatMessage::Assistant { tool_calls, .. } if !tool_calls.is_empty()
+            )),
+            "an oversized batch must not poison the in-memory history (it would be \
+             replayed on every later request)"
+        );
+        assert!(events.iter().any(|e| matches!(
+            &e.kind,
+            EventKind::Error { message } if message.contains("tool calls")
+        )));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e.kind, EventKind::TurnInterrupted { .. })));
+    }
+
+    /// Every assistant `tool_call` in the outbound body is paired with a `tool`
+    /// message — the property a real provider enforces with a 400.
+    fn no_dangling_tool_call(body: &Value) -> bool {
+        let messages = body["messages"].as_array().unwrap();
+        let answered: std::collections::HashSet<&str> = messages
+            .iter()
+            .filter(|m| m["role"] == serde_json::json!("tool"))
+            .filter_map(|m| m["tool_call_id"].as_str())
+            .collect();
+        messages
+            .iter()
+            .filter(|m| m["role"] == serde_json::json!("assistant"))
+            .filter_map(|m| m["tool_calls"].as_array())
+            .flatten()
+            .filter_map(|call| call["id"].as_str())
+            .all(|id| answered.contains(id))
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cancelled_batch_leaves_dangling_call_sanitized_on_next_request() {
+        use crate::openai_compat::{build_request_body, RequestConfig};
+
+        let dirs = TempDirs::new();
+        // Turn 1: a confirm-required tool whose permission wait hangs, then is
+        // cancelled — leaving an assistant tool_call with no tool result.
+        let (mut agent, _session_dir) = build(
+            MockLlmClient::new(vec![turn_with(vec![call("c1", "danger", "{}")])]),
+            HangGate,
+            confirm_runtime(),
+            &dirs,
+        );
+        let cancel = CancellationToken::new();
+        let (tx, mut rx) = channel();
+        let canceller = {
+            let cancel = cancel.clone();
+            tokio::spawn(async move {
+                while let Some(AgentEvent::Ledger(event)) = rx.recv().await {
+                    if matches!(event.kind, EventKind::PermissionRequested { .. }) {
+                        cancel.cancel();
+                        break;
+                    }
+                }
+            })
+        };
+        let outcome = agent.run_turn("do it", &cancel, &tx).await.unwrap();
+        canceller.await.unwrap();
+        assert!(matches!(outcome, TurnOutcome::Interrupted { .. }));
+
+        // The loop's history carries a dangling tool_call (the regression).
+        assert!(matches!(
+            agent.history.last(),
+            Some(ChatMessage::Assistant { tool_calls, .. }) if !tool_calls.is_empty()
+        ));
+        assert!(
+            !agent
+                .history
+                .iter()
+                .any(|m| matches!(m, ChatMessage::Tool { .. })),
+            "no tool result was recorded for the cancelled call"
+        );
+
+        // Turn 2: the user continues. What matters is the history the model sees.
+        let cancel2 = CancellationToken::new();
+        let (tx2, _rx2) = channel();
+        agent.run_turn("continue", &cancel2, &tx2).await.unwrap();
+
+        let seen = agent.client.seen_histories();
+        let next_request_history = seen.last().expect("turn 2 called the model");
+        // History is unchanged: the dangling call is still present (not rewritten).
+        assert!(next_request_history.iter().any(|m| matches!(
+            m,
+            ChatMessage::Assistant { tool_calls, .. } if !tool_calls.is_empty()
+        )));
+
+        // The outbound request, however, pairs it with a synthesized cancelled
+        // result — no dangling tool_call reaches the provider.
+        let config = RequestConfig {
+            model: "m".to_string(),
+            tools: Vec::new(),
+            system_prompt: None,
+        };
+        let body = build_request_body(&config, next_request_history);
+        assert!(
+            no_dangling_tool_call(&body),
+            "the sanitized request body must have no unpaired tool_call"
+        );
     }
 }

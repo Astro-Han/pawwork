@@ -11,6 +11,7 @@ serde_json.workspace = true
 uuid.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+reqwest.workspace = true
 
 [dev-dependencies]
 # Tests drive the async loop and validate the Send discipline on a multi-thread
