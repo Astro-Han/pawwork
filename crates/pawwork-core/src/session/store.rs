@@ -82,6 +82,9 @@ pub struct SessionStore {
     writer: File,
     _lock: File,
     seq: u64,
+    /// Set when a failed append could not roll back its partial write, so the
+    /// store must not be reused; reopen the session to recover.
+    poisoned: bool,
 }
 
 impl SessionStore {
@@ -106,6 +109,7 @@ impl SessionStore {
             writer,
             _lock: lock,
             seq: 0,
+            poisoned: false,
         };
         store.append(
             None,
@@ -141,6 +145,7 @@ impl SessionStore {
             writer,
             _lock: lock,
             seq: scan.max_seq,
+            poisoned: false,
         })
     }
 
@@ -159,6 +164,11 @@ impl SessionStore {
     /// advances `seq` nor leaves a partial line behind — the same store stays
     /// usable for the next append.
     pub fn append(&mut self, turn_id: Option<String>, kind: EventKind) -> io::Result<LedgerEvent> {
+        if self.poisoned {
+            return Err(io::Error::other(
+                "session store poisoned by a failed append that could not roll back; reopen the session",
+            ));
+        }
         let seq = self.seq + 1;
         let event = LedgerEvent {
             schema: SCHEMA,
@@ -182,10 +192,14 @@ impl SessionStore {
                 Ok(event)
             }
             Err(err) => {
-                // Best-effort: truncate any partial line back to the last clean
-                // boundary and leave seq uncommitted, so a retry or reopen does
-                // not concatenate onto half a record.
-                let _ = self.writer.set_len(old_len);
+                // Truncate any partial line back to the last clean boundary and
+                // leave seq uncommitted, so a retry or reopen does not
+                // concatenate onto half a record. If even the truncation fails,
+                // poison the store: it must not be written again without a
+                // reopen, which re-truncates the torn tail.
+                if self.writer.set_len(old_len).is_err() {
+                    self.poisoned = true;
+                }
                 Err(err)
             }
         }
@@ -246,11 +260,8 @@ fn scan(dir: &Path) -> io::Result<Scan> {
     let mut events = Vec::new();
     let mut max_seq = 0u64;
     for line in complete.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
         // Parse the envelope first: schema gates compatibility, and a complete
-        // line without a valid envelope is corruption.
+        // line without a valid envelope (blank lines included) is corruption.
         let envelope: RawEnvelope = serde_json::from_str(line)
             .map_err(|err| io::Error::other(format!("corrupt ledger line: {err}")))?;
         max_seq = max_seq.max(envelope.seq);
@@ -564,6 +575,40 @@ mod tests {
             err.to_string().contains("corrupt"),
             "line without a valid envelope (no event_id) must error, got: {err}"
         );
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn project_errors_on_blank_complete_line() {
+        let root = temp_root();
+        let dir;
+        {
+            let store = SessionStore::create(&root, "ws").unwrap();
+            dir = store.dir().to_path_buf();
+        }
+        // A whitespace-only complete line is not a tolerated case; it must error
+        // rather than be silently skipped.
+        append_raw(&dir, "   ", true);
+        let err = project(&dir).unwrap_err();
+        assert!(
+            err.to_string().contains("corrupt"),
+            "blank complete line must error, got: {err}"
+        );
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn poisoned_store_refuses_append() {
+        let root = temp_root();
+        let mut store = SessionStore::create(&root, "ws").unwrap();
+        // Simulate a failed rollback (set_len failure) having poisoned the store.
+        store.poisoned = true;
+        let err = store.append(None, EventKind::TurnCompleted).unwrap_err();
+        assert!(
+            err.to_string().contains("poisoned"),
+            "poisoned store must refuse further appends, got: {err}"
+        );
+        drop(store);
         fs::remove_dir_all(&root).ok();
     }
 }
