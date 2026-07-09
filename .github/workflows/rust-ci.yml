@@ -1,0 +1,53 @@
+# Independent CI for the Rust agent line (crates/). Kept out of ci.yml so the
+# Rust experiment stays fully decoupled from the JS/TS product pipeline and its
+# failures are legible in isolation. Path-gated: only runs when Rust sources
+# change. Not a required check in the dev ruleset during M0.
+name: rust-ci
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/rust-ci.yml"
+  pull_request:
+    branches: [dev]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/rust-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: rust-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/dev' }}
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # actions/checkout@v7.0.0
+        with:
+          persist-credentials: false
+
+      # Installs the toolchain + rustfmt/clippy pinned by rust-toolchain.toml.
+      - name: Install toolchain
+        run: rustup show
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --locked
