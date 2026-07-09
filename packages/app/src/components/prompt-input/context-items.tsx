@@ -40,8 +40,15 @@ export const PromptContextItems: Component<ContextItemsProps> = (props) => {
                 value={
                   <span class="flex flex-col gap-0.5 max-w-[300px]">
                     <Show when={external}>
-                      <span class="opacity-80 text-xs">
-                        {props.t("prompt.context.externalFile")} · {item.path}
+                      {/* No middle-dot (DESIGN.md no-`·` rule): gap + mono path. */}
+                      <span class="inline-flex items-baseline gap-2 opacity-80 text-xs max-w-full">
+                        <span class="shrink-0">{props.t("prompt.context.externalFile")}</span>
+                        <span
+                          class="min-w-0 break-all [unicode-bidi:plaintext]"
+                          style={{ "font-family": "var(--font-family-mono)" }}
+                        >
+                          {item.path}
+                        </span>
                       </span>
                     </Show>
                     <Show when={!external}>

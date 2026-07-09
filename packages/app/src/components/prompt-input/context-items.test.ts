@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { readFileSync } from "node:fs"
 import { isExternalChip } from "./path-canonical"
 
 // isExternalChip is the pure helper that backs the external-chip guard in
@@ -8,6 +9,21 @@ import { isExternalChip } from "./path-canonical"
 // scaffolding; the logic tested here covers the decision boundary completely.
 // (aria-disabled was dropped from the chip wrapper — its inner remove button
 // stays operable, so advertising the container as disabled was misleading.)
+
+const contextItemsSrc = readFileSync(new URL("./context-items.tsx", import.meta.url), "utf8")
+
+describe("PromptContextItems: no-dot tooltip", () => {
+  test("external-file tooltip uses gap, not a middle-dot separator (DESIGN.md no-dot rule)", () => {
+    // Label + path used to join with a middle-dot glyph; now gap + mono path.
+    // Source pin keeps the glyph from creeping back without a Solid harness.
+    expect(contextItemsSrc).not.toMatch(/\}\s*·\s*\{/)
+    expect(contextItemsSrc).not.toMatch(/externalFile"\)\}\s*·/)
+    // Parent of the label uses gap-2; path token is mono for sans-vs-mono contrast.
+    expect(contextItemsSrc).toMatch(/inline-flex items-baseline gap-2/)
+    expect(contextItemsSrc).toContain('props.t("prompt.context.externalFile")')
+    expect(contextItemsSrc).toMatch(/font-family["']?\s*:\s*["']?var\(--font-family-mono\)/)
+  })
+})
 
 describe("isExternalChip", () => {
   test("relative path returns false (never external)", () => {

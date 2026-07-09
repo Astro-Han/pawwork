@@ -3,20 +3,17 @@
      This variant drops CardTitle, so the gap is set explicitly here. */
   gap: var(--space-md);
 
-  /* Headline: title · reset, folded onto one line.
-     Color inherits from the card root, set by the Card primitive in card.css;
-     only the weight is bumped so the title reads as emphasis. */
+  /* Headline: title + reset, folded onto one line.
+     No middle-dot separator (DESIGN.md no-`·` rule): gap divides the tokens;
+     title weight vs reset weak color provides the contrast. Color inherits
+     from the card root (Card primitive in card.css); only the weight is
+     bumped so the title reads as emphasis. */
   .rate-limit-card__head {
     font-weight: var(--font-weight-emphasis);
     display: flex;
     align-items: baseline;
     flex-wrap: wrap;
-  }
-
-  .rate-limit-card__sep {
-    color: var(--fg-weak);
-    font-weight: var(--font-weight-body);
-    margin: 0 var(--space-sm);
+    gap: var(--space-md);
   }
 
   .rate-limit-card__reset {
