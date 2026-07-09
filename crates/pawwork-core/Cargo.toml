@@ -9,3 +9,10 @@ publish = false
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+# Tests drive the async loop and validate the Send discipline on a multi-thread
+# runtime; the lib build stays on `sync` only (see workspace tokio note).
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
