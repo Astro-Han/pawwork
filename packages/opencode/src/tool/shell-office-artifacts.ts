@@ -167,6 +167,10 @@ export function tokenWords(command: string) {
 
 const outputFlags = new Set(["-o", "--out", "--output", "--outfile"])
 
+// Redirect targets that discard output rather than write a file — a POSIX `/dev/null` or the
+// Windows `NUL` device. A redirect to one of these is not a side-effect write to audit.
+const nullDevices = new Set(["/dev/null", "nul"])
+
 // Commands whose arguments are plain text, not python — an office-looking
 // `.save('x.docx')` inside `echo "...save('x.docx')..."` is a quoted literal, not a
 // write. The cross-segment `.save` scan skips these heads so such literals do not
@@ -469,7 +473,10 @@ function segmentWriteRedirects(segmentText: string) {
         target += tc
         cursor++
       }
-      if (target) parts.push(`${op[0]} ${target}`)
+      // A redirect to a null device (`>/dev/null`, `2>/dev/null`, Windows `>NUL`) discards
+      // output — it is never an auditable file write, so it must not make a cleanly-captured
+      // office generator (`... -o report.docx >/dev/null`) read as a non-office side effect.
+      if (target && !nullDevices.has(target.toLowerCase())) parts.push(`${op[0]} ${target}`)
       index = cursor
       continue
     }

@@ -216,6 +216,18 @@ describe("nonOfficeGeneratorText", () => {
     expect(isLikelyWriteCommand(remainder)).toBe(false)
   })
 
+  test("does not treat a null-device redirect on a captured generator as a side-effect write", () => {
+    // silencing a captured office generator's stdout/stderr is not a file write, so the
+    // turn must not be flagged as an uncaptured non-office side effect
+    expect(nonOfficeGeneratorText("uv run python build.py -o report.docx >/dev/null")).toBe("")
+    expect(nonOfficeGeneratorText("uv run python build.py -o report.docx 2>/dev/null")).toBe("")
+    expect(nonOfficeGeneratorText("uv run python build.py -o report.docx >NUL")).toBe("")
+    // a real file redirect alongside the null-device one still survives
+    expect(nonOfficeGeneratorText("uv run python build.py -o report.docx 2>/dev/null > log.txt")).toBe(
+      "> log.txt",
+    )
+  })
+
   test("keeps a real redirect on a heredoc opener line as a side-effect write", () => {
     // the `> log.txt` sits on the opener line (shell), not in the body (stdin) — dropping
     // the captured generator must still surface that log write, not swallow it
