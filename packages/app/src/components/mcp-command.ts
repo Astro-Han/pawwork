@@ -16,10 +16,21 @@ function needsQuote(arg: string): boolean {
   return arg === "" || /[\s"'\\]/.test(arg)
 }
 
+function quoteArg(arg: string): string {
+  if (!needsQuote(arg)) return arg
+  // Prefer single quotes for args that carry backslashes or double quotes but no
+  // single quote — chiefly Windows paths. Single quotes are fully literal, so
+  // `C:\Program Files\app.exe` reads back as `'C:\Program Files\app.exe'` instead
+  // of `"C:\\Program Files\\app.exe"` with every backslash doubled, which the
+  // non-technical users this GUI targets would find baffling. Double quotes (with
+  // `\`/`"` escaping) still cover everything else, including args that contain a
+  // single quote. Both forms round-trip identically.
+  if (/[\\"]/.test(arg) && !arg.includes("'")) return `'${arg}'`
+  return `"${arg.replace(/[\\"]/g, "\\$&")}"`
+}
+
 export function joinCommand(argv: readonly string[]): string {
-  return argv
-    .map((arg) => (needsQuote(arg) ? `"${arg.replace(/[\\"]/g, "\\$&")}"` : arg))
-    .join(" ")
+  return argv.map(quoteArg).join(" ")
 }
 
 export function splitCommand(input: string): string[] {

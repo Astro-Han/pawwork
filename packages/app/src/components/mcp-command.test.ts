@@ -33,6 +33,14 @@ describe("mcp-command split/join", () => {
     expect(joinCommand(["node", "/Users/me/My MCP/server.js"])).toBe('node "/Users/me/My MCP/server.js"')
   })
 
+  // Windows paths keep single backslashes on display instead of doubling them.
+  test("prefers single quotes for backslash args to avoid doubling", () => {
+    expect(joinCommand(["cmd", "C:\\Program Files\\app.exe"])).toBe("cmd 'C:\\Program Files\\app.exe'")
+    expect(joinCommand(["cmd", "\\\\server\\share"])).toBe("cmd '\\\\server\\share'")
+    // An arg with a single quote can't use single quotes, so it stays double-quoted.
+    expect(joinCommand(["cmd", "it's C:\\x"])).toBe('cmd "it\'s C:\\\\x"')
+  })
+
   // The round-trip is the actual contract that fixes the edit-corruption bug:
   // whatever argv the config holds must reappear unchanged after join → split,
   // for EVERY argv — including payloads that mix both quote characters.

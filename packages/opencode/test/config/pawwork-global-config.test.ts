@@ -1660,6 +1660,45 @@ describe("editGlobalMcp", () => {
     }
   })
 
+  test("leaves a sibling the loader skips on a missing {env:} placeholder untouched", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+    delete process.env.MCP_SIBLING_MISSING_URL
+
+    try {
+      // The sibling is well-formed JSONC and schema-valid, but a required field
+      // holds `{env:MCP_SIBLING_MISSING_URL}` with that env unset. The loader
+      // substitutes placeholders BEFORE schema-checking, so it throws and skips the
+      // file whole — its `model` never activates. Editing `srv` must mirror that:
+      // stripping `srv` here would drop the failing placeholder and make the file
+      // loadable, silently activating `anthropic/should-not-activate`.
+      const primary = path.join(global.path, "pawwork.jsonc")
+      const sibling = path.join(global.path, "pawwork.json")
+      await Filesystem.write(primary, JSON.stringify({ model: "anthropic/keep" }))
+      const siblingText = JSON.stringify({
+        model: "anthropic/should-not-activate",
+        mcp: { srv: { type: "remote", url: "{env:MCP_SIBLING_MISSING_URL}" } },
+      })
+      await Filesystem.write(sibling, siblingText)
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await editMcp({ set: { srv: { type: "remote", url: "https://srv" } } })
+          expect(await Bun.file(sibling).text()).toBe(siblingText)
+          await clear(true)
+          const config = await load()
+          expect(config.model).toBe("anthropic/keep")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
   test("preserves comments and sibling keys when editing a jsonc config", async () => {
     await using global = await tmpdir()
     await using project = await tmpdir({ git: true })
@@ -1684,6 +1723,44 @@ describe("editGlobalMcp", () => {
           expect(parsed.mcp.a).toBeUndefined()
           expect(parsed.mcp.b.url).toBe("https://b")
           expect(parsed.model).toBe("anthropic/claude")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("edits a jsonc primary that still carries a deprecated key", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // The loader drops deprecated keys (theme/keybinds/...) before schema-check,
+      // so a user still carrying `theme` loads fine. An MCP edit must validate the
+      // same normalized shape, not the raw file — otherwise the deprecated key
+      // trips `unrecognized_keys` and blocks every MCP edit. The jsonc write is
+      // un-normalized, so `theme` must also survive on disk.
+      const file = path.join(global.path, "pawwork.jsonc")
+      await Filesystem.write(
+        file,
+        JSON.stringify({ theme: "legacy-theme", mcp: { a: { type: "remote", url: "https://a" } } }),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const result = await editMcp({ set: { b: { type: "remote", url: "https://b" } } })
+          expect(result.missing).toEqual([])
+          const parsed = parseJsonc(await Bun.file(file).text()) as {
+            theme?: string
+            mcp: Record<string, { url: string }>
+          }
+          expect(parsed.mcp.b.url).toBe("https://b")
+          expect(parsed.mcp.a.url).toBe("https://a")
+          expect(parsed.theme).toBe("legacy-theme")
         },
       })
     } finally {

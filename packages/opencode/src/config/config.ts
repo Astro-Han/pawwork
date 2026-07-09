@@ -22,7 +22,7 @@ import { isRecord } from "@/util/record"
 import type { ConsoleState } from "./console-state"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { InstanceState } from "@/effect"
-import { Context, Duration, Effect, Fiber, Layer, Option, Schema } from "effect"
+import { Context, Duration, Effect, Exit, Fiber, Layer, Option, Schema } from "effect"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { InstanceRef } from "@/effect/instance-ref"
 import { zod, ZodOverride } from "@/util/effect-zod"
@@ -1518,7 +1518,12 @@ const rawLayer = Layer.effect(
             existingText === undefined && Runtime.isPawWork() ? { mode: seed?.mode ?? 0o600 } : undefined
 
           if (!file.endsWith(".jsonc")) {
-            const existing = ConfigParse.schema(Info.zod, ConfigParse.jsonc(before, file), file)
+            // Normalize before validating so a config the loader accepts (it drops
+            // deprecated keys like theme/keybinds/tui) does not fail the write —
+            // otherwise every global settings write, MCP edits included, breaks for
+            // anyone still carrying those keys. The JSON path fully rewrites the
+            // file, so the dropped dead keys simply do not survive the reserialize.
+            const existing = ConfigParse.schema(Info.zod, normalizeLoadedConfig(ConfigParse.jsonc(before, file), file), file)
             const merged = mergeDeep(writable(existing), writable(config))
             const serialized = JSON.stringify(merged, null, 2)
             // Always materialize on first run (seed migration), otherwise only
@@ -1529,7 +1534,10 @@ const rawLayer = Layer.effect(
             next = merged
           } else {
             const updated = patchJsonc(before, writable(config))
-            next = ConfigParse.schema(Info.zod, ConfigParse.jsonc(updated, file), file)
+            // Validate a normalized copy (tolerate deprecated keys the loader
+            // drops) but write the un-normalized `updated`, so the jsonc file keeps
+            // its comments and any legacy keys the user still has on disk.
+            next = ConfigParse.schema(Info.zod, normalizeLoadedConfig(ConfigParse.jsonc(updated, file), file), file)
             changed = !fileExisted || updated !== before
             if (changed)
               yield* Effect.promise(() => writeConfigTextAtomic(file, updated, writeOptions)).pipe(Effect.orDie)
@@ -1605,7 +1613,10 @@ const rawLayer = Layer.effect(
             for (const [name, enabled] of enableEntries)
               text = applyEdits(text, modify(text, ["mcp", name, "enabled"], enabled, opts))
             if (text !== before) {
-              ConfigParse.schema(Info.zod, ConfigParse.jsonc(text, writeFile), writeFile)
+              // Validate a normalized copy so a primary that still carries a
+              // deprecated key (theme/keybinds/...) — which the loader accepts —
+              // does not block the edit; the written `text` keeps the raw file.
+              ConfigParse.schema(Info.zod, normalizeLoadedConfig(ConfigParse.jsonc(text, writeFile), writeFile), writeFile)
               yield* Effect.promise(() => writeConfigTextAtomic(writeFile, text)).pipe(Effect.orDie)
               changed = true
             }
@@ -1631,21 +1642,32 @@ const rawLayer = Layer.effect(
           .withLock(
             Effect.gen(function* () {
               const before = (yield* readConfigFile(file)) ?? "{}"
-              let mcp: Record<string, unknown> = {}
-              try {
-                const parsed = ConfigParse.jsonc(before, file)
-                // Mirror the loader exactly: a sibling it would skip — bad JSONC OR
-                // schema-invalid — must be left untouched. Stripping a key out of a
-                // schema-invalid file could make the file valid and silently
-                // activate the rest of its config (model, plugins, ...) on the next
-                // load. Validating here keeps such a file inert. PawWork skips it,
-                // plain opencode keeps failing fast.
-                ConfigParse.schema(Info.zod, normalizeLoadedConfig(parsed, file), file)
-                if (isRecord(parsed) && isRecord(parsed.mcp)) mcp = parsed.mcp
-              } catch (error) {
-                if (!Runtime.isPawWork()) throw error
-                return
+              // Only touch a sibling the loader would fully load. Mirror loadConfig
+              // exactly: substitute `{env:}`/`{file:}` placeholders, then parse,
+              // normalize, and schema-check. A file that fails any step is skipped
+              // whole by the loader, so it shadows nothing — and stripping a key
+              // from it could make it loadable and silently activate the rest of
+              // its config (a broken `{env:MISSING}` entry deleted, and suddenly its
+              // model/plugins take effect). Leave such a file untouched in PawWork;
+              // plain opencode keeps its fail-fast contract.
+              const loadExit = yield* Effect.tryPromise(() =>
+                ConfigVariable.substitute({ text: before, type: "path", path: file }),
+              ).pipe(
+                Effect.flatMap((expanded) =>
+                  Effect.try({
+                    try: () =>
+                      ConfigParse.schema(Info.zod, normalizeLoadedConfig(ConfigParse.jsonc(expanded, file), file), file),
+                    catch: (error) => error,
+                  }),
+                ),
+                Effect.exit,
+              )
+              if (Exit.isFailure(loadExit)) {
+                if (Runtime.isPawWork()) return
+                return yield* Effect.failCause(loadExit.cause)
               }
+              const parsed = ConfigParse.jsonc(before, file)
+              const mcp: Record<string, unknown> = isRecord(parsed) && isRecord(parsed.mcp) ? parsed.mcp : {}
               removeNames.filter((name) => name in mcp).forEach((name) => present.add(name))
               const stripHere = siblingStripNames.filter((name) => name in mcp)
               const text = stripKeys(before, stripHere)
