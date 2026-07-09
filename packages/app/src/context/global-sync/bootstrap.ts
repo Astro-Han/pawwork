@@ -62,9 +62,12 @@ export function clearProviderRev(directory: string) {
 
 // A config file that fails to load (bad JSON or schema) is skipped by the engine so the rest of the config
 // still works, and reported once via /config/errors. Re-bootstrap runs on every project reload, so without a
-// guard the same unresolved error would toast repeatedly — the spam we are fixing, just moved to the UI. Track
-// which (directory, file, message) we have already surfaced and only toast the ones we have not seen.
-const seenConfigErrors = new Set<string>()
+// guard the same unresolved error would toast repeatedly — the spam we are fixing, just moved to the UI. Track,
+// per directory, which (file, message, issues) we have already surfaced and only toast the ones we have not
+// seen. Each pass replaces the directory's set with the errors still present, so a fixed config (no errors)
+// drops its entry instead of holding memory for the app's lifetime, and an error that reappears after being
+// fixed is surfaced again.
+const seenConfigErrorsByDirectory = new Map<string, Set<string>>()
 
 export type ConfigLoadError = {
   name: string
@@ -78,18 +81,20 @@ export function surfaceConfigErrors(
   translate: (key: string, vars?: Record<string, string | number>) => string,
   emit: (toast: { variant: "error"; title: string; description: string }) => void = showToast,
 ) {
+  const previous = seenConfigErrorsByDirectory.get(directory) ?? new Set<string>()
+  const current = new Set<string>()
   for (const error of errors) {
-    const key = [directory, error.data?.path ?? "", error.data?.message ?? "", JSON.stringify(error.data?.issues ?? "")].join(
-      " | ",
-    )
-    if (seenConfigErrors.has(key)) continue
-    seenConfigErrors.add(key)
+    const key = [error.data?.path ?? "", error.data?.message ?? "", JSON.stringify(error.data?.issues ?? "")].join(" | ")
+    current.add(key)
+    if (previous.has(key)) continue
     emit({
       variant: "error",
       title: translate("toast.config.invalid.title"),
       description: `${formatServerError(error, translate)}\n${translate("toast.config.invalid.hint")}`,
     })
   }
+  if (current.size) seenConfigErrorsByDirectory.set(directory, current)
+  else seenConfigErrorsByDirectory.delete(directory)
 }
 
 function runAll(list: Array<() => Promise<unknown>>) {

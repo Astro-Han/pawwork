@@ -406,8 +406,21 @@ function sanitizeConfigLoadMessage(message: string | undefined): string | undefi
 
 function toConfigLoadError(defect: unknown): ConfigLoadError | undefined {
   if (!JsonError.isInstance(defect) && !InvalidError.isInstance(defect)) return undefined
-  const object = defect.toObject() as ConfigLoadError
-  return { ...object, data: { ...object.data, message: sanitizeConfigLoadMessage(object.data.message) } }
+  const object = defect.toObject() as {
+    name: string
+    data: { path?: string; message?: string; issues?: ReadonlyArray<{ message: string; path: ReadonlyArray<string | number> }> }
+  }
+  return {
+    name: object.name,
+    data: {
+      path: object.data.path,
+      message: sanitizeConfigLoadMessage(object.data.message),
+      // Zod issues carry fields beyond the declared { message, path } shape (issue code, expected/received or
+      // raw input values, nested union errors) — some echo the config value that failed. Map to only the two
+      // fields the schema and frontend use so no upstream detail leaks via /config/errors, state, or dedup key.
+      issues: object.data.issues?.map((issue) => ({ message: issue.message, path: issue.path })),
+    },
+  }
 }
 
 // A malformed config file (bad JSONC or a schema violation) is raised as a defect by ConfigParse. Left

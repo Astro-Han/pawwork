@@ -831,6 +831,15 @@ describe("surfaceConfigErrors", () => {
     )
     expect(emitted.length).toBe(2)
   })
+
+  test("clears a directory's memory on a clean load and re-toasts if the error reappears", () => {
+    const emitted: Array<{ title: string }> = []
+    const error: ConfigLoadError = { name: "ConfigJsonError", data: { path: "/repo/four/pawwork.json" } }
+    surfaceConfigErrors("/repo/four", [error], translate, (toast) => emitted.push(toast))
+    surfaceConfigErrors("/repo/four", [], translate, (toast) => emitted.push(toast)) // fixed → drop the entry
+    surfaceConfigErrors("/repo/four", [error], translate, (toast) => emitted.push(toast)) // regressed → toast again
+    expect(emitted.length).toBe(2)
+  })
 })
 
 describe("hydratePendingExternalResults", () => {
