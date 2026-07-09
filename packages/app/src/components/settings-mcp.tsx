@@ -135,6 +135,7 @@ export function SettingsMcp(props: { directory?: string }) {
                   checked={entry.enabled}
                   disabled={toggle.isPending}
                   onChange={() => toggle.mutate(entry)}
+                  aria-label={language.t("settings.mcp.toggle", { name: entry.name })}
                 />
                 <IconButton
                   icon="edit"

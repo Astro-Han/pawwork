@@ -95,12 +95,14 @@ export function DialogMcpForm(props: Props) {
       return { type: "local", command, ...(environment ? { environment } : {}), ...common }
     }
     const headers = rowsToRecord(form.headers)
+    // Preserve oauth as-is, including an explicit `false` (which disables OAuth
+    // auto-detection) — a truthy check would silently drop it and re-enable it.
     const oauth = initial?.type === "remote" ? initial.oauth : undefined
     return {
       type: "remote",
       url: form.url.trim(),
       ...(headers ? { headers } : {}),
-      ...(oauth ? { oauth } : {}),
+      ...(oauth !== undefined ? { oauth } : {}),
       ...common,
     }
   }

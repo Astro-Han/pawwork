@@ -1668,4 +1668,33 @@ describe("editGlobalMcp", () => {
       ;(Global.Path as { config: string }).config = previousConfig
     }
   })
+
+  test("adds the first global entry when the only existing source is a broken legacy file", async () => {
+    await using primaryDir = await tmpdir()
+    await using legacyDir = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    // Primary home has no config yet; a legacy candidate dir holds a corrupt file.
+    // The first write seeds from loaded sources, so a broken legacy source must be
+    // skipped (as the loader skips it) instead of blocking the very first add.
+    process.env.PAWWORK_HOME = primaryDir.path
+    process.env.PAWWORK_CONFIG_DIR = legacyDir.path
+    ;(Global.Path as { config: string }).config = primaryDir.path
+
+    try {
+      await Filesystem.write(path.join(legacyDir.path, "pawwork.json"), "{ broken json")
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const result = await editMcp({ set: { added: { type: "remote", url: "https://added" } } })
+          expect(result.missing).toEqual([])
+          const primary = JSON.parse(await Bun.file(path.join(primaryDir.path, "pawwork.json")).text())
+          expect(primary.mcp.added.url).toBe("https://added")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
 })

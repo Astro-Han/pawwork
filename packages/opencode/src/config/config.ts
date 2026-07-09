@@ -778,11 +778,23 @@ function seedConfigValueFromSource(text: string, sourceFile: string) {
 }
 
 function seedConfigTextFromSources(sources: { path: string; text: string }[]) {
-  const merged = sources.reduce<unknown>((result, source) => {
-    const next = seedConfigValueFromSource(source.text, source.path)
-    if (!isRecord(result) || !isRecord(next)) return next
-    return mergeDeep(result, next)
-  }, {})
+  let merged: unknown = {}
+  for (const source of sources) {
+    // In the PawWork runtime a source that fails to parse or normalize is one the
+    // loader would skip anyway (PawWork degrades over broken config files); skip
+    // it here too rather than letting a broken sibling brick the first global
+    // write, e.g. an MCP add through the GUI before the primary file exists. Plain
+    // opencode keeps failing fast, matching its load-side contract.
+    let next: unknown
+    try {
+      next = seedConfigValueFromSource(source.text, source.path)
+    } catch (error) {
+      if (!Runtime.isPawWork()) throw error
+      continue
+    }
+    if (!isRecord(merged) || !isRecord(next)) merged = next
+    else merged = mergeDeep(merged, next)
+  }
   if (!isRecord(merged)) return "{}"
   return JSON.stringify(merged, null, 2)
 }

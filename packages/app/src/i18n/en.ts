@@ -1219,6 +1219,7 @@ export const dict = {
   "settings.mcp.title": "MCP",
   "settings.mcp.add": "Add MCP server",
   "settings.mcp.edit": "Edit MCP server",
+  "settings.mcp.toggle": "Toggle {{name}}",
   "settings.mcp.field.type": "Type",
   "settings.mcp.field.type.local": "Local",
   "settings.mcp.field.type.remote": "Remote",

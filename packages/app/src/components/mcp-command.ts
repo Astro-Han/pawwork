@@ -1,26 +1,22 @@
 // A local MCP `command` is an argv array (`["node", "/p/My server.js"]`) passed
 // straight to the stdio transport — it never goes through a shell. The form edits
 // it as one space-separated line for the common paste-a-command case, so the
-// split/join here must be lossless: a single argv that contains spaces (e.g. a
-// path) has to survive an edit round-trip instead of being chopped apart.
+// split/join here must be lossless: ANY argv the config holds — including one
+// that contains spaces (a path) or both quote characters (a `node -e` / `sh -c`
+// payload) — has to survive an edit round-trip instead of being chopped apart.
 //
-// Grammar is deliberately minimal: whitespace separates argv; single or double
-// quotes protect inner whitespace and are consumed. There is no backslash
-// escaping, so an argv that contains BOTH quote characters is not representable —
-// that does not occur for real MCP commands and is left unhandled by design.
+// Grammar: whitespace separates argv. Double quotes protect inner whitespace and
+// support `\"` / `\\` escapes, so any character is representable. Single quotes
+// protect inner whitespace with no escapes. `splitCommand(joinCommand(argv))`
+// is the identity for every argv (proven by the round-trip tests).
 
 function needsQuote(arg: string): boolean {
-  return arg === "" || /[\s"']/.test(arg)
+  return arg === "" || /[\s"'\\]/.test(arg)
 }
 
 export function joinCommand(argv: readonly string[]): string {
   return argv
-    .map((arg) => {
-      if (!needsQuote(arg)) return arg
-      if (!arg.includes('"')) return `"${arg}"`
-      if (!arg.includes("'")) return `'${arg}'`
-      return `"${arg}"`
-    })
+    .map((arg) => (needsQuote(arg) ? `"${arg.replace(/[\\"]/g, "\\$&")}"` : arg))
     .join(" ")
 }
 
@@ -29,9 +25,19 @@ export function splitCommand(input: string): string[] {
   let cur = ""
   let quote: '"' | "'" | null = null
   let started = false
+  let escaped = false
   for (const ch of input) {
-    if (quote) {
-      if (ch === quote) quote = null
+    if (quote === '"') {
+      if (escaped) {
+        cur += ch
+        escaped = false
+      } else if (ch === "\\") escaped = true
+      else if (ch === '"') quote = null
+      else cur += ch
+      continue
+    }
+    if (quote === "'") {
+      if (ch === "'") quote = null
       else cur += ch
       continue
     }
@@ -49,6 +55,11 @@ export function splitCommand(input: string): string[] {
       continue
     }
     cur += ch
+    started = true
+  }
+  // A trailing backslash inside a double quote had nothing to escape; keep it literal.
+  if (escaped) {
+    cur += "\\"
     started = true
   }
   if (started) argv.push(cur)

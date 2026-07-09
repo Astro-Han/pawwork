@@ -26,7 +26,8 @@ describe("mcp-command split/join", () => {
   })
 
   // The round-trip is the actual contract that fixes the edit-corruption bug:
-  // whatever argv the config holds must reappear unchanged after join → split.
+  // whatever argv the config holds must reappear unchanged after join → split,
+  // for EVERY argv — including payloads that mix both quote characters.
   test.each([
     [["npx", "-y", "@modelcontextprotocol/server-filesystem", "/work"]],
     [["node", "/Users/me/My MCP/server.js"]],
@@ -34,6 +35,11 @@ describe("mcp-command split/join", () => {
     [["cmd", 'has"double']],
     [["cmd", "has'single"]],
     [["cmd", "spaced 'single' arg"]],
+    [["node", "-e", "console.log(\"it's ok\")"]],
+    [["sh", "-c", "echo \"a 'b' c\" && ls"]],
+    [["cmd", "back\\slash"]],
+    [["cmd", 'esc\\"quote']],
+    [["cmd", "C:\\Program Files\\app.exe"]],
     [["only-one"]],
     [["cmd", ""]],
   ])("round-trips %j", (argv) => {
