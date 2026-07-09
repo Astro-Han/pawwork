@@ -169,7 +169,7 @@ export function DialogMcpForm(props: Props) {
                   type="button"
                   class="h-7 px-3.5 text-body"
                   classList={{
-                    "bg-surface-interactive-base text-fg-strong font-medium": form.type === type,
+                    "bg-surface-interactive-base text-fg-strong": form.type === type,
                     "bg-bg-base text-fg-weak": form.type !== type,
                   }}
                   onClick={() => setType(type)}
