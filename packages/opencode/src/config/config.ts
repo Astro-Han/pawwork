@@ -392,11 +392,14 @@ function sanitizeConfigLoadMessage(message: string | undefined): string | undefi
   if (!message) return message
   const block = message.match(/--- Errors ---\n([\s\S]*?)\n--- End ---/)
   const details = block ? block[1] : message
+  // Keep only whole "<Code> at line N, column M" summary lines. Anchoring to the full line (not just the suffix)
+  // and explicitly dropping the "Line N: <source>" echo means a config line that itself ends with a fake
+  // "at line N, column M" suffix cannot masquerade as a summary and leak through.
   const summary = details
     .split("\n")
-    .filter((line) => / at line \d+, column \d+$/.test(line.trim()))
+    .map((line) => line.trim())
+    .filter((line) => !/^Line \d+:/.test(line) && /^[A-Za-z]+ at line \d+, column \d+$/.test(line))
     .join("\n")
-    .trim()
   if (summary) return summary
   return block ? undefined : message
 }

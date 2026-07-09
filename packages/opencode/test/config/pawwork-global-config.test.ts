@@ -1417,6 +1417,29 @@ describe("PawWork config load resilience", () => {
     })
   })
 
+  // Edge of the sanitizer: the parser echoes the offending line as "Line N: <source>". If that source line
+  // itself ends with " at line N, column M", a naive "ends-with-position" filter would mistake the echoed
+  // secret for a summary line and keep it. The sanitizer must drop the "Line N:" context line regardless.
+  test("does not leak a config line that ends with a parser-position-like suffix", async () => {
+    await using project = await tmpdir({ git: true })
+    const configDir = path.join(project.path, ".opencode")
+    await fs.mkdir(configDir, { recursive: true })
+    const secret = "sk-leak-SECRET"
+    // Line 1 is valid JSON; the trailing line is a syntax error whose source ends with a fake position suffix.
+    await Filesystem.write(path.join(configDir, "pawwork.json"), `{ "a": 1 }\n${secret} at line 2, column 3`)
+
+    await Instance.provide({
+      directory: project.path,
+      fn: async () => {
+        await load()
+        const errors = await loadErrors()
+        expect(errors.length).toBe(1)
+        expect(errors[0].name).toBe("ConfigJsonError")
+        expect(JSON.stringify(errors[0])).not.toContain(secret)
+      },
+    })
+  })
+
   // Managed/MDM-deployed config is loaded last and overrides everything, so a broken managed file must degrade
   // just like user config — otherwise enterprise deployments still hit the #1485 "one bad file bricks the app".
   test("keeps valid config and records the error when a managed config file is broken", async () => {
