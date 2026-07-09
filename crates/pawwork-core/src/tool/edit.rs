@@ -50,11 +50,44 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
         std::fs::remove_file(&temp).ok();
         return Err(format!("write failed: {err}"));
     }
+    // The rename installs the temp's inode, so the target's permissions would
+    // otherwise be replaced by the temp's umask default — turning a 0755 script
+    // non-executable or widening a 0600 file. Carry the target's mode over first;
+    // a missing target means a create, where the default mode is right.
+    if let Ok(existing) = std::fs::metadata(path) {
+        if let Err(err) = std::fs::set_permissions(&temp, existing.permissions()) {
+            std::fs::remove_file(&temp).ok();
+            return Err(format!("write failed: {err}"));
+        }
+    }
     if let Err(err) = std::fs::rename(&temp, path) {
         std::fs::remove_file(&temp).ok();
         return Err(format!("write failed: {err}"));
     }
     Ok(())
+}
+
+/// Count occurrences of `needle` in `haystack`, **including overlapping ones**,
+/// stopping at 2 (the caller only distinguishes zero / one / many). `str::matches`
+/// counts non-overlapping occurrences only, which would let `aa` in `aaa` pass as
+/// unique when two valid match positions exist — an ambiguous edit slipping the
+/// exactly-once contract. The early stop also bounds the scan: a pathological
+/// self-overlapping needle over an 8 MiB file cannot go quadratic.
+fn count_matches_capped(haystack: &str, needle: &str) -> usize {
+    debug_assert!(!needle.is_empty(), "prepare rejects an empty old_string");
+    let mut count = 0;
+    let mut from = 0;
+    while let Some(found) = haystack[from..].find(needle) {
+        count += 1;
+        if count >= 2 {
+            break;
+        }
+        // Advance by one full character (not one byte) past the match start so
+        // overlapping candidates are seen and the slice stays on a char boundary.
+        let first_char = needle.chars().next().map_or(1, char::len_utf8);
+        from += found + first_char;
+    }
+    count
 }
 
 /// `edit`: replace the single occurrence of `old_string` with `new_string` in a
@@ -153,15 +186,15 @@ impl Tool for EditTool {
             let text = String::from_utf8(bytes).map_err(|_| {
                 "file is not valid UTF-8; edit requires exact text matching".to_string()
             })?;
-            let occurrences = text.matches(old.as_str()).count();
-            match occurrences {
+            match count_matches_capped(&text, old) {
                 0 => return Err("no match: old_string was not found in the file".to_string()),
                 1 => {}
-                many => {
-                    return Err(format!(
-                        "ambiguous edit: old_string appears {many} times; include more \
+                _ => {
+                    return Err(
+                        "ambiguous edit: old_string appears more than once; include more \
                          surrounding context so it matches exactly once"
-                    ))
+                            .to_string(),
+                    )
                 }
             }
             let updated = text.replacen(old.as_str(), new.as_str(), 1);
@@ -326,7 +359,51 @@ mod tests {
             .unwrap();
         let err = EditTool.run(&ctx, &prepared).await.unwrap_err();
         assert!(err.contains("ambiguous"), "got: {err}");
-        assert!(err.contains('3'), "count must be named, got: {err}");
+    }
+
+    #[tokio::test]
+    async fn edit_detects_overlapping_matches_as_ambiguous() {
+        // `str::matches` would count only one non-overlapping `aa` in `aaa`, but
+        // two valid match positions exist — the edit is ambiguous and must fail.
+        let ws = TempWorkspace::new();
+        fs::write(ws.root.join("a.txt"), b"aaa").unwrap();
+        let ctx = ws.ctx();
+        let prepared = EditTool
+            .prepare(
+                &ctx,
+                &json!({ "path": "a.txt", "old_string": "aa", "new_string": "b" }),
+            )
+            .unwrap();
+        let err = EditTool.run(&ctx, &prepared).await.unwrap_err();
+        assert!(err.contains("ambiguous"), "got: {err}");
+        assert_eq!(
+            fs::read_to_string(ws.root.join("a.txt")).unwrap(),
+            "aaa",
+            "an ambiguous edit must not touch the file"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn edit_preserves_the_target_file_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let ws = TempWorkspace::new();
+        let script = ws.root.join("run.sh");
+        fs::write(&script, b"echo old").unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let ctx = ws.ctx();
+        let prepared = EditTool
+            .prepare(
+                &ctx,
+                &json!({ "path": "run.sh", "old_string": "old", "new_string": "new" }),
+            )
+            .unwrap();
+        EditTool.run(&ctx, &prepared).await.unwrap();
+        let mode = fs::metadata(&script).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o755,
+            "the atomic replacement must keep the target executable"
+        );
     }
 
     #[test]

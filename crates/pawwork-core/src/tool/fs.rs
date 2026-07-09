@@ -75,9 +75,14 @@ impl Tool for ReadTool {
     fn prepare(&self, ctx: &ToolContext, args: &Value) -> Result<PreparedCall, String> {
         let requested = path_arg(args)?;
         // `resolve_in_workspace` requires the target to exist, so a genuinely
-        // missing path is rejected here. A file or a directory is accepted; `run`
-        // branches on which.
+        // missing path is rejected here. A regular file or a directory is
+        // accepted; `run` branches on which. Anything else (FIFO, socket, device)
+        // is refused: `read` is auto-allowed and its open is synchronous, so a
+        // FIFO with no writer would block the turn forever.
         let path = resolve_in_workspace(&ctx.workspace_root, requested)?;
+        if !path.is_file() && !path.is_dir() {
+            return Err(format!("'{requested}' is not a regular file or directory"));
+        }
         Ok(PreparedCall::Read { path })
     }
 
@@ -240,5 +245,26 @@ mod tests {
         let ws = TempWorkspace::new();
         let err = ReadTool.prepare(&ws.ctx(), &json!({})).unwrap_err();
         assert!(err.contains("path"), "got: {err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_rejects_a_fifo_at_prepare() {
+        // A FIFO canonicalizes fine, but opening it blocks until a writer shows
+        // up — and `read` is auto-allowed, so that would pin the turn with no
+        // confirmation ever shown. It must be refused before `run`.
+        let ws = TempWorkspace::new();
+        let status = std::process::Command::new("mkfifo")
+            .arg(ws.root.join("pipe"))
+            .status()
+            .expect("mkfifo runs");
+        assert!(status.success(), "mkfifo must succeed");
+        let err = ReadTool
+            .prepare(&ws.ctx(), &json!({ "path": "pipe" }))
+            .unwrap_err();
+        assert!(
+            err.contains("not a regular file or directory"),
+            "got: {err}"
+        );
     }
 }

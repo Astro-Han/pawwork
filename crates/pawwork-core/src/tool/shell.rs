@@ -194,10 +194,17 @@ async fn run_command(
         }
         _ = cancel.cancelled() => {
             kill_tree(&mut child, pid).await;
+            // A descendant that escaped the process group (setsid) survives the
+            // kill and can hold the pipes open; abort the drains so they cannot
+            // outlive the turn.
+            stdout_task.abort();
+            stderr_task.abort();
             return Err("cancelled".to_string());
         }
         _ = tokio::time::sleep(timeout) => {
             kill_tree(&mut child, pid).await;
+            stdout_task.abort();
+            stderr_task.abort();
             return Err(format!("command timed out after {}s", timeout.as_secs()));
         }
     };
