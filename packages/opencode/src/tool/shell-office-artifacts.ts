@@ -358,9 +358,9 @@ function isOfficeGeneratorSegment(words: string[]) {
   const { head, rest } = commandHead(words)
   const lower = head?.toLowerCase()
   // A direct python interpreter head — `python`, `python3`, or a versioned `python3.12` /
-  // `python2` (`/^python\d/`, the same rule `isPythonCommandToken` uses under `uv run`). A
-  // versioned interpreter must be recognized here too, else `python3.12 build.py -o x.docx`
-  // is judged a non-generator and its office output is silently neither captured nor flagged.
+  // `python2` (`/^python\d/`). A versioned interpreter must be recognized here too, else
+  // `python3.12 build.py -o x.docx` is judged a non-generator and its office output is
+  // silently neither captured nor flagged.
   if (lower && (lower === "python" || /^python\d/.test(lower))) return true
   // A `uv run ...` invocation — the office-* skills always run through `uv run`, and uv
   // permits global options before the subcommand (`uv --directory work run ...`,
@@ -424,40 +424,47 @@ function uvRunsSubcommand(rest: string[]) {
   return false
 }
 
-// The python program token in a `uv run` invocation — `python`, `python3`, a versioned
-// `python3.12`, or a bare `script.py`. Marks where uv's own options end and the executed
-// command (and its args) begin.
-function isPythonCommandToken(word: string) {
-  const low = word.toLowerCase()
-  return low === "python" || /^python\d/.test(low) || low.endsWith(".py")
-}
-
 // uv's `--directory <dir>` (unlike `--project`, which only affects project discovery)
 // changes the working directory before running the command, so a RELATIVE output names a
 // file under that directory, not the shell cwd. The exact parser cannot resolve it, so —
 // like a prior `cd` — it must defer to the discovery backstop. `--directory` is accepted
 // both as a global option (`uv --directory x run ...`) and as a `uv run` option
-// (`uv run --directory x python ...`) — both chdir — so scan up to the executed python
-// command; a `--directory` after that belongs to the script's own args, not uv. A
-// python-ish token that is the VALUE of any uv value-option (`--python python3`,
-// `--project python`, `--config-file build.py`) is NOT the command, so it does not stop the
-// scan — otherwise a `--directory` after such a value would be missed and a relative output
-// wrongly treated as exactly capturable in the shell cwd instead of the changed directory.
+// (`uv run --directory x <cmd> ...`) — both chdir. It counts only when it appears BEFORE the
+// executed command: `uv run <cmd> --directory sub` passes `--directory sub` to <cmd> itself.
+// The command is the first positional (non-`-` token, not a value-option's value, or the token
+// after `--`) following `run` — it can be a console script (`render-pdf`), not just python, so
+// the boundary is "first positional", NOT "first python-shaped token".
 function uvChangesDirectory(words: string[]) {
   const { head, rest } = commandHead(words)
   if (head?.toLowerCase() !== "uv") return false
+  let sawRun = false
   let previous: string | undefined
   for (const word of rest) {
     const low = word.toLowerCase()
+    // `--directory` (a uv global option before `run`, or a `uv run` option after it) chdirs.
     if (low === "--directory" || low.startsWith("--directory=")) return true
-    // Skip the value of a value-taking option (`--project python`, `--config-file build.py`):
-    // it is an option argument, not the executed command, so a python-like value must not stop
-    // the scan. `--directory` is checked above first so its own chdir intent still wins.
+    // Skip the value of a value-taking option (`--project app`, `--package foo`): an option
+    // argument is never the subcommand or the executed command.
     if (previous && uvValueOptions.has(previous)) {
       previous = undefined
       continue
     }
-    if (isPythonCommandToken(word)) break
+    if (!sawRun) {
+      if (low === "run") {
+        sawRun = true
+        previous = undefined
+        continue
+      }
+      // A non-option token before `run` is a different subcommand (`uv build ...`), not `uv run`,
+      // so there is no uv-run chdir to detect.
+      if (!word.startsWith("-")) return false
+      previous = low
+      continue
+    }
+    // After `run`: options until the executed command. `--` ends option parsing, and the first
+    // bare positional IS the command — a `--directory` beyond either point is the command's own
+    // argument, not uv's chdir.
+    if (word === "--" || !word.startsWith("-")) return false
     previous = low
   }
   return false

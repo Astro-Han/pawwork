@@ -49,6 +49,14 @@ describe("officeOutputPaths", () => {
     ["uv --offline run python build.py -o report.docx", ["report.docx"]],
     // a `--directory` AFTER the python command is the script's own arg, not uv's chdir → exact
     ["uv run python build.py --directory sub -o report.docx", ["report.docx"]],
+    // `uv run` can execute a console script, not just python — the command boundary is the first
+    // positional, so `render-pdf`'s own `--directory` arg is NOT uv's chdir and the relative
+    // output stays exactly captured (matters most for .pdf, which discovery can't recover)
+    ["uv run render-pdf --directory inputs -o report.pdf", ["report.pdf"]],
+    ["uv run gen-deck --directory sub -o slides.pptx", ["slides.pptx"]],
+    // a `--` ends uv option parsing; the token after it is the command, its `--directory` is a
+    // script arg
+    ["uv run -- build-report --directory x -o report.docx", ["report.docx"]],
     ["python build_xlsx.py data.csv --out book.xlsx", ["book.xlsx"]],
     ["python gen.py --output=slides.pdf", ["slides.pdf"]],
     // a versioned python interpreter (`python3.12`) is a generator too, matching
@@ -165,6 +173,8 @@ describe("hasOfficeOutputIntent", () => {
     // mixed: an exact output AND a dynamic one — intent still fires for the dynamic part
     // (so the cwd scan runs) even though the exact `a.docx` is captured precisely
     'uv run python a.py -o a.docx && OUT=b uv run python b.py -o "$OUT.docx"',
+    // a `uv run` chdir BEFORE a console-script command is real → relative output unresolved
+    "uv run --directory work render-pdf -o report.docx",
     // uv global options before `run` must not hide the dynamic output
     'uv --directory work run python build.py -o "$OUT.docx"',
     // a RELATIVE output under `uv --directory` chdir is unresolved → intent → cwd scan
