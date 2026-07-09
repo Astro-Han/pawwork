@@ -47,16 +47,14 @@ pub struct Meta {
     pub workspace: String,
 }
 
-/// Minimal envelope used to recognize a structurally valid ledger line whose
-/// payload this version cannot fully parse (a forward-compatible future event).
-/// Requiring `schema`/`seq`/`type` is the bar for "valid envelope"; a complete
-/// line that fails even this is treated as corruption.
+/// Minimal envelope used to classify a complete ledger line whose payload this
+/// version cannot fully parse. Requiring `schema`/`seq`/`type` is the bar for a
+/// structurally valid envelope; `schema` and `kind` then decide forward-compat
+/// (unknown type or newer schema) versus corruption of a known current record.
 #[derive(Deserialize)]
 struct RawEnvelope {
-    #[allow(dead_code)]
     schema: u32,
     seq: u64,
-    #[allow(dead_code)]
     #[serde(rename = "type")]
     kind: String,
 }
@@ -152,21 +150,41 @@ impl SessionStore {
 
     /// Append one event, stamping envelope fields, and flush to the OS.
     ///
-    /// Flush is not fsync; see the module-level durability note.
+    /// Flush is not fsync; see the module-level durability note. `seq` is
+    /// committed only after the line reaches the OS, so a failed write neither
+    /// advances `seq` nor leaves a partial line behind — the same store stays
+    /// usable for the next append.
     pub fn append(&mut self, turn_id: Option<String>, kind: EventKind) -> io::Result<LedgerEvent> {
-        self.seq += 1;
+        let seq = self.seq + 1;
         let event = LedgerEvent {
             schema: SCHEMA,
             event_id: new_id(),
-            seq: self.seq,
+            seq,
             turn_id,
             kind,
         };
         let mut line = serde_json::to_string(&event).map_err(io::Error::other)?;
         line.push('\n');
-        self.writer.write_all(line.as_bytes())?;
-        self.writer.flush()?;
-        Ok(event)
+        let old_len = fs::metadata(self.dir.join(EVENTS_FILE))
+            .map(|meta| meta.len())
+            .unwrap_or(0);
+        match self
+            .writer
+            .write_all(line.as_bytes())
+            .and_then(|()| self.writer.flush())
+        {
+            Ok(()) => {
+                self.seq = seq;
+                Ok(event)
+            }
+            Err(err) => {
+                // Best-effort: truncate any partial line back to the last clean
+                // boundary and leave seq uncommitted, so a retry or reopen does
+                // not concatenate onto half a record.
+                let _ = self.writer.set_len(old_len);
+                Err(err)
+            }
+        }
     }
 }
 
@@ -229,10 +247,19 @@ fn scan(dir: &Path) -> io::Result<Scan> {
                 events.push(event);
             }
             Err(_) => match serde_json::from_str::<RawEnvelope>(line) {
-                // Valid envelope, unparseable payload: a future/forward-compat
-                // record. Count its seq so a resumed writer does not collide,
-                // but do not project it.
-                Ok(envelope) => max_seq = max_seq.max(envelope.seq),
+                Ok(envelope) => {
+                    // A known event type at the current schema that still fails
+                    // to parse is real corruption, not a future record. Only an
+                    // unknown type (or a newer schema) is forward-compat: skip
+                    // projection but advance seq so a resume cannot collide.
+                    if envelope.schema == SCHEMA && is_known_type(&envelope.kind) {
+                        return Err(io::Error::other(format!(
+                            "corrupt ledger record: known type '{}' with unparseable payload",
+                            envelope.kind
+                        )));
+                    }
+                    max_seq = max_seq.max(envelope.seq);
+                }
                 // A complete line that is not even a valid envelope is real
                 // corruption; surface it instead of silently dropping events.
                 Err(err) => return Err(io::Error::other(format!("corrupt ledger line: {err}"))),
@@ -244,6 +271,25 @@ fn scan(dir: &Path) -> io::Result<Scan> {
         max_seq,
         complete_len: complete_len as u64,
     })
+}
+
+/// Whether `kind` is an event type this build's [`EventKind`] knows. Keep in
+/// sync with `EventKind`; the `known_types_cover_all_event_kinds` test enforces
+/// it. A known type that fails to parse is corruption, not forward-compat.
+fn is_known_type(kind: &str) -> bool {
+    matches!(
+        kind,
+        "session_created"
+            | "user_message"
+            | "model_message"
+            | "tool_started"
+            | "tool_finished"
+            | "permission_requested"
+            | "permission_decided"
+            | "turn_completed"
+            | "turn_interrupted"
+            | "error"
+    )
 }
 
 /// Replay a session's ledger into its projected events.
@@ -460,5 +506,85 @@ mod tests {
             "corrupt complete line must surface, got: {err}"
         );
         fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn scan_errors_on_known_type_with_bad_payload() {
+        let root = temp_root();
+        let dir;
+        {
+            let store = SessionStore::create(&root, "ws").unwrap();
+            dir = store.dir().to_path_buf();
+        }
+        // Known current-schema type (user_message) missing its required `text`:
+        // a valid envelope, but corruption of a current record, not forward-compat.
+        append_raw(
+            &dir,
+            r#"{"schema":1,"event_id":"k","seq":40,"turn_id":null,"type":"user_message"}"#,
+            true,
+        );
+        let err = project(&dir).unwrap_err();
+        assert!(
+            err.to_string().contains("corrupt"),
+            "known type with bad payload must error, got: {err}"
+        );
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn known_types_cover_all_event_kinds() {
+        // Every EventKind variant's serialized `type` must be recognized, so a
+        // known event with a corrupt payload is never mistaken for forward-compat.
+        let samples = [
+            EventKind::SessionCreated {
+                workspace: String::new(),
+            },
+            EventKind::UserMessage {
+                text: String::new(),
+            },
+            EventKind::ModelMessage {
+                text: String::new(),
+                tool_calls: Vec::new(),
+            },
+            EventKind::ToolStarted {
+                call_id: String::new(),
+                name: String::new(),
+            },
+            EventKind::ToolFinished {
+                call_id: String::new(),
+                ok: true,
+                output: String::new(),
+            },
+            EventKind::PermissionRequested {
+                call_id: String::new(),
+                action: String::new(),
+            },
+            EventKind::PermissionDecided {
+                call_id: String::new(),
+                allowed: true,
+            },
+            EventKind::TurnCompleted,
+            EventKind::TurnInterrupted {
+                reason: String::new(),
+            },
+            EventKind::Error {
+                message: String::new(),
+            },
+        ];
+        for kind in samples {
+            let value = serde_json::to_value(LedgerEvent {
+                schema: SCHEMA,
+                event_id: "e".to_string(),
+                seq: 1,
+                turn_id: None,
+                kind,
+            })
+            .unwrap();
+            let tag = value.get("type").unwrap().as_str().unwrap();
+            assert!(
+                is_known_type(tag),
+                "type '{tag}' missing from is_known_type"
+            );
+        }
     }
 }
