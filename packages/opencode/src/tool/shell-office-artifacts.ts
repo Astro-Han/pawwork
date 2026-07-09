@@ -390,22 +390,28 @@ const uvNonRunSubcommands = new Set([
 // (global) / `uv run` option, since a missing entry lets a python-shaped value stop the option
 // scan early. Booleans are deliberately excluded — wrongly listing one would skip the token after
 // it (possibly a real `--directory`). Long `--opt=value` forms carry the value inline and never
-// defer, so only the space-separated `--opt value` forms need listing.
+// defer, so only the space-separated `--opt value` forms need listing. The long/short value
+// options below are synced from `uv run --help` (uv 0.11.28) as the source of truth, including
+// every short alias (-w/-i/-f/-p/-P/-C); a future uv version adding a new value option is a known
+// limitation, not a merge gate — resync this set against `uv run --help` when bumping uv.
 const uvValueOptions = new Set([
   // global + resolver options
   "--directory", "--project", "--package", "--config-file", "--cache-dir", "--color",
   "--python", "-p", "--python-preference", "--python-platform", "--env-file",
+  "--allow-insecure-host",
   // dependency / group / extra selection
-  "--with", "--with-editable", "--with-requirements", "--extra", "--group", "--no-group",
-  "--only-group",
+  "--with", "-w", "--with-editable", "--with-requirements", "--extra", "--no-extra",
+  "--group", "--no-group", "--only-group", "--upgrade-group",
   // index / source configuration
-  "--index", "--default-index", "--index-url", "--extra-index-url", "--find-links",
+  "--index", "--default-index", "--index-url", "-i", "--extra-index-url", "--find-links", "-f",
   "--index-strategy", "--keyring-provider",
   // resolution / build tuning
-  "--resolution", "--prerelease", "--fork-strategy", "--exclude-newer", "--link-mode",
-  "--config-setting", "-C", "--override", "--constraint", "--build-constraint",
+  "--resolution", "--prerelease", "--fork-strategy", "--exclude-newer", "--exclude-newer-package",
+  "--link-mode", "--config-setting", "-C", "--config-settings-package",
+  "--override", "--constraint", "--build-constraint",
   "--refresh-package", "--upgrade-package", "-P", "--reinstall-package",
   "--no-binary-package", "--no-build-package", "--no-build-isolation-package",
+  "--no-editable-package", "--no-sources-package",
 ])
 function uvRunsSubcommand(rest: string[]) {
   let previous: string | undefined

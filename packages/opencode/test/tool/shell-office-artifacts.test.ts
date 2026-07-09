@@ -133,6 +133,11 @@ describe("officeOutputPaths", () => {
     // `--group`, ...) — a python-shaped value there must not hide the later `--directory` chdir
     "uv run --package python --directory work python make.py -o report.docx",
     "uv run --group python --directory work python make.py -o report.docx",
+    // short aliases of uv run value options (`-w`=--with, `-i`=--index-url, `-f`=--find-links)
+    // also consume their value; that value must not stop the scan and hide the `--directory` chdir
+    "uv run -w python-docx --directory work python make.py -o report.docx",
+    "uv run -i https://example/simple --directory work python make.py -o report.docx",
+    "uv run -f ./wheels --directory work python make.py -o report.docx",
     "uv --directory work run python <<'PY'\ndoc.save('out.docx')\nPY", // heredoc .save under --directory chdir
     'uv run python build.py --out "{draft,final}.docx"', // brace expansion is shell state, not a literal file
     'uv run python build.py --out "[ab].docx"', // bracket glob is shell state, not a literal file
@@ -189,6 +194,10 @@ describe("hasOfficeOutputIntent", () => {
     // stop the scan on their python-shaped value and hide the `--directory` chdir
     "uv run --package python --directory work python make.py -o report.docx",
     "uv run --group python --directory work python make.py -o report.docx",
+    // short-alias value options (`-w`/`-i`/`-f`) consume their value too → later `--directory`
+    // chdir stays visible and the relative output is unresolved intent
+    "uv run -w python-docx --directory work python make.py -o report.docx",
+    "uv run -f ./wheels --directory work python make.py -o report.docx",
     // a --directory value that collides with a uv subcommand name (`build`) must not hide the
     // real `run`; the relative output under that chdir is still unresolved intent
     "uv --directory build run python make.py -o report.docx",
