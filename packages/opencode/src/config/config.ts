@@ -382,10 +382,29 @@ export const ConfigLoadError = Schema.Struct({
 })
 export type ConfigLoadError = Schema.Schema.Type<typeof ConfigLoadError>
 
+// ConfigParse builds a rich CLI debug message that echoes the raw config text twice: once as a whole between
+// "--- JSONC Input ---" and "--- Errors ---", and again per error as a "Line N: <source>" context line under
+// each caret. That raw text can hold secrets (API keys, PATs) from a half-edited config, and this error is now
+// surfaced to the frontend via /config/errors, so keep only the "<code> at line N, column M" summary lines and
+// drop every echoed source line. Messages without a parser summary and no dump wrapper (e.g. a plain "file does
+// not exist") pass through unchanged; a wrapped message we can't summarize is dropped rather than leaked.
+function sanitizeConfigLoadMessage(message: string | undefined): string | undefined {
+  if (!message) return message
+  const block = message.match(/--- Errors ---\n([\s\S]*?)\n--- End ---/)
+  const details = block ? block[1] : message
+  const summary = details
+    .split("\n")
+    .filter((line) => / at line \d+, column \d+$/.test(line.trim()))
+    .join("\n")
+    .trim()
+  if (summary) return summary
+  return block ? undefined : message
+}
+
 function toConfigLoadError(defect: unknown): ConfigLoadError | undefined {
-  if (JsonError.isInstance(defect)) return defect.toObject() as ConfigLoadError
-  if (InvalidError.isInstance(defect)) return defect.toObject() as ConfigLoadError
-  return undefined
+  if (!JsonError.isInstance(defect) && !InvalidError.isInstance(defect)) return undefined
+  const object = defect.toObject() as ConfigLoadError
+  return { ...object, data: { ...object.data, message: sanitizeConfigLoadMessage(object.data.message) } }
 }
 
 // A malformed config file (bad JSONC or a schema violation) is raised as a defect by ConfigParse. Left
@@ -1132,7 +1151,7 @@ const rawLayer = Layer.effect(
         if (existsSync(managedDir)) {
           for (const file of Runtime.isPawWork() ? globalConfigFiles() : OPENCODE_PROJECT_CONFIG_FILES) {
             const source = path.join(managedDir, file)
-            yield* merge(source, yield* loadFile(source), "global")
+            yield* merge(source, yield* keepValidConfig(loadFile(source), collectError), "global")
           }
         }
 
@@ -1141,10 +1160,13 @@ const rawLayer = Layer.effect(
         if (managed) {
           result = mergeConfigConcatArrays(
             result,
-            yield* loadConfig(managed.text, {
-              dir: path.dirname(managed.source),
-              source: managed.source,
-            }),
+            yield* keepValidConfig(
+              loadConfig(managed.text, {
+                dir: path.dirname(managed.source),
+                source: managed.source,
+              }),
+              collectError,
+            ),
           )
         }
 

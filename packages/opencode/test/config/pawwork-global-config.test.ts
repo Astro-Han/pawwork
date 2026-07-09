@@ -1395,4 +1395,55 @@ describe("PawWork config load resilience", () => {
       },
     })
   })
+
+  // The JSONC parser embeds the raw file text in its error message for local debugging. That message is now
+  // surfaced to the frontend via /config/errors, so a half-edited config's secret must never ride along.
+  test("does not leak raw config file contents into the recorded error message", async () => {
+    await using project = await tmpdir({ git: true })
+    const configDir = path.join(project.path, ".opencode")
+    await fs.mkdir(configDir, { recursive: true })
+    const secret = "sk-pawwork-super-secret-DEADBEEF"
+    await Filesystem.write(path.join(configDir, "pawwork.json"), `{ "apiKey": "${secret}" broken }`)
+
+    await Instance.provide({
+      directory: project.path,
+      fn: async () => {
+        await load()
+        const errors = await loadErrors()
+        expect(errors.length).toBe(1)
+        expect(errors[0].name).toBe("ConfigJsonError")
+        expect(JSON.stringify(errors[0])).not.toContain(secret)
+      },
+    })
+  })
+
+  // Managed/MDM-deployed config is loaded last and overrides everything, so a broken managed file must degrade
+  // just like user config — otherwise enterprise deployments still hit the #1485 "one bad file bricks the app".
+  test("keeps valid config and records the error when a managed config file is broken", async () => {
+    await using managed = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previous = process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR
+    process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR = managed.path
+
+    try {
+      const managedConfig = path.join(managed.path, "pawwork.json")
+      await Filesystem.write(managedConfig, "{ managed invalid json }")
+      const configDir = path.join(project.path, ".opencode")
+      await fs.mkdir(configDir, { recursive: true })
+      await Filesystem.write(path.join(configDir, "pawwork.json"), JSON.stringify({ model: "pawwork/valid-model" }))
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const config = await load()
+          expect(config.model).toBe("pawwork/valid-model")
+          const errors = await loadErrors()
+          expect(errors.some((error) => error.name === "ConfigJsonError" && error.data.path === managedConfig)).toBeTrue()
+        },
+      })
+    } finally {
+      if (previous === undefined) delete process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR
+      else process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR = previous
+    }
+  })
 })
