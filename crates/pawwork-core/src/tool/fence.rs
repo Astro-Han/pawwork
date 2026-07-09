@@ -58,6 +58,19 @@ pub fn resolve_new_in_workspace(root: &Path, requested: &str) -> Result<PathBuf,
     if requested.trim().is_empty() {
         return Err("empty path".to_string());
     }
+    // A trailing separator (or `/.`) asserts "this is a directory". For a regular
+    // file `exists()` is then false (ENOTDIR), which would fall into the create
+    // branch below — where `file_name()` silently strips the trailing syntax and
+    // collapses `existing.txt/` onto `existing.txt`, overwriting a file the
+    // caller never named. Refuse the syntax outright instead.
+    let trimmed = requested.trim_end();
+    if trimmed.ends_with('/')
+        || trimmed.ends_with('\\')
+        || trimmed.ends_with("/.")
+        || trimmed.ends_with("\\.")
+    {
+        return Err(format!("path '{requested}' does not name a file"));
+    }
     let candidate = root.join(requested);
 
     if candidate.exists() {
@@ -247,6 +260,25 @@ mod tests {
         assert!(
             err.contains("directory") || err.contains("does not name a file"),
             "got: {err}"
+        );
+    }
+
+    #[test]
+    fn trailing_separator_on_a_file_is_rejected() {
+        // `exists.txt/` claims directory semantics; `file_name()` would strip the
+        // slash and collapse onto the real file. It must be refused, not written.
+        let ws = TempWorkspace::new();
+        fs::write(ws.root.join("exists.txt"), b"keep").unwrap();
+        for requested in ["exists.txt/", "exists.txt/.", "exists.txt\\"] {
+            let err = resolve_new_in_workspace(&ws.root, requested).unwrap_err();
+            assert!(
+                err.contains("does not name a file"),
+                "'{requested}' must be rejected, got: {err}"
+            );
+        }
+        assert_eq!(
+            fs::read_to_string(ws.root.join("exists.txt")).unwrap(),
+            "keep"
         );
     }
 

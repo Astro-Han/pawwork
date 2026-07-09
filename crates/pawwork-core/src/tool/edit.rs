@@ -46,23 +46,46 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
         .parent()
         .ok_or_else(|| "target has no parent directory".to_string())?;
     let temp = parent.join(format!(".pawwork-tmp-{}", Uuid::new_v4()));
-    if let Err(err) = std::fs::write(&temp, content) {
+    let existing = std::fs::metadata(path).ok();
+    if let Err(err) = write_temp(&temp, content, existing.as_ref()) {
         std::fs::remove_file(&temp).ok();
         return Err(format!("write failed: {err}"));
-    }
-    // The rename installs the temp's inode, so the target's permissions would
-    // otherwise be replaced by the temp's umask default — turning a 0755 script
-    // non-executable or widening a 0600 file. Carry the target's mode over first;
-    // a missing target means a create, where the default mode is right.
-    if let Ok(existing) = std::fs::metadata(path) {
-        if let Err(err) = std::fs::set_permissions(&temp, existing.permissions()) {
-            std::fs::remove_file(&temp).ok();
-            return Err(format!("write failed: {err}"));
-        }
     }
     if let Err(err) = std::fs::rename(&temp, path) {
         std::fs::remove_file(&temp).ok();
         return Err(format!("write failed: {err}"));
+    }
+    Ok(())
+}
+
+/// Stage the temp file without ever being more readable than the final target.
+///
+/// The rename installs the temp's inode, so the target's permissions must be
+/// carried onto the temp or a 0755 script turns non-executable and a 0600 file
+/// widens to the umask default. Order matters for secrecy too: when replacing an
+/// existing file the temp is *created* 0600 (unix) before any content is written,
+/// then tightened/relaxed to the target's exact mode — so there is no window (or
+/// crash residue) in which private content sits in a default-mode temp. A missing
+/// target is a create, where the default umask mode matches the final state.
+fn write_temp(
+    temp: &Path,
+    content: &[u8],
+    existing: Option<&std::fs::Metadata>,
+) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    if existing.is_some() {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(temp)?;
+    file.write_all(content)?;
+    drop(file);
+    if let Some(metadata) = existing {
+        std::fs::set_permissions(temp, metadata.permissions())?;
     }
     Ok(())
 }
@@ -509,6 +532,24 @@ mod tests {
             .unwrap();
         WriteTool.run(&ctx, &prepared).await.unwrap();
         assert_eq!(fs::read_to_string(ws.root.join("empty.txt")).unwrap(), "");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn write_preserves_a_private_file_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let ws = TempWorkspace::new();
+        let secret = ws.root.join("secret.txt");
+        fs::write(&secret, b"old").unwrap();
+        fs::set_permissions(&secret, fs::Permissions::from_mode(0o600)).unwrap();
+        let ctx = ws.ctx();
+        let prepared = WriteTool
+            .prepare(&ctx, &json!({ "path": "secret.txt", "content": "new" }))
+            .unwrap();
+        WriteTool.run(&ctx, &prepared).await.unwrap();
+        let mode = fs::metadata(&secret).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "overwriting must not widen a private file");
+        assert_eq!(fs::read_to_string(&secret).unwrap(), "new");
     }
 
     #[test]
