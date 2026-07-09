@@ -6,7 +6,7 @@ import { Effect, Layer, Option } from "effect"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Account } from "../../src/account"
 import { Auth } from "../../src/auth"
-import { Config, ConfigManaged } from "../../src/config"
+import { Config, ConfigManaged, ConfigMCP } from "../../src/config"
 import { ConfigPlugin } from "../../src/config/plugin"
 import { ConfigPaths } from "../../src/config/paths"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
@@ -47,7 +47,7 @@ const save = (config: Config.Info) =>
   Effect.runPromise(Config.Service.use((svc) => svc.update(config)).pipe(Effect.scoped, Effect.provide(layer)))
 const saveGlobal = (config: Config.Info) =>
   Effect.runPromise(Config.Service.use((svc) => svc.updateGlobal(config)).pipe(Effect.scoped, Effect.provide(layer)))
-const editMcp = (input: { set?: Record<string, Config.Mcp>; remove?: string[] }) =>
+const editMcp = (input: { set?: Record<string, ConfigMCP.Info>; remove?: string[] }) =>
   Effect.runPromise(Config.Service.use((svc) => svc.editGlobalMcp(input)).pipe(Effect.scoped, Effect.provide(layer)))
 const clear = (wait = false) =>
   Effect.runPromise(Config.Service.use((svc) => svc.invalidate(wait)).pipe(Effect.scoped, Effect.provide(layer)))

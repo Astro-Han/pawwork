@@ -1,5 +1,6 @@
 import { GlobalBus } from "@/bus/global"
 import { Config } from "@/config/config"
+import { ConfigMCP } from "@/config/mcp"
 import { Installation } from "@/installation"
 import { Instance } from "@/project/instance"
 import { emitGlobalDisposed } from "@/server/instance/global"
@@ -91,7 +92,7 @@ const upgradeInstallation = Effect.fn("GlobalHttpApi.upgrade")(function* (target
 })
 
 const EditMcpConfigInput = z.object({
-  set: z.record(z.string(), Config.Mcp).optional(),
+  set: z.record(z.string(), ConfigMCP.Info.zod).optional(),
   remove: z.array(z.string()).optional(),
 })
 
