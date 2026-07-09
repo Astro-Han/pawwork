@@ -160,9 +160,12 @@ impl SessionStore {
     /// Append one event, stamping envelope fields, and flush to the OS.
     ///
     /// Flush is not fsync; see the module-level durability note. `seq` is
-    /// committed only after the line reaches the OS, so a failed write neither
-    /// advances `seq` nor leaves a partial line behind — the same store stays
-    /// usable for the next append.
+    /// committed only after the line reaches the OS. On a write failure the
+    /// partial line is truncated back to the last clean boundary and `seq` is
+    /// left uncommitted, so the same store stays usable for the next append —
+    /// unless that rollback truncation itself fails, in which case the store is
+    /// poisoned and later appends return an error until the session is reopened
+    /// (which re-truncates the torn tail).
     pub fn append(&mut self, turn_id: Option<String>, kind: EventKind) -> io::Result<LedgerEvent> {
         if self.poisoned {
             return Err(io::Error::other(
