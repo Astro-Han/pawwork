@@ -93,6 +93,12 @@ describe("officeOutputPaths", () => {
     // the backslash-space unescape must NOT touch backslashes before non-space chars, so a
     // Windows-style `-o` path keeps its separators (still captured exactly, verbatim)
     [String.raw`uv run python build.py -o C:\out\report.docx`, [String.raw`C:\out\report.docx`]],
+    // an unquoted backslash-escaped shell metacharacter is a literal in the filename: the real
+    // file is `R&D.docx`, so capture that, not the literal-backslash `R\&D.docx`
+    [String.raw`uv run python build.py -o R\&D.docx`, ["R&D.docx"]],
+    // an escaped `;` must not tear the filename into a second command segment, and its real
+    // name is `report;q.docx`
+    [String.raw`uv run python build.py -o report\;q.docx`, ["report;q.docx"]],
   ])("parses the output path from %s", (command, expected) => {
     expect(officeOutputPaths(command)).toEqual(expected)
   })
@@ -107,6 +113,9 @@ describe("officeOutputPaths", () => {
     "uv run --directory work python build.py -o report.docx", // relative under --directory (run option) chdir
     "uv run --python python3 --directory work python build.py -o report.docx", // --python value must not hide --directory
     "uv run -p python3 --directory work python build.py -o report.docx", // short -p form too
+    // a python-like VALUE of any value-option (`--project python`) must not stop the scan and
+    // hide the later `--directory` chdir — else the relative output looks exact in the shell cwd
+    "uv --project python --directory work run python make.py -o report.docx",
     "uv --directory work run python <<'PY'\ndoc.save('out.docx')\nPY", // heredoc .save under --directory chdir
     'uv run python build.py --out "{draft,final}.docx"', // brace expansion is shell state, not a literal file
     'uv run python build.py --out "[ab].docx"', // bracket glob is shell state, not a literal file
@@ -154,6 +163,9 @@ describe("hasOfficeOutputIntent", () => {
     "uv run --directory work python build.py -o report.docx", // --directory as a `uv run` option also chdirs
     "uv --directory work run python <<'PY'\ndoc.save('out.docx')\nPY", // heredoc .save inherits the --directory chdir
     "uv run --python python3 --directory work python build.py -o report.docx", // --python value collision must still see --directory
+    // a value-option value (`--project python`) shaped like a python command must not hide the
+    // later `--directory` chdir → the relative output stays unresolved intent
+    "uv --project python --directory work run python make.py -o report.docx",
     // a --directory value that collides with a uv subcommand name (`build`) must not hide the
     // real `run`; the relative output under that chdir is still unresolved intent
     "uv --directory build run python make.py -o report.docx",

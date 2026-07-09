@@ -155,6 +155,14 @@ export function commandSegments(command: string) {
       index += 1
       continue
     }
+    // An unquoted backslash escapes the next character, so an escaped delimiter
+    // (`report\;q.docx`, `a\|b.docx`) or escaped quote (`\"`) is part of a word, never a
+    // command separator or quote start. Skip the pair so the filename is not torn across a
+    // phantom segment boundary. `\<newline>` was already collapsed by stripLineContinuations.
+    if (char === "\\") {
+      index += 2
+      continue
+    }
     if (char === "'" || char === '"') {
       quote = char
       index += 1
@@ -360,9 +368,10 @@ function isPythonCommandToken(word: string) {
 // both as a global option (`uv --directory x run ...`) and as a `uv run` option
 // (`uv run --directory x python ...`) — both chdir — so scan up to the executed python
 // command; a `--directory` after that belongs to the script's own args, not uv. A
-// python-ish token that is the VALUE of uv's `--python`/`-p` interpreter selector
-// (`uv run --python python3 --directory work python x.py`) is NOT the command, so it does
-// not stop the scan.
+// python-ish token that is the VALUE of any uv value-option (`--python python3`,
+// `--project python`, `--config-file build.py`) is NOT the command, so it does not stop the
+// scan — otherwise a `--directory` after such a value would be missed and a relative output
+// wrongly treated as exactly capturable in the shell cwd instead of the changed directory.
 function uvChangesDirectory(words: string[]) {
   const { head, rest } = commandHead(words)
   if (head?.toLowerCase() !== "uv") return false
@@ -370,7 +379,14 @@ function uvChangesDirectory(words: string[]) {
   for (const word of rest) {
     const low = word.toLowerCase()
     if (low === "--directory" || low.startsWith("--directory=")) return true
-    if (isPythonCommandToken(word) && previous !== "--python" && previous !== "-p") break
+    // Skip the value of a value-taking option (`--project python`, `--config-file build.py`):
+    // it is an option argument, not the executed command, so a python-like value must not stop
+    // the scan. `--directory` is checked above first so its own chdir intent still wins.
+    if (previous && uvValueOptions.has(previous)) {
+      previous = undefined
+      continue
+    }
+    if (isPythonCommandToken(word)) break
     previous = low
   }
   return false
@@ -630,6 +646,14 @@ export function commandHead(words: string[]) {
   return { head: words[index], next: words[index + 1], rest: words.slice(index + 1), index }
 }
 
+// Characters an unquoted backslash escapes into a literal within a word: whitespace plus the
+// shell metacharacters that otherwise drive word/segment/quote parsing. A backslash before an
+// ordinary char (a Windows path separator `C:\out\report.docx`) is deliberately NOT in this set,
+// so those paths stay literal. Glob/variable metacharacters (`$`, `*`, `?`, `` ` ``) are also
+// excluded: unescaping them would make the value read as dynamic and route to discovery, which
+// already backstops such a name, rather than being tracked exactly.
+const shellEscapableChars = new Set([" ", "\t", "&", ";", "|", "(", ")", '"', "'"])
+
 function shellWords(text: string) {
   const words: string[] = []
   let current = ""
@@ -653,11 +677,12 @@ function shellWords(text: string) {
       quote = char
       continue
     }
-    if (char === "\\" && (text[index + 1] === " " || text[index + 1] === "\t")) {
-      // Unquoted POSIX escape of whitespace (`-o Quarterly\ Report.docx`): the backslash binds
-      // the space into the same token, so keep it as a literal space and do NOT split the word.
-      // Only whitespace is unescaped — a backslash before a non-space (a Windows
-      // `C:\out\report.docx`) stays literal, so those path separators are preserved.
+    if (char === "\\" && shellEscapableChars.has(text[index + 1])) {
+      // Unquoted POSIX escape of whitespace or a shell metacharacter (`-o Quarterly\ Report.docx`,
+      // `-o R\&D.docx`, `-o report\;q.docx`): the backslash binds the escaped char into the same
+      // token as a literal, so keep the char and drop the backslash. Only shell-special chars are
+      // unescaped — a backslash before an ordinary char (a Windows `C:\out\report.docx`) stays
+      // literal, so those path separators are preserved.
       current += text[index + 1]
       index++
       continue
