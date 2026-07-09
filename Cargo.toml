@@ -22,3 +22,15 @@ tokio = { version = "1", default-features = false, features = ["sync"] }
 # CancellationToken (cooperative interruption; child tokens are the future
 # subagent shape). Preferred over a hand-rolled watch channel.
 tokio-util = { version = "0.7", default-features = false }
+# The only network dependency: an async HTTP client for the streaming
+# chat/completions call. default-features are off to drop native-tls/OpenSSL in
+# favour of rustls (no system OpenSSL needed on macOS/Windows). The SSE body is
+# driven with Response::chunk(), so the `stream`/`json` features are unnecessary;
+# framing and chunk JSON are hand-parsed in openai_compat. reqwest pulls hyper +
+# tokio rt/net transitively; that is a binary-side build-graph effect and does
+# not widen the core's own direct tokio features (still `sync`).
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "http2",
+    "charset",
+] }

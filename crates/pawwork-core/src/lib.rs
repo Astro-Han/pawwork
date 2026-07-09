@@ -3,6 +3,8 @@
 //! Layers (see `docs/architecture/2026-07-09-rust-agent-v0.md`, section 13):
 //! - [`session`] — JSONL ledger, the single source of truth (PR1).
 //! - [`llm`] — the [`llm::LlmClient`] boundary plus a scripted mock.
+//! - [`openai_compat`] — a hand-written streaming client that implements
+//!   [`llm::LlmClient`] against any OpenAI-compatible chat/completions endpoint.
 //! - [`tool`] — the [`tool::Tool`] boundary, a runtime registry, and the
 //!   read-only `read`/`list` tools with their workspace path fence.
 //! - [`permission`] — the [`permission::PermissionGate`] callback boundary.
@@ -14,6 +16,7 @@
 
 pub mod agent;
 pub mod llm;
+pub mod openai_compat;
 pub mod permission;
 pub mod session;
 pub mod tool;
