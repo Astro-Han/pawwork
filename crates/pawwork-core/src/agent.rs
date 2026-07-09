@@ -373,6 +373,16 @@ impl<L: LlmClient, G: PermissionGate> Agent<L, G> {
             }
         }
 
+        // Recheck cancellation before starting a side-effecting tool. The
+        // confirmation future and the cancel token can become ready together, and
+        // `run_until_cancelled` picks a winner nondeterministically — so a Ctrl-C
+        // that raced (or preceded) approval could otherwise let `edit`/`write`
+        // mutate a file or `shell` spawn a process after the interrupt. This also
+        // covers auto-allowed tools, which skip the gate entirely.
+        if cancel.is_cancelled() {
+            return Ok(CallFlow::Interrupted("cancelled".to_string()));
+        }
+
         emit(
             &mut self.store,
             tx,

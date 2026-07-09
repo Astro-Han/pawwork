@@ -209,8 +209,8 @@ async fn run_command(
         }
     };
 
-    let stdout = join_captured(stdout_task, stdout_slot).await;
-    let stderr = join_captured(stderr_task, stderr_slot).await;
+    let (stdout, stderr) =
+        join_captured_pair(stdout_task, stdout_slot, stderr_task, stderr_slot, &cancel).await;
     let stdout_text = render(stdout);
     let stderr_text = render(stderr);
 
@@ -271,19 +271,53 @@ async fn drain_capped<R: AsyncRead + Unpin>(mut reader: R, slot: CaptureSlot) {
     }
 }
 
-/// Await a drain task for at most [`DRAIN_GRACE`], then take the slot's capture.
-/// The child has already exited here, so a drain that is still blocked can only
-/// be waiting on an orphan that inherited the pipe — abandon it (marking the
-/// capture truncated) rather than pin the turn on a process we chose not to kill.
-async fn join_captured(mut task: tokio::task::JoinHandle<()>, slot: CaptureSlot) -> Captured {
-    if tokio::time::timeout(DRAIN_GRACE, &mut task).await.is_err() {
-        task.abort();
-        lock_slot(&slot).truncated = true;
+/// Await both drain tasks concurrently under a single [`DRAIN_GRACE`] budget that
+/// also observes cancellation. The child has already exited here, so a drain still
+/// blocked can only be waiting on an orphan that inherited the pipe — abandon both
+/// (marking each abandoned capture truncated) rather than pin the turn on a process
+/// we chose not to kill, and still honor a Ctrl-C that lands during the wait.
+///
+/// Sharing one budget matters: awaiting the two serially would double the worst
+/// case (each its own grace) and, once `child.wait()` had already won, would stop
+/// observing cancellation entirely.
+async fn join_captured_pair(
+    mut stdout_task: tokio::task::JoinHandle<()>,
+    stdout_slot: CaptureSlot,
+    mut stderr_task: tokio::task::JoinHandle<()>,
+    stderr_slot: CaptureSlot,
+    cancel: &CancellationToken,
+) -> (Captured, Captured) {
+    let both = async {
+        let _ = tokio::join!(&mut stdout_task, &mut stderr_task);
+    };
+    tokio::select! {
+        _ = both => {}
+        _ = tokio::time::sleep(DRAIN_GRACE) => {}
+        _ = cancel.cancelled() => {}
     }
-    let captured = lock_slot(&slot);
+    // A drain that has not finished is abandoned on an orphan pipe; abort it and
+    // mark only that stream truncated, so a clean stream keeps an accurate result.
+    let stdout_abandoned = !stdout_task.is_finished();
+    let stderr_abandoned = !stderr_task.is_finished();
+    if stdout_abandoned {
+        stdout_task.abort();
+    }
+    if stderr_abandoned {
+        stderr_task.abort();
+    }
+    (
+        take_capture(&stdout_slot, stdout_abandoned),
+        take_capture(&stderr_slot, stderr_abandoned),
+    )
+}
+
+/// Clone a slot's capture, OR-ing in an `abandoned` flag from the joiner on top of
+/// any cap-truncation the drain already recorded.
+fn take_capture(slot: &CaptureSlot, abandoned: bool) -> Captured {
+    let captured = lock_slot(slot);
     Captured {
         bytes: captured.bytes.clone(),
-        truncated: captured.truncated,
+        truncated: captured.truncated || abandoned,
     }
 }
 

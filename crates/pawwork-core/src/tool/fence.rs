@@ -41,6 +41,21 @@ pub fn resolve_in_workspace(root: &Path, requested: &str) -> Result<PathBuf, Str
     Ok(canonical)
 }
 
+/// Whether `requested` uses trailing directory syntax — a path separator, or a
+/// final `.` component — that `Path` normalizes away, so `file_name()` would
+/// silently collapse a write target onto its parent. Separators are platform-aware
+/// via `std::path::is_separator` (`/` everywhere, `\` only on Windows), so on the
+/// unix target ordinary filenames ending in a backslash or a dot-space are
+/// preserved rather than wrongly rejected by a blunt string match.
+fn names_a_directory(requested: &str) -> bool {
+    if requested.ends_with(std::path::is_separator) {
+        return true;
+    }
+    // A final `.` that stands as its own component: '.' preceded by a separator.
+    let mut chars = requested.chars();
+    chars.next_back() == Some('.') && chars.next_back().is_some_and(std::path::is_separator)
+}
+
 /// Resolve a `write` target that may not yet exist, returning the canonical path
 /// to write to iff it stays inside the workspace.
 ///
@@ -58,17 +73,14 @@ pub fn resolve_new_in_workspace(root: &Path, requested: &str) -> Result<PathBuf,
     if requested.trim().is_empty() {
         return Err("empty path".to_string());
     }
-    // A trailing separator (or `/.`) asserts "this is a directory". For a regular
-    // file `exists()` is then false (ENOTDIR), which would fall into the create
-    // branch below — where `file_name()` silently strips the trailing syntax and
-    // collapses `existing.txt/` onto `existing.txt`, overwriting a file the
-    // caller never named. Refuse the syntax outright instead.
-    let trimmed = requested.trim_end();
-    if trimmed.ends_with('/')
-        || trimmed.ends_with('\\')
-        || trimmed.ends_with("/.")
-        || trimmed.ends_with("\\.")
-    {
+    // A trailing separator ("existing.txt/") or a trailing "/." both assert "this
+    // is a directory". For a regular file `exists()` is then false (ENOTDIR), so it
+    // falls into the create branch below — where `Path` has already normalized the
+    // trailing syntax away (`components()` drops a final `.`, and a trailing
+    // separator leaves no component of its own), so `file_name()` collapses it back
+    // onto `existing.txt`, overwriting a file the caller never named. Refuse both
+    // forms outright.
+    if names_a_directory(requested) {
         return Err(format!("path '{requested}' does not name a file"));
     }
     let candidate = root.join(requested);
@@ -266,10 +278,13 @@ mod tests {
     #[test]
     fn trailing_separator_on_a_file_is_rejected() {
         // `exists.txt/` claims directory semantics; `file_name()` would strip the
-        // slash and collapse onto the real file. It must be refused, not written.
+        // slash and collapse onto the real file. `exists.txt/.` is caught in the
+        // create branch (`file_name()` returns `None`). Both must be refused, not
+        // written. A trailing backslash is *not* tested here — on unix it is an
+        // ordinary filename byte (see `backslash_is_an_ordinary_filename_byte`).
         let ws = TempWorkspace::new();
         fs::write(ws.root.join("exists.txt"), b"keep").unwrap();
-        for requested in ["exists.txt/", "exists.txt/.", "exists.txt\\"] {
+        for requested in ["exists.txt/", "exists.txt/."] {
             let err = resolve_new_in_workspace(&ws.root, requested).unwrap_err();
             assert!(
                 err.contains("does not name a file"),
@@ -280,6 +295,17 @@ mod tests {
             fs::read_to_string(ws.root.join("exists.txt")).unwrap(),
             "keep"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn backslash_is_an_ordinary_filename_byte() {
+        // On unix `\` is not a path separator, so `report\` names a real (if odd)
+        // new file. It must resolve as a create target, not be rejected as
+        // directory syntax and not collapse onto any existing file.
+        let ws = TempWorkspace::new();
+        let resolved = resolve_new_in_workspace(&ws.root, "report\\").unwrap();
+        assert_eq!(resolved, ws.root.join("report\\"));
     }
 
     #[test]
