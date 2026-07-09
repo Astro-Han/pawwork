@@ -215,4 +215,12 @@ describe("nonOfficeGeneratorText", () => {
     expect(remainder).toBe("") // no phantom `> 0:` redirect leaks out of the heredoc body
     expect(isLikelyWriteCommand(remainder)).toBe(false)
   })
+
+  test("keeps a real redirect on a heredoc opener line as a side-effect write", () => {
+    // the `> log.txt` sits on the opener line (shell), not in the body (stdin) — dropping
+    // the captured generator must still surface that log write, not swallow it
+    const cmd = "uv run python <<'PY' > log.txt\nprs.save('deck.pptx')\nPY"
+    expect(officeOutputPaths(cmd)).toEqual(["deck.pptx"]) // deck still captured exactly
+    expect(nonOfficeGeneratorText(cmd)).toBe("> log.txt") // opener-line write survives
+  })
 })

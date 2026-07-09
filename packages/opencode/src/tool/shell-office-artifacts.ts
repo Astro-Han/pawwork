@@ -404,12 +404,15 @@ export function officeOutputPaths(command: string) {
 // The write-redirections carried by a single command segment, extracted quote-aware so
 // a `>` inside a python string (`-c "print('a > b')"`) is not mistaken for one. Returns
 // e.g. `> log.txt` / `2> err.txt` / `>> out`. Bare input `<` is not a write. A `<<`
-// heredoc body is stdin, not shell — its whole body is skipped so ordinary python code
-// there (`if total > 0:`, an SVG/HTML `>` literal) is never read as a redirect.
+// heredoc BODY is stdin, not shell — only the body (from the opener line's newline through
+// the closing delimiter) is skipped, so ordinary python there (`if total > 0:`, an
+// SVG/HTML `>` literal) is never read as a redirect, while a real redirect ON the opener
+// line (`uv run python <<'PY' > log.txt`) is still captured.
 function segmentWriteRedirects(segmentText: string) {
   const parts: string[] = []
   let index = 0
   let quote: "'" | '"' | undefined
+  let pendingBodyEnd: number | undefined
   while (index < segmentText.length) {
     const char = segmentText[index]
     if (quote) {
@@ -421,6 +424,13 @@ function segmentWriteRedirects(segmentText: string) {
       index++
       continue
     }
+    // The heredoc opener line is still shell — keep scanning it for redirects. Once its
+    // terminating newline is reached, jump past the whole heredoc body (stdin).
+    if (pendingBodyEnd !== undefined && char === "\n") {
+      index = pendingBodyEnd
+      pendingBodyEnd = undefined
+      continue
+    }
     if (char === "'" || char === '"') {
       quote = char
       index++
@@ -429,7 +439,10 @@ function segmentWriteRedirects(segmentText: string) {
     if (char === "<" && segmentText[index + 1] === "<") {
       const bodyEnd = skipHeredocBody(segmentText, index)
       if (bodyEnd !== undefined) {
-        index = bodyEnd
+        // Note the body span, but advance only past the `<<` operator so a same-line
+        // redirect after the delimiter word is still seen before the body is skipped.
+        pendingBodyEnd = bodyEnd
+        index += 2
         continue
       }
     }
