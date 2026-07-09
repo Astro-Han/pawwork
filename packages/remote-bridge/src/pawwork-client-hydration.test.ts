@@ -8,6 +8,18 @@ import { SessionPointers } from "./session-pointers.ts"
 
 const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } })
 
+// Mirror the server middleware: the client percent-encodes x-opencode-directory,
+// so decode it here to recover the logical path the assertions below expect.
+function capturedDir(req: Request): string | null {
+  const raw = req.headers.get("x-opencode-directory")
+  if (raw === null) return null
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
+
 function recorder() {
   const texts: { sessionID: string; text: string }[] = []
   const handler: EventHandler = {
@@ -33,12 +45,12 @@ test("replyPermission and submitQuestion post the expected bodies and directory"
       const url = new URL(req.url)
       const body = await req.json().catch(() => undefined)
       if (url.pathname === "/permission/perm_1/reply") {
-        seen.permissionDirectory = req.headers.get("x-opencode-directory")
+        seen.permissionDirectory = capturedDir(req)
         seen.permissionBody = body
         return json(true)
       }
       if (url.pathname === "/session/ses_1/tool/respond") {
-        seen.questionDirectory = req.headers.get("x-opencode-directory")
+        seen.questionDirectory = capturedDir(req)
         seen.questionBody = body
         return json({ status: "ok" })
       }
@@ -77,11 +89,11 @@ test("listPermissions and listQuestions map fields and reuse the session directo
       const url = new URL(req.url)
       if (url.pathname === "/experimental/session") return json([{ id: "ses_1", directory: "/repo/a" }])
       if (url.pathname === "/permission") {
-        permissionDirectories.push(req.headers.get("x-opencode-directory"))
+        permissionDirectories.push(capturedDir(req))
         return json([{ id: "perm_1", sessionID: "ses_1", permission: "edit", patterns: ["/repo/app.ts"] }])
       }
       if (url.pathname === "/external-result") {
-        questionDirectories.push(req.headers.get("x-opencode-directory"))
+        questionDirectories.push(capturedDir(req))
         return json([
           {
             part: {
