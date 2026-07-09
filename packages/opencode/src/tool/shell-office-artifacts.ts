@@ -141,6 +141,19 @@ function skipHeredocBody(command: string, index: number) {
   return command.length // unterminated heredoc: consume to end
 }
 
+// Whether a `{` or `}` at `index` is a STANDALONE block brace (a command-grouping brace, as in
+// PowerShell `if ($?) { cmd }` or a bash `{ cmd; }` group) rather than part of a word. A block
+// brace is bounded by whitespace / a preceding `)` (the `) {` of a conditional) / a `;`, so a
+// `${VAR}` (brace glued to `$`), a `@{ ... }` hashtable (glued to `@`), and a brace-expansion
+// `report{1,2}.docx` (glued to a word on both sides) are all left intact and never split.
+function isStandaloneBrace(command: string, index: number) {
+  const prev = command[index - 1]
+  const next = command[index + 1]
+  const boundedLeft = prev === undefined || /\s/.test(prev) || prev === ")" || prev === ";"
+  const boundedRight = next === undefined || /\s/.test(next) || next === ";"
+  return boundedLeft && boundedRight
+}
+
 export function commandSegments(command: string) {
   command = stripLineContinuations(command)
   const segments: Segment[] = []
@@ -206,6 +219,17 @@ export function commandSegments(command: string) {
         index += 2
         continue
       }
+    }
+    // A standalone `{`/`}` groups commands (PowerShell `if ($?) { cmd }`, a bash `{ cmd; }`), so
+    // treat it as a separator: the wrapped office generator becomes its own segment with the real
+    // command as its head, instead of hiding under `if`. The instructed Windows PowerShell 5.1
+    // dependent-command form is `cmd; if ($?) { cmd2 }` — without this, cmd2's office output is
+    // neither captured nor flagged uncaptured.
+    if ((char === "{" || char === "}") && isStandaloneBrace(command, index)) {
+      pushSegment(index)
+      index += 1
+      start = index
+      continue
     }
 
     const next = command[index + 1]

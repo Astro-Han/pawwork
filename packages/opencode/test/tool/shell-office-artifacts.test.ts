@@ -281,6 +281,24 @@ describe("nonOfficeGeneratorText", () => {
     expect(nonOfficeGeneratorText(cmd)).toBe("> log.txt") // opener-line write survives
   })
 
+  test("surfaces an office generator wrapped in a PowerShell if ($?) block", () => {
+    // Windows PowerShell 5.1 has no `&&`, so the shell prompt instructs dependent chaining as
+    // `cmd1; if ($?) { cmd2 }`. The wrapped generator must still be captured / audited, not hidden
+    // under the `if` head. A standalone `{`/`}` groups commands; `${VAR}` / brace-expansion stay intact.
+    const exact = "uv run python prep.py; if ($?) { uv run python build.py -o report.docx }"
+    expect(officeOutputPaths(exact)).toEqual(["report.docx"]) // captured despite the if-wrapper
+    const dynamic = `uv run python prep.py; if ($?) { uv run python build.py -o "$OUT.docx" }`
+    expect(hasOfficeOutputIntent(dynamic)).toBe(true) // dynamic wrapped output still scans
+    const sideEffect = "uv run python build.py -o a.docx; if ($?) { echo x > side.txt }"
+    expect(isLikelyWriteCommand(nonOfficeGeneratorText(sideEffect))).toBe(true) // wrapped write audited
+    // a bash `{ cmd; }` group is unwrapped the same way
+    expect(officeOutputPaths("{ uv run python build.py -o report.docx; }")).toEqual(["report.docx"])
+    // a brace glued to a word/`$` is NOT a block brace: brace-expansion / ${VAR} outputs are left
+    // intact (dynamic → discovery), not torn across a phantom `{`/`}` split
+    expect(hasOfficeOutputIntent("uv run python build.py -o report{1,2}.docx")).toBe(true)
+    expect(hasOfficeOutputIntent("uv run python build.py -o ${OUT}.docx")).toBe(true)
+  })
+
   test("keeps a command chained on the heredoc opener line as its own side-effect write", () => {
     // `<<'PY'; touch side.txt` / `<<'PY' && touch side.txt` put `touch` on the opener line
     // (shell), before the body (stdin). Skipping the whole heredoc span would bury `touch` inside
