@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/pawwork-core", "crates/pawwork-cli"]
+
+[workspace.package]
+edition = "2021"
+# 1.89 is the floor for std File::try_lock (the single-writer lock). It is a
+# documented minimum, not a CI-gated one: rust-toolchain.toml tracks stable so
+# CI keeps the newest lints. Pin the toolchain to 1.89.x only if a real MSRV
+# gate is needed later.
+rust-version = "1.89"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
