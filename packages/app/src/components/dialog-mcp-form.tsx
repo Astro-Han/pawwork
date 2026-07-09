@@ -10,6 +10,7 @@ import { createStore, produce } from "solid-js/store"
 import type { McpLocalConfig, McpRemoteConfig } from "@opencode-ai/sdk/v2/client"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { joinCommand, splitCommand } from "@/components/mcp-command"
 
 type McpConfig = McpLocalConfig | McpRemoteConfig
 
@@ -49,7 +50,7 @@ export function DialogMcpForm(props: Props) {
   const [form, setForm] = createStore({
     type: initialType as "local" | "remote",
     name: props.name ?? "",
-    command: initial?.type === "local" ? initial.command.join(" ") : "",
+    command: initial?.type === "local" ? joinCommand(initial.command) : "",
     url: initial?.type === "remote" ? initial.url : "",
     env: recordToRows(initial?.type === "local" ? initial.environment : undefined),
     headers: recordToRows(initial?.type === "remote" ? initial.headers : undefined),
@@ -72,7 +73,7 @@ export function DialogMcpForm(props: Props) {
     if (!name) err.name = language.t("settings.mcp.error.name.required")
     else if (name !== props.name && props.existingNames.includes(name))
       err.name = language.t("settings.mcp.error.name.duplicate", { name })
-    if (form.type === "local" && form.command.trim().split(/\s+/).filter(Boolean).length === 0)
+    if (form.type === "local" && splitCommand(form.command).length === 0)
       err.command = language.t("settings.mcp.error.command.required")
     if (form.type === "remote" && !form.url.trim()) err.url = language.t("settings.mcp.error.url.required")
     setForm("err", err)
@@ -89,7 +90,7 @@ export function DialogMcpForm(props: Props) {
       ...(timeout !== undefined ? { timeout } : {}),
     }
     if (form.type === "local") {
-      const command = form.command.trim().split(/\s+/).filter(Boolean)
+      const command = splitCommand(form.command)
       const environment = rowsToRecord(form.env)
       return { type: "local", command, ...(environment ? { environment } : {}), ...common }
     }
@@ -204,6 +205,7 @@ export function DialogMcpForm(props: Props) {
           <KvRows
             label={language.t("settings.mcp.field.env")}
             addLabel={language.t("settings.mcp.field.env.add")}
+            removeLabel={language.t("settings.mcp.field.env.remove")}
             keyPlaceholder={language.t("settings.mcp.field.key.placeholder")}
             valuePlaceholder={language.t("settings.mcp.field.value.placeholder")}
             rows={form.env}
@@ -225,6 +227,7 @@ export function DialogMcpForm(props: Props) {
           <KvRows
             label={language.t("settings.mcp.field.headers")}
             addLabel={language.t("settings.mcp.field.headers.add")}
+            removeLabel={language.t("settings.mcp.field.headers.remove")}
             keyPlaceholder={language.t("settings.mcp.field.header.key.placeholder")}
             valuePlaceholder={language.t("settings.mcp.field.header.value.placeholder")}
             rows={form.headers}
@@ -282,6 +285,7 @@ export function DialogMcpForm(props: Props) {
 function KvRows(props: {
   label: string
   addLabel: string
+  removeLabel: string
   keyPlaceholder: string
   valuePlaceholder: string
   rows: KvRow[]
@@ -320,7 +324,7 @@ function KvRows(props: {
               class="mt-1"
               onClick={() => props.onRemove(i())}
               disabled={props.rows.length <= 1}
-              aria-label={props.addLabel}
+              aria-label={props.removeLabel}
             />
           </div>
         )}

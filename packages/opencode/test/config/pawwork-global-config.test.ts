@@ -1613,4 +1613,59 @@ describe("editGlobalMcp", () => {
       ;(Global.Path as { config: string }).config = previousConfig
     }
   })
+
+  test("adds an entry without parsing a broken sibling global file", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // Primary (pawwork.jsonc) is valid; an unrelated sibling is corrupt. A pure
+      // add must not scan the sibling, so it must not fail on the broken JSON.
+      await Filesystem.write(path.join(global.path, "pawwork.jsonc"), JSON.stringify({ model: "anthropic/claude" }))
+      await Filesystem.write(path.join(global.path, "pawwork.json"), "{ broken json")
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const result = await editMcp({ set: { added: { type: "remote", url: "https://added" } } })
+          expect(result.missing).toEqual([])
+          const primary = JSON.parse(await Bun.file(path.join(global.path, "pawwork.jsonc")).text())
+          expect(primary.mcp.added.url).toBe("https://added")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("removing an entry tolerates a broken sibling global file", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      await Filesystem.write(
+        path.join(global.path, "pawwork.jsonc"),
+        JSON.stringify({ model: "anthropic/claude", mcp: { gone: { type: "remote", url: "https://gone" } } }),
+      )
+      await Filesystem.write(path.join(global.path, "pawwork.json"), "{ broken json")
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const result = await editMcp({ remove: ["gone"] })
+          expect(result.missing).toEqual([])
+          const primary = JSON.parse(await Bun.file(path.join(global.path, "pawwork.jsonc")).text())
+          expect(primary.mcp.gone).toBeUndefined()
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
 })

@@ -1543,15 +1543,26 @@ const rawLayer = Layer.effect(
         )
         .pipe(Effect.orDie)
 
-      // Rare edge: a sibling loaded file (e.g. a hand-created pawwork.json next to
-      // pawwork.jsonc) could still shadow a removed entry. Strip it there too.
-      for (const file of otherFiles) {
+      // Sibling loaded files only matter for removal: a name deleted from the
+      // primary could still be shadowed by a copy in e.g. a hand-created
+      // pawwork.json next to pawwork.jsonc. A pure add/overwrite never needs to
+      // touch them, so skip the scan entirely — it would only add a failure
+      // surface (parsing an unrelated file) to the common case.
+      for (const file of removeNames.length > 0 ? otherFiles : []) {
         yield* flock
           .withLock(
             Effect.gen(function* () {
               const before = (yield* readConfigFile(file)) ?? "{}"
-              const parsed = ConfigParse.jsonc(before, file)
-              const mcp = isRecord(parsed) && isRecord(parsed.mcp) ? parsed.mcp : {}
+              let mcp: Record<string, unknown> = {}
+              try {
+                const parsed = ConfigParse.jsonc(before, file)
+                if (isRecord(parsed) && isRecord(parsed.mcp)) mcp = parsed.mcp
+              } catch {
+                // A malformed sibling is skipped by the loader anyway, so it cannot
+                // shadow a removed entry. Tolerate it (matching PawWork's broken-file
+                // resilience) instead of failing an edit that already wrote primary.
+                return
+              }
               const removable = removeNames.filter((name) => name in mcp)
               removable.forEach((name) => present.add(name))
               const text = stripKeys(before, removable)
