@@ -1,4 +1,3 @@
-import { PlanExitTool } from "./plan"
 import { Session } from "../session"
 import { QuestionTool } from "./question"
 import { ShellTool } from "./shell"
@@ -154,7 +153,6 @@ export namespace ToolRegistry {
       const question = yield* QuestionTool
       const todo = yield* TodoWriteTool
       const lsptool = yield* LspTool
-      const plan = yield* PlanExitTool
       const webfetch = yield* WebFetchTool
       const websearch = yield* WebSearchTool
       const bash = yield* ShellTool
@@ -337,7 +335,6 @@ export namespace ToolRegistry {
             patch: Tool.init(patchtool),
             question: Tool.init(question),
             lsp: Tool.init(lsptool),
-            plan: Tool.init(plan),
             enterWorktree: Tool.init(enterWorktree),
             exitWorktree: Tool.init(exitWorktree),
             automate: Tool.init(automate),
@@ -375,7 +372,6 @@ export namespace ToolRegistry {
               tool.toolInfo,
               tool.patch,
               ...(lspEnabled ? [tool.lsp] : []),
-              ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
               tool.automate,
               tool.automateManage,
               tool.enterWorktree,

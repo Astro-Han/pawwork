@@ -93,8 +93,6 @@ export namespace Agent {
             // Tighten per target with permission rules if ever needed — the gate is
             // default-open, not absent.
             question: "deny",
-            plan_enter: "deny",
-            plan_exit: "deny",
             read: {
               "*": "allow",
               "*.env": "ask",
@@ -131,15 +129,13 @@ export namespace Agent {
                 defaults,
                 Permission.fromConfig({
                   question: "allow",
-                  plan_enter: "allow",
                 }),
                 user,
               ),
               mode: "primary",
               native: true,
             },
-            // PawWork: visible Plan mode permanently removed (issue #239); resolve sync
-            // conflicts in this region to HEAD. Plan capability migrated to plan tool per #127.
+            // PawWork: Plan Mode agent permanently removed (#239 / #127).
             general: {
               name: "general",
               description: `General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel.`,

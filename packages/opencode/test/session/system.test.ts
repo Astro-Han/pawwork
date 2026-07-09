@@ -85,7 +85,7 @@ describe("session.system", () => {
     const promptDir = path.resolve(import.meta.dir, "../../src/session/prompt")
     const files = (await readdir(promptDir)).sort()
 
-    expect(files).toEqual(["build-switch.txt", "max-steps.txt", "pawwork.txt", "plan.txt"])
+    expect(files).toEqual(["max-steps.txt", "pawwork.txt"])
   })
 
   test("environment includes user locale only when provided", async () => {

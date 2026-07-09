@@ -9,7 +9,6 @@ import { MessageID, SessionID } from "../../src/session/schema"
 import { Session } from "../../src/session"
 import { Todo } from "../../src/session/todo"
 import { InvalidTool } from "../../src/tool/invalid"
-import { PlanExitTool } from "../../src/tool/plan"
 import { QuestionTool } from "../../src/tool/question"
 import { TodoWriteTool } from "../../src/tool/todo"
 import * as Tool from "../../src/tool/tool"
@@ -144,54 +143,4 @@ describe("low-tail tool Effect migration", () => {
     ),
   )
 
-  it.effect("plan_exit tool writes the build-agent handoff using the Effect clock", () =>
-    provideTmpdirInstance(() =>
-      Effect.gen(function* () {
-        const sessionSvc = yield* Session.Service
-        const session = yield* sessionSvc.create({ title: "plan exit" })
-        yield* sessionSvc.updateMessage({
-          id: MessageID.ascending(),
-          sessionID: session.id,
-          role: "user",
-          time: { created: 1 },
-          agent: "plan",
-          model: { providerID, modelID },
-        } satisfies MessageV2.User)
-
-        const info = yield* PlanExitTool
-        const tool = yield* info.init()
-        const result = yield* tool.execute(
-          {},
-          baseCtx({
-            sessionID: session.id,
-            externalResult: ({ inputSnapshot, decoder }) =>
-              Effect.sync(() => {
-                const decoded = decoder?.({ answers: [["Yes"]] }, inputSnapshot)
-                expect(decoded).toEqual({ ok: true, value: { answers: [["Yes"]] } })
-                if (!decoded?.ok) throw new Error("expected decoder success")
-                return { kind: "submitted", value: decoded.value }
-              }),
-          }),
-        )
-
-        const messages = yield* sessionSvc.messages({ sessionID: session.id })
-        const build = messages.find(
-          (message): message is MessageV2.WithParts & { info: MessageV2.User } =>
-            message.info.role === "user" && message.info.agent === "build",
-        )
-        expect(result.title).toBe("Switching to build agent")
-        expect(result.output).toContain("User approved switching to build agent")
-        expect(build?.info.model).toEqual({ providerID, modelID })
-        expect(build?.info.time.created).toBe(0)
-        expect(build?.parts).toContainEqual(
-          expect.objectContaining({
-            type: "text",
-            text: expect.stringContaining("Execute the plan"),
-            synthetic: true,
-          } satisfies Partial<MessageV2.TextPart>),
-        )
-      }),
-      { git: true },
-    ),
-  )
 })

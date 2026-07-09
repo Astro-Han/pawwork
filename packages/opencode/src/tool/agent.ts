@@ -302,7 +302,7 @@ export const AgentTool = Tool.define(
             const parentExec = parent.executionContext
 
             // #26597: a subagent must not use a tool its caller is denied, otherwise a restricted
-            // agent (Plan Mode's edit-deny, or a read-only "*": deny agent) could escalate by
+            // agent (a read-only "*": deny agent) could escalate by
             // spawning a more-capable subagent. Resolve the caller's agent so its deny rules can be
             // forwarded onto the child session below. The caller is ctx.agent on a normal LLM
             // dispatch; for a subtask command SessionPrompt.handleSubtask runs the agent tool as the
@@ -363,7 +363,7 @@ export const AgentTool = Tool.define(
 
             // #26597: resume (subagent_session_id) skips sessions.create, so re-forward the CURRENT
             // caller's inherited permission onto the existing child. Otherwise a caller that became
-            // more restrictive after the child was created — e.g. switched to Plan Mode — could
+            // more restrictive after the child was created could
             // resume it and regain the denied tools, since the child still carried its original
             // creator's permission. The rebuild then carries this forward as on a fresh dispatch.
             if (session) {

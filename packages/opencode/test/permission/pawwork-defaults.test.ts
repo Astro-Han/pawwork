@@ -50,8 +50,6 @@ test("build agent uses PawWork permission defaults", async () => {
       expect(Permission.evaluate("opencli_read", "chatgpt-app/read", build!.permission).action).toBe("allow")
       expect(Permission.evaluate("opencli_write", "spotify/play", build!.permission).action).toBe("allow")
       expect(Permission.evaluate("question", "*", build!.permission).action).toBe("allow")
-      expect(Permission.evaluate("plan_enter", "*", build!.permission).action).toBe("allow")
-      expect(Permission.evaluate("plan_exit", "*", build!.permission).action).toBe("deny")
     },
   })
 })
