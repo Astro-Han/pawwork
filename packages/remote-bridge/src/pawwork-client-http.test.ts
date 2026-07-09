@@ -5,8 +5,20 @@ interface Captured {
   method: string
   path: string
   directory: string | null
+  directoryRaw: string | null
   auth: string | null
   body: any
+}
+
+// Mirror the server middleware: it decodeURIComponent()s the header, so `directory`
+// holds the decoded path while `directoryRaw` keeps the exact bytes sent on the wire.
+function decodeDir(raw: string | null): string | null {
+  if (raw === null) return null
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
 }
 
 function mockServer(routes: (req: { method: string; path: string; body: any }) => Response | undefined) {
@@ -17,10 +29,12 @@ function mockServer(routes: (req: { method: string; path: string; body: any }) =
       const url = new URL(req.url)
       const text = await req.text()
       const body = text === "" ? undefined : JSON.parse(text)
+      const directoryRaw = req.headers.get("x-opencode-directory")
       seen.push({
         method: req.method,
         path: url.pathname + url.search,
-        directory: req.headers.get("x-opencode-directory"),
+        directory: decodeDir(directoryRaw),
+        directoryRaw,
         auth: req.headers.get("authorization"),
         body,
       })
@@ -99,7 +113,7 @@ test("listPermissions skips a directory on a transient 5xx and surfaces the rest
     port: 0,
     fetch(req) {
       const url = new URL(req.url)
-      const dir = req.headers.get("x-opencode-directory")
+      const dir = decodeDir(req.headers.get("x-opencode-directory"))
       if (url.pathname === "/experimental/session") return json([{ id: "ses_x", directory: "/repo/b" }])
       if (url.pathname === "/permission") {
         if (dir === "/repo/a") return new Response("boom", { status: 500 })
@@ -115,5 +129,27 @@ test("listPermissions skips a directory on a transient 5xx and surfaces the rest
     expect(perms).toEqual([{ id: "perm_9", sessionID: "ses_x", permission: "edit", patterns: ["x"], directory: "/repo/b" }])
   } finally {
     server.stop(true)
+  }
+})
+
+test("percent-encodes a non-ASCII directory so fetch does not reject the header (issue #1488)", async () => {
+  // A Windows profile path with Cyrillic — the raw path has code points > 255, which
+  // fetch cannot put in a header value. Without encoding this throws a ByteString error
+  // ("Cannot convert argument to a ByteString") before the request ever leaves the client.
+  const cyrillicDir = "C:\\Users\\Андрей\\proj"
+  const server = mockServer(({ method, path }) => {
+    if (method === "POST" && path === "/session") return json({ id: "ses_1", directory: cyrillicDir })
+    return undefined
+  })
+  try {
+    const client = new PawWorkClient({ baseURL: server.url, directory: cyrillicDir })
+    const id = await client.createSession()
+    expect(id).toBe("ses_1")
+    const create = server.seen.find((r) => r.path === "/session")
+    // On the wire the header is percent-encoded; decoded server-side it is the original path.
+    expect(create?.directoryRaw).toBe(encodeURIComponent(cyrillicDir))
+    expect(create?.directory).toBe(cyrillicDir)
+  } finally {
+    server.stop()
   }
 })
