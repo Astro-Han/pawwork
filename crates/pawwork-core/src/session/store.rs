@@ -12,17 +12,19 @@
 //! the last clean record boundary before appending, so a resumed writer never
 //! concatenates a new record onto half of an old one.
 //!
-//! Tolerance is deliberately narrow — [`scan`] accepts exactly two things and
-//! errors on everything else: a torn (newline-less) tail line, dropped and
-//! truncated on resume; and a complete line whose payload this version cannot
-//! parse but whose envelope (`schema`/`seq`/`type`) is valid (forward-compat,
-//! not projected but still counted for `seq`).
-//!
-//! A complete line without a valid envelope is real corruption and surfaces as
-//! an error rather than being silently skipped. The `.lock` file is held via
+//! Tolerance is deliberately narrow. [`scan`] classifies every line by its
+//! `schema` first and accepts exactly two things, erroring on everything else:
+//! a torn (newline-less) tail line, dropped and truncated on resume; and a
+//! complete record whose `schema` is newer than this build's — forward-compat,
+//! not projected, but its `seq` is counted so a resume cannot collide. A
+//! complete line that is not a structurally valid envelope, carries an older or
+//! unsupported schema, or fails to parse at the current schema is real
+//! corruption and surfaces as an error. Compatibility is governed by `schema`
+//! alone: adding an event type is a schema change. The `.lock` file is held via
 //! `File::try_lock`; the kernel releases it on exit, so a residual `.lock` is
 //! harmless.
 
+use std::cmp::Ordering;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
@@ -47,13 +49,15 @@ pub struct Meta {
     pub workspace: String,
 }
 
-/// Minimal envelope used to classify a complete ledger line whose payload this
-/// version cannot fully parse. Requiring `schema`/`seq`/`type` is the bar for a
-/// structurally valid envelope; `schema` and `kind` then decide forward-compat
-/// (unknown type or newer schema) versus corruption of a known current record.
+/// Envelope fields every ledger line must carry, parsed before the payload so
+/// `schema` can gate compatibility. Requiring `schema`/`event_id`/`seq`/`type`
+/// is the bar for a structurally valid line; a complete line missing any of
+/// them is corruption, not a tolerable record.
 #[derive(Deserialize)]
 struct RawEnvelope {
     schema: u32,
+    #[allow(dead_code)] // presence-validated, not read
+    event_id: String,
     seq: u64,
     #[serde(rename = "type")]
     kind: String,
@@ -115,10 +119,10 @@ impl SessionStore {
     /// Reopen an existing session for writing (resume).
     ///
     /// Fails with [`ErrorKind::WouldBlock`] if another writer holds the lock,
-    /// and with an error if the ledger has a corrupt complete line. Truncates a
-    /// crash-torn tail line before continuing so appends resume on a clean
-    /// record boundary. `seq` continues from the highest record seen, including
-    /// forward-compat records that this version could not project.
+    /// and with an error if the ledger has a corrupt or unsupported line.
+    /// Truncates a crash-torn tail line before continuing so appends resume on a
+    /// clean record boundary. `seq` continues from the highest record seen,
+    /// including forward-compat records that this version could not project.
     pub fn open(dir: &Path) -> io::Result<Self> {
         let lock = acquire_lock(dir)?;
         let scan = scan(dir)?;
@@ -212,10 +216,14 @@ fn acquire_lock(dir: &Path) -> io::Result<File> {
     }
 }
 
-/// Scan the ledger once: project parseable events, advance `seq` across every
-/// complete record, and report the clean (newline-terminated) byte length so a
-/// caller can truncate a crash-torn tail. Errors on a corrupt complete line;
-/// tolerates only a torn tail and forward-compat future records.
+/// Scan the ledger once: project current-schema events, advance `seq` across
+/// every complete record, and report the clean (newline-terminated) byte length
+/// so a caller can truncate a crash-torn tail.
+///
+/// Schema is the compatibility gate, checked before the payload: newer-schema
+/// records are counted but not projected (forward-compat), an older/unsupported
+/// schema or a corrupt current-schema record errors, and a line without a valid
+/// envelope errors. Only a torn (newline-less) tail line is tolerated silently.
 fn scan(dir: &Path) -> io::Result<Scan> {
     let bytes = match fs::read(dir.join(EVENTS_FILE)) {
         Ok(bytes) => bytes,
@@ -241,29 +249,32 @@ fn scan(dir: &Path) -> io::Result<Scan> {
         if line.trim().is_empty() {
             continue;
         }
-        match serde_json::from_str::<LedgerEvent>(line) {
-            Ok(event) => {
-                max_seq = max_seq.max(event.seq);
+        // Parse the envelope first: schema gates compatibility, and a complete
+        // line without a valid envelope is corruption.
+        let envelope: RawEnvelope = serde_json::from_str(line)
+            .map_err(|err| io::Error::other(format!("corrupt ledger line: {err}")))?;
+        max_seq = max_seq.max(envelope.seq);
+        match envelope.schema.cmp(&SCHEMA) {
+            // Newer schema: forward-compat. seq counted above; do not project.
+            Ordering::Greater => {}
+            // Older/unsupported schema: this build has no migration for it.
+            Ordering::Less => {
+                return Err(io::Error::other(format!(
+                    "unsupported ledger schema {} (this build writes {SCHEMA})",
+                    envelope.schema
+                )));
+            }
+            // Current schema: the record must fully parse; a failure is
+            // corruption of a record this version is supposed to understand.
+            Ordering::Equal => {
+                let event: LedgerEvent = serde_json::from_str(line).map_err(|err| {
+                    io::Error::other(format!(
+                        "corrupt ledger record (type '{}'): {err}",
+                        envelope.kind
+                    ))
+                })?;
                 events.push(event);
             }
-            Err(_) => match serde_json::from_str::<RawEnvelope>(line) {
-                Ok(envelope) => {
-                    // A known event type at the current schema that still fails
-                    // to parse is real corruption, not a future record. Only an
-                    // unknown type (or a newer schema) is forward-compat: skip
-                    // projection but advance seq so a resume cannot collide.
-                    if envelope.schema == SCHEMA && is_known_type(&envelope.kind) {
-                        return Err(io::Error::other(format!(
-                            "corrupt ledger record: known type '{}' with unparseable payload",
-                            envelope.kind
-                        )));
-                    }
-                    max_seq = max_seq.max(envelope.seq);
-                }
-                // A complete line that is not even a valid envelope is real
-                // corruption; surface it instead of silently dropping events.
-                Err(err) => return Err(io::Error::other(format!("corrupt ledger line: {err}"))),
-            },
         }
     }
     Ok(Scan {
@@ -273,30 +284,11 @@ fn scan(dir: &Path) -> io::Result<Scan> {
     })
 }
 
-/// Whether `kind` is an event type this build's [`EventKind`] knows. Keep in
-/// sync with `EventKind`; the `known_types_cover_all_event_kinds` test enforces
-/// it. A known type that fails to parse is corruption, not forward-compat.
-fn is_known_type(kind: &str) -> bool {
-    matches!(
-        kind,
-        "session_created"
-            | "user_message"
-            | "model_message"
-            | "tool_started"
-            | "tool_finished"
-            | "permission_requested"
-            | "permission_decided"
-            | "turn_completed"
-            | "turn_interrupted"
-            | "error"
-    )
-}
-
-/// Replay a session's ledger into its projected events.
+/// Replay a session's ledger into its projected (current-schema) events.
 ///
-/// Errors on a corrupt complete line; tolerates a crash-torn tail line and
-/// forward-compat future records (which are not projected). Returns an empty
-/// vec if the file does not exist yet.
+/// Errors on a corrupt line or an older/unsupported schema; tolerates a
+/// crash-torn tail line and newer-schema records (which are not projected).
+/// Returns an empty vec if the file does not exist yet.
 pub fn project(dir: &Path) -> io::Result<Vec<LedgerEvent>> {
     Ok(scan(dir)?.events)
 }
@@ -394,7 +386,7 @@ mod tests {
     }
 
     #[test]
-    fn project_tolerates_unknown_type_and_torn_tail() {
+    fn project_tolerates_future_schema_and_torn_tail() {
         let root = temp_root();
         let dir;
         {
@@ -409,10 +401,11 @@ mod tests {
                 )
                 .unwrap();
         }
-        // Complete line, unknown type (valid envelope) — forward-compat, skipped.
+        // Complete record from a newer schema (even a known type) — forward-compat,
+        // not projected.
         append_raw(
             &dir,
-            r#"{"schema":1,"event_id":"x","seq":99,"turn_id":null,"type":"from_the_future","blob":true}"#,
+            r#"{"schema":2,"event_id":"x","seq":99,"turn_id":null,"type":"turn_completed"}"#,
             true,
         );
         // Torn tail line (no newline) — dropped.
@@ -421,7 +414,7 @@ mod tests {
         assert_eq!(
             events.len(),
             2,
-            "unknown type and torn tail are not projected"
+            "future-schema record and torn tail are not projected"
         );
         fs::remove_dir_all(&root).ok();
     }
@@ -461,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn resume_seq_advances_past_unknown_future_event() {
+    fn resume_seq_advances_past_future_schema_event() {
         let root = temp_root();
         let dir;
         {
@@ -470,14 +463,14 @@ mod tests {
         }
         append_raw(
             &dir,
-            r#"{"schema":1,"event_id":"x","seq":50,"turn_id":null,"type":"from_the_future","blob":true}"#,
+            r#"{"schema":2,"event_id":"x","seq":50,"turn_id":null,"type":"turn_completed"}"#,
             true,
         );
         let mut store = SessionStore::open(&dir).unwrap();
         let event = store.append(None, EventKind::TurnCompleted).unwrap();
         assert_eq!(
             event.seq, 51,
-            "seq must advance past the unknown future event, not collide"
+            "seq must advance past the future-schema record, not collide"
         );
         fs::remove_dir_all(&root).ok();
     }
@@ -498,7 +491,7 @@ mod tests {
                 )
                 .unwrap();
         }
-        // A complete (newline-terminated) line that is not a valid envelope.
+        // A complete (newline-terminated) line that is not valid JSON.
         append_raw(&dir, r#"{"schema":1,"seq":}"#, true);
         let err = project(&dir).unwrap_err();
         assert!(
@@ -509,15 +502,14 @@ mod tests {
     }
 
     #[test]
-    fn scan_errors_on_known_type_with_bad_payload() {
+    fn project_errors_on_current_schema_bad_payload() {
         let root = temp_root();
         let dir;
         {
             let store = SessionStore::create(&root, "ws").unwrap();
             dir = store.dir().to_path_buf();
         }
-        // Known current-schema type (user_message) missing its required `text`:
-        // a valid envelope, but corruption of a current record, not forward-compat.
+        // Current schema, known type, but missing the required `text` field.
         append_raw(
             &dir,
             r#"{"schema":1,"event_id":"k","seq":40,"turn_id":null,"type":"user_message"}"#,
@@ -526,65 +518,52 @@ mod tests {
         let err = project(&dir).unwrap_err();
         assert!(
             err.to_string().contains("corrupt"),
-            "known type with bad payload must error, got: {err}"
+            "current-schema bad payload must error, got: {err}"
         );
         fs::remove_dir_all(&root).ok();
     }
 
     #[test]
-    fn known_types_cover_all_event_kinds() {
-        // Every EventKind variant's serialized `type` must be recognized, so a
-        // known event with a corrupt payload is never mistaken for forward-compat.
-        let samples = [
-            EventKind::SessionCreated {
-                workspace: String::new(),
-            },
-            EventKind::UserMessage {
-                text: String::new(),
-            },
-            EventKind::ModelMessage {
-                text: String::new(),
-                tool_calls: Vec::new(),
-            },
-            EventKind::ToolStarted {
-                call_id: String::new(),
-                name: String::new(),
-            },
-            EventKind::ToolFinished {
-                call_id: String::new(),
-                ok: true,
-                output: String::new(),
-            },
-            EventKind::PermissionRequested {
-                call_id: String::new(),
-                action: String::new(),
-            },
-            EventKind::PermissionDecided {
-                call_id: String::new(),
-                allowed: true,
-            },
-            EventKind::TurnCompleted,
-            EventKind::TurnInterrupted {
-                reason: String::new(),
-            },
-            EventKind::Error {
-                message: String::new(),
-            },
-        ];
-        for kind in samples {
-            let value = serde_json::to_value(LedgerEvent {
-                schema: SCHEMA,
-                event_id: "e".to_string(),
-                seq: 1,
-                turn_id: None,
-                kind,
-            })
-            .unwrap();
-            let tag = value.get("type").unwrap().as_str().unwrap();
-            assert!(
-                is_known_type(tag),
-                "type '{tag}' missing from is_known_type"
-            );
+    fn project_errors_on_older_schema() {
+        let root = temp_root();
+        let dir;
+        {
+            let store = SessionStore::create(&root, "ws").unwrap();
+            dir = store.dir().to_path_buf();
         }
+        // schema 0 is older/unsupported even if the shape looks current.
+        append_raw(
+            &dir,
+            r#"{"schema":0,"event_id":"o","seq":5,"turn_id":null,"type":"turn_completed"}"#,
+            true,
+        );
+        let err = project(&dir).unwrap_err();
+        assert!(
+            err.to_string().contains("schema"),
+            "older/unsupported schema must error, got: {err}"
+        );
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn project_errors_on_missing_event_id() {
+        let root = temp_root();
+        let dir;
+        {
+            let store = SessionStore::create(&root, "ws").unwrap();
+            dir = store.dir().to_path_buf();
+        }
+        // Complete line lacking the required `event_id` envelope field.
+        append_raw(
+            &dir,
+            r#"{"schema":1,"seq":9,"type":"turn_completed"}"#,
+            true,
+        );
+        let err = project(&dir).unwrap_err();
+        assert!(
+            err.to_string().contains("corrupt"),
+            "line without a valid envelope (no event_id) must error, got: {err}"
+        );
+        fs::remove_dir_all(&root).ok();
     }
 }
