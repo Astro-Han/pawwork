@@ -25,7 +25,12 @@ use crate::llm::{ChatMessage, LlmClient, LlmError, ModelTurn};
 use stream::{SseDecoder, TurnAccumulator};
 
 /// Everything needed to reach one provider endpoint.
-#[derive(Debug, Clone)]
+///
+/// `Debug` is hand-written, not derived: `api_key` is a plaintext secret, and a
+/// derived `Debug` would print it verbatim the moment this config lands in a log
+/// line or error context (provider/endpoint/401 troubleshooting is exactly when
+/// that happens). The impl redacts it.
+#[derive(Clone)]
 pub struct OpenAiConfig {
     /// Base URL without a trailing `/chat/completions` (e.g. `https://api.deepseek.com`).
     pub base_url: String,
@@ -37,6 +42,26 @@ pub struct OpenAiConfig {
     /// Pre-built tool JSON schemas the model may call; empty omits `tools`.
     pub tools: Vec<Value>,
     pub system_prompt: Option<String>,
+}
+
+impl std::fmt::Debug for OpenAiConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Never render the key itself; show only whether one is set, so debugging
+        // a missing/empty credential stays possible without leaking the secret.
+        let api_key = if self.api_key.is_empty() {
+            "<unset>"
+        } else {
+            "<redacted>"
+        };
+        f.debug_struct("OpenAiConfig")
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("api_key", &api_key)
+            .field("api_key_env", &self.api_key_env)
+            .field("tools", &self.tools)
+            .field("system_prompt", &self.system_prompt)
+            .finish()
+    }
 }
 
 /// A streaming OpenAI-compatible model client.
@@ -133,17 +158,26 @@ const ERROR_BODY_CAP: usize = 8 * 1024;
 
 /// Read at most [`ERROR_BODY_CAP`] bytes of an error response, then stop draining.
 /// Reuses the same chunked read as the success stream, so a giant error body is
-/// bounded the same way a giant stream would be. A read error mid-body just ends
-/// the read early — a truncated detail is still better than none.
+/// bounded the same way a giant stream would be. Only the remaining capacity of a
+/// chunk is copied — a single huge chunk cannot push the buffer past the cap — so
+/// the "at most 8 KiB" bound holds even at the chunk boundary. A read error
+/// mid-body just ends the read early: a truncated detail beats none.
 async fn read_capped_error_body(response: &mut reqwest::Response) -> String {
     let mut buf: Vec<u8> = Vec::new();
     while buf.len() < ERROR_BODY_CAP {
         match response.chunk().await {
-            Ok(Some(bytes)) => buf.extend_from_slice(&bytes),
+            Ok(Some(bytes)) => {
+                let remaining = ERROR_BODY_CAP - buf.len();
+                if bytes.len() <= remaining {
+                    buf.extend_from_slice(&bytes);
+                } else {
+                    buf.extend_from_slice(&bytes[..remaining]);
+                    break;
+                }
+            }
             Ok(None) | Err(_) => break,
         }
     }
-    buf.truncate(ERROR_BODY_CAP);
     String::from_utf8_lossy(&buf).into_owned()
 }
 
@@ -159,4 +193,42 @@ fn status_error(status: u16, api_key_env: Option<&str>, body: &str) -> LlmError 
     // Bound the echoed body so a huge HTML error page cannot flood the message.
     let detail: String = body.trim().chars().take(500).collect();
     LlmError::new(format!("HTTP {status}: {detail}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_redacts_the_api_key() {
+        let config = OpenAiConfig {
+            base_url: "https://api.example.com".to_string(),
+            model: "m".to_string(),
+            api_key: "sk-super-secret-value".to_string(),
+            api_key_env: Some("EXAMPLE_API_KEY".to_string()),
+            tools: Vec::new(),
+            system_prompt: None,
+        };
+        let rendered = format!("{config:?}");
+        assert!(
+            !rendered.contains("sk-super-secret-value"),
+            "the secret must never appear in Debug output: {rendered}"
+        );
+        assert!(rendered.contains("<redacted>"));
+        // The non-secret env var name stays visible, so config is still debuggable.
+        assert!(rendered.contains("EXAMPLE_API_KEY"));
+    }
+
+    #[test]
+    fn debug_marks_an_unset_key() {
+        let config = OpenAiConfig {
+            base_url: "https://api.example.com".to_string(),
+            model: "m".to_string(),
+            api_key: String::new(),
+            api_key_env: None,
+            tools: Vec::new(),
+            system_prompt: None,
+        };
+        assert!(format!("{config:?}").contains("<unset>"));
+    }
 }
