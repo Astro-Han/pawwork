@@ -959,7 +959,7 @@ const rawLayer = Layer.effect(
     // where `{env:...}` / `{file:...}` placeholders are already expanded, so a
     // client that fed that back into an edit would persist resolved secrets to
     // disk. Management UIs read this instead: what they display and write back
-    // is the literal file content.
+    // keeps secret placeholders literal.
     const getGlobalMcpRaw = Effect.fn("Config.getGlobalMcpRaw")(function* () {
       let merged: Record<string, unknown> = {}
       for (const file of globalConfigFilesToLoad()) {
@@ -968,14 +968,27 @@ const rawLayer = Layer.effect(
         let parsed: unknown
         try {
           parsed = ConfigParse.jsonc(text, file)
+          // Mirror the loader's tolerance precisely: a file that is valid JSONC
+          // but violates the schema (e.g. `{ mcp: { x: null } }`) is skipped
+          // whole in PawWork so a broken neighbor never reaches — and crashes —
+          // the management page; plain opencode keeps failing fast. Without this
+          // the raw read only caught JSONC syntax errors, so a null/garbage entry
+          // would sail through and break `"type" in config` in the UI.
+          ConfigParse.schema(Info.zod, normalizeLoadedConfig(parsed, file), file)
         } catch (error) {
-          // Mirror the loader: PawWork skips a broken file so every other
-          // source still loads; plain opencode keeps its fail-fast contract.
           if (!Runtime.isPawWork()) throw error
           continue
         }
         if (isRecord(parsed) && isRecord(parsed.mcp)) {
-          merged = mergeDeep(merged, parsed.mcp as Record<string, unknown>)
+          // Rebase relative `{file:...}` references to absolute against this
+          // file's own directory, exactly as the seed does when it migrates a
+          // config into PawWork Home. An edit writes the full entry back to the
+          // primary file, so a relative path captured from a different source dir
+          // would otherwise resolve against the wrong base after the write.
+          // `{env:...}` is deliberately left literal — never resolve a secret
+          // into what the UI would persist.
+          const rebased = rewriteFilePlaceholdersDeep(parsed.mcp, file) as Record<string, unknown>
+          merged = mergeDeep(merged, rebased)
         }
       }
       return merged
@@ -1597,12 +1610,19 @@ const rawLayer = Layer.effect(
         )
         .pipe(Effect.orDie)
 
-      // Sibling loaded files only matter for removal: a name deleted from the
-      // primary could still be shadowed by a copy in e.g. a hand-created
-      // pawwork.json next to pawwork.jsonc. A pure add/overwrite never needs to
-      // touch them, so skip the scan entirely — it would only add a failure
-      // surface (parsing an unrelated file) to the common case.
-      for (const file of removeNames.length > 0 ? otherFiles : []) {
+      // Sibling loaded files must be stripped of every name we removed OR wrote.
+      // A `remove` deleted from the primary could still be shadowed by a copy in
+      // e.g. a hand-created pawwork.json next to pawwork.jsonc. A `set` is just as
+      // exposed: the primary write is a full overwrite, but the loader deep-merges
+      // sources, so a stale sibling copy would merge its old sub-fields (a deleted
+      // Authorization header, an old environment) back onto the new entry. Only an
+      // `enable` override is meant to shadow-merge onto a sibling's full entry, so
+      // those names are left alone here. `present`/`missing` still track removals
+      // only. Skip the scan (and its parse-failure surface) when nothing is
+      // removed or written.
+      const setNames = setEntries.map(([name]) => name)
+      const siblingStripNames = [...new Set([...removeNames, ...setNames])]
+      for (const file of siblingStripNames.length > 0 ? otherFiles : []) {
         yield* flock
           .withLock(
             Effect.gen(function* () {
@@ -1613,13 +1633,14 @@ const rawLayer = Layer.effect(
                 if (isRecord(parsed) && isRecord(parsed.mcp)) mcp = parsed.mcp
               } catch {
                 // A malformed sibling is skipped by the loader anyway, so it cannot
-                // shadow a removed entry. Tolerate it (matching PawWork's broken-file
-                // resilience) instead of failing an edit that already wrote primary.
+                // shadow a removed or overwritten entry. Tolerate it (matching
+                // PawWork's broken-file resilience) instead of failing an edit that
+                // already wrote primary.
                 return
               }
-              const removable = removeNames.filter((name) => name in mcp)
-              removable.forEach((name) => present.add(name))
-              const text = stripKeys(before, removable)
+              removeNames.filter((name) => name in mcp).forEach((name) => present.add(name))
+              const stripHere = siblingStripNames.filter((name) => name in mcp)
+              const text = stripKeys(before, stripHere)
               if (text !== before) {
                 yield* Effect.promise(() => writeConfigTextAtomic(file, text)).pipe(Effect.orDie)
                 changed = true

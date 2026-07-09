@@ -25,6 +25,7 @@ type McpEntry = {
 }
 
 function asEditable(config: McpRawEntry): McpConfig | undefined {
+  if (!config || typeof config !== "object") return undefined
   return "type" in config && (config.type === "local" || config.type === "remote") ? config : undefined
 }
 
