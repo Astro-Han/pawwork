@@ -5,21 +5,29 @@
 //! own UI. Like [`crate::llm::LlmClient`] the gate is generic, not `dyn` — the
 //! loop holds one.
 //!
-//! The request is structured, not a raw JSON blob for the user to eyeball: PR2
-//! carries the tool name and a rendered human summary. A richer typed action
-//! enum (read-path / write-file / shell-command) lands with `edit`/`shell`, its
-//! first real producers; introducing those variants now would be speculative
-//! dead code, since PR2's only tools (`read`/`list`) are auto-allowed and never
-//! reach the gate.
+//! The request carries a structured action, not a raw JSON blob for the user to
+//! eyeball: the tool name, the validated [`PreparedCall`] (the concrete "what will
+//! run" — the fenced path, the replacement strings, the command line), and a
+//! rendered `summary` for display. [`PreparedCall`] is reused as the typed action
+//! rather than a parallel enum: it is already the loop's certified plan, so an
+//! adapter can render, diff, or policy-check the exact bytes that will execute,
+//! not a lossy string. The ledger's `permission.requested` still records only the
+//! `summary` string, so this richer action does not touch the on-disk schema.
 
 use std::future::Future;
+
+use crate::tool::PreparedCall;
 
 /// What the user is being asked to approve.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PermissionRequest {
     pub tool_name: String,
-    /// A rendered, human-readable description of the concrete action. This is
-    /// also what the ledger's `permission.requested` records as its `action`.
+    /// The validated action that will run if approved — the same [`PreparedCall`]
+    /// the loop will hand to the tool. An adapter can inspect it directly (path,
+    /// content, command) instead of parsing the rendered summary.
+    pub action: PreparedCall,
+    /// A rendered, human-readable description of the concrete action. This is also
+    /// what the ledger's `permission.requested` records as its `action`.
     pub summary: String,
 }
 

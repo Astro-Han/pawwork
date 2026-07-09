@@ -245,6 +245,9 @@ impl<L: LlmClient, G: PermissionGate> Agent<L, G> {
 
             let ctx = ToolContext {
                 workspace_root: self.workspace_root.clone(),
+                // Hand tools a clone of the turn's token so a long-running one
+                // (`shell`) can abort promptly when the turn is interrupted.
+                cancel: cancel.clone(),
             };
             for call in &turn.tool_calls {
                 if cancel.is_cancelled() {
@@ -340,6 +343,7 @@ impl<L: LlmClient, G: PermissionGate> Agent<L, G> {
             )?;
             let request = PermissionRequest {
                 tool_name: call.name.clone(),
+                action: prepared.clone(),
                 summary,
             };
             let allowed = match cancel.run_until_cancelled(self.gate.decide(&request)).await {
@@ -576,12 +580,18 @@ mod tests {
         fn name(&self) -> &str {
             "danger"
         }
+        fn description(&self) -> &str {
+            "a dangerous test tool"
+        }
+        fn parameters(&self) -> Value {
+            serde_json::json!({ "type": "object", "properties": {} })
+        }
         fn requires_confirmation(&self) -> bool {
             true
         }
-        fn prepare(&self, ctx: &ToolContext, _args: &Value) -> Result<PreparedCall, String> {
-            Ok(PreparedCall {
-                path: ctx.workspace_root.clone(),
+        fn prepare(&self, _ctx: &ToolContext, _args: &Value) -> Result<PreparedCall, String> {
+            Ok(PreparedCall::Shell {
+                command: "noop".to_string(),
             })
         }
         fn summarize(&self, _prepared: &PreparedCall) -> String {
@@ -610,7 +620,7 @@ mod tests {
         let (mut agent, session_dir) = build(
             MockLlmClient::once_text("hi there"),
             AllowGate,
-            ToolRuntime::with_read_only(),
+            ToolRuntime::with_builtins(),
             &dirs,
         );
         let cancel = CancellationToken::new();
@@ -635,7 +645,7 @@ mod tests {
         let (mut agent, session_dir) = build(
             MockLlmClient::once_text("hi"),
             AllowGate,
-            ToolRuntime::with_read_only(),
+            ToolRuntime::with_builtins(),
             &dirs,
         );
         let cancel = CancellationToken::new();
@@ -662,7 +672,7 @@ mod tests {
                 done(),
             ]),
             AllowGate,
-            ToolRuntime::with_read_only(),
+            ToolRuntime::with_builtins(),
             &dirs,
         );
         let cancel = CancellationToken::new();
@@ -701,7 +711,7 @@ mod tests {
         let (mut agent, session_dir) = build(
             MockLlmClient::new(vec![turn_with(vec![call("c1", "nope", "{}")]), done()]),
             AllowGate,
-            ToolRuntime::with_read_only(),
+            ToolRuntime::with_builtins(),
             &dirs,
         );
         let cancel = CancellationToken::new();
@@ -739,7 +749,7 @@ mod tests {
                 done(),
             ]),
             AllowGate,
-            ToolRuntime::with_read_only(),
+            ToolRuntime::with_builtins(),
             &dirs,
         );
         let cancel = CancellationToken::new();
@@ -764,7 +774,7 @@ mod tests {
                 done(),
             ]),
             AllowGate,
-            ToolRuntime::with_read_only(),
+            ToolRuntime::with_builtins(),
             &dirs,
         );
         let cancel = CancellationToken::new();
@@ -857,7 +867,7 @@ mod tests {
         let (mut agent, session_dir) = build(
             MockLlmClient::once_text("hi"),
             AllowGate,
-            ToolRuntime::with_read_only(),
+            ToolRuntime::with_builtins(),
             &dirs,
         );
         let cancel = CancellationToken::new();
@@ -881,7 +891,7 @@ mod tests {
         let (mut agent, session_dir) = build(
             MockLlmClient::new(vec![MockResponse::HangUntilCancel]),
             AllowGate,
-            ToolRuntime::with_read_only(),
+            ToolRuntime::with_builtins(),
             &dirs,
         );
         let cancel = CancellationToken::new();
@@ -969,7 +979,7 @@ mod tests {
         let (mut agent, session_dir) = build(
             MockLlmClient::new(vec![MockResponse::Fail(LlmError::new("boom"))]),
             AllowGate,
-            ToolRuntime::with_read_only(),
+            ToolRuntime::with_builtins(),
             &dirs,
         );
         let cancel = CancellationToken::new();
@@ -1003,7 +1013,7 @@ mod tests {
                 turn_with(vec![call("c3", "read", r#"{"path":"a.txt"}"#)]),
             ]),
             AllowGate,
-            ToolRuntime::with_read_only(),
+            ToolRuntime::with_builtins(),
             &dirs,
         );
         let mut agent = agent.with_max_model_rounds(2);
@@ -1046,7 +1056,7 @@ mod tests {
                 call("c3", "read", r#"{"path":"a.txt"}"#),
             ])]),
             AllowGate,
-            ToolRuntime::with_read_only(),
+            ToolRuntime::with_builtins(),
             &dirs,
         );
         let mut agent = agent.with_max_tool_calls_per_turn(2);
@@ -1175,5 +1185,108 @@ mod tests {
             no_dangling_tool_call(&body),
             "the sanitized request body must have no unpaired tool_call"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn write_tool_denied_does_not_create_the_file() {
+        let dirs = TempDirs::new();
+        let (mut agent, session_dir) = build(
+            MockLlmClient::new(vec![
+                turn_with(vec![call(
+                    "c1",
+                    "write",
+                    r#"{"path":"out.txt","content":"hello"}"#,
+                )]),
+                done(),
+            ]),
+            DenyGate,
+            ToolRuntime::with_builtins(),
+            &dirs,
+        );
+        let cancel = CancellationToken::new();
+        let (tx, _rx) = channel();
+        let outcome = agent.run_turn("write it", &cancel, &tx).await.unwrap();
+        // Denial is not interruption: the loop recovers and completes.
+        assert_eq!(outcome, TurnOutcome::Completed);
+        assert!(
+            !dirs.workspace.join("out.txt").exists(),
+            "a denied write must not touch the disk"
+        );
+        let events = project(&session_dir).unwrap();
+        assert!(events
+            .iter()
+            .any(|e| matches!(e.kind, EventKind::PermissionRequested { .. })));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e.kind, EventKind::PermissionDecided { allowed: false, .. })));
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e.kind, EventKind::ToolStarted { .. })),
+            "denied before the tool ran"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn write_tool_allowed_creates_the_file() {
+        let dirs = TempDirs::new();
+        let (mut agent, session_dir) = build(
+            MockLlmClient::new(vec![
+                turn_with(vec![call(
+                    "c1",
+                    "write",
+                    r#"{"path":"out.txt","content":"hello"}"#,
+                )]),
+                done(),
+            ]),
+            AllowGate,
+            ToolRuntime::with_builtins(),
+            &dirs,
+        );
+        let cancel = CancellationToken::new();
+        let (tx, _rx) = channel();
+        let outcome = agent.run_turn("write it", &cancel, &tx).await.unwrap();
+        assert_eq!(outcome, TurnOutcome::Completed);
+        assert_eq!(
+            std::fs::read_to_string(dirs.workspace.join("out.txt")).unwrap(),
+            "hello",
+            "an allowed write must land the exact content"
+        );
+        let events = project(&session_dir).unwrap();
+        assert!(events
+            .iter()
+            .any(|e| matches!(e.kind, EventKind::ToolStarted { .. })));
+        assert!(events
+            .iter()
+            .any(|e| matches!(&e.kind, EventKind::ToolFinished { ok: true, .. })));
+    }
+
+    #[test]
+    fn builtin_schemas_describe_the_four_tools() {
+        let runtime = ToolRuntime::with_builtins();
+        let schemas = runtime.schemas();
+        assert_eq!(schemas.len(), 4, "read, edit, write, shell");
+        // Sorted by name for a deterministic request body.
+        let names: Vec<&str> = schemas
+            .iter()
+            .map(|schema| schema["function"]["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, vec!["edit", "read", "shell", "write"]);
+        for schema in &schemas {
+            assert_eq!(schema["type"], serde_json::json!("function"));
+            let function = &schema["function"];
+            assert!(function["name"].is_string());
+            assert!(
+                function["description"]
+                    .as_str()
+                    .is_some_and(|d| !d.is_empty()),
+                "each tool needs a description"
+            );
+            assert_eq!(
+                function["parameters"]["type"],
+                serde_json::json!("object"),
+                "parameters is a JSON Schema object"
+            );
+        }
     }
 }
