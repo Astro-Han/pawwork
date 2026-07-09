@@ -6,9 +6,11 @@
 // payload) — has to survive an edit round-trip instead of being chopped apart.
 //
 // Grammar: whitespace separates argv. Double quotes protect inner whitespace and
-// support `\"` / `\\` escapes, so any character is representable. Single quotes
-// protect inner whitespace with no escapes. `splitCommand(joinCommand(argv))`
-// is the identity for every argv (proven by the round-trip tests).
+// support `\"` / `\\` escapes, so any character is representable. A backslash
+// before any other character stays literal — a pasted `"C:\Program Files\app.exe"`
+// must not lose its separators. Single quotes protect inner whitespace with no
+// escapes. `splitCommand(joinCommand(argv))` is the identity for every argv
+// (proven by the round-trip tests).
 
 function needsQuote(arg: string): boolean {
   return arg === "" || /[\s"'\\]/.test(arg)
@@ -29,6 +31,8 @@ export function splitCommand(input: string): string[] {
   for (const ch of input) {
     if (quote === '"') {
       if (escaped) {
+        // Only `\"` and `\\` are escapes; any other backslash is literal.
+        if (ch !== '"' && ch !== "\\") cur += "\\"
         cur += ch
         escaped = false
       } else if (ch === "\\") escaped = true

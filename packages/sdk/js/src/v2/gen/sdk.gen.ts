@@ -66,6 +66,7 @@ import type {
   GlobalConfigEditMcpErrors,
   GlobalConfigEditMcpResponses,
   GlobalConfigGetResponses,
+  GlobalConfigMcpRawResponses,
   GlobalConfigUpdateErrors,
   GlobalConfigUpdateResponses,
   GlobalDisposeResponses,
@@ -481,9 +482,21 @@ export class Config extends HeyApiClient {
   }
 
   /**
+   * Get raw global MCP servers
+   *
+   * Retrieve the global MCP server entries as literally written in the config files, without `{env:...}` / `{file:...}` placeholder expansion. Use this as the source for editing so resolved secrets are never written back.
+   */
+  public mcpRaw<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<GlobalConfigMcpRawResponses, unknown, ThrowOnError>({
+      url: "/global/config/mcp",
+      ...options,
+    })
+  }
+
+  /**
    * Edit global MCP servers
    *
-   * Add, edit, rename, or delete MCP servers in the global config. `set` writes entries, `remove` deletes keys; `missing` lists removal names not found in any global config file (e.g. project-scoped or nonexistent).
+   * Add, edit, rename, enable/disable, or delete MCP servers in the global config. `set` writes entries, `remove` deletes keys, `enable` patches only the `enabled` field in place (preserving raw placeholder values); `missing` lists removal names not found in any global config file (e.g. project-scoped or nonexistent).
    */
   public editMcp<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -491,6 +504,9 @@ export class Config extends HeyApiClient {
         [key: string]: McpLocalConfig | McpRemoteConfig
       } | null
       remove?: Array<string> | null
+      enable?: {
+        [key: string]: boolean
+      } | null
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -501,6 +517,7 @@ export class Config extends HeyApiClient {
           args: [
             { in: "body", key: "set" },
             { in: "body", key: "remove" },
+            { in: "body", key: "enable" },
           ],
         },
       ],

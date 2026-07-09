@@ -2,12 +2,13 @@ import { test, expect } from "../fixtures"
 import { closeSettingsPanel, openSettings } from "../actions"
 
 // Real user path for MCP management (issue #1485): open Settings → Integrations,
-// add a local MCP server, confirm it lands in the list, edit it, then delete it.
-// The e2e backend is a real opencode server, so this exercises the full stack:
-// DialogMcpForm → global.config.editMcp → global config write → re-bootstrap →
-// list render. The added server never actually connects (echo is not an MCP
-// server), which is fine: the row is keyed on config, not on connection status.
-test("add, edit, and delete an MCP server from the Integrations settings", async ({ page, gotoSession }) => {
+// add a local MCP server, confirm it lands in the list, edit it, toggle it off
+// and on, then delete it. The e2e backend is a real opencode server, so this
+// exercises the full stack: DialogMcpForm → global.config.editMcp → global config
+// write → re-bootstrap → list render (rendered from the raw, unexpanded config).
+// The added server never actually connects (echo is not an MCP server), which is
+// fine: the row is keyed on config, not on connection status.
+test("add, edit, toggle, and delete an MCP server from the Integrations settings", async ({ page, gotoSession }) => {
   test.setTimeout(120_000)
   await gotoSession()
 
@@ -36,6 +37,19 @@ test("add, edit, and delete an MCP server from the Integrations settings", async
   await editDialog.getByRole("button", { name: "Save" }).click()
   await expect(editDialog).toHaveCount(0)
   await expect(settings.locator("li").filter({ hasText: "e2e-mcp" })).toBeVisible()
+
+  // Toggle: the switch carries the server name as its accessible name (screen
+  // readers can tell the rows apart), and disabling then re-enabling round-trips
+  // through the field-level `enable` patch without dropping the row. Click the
+  // control (the real input sits under it); assert on the input's checked state.
+  const toggle = settings.locator("li").filter({ hasText: "e2e-mcp" }).locator('[data-component="switch"]')
+  const toggleInput = toggle.locator('[data-slot="switch-input"]')
+  await expect(settings.getByRole("switch", { name: "Toggle e2e-mcp" })).toBeVisible()
+  await expect(toggleInput).toBeChecked()
+  await toggle.locator('[data-slot="switch-control"]').click()
+  await expect(toggleInput).not.toBeChecked()
+  await toggle.locator('[data-slot="switch-control"]').click()
+  await expect(toggleInput).toBeChecked()
 
   // Delete: open edit, confirm delete, row disappears
   await settings

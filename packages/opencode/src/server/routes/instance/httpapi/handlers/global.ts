@@ -94,6 +94,7 @@ const upgradeInstallation = Effect.fn("GlobalHttpApi.upgrade")(function* (target
 const EditMcpConfigInput = z.object({
   set: z.record(z.string(), ConfigMCP.Info.zod).optional(),
   remove: z.array(z.string()).optional(),
+  enable: z.record(z.string(), z.boolean()).optional(),
 })
 
 export const globalHandlers = HttpApiBuilder.group(GlobalApi, "global", (handlers) =>
@@ -109,6 +110,9 @@ export const globalHandlers = HttpApiBuilder.group(GlobalApi, "global", (handler
           const next = yield* config.updateGlobal(body)
           return HttpServerResponse.jsonUnsafe(next)
         }),
+      )
+      .handleRaw("configMcpGet", () =>
+        config.getGlobalMcpRaw().pipe(Effect.map((mcp) => HttpServerResponse.jsonUnsafe({ mcp }))),
       )
       .handleRaw("configEditMcp", (ctx) =>
         Effect.gen(function* () {

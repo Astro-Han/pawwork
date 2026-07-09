@@ -7,11 +7,26 @@ import { BadRequestError } from "./common"
 export const EditMcpConfigPayload = Schema.Struct({
   set: Schema.optional(Schema.Record(Schema.String, ConfigMCP.Info)),
   remove: Schema.optional(Schema.Array(Schema.String)),
+  enable: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)),
 })
 
 export const EditMcpConfigResponse = Schema.Struct({
   changed: Schema.Boolean,
   missing: Schema.Array(Schema.String),
+})
+
+// Raw mcp entries exactly as written in the config files: full local/remote
+// configs or the legacy `{ "enabled": ... }` override form. Values may still
+// contain unexpanded `{env:...}` / `{file:...}` placeholders — that is the
+// point: editors must round-trip the literal file content, not the runtime
+// view that `configGet` returns.
+const McpRawEntry = Schema.Union([
+  ConfigMCP.Info,
+  Schema.Struct({ enabled: Schema.optional(Schema.Boolean) }).annotate({ identifier: "McpToggleConfig" }),
+])
+
+export const GlobalMcpRawResponse = Schema.Struct({
+  mcp: Schema.Record(Schema.String, McpRawEntry),
 })
 
 const GlobalHealth = Schema.Struct({
@@ -89,6 +104,16 @@ export const GlobalApi = HttpApi.make("global")
             description: "Update global OpenCode configuration settings and preferences.",
           }),
         ),
+        HttpApiEndpoint.get("configMcpGet", GlobalPaths.configMcp, {
+          success: GlobalMcpRawResponse,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "global.config.mcpRaw",
+            summary: "Get raw global MCP servers",
+            description:
+              "Retrieve the global MCP server entries as literally written in the config files, without `{env:...}` / `{file:...}` placeholder expansion. Use this as the source for editing so resolved secrets are never written back.",
+          }),
+        ),
         HttpApiEndpoint.post("configEditMcp", GlobalPaths.configMcp, {
           payload: EditMcpConfigPayload,
           success: EditMcpConfigResponse,
@@ -98,7 +123,7 @@ export const GlobalApi = HttpApi.make("global")
             identifier: "global.config.editMcp",
             summary: "Edit global MCP servers",
             description:
-              "Add, edit, rename, or delete MCP servers in the global config. `set` writes entries, `remove` deletes keys; `missing` lists removal names not found in any global config file (e.g. project-scoped or nonexistent).",
+              "Add, edit, rename, enable/disable, or delete MCP servers in the global config. `set` writes entries, `remove` deletes keys, `enable` patches only the `enabled` field in place (preserving raw placeholder values); `missing` lists removal names not found in any global config file (e.g. project-scoped or nonexistent).",
           }),
         ),
         HttpApiEndpoint.get("health", GlobalPaths.health, {

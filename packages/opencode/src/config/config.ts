@@ -467,7 +467,9 @@ export interface Interface {
   readonly editGlobalMcp: (input: {
     set?: Record<string, ConfigMCP.Info>
     remove?: readonly string[]
+    enable?: Record<string, boolean>
   }) => Effect.Effect<{ changed: boolean; missing: string[] }>
+  readonly getGlobalMcpRaw: () => Effect.Effect<Record<string, unknown>>
   readonly invalidate: (wait?: boolean) => Effect.Effect<void>
   readonly directories: () => Effect.Effect<string[]>
   readonly waitForDependencies: () => Effect.Effect<void>
@@ -950,6 +952,33 @@ const rawLayer = Layer.effect(
 
     const getGlobal = Effect.fn("Config.getGlobal")(function* () {
       return (yield* cachedGlobal).config
+    })
+
+    // Raw (unsubstituted) view of the global mcp subtree, merged across the
+    // loaded global files in load order. getGlobal() returns the runtime view
+    // where `{env:...}` / `{file:...}` placeholders are already expanded, so a
+    // client that fed that back into an edit would persist resolved secrets to
+    // disk. Management UIs read this instead: what they display and write back
+    // is the literal file content.
+    const getGlobalMcpRaw = Effect.fn("Config.getGlobalMcpRaw")(function* () {
+      let merged: Record<string, unknown> = {}
+      for (const file of globalConfigFilesToLoad()) {
+        const text = yield* readConfigFile(file)
+        if (text === undefined) continue
+        let parsed: unknown
+        try {
+          parsed = ConfigParse.jsonc(text, file)
+        } catch (error) {
+          // Mirror the loader: PawWork skips a broken file so every other
+          // source still loads; plain opencode keeps its fail-fast contract.
+          if (!Runtime.isPawWork()) throw error
+          continue
+        }
+        if (isRecord(parsed) && isRecord(parsed.mcp)) {
+          merged = mergeDeep(merged, parsed.mcp as Record<string, unknown>)
+        }
+      }
+      return merged
     })
 
     const ensureGitignore = Effect.fn("Config.ensureGitignore")(function* (dir: string) {
@@ -1505,15 +1534,21 @@ const rawLayer = Layer.effect(
     // and patchJsonc never remove), so real deletion and rename need this path.
     // `set` writes/overwrites entries; `remove` strips keys. A rename is set(new)
     // + remove(old) applied in one write on the primary file so it can never end
-    // up half-updated. Returns the removal names that were not found in any loaded
-    // global file (project-sourced or nonexistent) so the caller can 404.
+    // up half-updated. `enable` patches only the `enabled` field of an entry in
+    // place — a toggle must never rewrite the rest of the entry, whose values the
+    // client only knows in runtime-expanded form. Returns the removal names that
+    // were not found in any loaded global file (project-sourced or nonexistent)
+    // so the caller can 404.
     const editGlobalMcp = Effect.fn("Config.editGlobalMcp")(function* (input: {
       set?: Record<string, ConfigMCP.Info>
       remove?: readonly string[]
+      enable?: Record<string, boolean>
     }) {
       const setEntries = Object.entries(input.set ?? {})
       const removeNames = [...new Set(input.remove ?? [])]
-      if (setEntries.length === 0 && removeNames.length === 0) return { changed: false, missing: [] as string[] }
+      const enableEntries = Object.entries(input.enable ?? {})
+      if (setEntries.length === 0 && removeNames.length === 0 && enableEntries.length === 0)
+        return { changed: false, missing: [] as string[] }
 
       if (Runtime.isPawWork()) yield* Effect.promise(() => PawWorkHome.ensurePrimary())
       // Seed scattered global sources into the primary file first. Deletion works
@@ -1545,6 +1580,13 @@ const rawLayer = Layer.effect(
             removable.forEach((name) => present.add(name))
             let text = stripKeys(before, removable)
             for (const [name, cfg] of setEntries) text = applyEdits(text, modify(text, ["mcp", name], cfg, opts))
+            // Field-level patch: only the `enabled` key changes, so raw text
+            // elsewhere in the entry (e.g. an unexpanded `{env:...}` header)
+            // stays byte-identical. For a name living only in a sibling loaded
+            // file this creates the legacy `{ "enabled": ... }` override here,
+            // which wins the load merge for that key.
+            for (const [name, enabled] of enableEntries)
+              text = applyEdits(text, modify(text, ["mcp", name, "enabled"], enabled, opts))
             if (text !== before) {
               ConfigParse.schema(Info.zod, ConfigParse.jsonc(text, writeFile), writeFile)
               yield* Effect.promise(() => writeConfigTextAtomic(writeFile, text)).pipe(Effect.orDie)
@@ -1601,6 +1643,7 @@ const rawLayer = Layer.effect(
       update,
       updateGlobal,
       editGlobalMcp,
+      getGlobalMcpRaw,
       invalidate,
       directories,
       waitForDependencies,

@@ -4,6 +4,7 @@ import type {
   Config,
   McpLocalConfig,
   McpRemoteConfig,
+  McpToggleConfig,
   OpencodeClient,
   Path,
   Project,
@@ -91,8 +92,17 @@ export type GlobalStore = {
   provider: ProviderListResponse
   provider_auth: ProviderAuthResponse
   config: Config
+  // MCP servers exactly as written in the global config files, with `{env:...}`
+  // / `{file:...}` placeholders still unexpanded. `config.mcp` is the runtime
+  // view where those are already resolved, so the management UI must render and
+  // write back from here — never from `config.mcp`, or a toggle/edit would
+  // persist a resolved secret to disk. An entry may be a full local/remote
+  // config or the legacy `{ enabled }` override form.
+  mcpRaw: Record<string, McpRawEntry>
   reload: undefined | "pending" | "complete"
 }
+
+export type McpRawEntry = McpLocalConfig | McpRemoteConfig | McpToggleConfig
 
 const inactiveQueryFn = async () => null
 
@@ -126,6 +136,7 @@ function createGlobalSync() {
     provider: { all: [], connected: [], default: {} },
     provider_auth: {},
     config: {},
+    mcpRaw: {},
     reload: undefined,
   })
   const queryClient = useQueryClient()
@@ -721,14 +732,17 @@ function createGlobalSync() {
       })
   }
 
-  // Atomically add / edit / rename / delete MCP servers in the global config.
-  // `set` writes entries, `remove` deletes keys (a rename is set(new) +
-  // remove(old)); the resolved `missing` lists removal names that were not found
-  // in any global config file (project-scoped or already gone). Mirrors
-  // updateConfig: write, then re-bootstrap so the global config + status refresh.
+  // Atomically add / edit / rename / delete / enable-disable MCP servers in the
+  // global config. `set` writes entries, `remove` deletes keys (a rename is
+  // set(new) + remove(old)), `enable` patches only the `enabled` field in place
+  // (so a toggle never rewrites — and never resolves — the rest of the entry);
+  // the resolved `missing` lists removal names that were not found in any global
+  // config file (project-scoped or already gone). Mirrors updateConfig: write,
+  // then re-bootstrap so the raw MCP map + status refresh.
   const editMcp = async (input: {
     set?: Record<string, McpLocalConfig | McpRemoteConfig>
     remove?: string[]
+    enable?: Record<string, boolean>
   }) => {
     setGlobalStore("reload", "pending")
     const actionClient = globalSDK.createClient({

@@ -20,6 +20,14 @@ describe("mcp-command split/join", () => {
     expect(splitCommand("  npx   -y   pkg  ")).toEqual(["npx", "-y", "pkg"])
   })
 
+  // A backslash inside double quotes is only an escape before `"` or `\`;
+  // pasted Windows paths must keep their separators verbatim.
+  test("keeps literal backslashes in a double-quoted argument", () => {
+    expect(splitCommand('cmd "C:\\Program Files\\app.exe"')).toEqual(["cmd", "C:\\Program Files\\app.exe"])
+    expect(splitCommand('cmd "a\\nb"')).toEqual(["cmd", "a\\nb"])
+    expect(splitCommand('cmd "esc\\"quote and \\\\slash"')).toEqual(["cmd", 'esc"quote and \\slash'])
+  })
+
   test("quotes only the argv that need it", () => {
     expect(joinCommand(["npx", "-y", "pkg", "/work"])).toBe("npx -y pkg /work")
     expect(joinCommand(["node", "/Users/me/My MCP/server.js"])).toBe('node "/Users/me/My MCP/server.js"')

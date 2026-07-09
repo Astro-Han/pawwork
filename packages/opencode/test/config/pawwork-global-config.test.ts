@@ -47,8 +47,10 @@ const save = (config: Config.Info) =>
   Effect.runPromise(Config.Service.use((svc) => svc.update(config)).pipe(Effect.scoped, Effect.provide(layer)))
 const saveGlobal = (config: Config.Info) =>
   Effect.runPromise(Config.Service.use((svc) => svc.updateGlobal(config)).pipe(Effect.scoped, Effect.provide(layer)))
-const editMcp = (input: { set?: Record<string, ConfigMCP.Info>; remove?: string[] }) =>
+const editMcp = (input: { set?: Record<string, ConfigMCP.Info>; remove?: string[]; enable?: Record<string, boolean> }) =>
   Effect.runPromise(Config.Service.use((svc) => svc.editGlobalMcp(input)).pipe(Effect.scoped, Effect.provide(layer)))
+const mcpRaw = () =>
+  Effect.runPromise(Config.Service.use((svc) => svc.getGlobalMcpRaw()).pipe(Effect.scoped, Effect.provide(layer)))
 const clear = (wait = false) =>
   Effect.runPromise(Config.Service.use((svc) => svc.invalidate(wait)).pipe(Effect.scoped, Effect.provide(layer)))
 const listConfigDirs = (directory: string, worktree: string) =>
@@ -1691,6 +1693,165 @@ describe("editGlobalMcp", () => {
           expect(result.missing).toEqual([])
           const primary = JSON.parse(await Bun.file(path.join(primaryDir.path, "pawwork.json")).text())
           expect(primary.mcp.added.url).toBe("https://added")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("enable patches only the enabled field and preserves raw placeholder values", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // A toggle must never rewrite the entry: the raw `{env:...}` header (a
+      // secret reference) and the comment have to survive byte-for-byte.
+      const file = path.join(global.path, "pawwork.jsonc")
+      await Filesystem.write(
+        file,
+        '{\n  // keep me\n  "mcp": {\n    "secure": {\n      "type": "remote",\n      "url": "https://secure",\n      "headers": { "Authorization": "Bearer {env:MCP_REVIEW_TOKEN}" }\n    }\n  }\n}\n',
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const disabled = await editMcp({ enable: { secure: false } })
+          expect(disabled.changed).toBe(true)
+          let text = await Bun.file(file).text()
+          expect(text).toContain("// keep me")
+          expect(text).toContain("Bearer {env:MCP_REVIEW_TOKEN}")
+          let parsed = parseJsonc(text) as { mcp: Record<string, { enabled?: boolean }> }
+          expect(parsed.mcp.secure.enabled).toBe(false)
+
+          const enabled = await editMcp({ enable: { secure: true } })
+          expect(enabled.changed).toBe(true)
+          text = await Bun.file(file).text()
+          expect(text).toContain("Bearer {env:MCP_REVIEW_TOKEN}")
+          parsed = parseJsonc(text) as { mcp: Record<string, { enabled?: boolean }> }
+          expect(parsed.mcp.secure.enabled).toBe(true)
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("enable toggles a legacy enabled-only override entry", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      const file = path.join(global.path, "pawwork.json")
+      await Filesystem.write(file, JSON.stringify({ mcp: { legacy: { enabled: false } } }))
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await editMcp({ enable: { legacy: true } })
+          expect(JSON.parse(await Bun.file(file).text()).mcp.legacy).toEqual({ enabled: true })
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("enable overrides an entry living only in a sibling loaded file", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // Write target is pawwork.jsonc; the full entry lives in the sibling json.
+      // The patch creates the standard `{ "enabled": false }` override in the
+      // primary, which the load merge honors, and the sibling stays untouched.
+      const sibling = path.join(global.path, "pawwork.json")
+      const siblingText = JSON.stringify({ mcp: { dup: { type: "remote", url: "https://json" } } })
+      await Filesystem.write(sibling, siblingText)
+      await Filesystem.write(path.join(global.path, "pawwork.jsonc"), JSON.stringify({ model: "anthropic/claude" }))
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await editMcp({ enable: { dup: false } })
+          const primary = parseJsonc(await Bun.file(path.join(global.path, "pawwork.jsonc")).text()) as {
+            mcp: Record<string, { enabled?: boolean }>
+          }
+          expect(primary.mcp.dup).toEqual({ enabled: false })
+          expect(await Bun.file(sibling).text()).toBe(siblingText)
+          await clear(true)
+          const config = await load()
+          expect((config.mcp?.dup as { enabled?: boolean } | undefined)?.enabled).toBe(false)
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+})
+
+describe("getGlobalMcpRaw", () => {
+  test("returns unexpanded placeholder values and merges sibling files", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      await Filesystem.write(
+        path.join(global.path, "pawwork.jsonc"),
+        JSON.stringify({
+          mcp: { secure: { type: "remote", url: "https://secure", headers: { Authorization: "Bearer {env:MCP_REVIEW_TOKEN}" } } },
+        }),
+      )
+      await Filesystem.write(
+        path.join(global.path, "pawwork.json"),
+        JSON.stringify({ mcp: { other: { type: "local", command: ["srv"] } } }),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const raw = (await mcpRaw()) as Record<string, Record<string, unknown>>
+          const secureHeaders = raw.secure?.headers as Record<string, string> | undefined
+          expect(secureHeaders?.Authorization).toBe("Bearer {env:MCP_REVIEW_TOKEN}")
+          expect(raw.other).toEqual({ type: "local", command: ["srv"] })
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("tolerates a broken sibling global file in the PawWork runtime", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      await Filesystem.write(
+        path.join(global.path, "pawwork.jsonc"),
+        JSON.stringify({ mcp: { kept: { type: "remote", url: "https://kept" } } }),
+      )
+      await Filesystem.write(path.join(global.path, "pawwork.json"), "{ broken json")
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const raw = (await mcpRaw()) as Record<string, { url?: string }>
+          expect(raw.kept?.url).toBe("https://kept")
         },
       })
     } finally {

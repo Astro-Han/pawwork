@@ -117,6 +117,15 @@ export async function bootstrapGlobal(input: {
         }),
       ),
     () =>
+      retry(() =>
+        // Raw (unexpanded) MCP entries for the management UI. Kept separate from
+        // config.get so the list edits the literal file content, not the runtime
+        // view where secret placeholders are already resolved.
+        input.globalSDK.global.config.mcpRaw().then((x) => {
+          input.setGlobalStore("mcpRaw", reconcile(x.data?.mcp ?? {}))
+        }),
+      ),
+    () =>
       input.queryClient.fetchQuery({
         ...loadProvidersQuery(null),
         queryFn: () =>
