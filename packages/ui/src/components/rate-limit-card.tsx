@@ -71,19 +71,17 @@ export function RateLimitCard(props: RateLimitCardProps) {
   // The warning triangle that CardTitle would inject is redundant with the
   // 2px orange rule on the card's left edge — both encode the same warning
   // semantic. We drop CardTitle/CardDescription entirely and render a single
-  // headline that folds title + reset onto one line via a middle-dot, then
-  // hand the action ledger a grid of `[primary link, prerequisite note]`
-  // rows so the two recommendations sit on aligned columns. The user picks by
-  // matching their situation to the right-column prerequisite before clicking
-  // the left-column brand link — the prerequisite is read first, not as a
+  // headline that folds title + reset onto one line via gap (DESIGN.md no-`·`
+  // rule; title emphasis vs reset weak provides the contrast), then hand the
+  // action ledger a grid of `[primary link, prerequisite note]` rows so the
+  // two recommendations sit on aligned columns. The user picks by matching
+  // their situation to the right-column prerequisite before clicking the
+  // left-column brand link — the prerequisite is read first, not as a
   // skippable footnote.
   return (
     <Card variant="warning" data-slot="rate-limit-card" data-kind="rate-limit-card">
       <div class="rate-limit-card__head" data-slot="rate-limit-card-head">
         <span class="rate-limit-card__title">{i18n.t("ui.rateLimitCard.title")}</span>
-        <span class="rate-limit-card__sep" aria-hidden="true">
-          ·
-        </span>
         <span class="rate-limit-card__reset">{resetSubtitle()}</span>
       </div>
       <CardActions>

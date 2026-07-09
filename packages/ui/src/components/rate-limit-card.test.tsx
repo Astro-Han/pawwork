@@ -164,6 +164,16 @@ describe("RateLimitCard: CSS token contract", () => {
     // font-size, but legitimately via --font-size-kbd.
     expect(css).not.toMatch(/\.rate-limit-card__note\s*\{[^}]*font-size:/)
   })
+
+  test("headline uses gap, not a middle-dot separator (DESIGN.md no-dot rule)", () => {
+    // Title + reset fold onto one line via flex gap; weight/color contrast
+    // replaces the former `__sep` glyph. Pin the absence of a rendered glyph
+    // (and of the dead class) plus the presence of the gap token.
+    expect(src).not.toMatch(/>\s*·\s*</)
+    expect(src).not.toContain("rate-limit-card__sep")
+    expect(css).not.toContain("rate-limit-card__sep")
+    expect(css).toMatch(/\.rate-limit-card__head[\s\S]*?gap:\s*var\(--space-/)
+  })
 })
 
 // ── Note rows for each recommendation ─────────────────────────────────────
