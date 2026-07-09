@@ -34,3 +34,9 @@ harness:
           - "packages/sdk/**"
           - "packages/core/**"
           - "packages/remote-bridge/**"
+          # Rust agent line (crates/): same agent-engine layer, in Rust. Gives the
+          # Rust-only PRs a routing home so pr-triage's label policy passes.
+          - "crates/**"
+          - "Cargo.toml"
+          - "Cargo.lock"
+          - "rust-toolchain.toml"
