@@ -105,14 +105,17 @@ describe("config routes", () => {
 
     expect(spec.paths).toHaveProperty("/config")
     expect(spec.paths).toHaveProperty("/config/providers")
+    expect(spec.paths).toHaveProperty("/config/errors")
     expect(spec.paths["/config"]).toHaveProperty("get")
     expect(spec.paths["/config"]).toHaveProperty("patch")
     expect(spec.paths["/config/providers"]).toHaveProperty("get")
+    expect(spec.paths["/config/errors"]).toHaveProperty("get")
 
     for (const operation of [
       spec.paths["/config"]?.get,
       spec.paths["/config"]?.patch,
       spec.paths["/config/providers"]?.get,
+      spec.paths["/config/errors"]?.get,
     ]) {
       expect(operation?.parameters).toEqual([
         { name: "directory", in: "query", required: false, schema: { type: "string" } },
@@ -272,6 +275,7 @@ describe("config routes", () => {
       services: {
         config: {
           get: () => Effect.succeed(config),
+          getErrors: () => Effect.succeed([]),
           getGlobal: () => Effect.succeed({}),
           getConsoleState: () => Effect.succeed({} as never),
           update: () => Effect.void,
@@ -291,6 +295,33 @@ describe("config routes", () => {
       username: "httpapi-derived-field-tester",
       plugin_origins: [{ spec: "local-plugin@1.0.0", source: "/tmp/opencode.json", scope: "local" }],
     })
+  })
+
+  test("returns recorded config load errors through the HttpApi errors handler", async () => {
+    const configErrors = [
+      { name: "ConfigInvalidError", data: { path: "/tmp/pawwork.json", issues: [{ message: "Invalid input", path: ["mcp", "broken"] }] } },
+    ]
+    const response = await requestConfigHttpApi("/config/errors", {
+      services: {
+        config: {
+          get: () => Effect.succeed({} as Config.Info),
+          getErrors: () => Effect.succeed(configErrors as never),
+          getGlobal: () => Effect.succeed({}),
+          getConsoleState: () => Effect.succeed({} as never),
+          update: () => Effect.void,
+          updateGlobal: (next) => Effect.succeed(next),
+          invalidate: () => Effect.void,
+          directories: () => Effect.succeed([]),
+          waitForDependencies: () => Effect.void,
+          installDependencies: () => Effect.succeed(true),
+        },
+        provider: unusedProvider(),
+      },
+    })
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toEqual(configErrors)
   })
 
   test("rejects unknown config fields through the HttpApi config handlers", async () => {

@@ -60,6 +60,43 @@ export function clearProviderRev(directory: string) {
   providerRev.delete(directory)
 }
 
+// A config file that fails to load (bad JSON or schema) is skipped by the engine so the rest of the config
+// still works, and reported once via /config/errors. Re-bootstrap runs on every project reload, so without a
+// guard the same unresolved error would toast repeatedly — the spam we are fixing, just moved to the UI. Track,
+// per directory, which (file, message, issues) we have already surfaced and only toast the ones we have not
+// seen. Each pass replaces the directory's set with the errors still present, so a fixed config (no errors)
+// drops its entry instead of holding memory for the app's lifetime, and an error that reappears after being
+// fixed is surfaced again.
+const seenConfigErrorsByDirectory = new Map<string, Set<string>>()
+
+export type ConfigLoadError = {
+  name: string
+  data: { path?: string | null; message?: string | null; issues?: unknown }
+}
+
+// `emit` is injectable so the dedup behavior can be tested without a live toast host; production passes showToast.
+export function surfaceConfigErrors(
+  directory: string,
+  errors: ConfigLoadError[],
+  translate: (key: string, vars?: Record<string, string | number>) => string,
+  emit: (toast: { variant: "error"; title: string; description: string }) => void = showToast,
+) {
+  const previous = seenConfigErrorsByDirectory.get(directory) ?? new Set<string>()
+  const current = new Set<string>()
+  for (const error of errors) {
+    const key = [error.data?.path ?? "", error.data?.message ?? "", JSON.stringify(error.data?.issues ?? "")].join(" | ")
+    current.add(key)
+    if (previous.has(key)) continue
+    emit({
+      variant: "error",
+      title: translate("toast.config.invalid.title"),
+      description: `${formatServerError(error, translate)}\n${translate("toast.config.invalid.hint")}`,
+    })
+  }
+  if (current.size) seenConfigErrorsByDirectory.set(directory, current)
+  else seenConfigErrorsByDirectory.delete(directory)
+}
+
 function runAll(list: Array<() => Promise<unknown>>) {
   return Promise.allSettled(list.map((item) => item()))
 }
@@ -436,6 +473,14 @@ export async function bootstrapDirectory(input: {
             ),
         }),
       () => retry(() => input.sdk.config.get().then((x) => input.setStore("config", x.data!))),
+      // Best-effort surface of config files the engine had to skip (bad JSON/schema). Never let it fail the
+      // bootstrap — a broken config already degrades gracefully; this only turns the recorded errors into one
+      // readable toast per unseen problem.
+      () =>
+        input.sdk.config
+          .errors()
+          .then((x) => surfaceConfigErrors(input.directory, x.data ?? [], input.translate))
+          .catch((err) => console.error("Failed to load config errors", err)),
       () =>
         retry(() =>
           input.sdk.session.status().then((x) => {

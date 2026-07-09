@@ -43,7 +43,7 @@ import { ConfigProvider } from "./provider"
 import { ConfigServer } from "./server"
 import { ConfigSkills } from "./skills"
 import { ConfigVariable } from "./variable"
-import { RemoteAuthError } from "./error"
+import { RemoteAuthError, JsonError, InvalidError } from "./error"
 import { Npm } from "@opencode-ai/core/npm"
 import { Filesystem } from "@/util/filesystem"
 import { Installation } from "@/installation"
@@ -363,15 +363,103 @@ export type Info = DeepMutable<Schema.Schema.Type<typeof Info>> & {
   plugin_origins?: ConfigPlugin.Origin[]
 }
 
+// A single config file that failed to load, kept in a shape the app can format directly. The fields mirror
+// ConfigJsonError / ConfigInvalidError so the existing frontend error formatter renders it without new types.
+export const ConfigLoadError = Schema.Struct({
+  name: Schema.String,
+  data: Schema.Struct({
+    path: Schema.optional(Schema.String),
+    message: Schema.optional(Schema.String),
+    issues: Schema.optional(
+      Schema.Array(
+        Schema.Struct({
+          message: Schema.String,
+          path: Schema.Array(Schema.Union([Schema.String, Schema.Number])),
+        }),
+      ),
+    ),
+  }),
+})
+export type ConfigLoadError = Schema.Schema.Type<typeof ConfigLoadError>
+
+// ConfigParse builds a rich CLI debug message that echoes the raw config text twice: once as a whole between
+// "--- JSONC Input ---" and "--- Errors ---", and again per error as a "Line N: <source>" context line under
+// each caret. That raw text can hold secrets (API keys, PATs) from a half-edited config, and this error is now
+// surfaced to the frontend via /config/errors, so keep only the "<code> at line N, column M" summary lines and
+// drop every echoed source line. Messages without a parser summary and no dump wrapper (e.g. a plain "file does
+// not exist") pass through unchanged; a wrapped message we can't summarize is dropped rather than leaked.
+function sanitizeConfigLoadMessage(message: string | undefined): string | undefined {
+  if (!message) return message
+  const block = message.match(/--- Errors ---\n([\s\S]*?)\n--- End ---/)
+  const details = block ? block[1] : message
+  // Keep only whole "<Code> at line N, column M" summary lines. Anchoring to the full line (not just the suffix)
+  // and explicitly dropping the "Line N: <source>" echo means a config line that itself ends with a fake
+  // "at line N, column M" suffix cannot masquerade as a summary and leak through.
+  const summary = details
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => !/^Line \d+:/.test(line) && /^[A-Za-z]+ at line \d+, column \d+$/.test(line))
+    .join("\n")
+  if (summary) return summary
+  return block ? undefined : message
+}
+
+function toConfigLoadError(defect: unknown): ConfigLoadError | undefined {
+  if (!JsonError.isInstance(defect) && !InvalidError.isInstance(defect)) return undefined
+  const object = defect.toObject() as {
+    name: string
+    data: { path?: string; message?: string; issues?: ReadonlyArray<{ message: string; path: ReadonlyArray<string | number> }> }
+  }
+  return {
+    name: object.name,
+    data: {
+      path: object.data.path,
+      message: sanitizeConfigLoadMessage(object.data.message),
+      // Zod issues carry fields beyond the declared { message, path } shape (issue code, expected/received or
+      // raw input values, nested union errors) — some echo the config value that failed. Map to only the two
+      // fields the schema and frontend use so no upstream detail leaks via /config/errors, state, or dedup key.
+      issues: object.data.issues?.map((issue) => ({ message: issue.message, path: issue.path })),
+    },
+  }
+}
+
+// A malformed config file (bad JSONC or a schema violation) is raised as a defect by ConfigParse. Left
+// unhandled it dies the whole config load; because Config.get() runs on nearly every operation the same
+// failure then resurfaces on every call — the reported error spam that also bricks the desktop app. In the
+// PawWork runtime we catch only these config-parse defects, hand each to `onError` so the app can surface one
+// readable message, and fall back to an empty config for that single file so every other valid config source
+// still loads. The plain opencode CLI keeps its fail-fast contract (a broken config throws), and any non
+// config-parse defect is always re-raised unchanged.
+function keepValidConfig<E, R>(
+  effect: Effect.Effect<Info, E, R>,
+  onError: (error: ConfigLoadError) => void,
+): Effect.Effect<Info, E, R> {
+  if (!Runtime.isPawWork()) return effect
+  return effect.pipe(
+    Effect.catchDefect((defect) => {
+      const error = toConfigLoadError(defect)
+      if (!error) return Effect.die(defect)
+      onError(error)
+      log.error("skipping invalid config file, keeping other config", {
+        path: error.data.path,
+        error: error.name,
+      })
+      return Effect.succeed({} as Info)
+    }),
+  )
+}
+
 type State = {
   config: Info
   directories: string[]
   deps: Fiber.Fiber<void, never>[]
   consoleState: ConsoleState
+  errors: ConfigLoadError[]
 }
 
 export interface Interface {
   readonly get: () => Effect.Effect<Info>
+  readonly getErrors: () => Effect.Effect<ConfigLoadError[]>
   readonly getGlobal: () => Effect.Effect<Info>
   readonly getConsoleState: () => Effect.Effect<ConsoleState>
   readonly update: (config: Info) => Effect.Effect<void>
@@ -782,13 +870,17 @@ const rawLayer = Layer.effect(
 
     const loadGlobal = Effect.fnUntraced(function* () {
       let result: Info = {}
+      const errors: ConfigLoadError[] = []
       const globalFiles = globalConfigFilesToLoad()
       for (const filepath of globalFiles) {
         const dir = path.dirname(filepath)
         const allowWrite = !Runtime.isPawWork() || PawWorkHome.isPrimary(dir)
         const text = yield* readConfigFile(filepath)
         if (!text) continue
-        result = pipe(result, mergeDeep(yield* loadConfig(text, { path: filepath, allowWrite })))
+        const next = yield* keepValidConfig(loadConfig(text, { path: filepath, allowWrite }), (error) =>
+          errors.push(error),
+        )
+        result = pipe(result, mergeDeep(next))
       }
 
       const legacy = path.join(Global.Path.config, "config")
@@ -827,7 +919,7 @@ const rawLayer = Layer.effect(
         })
       }
 
-      return result
+      return { config: result, errors }
     })
 
     const [cachedGlobal, invalidateGlobal] = yield* Effect.cachedInvalidateWithTTL(
@@ -835,13 +927,13 @@ const rawLayer = Layer.effect(
         Effect.tapError((error) =>
           Effect.sync(() => log.error("failed to load global config, using defaults", { error: String(error) })),
         ),
-        Effect.orElseSucceed((): Info => ({})),
+        Effect.orElseSucceed((): { config: Info; errors: ConfigLoadError[] } => ({ config: {}, errors: [] })),
       ),
       Duration.infinity,
     )
 
     const getGlobal = Effect.fn("Config.getGlobal")(function* () {
-      return yield* cachedGlobal
+      return (yield* cachedGlobal).config
     })
 
     const ensureGitignore = Effect.fn("Config.ensureGitignore")(function* (dir: string) {
@@ -867,6 +959,8 @@ const rawLayer = Layer.effect(
         const auth = yield* authSvc.all().pipe(Effect.orDie)
 
         let result: Info = {}
+        const errors: ConfigLoadError[] = []
+        const collectError = (error: ConfigLoadError) => errors.push(error)
         const consoleManagedProviders = new Set<string>()
         let activeOrgName: string | undefined
 
@@ -926,24 +1020,28 @@ const rawLayer = Layer.effect(
             const remoteConfig = wellknown.config ?? {}
             if (!remoteConfig.$schema) remoteConfig.$schema = "https://opencode.ai/config.json"
             const source = remote
-            const next = yield* loadConfig(JSON.stringify(remoteConfig), {
-              dir: path.dirname(source),
-              source,
-            })
+            const next = yield* keepValidConfig(
+              loadConfig(JSON.stringify(remoteConfig), {
+                dir: path.dirname(source),
+                source,
+              }),
+              collectError,
+            )
             yield* merge(source, next, "global")
             log.debug("loaded remote config from well-known", { url })
           }
         }
 
-        const global = yield* getGlobal()
+        const globalState = yield* cachedGlobal
         yield* merge(
           globalConfigSource() ?? (Runtime.isPawWork() ? PawWorkHome.primary() : Global.Path.config),
-          global,
+          globalState.config,
           "global",
         )
+        errors.push(...globalState.errors)
 
         if (Flag.OPENCODE_CONFIG) {
-          yield* merge(Flag.OPENCODE_CONFIG, yield* loadFile(Flag.OPENCODE_CONFIG))
+          yield* merge(Flag.OPENCODE_CONFIG, yield* keepValidConfig(loadFile(Flag.OPENCODE_CONFIG), collectError))
           log.debug("loaded custom config", { path: Flag.OPENCODE_CONFIG })
         }
 
@@ -951,7 +1049,7 @@ const rawLayer = Layer.effect(
           for (const file of yield* ConfigPaths.files(projectConfigNames(), ctx.directory, ctx.worktree).pipe(
             Effect.orDie,
           )) {
-            yield* merge(file, yield* loadFile(file), "local")
+            yield* merge(file, yield* keepValidConfig(loadFile(file), collectError), "local")
           }
         }
 
@@ -978,7 +1076,7 @@ const rawLayer = Layer.effect(
             for (const file of configFiles) {
               const source = path.join(dir, file)
               log.debug(`loading config from ${source}`)
-              yield* merge(source, yield* loadFile(source))
+              yield* merge(source, yield* keepValidConfig(loadFile(source), collectError))
               result.agent ??= {}
               result.mode ??= {}
               result.plugin ??= []
@@ -1011,10 +1109,13 @@ const rawLayer = Layer.effect(
 
         if (process.env.OPENCODE_CONFIG_CONTENT) {
           const source = "OPENCODE_CONFIG_CONTENT"
-          const next = yield* loadConfig(process.env.OPENCODE_CONFIG_CONTENT, {
-            dir: ctx.directory,
-            source,
-          })
+          const next = yield* keepValidConfig(
+            loadConfig(process.env.OPENCODE_CONFIG_CONTENT, {
+              dir: ctx.directory,
+              source,
+            }),
+            collectError,
+          )
           yield* merge(source, next, "local")
           log.debug("loaded custom config from OPENCODE_CONFIG_CONTENT")
         }
@@ -1066,7 +1167,7 @@ const rawLayer = Layer.effect(
         if (existsSync(managedDir)) {
           for (const file of Runtime.isPawWork() ? globalConfigFiles() : OPENCODE_PROJECT_CONFIG_FILES) {
             const source = path.join(managedDir, file)
-            yield* merge(source, yield* loadFile(source), "global")
+            yield* merge(source, yield* keepValidConfig(loadFile(source), collectError), "global")
           }
         }
 
@@ -1075,10 +1176,13 @@ const rawLayer = Layer.effect(
         if (managed) {
           result = mergeConfigConcatArrays(
             result,
-            yield* loadConfig(managed.text, {
-              dir: path.dirname(managed.source),
-              source: managed.source,
-            }),
+            yield* keepValidConfig(
+              loadConfig(managed.text, {
+                dir: path.dirname(managed.source),
+                source: managed.source,
+              }),
+              collectError,
+            ),
           )
         }
 
@@ -1136,6 +1240,7 @@ const rawLayer = Layer.effect(
           config: result,
           directories,
           deps,
+          errors,
           consoleState: {
             consoleManagedProviders: Array.from(consoleManagedProviders),
             activeOrgName,
@@ -1154,6 +1259,10 @@ const rawLayer = Layer.effect(
 
     const get = Effect.fn("Config.get")(function* () {
       return yield* InstanceState.use(state, (s) => s.config)
+    })
+
+    const getErrors = Effect.fn("Config.getErrors")(function* () {
+      return yield* InstanceState.use(state, (s) => s.errors)
     })
 
     const directories = Effect.fn("Config.directories")(function* () {
@@ -1377,6 +1486,7 @@ const rawLayer = Layer.effect(
 
     return Service.of({
       get,
+      getErrors,
       getGlobal,
       getConsoleState,
       update,

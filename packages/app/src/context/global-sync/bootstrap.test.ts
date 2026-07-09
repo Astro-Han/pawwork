@@ -7,6 +7,8 @@ import {
   bootstrapDirectory,
   hydratePendingExternalResults,
   mergeSessionStatusSnapshot,
+  surfaceConfigErrors,
+  type ConfigLoadError,
 } from "./bootstrap"
 import { loadSessionsQuery } from "../global-sync"
 import type { State, VcsCache } from "./types"
@@ -131,7 +133,7 @@ describe("bootstrapDirectory", () => {
     }) as typeof console.warn
     const sdk = {
       app: { agents: async () => ({ data: [] }) },
-      config: { get: async () => ({ data: {} as Config }) },
+      config: { get: async () => ({ data: {} as Config }), errors: async () => ({ data: [] }) },
       session: {
         status: async () => ({ data: {} }),
         get: async () => ({ data: undefined }),
@@ -192,7 +194,7 @@ describe("bootstrapDirectory", () => {
     }) as typeof console.warn
     const sdk = {
       app: { agents: async () => ({ data: [] }) },
-      config: { get: async () => ({ data: {} as Config }) },
+      config: { get: async () => ({ data: {} as Config }), errors: async () => ({ data: [] }) },
       session: {
         status: async () => ({ data: {} }),
         get: async () => ({ data: undefined }),
@@ -262,7 +264,7 @@ describe("bootstrapDirectory", () => {
 
     const sdk = {
       app: { agents: async () => ({ data: [] }) },
-      config: { get: async () => ({ data: {} as Config }) },
+      config: { get: async () => ({ data: {} as Config }), errors: async () => ({ data: [] }) },
       session: {
         status: async () => ({ data: {} }),
         get: async () => ({ data: undefined }),
@@ -347,7 +349,7 @@ describe("bootstrapDirectory", () => {
 
     const sdk = {
       app: { agents: async () => ({ data: [] }) },
-      config: { get: async () => ({ data: {} as Config }) },
+      config: { get: async () => ({ data: {} as Config }), errors: async () => ({ data: [] }) },
       session: {
         status: async () => {
           throw new Error("status failed")
@@ -419,7 +421,7 @@ describe("bootstrapDirectory", () => {
     }
     const sdk = {
       app: { agents: async () => ({ data: [] }) },
-      config: { get: async () => ({ data: {} as Config }) },
+      config: { get: async () => ({ data: {} as Config }), errors: async () => ({ data: [] }) },
       session: {
         status: async () => ({ data: {} }),
         get: async ({ sessionID }: { sessionID: string }) => {
@@ -493,7 +495,7 @@ describe("bootstrapDirectory", () => {
 
     const sdk = {
       app: { agents: async () => ({ data: [] }) },
-      config: { get: async () => ({ data: {} as Config }) },
+      config: { get: async () => ({ data: {} as Config }), errors: async () => ({ data: [] }) },
       session: {
         status: async () => {
           statusStarted = true
@@ -553,7 +555,7 @@ describe("bootstrapDirectory", () => {
 
     const sdk = {
       app: { agents: async () => ({ data: [] }) },
-      config: { get: async () => ({ data: {} as Config }) },
+      config: { get: async () => ({ data: {} as Config }), errors: async () => ({ data: [] }) },
       session: {
         status: async () => ({ data: {} }),
         get: async () => ({ data: undefined }),
@@ -603,7 +605,7 @@ describe("bootstrapDirectory", () => {
 
     const sdk = {
       app: { agents: async () => ({ data: [] }) },
-      config: { get: async () => ({ data: {} as Config }) },
+      config: { get: async () => ({ data: {} as Config }), errors: async () => ({ data: [] }) },
       session: {
         status: async () => ({ data: {} }),
         get: async () => ({ data: undefined }),
@@ -663,7 +665,7 @@ describe("bootstrapDirectory", () => {
 
     const sdk = {
       app: { agents: async () => ({ data: [] }) },
-      config: { get: async () => ({ data: {} as Config }) },
+      config: { get: async () => ({ data: {} as Config }), errors: async () => ({ data: [] }) },
       session: {
         status: async () => ({ data: {} }),
         get: async () => ({ data: undefined }),
@@ -737,7 +739,7 @@ describe("bootstrapDirectory", () => {
 
     const sdk = {
       app: { agents: async () => ({ data: [] }) },
-      config: { get: async () => ({ data: {} as Config }) },
+      config: { get: async () => ({ data: {} as Config }), errors: async () => ({ data: [] }) },
       session: {
         status: async () => ({ data: {} }),
         get: async () => ({ data: undefined }),
@@ -787,6 +789,56 @@ describe("bootstrapDirectory", () => {
 
     expect(store.provider).toEqual(newProviders)
     expect(store.provider_ready).toBe(true)
+  })
+})
+
+describe("surfaceConfigErrors", () => {
+  const translate = (key: string) => key
+
+  test("emits one toast per distinct config error", () => {
+    const emitted: Array<{ title: string; description: string }> = []
+    const errors: ConfigLoadError[] = [
+      { name: "ConfigJsonError", data: { path: "/repo/one/pawwork.json" } },
+      { name: "ConfigInvalidError", data: { path: "/repo/one/opencode.json", message: "bad field" } },
+    ]
+    surfaceConfigErrors("/repo/one", errors, translate, (toast) => emitted.push(toast))
+    expect(emitted.length).toBe(2)
+    expect(emitted[0].title).toBe("toast.config.invalid.title")
+    expect(emitted[0].description).toContain("toast.config.invalid.hint")
+  })
+
+  test("does not re-toast the same unresolved error across repeated bootstraps", () => {
+    const emitted: Array<{ title: string }> = []
+    const error: ConfigLoadError = { name: "ConfigJsonError", data: { path: "/repo/two/pawwork.json" } }
+    surfaceConfigErrors("/repo/two", [error], translate, (toast) => emitted.push(toast))
+    surfaceConfigErrors("/repo/two", [error], translate, (toast) => emitted.push(toast))
+    expect(emitted.length).toBe(1)
+  })
+
+  test("toasts again when the same file fails a different way", () => {
+    const emitted: Array<{ title: string }> = []
+    surfaceConfigErrors(
+      "/repo/three",
+      [{ name: "ConfigJsonError", data: { path: "/repo/three/pawwork.json" } }],
+      translate,
+      (toast) => emitted.push(toast),
+    )
+    surfaceConfigErrors(
+      "/repo/three",
+      [{ name: "ConfigInvalidError", data: { path: "/repo/three/pawwork.json", message: "now a schema error" } }],
+      translate,
+      (toast) => emitted.push(toast),
+    )
+    expect(emitted.length).toBe(2)
+  })
+
+  test("clears a directory's memory on a clean load and re-toasts if the error reappears", () => {
+    const emitted: Array<{ title: string }> = []
+    const error: ConfigLoadError = { name: "ConfigJsonError", data: { path: "/repo/four/pawwork.json" } }
+    surfaceConfigErrors("/repo/four", [error], translate, (toast) => emitted.push(toast))
+    surfaceConfigErrors("/repo/four", [], translate, (toast) => emitted.push(toast)) // fixed → drop the entry
+    surfaceConfigErrors("/repo/four", [error], translate, (toast) => emitted.push(toast)) // regressed → toast again
+    expect(emitted.length).toBe(2)
   })
 })
 

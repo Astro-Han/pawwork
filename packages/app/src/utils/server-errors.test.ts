@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { ConfigInvalidError, ProviderModelNotFoundError } from "./server-errors"
+import type { ConfigInvalidError, ConfigJsonError, ProviderModelNotFoundError } from "./server-errors"
 import { formatServerError, parseReadableConfigInvalidError } from "./server-errors"
 
 function fill(text: string, vars?: Record<string, string | number>) {
@@ -16,6 +16,7 @@ function useLanguageMock() {
     "error.chain.unknown": "Erro desconhecido",
     "error.chain.configInvalid": "Arquivo de config em {{path}} invalido",
     "error.chain.configInvalidWithMessage": "Arquivo de config em {{path}} invalido: {{message}}",
+    "error.chain.configJsonInvalid": "Arquivo de config em {{path}} nao e JSON valido",
     "error.chain.modelNotFound": "Modelo nao encontrado: {{provider}}/{{model}}",
     "error.chain.didYouMean": "Voce quis dizer: {{suggestions}}",
     "error.chain.checkConfig": "Revise provider/model no config",
@@ -78,6 +79,19 @@ describe("formatServerError", () => {
     const result = formatServerError(error, language.t)
 
     expect(result).toBe("Arquivo de config em config invalido: Missing host")
+  })
+
+  test("formats config JSON errors by file, ignoring the noisy dump", () => {
+    const error = {
+      name: "ConfigJsonError",
+      data: {
+        path: "pawwork.json",
+        message: "\n--- JSONC Input ---\n{ bad }\n--- Errors ---\nPropertyNameExpected at line 1",
+      },
+    } satisfies ConfigJsonError
+
+    // Only the file path surfaces; the multi-line parser dump never reaches the toast.
+    expect(formatServerError(error, language.t)).toBe("Arquivo de config em pawwork.json nao e JSON valido")
   })
 
   test("returns error messages", () => {

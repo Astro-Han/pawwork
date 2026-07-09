@@ -41,6 +41,8 @@ const layer = Config.layer.pipe(
 )
 
 const load = () => Effect.runPromise(Config.Service.use((svc) => svc.get()).pipe(Effect.scoped, Effect.provide(layer)))
+const loadErrors = () =>
+  Effect.runPromise(Config.Service.use((svc) => svc.getErrors()).pipe(Effect.scoped, Effect.provide(layer)))
 const save = (config: Config.Info) =>
   Effect.runPromise(Config.Service.use((svc) => svc.update(config)).pipe(Effect.scoped, Effect.provide(layer)))
 const saveGlobal = (config: Config.Info) =>
@@ -1338,6 +1340,128 @@ home command`,
         fn: async () => {
           const config = await load()
           expect(config.model).toBe("expected/managed")
+        },
+      })
+    } finally {
+      if (previous === undefined) delete process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR
+      else process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR = previous
+    }
+  })
+})
+
+describe("PawWork config load resilience", () => {
+  // #1485: a non-technical user hand-edits pawwork.json to add an MCP server, gets the schema wrong, and the
+  // desktop app spams the same config error on every operation until it is unusable. In the PawWork runtime a
+  // broken config file must be skipped (with the error recorded for one readable message) while every other
+  // valid config source still loads. The plain opencode CLI keeps failing fast — covered in config.test.ts.
+  test("keeps valid config and records the error when a project config file has invalid JSON", async () => {
+    await using project = await tmpdir({ git: true })
+    const configDir = path.join(project.path, ".opencode")
+    await fs.mkdir(configDir, { recursive: true })
+    await Filesystem.write(path.join(configDir, "opencode.json"), JSON.stringify({ model: "pawwork/valid-model" }))
+    await Filesystem.write(path.join(configDir, "pawwork.json"), "{ invalid json }")
+
+    await Instance.provide({
+      directory: project.path,
+      fn: async () => {
+        const config = await load()
+        expect(config.model).toBe("pawwork/valid-model")
+        const errors = await loadErrors()
+        expect(errors.length).toBe(1)
+        expect(errors[0].name).toBe("ConfigJsonError")
+        expect(errors[0].data.path).toContain("pawwork.json")
+      },
+    })
+  })
+
+  test("keeps valid config and records the error when an mcp entry violates the schema", async () => {
+    await using project = await tmpdir({ git: true })
+    const configDir = path.join(project.path, ".opencode")
+    await fs.mkdir(configDir, { recursive: true })
+    await Filesystem.write(path.join(configDir, "opencode.json"), JSON.stringify({ model: "pawwork/valid-model" }))
+    // Structurally-valid JSON whose mcp entry matches no transport (local/remote) — the reported #1485 shape.
+    await Filesystem.write(path.join(configDir, "pawwork.json"), JSON.stringify({ mcp: { broken: { type: "nonsense" } } }))
+
+    await Instance.provide({
+      directory: project.path,
+      fn: async () => {
+        const config = await load()
+        expect(config.model).toBe("pawwork/valid-model")
+        const errors = await loadErrors()
+        expect(errors.length).toBe(1)
+        expect(errors[0].name).toBe("ConfigInvalidError")
+        expect(errors[0].data.path).toContain("pawwork.json")
+        expect(errors[0].data.issues?.length ?? 0).toBeGreaterThan(0)
+      },
+    })
+  })
+
+  // The JSONC parser embeds the raw file text in its error message for local debugging. That message is now
+  // surfaced to the frontend via /config/errors, so a half-edited config's secret must never ride along.
+  test("does not leak raw config file contents into the recorded error message", async () => {
+    await using project = await tmpdir({ git: true })
+    const configDir = path.join(project.path, ".opencode")
+    await fs.mkdir(configDir, { recursive: true })
+    const secret = "sk-pawwork-super-secret-DEADBEEF"
+    await Filesystem.write(path.join(configDir, "pawwork.json"), `{ "apiKey": "${secret}" broken }`)
+
+    await Instance.provide({
+      directory: project.path,
+      fn: async () => {
+        await load()
+        const errors = await loadErrors()
+        expect(errors.length).toBe(1)
+        expect(errors[0].name).toBe("ConfigJsonError")
+        expect(JSON.stringify(errors[0])).not.toContain(secret)
+      },
+    })
+  })
+
+  // Edge of the sanitizer: the parser echoes the offending line as "Line N: <source>". If that source line
+  // itself ends with " at line N, column M", a naive "ends-with-position" filter would mistake the echoed
+  // secret for a summary line and keep it. The sanitizer must drop the "Line N:" context line regardless.
+  test("does not leak a config line that ends with a parser-position-like suffix", async () => {
+    await using project = await tmpdir({ git: true })
+    const configDir = path.join(project.path, ".opencode")
+    await fs.mkdir(configDir, { recursive: true })
+    const secret = "sk-leak-SECRET"
+    // Line 1 is valid JSON; the trailing line is a syntax error whose source ends with a fake position suffix.
+    await Filesystem.write(path.join(configDir, "pawwork.json"), `{ "a": 1 }\n${secret} at line 2, column 3`)
+
+    await Instance.provide({
+      directory: project.path,
+      fn: async () => {
+        await load()
+        const errors = await loadErrors()
+        expect(errors.length).toBe(1)
+        expect(errors[0].name).toBe("ConfigJsonError")
+        expect(JSON.stringify(errors[0])).not.toContain(secret)
+      },
+    })
+  })
+
+  // Managed/MDM-deployed config is loaded last and overrides everything, so a broken managed file must degrade
+  // just like user config — otherwise enterprise deployments still hit the #1485 "one bad file bricks the app".
+  test("keeps valid config and records the error when a managed config file is broken", async () => {
+    await using managed = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previous = process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR
+    process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR = managed.path
+
+    try {
+      const managedConfig = path.join(managed.path, "pawwork.json")
+      await Filesystem.write(managedConfig, "{ managed invalid json }")
+      const configDir = path.join(project.path, ".opencode")
+      await fs.mkdir(configDir, { recursive: true })
+      await Filesystem.write(path.join(configDir, "pawwork.json"), JSON.stringify({ model: "pawwork/valid-model" }))
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const config = await load()
+          expect(config.model).toBe("pawwork/valid-model")
+          const errors = await loadErrors()
+          expect(errors.some((error) => error.name === "ConfigJsonError" && error.data.path === managedConfig)).toBeTrue()
         },
       })
     } finally {

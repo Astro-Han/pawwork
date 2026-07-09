@@ -513,6 +513,9 @@ export const dict = {
   "toast.session.listFailed.title": "Failed to load sessions for {{project}}",
   "toast.project.reloadFailed.title": "Failed to reload {{project}}",
 
+  "toast.config.invalid.title": "Some settings couldn't be loaded",
+  "toast.config.invalid.hint": "Your other settings still work. Fix the file, then reopen the project to apply it.",
+
   "toast.update.title": "Update available",
   "toast.update.description": "A new version of PawWork ({{version}}) is now available to install.",
   "toast.update.action.installRestart": "Install and restart",

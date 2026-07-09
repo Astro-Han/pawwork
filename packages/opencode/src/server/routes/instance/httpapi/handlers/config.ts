@@ -10,6 +10,10 @@ const getWith = Effect.fn("ConfigHttpApi.get")(function* (config: Config.Interfa
   return HttpServerResponse.jsonUnsafe(yield* config.get())
 })
 
+const errorsWith = Effect.fn("ConfigHttpApi.errors")(function* (config: Config.Interface) {
+  return HttpServerResponse.jsonUnsafe(yield* config.getErrors())
+})
+
 const providersWith = Effect.fn("ConfigHttpApi.providers")(function* (provider: Provider.Interface) {
   const providers = yield* provider.list()
   return HttpServerResponse.jsonUnsafe({
@@ -50,5 +54,6 @@ export const configHandlers = HttpApiBuilder.group(ConfigApi, "config", (handler
         }),
       )
       .handle("providers", () => providersWith(provider))
+      .handle("errors", () => errorsWith(config))
   }),
 )

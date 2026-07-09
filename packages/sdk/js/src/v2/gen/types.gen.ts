@@ -3907,6 +3907,35 @@ export type ConfigProvidersResponses = {
 
 export type ConfigProvidersResponse = ConfigProvidersResponses[keyof ConfigProvidersResponses]
 
+export type ConfigErrorsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/errors"
+}
+
+export type ConfigErrorsResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    name: string
+    data: {
+      path?: string | null
+      message?: string | null
+      issues?: Array<{
+        message: string
+        path: Array<string | number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN">
+      }> | null
+    }
+  }>
+}
+
+export type ConfigErrorsResponse = ConfigErrorsResponses[keyof ConfigErrorsResponses]
+
 export type ExperimentalCapabilitiesGetData = {
   body?: never
   path?: never
