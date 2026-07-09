@@ -197,7 +197,10 @@ const saveScanSkipHeads = new Set(["echo", "printf", "cat", "grep", "rg", "egrep
 // shell, so the literal would never match the real file. Drop it and let the cwd
 // backstop discover the real output instead of tracking a phantom.
 function isStaticOutputValue(value: string) {
-  return !/[$`*?%[\]{}]/.test(value) && !value.startsWith("~")
+  // A `%NAME%` pair is a Windows cmd variable (dynamic); a lone `%` is a literal, so a real
+  // business filename like `Growth 20%.pptx` or `100%.docx` stays static and exactly captured.
+  if (/%[A-Za-z_][A-Za-z0-9_]*%/.test(value)) return false
+  return !/[$`*?[\]{}]/.test(value) && !value.startsWith("~")
 }
 
 function isRelativeOutputValue(value: string) {
@@ -294,11 +297,27 @@ const uvNonRunSubcommands = new Set([
   "pip", "tool", "tree", "add", "remove", "sync", "lock", "export", "venv", "build", "publish",
   "init", "cache", "self", "python", "version", "help", "format",
 ])
+// uv options that consume the NEXT token as their value. Their value must not be read as the
+// subcommand, so a `--directory build` whose value collides with a subcommand name (`build`,
+// `pip`, `python`) does not make `uv --directory build run ...` look like `uv build`.
+const uvValueOptions = new Set([
+  "--directory", "--project", "--config-file", "--cache-dir", "--color", "--python", "-p",
+  "--python-preference", "--env-file", "--with", "--with-requirements", "--index",
+  "--default-index", "--index-url", "--extra-index-url", "--find-links",
+])
 function uvRunsSubcommand(rest: string[]) {
+  let previous: string | undefined
   for (const word of rest) {
     const low = word.toLowerCase()
+    // Skip the value of a value-taking option (`--directory build`). A `--key=value` long
+    // option carries its value inline, so it is never in uvValueOptions and never defers.
+    if (previous && uvValueOptions.has(previous)) {
+      previous = undefined
+      continue
+    }
     if (low === "run") return true
     if (uvNonRunSubcommands.has(low)) return false
+    previous = low
   }
   return false
 }

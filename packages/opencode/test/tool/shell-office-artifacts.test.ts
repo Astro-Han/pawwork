@@ -79,6 +79,14 @@ describe("officeOutputPaths", () => {
       "uv --directory work run python a.py -o /tmp/a.docx\nuv run python b.py -o b.docx",
       ["/tmp/a.docx", "b.docx"],
     ],
+    // a --directory VALUE that collides with a uv subcommand name (`build`) must be skipped,
+    // not read as the subcommand — the real `run` still makes this a generator (absolute
+    // output stays exact)
+    ["uv --directory build run python make.py -o /tmp/report.docx", ["/tmp/report.docx"]],
+    ["uv --python python3 run python make.py -o /tmp/report.docx", ["/tmp/report.docx"]],
+    // a literal `%` in a filename is not a Windows variable — the static name is captured
+    ["uv run python build.py -o '/tmp/Growth 20%.pptx'", ["/tmp/Growth 20%.pptx"]],
+    ["uv run python build.py -o 100%.docx", ["100%.docx"]],
   ])("parses the output path from %s", (command, expected) => {
     expect(officeOutputPaths(command)).toEqual(expected)
   })
@@ -140,6 +148,9 @@ describe("hasOfficeOutputIntent", () => {
     "uv run --directory work python build.py -o report.docx", // --directory as a `uv run` option also chdirs
     "uv --directory work run python <<'PY'\ndoc.save('out.docx')\nPY", // heredoc .save inherits the --directory chdir
     "uv run --python python3 --directory work python build.py -o report.docx", // --python value collision must still see --directory
+    // a --directory value that collides with a uv subcommand name (`build`) must not hide the
+    // real `run`; the relative output under that chdir is still unresolved intent
+    "uv --directory build run python make.py -o report.docx",
     // a STATIC .pdf under a changed cwd can't be exactly captured (cwd) and can't be
     // discovered (.pdf excluded) — it must still be intent so the turn is flagged uncaptured
     "cd reports && uv run python gen.py -o report.pdf",
