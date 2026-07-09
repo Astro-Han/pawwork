@@ -224,7 +224,11 @@ export class PawWorkClient implements Sidecar {
       body = JSON.stringify(input)
       headers["content-type"] = "application/json"
     }
-    if (directory !== "") headers["x-opencode-directory"] = directory
+    // Percent-encode the path: a directory containing non-ASCII characters (e.g. a
+    // Windows profile like C:\Users\Андрей) cannot be a header value — fetch rejects
+    // any code point > 255 with a ByteString error. The SDK encodes this same header
+    // and the server decodeURIComponent()s it, so this keeps us on that contract.
+    if (directory !== "") headers["x-opencode-directory"] = encodeURIComponent(directory)
     this.authorize(headers)
     const res = await fetch(this.baseURL + path, { method, headers, body, signal })
     if (res.status < 200 || res.status >= 300) {
