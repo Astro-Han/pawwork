@@ -87,6 +87,12 @@ describe("officeOutputPaths", () => {
     // a literal `%` in a filename is not a Windows variable — the static name is captured
     ["uv run python build.py -o '/tmp/Growth 20%.pptx'", ["/tmp/Growth 20%.pptx"]],
     ["uv run python build.py -o 100%.docx", ["100%.docx"]],
+    // an unquoted POSIX backslash-escaped space binds the space into one filename token, so
+    // `-o Quarterly\ Report.docx` names a single `Quarterly Report.docx`, captured exactly
+    [String.raw`uv run python build.py -o Quarterly\ Report.docx`, ["Quarterly Report.docx"]],
+    // the backslash-space unescape must NOT touch backslashes before non-space chars, so a
+    // Windows-style `-o` path keeps its separators (still captured exactly, verbatim)
+    [String.raw`uv run python build.py -o C:\out\report.docx`, [String.raw`C:\out\report.docx`]],
   ])("parses the output path from %s", (command, expected) => {
     expect(officeOutputPaths(command)).toEqual(expected)
   })
@@ -257,5 +263,23 @@ describe("nonOfficeGeneratorText", () => {
     const cmd = "uv run python <<PY-END\ndoc.save('a.docx')\nPY-END\necho done > side.txt"
     expect(officeOutputPaths(cmd)).toEqual(["a.docx"]) // deck captured, heredoc bounded
     expect(nonOfficeGeneratorText(cmd)).toBe("echo done > side.txt") // trailing write survives
+  })
+
+  test("terminates a backslash-quoted heredoc delimiter so a trailing side-effect write survives", () => {
+    // `<<\PY` is valid shell: the backslash quotes the delimiter (no body expansion) and the
+    // closing line is `PY`. If the parser read the delimiter as `\PY` it would never match the
+    // `PY` closer and swallow the rest of the command (incl. `echo done > side.txt`) as body.
+    const cmd = "uv run python <<\\PY\ndoc.save('a.docx')\nPY\necho done > side.txt"
+    expect(officeOutputPaths(cmd)).toEqual(["a.docx"]) // deck captured, heredoc bounded at `PY`
+    expect(nonOfficeGeneratorText(cmd)).toBe("echo done > side.txt") // trailing write survives
+  })
+
+  test("a trailing backslash inside the heredoc body does not swallow the next command", () => {
+    // The body's last line is `# \` (a comment ending in a backslash). Line-continuation
+    // stripping must NOT collapse that `\`-newline — doing so would fuse the closing `PY` into
+    // the body, leave the heredoc unterminated, and hide `echo done > notes.txt` from the audit.
+    const cmd = "uv run python <<'PY'\nDocument().save('deck.docx')\n# \\\nPY\necho done > notes.txt"
+    expect(officeOutputPaths(cmd)).toEqual(["deck.docx"]) // deck captured, heredoc bounded at `PY`
+    expect(nonOfficeGeneratorText(cmd)).toBe("echo done > notes.txt") // trailing write survives
   })
 })

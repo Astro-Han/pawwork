@@ -32,7 +32,7 @@ export type ArtifactDeps<DepR = never> = {
   discoverOfficeOutputs: (cwd: string, projectRoot: string) => Effect.Effect<OutputDiscovery, never, DepR>
   isLikelyWriteCommand: (command: string) => boolean
   parseOfficeOutputs: (command: string) => readonly string[]
-  hasOfficeOutputIntent: (command: string) => boolean
+  unresolvedOfficeOutputCount: (command: string) => number
   sideEffectCommand: (command: string) => string
   recordWrite: (input: RecordWriteInput) => Effect.Effect<void, never, DepR>
   recordUncaptured: (input: RecordUncapturedInput) => Effect.Effect<void, never, DepR>
@@ -105,20 +105,22 @@ export const orchestrateArtifacts = <RunR, DepR>(
     //  - `dynamicOfficeOutput`: a native office generator that NAMED an office output
     //    the parser could not resolve to an exact path (a dynamic `-o "$OUT.docx"` /
     //    `-o "%OUT%.docx"`). The intent to write is clear, so this scans to CAPTURE the
-    //    real file. It is gated on `hasOfficeOutputIntent`, NOT on "is a generator", so a
-    //    read-only `uv run pytest` / `uv run python read_docx.py input.docx` — which names
+    //    real file. It is gated on `unresolvedOfficeOutputCount > 0`, NOT on "is a generator",
+    //    so a read-only `uv run pytest` / `uv run python read_docx.py input.docx` — which names
     //    no output — never scans and can never false-flag the turn uncaptured.
     //
     // A generator that DID name an exact output (parsed non-empty) is captured precisely
     // and skips the scan entirely, staying immune to a nested or overflowing cwd.
     const sideEffectWrite =
       declared.length === 0 && hasMessage && deps.isLikelyWriteCommand(deps.sideEffectCommand(command))
-    // `hasOfficeOutputIntent` reports only UNRESOLVED office outputs (it excludes the ones
-    // `parseOfficeOutputs` captures exactly), so a command mixing an exact output with a
-    // dynamic one — `... -o a.docx && ... -o "$OUT.docx"` — still scans for the dynamic
-    // one instead of being suppressed by the exact parse.
-    const dynamicOfficeOutput =
-      declared.length === 0 && hasMessage && deps.hasOfficeOutputIntent(command)
+    // `unresolvedOfficeOutputCount` counts only UNRESOLVED office outputs (it excludes the
+    // ones `parseOfficeOutputs` captures exactly), so a command mixing an exact output with a
+    // dynamic one — `... -o a.docx && ... -o "$OUT.docx"` — still scans for the dynamic one
+    // instead of being suppressed by the exact parse. Counting (not a boolean) lets the audit
+    // require one discovered file per dynamic output below.
+    const dynamicOutputCount =
+      declared.length === 0 && hasMessage ? deps.unresolvedOfficeOutputCount(command) : 0
+    const dynamicOfficeOutput = dynamicOutputCount > 0
     const shouldAutoDiscover = sideEffectWrite || dynamicOfficeOutput
 
     const autoDiscoveredBefore = shouldAutoDiscover
@@ -217,14 +219,21 @@ export const orchestrateArtifacts = <RunR, DepR>(
     //  - a dynamic office output the command clearly intended (`-o "$OUT.docx"`) that the
     //    cwd scan did not find — it may have expanded outside cwd or deeper than the scan,
     //    so a real write must not silently vanish from the audit.
-    // Only a DISCOVERED (non-parsed) office change clears the dynamic-output flag: an
-    // exact sibling output (`... -o a.docx && ... -o "$OUT.docx"`) changing does not prove
-    // the dynamic one was captured, so its loss is still flagged.
+    // Only DISCOVERED (non-parsed) office changes clear the dynamic-output flag, and only when
+    // there is at least one per intended dynamic output: an exact sibling output
+    // (`... -o a.docx && ... -o "$OUT.docx"`) changing does not prove the dynamic one was
+    // captured, and capturing ONE of several dynamic outputs
+    // (`... -o "$A.docx" && ... -o "$B.docx"`, where `$B` lands outside the cwd scan) does not
+    // prove the rest were — the unmatched output's loss is still flagged.
     const parsedKeys = new Set(parsedTracked.map((item) => AppFileSystem.normalizePath(item.path)))
-    const capturedDynamicOutput = officeArtifacts.some(
+    const capturedDynamicCount = officeArtifacts.filter(
       (item) => item.changed && !parsedKeys.has(AppFileSystem.normalizePath(item.path)),
-    )
-    if (sideEffectWrite || discoveryOverflowed || (dynamicOfficeOutput && !capturedDynamicOutput)) {
+    ).length
+    if (
+      sideEffectWrite ||
+      discoveryOverflowed ||
+      (dynamicOfficeOutput && capturedDynamicCount < dynamicOutputCount)
+    ) {
       yield* deps.recordUncaptured({
         sessionID: ctx.sessionID,
         messageID: ctx.messageID,

@@ -24,6 +24,19 @@ function stripLineContinuations(command: string) {
   let quote: "'" | '"' | undefined
   for (let index = 0; index < command.length; index++) {
     const char = command[index]
+    if (!quote && char === "<" && command[index + 1] === "<") {
+      const bodyEnd = skipHeredocBody(command, index)
+      if (bodyEnd !== undefined) {
+        // A heredoc body is stdin data, not shell text. Copy the opener+body+closer verbatim so
+        // a `\`-newline INSIDE the body (a trailing Python line-continuation or a `# \` comment)
+        // is NOT collapsed as a shell line continuation — collapsing it would fuse the closing
+        // delimiter into the body and swallow the following command from the side-effect audit.
+        // Reuses the same body scan commandSegments relies on, so both agree on the bounds.
+        out += command.slice(index, bodyEnd)
+        index = bodyEnd - 1
+        continue
+      }
+    }
     if (char === "\\" && quote !== "'") {
       if (command[index + 1] === "\n") {
         index += 1
@@ -99,6 +112,16 @@ function skipHeredocBody(command: string, index: number) {
     // separator, not at the first hyphen or dot (which the old `[A-Za-z0-9_]` scan dropped,
     // leaving the closing marker unmatched and swallowing the rest of the command).
     while (cursor < command.length && !/[ \t\r\n;&|()<>'"]/.test(command[cursor])) {
+      // A backslash quotes the delimiter (`<<\PY`, `<<E\OF`): the closing line is the word
+      // with backslashes removed (`PY`, `EOF`), so drop the `\` and take the next char
+      // literally. Without this the delimiter would be read as `\PY` and never match its
+      // `PY` closer, swallowing the rest of the command as heredoc body.
+      if (command[cursor] === "\\" && cursor + 1 < command.length) {
+        cursor += 1
+        delimiter += command[cursor]
+        cursor += 1
+        continue
+      }
       delimiter += command[cursor]
       cursor += 1
     }
@@ -378,14 +401,20 @@ function shouldScanSaveSegment(words: string[], isGeneratorCommand: boolean) {
 // `doc.save(...)` inside a script file it runs (invisible to the command text) is also
 // not scanned here; that deliverable is captured via the model-declared
 // `expected_outputs`, the instructed primary path.
-export function hasOfficeOutputIntent(command: string) {
+// How many office outputs a generator command NAMED but the parser could not resolve to an
+// exact path (dynamic `-o "$OUT.docx"` / `.save(f"{name}.docx")`). Counted per occurrence, not
+// deduped: two dynamic outputs (`... -o "$A.docx" && ... -o "$B.docx"`) count as 2, so the
+// audit path can require that many discovered files before it treats every dynamic output as
+// captured — capturing one must not clear the uncaptured flag for a sibling that escaped cwd.
+export function unresolvedOfficeOutputCount(command: string) {
   const segments = commandSegments(command)
   const isGeneratorCommand = segments.some((segment) => isOfficeGeneratorSegment(shellWords(segment.text)))
-  if (!isGeneratorCommand) return false
+  if (!isGeneratorCommand) return 0
   // `cd` changes the parent shell cwd persistently (across `&&`/`;`); `uv --directory` only
   // changes its own command's cwd, and its heredoc body is now one segment, so it is judged
   // per segment with no cross-command propagation.
   let cdChanged = false
+  let count = 0
   for (const segment of segments) {
     const words = shellWords(segment.text)
     const relativeUnresolved = cdChanged || uvChangesDirectory(words)
@@ -399,17 +428,21 @@ export function hasOfficeOutputIntent(command: string) {
         // Intent means an office output officeOutputPaths could NOT capture exactly, so a
         // command mixing an exact output with a dynamic one still reports intent for the
         // dynamic part and triggers the cwd scan.
-        if (value && unresolvedOfficeIntent(value, relativeUnresolved)) return true
+        if (value && unresolvedOfficeIntent(value, relativeUnresolved)) count += 1
       }
     }
     if (shouldScanSaveSegment(words, isGeneratorCommand)) {
       for (const value of saveOutputValues(segment.text)) {
-        if (unresolvedOfficeIntent(value, relativeUnresolved)) return true
+        if (unresolvedOfficeIntent(value, relativeUnresolved)) count += 1
       }
     }
     if (isCwdChangeSegment(words)) cdChanged = true
   }
-  return false
+  return count
+}
+
+export function hasOfficeOutputIntent(command: string) {
+  return unresolvedOfficeOutputCount(command) > 0
 }
 
 // Explicit office output paths a generator command names for itself: either an
@@ -618,6 +651,15 @@ function shellWords(text: string) {
     }
     if (char === "'" || char === '"') {
       quote = char
+      continue
+    }
+    if (char === "\\" && (text[index + 1] === " " || text[index + 1] === "\t")) {
+      // Unquoted POSIX escape of whitespace (`-o Quarterly\ Report.docx`): the backslash binds
+      // the space into the same token, so keep it as a literal space and do NOT split the word.
+      // Only whitespace is unescaped — a backslash before a non-space (a Windows
+      // `C:\out\report.docx`) stays literal, so those path separators are preserved.
+      current += text[index + 1]
+      index++
       continue
     }
     if (/\s/.test(char)) {

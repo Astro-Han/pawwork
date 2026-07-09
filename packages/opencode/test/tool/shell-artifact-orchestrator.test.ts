@@ -7,6 +7,7 @@ import {
   hasOfficeOutputIntent,
   nonOfficeGeneratorText,
   officeOutputPaths,
+  unresolvedOfficeOutputCount,
 } from "../../src/tool/shell-office-artifacts"
 import type { TrackedOutputState, OutputDiscovery } from "../../src/tool/shell-output-capture"
 import type { RecordWriteInput, RecordUncapturedInput } from "../../src/session/turn-change"
@@ -68,6 +69,7 @@ function build(opts: {
   isWriteFn?: (command: string) => boolean
   parseFn?: (command: string) => readonly string[]
   intentFn?: (command: string) => boolean
+  countFn?: (command: string) => number
   sideEffectFn?: (command: string) => string
   discoverPaths?: string[]
   discoverOverflowed?: boolean
@@ -108,7 +110,10 @@ function build(opts: {
     discoverOfficeOutputs,
     isLikelyWriteCommand: opts.isWriteFn ?? (() => opts.isWrite ?? false),
     parseOfficeOutputs: opts.parseFn ?? (() => []),
-    hasOfficeOutputIntent: opts.intentFn ?? (() => false),
+    // Prefer an explicit count fn; otherwise map the legacy boolean intentFn to 0/1 so the
+    // many single-output tests keep their exact prior behavior (one dynamic output).
+    unresolvedOfficeOutputCount:
+      opts.countFn ?? (opts.intentFn ? (command) => (opts.intentFn!(command) ? 1 : 0) : () => 0),
     sideEffectCommand: opts.sideEffectFn ?? ((command) => command),
     recordWrite: (input) =>
       Effect.sync(() => {
@@ -707,6 +712,75 @@ describe("orchestrateArtifacts", () => {
     expect(harness.uncaptured).toHaveLength(1) // b.docx loss not masked by a.docx change
     const artifacts = (result.metadata as any).artifacts
     expect(artifacts).toBeArrayOfSize(1)
+  })
+
+  // TWO dynamic office outputs, only one inside the cwd scan. Discovering the first
+  // (`b.docx`) must NOT clear the uncaptured flag for the second (`c.docx`, which expands
+  // outside cwd): capturing one dynamic output does not prove its siblings were captured, so
+  // the turn is still flagged. Guards against the audit only requiring a single discovered
+  // file to silence every dynamic output.
+  test("multiple dynamic outputs, one escapes cwd → captured one AND uncaptured flagged", async () => {
+    const inside = np("/tmp/work/b.docx")
+    const command =
+      'OUT=b uv run python b.py -o "$OUT.docx" && OUT=/tmp/elsewhere/c uv run python c.py -o "$OUT.docx"'
+    expect(officeOutputPaths(command)).toEqual([]) // both are dynamic; neither parses exactly
+    expect(unresolvedOfficeOutputCount(command)).toBe(2) // two intended dynamic outputs
+
+    const harness = build({
+      states: { [inside]: [stateMissing(), stateFile("h1")] },
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      countFn: unresolvedOfficeOutputCount,
+      sideEffectFn: nonOfficeGeneratorText,
+      discoverPaths: [inside], // only b.docx is under the cwd scan; c.docx escaped
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        { ctx, cwd: "/tmp/work", directory: "/tmp/work", shell: "/bin/bash", command, expectedOutputs: [] },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.writes).toHaveLength(1)
+    expect(harness.writes[0].path).toBe(inside) // b.docx surfaced
+    expect(harness.uncaptured).toHaveLength(1) // c.docx loss not masked by b.docx capture
+    const artifacts = (result.metadata as any).artifacts
+    expect(artifacts).toBeArrayOfSize(1)
+  })
+
+  // Both dynamic outputs land inside the cwd scan → both discovered, nothing lost, so the
+  // count gate is satisfied and the turn is NOT flagged uncaptured.
+  test("multiple dynamic outputs, all discovered → no uncaptured flag", async () => {
+    const b = np("/tmp/work/b.docx")
+    const c = np("/tmp/work/c.docx")
+    const command =
+      'OUT=b uv run python b.py -o "$OUT.docx" && OUT=c uv run python c.py -o "$OUT.docx"'
+    expect(unresolvedOfficeOutputCount(command)).toBe(2)
+
+    const harness = build({
+      states: {
+        [b]: [stateMissing(), stateFile("h1")],
+        [c]: [stateMissing(), stateFile("h2")],
+      },
+      isWriteFn: isLikelyWriteCommand,
+      parseFn: officeOutputPaths,
+      countFn: unresolvedOfficeOutputCount,
+      sideEffectFn: nonOfficeGeneratorText,
+      discoverPaths: [b, c], // both under the cwd scan
+    })
+
+    const result = await Effect.runPromise(
+      orchestrateArtifacts(
+        { ctx, cwd: "/tmp/work", directory: "/tmp/work", shell: "/bin/bash", command, expectedOutputs: [] },
+        () => Effect.succeed(buildResult()),
+        harness.deps,
+      ),
+    )
+
+    expect(harness.writes).toHaveLength(2)
+    expect(harness.uncaptured).toHaveLength(0) // count satisfied → nothing flagged
   })
 
   // `uv --directory work` chdirs into `work/` before running, so a relative `-o report.docx`
