@@ -724,7 +724,11 @@ function resolveSeedInstructionPath(value: string, sourceFile: string) {
 function rewriteFilePlaceholders(value: string, sourceFile: string) {
   return value.replace(/\{file:([^}]+)\}/g, (match, filePath: string) => {
     const trimmed = filePath.trim()
-    if (!trimmed || isAbsoluteOrExternalPath(trimmed)) return match
+    // A nested placeholder (e.g. `{file:{env:HOME}/token}`) can't be statically
+    // rebased: the `[^}]+` capture stops at the inner `}`, so resolving it here
+    // would corrupt the path. Leave it literal — the loader expands the inner
+    // `{env:...}` first and resolves the real path at load time.
+    if (!trimmed || trimmed.includes("{") || isAbsoluteOrExternalPath(trimmed)) return match
     return `{file:${path.resolve(path.dirname(sourceFile), trimmed)}}`
   })
 }
@@ -1630,12 +1634,16 @@ const rawLayer = Layer.effect(
               let mcp: Record<string, unknown> = {}
               try {
                 const parsed = ConfigParse.jsonc(before, file)
+                // Mirror the loader exactly: a sibling it would skip — bad JSONC OR
+                // schema-invalid — must be left untouched. Stripping a key out of a
+                // schema-invalid file could make the file valid and silently
+                // activate the rest of its config (model, plugins, ...) on the next
+                // load. Validating here keeps such a file inert. PawWork skips it,
+                // plain opencode keeps failing fast.
+                ConfigParse.schema(Info.zod, normalizeLoadedConfig(parsed, file), file)
                 if (isRecord(parsed) && isRecord(parsed.mcp)) mcp = parsed.mcp
-              } catch {
-                // A malformed sibling is skipped by the loader anyway, so it cannot
-                // shadow a removed or overwritten entry. Tolerate it (matching
-                // PawWork's broken-file resilience) instead of failing an edit that
-                // already wrote primary.
+              } catch (error) {
+                if (!Runtime.isPawWork()) throw error
                 return
               }
               removeNames.filter((name) => name in mcp).forEach((name) => present.add(name))

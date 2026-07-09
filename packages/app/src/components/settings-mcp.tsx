@@ -4,7 +4,7 @@ import { Switch } from "@opencode-ai/ui/switch"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useMutation } from "@tanstack/solid-query"
-import { For, Show, createMemo } from "solid-js"
+import { For, Show, createMemo, createSignal } from "solid-js"
 import type { McpLocalConfig, McpRemoteConfig, McpStatus } from "@opencode-ai/sdk/v2/client"
 import { useGlobalSync, type McpRawEntry } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -113,6 +113,23 @@ export function SettingsMcp(props: { directory?: string }) {
     },
   }))
 
+  // Delete for entries that have no editable form (a legacy `{ enabled }`
+  // override): the DialogMcpForm — which hosts delete for full local/remote
+  // configs — needs a type, so these get an inline two-click confirm right in
+  // the row instead. `confirmingDelete` holds the name awaiting the second click.
+  const [confirmingDelete, setConfirmingDelete] = createSignal<string | undefined>(undefined)
+  const remove = useMutation(() => ({
+    mutationFn: async (name: string) => globalSync.editMcp({ remove: [name] }),
+    onSettled: () => setConfirmingDelete(undefined),
+    onError: (error) => {
+      showToast({
+        variant: "error",
+        title: language.t("settings.mcp.toast.deleteFailed.title"),
+        description: error instanceof Error ? error.message : String(error),
+      })
+    },
+  }))
+
   return (
     <>
       <SectionHeader
@@ -154,7 +171,40 @@ export function SettingsMcp(props: { directory?: string }) {
                 >
                   {language.t("settings.mcp.toggle", { name: entry.name })}
                 </Switch>
-                <Show when={entry.editable}>
+                <Show
+                  when={entry.editable}
+                  fallback={
+                    <Show
+                      when={confirmingDelete() === entry.name}
+                      fallback={
+                        <IconButton
+                          icon="trash"
+                          variant="ghost"
+                          class="text-error"
+                          disabled={remove.isPending}
+                          onClick={() => setConfirmingDelete(entry.name)}
+                          aria-label={language.t("settings.mcp.delete", { name: entry.name })}
+                        />
+                      }
+                    >
+                      <IconButton
+                        icon="check"
+                        variant="ghost"
+                        class="text-error"
+                        disabled={remove.isPending}
+                        onClick={() => remove.mutate(entry.name)}
+                        aria-label={language.t("settings.mcp.delete.confirm")}
+                      />
+                      <IconButton
+                        icon="close"
+                        variant="ghost"
+                        disabled={remove.isPending}
+                        onClick={() => setConfirmingDelete(undefined)}
+                        aria-label={language.t("common.cancel")}
+                      />
+                    </Show>
+                  }
+                >
                   <IconButton
                     icon="edit"
                     variant="ghost"

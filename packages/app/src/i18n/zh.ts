@@ -1089,6 +1089,7 @@ export const dict = {
   "settings.mcp.title": "MCP",
   "settings.mcp.add": "添加 MCP 服务器",
   "settings.mcp.edit": "编辑 MCP 服务器",
+  "settings.mcp.delete": "删除 {{name}}",
   "settings.mcp.toggle": "切换 {{name}}",
   "settings.mcp.field.type": "类型",
   "settings.mcp.field.type.local": "本地",

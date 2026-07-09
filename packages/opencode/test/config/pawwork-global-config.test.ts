@@ -1627,6 +1627,39 @@ describe("editGlobalMcp", () => {
     }
   })
 
+  test("leaves a schema-invalid sibling untouched so stripping never revives its other config", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // The sibling is valid JSONC but schema-invalid (`srv: null`), so the loader
+      // drops it whole — its `model` never takes effect. Adding a server named
+      // `srv` must not strip `srv` out of the sibling (which would make the file
+      // valid and silently activate `anthropic/should-not-activate`).
+      const primary = path.join(global.path, "pawwork.jsonc")
+      const sibling = path.join(global.path, "pawwork.json")
+      await Filesystem.write(primary, JSON.stringify({ model: "anthropic/keep" }))
+      const siblingText = JSON.stringify({ model: "anthropic/should-not-activate", mcp: { srv: null } })
+      await Filesystem.write(sibling, siblingText)
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await editMcp({ set: { srv: { type: "remote", url: "https://srv" } } })
+          expect(await Bun.file(sibling).text()).toBe(siblingText)
+          await clear(true)
+          const config = await load()
+          expect(config.model).toBe("anthropic/keep")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
   test("preserves comments and sibling keys when editing a jsonc config", async () => {
     await using global = await tmpdir()
     await using project = await tmpdir({ git: true })
@@ -1965,6 +1998,36 @@ describe("getGlobalMcpRaw", () => {
           const absolute = path.join(global.path, "token")
           expect(raw.srv?.headers?.Authorization).toBe(`Bearer {file:${absolute}}`)
           expect(raw.srv?.headers?.Extra).toBe("{env:MCP_EXTRA}")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("leaves a {file:...} that nests an {env:...} placeholder literal", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // The path holds a nested placeholder; the loader expands `{env:...}` first
+      // and only then resolves the file. A static rebase would truncate at the
+      // inner `}` and corrupt the path, so it must be left exactly as written.
+      await Filesystem.write(
+        path.join(global.path, "pawwork.jsonc"),
+        JSON.stringify({
+          mcp: { srv: { type: "remote", url: "https://srv", headers: { Authorization: "Bearer {file:{env:MCP_HOME}/token}" } } },
+        }),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const raw = (await mcpRaw()) as Record<string, { headers?: Record<string, string> }>
+          expect(raw.srv?.headers?.Authorization).toBe("Bearer {file:{env:MCP_HOME}/token}")
         },
       })
     } finally {
