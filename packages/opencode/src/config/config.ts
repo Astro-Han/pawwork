@@ -464,6 +464,10 @@ export interface Interface {
   readonly getConsoleState: () => Effect.Effect<ConsoleState>
   readonly update: (config: Info) => Effect.Effect<void>
   readonly updateGlobal: (config: Info) => Effect.Effect<Info>
+  readonly editGlobalMcp: (input: {
+    set?: Record<string, ConfigMCP.Info>
+    remove?: readonly string[]
+  }) => Effect.Effect<{ changed: boolean; missing: string[] }>
   readonly invalidate: (wait?: boolean) => Effect.Effect<void>
   readonly directories: () => Effect.Effect<string[]>
   readonly waitForDependencies: () => Effect.Effect<void>
@@ -1484,6 +1488,88 @@ const rawLayer = Layer.effect(
       return next
     })
 
+    // Atomically add / edit / rename / delete MCP entries in the global config.
+    // The existing merge-based update() can only add or override keys (mergeDeep
+    // and patchJsonc never remove), so real deletion and rename need this path.
+    // `set` writes/overwrites entries; `remove` strips keys. A rename is set(new)
+    // + remove(old) applied in one write on the primary file so it can never end
+    // up half-updated. Returns the removal names that were not found in any loaded
+    // global file (project-sourced or nonexistent) so the caller can 404.
+    const editGlobalMcp = Effect.fn("Config.editGlobalMcp")(function* (input: {
+      set?: Record<string, ConfigMCP.Info>
+      remove?: readonly string[]
+    }) {
+      const setEntries = Object.entries(input.set ?? {})
+      const removeNames = [...new Set(input.remove ?? [])]
+      if (setEntries.length === 0 && removeNames.length === 0) return { changed: false, missing: [] as string[] }
+
+      if (Runtime.isPawWork()) yield* Effect.promise(() => PawWorkHome.ensurePrimary())
+      // Seed scattered global sources into the primary file first. Deletion works
+      // by absence, and absence in one file must not be shadowed by a copy in
+      // another loaded source; after seeding, every loaded entry lives together.
+      yield* updateGlobal({})
+
+      const opts = { formattingOptions: { insertSpaces: true, tabSize: 2 } }
+      const writeFile = globalConfigFile()
+      const otherFiles = globalConfigFilesToLoad().filter((file) => file !== writeFile)
+      const present = new Set<string>()
+      let changed = false
+
+      const removableIn = (text: string) => {
+        const parsed = ConfigParse.jsonc(text, writeFile)
+        const mcp = isRecord(parsed) && isRecord(parsed.mcp) ? parsed.mcp : {}
+        return removeNames.filter((name) => name in mcp)
+      }
+      const stripKeys = (text: string, names: string[]) =>
+        names.reduce((acc, name) => applyEdits(acc, modify(acc, ["mcp", name], undefined, opts)), text)
+
+      // Primary write file: removals + sets in one atomic write, so a rename
+      // (set new + remove old) is never observable half-applied.
+      yield* flock
+        .withLock(
+          Effect.gen(function* () {
+            const before = (yield* readConfigFile(writeFile)) ?? "{}"
+            const removable = removableIn(before)
+            removable.forEach((name) => present.add(name))
+            let text = stripKeys(before, removable)
+            for (const [name, cfg] of setEntries) text = applyEdits(text, modify(text, ["mcp", name], cfg, opts))
+            if (text !== before) {
+              ConfigParse.schema(Info.zod, ConfigParse.jsonc(text, writeFile), writeFile)
+              yield* Effect.promise(() => writeConfigTextAtomic(writeFile, text)).pipe(Effect.orDie)
+              changed = true
+            }
+          }),
+          configFileLockKey(writeFile),
+        )
+        .pipe(Effect.orDie)
+
+      // Rare edge: a sibling loaded file (e.g. a hand-created pawwork.json next to
+      // pawwork.jsonc) could still shadow a removed entry. Strip it there too.
+      for (const file of otherFiles) {
+        yield* flock
+          .withLock(
+            Effect.gen(function* () {
+              const before = (yield* readConfigFile(file)) ?? "{}"
+              const parsed = ConfigParse.jsonc(before, file)
+              const mcp = isRecord(parsed) && isRecord(parsed.mcp) ? parsed.mcp : {}
+              const removable = removeNames.filter((name) => name in mcp)
+              removable.forEach((name) => present.add(name))
+              const text = stripKeys(before, removable)
+              if (text !== before) {
+                yield* Effect.promise(() => writeConfigTextAtomic(file, text)).pipe(Effect.orDie)
+                changed = true
+              }
+            }),
+            configFileLockKey(file),
+          )
+          .pipe(Effect.orDie)
+      }
+
+      const missing = removeNames.filter((name) => !present.has(name))
+      if (changed) yield* invalidate(undefined, "config.editGlobalMcp")
+      return { changed, missing }
+    })
+
     return Service.of({
       get,
       getErrors,
@@ -1491,6 +1577,7 @@ const rawLayer = Layer.effect(
       getConsoleState,
       update,
       updateGlobal,
+      editGlobalMcp,
       invalidate,
       directories,
       waitForDependencies,

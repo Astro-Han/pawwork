@@ -1,4 +1,4 @@
-import { type Component, For, type JSX, Show, createMemo } from "solid-js"
+import { type Component, For, Show, createMemo } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Switch } from "@opencode-ai/ui/switch"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -9,58 +9,15 @@ import { useServer, ServerConnection } from "@/context/server"
 import { useSettings } from "@/context/settings"
 import { SettingsList } from "@/components/settings-list"
 import { SettingsRow } from "@/components/settings-row"
-
-type ItemState = "ok" | "warn" | "neutral"
-
-function StatusDot(props: { state: ItemState }) {
-  const className = () => {
-    if (props.state === "warn") return "size-1.5 rounded-full shrink-0 bg-error"
-    if (props.state === "ok") return "size-1.5 rounded-full shrink-0 bg-icon-success-base"
-    return "size-1.5 rounded-full shrink-0 bg-border-weak"
-  }
-  return <div class={className()} aria-hidden />
-}
-
-function ItemRow(props: { name: string; state: ItemState; status?: string; bad?: boolean }) {
-  return (
-    <li class="flex items-center gap-3 py-2.5 border-b border-border-weak last:border-none">
-      <StatusDot state={props.state} />
-      <span class="truncate text-body text-fg-base flex-1 min-w-0">{props.name}</span>
-      <Show when={props.status}>
-        <span
-          class="text-small shrink-0"
-          classList={{
-            "text-error": props.bad,
-            "text-fg-weak": !props.bad,
-          }}
-        >
-          {props.status}
-        </span>
-      </Show>
-    </li>
-  )
-}
-
-function EmptyHint(props: { text: string }) {
-  return <div class="py-3 text-body text-fg-weaker">{props.text}</div>
-}
-
-function SectionHeader(props: { title: string; count: number; action?: () => JSX.Element }) {
-  return (
-    <div class="flex items-center justify-between pb-2 pt-6">
-      <h3 class="text-h3 text-fg-strong">
-        {props.title} <span class="text-fg-weak font-normal">{props.count}</span>
-      </h3>
-      <Show when={props.action}>{props.action?.()}</Show>
-    </div>
-  )
-}
+import { SettingsMcp } from "@/components/settings-mcp"
+import { EmptyHint, ItemRow, type ItemState, SectionHeader } from "@/components/settings-integrations-parts"
 
 // Integrations page: rewires the right-panel Connections section as a Settings
-// surface. Reads MCP / LSP / plugins from the per-directory global-sync child
-// store, server health from ConnectionHealth (no second poll). Layout mirrors
-// the established Settings page shape: SettingsList → h2 + description → flat
-// h3 sections with bottom-bordered list items, same as Worktrees / General.
+// surface. Reads LSP / plugins from the per-directory global-sync child store,
+// server health from ConnectionHealth (no second poll). The MCP section is its
+// own component (settings-mcp) so add / edit / delete of MCP servers lives with
+// its data. Layout mirrors the established Settings page shape: SettingsList →
+// h2 + description → flat h3 sections with bottom-bordered list items.
 export const IntegrationsPage: Component<{ directory?: string }> = (props) => {
   const language = useLanguage()
   const server = useServer()
@@ -83,7 +40,6 @@ export const IntegrationsPage: Component<{ directory?: string }> = (props) => {
   }
 
   const servers = createMemo(() => server.list)
-  const mcpEntries = createMemo(() => Object.entries(childStore()?.mcp ?? {}))
   const lspItems = createMemo(() => childStore()?.lsp ?? [])
   const plugins = createMemo(() =>
     (childStore()?.config?.plugin ?? []).map((item) => (typeof item === "string" ? item : item[0])),
@@ -127,33 +83,7 @@ export const IntegrationsPage: Component<{ directory?: string }> = (props) => {
         </ul>
       </Show>
 
-      <SectionHeader title={language.t("status.popover.tab.mcp")} count={mcpEntries().length} />
-      <Show when={mcpEntries().length > 0} fallback={<EmptyHint text={language.t("settings.integrations.empty")} />}>
-        <ul class="flex flex-col">
-          <For each={mcpEntries()}>
-            {([name, m]) => {
-              const s = () => m?.status
-              const bad = () =>
-                s() === "failed" || s() === "needs_auth" || s() === "needs_client_registration"
-              const state = (): ItemState => {
-                if (bad()) return "warn"
-                if (s() === "connected") return "ok"
-                return "neutral"
-              }
-              const status = () => {
-                if (s() === "connected") return undefined
-                if (s() === "disabled") return language.t("status.connections.state.disabled")
-                if (s() === "failed") return language.t("status.connections.state.failed")
-                if (s() === "needs_auth") return language.t("status.connections.state.needs_auth")
-                if (s() === "needs_client_registration")
-                  return language.t("status.connections.state.needs_client_registration")
-                return undefined
-              }
-              return <ItemRow name={name} state={state()} status={status()} bad={bad()} />
-            }}
-          </For>
-        </ul>
-      </Show>
+      <SettingsMcp directory={props.directory} />
 
       <SectionHeader title={language.t("status.popover.tab.lsp")} count={lspItems().length} />
       <SettingsRow

@@ -63,6 +63,8 @@ import type {
   FindFilesResponses,
   FindSymbolsResponses,
   FindTextResponses,
+  GlobalConfigEditMcpErrors,
+  GlobalConfigEditMcpResponses,
   GlobalConfigGetResponses,
   GlobalConfigUpdateErrors,
   GlobalConfigUpdateResponses,
@@ -476,6 +478,45 @@ export class Config extends HeyApiClient {
         ...params.headers,
       },
     })
+  }
+
+  /**
+   * Edit global MCP servers
+   *
+   * Add, edit, rename, or delete MCP servers in the global config. `set` writes entries, `remove` deletes keys; `missing` lists removal names not found in any global config file (e.g. project-scoped or nonexistent).
+   */
+  public editMcp<ThrowOnError extends boolean = false>(
+    parameters?: {
+      set?: {
+        [key: string]: McpLocalConfig | McpRemoteConfig
+      } | null
+      remove?: Array<string> | null
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "set" },
+            { in: "body", key: "remove" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GlobalConfigEditMcpResponses, GlobalConfigEditMcpErrors, ThrowOnError>(
+      {
+        url: "/global/config/mcp",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
   }
 }
 

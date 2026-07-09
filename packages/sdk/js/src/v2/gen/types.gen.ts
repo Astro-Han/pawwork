@@ -2940,6 +2940,39 @@ export type GlobalConfigUpdateResponses = {
 
 export type GlobalConfigUpdateResponse = GlobalConfigUpdateResponses[keyof GlobalConfigUpdateResponses]
 
+export type GlobalConfigEditMcpData = {
+  body: {
+    set?: {
+      [key: string]: McpLocalConfig | McpRemoteConfig
+    } | null
+    remove?: Array<string> | null
+  }
+  path?: never
+  query?: never
+  url: "/global/config/mcp"
+}
+
+export type GlobalConfigEditMcpErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalConfigEditMcpError = GlobalConfigEditMcpErrors[keyof GlobalConfigEditMcpErrors]
+
+export type GlobalConfigEditMcpResponses = {
+  /**
+   * Success
+   */
+  200: {
+    changed: boolean
+    missing: Array<string>
+  }
+}
+
+export type GlobalConfigEditMcpResponse = GlobalConfigEditMcpResponses[keyof GlobalConfigEditMcpResponses]
+
 export type GlobalHealthData = {
   body?: never
   path?: never

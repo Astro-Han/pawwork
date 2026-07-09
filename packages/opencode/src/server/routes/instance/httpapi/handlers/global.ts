@@ -90,6 +90,11 @@ const upgradeInstallation = Effect.fn("GlobalHttpApi.upgrade")(function* (target
   return { ...result, status: 200 } as const
 })
 
+const EditMcpConfigInput = z.object({
+  set: z.record(z.string(), Config.Mcp).optional(),
+  remove: z.array(z.string()).optional(),
+})
+
 export const globalHandlers = HttpApiBuilder.group(GlobalApi, "global", (handlers) =>
   Effect.gen(function* () {
     const config = yield* Config.Service
@@ -102,6 +107,14 @@ export const globalHandlers = HttpApiBuilder.group(GlobalApi, "global", (handler
           if (HttpServerResponse.isHttpServerResponse(body)) return body
           const next = yield* config.updateGlobal(body)
           return HttpServerResponse.jsonUnsafe(next)
+        }),
+      )
+      .handleRaw("configEditMcp", (ctx) =>
+        Effect.gen(function* () {
+          const body = yield* parseJsonBody(ctx.request, EditMcpConfigInput)
+          if (HttpServerResponse.isHttpServerResponse(body)) return body
+          const result = yield* config.editGlobalMcp(body)
+          return HttpServerResponse.jsonUnsafe(result)
         }),
       )
       .handleRaw("health", () =>

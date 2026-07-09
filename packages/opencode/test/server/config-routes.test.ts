@@ -280,6 +280,7 @@ describe("config routes", () => {
           getConsoleState: () => Effect.succeed({} as never),
           update: () => Effect.void,
           updateGlobal: (next) => Effect.succeed(next),
+          editGlobalMcp: () => Effect.succeed({ changed: false, missing: [] }),
           invalidate: () => Effect.void,
           directories: () => Effect.succeed([]),
           waitForDependencies: () => Effect.void,

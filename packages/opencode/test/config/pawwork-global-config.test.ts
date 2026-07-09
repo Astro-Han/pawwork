@@ -47,6 +47,8 @@ const save = (config: Config.Info) =>
   Effect.runPromise(Config.Service.use((svc) => svc.update(config)).pipe(Effect.scoped, Effect.provide(layer)))
 const saveGlobal = (config: Config.Info) =>
   Effect.runPromise(Config.Service.use((svc) => svc.updateGlobal(config)).pipe(Effect.scoped, Effect.provide(layer)))
+const editMcp = (input: { set?: Record<string, Config.Mcp>; remove?: string[] }) =>
+  Effect.runPromise(Config.Service.use((svc) => svc.editGlobalMcp(input)).pipe(Effect.scoped, Effect.provide(layer)))
 const clear = (wait = false) =>
   Effect.runPromise(Config.Service.use((svc) => svc.invalidate(wait)).pipe(Effect.scoped, Effect.provide(layer)))
 const listConfigDirs = (directory: string, worktree: string) =>
@@ -1467,6 +1469,148 @@ describe("PawWork config load resilience", () => {
     } finally {
       if (previous === undefined) delete process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR
       else process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR = previous
+    }
+  })
+})
+
+describe("editGlobalMcp", () => {
+  test("adds, overwrites, renames, and deletes global MCP entries in one write path", async () => {
+    await using project = await tmpdir({ git: true })
+    await using global = await tmpdir()
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const file = path.join(global.path, "pawwork.json")
+
+          await editMcp({ set: { context7: { type: "remote", url: "https://ctx" } } })
+          expect(JSON.parse(await Bun.file(file).text()).mcp.context7).toEqual({
+            type: "remote",
+            url: "https://ctx",
+          })
+
+          // Overwrite keeps the same key.
+          await editMcp({ set: { context7: { type: "remote", url: "https://ctx2" } } })
+          expect(JSON.parse(await Bun.file(file).text()).mcp.context7.url).toBe("https://ctx2")
+
+          // Rename = set(new) + remove(old) in one atomic write; never half-applied.
+          const renamed = await editMcp({
+            set: { docs: { type: "remote", url: "https://ctx2" } },
+            remove: ["context7"],
+          })
+          expect(renamed.missing).toEqual([])
+          const afterRename = JSON.parse(await Bun.file(file).text())
+          expect(afterRename.mcp.context7).toBeUndefined()
+          expect(afterRename.mcp.docs.url).toBe("https://ctx2")
+
+          // Delete removes the key.
+          const deleted = await editMcp({ remove: ["docs"] })
+          expect(deleted.missing).toEqual([])
+          expect(JSON.parse(await Bun.file(file).text()).mcp.docs).toBeUndefined()
+
+          // Deleting an unknown name reports it as missing rather than throwing.
+          const missing = await editMcp({ remove: ["ghost"] })
+          expect(missing.missing).toEqual(["ghost"])
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("deletes an entry that lives only in a legacy global source without it reviving", async () => {
+    await using home = await tmpdir()
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.OPENCODE_TEST_HOME = home.path
+    delete process.env.PAWWORK_HOME
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      await Filesystem.write(
+        path.join(platformLegacy.path, "pawwork.json"),
+        JSON.stringify({ mcp: { legacy: { type: "remote", url: "https://legacy" } } }),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const result = await editMcp({ remove: ["legacy"] })
+          expect(result.missing).toEqual([])
+          await clear(true)
+          const config = await load()
+          expect((config.mcp ?? {}).legacy).toBeUndefined()
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("removes an entry shadowed across sibling global files", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // Write target is pawwork.jsonc, but the entry lives in the sibling json.
+      await Filesystem.write(
+        path.join(global.path, "pawwork.json"),
+        JSON.stringify({ mcp: { dup: { type: "remote", url: "https://json" } } }),
+      )
+      await Filesystem.write(path.join(global.path, "pawwork.jsonc"), JSON.stringify({ model: "anthropic/claude" }))
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const result = await editMcp({ remove: ["dup"] })
+          expect(result.missing).toEqual([])
+          await clear(true)
+          const config = await load()
+          expect((config.mcp ?? {}).dup).toBeUndefined()
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("preserves comments and sibling keys when editing a jsonc config", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      const file = path.join(global.path, "pawwork.jsonc")
+      await Filesystem.write(
+        file,
+        '{\n  // keep me\n  "model": "anthropic/claude",\n  "mcp": {\n    "a": { "type": "remote", "url": "https://a" },\n    "b": { "type": "remote", "url": "https://b" }\n  }\n}\n',
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await editMcp({ remove: ["a"] })
+          const text = await Bun.file(file).text()
+          expect(text).toContain("// keep me")
+          const parsed = parseJsonc(text) as { model: string; mcp: Record<string, { url: string }> }
+          expect(parsed.mcp.a).toBeUndefined()
+          expect(parsed.mcp.b.url).toBe("https://b")
+          expect(parsed.model).toBe("anthropic/claude")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
     }
   })
 })

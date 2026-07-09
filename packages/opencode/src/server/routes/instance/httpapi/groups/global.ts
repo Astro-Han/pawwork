@@ -1,7 +1,18 @@
 import { Info as ConfigInfo } from "@/config/config"
+import { ConfigMCP } from "@/config"
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { BadRequestError } from "./common"
+
+export const EditMcpConfigPayload = Schema.Struct({
+  set: Schema.optional(Schema.Record(Schema.String, ConfigMCP.Info)),
+  remove: Schema.optional(Schema.Array(Schema.String)),
+})
+
+export const EditMcpConfigResponse = Schema.Struct({
+  changed: Schema.Boolean,
+  missing: Schema.Array(Schema.String),
+})
 
 const GlobalHealth = Schema.Struct({
   healthy: Schema.Literal(true),
@@ -48,6 +59,7 @@ const GlobalUpgradeServerError = GlobalUpgradeFailure.pipe(
 
 export const GlobalPaths = {
   config: "/global/config",
+  configMcp: "/global/config/mcp",
   health: "/global/health",
   dispose: "/global/dispose",
   upgrade: "/global/upgrade",
@@ -75,6 +87,18 @@ export const GlobalApi = HttpApi.make("global")
             identifier: "global.config.update",
             summary: "Update global configuration",
             description: "Update global OpenCode configuration settings and preferences.",
+          }),
+        ),
+        HttpApiEndpoint.post("configEditMcp", GlobalPaths.configMcp, {
+          payload: EditMcpConfigPayload,
+          success: EditMcpConfigResponse,
+          error: BadRequestError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "global.config.editMcp",
+            summary: "Edit global MCP servers",
+            description:
+              "Add, edit, rename, or delete MCP servers in the global config. `set` writes entries, `remove` deletes keys; `missing` lists removal names not found in any global config file (e.g. project-scoped or nonexistent).",
           }),
         ),
         HttpApiEndpoint.get("health", GlobalPaths.health, {
