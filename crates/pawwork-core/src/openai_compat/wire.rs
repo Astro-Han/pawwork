@@ -45,23 +45,13 @@ pub fn build_request_body(config: &RequestConfig, history: &[ChatMessage]) -> Va
 }
 
 /// Convert the history into OpenAI messages, appending a synthesized `tool`
-/// result for every `tool_call` that has no real result later in the history.
+/// result for every `tool_call` that has no real result following it.
 fn messages(system_prompt: Option<&str>, history: &[ChatMessage]) -> Vec<Value> {
-    // A call is "answered" if some Tool message anywhere carries its id. Ids are
-    // unique per call, so a single pass over the whole history is enough.
-    let answered: std::collections::HashSet<&str> = history
-        .iter()
-        .filter_map(|message| match message {
-            ChatMessage::Tool { call_id, .. } => Some(call_id.as_str()),
-            _ => None,
-        })
-        .collect();
-
     let mut out = Vec::new();
     if let Some(prompt) = system_prompt {
         out.push(json!({ "role": "system", "content": prompt }));
     }
-    for message in history {
+    for (position, message) in history.iter().enumerate() {
         match message {
             ChatMessage::User(text) => {
                 out.push(json!({ "role": "user", "content": text }));
@@ -93,7 +83,20 @@ fn messages(system_prompt: Option<&str>, history: &[ChatMessage]) -> Vec<Value> 
                     "tool_calls": calls,
                 }));
                 // Sanitize: answer every unpaired call so the batch is complete on
-                // the wire even though the loop never ran (or finished) it.
+                // the wire even though the loop never ran (or finished) it. Pair
+                // positionally — a call is answered only by a Tool result in the
+                // run of Tool messages that immediately follows this assistant (how
+                // the loop records them). A whole-history id set would be wrong
+                // when ids collide across rounds: a provider that omits ids makes
+                // every first call fall back to `call_0`, so an executed `call_0`
+                // in an earlier round must not mask a cancelled `call_0` here.
+                let answered: std::collections::HashSet<&str> = history[position + 1..]
+                    .iter()
+                    .map_while(|following| match following {
+                        ChatMessage::Tool { call_id, .. } => Some(call_id.as_str()),
+                        _ => None,
+                    })
+                    .collect();
                 for call in tool_calls {
                     if !answered.contains(call.call_id.as_str()) {
                         out.push(json!({
@@ -248,6 +251,44 @@ mod tests {
             .map(|m| m["tool_call_id"].as_str().unwrap())
             .collect();
         assert!(answered.contains(&"c1") && answered.contains(&"c2"));
+    }
+
+    #[test]
+    fn colliding_fallback_ids_across_rounds_are_paired_positionally() {
+        // A provider that omits tool_call ids makes every first call fall back to
+        // "call_0". Round 1 executed; round 2 cancelled. A whole-history id set
+        // would see round 1's result and wrongly treat round 2's call_0 as
+        // answered, leaking a dangling call; positional pairing must not.
+        let history = vec![
+            ChatMessage::Assistant {
+                text: String::new(),
+                tool_calls: vec![tool_call("call_0", "read", "{}")],
+            },
+            ChatMessage::Tool {
+                call_id: "call_0".to_string(),
+                content: "round 1 result".to_string(),
+            },
+            ChatMessage::Assistant {
+                text: String::new(),
+                tool_calls: vec![tool_call("call_0", "read", "{}")],
+            },
+            // No tool result for round 2: cancelled before execution.
+        ];
+        let body = build_request_body(&config(), &history);
+        let tool_messages: Vec<&Value> = body["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|m| m["role"] == json!("tool"))
+            .collect();
+        // Two results: round 1's real one and round 2's synthesized cancellation.
+        assert_eq!(tool_messages.len(), 2);
+        assert!(tool_messages
+            .iter()
+            .any(|m| m["content"] == json!("round 1 result")));
+        assert!(tool_messages
+            .iter()
+            .any(|m| m["content"] == json!(CANCELLED_TOOL_RESULT)));
     }
 
     #[test]

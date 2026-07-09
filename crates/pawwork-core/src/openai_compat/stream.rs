@@ -238,15 +238,19 @@ impl TurnAccumulator {
 
     /// Resolve the accumulated stream into a turn, or an error.
     ///
-    /// A mid-stream error object, or a stream that ended without a terminal
-    /// `finish_reason`, or a `length`/`content_filter` stop all yield `Err` — the
-    /// last two because a truncated turn must not be handed back as if complete.
+    /// Only `stop`/`tool_calls` yield `Ok`. A mid-stream error object, a stream
+    /// that ended without a terminal `finish_reason`, or any other reason
+    /// (`length`, `content_filter`, or the legacy `function_call`) yields `Err` —
+    /// a truncated turn must not be handed back as if complete. `function_call`
+    /// specifically is refused rather than accepted: this client parses only the
+    /// modern `delta.tool_calls`, not the deprecated `delta.function_call`, so a
+    /// `function_call` stop would otherwise silently drop the call the model made.
     pub fn finish(self) -> Result<ModelTurn, LlmError> {
         if let Some(message) = self.error {
             return Err(LlmError::new(message));
         }
         match self.finish_reason.as_deref() {
-            Some("stop") | Some("tool_calls") | Some("function_call") => {
+            Some("stop") | Some("tool_calls") => {
                 let TurnAccumulator {
                     text,
                     mut calls,
@@ -435,6 +439,24 @@ mod tests {
         );
         let turn = accumulate(raw.as_bytes()).unwrap();
         assert_eq!(turn.text, "ok");
+    }
+
+    #[test]
+    fn legacy_function_call_finish_is_an_error() {
+        // finish_reason "function_call" with the deprecated delta.function_call
+        // field (which this client does not parse). Accepting it would return an
+        // empty turn and silently drop the call; it must error instead.
+        let raw = concat!(
+            "data: {\"choices\":[{\"delta\":{\"function_call\":{\"name\":\"read\",\"arguments\":\"{}\"}},\"finish_reason\":null}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"function_call\"}]}\n\n",
+            "data: [DONE]\n\n",
+        );
+        let err = accumulate(raw.as_bytes()).unwrap_err();
+        assert!(
+            err.message.contains("function_call"),
+            "got: {}",
+            err.message
+        );
     }
 
     #[test]
