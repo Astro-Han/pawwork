@@ -34,6 +34,7 @@ import type {
   AutomationUpdateResponses,
   CommandListResponses,
   Config as Config3,
+  ConfigErrorsResponses,
   ConfigGetResponses,
   ConfigProvidersResponses,
   ConfigUpdateErrors,
@@ -1633,6 +1634,36 @@ export class Config2 extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<ConfigProvidersResponses, unknown, ThrowOnError>({
       url: "/config/providers",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List config load errors
+   *
+   * List config files that failed to load (invalid JSON or schema). The rest of the config still loads; this lets the app surface one readable message instead of failing repeatedly.
+   */
+  public errors<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ConfigErrorsResponses, unknown, ThrowOnError>({
+      url: "/config/errors",
       ...options,
       ...params,
     })

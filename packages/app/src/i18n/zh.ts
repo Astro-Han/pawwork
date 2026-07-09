@@ -1169,6 +1169,8 @@ export const dict = {
   "dialog.releaseNotes.action.hideFuture": "不再显示",
   "dialog.releaseNotes.media.alt": "发布预览",
   "toast.project.reloadFailed.title": "无法重新加载 {{project}}",
+  "toast.config.invalid.title": "部分设置未能加载",
+  "toast.config.invalid.hint": "其余设置仍然生效。修正该文件后重新打开项目即可应用。",
   "error.server.invalidConfiguration": "配置无效",
   "common.moreCountSuffix": " (还有 {{count}} 个)",
   "common.time.justNow": "刚刚",

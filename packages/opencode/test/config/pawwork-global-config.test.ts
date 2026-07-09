@@ -41,6 +41,8 @@ const layer = Config.layer.pipe(
 )
 
 const load = () => Effect.runPromise(Config.Service.use((svc) => svc.get()).pipe(Effect.scoped, Effect.provide(layer)))
+const loadErrors = () =>
+  Effect.runPromise(Config.Service.use((svc) => svc.getErrors()).pipe(Effect.scoped, Effect.provide(layer)))
 const save = (config: Config.Info) =>
   Effect.runPromise(Config.Service.use((svc) => svc.update(config)).pipe(Effect.scoped, Effect.provide(layer)))
 const saveGlobal = (config: Config.Info) =>
@@ -1344,5 +1346,53 @@ home command`,
       if (previous === undefined) delete process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR
       else process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR = previous
     }
+  })
+})
+
+describe("PawWork config load resilience", () => {
+  // #1485: a non-technical user hand-edits pawwork.json to add an MCP server, gets the schema wrong, and the
+  // desktop app spams the same config error on every operation until it is unusable. In the PawWork runtime a
+  // broken config file must be skipped (with the error recorded for one readable message) while every other
+  // valid config source still loads. The plain opencode CLI keeps failing fast — covered in config.test.ts.
+  test("keeps valid config and records the error when a project config file has invalid JSON", async () => {
+    await using project = await tmpdir({ git: true })
+    const configDir = path.join(project.path, ".opencode")
+    await fs.mkdir(configDir, { recursive: true })
+    await Filesystem.write(path.join(configDir, "opencode.json"), JSON.stringify({ model: "pawwork/valid-model" }))
+    await Filesystem.write(path.join(configDir, "pawwork.json"), "{ invalid json }")
+
+    await Instance.provide({
+      directory: project.path,
+      fn: async () => {
+        const config = await load()
+        expect(config.model).toBe("pawwork/valid-model")
+        const errors = await loadErrors()
+        expect(errors.length).toBe(1)
+        expect(errors[0].name).toBe("ConfigJsonError")
+        expect(errors[0].data.path).toContain("pawwork.json")
+      },
+    })
+  })
+
+  test("keeps valid config and records the error when an mcp entry violates the schema", async () => {
+    await using project = await tmpdir({ git: true })
+    const configDir = path.join(project.path, ".opencode")
+    await fs.mkdir(configDir, { recursive: true })
+    await Filesystem.write(path.join(configDir, "opencode.json"), JSON.stringify({ model: "pawwork/valid-model" }))
+    // Structurally-valid JSON whose mcp entry matches no transport (local/remote) — the reported #1485 shape.
+    await Filesystem.write(path.join(configDir, "pawwork.json"), JSON.stringify({ mcp: { broken: { type: "nonsense" } } }))
+
+    await Instance.provide({
+      directory: project.path,
+      fn: async () => {
+        const config = await load()
+        expect(config.model).toBe("pawwork/valid-model")
+        const errors = await loadErrors()
+        expect(errors.length).toBe(1)
+        expect(errors[0].name).toBe("ConfigInvalidError")
+        expect(errors[0].data.path).toContain("pawwork.json")
+        expect(errors[0].data.issues?.length ?? 0).toBeGreaterThan(0)
+      },
+    })
   })
 })

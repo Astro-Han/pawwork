@@ -1,5 +1,6 @@
-import { Info as ConfigInfo } from "@/config/config"
+import { ConfigLoadError, Info as ConfigInfo } from "@/config/config"
 import { ConfigProvidersResult } from "@/provider/provider"
+import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
 import { BadRequestError, WorkspaceRoutingQuery } from "./common"
 
@@ -40,6 +41,17 @@ export const ConfigApi = HttpApi.make("config")
             identifier: "config.providers",
             summary: "List config providers",
             description: "Get a list of all configured AI providers and their default models.",
+          }),
+        ),
+        HttpApiEndpoint.get("errors", `${root}/errors`, {
+          query: WorkspaceRoutingQuery,
+          success: Schema.Array(ConfigLoadError),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "config.errors",
+            summary: "List config load errors",
+            description:
+              "List config files that failed to load (invalid JSON or schema). The rest of the config still loads; this lets the app surface one readable message instead of failing repeatedly.",
           }),
         ),
       )

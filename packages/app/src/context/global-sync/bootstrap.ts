@@ -60,6 +60,38 @@ export function clearProviderRev(directory: string) {
   providerRev.delete(directory)
 }
 
+// A config file that fails to load (bad JSON or schema) is skipped by the engine so the rest of the config
+// still works, and reported once via /config/errors. Re-bootstrap runs on every project reload, so without a
+// guard the same unresolved error would toast repeatedly — the spam we are fixing, just moved to the UI. Track
+// which (directory, file, message) we have already surfaced and only toast the ones we have not seen.
+const seenConfigErrors = new Set<string>()
+
+export type ConfigLoadError = {
+  name: string
+  data: { path?: string | null; message?: string | null; issues?: unknown }
+}
+
+// `emit` is injectable so the dedup behavior can be tested without a live toast host; production passes showToast.
+export function surfaceConfigErrors(
+  directory: string,
+  errors: ConfigLoadError[],
+  translate: (key: string, vars?: Record<string, string | number>) => string,
+  emit: (toast: { variant: "error"; title: string; description: string }) => void = showToast,
+) {
+  for (const error of errors) {
+    const key = [directory, error.data?.path ?? "", error.data?.message ?? "", JSON.stringify(error.data?.issues ?? "")].join(
+      " | ",
+    )
+    if (seenConfigErrors.has(key)) continue
+    seenConfigErrors.add(key)
+    emit({
+      variant: "error",
+      title: translate("toast.config.invalid.title"),
+      description: `${formatServerError(error, translate)}\n${translate("toast.config.invalid.hint")}`,
+    })
+  }
+}
+
 function runAll(list: Array<() => Promise<unknown>>) {
   return Promise.allSettled(list.map((item) => item()))
 }
@@ -436,6 +468,14 @@ export async function bootstrapDirectory(input: {
             ),
         }),
       () => retry(() => input.sdk.config.get().then((x) => input.setStore("config", x.data!))),
+      // Best-effort surface of config files the engine had to skip (bad JSON/schema). Never let it fail the
+      // bootstrap — a broken config already degrades gracefully; this only turns the recorded errors into one
+      // readable toast per unseen problem.
+      () =>
+        input.sdk.config
+          .errors()
+          .then((x) => surfaceConfigErrors(input.directory, x.data ?? [], input.translate))
+          .catch((err) => console.error("Failed to load config errors", err)),
       () =>
         retry(() =>
           input.sdk.session.status().then((x) => {

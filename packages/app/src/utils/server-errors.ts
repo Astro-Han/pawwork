@@ -9,6 +9,14 @@ export type ConfigInvalidError = {
   }
 }
 
+export type ConfigJsonError = {
+  name: "ConfigJsonError"
+  data: {
+    path?: string
+    message?: string
+  }
+}
+
 export type ProviderModelNotFoundError = {
   name: "ProviderModelNotFoundError"
   data: {
@@ -29,6 +37,7 @@ function tr(translator: Translator | undefined, key: string, text: string, vars?
 
 export function formatServerError(error: unknown, translate?: Translator, fallback?: string) {
   if (isConfigInvalidErrorLike(error)) return parseReadableConfigInvalidError(error, translate)
+  if (isConfigJsonErrorLike(error)) return parseReadableConfigJsonError(error, translate)
   if (isProviderModelNotFoundErrorLike(error)) return parseReadableProviderModelNotFoundError(error, translate)
   // Server / assistant error payloads ({ name, data }) are neither Error
   // instances nor strings; share the session card's decoder so a toast surfaces
@@ -46,6 +55,12 @@ function isConfigInvalidErrorLike(error: unknown): error is ConfigInvalidError {
   if (typeof error !== "object" || error === null) return false
   const o = error as Record<string, unknown>
   return o.name === "ConfigInvalidError" && typeof o.data === "object" && o.data !== null
+}
+
+function isConfigJsonErrorLike(error: unknown): error is ConfigJsonError {
+  if (typeof error !== "object" || error === null) return false
+  const o = error as Record<string, unknown>
+  return o.name === "ConfigJsonError" && typeof o.data === "object" && o.data !== null
 }
 
 function isProviderModelNotFoundErrorLike(error: unknown): error is ProviderModelNotFoundError {
@@ -70,6 +85,12 @@ export function parseReadableConfigInvalidError(errorInput: ConfigInvalidError, 
     path: file,
     message: msg,
   })
+}
+
+export function parseReadableConfigJsonError(errorInput: ConfigJsonError, translator?: Translator) {
+  const file = errorInput.data.path && errorInput.data.path !== "config" ? errorInput.data.path : "config"
+  // The backend message is a full multi-line JSONC dump — too noisy for a toast, so surface only the file.
+  return tr(translator, "error.chain.configJsonInvalid", `Config file at ${file} is not valid JSON(C)`, { path: file })
 }
 
 function parseReadableProviderModelNotFoundError(errorInput: ProviderModelNotFoundError, translator?: Translator) {
