@@ -544,7 +544,11 @@ mod tests {
                 &json!({ "path": "/etc/hosts", "old_string": "a", "new_string": "b" }),
             )
             .unwrap_err();
-        assert!(err.contains("escapes"), "got: {err}");
+        // unix rejects the escape; windows rejects `\etc\hosts` as unresolvable.
+        assert!(
+            err.contains("escapes") || err.contains("cannot resolve"),
+            "got: {err}"
+        );
     }
 
     #[test]

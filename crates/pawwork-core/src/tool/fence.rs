@@ -165,7 +165,13 @@ mod tests {
     fn rejects_absolute_path_outside() {
         let ws = TempWorkspace::new();
         let err = resolve_in_workspace(&ws.root, "/etc/hosts").unwrap_err();
-        assert!(err.contains("escapes"), "got: {err}");
+        // unix resolves `/etc/hosts` and rejects the escape; windows maps it to a
+        // non-existent `\etc\hosts` on the current drive and rejects it as
+        // unresolvable. Both are refusals, never a success.
+        assert!(
+            err.contains("escapes") || err.contains("cannot resolve"),
+            "got: {err}"
+        );
     }
 
     #[test]

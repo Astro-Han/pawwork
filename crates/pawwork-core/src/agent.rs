@@ -794,9 +794,14 @@ mod tests {
         assert!(!events
             .iter()
             .any(|e| matches!(e.kind, EventKind::ToolStarted { .. })));
+        // The refusal message differs by platform: unix resolves `/etc/hosts` and
+        // rejects it as escaping the workspace; windows maps it to a non-existent
+        // `\etc\hosts` on the current drive, so the resolver rejects it as
+        // unresolvable first. Either is a refusal with no `ToolStarted`.
         assert!(events.iter().any(|e| matches!(
             &e.kind,
-            EventKind::ToolFinished { ok: false, output, .. } if output.contains("escapes")
+            EventKind::ToolFinished { ok: false, output, .. }
+                if output.contains("escapes") || output.contains("cannot resolve")
         )));
     }
 
