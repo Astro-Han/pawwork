@@ -32,6 +32,7 @@ libc = "0.2"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Storage_FileSystem",
+    "Win32_Globalization",
 ] }
 # CancellationToken (cooperative interruption; child tokens are the future
 # subagent shape). Preferred over a hand-rolled watch channel.

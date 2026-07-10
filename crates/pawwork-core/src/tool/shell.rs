@@ -392,11 +392,82 @@ fn take_capture(slot: &CaptureSlot, abandoned: bool) -> Captured {
 }
 
 fn render(stream: Captured) -> String {
-    let mut text = String::from_utf8_lossy(&stream.bytes).into_owned();
+    let mut text = decode_output(&stream.bytes);
     if stream.truncated {
         text.push_str("\n… [truncated]");
     }
     text
+}
+
+/// Decode captured child output to text. Unix streams are UTF-8 by convention, so a
+/// lossy decode is exactly right.
+#[cfg(not(windows))]
+fn decode_output(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// Decode captured child output on Windows, where one pipe can carry two encodings
+/// with no in-band marker: `cmd` built-ins (`echo`, `dir`) emit the OEM console code
+/// page (e.g. 936/932/437), while modern tools (`git`, `node`) emit UTF-8.
+///
+/// Auto-detect by trying UTF-8 first — it is self-validating, so a legacy-code-page
+/// run of non-ASCII bytes almost never forms a valid multi-byte UTF-8 sequence.
+/// Bytes that are valid UTF-8 (or valid except for an incomplete final char left by
+/// the output cap) are taken as UTF-8; anything with a genuine mid-stream invalid
+/// byte is decoded via the OEM code page. Pure ASCII is identical under both, so the
+/// common case is lossless regardless of which branch runs.
+#[cfg(windows)]
+fn decode_output(bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_string(),
+        // `error_len() == None` means the only fault is an incomplete multi-byte char
+        // at the very end — i.e. UTF-8 truncated at the byte cap. The prefix is valid
+        // UTF-8, so keep decoding it as such rather than misfiring the OEM path.
+        Err(err) if err.error_len().is_none() => String::from_utf8_lossy(bytes).into_owned(),
+        Err(_) => decode_oem_codepage(bytes),
+    }
+}
+
+/// Decode bytes using the system OEM code page (`GetOEMCP` + `MultiByteToWideChar`),
+/// the encoding `cmd`'s built-in commands write to a redirected pipe. Falls back to
+/// UTF-8 lossy if the conversion is unavailable, so output is never dropped.
+#[cfg(windows)]
+fn decode_oem_codepage(bytes: &[u8]) -> String {
+    use windows_sys::Win32::Globalization::{GetOEMCP, MultiByteToWideChar};
+
+    if bytes.is_empty() {
+        return String::new();
+    }
+    // The API is `i32`-bounded; the output cap keeps `bytes` far below `i32::MAX`, but
+    // clamp defensively so a hypothetical oversized buffer can never wrap negative.
+    let len = bytes.len().min(i32::MAX as usize) as i32;
+    // Safety: `GetOEMCP` takes no arguments and returns the active OEM code page id.
+    let code_page = unsafe { GetOEMCP() };
+    // Safety: first call with a null output buffer and zero length asks only for the
+    // required wide-char count; `bytes`/`len` describe a valid readable range.
+    let wide_len =
+        unsafe { MultiByteToWideChar(code_page, 0, bytes.as_ptr(), len, std::ptr::null_mut(), 0) };
+    if wide_len <= 0 {
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+    let mut wide = vec![0u16; wide_len as usize];
+    // Safety: `wide` has exactly `wide_len` slots, matching the length passed here;
+    // the input range is the same one measured above.
+    let written = unsafe {
+        MultiByteToWideChar(
+            code_page,
+            0,
+            bytes.as_ptr(),
+            len,
+            wide.as_mut_ptr(),
+            wide_len,
+        )
+    };
+    if written <= 0 {
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+    wide.truncate(written as usize);
+    String::from_utf16_lossy(&wide)
 }
 
 /// Best-effort kill of the whole process tree. On unix, `SIGKILL` the negative
@@ -611,6 +682,27 @@ mod tests {
             started.elapsed() < Duration::from_secs(5),
             "cancel must fire promptly, took {:?}",
             started.elapsed()
+        );
+    }
+
+    #[test]
+    fn decode_output_passes_through_valid_utf8() {
+        // The UTF-8 branch must be taken for valid UTF-8 on every platform (git/node
+        // output on Windows, all output on unix), leaving multi-byte text intact.
+        let bytes = "café — 日本語".as_bytes();
+        assert_eq!(decode_output(bytes), "café — 日本語");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn decode_output_recovers_non_utf8_via_oem_codepage() {
+        // A genuine mid-stream invalid-UTF-8 byte routes through the OEM code page
+        // instead of being lost to U+FFFD. The exact glyph depends on the runner's
+        // code page, so assert only that it does not panic and yields non-empty text.
+        let decoded = decode_output(&[0x48, 0x69, 0x81, 0x40]); // "Hi" + a high-byte pair
+        assert!(
+            !decoded.is_empty(),
+            "OEM decode must not drop the stream: {decoded:?}"
         );
     }
 }
