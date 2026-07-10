@@ -112,11 +112,6 @@ export function resolvePageZoom(current: number, action: PageZoomAction): number
   return clampPageZoom(base - PAGE_ZOOM_STEP)
 }
 
-/** Display string for the overflow zoom control (e.g. "100%"). */
-export function formatPageZoomPercent(factor: number): string {
-  return `${Math.round(clampPageZoom(factor) * 100)}%`
-}
-
 export type DisplayDecision = "show" | "takeover" | "drop"
 
 /**

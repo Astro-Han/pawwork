@@ -5,7 +5,6 @@ import {
   computeViewBounds,
   deriveBrowserState,
   displayDecision,
-  formatPageZoomPercent,
   isDefaultGrantedPermission,
   PAGE_ZOOM_DEFAULT,
   PAGE_ZOOM_MAX,
@@ -145,8 +144,7 @@ describe("page zoom math", () => {
 
   test("reset always returns exactly 100%", () => {
     expect(resolvePageZoom(2.4, "reset")).toBe(1)
-    expect(formatPageZoomPercent(1)).toBe("100%")
-    expect(formatPageZoomPercent(1.25)).toBe("125%")
+    expect(resolvePageZoom(PAGE_ZOOM_MIN, "reset")).toBe(PAGE_ZOOM_DEFAULT)
   })
 
   test("in and out clamp at the ends", () => {
