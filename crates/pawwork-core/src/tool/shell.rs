@@ -26,6 +26,7 @@
 //!   the pid tree, and both then also call `child.kill()` as a fallback; on other
 //!   platforms only `child.kill()` is available.
 
+use std::collections::VecDeque;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -45,6 +46,14 @@ pub const DEFAULT_SHELL_TIMEOUT: Duration = Duration::from_secs(120);
 /// Per-stream capture cap. Enough context for the model to act on, bounded so a
 /// flood of output cannot blow memory or the model's context window.
 const MAX_SHELL_CAPTURE: usize = 32 * 1024;
+
+/// When output exceeds [`MAX_SHELL_CAPTURE`], keep this much of the head and the rest
+/// as a rolling tail, so both the command's opening context *and* its final, usually
+/// most actionable output (a test runner's last failure) survive — instead of keeping
+/// only the head and discarding the ending. `CAPTURE_HEAD + CAPTURE_TAIL` equals the
+/// cap, so the retained bytes never exceed it.
+const CAPTURE_HEAD: usize = 24 * 1024;
+const CAPTURE_TAIL: usize = MAX_SHELL_CAPTURE - CAPTURE_HEAD;
 
 /// How long after the child exits the drain may keep waiting for pipe EOF.
 /// Normally EOF is immediate; the grace only elapses when a backgrounded
@@ -153,11 +162,15 @@ impl Tool for ShellTool {
     }
 }
 
-/// What a single output stream captured, and whether it was cut off (at the cap,
-/// or by abandoning a drain whose pipe an orphan kept open).
+/// What a single output stream captured. When output exceeds the cap the `head` holds
+/// the first [`CAPTURE_HEAD`] bytes and `tail` the last [`CAPTURE_TAIL`], with
+/// `dropped` counting the bytes discarded between them. `abandoned` marks a drain cut
+/// off because an orphan kept the pipe open past the grace.
 struct Captured {
-    bytes: Vec<u8>,
-    truncated: bool,
+    head: Vec<u8>,
+    tail: VecDeque<u8>,
+    dropped: usize,
+    abandoned: bool,
 }
 
 /// A capture buffer shared between the drain task and the joiner, so an abandoned
@@ -166,8 +179,10 @@ type CaptureSlot = Arc<Mutex<Captured>>;
 
 fn capture_slot() -> CaptureSlot {
     Arc::new(Mutex::new(Captured {
-        bytes: Vec::new(),
-        truncated: false,
+        head: Vec::new(),
+        tail: VecDeque::new(),
+        dropped: 0,
+        abandoned: false,
     }))
 }
 
@@ -253,6 +268,14 @@ async fn run_command(
     // there goes through `taskkill /T` by pid (see `kill_tree`), so nothing to set.
     #[cfg(unix)]
     builder.process_group(0);
+    // On windows, cmd (and CreateProcess) search the *current directory* for an
+    // executable before `PATH` by default. Since the current directory is the
+    // workspace, a repo that plants `git.exe`/`git.cmd` there would run on an approved
+    // `git status` — repository-controlled code from a benign-looking command. Setting
+    // this environment variable disables the implicit current-directory lookup while
+    // still honoring an explicit `.\tool.exe`.
+    #[cfg(windows)]
+    builder.env("NoDefaultCurrentDirectoryInExePath", "1");
 
     let mut child = builder
         .spawn()
@@ -283,9 +306,17 @@ async fn run_command(
         }
         _ = tokio::time::sleep(timeout) => {
             kill_tree(&mut child, pid).await;
+            // A timeout is a recoverable tool error: include whatever the command
+            // emitted before it stalled, which often shows *why* it hung. Snapshot the
+            // captures before aborting the drains.
+            let stdout = take_capture(&stdout_slot, !stdout_task.is_finished());
+            let stderr = take_capture(&stderr_slot, !stderr_task.is_finished());
             stdout_task.abort();
             stderr_task.abort();
-            return Err(format!("command timed out after {}s", timeout.as_secs()));
+            let mut out = format!("command timed out after {}s", timeout.as_secs());
+            push_stream(&mut out, "stdout", &render(stdout));
+            push_stream(&mut out, "stderr", &render(stderr));
+            return Err(out);
         }
     };
 
@@ -298,10 +329,7 @@ async fn run_command(
         // Exit 0: return stdout, appending a labelled stderr only if the command
         // wrote to it (warnings, progress).
         let mut out = stdout_text;
-        if !stderr_text.is_empty() {
-            out.push_str("\n[stderr]\n");
-            out.push_str(&stderr_text);
-        }
+        push_stream(&mut out, "stderr", &stderr_text);
         Ok(out)
     } else {
         // Non-zero exit is a recoverable tool error: the model sees the code and
@@ -311,22 +339,27 @@ async fn run_command(
             .map(|code| code.to_string())
             .unwrap_or_else(|| "terminated by signal".to_string());
         let mut out = format!("command exited with status {code}");
-        if !stdout_text.is_empty() {
-            out.push_str("\n[stdout]\n");
-            out.push_str(&stdout_text);
-        }
-        if !stderr_text.is_empty() {
-            out.push_str("\n[stderr]\n");
-            out.push_str(&stderr_text);
-        }
+        push_stream(&mut out, "stdout", &stdout_text);
+        push_stream(&mut out, "stderr", &stderr_text);
         Err(out)
     }
 }
 
-/// Read a stream to EOF into the shared slot, keeping at most
-/// [`MAX_SHELL_CAPTURE`] bytes but always draining the rest (so the child never
-/// blocks on a full pipe). Writes into the slot incrementally so an abandoned
-/// drain still leaves its capture behind.
+/// Append a labelled, non-empty stream section (`\n[label]\n<text>`) to a result or
+/// error message. No-op for an empty stream, so a silent stream adds no noise.
+fn push_stream(out: &mut String, label: &str, text: &str) {
+    if !text.is_empty() {
+        out.push_str("\n[");
+        out.push_str(label);
+        out.push_str("]\n");
+        out.push_str(text);
+    }
+}
+
+/// Read a stream to EOF into the shared slot, keeping the first [`CAPTURE_HEAD`]
+/// bytes and the last [`CAPTURE_TAIL`] (a rolling window), but always draining the
+/// rest (so the child never blocks on a full pipe). Writes into the slot
+/// incrementally so an abandoned drain still leaves its capture behind.
 async fn drain_capped<R: AsyncRead + Unpin>(mut reader: R, slot: CaptureSlot) {
     let mut buf = [0u8; 8192];
     loop {
@@ -334,16 +367,21 @@ async fn drain_capped<R: AsyncRead + Unpin>(mut reader: R, slot: CaptureSlot) {
             Ok(0) => break,
             Ok(read) => {
                 let mut captured = lock_slot(&slot);
-                if captured.bytes.len() < MAX_SHELL_CAPTURE {
-                    let room = MAX_SHELL_CAPTURE - captured.bytes.len();
-                    let take = room.min(read);
-                    captured.bytes.extend_from_slice(&buf[..take]);
-                    if take < read {
-                        captured.truncated = true;
+                let mut data = &buf[..read];
+                // Fill the head first.
+                if captured.head.len() < CAPTURE_HEAD {
+                    let take = (CAPTURE_HEAD - captured.head.len()).min(data.len());
+                    captured.head.extend_from_slice(&data[..take]);
+                    data = &data[take..];
+                }
+                // Everything past the head rolls through the bounded tail window; a
+                // byte pushed out of it is counted as dropped from the middle.
+                for &byte in data {
+                    if captured.tail.len() == CAPTURE_TAIL {
+                        captured.tail.pop_front();
+                        captured.dropped += 1;
                     }
-                } else {
-                    // Past the cap: discard, but keep reading to drain the pipe.
-                    captured.truncated = true;
+                    captured.tail.push_back(byte);
                 }
             }
             Err(_) => break,
@@ -395,29 +433,110 @@ async fn join_captured_pair(
 }
 
 /// Clone a slot's capture, OR-ing in an `abandoned` flag from the joiner on top of
-/// any cap-truncation the drain already recorded.
+/// whatever the drain already recorded.
 fn take_capture(slot: &CaptureSlot, abandoned: bool) -> Captured {
     let captured = lock_slot(slot);
     Captured {
-        bytes: captured.bytes.clone(),
-        truncated: captured.truncated || abandoned,
+        head: captured.head.clone(),
+        tail: captured.tail.clone(),
+        dropped: captured.dropped,
+        abandoned: captured.abandoned || abandoned,
     }
 }
 
 fn render(stream: Captured) -> String {
-    // Decode as UTF-8, lossily. On unix output is UTF-8 by convention. On windows a
-    // console using a legacy code page (e.g. GBK) emits non-UTF-8 bytes for non-ASCII
-    // cmd built-in output, which degrade to U+FFFD here — a documented limitation:
-    // the fully-correct fix (a UTF-8 pseudo-console / ConPTY) is deferred, since the
-    // lighter alternatives are worse (a decode-side heuristic cannot disambiguate
-    // GBK from UTF-8, and injecting `chcp` both escapes the approved action and
-    // persistently mutates the user's console code page). ASCII — the overwhelmingly
-    // common case for command output — is unaffected either way.
-    let mut text = String::from_utf8_lossy(&stream.bytes).into_owned();
-    if stream.truncated {
+    let tail: Vec<u8> = stream.tail.into_iter().collect();
+    let mut text = if stream.dropped == 0 {
+        // Nothing dropped: head and tail are contiguous, so decode them as one buffer
+        // (a multi-byte char spanning the boundary is not split).
+        let mut all = stream.head;
+        all.extend_from_slice(&tail);
+        decode_output(&all)
+    } else {
+        // Head … omitted-middle marker … tail, so the actionable end survives.
+        let mut out = decode_output(&stream.head);
+        out.push_str(&format!("\n… [{} bytes omitted] …\n", stream.dropped));
+        out.push_str(&decode_output(&tail));
+        out
+    };
+    if stream.abandoned {
         text.push_str("\n… [truncated]");
     }
     text
+}
+
+/// Decode captured child output to text. Unix streams are UTF-8 by convention, so a
+/// lossy decode is exactly right.
+#[cfg(not(windows))]
+fn decode_output(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// Decode captured child output on Windows using the code page the shell actually
+/// wrote it in, rather than blindly assuming UTF-8.
+///
+/// `cmd`'s built-in commands (`echo`, `dir`) encode their output in the console
+/// *output* code page — the value `GetConsoleOutputCP` reports — which on a legacy
+/// system is an OEM page like 936 (GBK) or 932 (Shift-JIS), not UTF-8. Decoding those
+/// bytes as UTF-8 turns every non-ASCII character into U+FFFD. This asks the system
+/// which code page the child used and decodes with it, so the common case (a CLI's
+/// console at its real code page) is correct.
+///
+/// This is not a guess: it reads the authoritative code page the writer used, unlike
+/// the discarded "assume UTF-8, fall back on invalid bytes" heuristic (which a short
+/// GBK run like `一` = `D2 BB` defeats, since those bytes are *also* valid UTF-8).
+/// The one residual: a program that emits UTF-8 regardless of the console (rare — e.g.
+/// `git` with `core.quotepath=false`; `git` defaults to ASCII-escaping) is misread on
+/// a non-UTF-8 console. Fully removing even that needs a UTF-8 pseudo-console (ConPTY)
+/// and is deferred; this stays side-effect-free and never touches the approved command.
+#[cfg(windows)]
+fn decode_output(bytes: &[u8]) -> String {
+    use windows_sys::Win32::Globalization::{GetOEMCP, MultiByteToWideChar, CP_UTF8};
+    use windows_sys::Win32::System::Console::GetConsoleOutputCP;
+
+    if bytes.is_empty() {
+        return String::new();
+    }
+    // The child (`cmd`) inherits this process's console, so its output code page is our
+    // `GetConsoleOutputCP`. With no console attached (e.g. a GUI/Tauri host) that
+    // returns 0; the child then spins up its own console at the system OEM page, so
+    // fall back to `GetOEMCP`.
+    // Safety: both calls take no arguments and only read process/console state.
+    let code_page = match unsafe { GetConsoleOutputCP() } {
+        0 => unsafe { GetOEMCP() },
+        cp => cp,
+    };
+    if code_page == CP_UTF8 {
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+    // The API is `i32`-bounded; the capture cap keeps `bytes` far below `i32::MAX`, but
+    // clamp defensively so a hypothetical oversized buffer can never wrap negative.
+    let len = bytes.len().min(i32::MAX as usize) as i32;
+    // Safety: first call measures the required wide length; `bytes`/`len` describe a
+    // valid readable range and the output pointer is null with zero length.
+    let wide_len =
+        unsafe { MultiByteToWideChar(code_page, 0, bytes.as_ptr(), len, std::ptr::null_mut(), 0) };
+    if wide_len <= 0 {
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+    let mut wide = vec![0u16; wide_len as usize];
+    // Safety: `wide` has exactly `wide_len` slots, matching the count passed here; the
+    // input range is the one measured above.
+    let written = unsafe {
+        MultiByteToWideChar(
+            code_page,
+            0,
+            bytes.as_ptr(),
+            len,
+            wide.as_mut_ptr(),
+            wide_len,
+        )
+    };
+    if written <= 0 {
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+    wide.truncate(written as usize);
+    String::from_utf16_lossy(&wide)
 }
 
 /// Best-effort kill of the whole process tree. On unix, `SIGKILL` the negative
@@ -554,17 +673,38 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn large_output_is_truncated_but_command_completes() {
         // ~100 KiB of output, well past the 32 KiB cap: the drain keeps reading so
-        // the command can finish, and the result is marked truncated.
+        // the command can finish, and the result keeps a head + tail with an
+        // omitted-middle marker rather than dropping the ending.
         let tool = ShellTool::new(Duration::from_secs(10));
         let out = tool
             .run(&ctx(), &prepared("yes | head -c 100000"))
             .await
             .unwrap();
-        assert!(out.ends_with("[truncated]"), "must be truncated");
         assert!(
-            out.len() < 100000,
-            "captured output must be capped, got {} bytes",
+            out.contains("bytes omitted"),
+            "over-cap output must carry the omitted-middle marker, got end: {:?}",
+            &out[out.len().saturating_sub(80)..]
+        );
+        assert!(
+            out.len() < MAX_SHELL_CAPTURE + 100,
+            "captured output must stay near the cap, got {} bytes",
             out.len()
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[cfg(unix)]
+    async fn truncation_keeps_the_actionable_tail() {
+        // The failure a test runner prints last must survive truncation: emit a head
+        // marker, a large filler past the cap, then a distinctive tail.
+        let tool = ShellTool::new(Duration::from_secs(10));
+        let script = "printf 'HEAD-MARKER '; yes | head -c 100000; printf ' TAIL-FAILURE'";
+        let out = tool.run(&ctx(), &prepared(script)).await.unwrap();
+        assert!(out.contains("HEAD-MARKER"), "head must survive: {out:.60}");
+        assert!(
+            out.trim_end().ends_with("TAIL-FAILURE"),
+            "the actionable tail must survive truncation, got end: {:?}",
+            &out[out.len().saturating_sub(60)..]
         );
     }
 
@@ -680,8 +820,10 @@ mod tests {
         // Output is UTF-8 on every target (unix by convention; windows via the
         // chcp-65001 normalization), so multi-byte text must survive intact.
         let captured = Captured {
-            bytes: "café — 日本語".as_bytes().to_vec(),
-            truncated: false,
+            head: "café — 日本語".as_bytes().to_vec(),
+            tail: VecDeque::new(),
+            dropped: 0,
+            abandoned: false,
         };
         assert_eq!(render(captured), "café — 日本語");
     }
