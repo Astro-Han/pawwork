@@ -35,6 +35,23 @@ fn string_arg<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
         .ok_or_else(|| format!("missing required string argument '{key}'"))
 }
 
+/// Render a fenced target for a tool *result* as a workspace-relative path. The
+/// fence canonicalizes to an absolute path (e.g. `/Users/<name>/proj/src/x.rs`),
+/// and that result string is appended to the conversation and sent to the model
+/// provider on the next turn — echoing the absolute form leaks the local username
+/// and directory layout the model never named (it submitted a relative path). Strip
+/// the workspace root; fall back to the file name if the path is somehow not under
+/// it (it always is post-fence), never the raw absolute path.
+fn display_in_workspace(path: &Path, root: &Path) -> String {
+    path.strip_prefix(root)
+        .ok()
+        .filter(|rel| !rel.as_os_str().is_empty())
+        .or_else(|| path.file_name().map(Path::new))
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
 /// Write `content` to `path` atomically: stage it in a uniquely-named sibling temp
 /// file in the same directory, then swap it over the target. The swap within one
 /// directory is atomic on the platforms we target, so a concurrent reader sees
@@ -61,7 +78,17 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
         .parent()
         .ok_or_else(|| "target has no parent directory".to_string())?;
     let temp = parent.join(format!(".pawwork-tmp-{}", Uuid::new_v4()));
-    let existing = std::fs::metadata(path).ok();
+    // Only a genuine `NotFound` means "fresh create". A `metadata` failure from an
+    // ACL denial, a sharing violation, or transient I/O must NOT be misread as
+    // absence: doing so skips the permission-preserving path (unix mode copy /
+    // windows `ReplaceFileW`) and falls back to a plain create/rename, so an
+    // overwrite that still succeeds via the parent silently drops the target's
+    // original permissions. Propagate every non-`NotFound` error instead.
+    let existing = match std::fs::metadata(path) {
+        Ok(meta) => Some(meta),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+        Err(err) => return Err(format!("write failed: cannot stat target: {err}")),
+    };
     if let Err(err) = write_temp(&temp, content, existing.as_ref()) {
         std::fs::remove_file(&temp).ok();
         return Err(format!("write failed: {err}"));
@@ -269,7 +296,7 @@ impl Tool for EditTool {
 
     fn run<'a>(
         &'a self,
-        _ctx: &'a ToolContext,
+        ctx: &'a ToolContext,
         prepared: &'a PreparedCall,
     ) -> BoxFuture<'a, ToolResult> {
         let PreparedCall::Edit { path, old, new } = prepared else {
@@ -306,7 +333,10 @@ impl Tool for EditTool {
             }
             let updated = text.replacen(old.as_str(), new.as_str(), 1);
             atomic_write(path, updated.as_bytes())?;
-            Ok(format!("edited {}", path.display()))
+            Ok(format!(
+                "edited {}",
+                display_in_workspace(path, &ctx.workspace_root)
+            ))
         })
     }
 }
@@ -368,7 +398,7 @@ impl Tool for WriteTool {
 
     fn run<'a>(
         &'a self,
-        _ctx: &'a ToolContext,
+        ctx: &'a ToolContext,
         prepared: &'a PreparedCall,
     ) -> BoxFuture<'a, ToolResult> {
         let PreparedCall::Write { path, content } = prepared else {
@@ -378,7 +408,7 @@ impl Tool for WriteTool {
             atomic_write(path, content.as_bytes())?;
             Ok(format!(
                 "wrote {} ({} bytes)",
-                path.display(),
+                display_in_workspace(path, &ctx.workspace_root),
                 content.len()
             ))
         })
@@ -584,6 +614,48 @@ mod tests {
     }
 
     // --- write -----------------------------------------------------------
+
+    #[tokio::test]
+    async fn write_result_reports_a_relative_path_not_the_absolute_one() {
+        // The result string is fed back to the model provider next turn, so it must
+        // not leak the absolute path (username + local layout). It should echo the
+        // workspace-relative path the model submitted.
+        let ws = TempWorkspace::new();
+        let ctx = ws.ctx();
+        // The parent must exist for a create.
+        fs::create_dir(ws.root.join("sub")).unwrap();
+        let prepared = WriteTool
+            .prepare(&ctx, &json!({ "path": "sub/note.txt", "content": "hi" }))
+            .unwrap();
+        let msg = WriteTool.run(&ctx, &prepared).await.unwrap();
+        assert!(
+            !msg.contains(ws.root.to_str().unwrap()),
+            "result must not leak the absolute workspace root: {msg}"
+        );
+        assert!(
+            msg.contains("sub") && msg.contains("note.txt"),
+            "result should name the relative path: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_result_reports_a_relative_path_not_the_absolute_one() {
+        let ws = TempWorkspace::new();
+        fs::write(ws.root.join("a.txt"), b"hello world\n").unwrap();
+        let ctx = ws.ctx();
+        let prepared = EditTool
+            .prepare(
+                &ctx,
+                &json!({ "path": "a.txt", "old_string": "world", "new_string": "there" }),
+            )
+            .unwrap();
+        let msg = EditTool.run(&ctx, &prepared).await.unwrap();
+        assert!(
+            !msg.contains(ws.root.to_str().unwrap()),
+            "result must not leak the absolute workspace root: {msg}"
+        );
+        assert!(msg.contains("a.txt"), "result should name the file: {msg}");
+    }
 
     #[tokio::test]
     async fn write_creates_a_new_file() {

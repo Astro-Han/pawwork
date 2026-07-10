@@ -177,12 +177,36 @@ fn lock_slot(slot: &CaptureSlot) -> std::sync::MutexGuard<'_, Captured> {
     slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Whether `path` is a UNC path (`\\server\share\...` or its verbatim form).
+/// `cmd.exe` cannot use a UNC path as its working directory.
+#[cfg(windows)]
+fn is_unc_path(path: &std::path::Path) -> bool {
+    use std::path::{Component, Prefix};
+    matches!(
+        path.components().next(),
+        Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::UNC(..) | Prefix::VerbatimUNC(..))
+    )
+}
+
 async fn run_command(
     command: String,
     workspace_root: std::path::PathBuf,
     cancel: CancellationToken,
     timeout: Duration,
 ) -> ToolResult {
+    // `cmd.exe` cannot use a UNC path as its current directory: handed one it prints
+    // a warning and silently falls back to the Windows directory, so a `current_dir`
+    // set to a UNC workspace is ignored and an approved relative-path command would
+    // execute *outside* the workspace, defeating the fence. Refuse to spawn rather
+    // than run in the wrong place.
+    #[cfg(windows)]
+    if is_unc_path(&workspace_root) {
+        return Err(format!(
+            "cannot run shell command: workspace root '{}' is a UNC path, which cmd.exe \
+             cannot use as a working directory",
+            workspace_root.display()
+        ));
+    }
     // Pick the platform shell: unix runs `/bin/sh -c <command>`, windows runs
     // `cmd /D /S /C "<command>"` (verbatim, see the windows branch below).
     #[cfg(unix)]
