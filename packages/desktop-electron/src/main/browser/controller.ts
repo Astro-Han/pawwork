@@ -3,13 +3,17 @@ import type { BrowserState, BrowserViewLayout } from "@opencode-ai/app/desktop-a
 import { BROWSER_PARTITION, browserViewWebPreferences } from "./options"
 import { configurePartitionUserAgent } from "./user-agent"
 import {
+  clampPageZoom,
   clearDataReloadAction,
   computeViewBounds,
   deriveBrowserState,
   displayDecision,
   isDefaultGrantedPermission,
+  PAGE_ZOOM_DEFAULT,
   parseNavigable,
+  resolvePageZoom,
   safeExternalUrl,
+  type PageZoomAction,
 } from "./logic"
 import { CdpBridge, type AutomationEndpoint } from "./cdp-bridge"
 import { draftWindowID, rendererTarget } from "./registry"
@@ -54,6 +58,14 @@ export class BrowserViewController {
   private automation: CdpBridge | null = null
   /** Saved throttling value while automation holds it off; null = not held. */
   private throttlingBefore: boolean | null = null
+  /**
+   * Sole source of truth for this conversation's page zoom (1 = 100%).
+   * Chromium may also remember per-origin zoom in the shared partition; we
+   * reassert this value on navigate/display so the UI percent matches the page.
+   */
+  private pageZoom = PAGE_ZOOM_DEFAULT
+  /** Suppress zoom-changed while we write setZoomFactor ourselves. */
+  private applyingPageZoom = false
 
   constructor(private target: string) {
     // Configure the partition UA before the view exists, so its very first
@@ -80,6 +92,9 @@ export class BrowserViewController {
     wc.on("did-stop-loading", () => this.emitState())
     wc.on("did-navigate", () => {
       this.favicon = null
+      // HostZoomMap is origin-scoped in the shared partition; reassert so a new
+      // host does not leave the page at 100% while state still shows the old %.
+      this.reassertPageZoom()
       this.emitState()
     })
     wc.on("did-navigate-in-page", () => this.emitState())
@@ -114,6 +129,66 @@ export class BrowserViewController {
       callback(isDefaultGrantedPermission(permission)),
     )
     wc.session.setPermissionCheckHandler((_wc, permission) => isDefaultGrantedPermission(permission))
+
+    // Page zoom while the embedded view is focused: shell zoom shortcuts live
+    // on the app renderer and never reach this WebContents. Allow Shift so
+    // layouts that type "+" as Shift+= still zoom in.
+    wc.on("before-input-event", (event, input) => {
+      if (input.type !== "keyDown") return
+      const modifier = process.platform === "darwin" ? input.meta : input.control
+      if (!modifier || input.alt) return
+      if (input.key === "-" || input.key === "−") {
+        event.preventDefault()
+        this.zoom("out")
+        return
+      }
+      if (input.key === "=" || input.key === "+") {
+        event.preventDefault()
+        this.zoom("in")
+        return
+      }
+      if (input.key === "0") {
+        event.preventDefault()
+        this.zoom("reset")
+      }
+    })
+
+    // Ctrl/Cmd+wheel request. pageZoom is the only truth — ignore Chromium's
+    // intermediate factor and step from our value, then write it back.
+    // (Trackpad pinch is Electron visual-zoom, off by default; leaving it off
+    // keeps the menu percent honest rather than stacking a second scale.)
+    wc.on("zoom-changed", (_event, zoomDirection) => {
+      if (this.destroyed || this.wc.isDestroyed() || this.applyingPageZoom) return
+      if (zoomDirection === "in") this.zoom("in")
+      else if (zoomDirection === "out") this.zoom("out")
+    })
+  }
+
+  /**
+   * Step or reset page zoom. Applied only to this conversation's WebContents —
+   * panel geometry and shell zoom are untouched (bounds still use window zoom).
+   */
+  zoom(action: PageZoomAction) {
+    if (this.destroyed || this.wc.isDestroyed()) return
+    this.applyPageZoom(resolvePageZoom(this.pageZoom, action))
+  }
+
+  /** Write pageZoom into WebContents without changing the desired value. */
+  private reassertPageZoom() {
+    if (this.destroyed || this.wc.isDestroyed()) return
+    this.applyingPageZoom = true
+    try {
+      this.wc.setZoomFactor(this.pageZoom)
+    } finally {
+      this.applyingPageZoom = false
+    }
+  }
+
+  private applyPageZoom(factor: number) {
+    if (this.destroyed || this.wc.isDestroyed()) return
+    this.pageZoom = clampPageZoom(factor)
+    this.reassertPageZoom()
+    this.emitState()
   }
 
   private openExternal(url: string) {
@@ -140,6 +215,7 @@ export class BrowserViewController {
       canGoForward: wc.navigationHistory.canGoForward(),
       loading: wc.isLoading(),
       favicon: this.favicon,
+      zoomFactor: this.pageZoom,
     })
   }
 
@@ -193,6 +269,7 @@ export class BrowserViewController {
    */
   display(win: BrowserWindow, rect: BrowserViewLayout["rect"], claim: boolean): boolean {
     if (this.destroyed || win.isDestroyed()) return false
+    let attached = false
     if (this.host !== win) {
       const hasLiveHost = this.host !== null && !this.host.isDestroyed()
       const decision = displayDecision({ isHost: false, hasLiveHost, claim })
@@ -203,7 +280,11 @@ export class BrowserViewController {
       }
       win.contentView.addChildView(this.view)
       this.host = win
+      attached = true
     }
+    // Reassert on attach or claim (panel just became visible again). Geometry
+    // RAF ticks send claim:false and must not call setZoomFactor every frame.
+    if (attached || claim) this.reassertPageZoom()
     this.view.setBounds(computeViewBounds(rect, win.webContents.zoomFactor))
     this.view.setVisible(true)
     return true
@@ -297,6 +378,7 @@ export class BrowserViewController {
       canGoForward: false,
       loading: false,
       favicon: null,
+      zoomFactor: PAGE_ZOOM_DEFAULT,
     })
     const payload = { target: rendererTarget(this.target), state: empty }
     for (const win of this.stateWindows()) win.webContents.send(BROWSER_STATE_CHANNEL, payload)

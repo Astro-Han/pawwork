@@ -60,9 +60,6 @@ function expectWindowMenuRoleLabels(template: MenuItemTemplate[], locale: "en" |
       view: {
         reload: "Reload",
         toggleDevTools: "Toggle Developer Tools",
-        resetZoom: "Actual Size",
-        zoomIn: "Zoom In",
-        zoomOut: "Zoom Out",
         togglefullscreen: "Toggle Full Screen",
       },
       windowMenu: {
@@ -94,9 +91,6 @@ function expectWindowMenuRoleLabels(template: MenuItemTemplate[], locale: "en" |
       view: {
         reload: "重新加载",
         toggleDevTools: "切换开发者工具",
-        resetZoom: "实际大小",
-        zoomIn: "放大",
-        zoomOut: "缩小",
         togglefullscreen: "切换全屏",
       },
       windowMenu: {

@@ -87,6 +87,29 @@ export type BrowserStateSnapshot = {
   canGoForward: boolean
   loading: boolean
   favicon: string | null
+  /** Page zoom factor for the embedded WebContents (1 = 100%). */
+  zoomFactor: number
+}
+
+/** Embedded-page zoom only — independent of the app shell zoom factor. */
+export const PAGE_ZOOM_MIN = 0.25
+export const PAGE_ZOOM_MAX = 5
+export const PAGE_ZOOM_STEP = 0.1
+export const PAGE_ZOOM_DEFAULT = 1
+
+export type PageZoomAction = "in" | "out" | "reset"
+
+export function clampPageZoom(factor: number): number {
+  if (!Number.isFinite(factor)) return PAGE_ZOOM_DEFAULT
+  return Math.min(PAGE_ZOOM_MAX, Math.max(PAGE_ZOOM_MIN, factor))
+}
+
+/** Next page zoom for a discrete menu/keyboard/wheel step. */
+export function resolvePageZoom(current: number, action: PageZoomAction): number {
+  if (action === "reset") return PAGE_ZOOM_DEFAULT
+  const base = clampPageZoom(current)
+  if (action === "in") return clampPageZoom(base + PAGE_ZOOM_STEP)
+  return clampPageZoom(base - PAGE_ZOOM_STEP)
 }
 
 export type DisplayDecision = "show" | "takeover" | "drop"
@@ -139,5 +162,6 @@ export function deriveBrowserState(snapshot: BrowserStateSnapshot): BrowserState
     favicon: snapshot.favicon,
     secure: /^https:\/\//i.test(snapshot.url),
     hasPage: snapshot.url !== "" && !snapshot.url.startsWith("about:"),
+    zoomFactor: clampPageZoom(snapshot.zoomFactor),
   }
 }

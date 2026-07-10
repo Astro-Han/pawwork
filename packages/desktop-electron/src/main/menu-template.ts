@@ -103,10 +103,10 @@ export function buildMacosMenuTemplate(options: BuildMenuOptions): MenuItemTempl
         { label: roleLabel("reload"), role: "reload" },
         { label: roleLabel("toggleDevTools"), role: "toggleDevTools" },
         { type: "separator" },
-        { label: roleLabel("resetZoom"), role: "resetZoom" },
-        { label: roleLabel("zoomIn"), role: "zoomIn" },
-        { label: roleLabel("zoomOut"), role: "zoomOut" },
-        { type: "separator" },
+        // No View menu page/shell zoom roles: shell zoom is pinned to 1, and
+        // native zoomIn/Out/resetZoom accelerators steal Cmd+/-/0 from the
+        // embedded browser's before-input-event path. Page zoom lives in the
+        // browser panel overflow menu only.
         { label: roleLabel("togglefullscreen"), role: "togglefullscreen" },
       ],
     },
@@ -194,10 +194,7 @@ export function buildWindowsMenuTemplate(options: BuildMenuOptions): MenuItemTem
         { label: roleLabel("reload"), role: "reload" },
         { label: roleLabel("toggleDevTools"), role: "toggleDevTools" },
         { type: "separator" },
-        { label: roleLabel("resetZoom"), role: "resetZoom" },
-        { label: roleLabel("zoomIn"), role: "zoomIn" },
-        { label: roleLabel("zoomOut"), role: "zoomOut" },
-        { type: "separator" },
+        // No View menu page/shell zoom roles — see macOS template note.
         { label: roleLabel("togglefullscreen"), role: "togglefullscreen" },
       ],
     },

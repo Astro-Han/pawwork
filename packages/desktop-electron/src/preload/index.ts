@@ -35,6 +35,7 @@ const browser: ElectronAPI["browser"] = {
   adoptDraft: (sessionID) => ipcRenderer.invoke("browser:adopt-draft", sessionID),
   closePage: (target) => ipcRenderer.invoke("browser:close-page", target),
   clearData: () => ipcRenderer.invoke("browser:clear-data"),
+  zoom: (target, action) => ipcRenderer.invoke("browser:zoom", target, action),
   getState: (target) => ipcRenderer.invoke("browser:get-state", target),
   onState: (cb) => {
     const handler = (_: unknown, payload: { target: string; state: BrowserState }) => cb(payload)
