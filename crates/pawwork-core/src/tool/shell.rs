@@ -88,12 +88,13 @@ impl Tool for ShellTool {
         #[cfg(windows)]
         {
             "Run one shell command via cmd.exe (cmd /C) in the workspace directory, \
-             using Windows cmd syntax (not POSIX). stdin is closed and stdout/stderr \
-             are captured (truncated if large) and returned. Use it for terminal \
-             operations like git, build, and test commands, not for reading, writing, \
-             or listing files (use read/write/edit). A non-zero exit is returned as \
-             an error including the captured output; the command runs to a timeout \
-             and requires confirmation."
+             using Windows cmd syntax (not POSIX). The console output code page is set \
+             to UTF-8 (chcp 65001) before the command runs. stdin is closed and \
+             stdout/stderr are captured (truncated if large) and returned. Use it for \
+             terminal operations like git, build, and test commands, not for reading, \
+             writing, or listing files (use read/write/edit). A non-zero exit is \
+             returned as an error including the captured output; the command runs to a \
+             timeout and requires confirmation."
         }
     }
 
@@ -201,14 +202,17 @@ async fn run_command(
     // than run in the wrong place.
     #[cfg(windows)]
     if is_unc_path(&workspace_root) {
-        return Err(format!(
-            "cannot run shell command: workspace root '{}' is a UNC path, which cmd.exe \
-             cannot use as a working directory",
-            workspace_root.display()
-        ));
+        // Path-free on purpose: this error is fed back to the model as a tool result
+        // and sent to the provider next turn, so echoing the canonical UNC root would
+        // leak the server/share layout (same reason edit/write return relative paths).
+        return Err(
+            "cannot run shell command: the workspace root is a UNC path, which cmd.exe \
+             cannot use as a working directory"
+                .to_string(),
+        );
     }
     // Pick the platform shell: unix runs `/bin/sh -c <command>`, windows runs
-    // `cmd /D /S /C "<command>"` (verbatim, see the windows branch below).
+    // `cmd /D /S /C "chcp 65001>nul & <command>"` (see the windows branch below).
     #[cfg(unix)]
     let mut builder = {
         let mut builder = Command::new("/bin/sh");
@@ -230,7 +234,17 @@ async fn run_command(
         // of the `Command Processor\AutoRun` registry value, which `cmd` would
         // otherwise run *before* the approved command — a side effect absent from the
         // `PreparedCall` the user approved, defeating the exact-command guarantee.
-        builder.raw_arg(format!("/D /S /C \"{command}\""));
+        //
+        // `chcp 65001>nul &` normalizes the *output* encoding to UTF-8 up front. One
+        // redirected pipe otherwise carries two encodings with no in-band marker —
+        // cmd built-ins emit the OEM code page (e.g. GBK), modern tools emit UTF-8 —
+        // and no decode-side heuristic can tell them apart (GBK `一` is bytes D2 BB,
+        // which is *also* valid UTF-8). Forcing the console output code page to 65001
+        // makes every writer emit UTF-8, so the capture decodes unambiguously. The
+        // `>nul` swallows chcp's own "Active code page" line; `&` (not `&&`) still runs
+        // the command even on the rare host where chcp fails. This is a deterministic,
+        // disclosed prefix (see `description`), not a hidden extra action.
+        builder.raw_arg(format!("/D /S /C \"chcp 65001>nul & {command}\""));
         builder
     };
     builder
@@ -365,16 +379,19 @@ async fn join_captured_pair(
         _ = tokio::time::sleep(DRAIN_GRACE) => {}
         _ = cancel.cancelled() => {}
     }
-    // A drain that has not finished is abandoned on an orphan pipe; abort it and
-    // mark only that stream truncated, so a clean stream keeps an accurate result.
+    // A drain that has not finished is still blocked reading a pipe a background
+    // survivor (the child exited but left a descendant holding the write end) keeps
+    // open. Mark that stream truncated so a clean stream keeps an accurate result —
+    // but do NOT abort the drain: aborting drops the read end, and the next time the
+    // survivor writes to stdout/stderr it takes `EPIPE`/`SIGPIPE` and can die, killing
+    // the very background job this normal-exit path means to leave running. Instead
+    // detach the drain (drop its handle without awaiting): it keeps consuming and
+    // discarding the pipe until the survivor finally closes it, so it neither pins the
+    // turn nor severs the pipe. The capture snapshot is already taken below.
     let stdout_abandoned = !stdout_task.is_finished();
     let stderr_abandoned = !stderr_task.is_finished();
-    if stdout_abandoned {
-        stdout_task.abort();
-    }
-    if stderr_abandoned {
-        stderr_task.abort();
-    }
+    drop(stdout_task);
+    drop(stderr_task);
     (
         take_capture(&stdout_slot, stdout_abandoned),
         take_capture(&stderr_slot, stderr_abandoned),
@@ -392,82 +409,15 @@ fn take_capture(slot: &CaptureSlot, abandoned: bool) -> Captured {
 }
 
 fn render(stream: Captured) -> String {
-    let mut text = decode_output(&stream.bytes);
+    // Output is UTF-8 on every target: unix by convention, and windows because the
+    // shell is launched with `chcp 65001` forcing the console output code page to
+    // UTF-8 (see the windows builder branch). A lossy decode degrades a stray invalid
+    // byte to U+FFFD rather than dropping the whole result.
+    let mut text = String::from_utf8_lossy(&stream.bytes).into_owned();
     if stream.truncated {
         text.push_str("\n… [truncated]");
     }
     text
-}
-
-/// Decode captured child output to text. Unix streams are UTF-8 by convention, so a
-/// lossy decode is exactly right.
-#[cfg(not(windows))]
-fn decode_output(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes).into_owned()
-}
-
-/// Decode captured child output on Windows, where one pipe can carry two encodings
-/// with no in-band marker: `cmd` built-ins (`echo`, `dir`) emit the OEM console code
-/// page (e.g. 936/932/437), while modern tools (`git`, `node`) emit UTF-8.
-///
-/// Auto-detect by trying UTF-8 first — it is self-validating, so a legacy-code-page
-/// run of non-ASCII bytes almost never forms a valid multi-byte UTF-8 sequence.
-/// Bytes that are valid UTF-8 (or valid except for an incomplete final char left by
-/// the output cap) are taken as UTF-8; anything with a genuine mid-stream invalid
-/// byte is decoded via the OEM code page. Pure ASCII is identical under both, so the
-/// common case is lossless regardless of which branch runs.
-#[cfg(windows)]
-fn decode_output(bytes: &[u8]) -> String {
-    match std::str::from_utf8(bytes) {
-        Ok(text) => text.to_string(),
-        // `error_len() == None` means the only fault is an incomplete multi-byte char
-        // at the very end — i.e. UTF-8 truncated at the byte cap. The prefix is valid
-        // UTF-8, so keep decoding it as such rather than misfiring the OEM path.
-        Err(err) if err.error_len().is_none() => String::from_utf8_lossy(bytes).into_owned(),
-        Err(_) => decode_oem_codepage(bytes),
-    }
-}
-
-/// Decode bytes using the system OEM code page (`GetOEMCP` + `MultiByteToWideChar`),
-/// the encoding `cmd`'s built-in commands write to a redirected pipe. Falls back to
-/// UTF-8 lossy if the conversion is unavailable, so output is never dropped.
-#[cfg(windows)]
-fn decode_oem_codepage(bytes: &[u8]) -> String {
-    use windows_sys::Win32::Globalization::{GetOEMCP, MultiByteToWideChar};
-
-    if bytes.is_empty() {
-        return String::new();
-    }
-    // The API is `i32`-bounded; the output cap keeps `bytes` far below `i32::MAX`, but
-    // clamp defensively so a hypothetical oversized buffer can never wrap negative.
-    let len = bytes.len().min(i32::MAX as usize) as i32;
-    // Safety: `GetOEMCP` takes no arguments and returns the active OEM code page id.
-    let code_page = unsafe { GetOEMCP() };
-    // Safety: first call with a null output buffer and zero length asks only for the
-    // required wide-char count; `bytes`/`len` describe a valid readable range.
-    let wide_len =
-        unsafe { MultiByteToWideChar(code_page, 0, bytes.as_ptr(), len, std::ptr::null_mut(), 0) };
-    if wide_len <= 0 {
-        return String::from_utf8_lossy(bytes).into_owned();
-    }
-    let mut wide = vec![0u16; wide_len as usize];
-    // Safety: `wide` has exactly `wide_len` slots, matching the length passed here;
-    // the input range is the same one measured above.
-    let written = unsafe {
-        MultiByteToWideChar(
-            code_page,
-            0,
-            bytes.as_ptr(),
-            len,
-            wide.as_mut_ptr(),
-            wide_len,
-        )
-    };
-    if written <= 0 {
-        return String::from_utf8_lossy(bytes).into_owned();
-    }
-    wide.truncate(written as usize);
-    String::from_utf16_lossy(&wide)
 }
 
 /// Best-effort kill of the whole process tree. On unix, `SIGKILL` the negative
@@ -685,24 +635,54 @@ mod tests {
         );
     }
 
-    #[test]
-    fn decode_output_passes_through_valid_utf8() {
-        // The UTF-8 branch must be taken for valid UTF-8 on every platform (git/node
-        // output on Windows, all output on unix), leaving multi-byte text intact.
-        let bytes = "café — 日本語".as_bytes();
-        assert_eq!(decode_output(bytes), "café — 日本語");
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn background_writer_survives_the_turn_ending() {
+        // A survivor that writes to stdout *after* the foreground command returns must
+        // not be killed by the drain being torn down. If the drain were aborted, that
+        // write would hit a closed pipe (EPIPE/SIGPIPE) and the subshell would die
+        // before the sentinel; detaching the drain keeps the pipe consumed so the
+        // write succeeds. The existing `sleep`-based survivor test never writes, so it
+        // cannot catch this. DRAIN_GRACE is 2s, so the survivor sleeps past it (3s) to
+        // guarantee it still holds the pipe when the drain is abandoned.
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let sentinel = std::env::temp_dir().join(format!("pawwork-shell-survivor-{nanos}"));
+        std::fs::remove_file(&sentinel).ok();
+        let script = format!(
+            "( sleep 3; echo late-output; echo ok > '{}' ) & echo fg",
+            sentinel.display()
+        );
+        let tool = ShellTool::new(Duration::from_secs(30));
+        let out = tool.run(&ctx(), &prepared(&script)).await.unwrap();
+        assert!(out.contains("fg"), "foreground output expected, got: {out}");
+        // The survivor wakes at ~3s and writes the sentinel; poll generously past that.
+        let mut found = false;
+        for _ in 0..40 {
+            if sentinel.exists() {
+                found = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        std::fs::remove_file(&sentinel).ok();
+        assert!(
+            found,
+            "a background writer must survive writing to stdout after the turn ends"
+        );
     }
 
-    #[cfg(windows)]
     #[test]
-    fn decode_output_recovers_non_utf8_via_oem_codepage() {
-        // A genuine mid-stream invalid-UTF-8 byte routes through the OEM code page
-        // instead of being lost to U+FFFD. The exact glyph depends on the runner's
-        // code page, so assert only that it does not panic and yields non-empty text.
-        let decoded = decode_output(&[0x48, 0x69, 0x81, 0x40]); // "Hi" + a high-byte pair
-        assert!(
-            !decoded.is_empty(),
-            "OEM decode must not drop the stream: {decoded:?}"
-        );
+    fn render_decodes_utf8_output() {
+        // Output is UTF-8 on every target (unix by convention; windows via the
+        // chcp-65001 normalization), so multi-byte text must survive intact.
+        let captured = Captured {
+            bytes: "café — 日本語".as_bytes().to_vec(),
+            truncated: false,
+        };
+        assert_eq!(render(captured), "café — 日本語");
     }
 }
