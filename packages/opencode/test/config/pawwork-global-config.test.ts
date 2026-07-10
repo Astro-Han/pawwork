@@ -6,7 +6,7 @@ import { Effect, Layer, Option } from "effect"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Account } from "../../src/account"
 import { Auth } from "../../src/auth"
-import { Config, ConfigManaged } from "../../src/config"
+import { Config, ConfigManaged, ConfigMCP } from "../../src/config"
 import { ConfigPlugin } from "../../src/config/plugin"
 import { ConfigPaths } from "../../src/config/paths"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
@@ -47,6 +47,10 @@ const save = (config: Config.Info) =>
   Effect.runPromise(Config.Service.use((svc) => svc.update(config)).pipe(Effect.scoped, Effect.provide(layer)))
 const saveGlobal = (config: Config.Info) =>
   Effect.runPromise(Config.Service.use((svc) => svc.updateGlobal(config)).pipe(Effect.scoped, Effect.provide(layer)))
+const editMcp = (input: { set?: Record<string, ConfigMCP.Info>; remove?: string[]; enable?: Record<string, boolean> }) =>
+  Effect.runPromise(Config.Service.use((svc) => svc.editGlobalMcp(input)).pipe(Effect.scoped, Effect.provide(layer)))
+const mcpRaw = () =>
+  Effect.runPromise(Config.Service.use((svc) => svc.getGlobalMcpRaw()).pipe(Effect.scoped, Effect.provide(layer)))
 const clear = (wait = false) =>
   Effect.runPromise(Config.Service.use((svc) => svc.invalidate(wait)).pipe(Effect.scoped, Effect.provide(layer)))
 const listConfigDirs = (directory: string, worktree: string) =>
@@ -1467,6 +1471,644 @@ describe("PawWork config load resilience", () => {
     } finally {
       if (previous === undefined) delete process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR
       else process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR = previous
+    }
+  })
+})
+
+describe("editGlobalMcp", () => {
+  test("adds, overwrites, renames, and deletes global MCP entries in one write path", async () => {
+    await using project = await tmpdir({ git: true })
+    await using global = await tmpdir()
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const file = path.join(global.path, "pawwork.json")
+
+          await editMcp({ set: { context7: { type: "remote", url: "https://ctx" } } })
+          expect(JSON.parse(await Bun.file(file).text()).mcp.context7).toEqual({
+            type: "remote",
+            url: "https://ctx",
+          })
+
+          // Overwrite keeps the same key.
+          await editMcp({ set: { context7: { type: "remote", url: "https://ctx2" } } })
+          expect(JSON.parse(await Bun.file(file).text()).mcp.context7.url).toBe("https://ctx2")
+
+          // Rename = set(new) + remove(old) in one atomic write; never half-applied.
+          const renamed = await editMcp({
+            set: { docs: { type: "remote", url: "https://ctx2" } },
+            remove: ["context7"],
+          })
+          expect(renamed.missing).toEqual([])
+          const afterRename = JSON.parse(await Bun.file(file).text())
+          expect(afterRename.mcp.context7).toBeUndefined()
+          expect(afterRename.mcp.docs.url).toBe("https://ctx2")
+
+          // Delete removes the key.
+          const deleted = await editMcp({ remove: ["docs"] })
+          expect(deleted.missing).toEqual([])
+          expect(JSON.parse(await Bun.file(file).text()).mcp.docs).toBeUndefined()
+
+          // Deleting an unknown name reports it as missing rather than throwing.
+          const missing = await editMcp({ remove: ["ghost"] })
+          expect(missing.missing).toEqual(["ghost"])
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("deletes an entry that lives only in a legacy global source without it reviving", async () => {
+    await using home = await tmpdir()
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.OPENCODE_TEST_HOME = home.path
+    delete process.env.PAWWORK_HOME
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      await Filesystem.write(
+        path.join(platformLegacy.path, "pawwork.json"),
+        JSON.stringify({ mcp: { legacy: { type: "remote", url: "https://legacy" } } }),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const result = await editMcp({ remove: ["legacy"] })
+          expect(result.missing).toEqual([])
+          await clear(true)
+          const config = await load()
+          expect((config.mcp ?? {}).legacy).toBeUndefined()
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("removes an entry shadowed across sibling global files", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // Write target is pawwork.jsonc, but the entry lives in the sibling json.
+      await Filesystem.write(
+        path.join(global.path, "pawwork.json"),
+        JSON.stringify({ mcp: { dup: { type: "remote", url: "https://json" } } }),
+      )
+      await Filesystem.write(path.join(global.path, "pawwork.jsonc"), JSON.stringify({ model: "anthropic/claude" }))
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const result = await editMcp({ remove: ["dup"] })
+          expect(result.missing).toEqual([])
+          await clear(true)
+          const config = await load()
+          expect((config.mcp ?? {}).dup).toBeUndefined()
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("overwriting an entry strips its stale copy from a sibling file so deleted sub-fields do not merge back", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // Same server in both files. The sibling carries an extra header the user
+      // is about to delete; without stripping it, the loader's deep-merge would
+      // reintroduce it (the deleted Authorization header keeps being sent).
+      const primary = path.join(global.path, "pawwork.jsonc")
+      const sibling = path.join(global.path, "pawwork.json")
+      await Filesystem.write(
+        primary,
+        JSON.stringify({ mcp: { srv: { type: "remote", url: "https://old", headers: { A: "1", B: "2" } } } }),
+      )
+      await Filesystem.write(
+        sibling,
+        JSON.stringify({ mcp: { srv: { type: "remote", url: "https://old", headers: { A: "1", B: "2" } } } }),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await editMcp({ set: { srv: { type: "remote", url: "https://new", headers: { A: "1" } } } })
+          const siblingParsed = parseJsonc(await Bun.file(sibling).text()) as {
+            mcp?: Record<string, unknown>
+          }
+          expect(siblingParsed.mcp?.srv).toBeUndefined()
+          await clear(true)
+          const config = await load()
+          const srv = config.mcp?.srv as { url?: string; headers?: Record<string, string> } | undefined
+          expect(srv?.url).toBe("https://new")
+          expect(srv?.headers).toEqual({ A: "1" })
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("leaves a schema-invalid sibling untouched so stripping never revives its other config", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // The sibling is valid JSONC but schema-invalid (`srv: null`), so the loader
+      // drops it whole — its `model` never takes effect. Adding a server named
+      // `srv` must not strip `srv` out of the sibling (which would make the file
+      // valid and silently activate `anthropic/should-not-activate`).
+      const primary = path.join(global.path, "pawwork.jsonc")
+      const sibling = path.join(global.path, "pawwork.json")
+      await Filesystem.write(primary, JSON.stringify({ model: "anthropic/keep" }))
+      const siblingText = JSON.stringify({ model: "anthropic/should-not-activate", mcp: { srv: null } })
+      await Filesystem.write(sibling, siblingText)
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await editMcp({ set: { srv: { type: "remote", url: "https://srv" } } })
+          expect(await Bun.file(sibling).text()).toBe(siblingText)
+          await clear(true)
+          const config = await load()
+          expect(config.model).toBe("anthropic/keep")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("leaves a sibling the loader skips on a missing {env:} placeholder untouched", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+    delete process.env.MCP_SIBLING_MISSING_URL
+
+    try {
+      // The sibling is well-formed JSONC and schema-valid, but a required field
+      // holds `{env:MCP_SIBLING_MISSING_URL}` with that env unset. The loader
+      // substitutes placeholders BEFORE schema-checking, so it throws and skips the
+      // file whole — its `model` never activates. Editing `srv` must mirror that:
+      // stripping `srv` here would drop the failing placeholder and make the file
+      // loadable, silently activating `anthropic/should-not-activate`.
+      const primary = path.join(global.path, "pawwork.jsonc")
+      const sibling = path.join(global.path, "pawwork.json")
+      await Filesystem.write(primary, JSON.stringify({ model: "anthropic/keep" }))
+      const siblingText = JSON.stringify({
+        model: "anthropic/should-not-activate",
+        mcp: { srv: { type: "remote", url: "{env:MCP_SIBLING_MISSING_URL}" } },
+      })
+      await Filesystem.write(sibling, siblingText)
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await editMcp({ set: { srv: { type: "remote", url: "https://srv" } } })
+          expect(await Bun.file(sibling).text()).toBe(siblingText)
+          await clear(true)
+          const config = await load()
+          expect(config.model).toBe("anthropic/keep")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("preserves comments and sibling keys when editing a jsonc config", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      const file = path.join(global.path, "pawwork.jsonc")
+      await Filesystem.write(
+        file,
+        '{\n  // keep me\n  "model": "anthropic/claude",\n  "mcp": {\n    "a": { "type": "remote", "url": "https://a" },\n    "b": { "type": "remote", "url": "https://b" }\n  }\n}\n',
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await editMcp({ remove: ["a"] })
+          const text = await Bun.file(file).text()
+          expect(text).toContain("// keep me")
+          const parsed = parseJsonc(text) as { model: string; mcp: Record<string, { url: string }> }
+          expect(parsed.mcp.a).toBeUndefined()
+          expect(parsed.mcp.b.url).toBe("https://b")
+          expect(parsed.model).toBe("anthropic/claude")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("edits a jsonc primary that still carries a deprecated key", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // The loader drops deprecated keys (theme/keybinds/...) before schema-check,
+      // so a user still carrying `theme` loads fine. An MCP edit must validate the
+      // same normalized shape, not the raw file — otherwise the deprecated key
+      // trips `unrecognized_keys` and blocks every MCP edit. The jsonc write is
+      // un-normalized, so `theme` must also survive on disk.
+      const file = path.join(global.path, "pawwork.jsonc")
+      await Filesystem.write(
+        file,
+        JSON.stringify({ theme: "legacy-theme", mcp: { a: { type: "remote", url: "https://a" } } }),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const result = await editMcp({ set: { b: { type: "remote", url: "https://b" } } })
+          expect(result.missing).toEqual([])
+          const parsed = parseJsonc(await Bun.file(file).text()) as {
+            theme?: string
+            mcp: Record<string, { url: string }>
+          }
+          expect(parsed.mcp.b.url).toBe("https://b")
+          expect(parsed.mcp.a.url).toBe("https://a")
+          expect(parsed.theme).toBe("legacy-theme")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("adds an entry without parsing a broken sibling global file", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // Primary (pawwork.jsonc) is valid; an unrelated sibling is corrupt. A pure
+      // add must not scan the sibling, so it must not fail on the broken JSON.
+      await Filesystem.write(path.join(global.path, "pawwork.jsonc"), JSON.stringify({ model: "anthropic/claude" }))
+      await Filesystem.write(path.join(global.path, "pawwork.json"), "{ broken json")
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const result = await editMcp({ set: { added: { type: "remote", url: "https://added" } } })
+          expect(result.missing).toEqual([])
+          const primary = JSON.parse(await Bun.file(path.join(global.path, "pawwork.jsonc")).text())
+          expect(primary.mcp.added.url).toBe("https://added")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("removing an entry tolerates a broken sibling global file", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      await Filesystem.write(
+        path.join(global.path, "pawwork.jsonc"),
+        JSON.stringify({ model: "anthropic/claude", mcp: { gone: { type: "remote", url: "https://gone" } } }),
+      )
+      await Filesystem.write(path.join(global.path, "pawwork.json"), "{ broken json")
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const result = await editMcp({ remove: ["gone"] })
+          expect(result.missing).toEqual([])
+          const primary = JSON.parse(await Bun.file(path.join(global.path, "pawwork.jsonc")).text())
+          expect(primary.mcp.gone).toBeUndefined()
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("adds the first global entry when the only existing source is a broken legacy file", async () => {
+    await using primaryDir = await tmpdir()
+    await using legacyDir = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    // Primary home has no config yet; a legacy candidate dir holds a corrupt file.
+    // The first write seeds from loaded sources, so a broken legacy source must be
+    // skipped (as the loader skips it) instead of blocking the very first add.
+    process.env.PAWWORK_HOME = primaryDir.path
+    process.env.PAWWORK_CONFIG_DIR = legacyDir.path
+    ;(Global.Path as { config: string }).config = primaryDir.path
+
+    try {
+      await Filesystem.write(path.join(legacyDir.path, "pawwork.json"), "{ broken json")
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const result = await editMcp({ set: { added: { type: "remote", url: "https://added" } } })
+          expect(result.missing).toEqual([])
+          const primary = JSON.parse(await Bun.file(path.join(primaryDir.path, "pawwork.json")).text())
+          expect(primary.mcp.added.url).toBe("https://added")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("enable patches only the enabled field and preserves raw placeholder values", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // A toggle must never rewrite the entry: the raw `{env:...}` header (a
+      // secret reference) and the comment have to survive byte-for-byte.
+      const file = path.join(global.path, "pawwork.jsonc")
+      await Filesystem.write(
+        file,
+        '{\n  // keep me\n  "mcp": {\n    "secure": {\n      "type": "remote",\n      "url": "https://secure",\n      "headers": { "Authorization": "Bearer {env:MCP_REVIEW_TOKEN}" }\n    }\n  }\n}\n',
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const disabled = await editMcp({ enable: { secure: false } })
+          expect(disabled.changed).toBe(true)
+          let text = await Bun.file(file).text()
+          expect(text).toContain("// keep me")
+          expect(text).toContain("Bearer {env:MCP_REVIEW_TOKEN}")
+          let parsed = parseJsonc(text) as { mcp: Record<string, { enabled?: boolean }> }
+          expect(parsed.mcp.secure.enabled).toBe(false)
+
+          const enabled = await editMcp({ enable: { secure: true } })
+          expect(enabled.changed).toBe(true)
+          text = await Bun.file(file).text()
+          expect(text).toContain("Bearer {env:MCP_REVIEW_TOKEN}")
+          parsed = parseJsonc(text) as { mcp: Record<string, { enabled?: boolean }> }
+          expect(parsed.mcp.secure.enabled).toBe(true)
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("enable toggles a legacy enabled-only override entry", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      const file = path.join(global.path, "pawwork.json")
+      await Filesystem.write(file, JSON.stringify({ mcp: { legacy: { enabled: false } } }))
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await editMcp({ enable: { legacy: true } })
+          expect(JSON.parse(await Bun.file(file).text()).mcp.legacy).toEqual({ enabled: true })
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("enable overrides an entry living only in a sibling loaded file", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // Write target is pawwork.jsonc; the full entry lives in the sibling json.
+      // The patch creates the standard `{ "enabled": false }` override in the
+      // primary, which the load merge honors, and the sibling stays untouched.
+      const sibling = path.join(global.path, "pawwork.json")
+      const siblingText = JSON.stringify({ mcp: { dup: { type: "remote", url: "https://json" } } })
+      await Filesystem.write(sibling, siblingText)
+      await Filesystem.write(path.join(global.path, "pawwork.jsonc"), JSON.stringify({ model: "anthropic/claude" }))
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await editMcp({ enable: { dup: false } })
+          const primary = parseJsonc(await Bun.file(path.join(global.path, "pawwork.jsonc")).text()) as {
+            mcp: Record<string, { enabled?: boolean }>
+          }
+          expect(primary.mcp.dup).toEqual({ enabled: false })
+          expect(await Bun.file(sibling).text()).toBe(siblingText)
+          await clear(true)
+          const config = await load()
+          expect((config.mcp?.dup as { enabled?: boolean } | undefined)?.enabled).toBe(false)
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+})
+
+describe("getGlobalMcpRaw", () => {
+  test("returns unexpanded placeholder values and merges sibling files", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      await Filesystem.write(
+        path.join(global.path, "pawwork.jsonc"),
+        JSON.stringify({
+          mcp: { secure: { type: "remote", url: "https://secure", headers: { Authorization: "Bearer {env:MCP_REVIEW_TOKEN}" } } },
+        }),
+      )
+      await Filesystem.write(
+        path.join(global.path, "pawwork.json"),
+        JSON.stringify({ mcp: { other: { type: "local", command: ["srv"] } } }),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const raw = (await mcpRaw()) as Record<string, Record<string, unknown>>
+          const secureHeaders = raw.secure?.headers as Record<string, string> | undefined
+          expect(secureHeaders?.Authorization).toBe("Bearer {env:MCP_REVIEW_TOKEN}")
+          expect(raw.other).toEqual({ type: "local", command: ["srv"] })
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("tolerates a broken sibling global file in the PawWork runtime", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      await Filesystem.write(
+        path.join(global.path, "pawwork.jsonc"),
+        JSON.stringify({ mcp: { kept: { type: "remote", url: "https://kept" } } }),
+      )
+      await Filesystem.write(path.join(global.path, "pawwork.json"), "{ broken json")
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const raw = (await mcpRaw()) as Record<string, { url?: string }>
+          expect(raw.kept?.url).toBe("https://kept")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("skips a schema-invalid file so a garbage entry never reaches the UI", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // Valid JSONC but an mcp entry the schema rejects. The loader skips the
+      // whole file in PawWork; the raw view must match, or `{ x: null }` would
+      // sail through and crash the management page on `"type" in config`.
+      await Filesystem.write(
+        path.join(global.path, "pawwork.jsonc"),
+        JSON.stringify({ mcp: { good: { type: "remote", url: "https://good" } } }),
+      )
+      await Filesystem.write(
+        path.join(global.path, "pawwork.json"),
+        JSON.stringify({ mcp: { broken: null } }),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const raw = (await mcpRaw()) as Record<string, unknown>
+          expect(raw.good).toEqual({ type: "remote", url: "https://good" })
+          expect("broken" in raw).toBe(false)
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("rebases a relative {file:...} reference to an absolute path", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // A relative file reference must come back resolved against its own source
+      // dir, so an edit that writes the entry into a different primary file keeps
+      // pointing at the same target. `{env:...}` stays literal.
+      await Filesystem.write(
+        path.join(global.path, "pawwork.jsonc"),
+        JSON.stringify({
+          mcp: {
+            srv: {
+              type: "remote",
+              url: "https://srv",
+              headers: { Authorization: "Bearer {file:./token}", Extra: "{env:MCP_EXTRA}" },
+            },
+          },
+        }),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const raw = (await mcpRaw()) as Record<string, { headers?: Record<string, string> }>
+          const absolute = path.join(global.path, "token")
+          expect(raw.srv?.headers?.Authorization).toBe(`Bearer {file:${absolute}}`)
+          expect(raw.srv?.headers?.Extra).toBe("{env:MCP_EXTRA}")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("leaves a {file:...} that nests an {env:...} placeholder literal", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      // The path holds a nested placeholder; the loader expands `{env:...}` first
+      // and only then resolves the file. A static rebase would truncate at the
+      // inner `}` and corrupt the path, so it must be left exactly as written.
+      await Filesystem.write(
+        path.join(global.path, "pawwork.jsonc"),
+        JSON.stringify({
+          mcp: { srv: { type: "remote", url: "https://srv", headers: { Authorization: "Bearer {file:{env:MCP_HOME}/token}" } } },
+        }),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const raw = (await mcpRaw()) as Record<string, { headers?: Record<string, string> }>
+          expect(raw.srv?.headers?.Authorization).toBe("Bearer {file:{env:MCP_HOME}/token}")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
     }
   })
 })

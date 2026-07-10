@@ -14,6 +14,7 @@ const globalStoreFixture = (): GlobalStore => ({
   provider: { all: [], connected: [], default: {} },
   provider_auth: {},
   config: {},
+  mcpRaw: {},
   reload: undefined,
 })
 

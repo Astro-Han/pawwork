@@ -1,7 +1,38 @@
 import { Info as ConfigInfo } from "@/config/config"
+import { ConfigMCP } from "@/config"
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { BadRequestError } from "./common"
+
+// `optionalKey` (not `optional`) so the published contract is "key may be
+// omitted" rather than "value may be null": `Schema.optional` would also admit
+// `undefined`, which serializes to a nullable field in OpenAPI/SDK, yet the
+// handler's zod validator rejects an explicit `null` with a 400. Keeping these
+// non-nullable makes the documented payload and the runtime validation agree.
+export const EditMcpConfigPayload = Schema.Struct({
+  set: Schema.optionalKey(Schema.Record(Schema.String, ConfigMCP.Info)),
+  remove: Schema.optionalKey(Schema.Array(Schema.String)),
+  enable: Schema.optionalKey(Schema.Record(Schema.String, Schema.Boolean)),
+})
+
+export const EditMcpConfigResponse = Schema.Struct({
+  changed: Schema.Boolean,
+  missing: Schema.Array(Schema.String),
+})
+
+// Raw mcp entries exactly as written in the config files: full local/remote
+// configs or the legacy `{ "enabled": ... }` override form. Values may still
+// contain unexpanded `{env:...}` / `{file:...}` placeholders — that is the
+// point: editors must round-trip the literal file content, not the runtime
+// view that `configGet` returns.
+const McpRawEntry = Schema.Union([
+  ConfigMCP.Info,
+  Schema.Struct({ enabled: Schema.optional(Schema.Boolean) }).annotate({ identifier: "McpToggleConfig" }),
+])
+
+export const GlobalMcpRawResponse = Schema.Struct({
+  mcp: Schema.Record(Schema.String, McpRawEntry),
+})
 
 const GlobalHealth = Schema.Struct({
   healthy: Schema.Literal(true),
@@ -48,6 +79,7 @@ const GlobalUpgradeServerError = GlobalUpgradeFailure.pipe(
 
 export const GlobalPaths = {
   config: "/global/config",
+  configMcp: "/global/config/mcp",
   health: "/global/health",
   dispose: "/global/dispose",
   upgrade: "/global/upgrade",
@@ -75,6 +107,28 @@ export const GlobalApi = HttpApi.make("global")
             identifier: "global.config.update",
             summary: "Update global configuration",
             description: "Update global OpenCode configuration settings and preferences.",
+          }),
+        ),
+        HttpApiEndpoint.get("configMcpGet", GlobalPaths.configMcp, {
+          success: GlobalMcpRawResponse,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "global.config.mcpRaw",
+            summary: "Get raw global MCP servers",
+            description:
+              "Retrieve the global MCP server entries as literally written in the config files, without `{env:...}` / `{file:...}` placeholder expansion. Use this as the source for editing so resolved secrets are never written back.",
+          }),
+        ),
+        HttpApiEndpoint.post("configEditMcp", GlobalPaths.configMcp, {
+          payload: EditMcpConfigPayload,
+          success: EditMcpConfigResponse,
+          error: BadRequestError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "global.config.editMcp",
+            summary: "Edit global MCP servers",
+            description:
+              "Add, edit, rename, enable/disable, or delete MCP servers in the global config. `set` writes entries, `remove` deletes keys, `enable` patches only the `enabled` field in place (preserving raw placeholder values); `missing` lists removal names not found in any global config file (e.g. project-scoped or nonexistent).",
           }),
         ),
         HttpApiEndpoint.get("health", GlobalPaths.health, {

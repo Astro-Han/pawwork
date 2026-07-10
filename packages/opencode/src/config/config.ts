@@ -22,7 +22,7 @@ import { isRecord } from "@/util/record"
 import type { ConsoleState } from "./console-state"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { InstanceState } from "@/effect"
-import { Context, Duration, Effect, Fiber, Layer, Option, Schema } from "effect"
+import { Context, Duration, Effect, Exit, Fiber, Layer, Option, Schema } from "effect"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { InstanceRef } from "@/effect/instance-ref"
 import { zod, ZodOverride } from "@/util/effect-zod"
@@ -464,6 +464,12 @@ export interface Interface {
   readonly getConsoleState: () => Effect.Effect<ConsoleState>
   readonly update: (config: Info) => Effect.Effect<void>
   readonly updateGlobal: (config: Info) => Effect.Effect<Info>
+  readonly editGlobalMcp: (input: {
+    set?: Record<string, ConfigMCP.Info>
+    remove?: readonly string[]
+    enable?: Record<string, boolean>
+  }) => Effect.Effect<{ changed: boolean; missing: string[] }>
+  readonly getGlobalMcpRaw: () => Effect.Effect<Record<string, unknown>>
   readonly invalidate: (wait?: boolean) => Effect.Effect<void>
   readonly directories: () => Effect.Effect<string[]>
   readonly waitForDependencies: () => Effect.Effect<void>
@@ -718,7 +724,11 @@ function resolveSeedInstructionPath(value: string, sourceFile: string) {
 function rewriteFilePlaceholders(value: string, sourceFile: string) {
   return value.replace(/\{file:([^}]+)\}/g, (match, filePath: string) => {
     const trimmed = filePath.trim()
-    if (!trimmed || isAbsoluteOrExternalPath(trimmed)) return match
+    // A nested placeholder (e.g. `{file:{env:HOME}/token}`) can't be statically
+    // rebased: the `[^}]+` capture stops at the inner `}`, so resolving it here
+    // would corrupt the path. Leave it literal — the loader expands the inner
+    // `{env:...}` first and resolves the real path at load time.
+    if (!trimmed || trimmed.includes("{") || isAbsoluteOrExternalPath(trimmed)) return match
     return `{file:${path.resolve(path.dirname(sourceFile), trimmed)}}`
   })
 }
@@ -774,11 +784,23 @@ function seedConfigValueFromSource(text: string, sourceFile: string) {
 }
 
 function seedConfigTextFromSources(sources: { path: string; text: string }[]) {
-  const merged = sources.reduce<unknown>((result, source) => {
-    const next = seedConfigValueFromSource(source.text, source.path)
-    if (!isRecord(result) || !isRecord(next)) return next
-    return mergeDeep(result, next)
-  }, {})
+  let merged: unknown = {}
+  for (const source of sources) {
+    // In the PawWork runtime a source that fails to parse or normalize is one the
+    // loader would skip anyway (PawWork degrades over broken config files); skip
+    // it here too rather than letting a broken sibling brick the first global
+    // write, e.g. an MCP add through the GUI before the primary file exists. Plain
+    // opencode keeps failing fast, matching its load-side contract.
+    let next: unknown
+    try {
+      next = seedConfigValueFromSource(source.text, source.path)
+    } catch (error) {
+      if (!Runtime.isPawWork()) throw error
+      continue
+    }
+    if (!isRecord(merged) || !isRecord(next)) merged = next
+    else merged = mergeDeep(merged, next)
+  }
   if (!isRecord(merged)) return "{}"
   return JSON.stringify(merged, null, 2)
 }
@@ -934,6 +956,46 @@ const rawLayer = Layer.effect(
 
     const getGlobal = Effect.fn("Config.getGlobal")(function* () {
       return (yield* cachedGlobal).config
+    })
+
+    // Raw (unsubstituted) view of the global mcp subtree, merged across the
+    // loaded global files in load order. getGlobal() returns the runtime view
+    // where `{env:...}` / `{file:...}` placeholders are already expanded, so a
+    // client that fed that back into an edit would persist resolved secrets to
+    // disk. Management UIs read this instead: what they display and write back
+    // keeps secret placeholders literal.
+    const getGlobalMcpRaw = Effect.fn("Config.getGlobalMcpRaw")(function* () {
+      let merged: Record<string, unknown> = {}
+      for (const file of globalConfigFilesToLoad()) {
+        const text = yield* readConfigFile(file)
+        if (text === undefined) continue
+        let parsed: unknown
+        try {
+          parsed = ConfigParse.jsonc(text, file)
+          // Mirror the loader's tolerance precisely: a file that is valid JSONC
+          // but violates the schema (e.g. `{ mcp: { x: null } }`) is skipped
+          // whole in PawWork so a broken neighbor never reaches — and crashes —
+          // the management page; plain opencode keeps failing fast. Without this
+          // the raw read only caught JSONC syntax errors, so a null/garbage entry
+          // would sail through and break `"type" in config` in the UI.
+          ConfigParse.schema(Info.zod, normalizeLoadedConfig(parsed, file), file)
+        } catch (error) {
+          if (!Runtime.isPawWork()) throw error
+          continue
+        }
+        if (isRecord(parsed) && isRecord(parsed.mcp)) {
+          // Rebase relative `{file:...}` references to absolute against this
+          // file's own directory, exactly as the seed does when it migrates a
+          // config into PawWork Home. An edit writes the full entry back to the
+          // primary file, so a relative path captured from a different source dir
+          // would otherwise resolve against the wrong base after the write.
+          // `{env:...}` is deliberately left literal — never resolve a secret
+          // into what the UI would persist.
+          const rebased = rewriteFilePlaceholdersDeep(parsed.mcp, file) as Record<string, unknown>
+          merged = mergeDeep(merged, rebased)
+        }
+      }
+      return merged
     })
 
     const ensureGitignore = Effect.fn("Config.ensureGitignore")(function* (dir: string) {
@@ -1456,7 +1518,12 @@ const rawLayer = Layer.effect(
             existingText === undefined && Runtime.isPawWork() ? { mode: seed?.mode ?? 0o600 } : undefined
 
           if (!file.endsWith(".jsonc")) {
-            const existing = ConfigParse.schema(Info.zod, ConfigParse.jsonc(before, file), file)
+            // Normalize before validating so a config the loader accepts (it drops
+            // deprecated keys like theme/keybinds/tui) does not fail the write —
+            // otherwise every global settings write, MCP edits included, breaks for
+            // anyone still carrying those keys. The JSON path fully rewrites the
+            // file, so the dropped dead keys simply do not survive the reserialize.
+            const existing = ConfigParse.schema(Info.zod, normalizeLoadedConfig(ConfigParse.jsonc(before, file), file), file)
             const merged = mergeDeep(writable(existing), writable(config))
             const serialized = JSON.stringify(merged, null, 2)
             // Always materialize on first run (seed migration), otherwise only
@@ -1467,7 +1534,10 @@ const rawLayer = Layer.effect(
             next = merged
           } else {
             const updated = patchJsonc(before, writable(config))
-            next = ConfigParse.schema(Info.zod, ConfigParse.jsonc(updated, file), file)
+            // Validate a normalized copy (tolerate deprecated keys the loader
+            // drops) but write the un-normalized `updated`, so the jsonc file keeps
+            // its comments and any legacy keys the user still has on disk.
+            next = ConfigParse.schema(Info.zod, normalizeLoadedConfig(ConfigParse.jsonc(updated, file), file), file)
             changed = !fileExisted || updated !== before
             if (changed)
               yield* Effect.promise(() => writeConfigTextAtomic(file, updated, writeOptions)).pipe(Effect.orDie)
@@ -1484,6 +1554,138 @@ const rawLayer = Layer.effect(
       return next
     })
 
+    // Atomically add / edit / rename / delete MCP entries in the global config.
+    // The existing merge-based update() can only add or override keys (mergeDeep
+    // and patchJsonc never remove), so real deletion and rename need this path.
+    // `set` writes/overwrites entries; `remove` strips keys. A rename is set(new)
+    // + remove(old) applied in one write on the primary file so it can never end
+    // up half-updated. `enable` patches only the `enabled` field of an entry in
+    // place — a toggle must never rewrite the rest of the entry, whose values the
+    // client only knows in runtime-expanded form. Returns the removal names that
+    // were not found in any loaded global file (project-sourced or nonexistent)
+    // so the caller can 404.
+    const editGlobalMcp = Effect.fn("Config.editGlobalMcp")(function* (input: {
+      set?: Record<string, ConfigMCP.Info>
+      remove?: readonly string[]
+      enable?: Record<string, boolean>
+    }) {
+      const setEntries = Object.entries(input.set ?? {})
+      const removeNames = [...new Set(input.remove ?? [])]
+      const enableEntries = Object.entries(input.enable ?? {})
+      if (setEntries.length === 0 && removeNames.length === 0 && enableEntries.length === 0)
+        return { changed: false, missing: [] as string[] }
+
+      if (Runtime.isPawWork()) yield* Effect.promise(() => PawWorkHome.ensurePrimary())
+      // Seed scattered global sources into the primary file first. Deletion works
+      // by absence, and absence in one file must not be shadowed by a copy in
+      // another loaded source; after seeding, every loaded entry lives together.
+      yield* updateGlobal({})
+
+      const opts = { formattingOptions: { insertSpaces: true, tabSize: 2 } }
+      const writeFile = globalConfigFile()
+      const otherFiles = globalConfigFilesToLoad().filter((file) => file !== writeFile)
+      const present = new Set<string>()
+      let changed = false
+
+      const removableIn = (text: string) => {
+        const parsed = ConfigParse.jsonc(text, writeFile)
+        const mcp = isRecord(parsed) && isRecord(parsed.mcp) ? parsed.mcp : {}
+        return removeNames.filter((name) => name in mcp)
+      }
+      const stripKeys = (text: string, names: string[]) =>
+        names.reduce((acc, name) => applyEdits(acc, modify(acc, ["mcp", name], undefined, opts)), text)
+
+      // Primary write file: removals + sets in one atomic write, so a rename
+      // (set new + remove old) is never observable half-applied.
+      yield* flock
+        .withLock(
+          Effect.gen(function* () {
+            const before = (yield* readConfigFile(writeFile)) ?? "{}"
+            const removable = removableIn(before)
+            removable.forEach((name) => present.add(name))
+            let text = stripKeys(before, removable)
+            for (const [name, cfg] of setEntries) text = applyEdits(text, modify(text, ["mcp", name], cfg, opts))
+            // Field-level patch: only the `enabled` key changes, so raw text
+            // elsewhere in the entry (e.g. an unexpanded `{env:...}` header)
+            // stays byte-identical. For a name living only in a sibling loaded
+            // file this creates the legacy `{ "enabled": ... }` override here,
+            // which wins the load merge for that key.
+            for (const [name, enabled] of enableEntries)
+              text = applyEdits(text, modify(text, ["mcp", name, "enabled"], enabled, opts))
+            if (text !== before) {
+              // Validate a normalized copy so a primary that still carries a
+              // deprecated key (theme/keybinds/...) — which the loader accepts —
+              // does not block the edit; the written `text` keeps the raw file.
+              ConfigParse.schema(Info.zod, normalizeLoadedConfig(ConfigParse.jsonc(text, writeFile), writeFile), writeFile)
+              yield* Effect.promise(() => writeConfigTextAtomic(writeFile, text)).pipe(Effect.orDie)
+              changed = true
+            }
+          }),
+          configFileLockKey(writeFile),
+        )
+        .pipe(Effect.orDie)
+
+      // Sibling loaded files must be stripped of every name we removed OR wrote.
+      // A `remove` deleted from the primary could still be shadowed by a copy in
+      // e.g. a hand-created pawwork.json next to pawwork.jsonc. A `set` is just as
+      // exposed: the primary write is a full overwrite, but the loader deep-merges
+      // sources, so a stale sibling copy would merge its old sub-fields (a deleted
+      // Authorization header, an old environment) back onto the new entry. Only an
+      // `enable` override is meant to shadow-merge onto a sibling's full entry, so
+      // those names are left alone here. `present`/`missing` still track removals
+      // only. Skip the scan (and its parse-failure surface) when nothing is
+      // removed or written.
+      const setNames = setEntries.map(([name]) => name)
+      const siblingStripNames = [...new Set([...removeNames, ...setNames])]
+      for (const file of siblingStripNames.length > 0 ? otherFiles : []) {
+        yield* flock
+          .withLock(
+            Effect.gen(function* () {
+              const before = (yield* readConfigFile(file)) ?? "{}"
+              // Only touch a sibling the loader would fully load. Mirror loadConfig
+              // exactly: substitute `{env:}`/`{file:}` placeholders, then parse,
+              // normalize, and schema-check. A file that fails any step is skipped
+              // whole by the loader, so it shadows nothing — and stripping a key
+              // from it could make it loadable and silently activate the rest of
+              // its config (a broken `{env:MISSING}` entry deleted, and suddenly its
+              // model/plugins take effect). Leave such a file untouched in PawWork;
+              // plain opencode keeps its fail-fast contract.
+              const loadExit = yield* Effect.tryPromise(() =>
+                ConfigVariable.substitute({ text: before, type: "path", path: file }),
+              ).pipe(
+                Effect.flatMap((expanded) =>
+                  Effect.try({
+                    try: () =>
+                      ConfigParse.schema(Info.zod, normalizeLoadedConfig(ConfigParse.jsonc(expanded, file), file), file),
+                    catch: (error) => error,
+                  }),
+                ),
+                Effect.exit,
+              )
+              if (Exit.isFailure(loadExit)) {
+                if (Runtime.isPawWork()) return
+                return yield* Effect.failCause(loadExit.cause)
+              }
+              const parsed = ConfigParse.jsonc(before, file)
+              const mcp: Record<string, unknown> = isRecord(parsed) && isRecord(parsed.mcp) ? parsed.mcp : {}
+              removeNames.filter((name) => name in mcp).forEach((name) => present.add(name))
+              const stripHere = siblingStripNames.filter((name) => name in mcp)
+              const text = stripKeys(before, stripHere)
+              if (text !== before) {
+                yield* Effect.promise(() => writeConfigTextAtomic(file, text)).pipe(Effect.orDie)
+                changed = true
+              }
+            }),
+            configFileLockKey(file),
+          )
+          .pipe(Effect.orDie)
+      }
+
+      const missing = removeNames.filter((name) => !present.has(name))
+      if (changed) yield* invalidate(undefined, "config.editGlobalMcp")
+      return { changed, missing }
+    })
+
     return Service.of({
       get,
       getErrors,
@@ -1491,6 +1693,8 @@ const rawLayer = Layer.effect(
       getConsoleState,
       update,
       updateGlobal,
+      editGlobalMcp,
+      getGlobalMcpRaw,
       invalidate,
       directories,
       waitForDependencies,

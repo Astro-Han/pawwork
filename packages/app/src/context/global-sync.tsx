@@ -2,6 +2,9 @@ import type {
   AutomationCreateInput,
   AutomationUpdateInput,
   Config,
+  McpLocalConfig,
+  McpRemoteConfig,
+  McpToggleConfig,
   OpencodeClient,
   Path,
   Project,
@@ -89,8 +92,17 @@ export type GlobalStore = {
   provider: ProviderListResponse
   provider_auth: ProviderAuthResponse
   config: Config
+  // MCP servers exactly as written in the global config files, with `{env:...}`
+  // / `{file:...}` placeholders still unexpanded. `config.mcp` is the runtime
+  // view where those are already resolved, so the management UI must render and
+  // write back from here — never from `config.mcp`, or a toggle/edit would
+  // persist a resolved secret to disk. An entry may be a full local/remote
+  // config or the legacy `{ enabled }` override form.
+  mcpRaw: Record<string, McpRawEntry>
   reload: undefined | "pending" | "complete"
 }
+
+export type McpRawEntry = McpLocalConfig | McpRemoteConfig | McpToggleConfig
 
 const inactiveQueryFn = async () => null
 
@@ -124,6 +136,7 @@ function createGlobalSync() {
     provider: { all: [], connected: [], default: {} },
     provider_auth: {},
     config: {},
+    mcpRaw: {},
     reload: undefined,
   })
   const queryClient = useQueryClient()
@@ -719,6 +732,41 @@ function createGlobalSync() {
       })
   }
 
+  // Atomically add / edit / rename / delete / enable-disable MCP servers in the
+  // global config. `set` writes entries, `remove` deletes keys (a rename is
+  // set(new) + remove(old)), `enable` patches only the `enabled` field in place
+  // (so a toggle never rewrites — and never resolves — the rest of the entry);
+  // the resolved `missing` lists removal names that were not found in any global
+  // config file (project-scoped or already gone). Mirrors updateConfig: write,
+  // then re-bootstrap so the raw MCP map + status refresh.
+  const editMcp = async (input: {
+    set?: Record<string, McpLocalConfig | McpRemoteConfig>
+    remove?: string[]
+    enable?: Record<string, boolean>
+  }) => {
+    setGlobalStore("reload", "pending")
+    const actionClient = globalSDK.createClient({
+      headers: clientActionHeaders({ kind: "global.config.editMcp" }),
+      throwOnError: true,
+    })
+    try {
+      const response = await actionClient.global.config.editMcp(input)
+      // Refresh the global config: the MCP list renders from it, so this alone
+      // makes an added / renamed / deleted server appear or disappear at once.
+      // The engine disposes instances on a global MCP edit; already-mounted
+      // child stores catch up on the server.connected events that follow, so we
+      // do not eagerly re-bootstrap every directory here.
+      await bootstrap()
+      queue.refresh()
+      setGlobalStore("reload", undefined)
+      queue.refresh()
+      return response.data
+    } catch (error) {
+      setGlobalStore("reload", undefined)
+      throw error
+    }
+  }
+
   return {
     data: globalStore,
     set,
@@ -738,6 +786,7 @@ function createGlobalSync() {
     onQuestionAlert: questions.onAlert,
     bootstrap,
     updateConfig,
+    editMcp,
     project: projectApi,
     automation: {
       create: createAutomation,

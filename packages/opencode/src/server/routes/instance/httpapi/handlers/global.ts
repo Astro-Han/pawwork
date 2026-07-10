@@ -1,5 +1,6 @@
 import { GlobalBus } from "@/bus/global"
 import { Config } from "@/config/config"
+import { ConfigMCP } from "@/config/mcp"
 import { Installation } from "@/installation"
 import { Instance } from "@/project/instance"
 import { emitGlobalDisposed } from "@/server/instance/global"
@@ -90,6 +91,12 @@ const upgradeInstallation = Effect.fn("GlobalHttpApi.upgrade")(function* (target
   return { ...result, status: 200 } as const
 })
 
+const EditMcpConfigInput = z.object({
+  set: z.record(z.string(), ConfigMCP.Info.zod).optional(),
+  remove: z.array(z.string()).optional(),
+  enable: z.record(z.string(), z.boolean()).optional(),
+})
+
 export const globalHandlers = HttpApiBuilder.group(GlobalApi, "global", (handlers) =>
   Effect.gen(function* () {
     const config = yield* Config.Service
@@ -102,6 +109,17 @@ export const globalHandlers = HttpApiBuilder.group(GlobalApi, "global", (handler
           if (HttpServerResponse.isHttpServerResponse(body)) return body
           const next = yield* config.updateGlobal(body)
           return HttpServerResponse.jsonUnsafe(next)
+        }),
+      )
+      .handleRaw("configMcpGet", () =>
+        config.getGlobalMcpRaw().pipe(Effect.map((mcp) => HttpServerResponse.jsonUnsafe({ mcp }))),
+      )
+      .handleRaw("configEditMcp", (ctx) =>
+        Effect.gen(function* () {
+          const body = yield* parseJsonBody(ctx.request, EditMcpConfigInput)
+          if (HttpServerResponse.isHttpServerResponse(body)) return body
+          const result = yield* config.editGlobalMcp(body)
+          return HttpServerResponse.jsonUnsafe(result)
         }),
       )
       .handleRaw("health", () =>

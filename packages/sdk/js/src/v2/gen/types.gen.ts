@@ -1976,6 +1976,10 @@ export type Config = {
   }
 }
 
+export type McpToggleConfig = {
+  enabled?: boolean | null
+}
+
 /**
  * Global upgrade request cannot be fulfilled
  */
@@ -2939,6 +2943,62 @@ export type GlobalConfigUpdateResponses = {
 }
 
 export type GlobalConfigUpdateResponse = GlobalConfigUpdateResponses[keyof GlobalConfigUpdateResponses]
+
+export type GlobalConfigMcpRawData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/config/mcp"
+}
+
+export type GlobalConfigMcpRawResponses = {
+  /**
+   * Success
+   */
+  200: {
+    mcp: {
+      [key: string]: McpLocalConfig | McpRemoteConfig | McpToggleConfig
+    }
+  }
+}
+
+export type GlobalConfigMcpRawResponse = GlobalConfigMcpRawResponses[keyof GlobalConfigMcpRawResponses]
+
+export type GlobalConfigEditMcpData = {
+  body: {
+    set?: {
+      [key: string]: McpLocalConfig | McpRemoteConfig
+    }
+    remove?: Array<string>
+    enable?: {
+      [key: string]: boolean
+    }
+  }
+  path?: never
+  query?: never
+  url: "/global/config/mcp"
+}
+
+export type GlobalConfigEditMcpErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalConfigEditMcpError = GlobalConfigEditMcpErrors[keyof GlobalConfigEditMcpErrors]
+
+export type GlobalConfigEditMcpResponses = {
+  /**
+   * Success
+   */
+  200: {
+    changed: boolean
+    missing: Array<string>
+  }
+}
+
+export type GlobalConfigEditMcpResponse = GlobalConfigEditMcpResponses[keyof GlobalConfigEditMcpResponses]
 
 export type GlobalHealthData = {
   body?: never
