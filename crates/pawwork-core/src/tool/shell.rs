@@ -193,7 +193,8 @@ async fn run_command(
     };
     #[cfg(windows)]
     let mut builder = {
-        use std::os::windows::process::CommandExt;
+        // `raw_arg` is inherent on tokio's `Command` (no std `CommandExt` import
+        // needed): append the command line verbatim, bypassing the default escaping.
         let mut builder = Command::new("cmd");
         // Hand the command line to cmd verbatim. Rust's normal `.arg()` escaping
         // targets CommandLineToArgvW, but `cmd /C` parses by different rules, so
