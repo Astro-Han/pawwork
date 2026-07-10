@@ -32,7 +32,15 @@ permissions:
 
 jobs:
   rust:
-    runs-on: ubuntu-latest
+    # Both targets the Rust line supports: linux (primary) and windows. The windows
+    # leg is load-bearing — the shell tool's `cmd`/`taskkill` path and the
+    # `ReplaceFileW` atomic replace are `cfg(windows)`, so only a windows runner
+    # compiles, lints, and tests them.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # actions/checkout@v7.0.0

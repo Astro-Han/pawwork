@@ -5,8 +5,8 @@
 //! - [`llm`] — the [`llm::LlmClient`] boundary plus a scripted mock.
 //! - [`openai_compat`] — a hand-written streaming client that implements
 //!   [`llm::LlmClient`] against any OpenAI-compatible chat/completions endpoint.
-//! - [`tool`] — the [`tool::Tool`] boundary, a runtime registry, and the
-//!   read-only `read`/`list` tools with their workspace path fence.
+//! - [`tool`] — the [`tool::Tool`] boundary, a runtime registry, and the built-in
+//!   tools (`read`, `edit`, `write`, `shell`) with their workspace path fence.
 //! - [`permission`] — the [`permission::PermissionGate`] callback boundary.
 //! - [`agent`] — the turn loop that wires them together, appends ledger events,
 //!   and mirrors them onto a wire event stream.
