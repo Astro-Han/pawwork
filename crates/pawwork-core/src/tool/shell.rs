@@ -88,13 +88,12 @@ impl Tool for ShellTool {
         #[cfg(windows)]
         {
             "Run one shell command via cmd.exe (cmd /C) in the workspace directory, \
-             using Windows cmd syntax (not POSIX). The console output code page is set \
-             to UTF-8 (chcp 65001) before the command runs. stdin is closed and \
-             stdout/stderr are captured (truncated if large) and returned. Use it for \
-             terminal operations like git, build, and test commands, not for reading, \
-             writing, or listing files (use read/write/edit). A non-zero exit is \
-             returned as an error including the captured output; the command runs to a \
-             timeout and requires confirmation."
+             using Windows cmd syntax (not POSIX). stdin is closed and stdout/stderr \
+             are captured (truncated if large) and returned. Use it for terminal \
+             operations like git, build, and test commands, not for reading, writing, \
+             or listing files (use read/write/edit). A non-zero exit is returned as \
+             an error including the captured output; the command runs to a timeout \
+             and requires confirmation."
         }
     }
 
@@ -212,7 +211,7 @@ async fn run_command(
         );
     }
     // Pick the platform shell: unix runs `/bin/sh -c <command>`, windows runs
-    // `cmd /D /S /C "chcp 65001>nul & <command>"` (see the windows branch below).
+    // `cmd /D /S /C "<command>"` (verbatim, see the windows branch below).
     #[cfg(unix)]
     let mut builder = {
         let mut builder = Command::new("/bin/sh");
@@ -230,21 +229,18 @@ async fn run_command(
         // *different* command than the approved `PreparedCall` (e.g. a
         // `git commit -m "msg"`). `raw_arg` appends without escaping; `/S` makes cmd
         // strip exactly the outer quotes and run the remainder literally, so the
-        // approved command line is what actually executes. `/D` disables execution
-        // of the `Command Processor\AutoRun` registry value, which `cmd` would
-        // otherwise run *before* the approved command — a side effect absent from the
-        // `PreparedCall` the user approved, defeating the exact-command guarantee.
+        // approved command line — and nothing else — is what actually executes. `/D`
+        // disables execution of the `Command Processor\AutoRun` registry value, which
+        // `cmd` would otherwise run *before* the approved command — a side effect
+        // absent from the `PreparedCall` the user approved, defeating the exact-command
+        // guarantee.
         //
-        // `chcp 65001>nul &` normalizes the *output* encoding to UTF-8 up front. One
-        // redirected pipe otherwise carries two encodings with no in-band marker —
-        // cmd built-ins emit the OEM code page (e.g. GBK), modern tools emit UTF-8 —
-        // and no decode-side heuristic can tell them apart (GBK `一` is bytes D2 BB,
-        // which is *also* valid UTF-8). Forcing the console output code page to 65001
-        // makes every writer emit UTF-8, so the capture decodes unambiguously. The
-        // `>nul` swallows chcp's own "Active code page" line; `&` (not `&&`) still runs
-        // the command even on the rare host where chcp fails. This is a deterministic,
-        // disclosed prefix (see `description`), not a hidden extra action.
-        builder.raw_arg(format!("/D /S /C \"chcp 65001>nul & {command}\""));
+        // No encoding-normalization prefix (e.g. `chcp 65001`) is injected here: it
+        // would run a command the permission gate never approved *and* persistently
+        // mutate the shared console's code page. Output is instead decoded lossily as
+        // UTF-8 (see `render`); the residual mojibake for non-ASCII output under a
+        // legacy console code page is a documented limitation.
+        builder.raw_arg(format!("/D /S /C \"{command}\""));
         builder
     };
     builder
@@ -409,10 +405,14 @@ fn take_capture(slot: &CaptureSlot, abandoned: bool) -> Captured {
 }
 
 fn render(stream: Captured) -> String {
-    // Output is UTF-8 on every target: unix by convention, and windows because the
-    // shell is launched with `chcp 65001` forcing the console output code page to
-    // UTF-8 (see the windows builder branch). A lossy decode degrades a stray invalid
-    // byte to U+FFFD rather than dropping the whole result.
+    // Decode as UTF-8, lossily. On unix output is UTF-8 by convention. On windows a
+    // console using a legacy code page (e.g. GBK) emits non-UTF-8 bytes for non-ASCII
+    // cmd built-in output, which degrade to U+FFFD here — a documented limitation:
+    // the fully-correct fix (a UTF-8 pseudo-console / ConPTY) is deferred, since the
+    // lighter alternatives are worse (a decode-side heuristic cannot disambiguate
+    // GBK from UTF-8, and injecting `chcp` both escapes the approved action and
+    // persistently mutates the user's console code page). ASCII — the overwhelmingly
+    // common case for command output — is unaffected either way.
     let mut text = String::from_utf8_lossy(&stream.bytes).into_owned();
     if stream.truncated {
         text.push_str("\n… [truncated]");
