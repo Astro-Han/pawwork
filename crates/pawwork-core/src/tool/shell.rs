@@ -184,7 +184,7 @@ async fn run_command(
     timeout: Duration,
 ) -> ToolResult {
     // Pick the platform shell: unix runs `/bin/sh -c <command>`, windows runs
-    // `cmd /S /C "<command>"` (verbatim, see the windows branch below).
+    // `cmd /D /S /C "<command>"` (verbatim, see the windows branch below).
     #[cfg(unix)]
     let mut builder = {
         let mut builder = Command::new("/bin/sh");
@@ -202,8 +202,11 @@ async fn run_command(
         // *different* command than the approved `PreparedCall` (e.g. a
         // `git commit -m "msg"`). `raw_arg` appends without escaping; `/S` makes cmd
         // strip exactly the outer quotes and run the remainder literally, so the
-        // approved command line is what actually executes.
-        builder.raw_arg(format!("/S /C \"{command}\""));
+        // approved command line is what actually executes. `/D` disables execution
+        // of the `Command Processor\AutoRun` registry value, which `cmd` would
+        // otherwise run *before* the approved command — a side effect absent from the
+        // `PreparedCall` the user approved, defeating the exact-command guarantee.
+        builder.raw_arg(format!("/D /S /C \"{command}\""));
         builder
     };
     builder

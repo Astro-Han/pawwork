@@ -98,6 +98,22 @@ pub fn resolve_new_in_workspace(root: &Path, requested: &str) -> Result<PathBuf,
         return Ok(canonical);
     }
 
+    // A dangling symlink (one whose target does not exist) makes `exists()` false
+    // above, so without this guard it would fall through to the create branch and
+    // `atomic_write` would silently `rename` a regular file over the link — deleting
+    // it — while a *live* symlink is instead canonicalized and followed by the branch
+    // above. Detect the link via `symlink_metadata` (which does not follow it) and
+    // reject it, so the two cases stay consistent and this fails closed rather than
+    // clobbering a link the caller never named a file.
+    if candidate
+        .symlink_metadata()
+        .is_ok_and(|meta| meta.file_type().is_symlink())
+    {
+        return Err(format!(
+            "path '{requested}' is a dangling symlink, not a file"
+        ));
+    }
+
     // The create case. `file_name` returns `None` for a path ending in `.` or
     // `..` (and for the root), so a final component that is not a real filename is
     // rejected before we touch the filesystem.
@@ -348,5 +364,25 @@ mod tests {
             "a symlinked parent escaping the root must be rejected, got: {err}"
         );
         fs::remove_dir_all(&outside).ok();
+    }
+
+    #[test]
+    fn dangling_symlink_target_is_rejected() {
+        let ws = TempWorkspace::new();
+        // A symlink inside the workspace whose target does not exist: `exists()` is
+        // false, so without the guard this would be treated as a fresh create and the
+        // subsequent atomic rename would silently clobber the link. It must be
+        // rejected instead.
+        let missing = ws.root.join("nonexistent-target");
+        let link = ws.root.join("dangling.txt");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&missing, &link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&missing, &link).unwrap();
+        let err = resolve_new_in_workspace(&ws.root, "dangling.txt").unwrap_err();
+        assert!(
+            err.contains("dangling symlink"),
+            "a dangling symlink target must be rejected, got: {err}"
+        );
     }
 }
