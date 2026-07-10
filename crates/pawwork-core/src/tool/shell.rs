@@ -815,16 +815,37 @@ mod tests {
         );
     }
 
-    #[test]
-    fn render_decodes_utf8_output() {
-        // Output is UTF-8 on every target (unix by convention; windows via the
-        // chcp-65001 normalization), so multi-byte text must survive intact.
-        let captured = Captured {
-            head: "café — 日本語".as_bytes().to_vec(),
+    fn captured_from(bytes: &[u8]) -> Captured {
+        Captured {
+            head: bytes.to_vec(),
             tail: VecDeque::new(),
             dropped: 0,
             abandoned: false,
-        };
-        assert_eq!(render(captured), "café — 日本語");
+        }
+    }
+
+    #[test]
+    fn render_passes_ascii_through_unchanged() {
+        // ASCII decodes identically under every code page, so this holds on unix and
+        // on windows regardless of the active console code page — unlike a hard-coded
+        // multi-byte UTF-8 fixture, which windows decodes per code page.
+        assert_eq!(
+            render(captured_from(b"ok: build passed [42/42]")),
+            "ok: build passed [42/42]"
+        );
+    }
+
+    // Multi-byte UTF-8 is only guaranteed to round-trip where output is decoded as
+    // UTF-8: unix always is. On windows `render` decodes with the active console code
+    // page (`GetConsoleOutputCP`), so these exact UTF-8 bytes would decode differently
+    // under a legacy code page — asserting them there would wrongly fail a local
+    // `cargo test`.
+    #[cfg(not(windows))]
+    #[test]
+    fn render_decodes_multibyte_utf8_output() {
+        assert_eq!(
+            render(captured_from("café — 日本語".as_bytes())),
+            "café — 日本語"
+        );
     }
 }
