@@ -36,7 +36,7 @@ fn string_arg<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
 }
 
 /// Write `content` to `path` atomically: stage it in a uniquely-named sibling temp
-/// file in the same directory, then `rename` over the target. `rename` within one
+/// file in the same directory, then swap it over the target. The swap within one
 /// directory is atomic on the platforms we target, so a concurrent reader sees
 /// either the old file or the new one, never a partial write. No `fsync`:
 /// durability across a crash is an explicitly deferred concern. The temp file is
@@ -51,22 +51,83 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
         std::fs::remove_file(&temp).ok();
         return Err(format!("write failed: {err}"));
     }
-    if let Err(err) = std::fs::rename(&temp, path) {
+    if let Err(err) = commit_replace(&temp, path, existing.is_some()) {
         std::fs::remove_file(&temp).ok();
         return Err(format!("write failed: {err}"));
     }
     Ok(())
 }
 
+/// Swap the staged temp file over the target.
+///
+/// A create (no prior target) has no security descriptor to keep, so a plain
+/// `rename` is correct on every platform. Replacing an *existing* file is where
+/// the platforms diverge: on unix `rename` keeps the inode's permissions the temp
+/// already carries (see [`write_temp`]); on windows `rename` (MoveFileEx) installs
+/// the *temp's* ACL and drops the target's, silently widening access when the
+/// target was more restricted than its parent. `ReplaceFileW` is the call that
+/// preserves the replaced file's ACL and attributes, so windows routes a replace
+/// through it.
+fn commit_replace(temp: &Path, target: &Path, target_existed: bool) -> std::io::Result<()> {
+    #[cfg(windows)]
+    if target_existed {
+        return replace_file_win(temp, target);
+    }
+    #[cfg(not(windows))]
+    let _ = target_existed;
+    std::fs::rename(temp, target)
+}
+
+/// Windows replace that keeps the target's ACL and attributes (`ReplaceFileW`),
+/// unlike `rename`. Only reached when the target already exists.
+#[cfg(windows)]
+fn replace_file_win(temp: &Path, target: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{ReplaceFileW, REPLACEFILE_IGNORE_MERGE_ERRORS};
+
+    fn wide(path: &Path) -> Vec<u16> {
+        path.as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+    let replaced = wide(target);
+    let replacement = wide(temp);
+    // Safety: both pointers are valid, null-terminated UTF-16 buffers that live for
+    // the duration of the call; the backup/exclude/reserved params are null per the
+    // API contract. IGNORE_MERGE_ERRORS keeps the replace from failing on a
+    // best-effort metadata merge while still applying the target's security.
+    let ok = unsafe {
+        ReplaceFileW(
+            replaced.as_ptr(),
+            replacement.as_ptr(),
+            std::ptr::null(),
+            REPLACEFILE_IGNORE_MERGE_ERRORS,
+            std::ptr::null(),
+            std::ptr::null(),
+        )
+    };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// Stage the temp file without ever being more readable than the final target.
 ///
-/// The rename installs the temp's inode, so the target's permissions must be
-/// carried onto the temp or a 0755 script turns non-executable and a 0600 file
-/// widens to the umask default. Order matters for secrecy too: when replacing an
-/// existing file the temp is *created* 0600 (unix) before any content is written,
-/// then tightened/relaxed to the target's exact mode — so there is no window (or
-/// crash residue) in which private content sits in a default-mode temp. A missing
-/// target is a create, where the default umask mode matches the final state.
+/// On unix the swap ([`commit_replace`]) is a `rename` that installs the temp's
+/// inode, so the target's permissions must be carried onto the temp or a 0755
+/// script turns non-executable and a 0600 file widens to the umask default. Order
+/// matters for secrecy too: when replacing an existing file the temp is *created*
+/// 0600 before any content is written, then tightened/relaxed to the target's exact
+/// mode — so there is no window (or crash residue) in which private content sits in
+/// a default-mode temp. A missing target is a create, where the default umask mode
+/// matches the final state.
+///
+/// On windows the temp's permissions are left alone here: the swap goes through
+/// `ReplaceFileW`, which applies the *target's* ACL and attributes to the result,
+/// so copying anything onto the temp would be redundant (and would risk a read-only
+/// temp that the replace could choke on).
 fn write_temp(
     temp: &Path,
     content: &[u8],
@@ -84,9 +145,12 @@ fn write_temp(
     let mut file = options.open(temp)?;
     file.write_all(content)?;
     drop(file);
+    #[cfg(unix)]
     if let Some(metadata) = existing {
         std::fs::set_permissions(temp, metadata.permissions())?;
     }
+    #[cfg(not(unix))]
+    let _ = existing;
     Ok(())
 }
 

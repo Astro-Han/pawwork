@@ -25,6 +25,14 @@ tokio = { version = "1", default-features = false, features = ["sync"] }
 # Process-group kill for the shell tool (kill(2) with a negative pgid). Pulled in
 # only on unix, via pawwork-core's [target.'cfg(unix)'.dependencies].
 libc = "0.2"
+# Windows-only FFI: `ReplaceFileW` (atomic replace that preserves the target's ACL
+# and attributes, which `rename`/`MoveFileEx` drops). Pulled in only on windows,
+# via pawwork-core's [target.'cfg(windows)'.dependencies]. Feature-gated to the two
+# modules we touch so the build graph stays minimal.
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+] }
 # CancellationToken (cooperative interruption; child tokens are the future
 # subagent shape). Preferred over a hand-rolled watch channel.
 tokio-util = { version = "0.7", default-features = false }

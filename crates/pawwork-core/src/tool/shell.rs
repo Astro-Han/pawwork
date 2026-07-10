@@ -7,10 +7,10 @@
 //! and the user approves the exact command line before it runs.
 //!
 //! Runtime discipline:
-//! - Each call spawns `/bin/sh -c <command>` with `current_dir` set to the
-//!   workspace root, stdin closed (`Stdio::null`, so a command that reads stdin —
-//!   `cat` — sees EOF and terminates instead of hanging the turn), and stdout /
-//!   stderr piped.
+//! - Each call spawns the platform shell — `/bin/sh -c <command>` on unix, `cmd /C
+//!   <command>` on windows — with `current_dir` set to the workspace root, stdin
+//!   closed (`Stdio::null`, so a command that reads stdin sees EOF and terminates
+//!   instead of hanging the turn), and stdout / stderr piped.
 //! - stdout and stderr are drained concurrently, each capped at
 //!   [`MAX_SHELL_CAPTURE`]. The drain *keeps reading and discarding* past the cap,
 //!   so a chatty child never blocks on a full pipe (which would deadlock against
@@ -22,8 +22,9 @@
 //! - A [`ShellTool::timeout`] and the turn's [`CancellationToken`] both race the
 //!   process; either one kills the whole process tree and returns `Err`. Tree kill
 //!   is best-effort: on unix we `SIGKILL` the negative process-group id (the child
-//!   leads its own group via `process_group(0)`), then also call `child.kill()` as
-//!   a fallback; on other platforms only `child.kill()` is available.
+//!   leads its own group via `process_group(0)`), on windows we `taskkill /T /F`
+//!   the pid tree, and both then also call `child.kill()` as a fallback; on other
+//!   platforms only `child.kill()` is available.
 
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -161,16 +162,28 @@ async fn run_command(
     cancel: CancellationToken,
     timeout: Duration,
 ) -> ToolResult {
-    let mut builder = Command::new("/bin/sh");
+    // Pick the platform shell: unix runs `/bin/sh -c <command>`, windows runs
+    // `cmd /C <command>`. Both take the whole command line as one argument.
+    #[cfg(unix)]
+    let mut builder = {
+        let mut builder = Command::new("/bin/sh");
+        builder.arg("-c").arg(&command);
+        builder
+    };
+    #[cfg(windows)]
+    let mut builder = {
+        let mut builder = Command::new("cmd");
+        builder.arg("/C").arg(&command);
+        builder
+    };
     builder
-        .arg("-c")
-        .arg(&command)
         .current_dir(&workspace_root)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    // Put the child in its own process group so a timeout / cancel can kill the
-    // whole tree, not just the leader.
+    // On unix, put the child in its own process group so a timeout / cancel can kill
+    // the whole tree, not just the leader. Windows has no process groups; tree kill
+    // there goes through `taskkill /T` by pid (see `kill_tree`), so nothing to set.
     #[cfg(unix)]
     builder.process_group(0);
 
@@ -331,7 +344,9 @@ fn render(stream: Captured) -> String {
 
 /// Best-effort kill of the whole process tree. On unix, `SIGKILL` the negative
 /// process-group id (set up via `process_group(0)`), then also `child.kill()` as a
-/// fallback; elsewhere only `child.kill()` is available.
+/// fallback. On windows, `taskkill /T /F` terminates the pid's whole tree (the
+/// `cmd` leader and anything it spawned), then `child.kill()` as a fallback.
+/// Elsewhere only `child.kill()` is available.
 async fn kill_tree(child: &mut Child, pid: Option<u32>) {
     #[cfg(unix)]
     if let Some(pid) = pid {
@@ -341,7 +356,20 @@ async fn kill_tree(child: &mut Child, pid: Option<u32>) {
             libc::kill(-(pid as i32), libc::SIGKILL);
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    if let Some(pid) = pid {
+        // Windows has no process-group signal; `taskkill /T` walks the pid tree and
+        // `/F` forces termination. Best-effort, mirroring the unix group kill: its
+        // own output is discarded and a failure falls through to `child.kill()`.
+        let _ = Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await;
+    }
+    #[cfg(not(any(unix, windows)))]
     let _ = pid;
     let _ = child.kill().await;
 }
@@ -364,6 +392,47 @@ mod tests {
         }
     }
 
+    /// A command that runs long enough (~30s) to be killed by a short timeout or a
+    /// cancel. Unix has `sleep`; windows has no `sleep` builtin, so a 31-ping loop
+    /// (~30s at one ping/second) stands in.
+    fn long_running() -> &'static str {
+        #[cfg(unix)]
+        {
+            "sleep 30"
+        }
+        #[cfg(windows)]
+        {
+            "ping -n 31 127.0.0.1"
+        }
+    }
+
+    /// A command that writes to both stdout and stderr, so capture + `[stderr]`
+    /// labelling can be checked. The command separator differs: `;` on unix, `&` on
+    /// windows `cmd`.
+    fn writes_both_streams() -> &'static str {
+        #[cfg(unix)]
+        {
+            "echo out; echo err 1>&2"
+        }
+        #[cfg(windows)]
+        {
+            "echo out& echo err 1>&2"
+        }
+    }
+
+    /// A command that reads stdin to EOF and then exits, proving a closed stdin does
+    /// not hang the turn: `cat` on unix, `sort` on windows.
+    fn reads_stdin() -> &'static str {
+        #[cfg(unix)]
+        {
+            "cat"
+        }
+        #[cfg(windows)]
+        {
+            "sort"
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn echo_returns_stdout() {
         let tool = ShellTool::new(DEFAULT_SHELL_TIMEOUT);
@@ -375,7 +444,7 @@ mod tests {
     async fn stderr_is_captured_and_labelled() {
         let tool = ShellTool::new(DEFAULT_SHELL_TIMEOUT);
         let out = tool
-            .run(&ctx(), &prepared("echo out; echo err 1>&2"))
+            .run(&ctx(), &prepared(writes_both_streams()))
             .await
             .unwrap();
         assert!(out.contains("out"), "stdout present, got: {out}");
@@ -395,12 +464,15 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn command_reading_stdin_terminates() {
-        // stdin is closed, so `cat` sees EOF and exits instead of hanging.
+        // stdin is closed, so a stdin reader sees EOF and exits instead of hanging.
         let tool = ShellTool::new(Duration::from_secs(5));
-        let out = tool.run(&ctx(), &prepared("cat")).await.unwrap();
-        assert_eq!(out, "", "cat on empty stdin yields no output");
+        let out = tool.run(&ctx(), &prepared(reads_stdin())).await.unwrap();
+        assert_eq!(out, "", "a stdin reader on empty input yields no output");
     }
 
+    // Unix-only: the drain-cap logic is platform-agnostic Rust; a clean `yes | head`
+    // flood exercises it without leaning on a fragile `cmd` output loop on windows.
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread")]
     async fn large_output_is_truncated_but_command_completes() {
         // ~100 KiB of output, well past the 32 KiB cap: the drain keeps reading so
@@ -418,6 +490,10 @@ mod tests {
         );
     }
 
+    // Unix-only: relies on `&` job-control backgrounding a `sleep` that inherits the
+    // pipe. `cmd` has no equivalent one-liner; the abandon-drain logic it exercises
+    // is platform-agnostic and covered here.
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread")]
     async fn background_survivor_does_not_pin_the_turn() {
         // The command exits immediately but backgrounds a `sleep` that inherits
@@ -446,7 +522,7 @@ mod tests {
         let tool = ShellTool::new(Duration::from_millis(200));
         let started = Instant::now();
         let err = tool
-            .run(&ctx(), &prepared("sleep 30"))
+            .run(&ctx(), &prepared(long_running()))
             .await
             .expect_err("a timed-out command must be an error");
         assert!(err.contains("timed out"), "got: {err}");
@@ -462,7 +538,7 @@ mod tests {
         let context = ctx();
         let cancel = context.cancel.clone();
         let tool = ShellTool::new(Duration::from_secs(30));
-        let call = prepared("sleep 30");
+        let call = prepared(long_running());
         let started = Instant::now();
         let canceller = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(200)).await;

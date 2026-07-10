@@ -30,6 +30,12 @@ reqwest.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
+# `edit`/`write` replace a file atomically. On windows `rename` (MoveFileEx) drops
+# the target's ACL; `ReplaceFileW` keeps it. std does not expose that call, so the
+# windows-sys shim is pulled in only here, on windows.
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
 [dev-dependencies]
 # Tests drive the async loop and the shell tool on a multi-thread runtime and
 # validate the Send discipline. `rt-multi-thread` is dev-only; the lib itself
