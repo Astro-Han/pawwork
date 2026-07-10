@@ -4,10 +4,15 @@ import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { BadRequestError } from "./common"
 
+// `optionalKey` (not `optional`) so the published contract is "key may be
+// omitted" rather than "value may be null": `Schema.optional` would also admit
+// `undefined`, which serializes to a nullable field in OpenAPI/SDK, yet the
+// handler's zod validator rejects an explicit `null` with a 400. Keeping these
+// non-nullable makes the documented payload and the runtime validation agree.
 export const EditMcpConfigPayload = Schema.Struct({
-  set: Schema.optional(Schema.Record(Schema.String, ConfigMCP.Info)),
-  remove: Schema.optional(Schema.Array(Schema.String)),
-  enable: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)),
+  set: Schema.optionalKey(Schema.Record(Schema.String, ConfigMCP.Info)),
+  remove: Schema.optionalKey(Schema.Array(Schema.String)),
+  enable: Schema.optionalKey(Schema.Record(Schema.String, Schema.Boolean)),
 })
 
 export const EditMcpConfigResponse = Schema.Struct({

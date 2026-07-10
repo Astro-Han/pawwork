@@ -502,11 +502,11 @@ export class Config extends HeyApiClient {
     parameters?: {
       set?: {
         [key: string]: McpLocalConfig | McpRemoteConfig
-      } | null
-      remove?: Array<string> | null
+      }
+      remove?: Array<string>
       enable?: {
         [key: string]: boolean
-      } | null
+      }
     },
     options?: Options<never, ThrowOnError>,
   ) {

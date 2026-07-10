@@ -2968,11 +2968,11 @@ export type GlobalConfigEditMcpData = {
   body: {
     set?: {
       [key: string]: McpLocalConfig | McpRemoteConfig
-    } | null
-    remove?: Array<string> | null
+    }
+    remove?: Array<string>
     enable?: {
       [key: string]: boolean
-    } | null
+    }
   }
   path?: never
   query?: never
