@@ -72,21 +72,42 @@ impl Tool for ShellTool {
     }
 
     fn description(&self) -> &str {
-        "Run one shell command via /bin/sh -c in the workspace directory. stdin is \
-         closed and stdout/stderr are captured (truncated if large) and returned. \
-         Use it for terminal operations like git, build, and test commands, not for \
-         reading, writing, or listing files (use read/write/edit). A non-zero exit \
-         is returned as an error including the captured output; the command runs to \
-         a timeout and requires confirmation."
+        // Name the actual platform shell so the model writes syntax that runs: POSIX
+        // for `/bin/sh` on unix, cmd.exe syntax on windows (`dir`, no single quotes,
+        // `nul` not `/dev/null`).
+        #[cfg(not(windows))]
+        {
+            "Run one shell command via /bin/sh -c in the workspace directory, using \
+             POSIX shell syntax. stdin is closed and stdout/stderr are captured \
+             (truncated if large) and returned. Use it for terminal operations like \
+             git, build, and test commands, not for reading, writing, or listing \
+             files (use read/write/edit). A non-zero exit is returned as an error \
+             including the captured output; the command runs to a timeout and \
+             requires confirmation."
+        }
+        #[cfg(windows)]
+        {
+            "Run one shell command via cmd.exe (cmd /C) in the workspace directory, \
+             using Windows cmd syntax (not POSIX). stdin is closed and stdout/stderr \
+             are captured (truncated if large) and returned. Use it for terminal \
+             operations like git, build, and test commands, not for reading, writing, \
+             or listing files (use read/write/edit). A non-zero exit is returned as \
+             an error including the captured output; the command runs to a timeout \
+             and requires confirmation."
+        }
     }
 
     fn parameters(&self) -> Value {
+        #[cfg(not(windows))]
+        let command_desc = "The command line to run, as a single /bin/sh -c string.";
+        #[cfg(windows)]
+        let command_desc = "The command line to run, as a single cmd /C string.";
         json!({
             "type": "object",
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "The command line to run, as a single /bin/sh -c string."
+                    "description": command_desc
                 }
             },
             "required": ["command"],
@@ -163,7 +184,7 @@ async fn run_command(
     timeout: Duration,
 ) -> ToolResult {
     // Pick the platform shell: unix runs `/bin/sh -c <command>`, windows runs
-    // `cmd /C <command>`. Both take the whole command line as one argument.
+    // `cmd /S /C "<command>"` (verbatim, see the windows branch below).
     #[cfg(unix)]
     let mut builder = {
         let mut builder = Command::new("/bin/sh");
@@ -172,8 +193,16 @@ async fn run_command(
     };
     #[cfg(windows)]
     let mut builder = {
+        use std::os::windows::process::CommandExt;
         let mut builder = Command::new("cmd");
-        builder.arg("/C").arg(&command);
+        // Hand the command line to cmd verbatim. Rust's normal `.arg()` escaping
+        // targets CommandLineToArgvW, but `cmd /C` parses by different rules, so
+        // `.arg(&command)` would rewrite embedded quotes/metacharacters into a
+        // *different* command than the approved `PreparedCall` (e.g. a
+        // `git commit -m "msg"`). `raw_arg` appends without escaping; `/S` makes cmd
+        // strip exactly the outer quotes and run the remainder literally, so the
+        // approved command line is what actually executes.
+        builder.raw_arg(format!("/S /C \"{command}\""));
         builder
     };
     builder

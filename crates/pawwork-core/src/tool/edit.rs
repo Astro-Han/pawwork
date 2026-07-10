@@ -41,6 +41,21 @@ fn string_arg<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
 /// either the old file or the new one, never a partial write. No `fsync`:
 /// durability across a crash is an explicitly deferred concern. The temp file is
 /// removed on any failure so a stray partial write is never left behind.
+///
+/// Known metadata-preservation limits of the stage-then-swap pattern (both marginal
+/// in the M0 single-user, local workspace threat model; fully closing either needs
+/// security-descriptor FFI CI cannot verify on a single-user runner, so they are
+/// tracked, not yet done):
+/// - unix: the classic mode bits (rwx, incl. the executable and 0600 bits) are
+///   carried across, but POSIX *extended* ACLs (`setfacl`) and owner/group identity
+///   are not — the temp is a fresh inode owned by the current user. Editing a file
+///   with an extended ACL, or one owned by another user via group-write, can change
+///   who may read/execute it.
+/// - windows: the *final* file gets the target's ACL (`ReplaceFileW`, fail-closed),
+///   but the staging temp briefly holds the parent directory's inherited ACL while
+///   `write_all` runs. On a multi-user machine another user with directory access
+///   could read that temp mid-write, or find it after a hard crash. Closing this
+///   needs creating the temp with a restrictive/target DACL up front.
 fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
     let parent = path
         .parent()
@@ -83,7 +98,7 @@ fn commit_replace(temp: &Path, target: &Path, target_existed: bool) -> std::io::
 #[cfg(windows)]
 fn replace_file_win(temp: &Path, target: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::{ReplaceFileW, REPLACEFILE_IGNORE_MERGE_ERRORS};
+    use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
 
     fn wide(path: &Path) -> Vec<u16> {
         path.as_os_str()
@@ -93,16 +108,21 @@ fn replace_file_win(temp: &Path, target: &Path) -> std::io::Result<()> {
     }
     let replaced = wide(target);
     let replacement = wide(temp);
+    // Fail closed: pass zero flags so that if `ReplaceFileW` cannot carry the
+    // target's ACL/attributes onto the result it returns an error instead of
+    // silently keeping the temp's (parent-inherited, possibly broader) ACL. A
+    // failed replace surfaces as "write failed" and the temp is cleaned up — better
+    // than an approved edit quietly widening who can read the file.
+    //
     // Safety: both pointers are valid, null-terminated UTF-16 buffers that live for
     // the duration of the call; the backup/exclude/reserved params are null per the
-    // API contract. IGNORE_MERGE_ERRORS keeps the replace from failing on a
-    // best-effort metadata merge while still applying the target's security.
+    // API contract.
     let ok = unsafe {
         ReplaceFileW(
             replaced.as_ptr(),
             replacement.as_ptr(),
             std::ptr::null(),
-            REPLACEFILE_IGNORE_MERGE_ERRORS,
+            0,
             std::ptr::null(),
             std::ptr::null(),
         )
