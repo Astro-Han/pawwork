@@ -90,5 +90,11 @@ export function registerBrowserIpc(deps: { sessionIDForWindow: (windowID: number
     await partition.clearCache()
     for (const controller of browserControllers.all()) controller.reloadIfLoaded()
   })
+  // Page zoom only — does not touch the app shell zoom factor. No-op without a
+  // live controller (nothing to zoom until a page exists for this target).
+  ipcMain.handle("browser:zoom", (event, target: string, action: "in" | "out" | "reset") => {
+    if (action !== "in" && action !== "out" && action !== "reset") return
+    existing(event, target)?.zoom(action)
+  })
   ipcMain.handle("browser:get-state", (event, target: string) => existing(event, target)?.state() ?? null)
 }

@@ -81,6 +81,8 @@ export function BrowserPanel(props: {
   const hasPage = () => state()?.hasPage ?? false
   const loading = () => state()?.loading ?? false
   const secure = () => state()?.secure ?? false
+  const zoomFactor = () => state()?.zoomFactor ?? 1
+  const zoomPercent = () => `${Math.round(zoomFactor() * 100)}%`
   const address = createMemo(() => formatAddress(url()))
 
   // Hide the native overlay whenever something must paint above it: an app modal,
@@ -288,6 +290,53 @@ export function BrowserPanel(props: {
                 <Icon name="copy" />
                 <DropdownMenu.ItemLabel>{language.t("browser.action.copyLink")}</DropdownMenu.ItemLabel>
               </DropdownMenu.Item>
+              {/* Codex-style zoom row: label + − / percent / + / reset. Pointer-down
+                  preventDefault keeps the menu open while stepping zoom. */}
+              <div
+                class="flex items-center justify-between gap-2 min-h-[30px] px-2 rounded-md select-none"
+                onPointerDown={(event) => event.preventDefault()}
+              >
+                <span class="text-caption font-emphasis text-fg-strong">{language.t("browser.action.zoom")}</span>
+                <div
+                  class="flex items-center h-7 rounded-full border border-border-weaker bg-bg-base overflow-hidden"
+                  classList={{ "opacity-50 pointer-events-none": !hasPage() }}
+                >
+                  <button
+                    type="button"
+                    class="flex items-center justify-center w-7 h-7 text-fg-strong hover:bg-row-hover-overlay disabled:pointer-events-none"
+                    aria-label={language.t("browser.action.zoomOut")}
+                    disabled={!hasPage()}
+                    onClick={() => void bridge.zoom(props.target(), "out")}
+                  >
+                    −
+                  </button>
+                  <span
+                    class="min-w-10 px-1 text-center text-caption tabular-nums text-fg-strong"
+                    aria-live="polite"
+                    aria-label={language.t("browser.action.zoomLevel", { percent: zoomPercent() })}
+                  >
+                    {zoomPercent()}
+                  </span>
+                  <button
+                    type="button"
+                    class="flex items-center justify-center w-7 h-7 text-fg-strong hover:bg-row-hover-overlay disabled:pointer-events-none"
+                    aria-label={language.t("browser.action.zoomIn")}
+                    disabled={!hasPage()}
+                    onClick={() => void bridge.zoom(props.target(), "in")}
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    class="flex items-center justify-center w-7 h-7 text-fg-strong hover:bg-row-hover-overlay border-l border-border-weaker disabled:pointer-events-none"
+                    aria-label={language.t("browser.action.zoomReset")}
+                    disabled={!hasPage() || Math.round(zoomFactor() * 100) === 100}
+                    onClick={() => void bridge.zoom(props.target(), "reset")}
+                  >
+                    <Icon name="reset" />
+                  </button>
+                </div>
+              </div>
               <DropdownMenu.Separator />
               <DropdownMenu.Item class="text-error" onSelect={confirmClearData}>
                 <Icon name="trash" />

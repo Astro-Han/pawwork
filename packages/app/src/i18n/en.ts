@@ -646,6 +646,11 @@ export const dict = {
   "browser.action.more": "More",
   "browser.action.openExternal": "Open in system browser",
   "browser.action.copyLink": "Copy link",
+  "browser.action.zoom": "Zoom",
+  "browser.action.zoomIn": "Zoom in",
+  "browser.action.zoomOut": "Zoom out",
+  "browser.action.zoomReset": "Reset zoom",
+  "browser.action.zoomLevel": "Zoom {{percent}}",
   "browser.action.clearData": "Clear browsing data",
   "browser.closePage.title": "Close this page?",
   "browser.closePage.description":

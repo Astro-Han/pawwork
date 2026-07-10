@@ -3,13 +3,17 @@ import type { BrowserState, BrowserViewLayout } from "@opencode-ai/app/desktop-a
 import { BROWSER_PARTITION, browserViewWebPreferences } from "./options"
 import { configurePartitionUserAgent } from "./user-agent"
 import {
+  clampPageZoom,
   clearDataReloadAction,
   computeViewBounds,
   deriveBrowserState,
   displayDecision,
   isDefaultGrantedPermission,
+  PAGE_ZOOM_DEFAULT,
   parseNavigable,
+  resolvePageZoom,
   safeExternalUrl,
+  type PageZoomAction,
 } from "./logic"
 import { CdpBridge, type AutomationEndpoint } from "./cdp-bridge"
 import { draftWindowID, rendererTarget } from "./registry"
@@ -54,6 +58,10 @@ export class BrowserViewController {
   private automation: CdpBridge | null = null
   /** Saved throttling value while automation holds it off; null = not held. */
   private throttlingBefore: boolean | null = null
+  /** Page zoom for this conversation's WebContents (1 = 100%). Shell zoom is separate. */
+  private pageZoom = PAGE_ZOOM_DEFAULT
+  /** True while we apply zoom ourselves so zoom-changed does not re-enter. */
+  private applyingPageZoom = false
 
   constructor(private target: string) {
     // Configure the partition UA before the view exists, so its very first
@@ -62,6 +70,7 @@ export class BrowserViewController {
     this.view = new WebContentsView({ webPreferences: browserViewWebPreferences() })
     this.view.setVisible(false)
     this.view.setBounds(DEFAULT_VIEW_BOUNDS)
+    this.wc.setZoomFactor(this.pageZoom)
     this.wireEvents()
   }
 
@@ -114,6 +123,65 @@ export class BrowserViewController {
       callback(isDefaultGrantedPermission(permission)),
     )
     wc.session.setPermissionCheckHandler((_wc, permission) => isDefaultGrantedPermission(permission))
+
+    // Page zoom while the embedded view is focused: shell zoom shortcuts live
+    // on the app renderer and never reach this WebContents.
+    wc.on("before-input-event", (event, input) => {
+      if (input.type !== "keyDown") return
+      const modifier = process.platform === "darwin" ? input.meta : input.control
+      if (!modifier || input.alt || input.shift) return
+      if (input.key === "-" || input.key === "−") {
+        event.preventDefault()
+        this.zoom("out")
+        return
+      }
+      if (input.key === "=" || input.key === "+") {
+        event.preventDefault()
+        this.zoom("in")
+        return
+      }
+      if (input.key === "0") {
+        event.preventDefault()
+        this.zoom("reset")
+      }
+    })
+
+    // Ctrl/Cmd+wheel and trackpad pinch. Chromium often applies a factor change
+    // first (sync path); some hosts only emit a direction request (step path).
+    // Skip while applying ourselves — setZoomFactor can re-fire this event.
+    wc.on("zoom-changed", (_event, zoomDirection) => {
+      if (this.destroyed || this.wc.isDestroyed() || this.applyingPageZoom) return
+      const current = this.wc.getZoomFactor()
+      const clamped = clampPageZoom(current)
+      if (Math.abs(clamped - this.pageZoom) > 0.001) {
+        this.applyPageZoom(clamped)
+        return
+      }
+      if (zoomDirection === "in") this.zoom("in")
+      else if (zoomDirection === "out") this.zoom("out")
+    })
+  }
+
+  /**
+   * Step or reset page zoom. Applied only to this conversation's WebContents —
+   * panel geometry and shell zoom are untouched (bounds still use window zoom).
+   */
+  zoom(action: PageZoomAction) {
+    if (this.destroyed || this.wc.isDestroyed()) return
+    this.applyPageZoom(resolvePageZoom(this.pageZoom, action))
+  }
+
+  private applyPageZoom(factor: number) {
+    if (this.destroyed || this.wc.isDestroyed()) return
+    const next = clampPageZoom(factor)
+    this.applyingPageZoom = true
+    try {
+      this.pageZoom = next
+      this.wc.setZoomFactor(next)
+    } finally {
+      this.applyingPageZoom = false
+    }
+    this.emitState()
   }
 
   private openExternal(url: string) {
@@ -140,6 +208,7 @@ export class BrowserViewController {
       canGoForward: wc.navigationHistory.canGoForward(),
       loading: wc.isLoading(),
       favicon: this.favicon,
+      zoomFactor: this.pageZoom,
     })
   }
 
@@ -297,6 +366,7 @@ export class BrowserViewController {
       canGoForward: false,
       loading: false,
       favicon: null,
+      zoomFactor: PAGE_ZOOM_DEFAULT,
     })
     const payload = { target: rendererTarget(this.target), state: empty }
     for (const win of this.stateWindows()) win.webContents.send(BROWSER_STATE_CHANNEL, payload)

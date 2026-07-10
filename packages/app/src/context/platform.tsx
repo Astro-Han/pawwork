@@ -53,6 +53,8 @@ export type BrowserState = {
   favicon: string | null
   secure: boolean
   hasPage: boolean
+  /** Embedded page zoom factor (1 = 100%). Independent of app shell zoom. */
+  zoomFactor: number
 }
 
 /** Which conversation's browser a call addresses: its root session id, or the
@@ -90,6 +92,8 @@ export type BrowserBridge = {
   /** Sign out of every site: clear cookies, storage, and cache (all targets —
    *  the partition is shared). */
   clearData(): Promise<void>
+  /** Step or reset the embedded page zoom for this conversation's view. */
+  zoom(target: BrowserTarget, action: "in" | "out" | "reset"): Promise<void>
   /** Read a target's current state once (used to seed a freshly mounted panel). */
   getState(target: BrowserTarget): Promise<BrowserState | null>
   /** Subscribe to state pushes; filter by target. Returns an unsubscribe function. */

@@ -1,11 +1,18 @@
 import { describe, expect, test } from "bun:test"
 import {
+  clampPageZoom,
   clearDataReloadAction,
   computeViewBounds,
   deriveBrowserState,
   displayDecision,
+  formatPageZoomPercent,
   isDefaultGrantedPermission,
+  PAGE_ZOOM_DEFAULT,
+  PAGE_ZOOM_MAX,
+  PAGE_ZOOM_MIN,
+  PAGE_ZOOM_STEP,
   parseNavigable,
+  resolvePageZoom,
   safeExternalUrl,
   type BrowserStateSnapshot,
 } from "./logic"
@@ -75,6 +82,7 @@ describe("deriveBrowserState", () => {
     canGoForward: false,
     loading: false,
     favicon: null,
+    zoomFactor: PAGE_ZOOM_DEFAULT,
     ...over,
   })
 
@@ -91,9 +99,59 @@ describe("deriveBrowserState", () => {
 
   test("passes navigation flags through", () => {
     const state = deriveBrowserState(
-      snap({ url: "https://a.com/", title: "A", canGoBack: true, canGoForward: false, loading: true, favicon: "f" }),
+      snap({
+        url: "https://a.com/",
+        title: "A",
+        canGoBack: true,
+        canGoForward: false,
+        loading: true,
+        favicon: "f",
+        zoomFactor: 1.2,
+      }),
     )
-    expect(state).toMatchObject({ title: "A", canGoBack: true, canGoForward: false, loading: true, favicon: "f" })
+    expect(state).toMatchObject({
+      title: "A",
+      canGoBack: true,
+      canGoForward: false,
+      loading: true,
+      favicon: "f",
+      zoomFactor: 1.2,
+    })
+  })
+
+  test("clamps page zoom on the derived state", () => {
+    expect(deriveBrowserState(snap({ zoomFactor: 99 })).zoomFactor).toBe(PAGE_ZOOM_MAX)
+    expect(deriveBrowserState(snap({ zoomFactor: 0 })).zoomFactor).toBe(PAGE_ZOOM_MIN)
+    expect(deriveBrowserState(snap({ zoomFactor: Number.NaN })).zoomFactor).toBe(PAGE_ZOOM_DEFAULT)
+  })
+})
+
+describe("page zoom math", () => {
+  test("clamps to the supported range", () => {
+    expect(clampPageZoom(1)).toBe(1)
+    expect(clampPageZoom(PAGE_ZOOM_MIN - 1)).toBe(PAGE_ZOOM_MIN)
+    expect(clampPageZoom(PAGE_ZOOM_MAX + 1)).toBe(PAGE_ZOOM_MAX)
+    expect(clampPageZoom(Number.NaN)).toBe(PAGE_ZOOM_DEFAULT)
+  })
+
+  test("steps in and out without losing rapid updates", () => {
+    let zoom = PAGE_ZOOM_DEFAULT
+    zoom = resolvePageZoom(zoom, "out")
+    zoom = resolvePageZoom(zoom, "out")
+    zoom = resolvePageZoom(zoom, "in")
+    expect(zoom).toBeCloseTo(PAGE_ZOOM_DEFAULT - PAGE_ZOOM_STEP, 10)
+    expect(resolvePageZoom(zoom, "reset")).toBe(PAGE_ZOOM_DEFAULT)
+  })
+
+  test("reset always returns exactly 100%", () => {
+    expect(resolvePageZoom(2.4, "reset")).toBe(1)
+    expect(formatPageZoomPercent(1)).toBe("100%")
+    expect(formatPageZoomPercent(1.25)).toBe("125%")
+  })
+
+  test("in and out clamp at the ends", () => {
+    expect(resolvePageZoom(PAGE_ZOOM_MAX, "in")).toBe(PAGE_ZOOM_MAX)
+    expect(resolvePageZoom(PAGE_ZOOM_MIN, "out")).toBe(PAGE_ZOOM_MIN)
   })
 })
 
