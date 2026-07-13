@@ -721,13 +721,25 @@ export namespace MCP {
 
       const probe = Effect.fn("MCP.probe")(function* (mcp: Config.Mcp) {
         const key = `probe-${crypto.randomUUID()}`
-        const result = yield* create(key, { ...mcp, enabled: true })
-        if (result.mcpClient) yield* Effect.tryPromise(() => result.mcpClient!.close()).pipe(Effect.ignore)
-        const pending = pendingOAuthTransports.get(key)
-        if (pending) yield* Effect.tryPromise(() => pending.close()).pipe(Effect.ignore)
-        pendingOAuthTransports.delete(key)
-        if (result.status.status !== "failed") return result.status
-        return { ...result.status, error: result.status.error.replaceAll(key, "draft") }
+        let client: MCPClient | undefined
+        const draft =
+          mcp.type === "remote" ? ({ ...mcp, enabled: true, oauth: false } as const) : { ...mcp, enabled: true }
+
+        return yield* Effect.gen(function* () {
+          const result = yield* create(key, draft)
+          client = result.mcpClient
+          if (result.status.status !== "failed") return result.status
+          return { ...result.status, error: result.status.error.replaceAll(key, "draft") }
+        }).pipe(
+          Effect.ensuring(
+            Effect.gen(function* () {
+              if (client) yield* Effect.tryPromise(() => client!.close()).pipe(Effect.ignore)
+              const pending = pendingOAuthTransports.get(key)
+              if (pending) yield* Effect.tryPromise(() => pending.close()).pipe(Effect.ignore)
+              pendingOAuthTransports.delete(key)
+            }),
+          ),
+        )
       })
 
       const connect = Effect.fn("MCP.connect")(function* (name: string) {

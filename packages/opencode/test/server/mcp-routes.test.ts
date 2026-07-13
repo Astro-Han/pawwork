@@ -3,8 +3,11 @@ import { NodeFileSystem, NodeHttpPlatform, NodePath } from "@effect/platform-nod
 import { Effect, Layer } from "effect"
 import { Etag, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
+import path from "path"
 import { AppRuntime } from "../../src/effect/app-runtime"
+import { MCP } from "../../src/mcp"
 import { Instance } from "../../src/project/instance"
+import { probeMcpServer } from "../../src/server/instance/mcp-actions"
 import { McpApi } from "../../src/server/routes/instance/httpapi/groups/mcp"
 import { mcpHandlers } from "../../src/server/routes/instance/httpapi/handlers/mcp"
 import { tmpdir } from "../fixture/fixture"
@@ -107,6 +110,76 @@ describe("MCP routes", () => {
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual({ status: "failed", error: 'Invalid MCP URL for "draft"' })
       },
+    })
+  })
+
+  test("expands environment placeholders before probing an unsaved configuration", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const previousToken = process.env.MCP_PROBE_TOKEN
+    process.env.MCP_PROBE_TOKEN = "resolved-token"
+    let received: unknown
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: () =>
+          Effect.runPromise(
+            probeMcpServer({
+              type: "remote",
+              url: "https://example.test/mcp",
+              headers: { Authorization: "Bearer {env:MCP_PROBE_TOKEN}" },
+            }).pipe(
+              Effect.provideService(MCP.Service, {
+                probe: (config: unknown) =>
+                  Effect.sync(() => {
+                    received = config
+                    return { status: "connected" as const }
+                  }),
+              } as MCP.Interface),
+            ),
+          ),
+      })
+
+      expect(received).toEqual({
+        type: "remote",
+        url: "https://example.test/mcp",
+        headers: { Authorization: "Bearer resolved-token" },
+      })
+    } finally {
+      if (previousToken === undefined) delete process.env.MCP_PROBE_TOKEN
+      else process.env.MCP_PROBE_TOKEN = previousToken
+    }
+  })
+
+  test("resolves relative file placeholders from the probed instance directory", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Bun.write(path.join(tmp.path, "token"), "file-token\n")
+    let received: unknown
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        Effect.runPromise(
+          probeMcpServer({
+            type: "remote",
+            url: "https://example.test/mcp",
+            headers: { Authorization: "Bearer {file:./token}" },
+          }).pipe(
+            Effect.provideService(MCP.Service, {
+              probe: (config: unknown) =>
+                Effect.sync(() => {
+                  received = config
+                  return { status: "connected" as const }
+                }),
+            } as MCP.Interface),
+          ),
+        ),
+    })
+
+    expect(received).toEqual({
+      type: "remote",
+      url: "https://example.test/mcp",
+      headers: { Authorization: "Bearer file-token" },
     })
   })
 

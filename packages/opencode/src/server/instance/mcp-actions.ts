@@ -1,6 +1,8 @@
 import { Effect } from "effect"
-import { Config } from "../../config/config"
+import { ConfigMCP, ConfigVariable } from "../../config"
 import { MCP } from "../../mcp"
+import { Instance } from "../../project/instance"
+import type { Config } from "../../config/config"
 
 export const getMcpStatus = Effect.fn("McpHttpApi.status")(function* () {
   const mcp = yield* MCP.Service
@@ -14,7 +16,16 @@ export const addMcpServer = Effect.fn("McpHttpApi.add")(function* (input: { name
 
 export const probeMcpServer = Effect.fn("McpHttpApi.probe")(function* (config: Config.Mcp) {
   const mcp = yield* MCP.Service
-  return yield* mcp.probe(config)
+  const expanded = yield* Effect.promise(() =>
+    ConfigVariable.substitute({
+      text: JSON.stringify(config),
+      type: "virtual",
+      source: "MCP draft",
+      dir: Instance.directory,
+    }),
+  )
+  const resolved = ConfigMCP.Info.zod.parse(JSON.parse(expanded))
+  return yield* mcp.probe(resolved)
 })
 
 export const startMcpAuth = Effect.fn("McpHttpApi.auth.start")(function* (name: string) {

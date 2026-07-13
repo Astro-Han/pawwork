@@ -43,11 +43,22 @@ const clientStates = new Map<string, MockClientState>()
 let lastCreatedClientName: string | undefined
 let connectShouldFail = false
 let connectShouldHang = false
-let connectError = "Mock transport cannot connect"
+let connectError: unknown = "Mock transport cannot connect"
 // Tracks how many Client instances were created (detects leaks)
 let clientCreateCount = 0
 // Tracks how many times transport.close() is called across all mock transports
 let transportCloseCount = 0
+let remoteAuthProviders: unknown[] = []
+
+class MockUnauthorizedError extends Error {
+  constructor() {
+    super("Unauthorized")
+  }
+}
+
+function connectionFailure() {
+  return connectError instanceof Error ? connectError : new Error(String(connectError))
+}
 
 function getOrCreateClientState(name?: string): MockClientState {
   const key = name ?? "default"
@@ -91,7 +102,7 @@ class MockStdioTransport {
   constructor(_opts: any) {}
   async start() {
     if (connectShouldHang) return new Promise<void>(() => {}) // never resolves
-    if (connectShouldFail) throw new Error(connectError)
+    if (connectShouldFail) throw connectionFailure()
   }
   async close() {
     transportCloseCount++
@@ -99,10 +110,12 @@ class MockStdioTransport {
 }
 
 class MockStreamableHTTP {
-  constructor(_url: URL, _opts?: any) {}
+  constructor(_url: URL, opts?: { authProvider?: unknown }) {
+    remoteAuthProviders.push(opts?.authProvider)
+  }
   async start() {
     if (connectShouldHang) return new Promise<void>(() => {}) // never resolves
-    if (connectShouldFail) throw new Error(connectError)
+    if (connectShouldFail) throw connectionFailure()
   }
   async close() {
     transportCloseCount++
@@ -111,10 +124,12 @@ class MockStreamableHTTP {
 }
 
 class MockSSE {
-  constructor(_url: URL, _opts?: any) {}
+  constructor(_url: URL, opts?: { authProvider?: unknown }) {
+    remoteAuthProviders.push(opts?.authProvider)
+  }
   async start() {
     if (connectShouldHang) return new Promise<void>(() => {}) // never resolves
-    if (connectShouldFail) throw new Error(connectError)
+    if (connectShouldFail) throw connectionFailure()
   }
   async close() {
     transportCloseCount++
@@ -134,11 +149,7 @@ mock.module("@modelcontextprotocol/sdk/client/sse.js", () => ({
 }))
 
 mock.module("@modelcontextprotocol/sdk/client/auth.js", () => ({
-  UnauthorizedError: class extends Error {
-    constructor() {
-      super("Unauthorized")
-    }
-  },
+  UnauthorizedError: MockUnauthorizedError,
 }))
 
 // Mock Client that delegates to per-name MockClientState
@@ -244,6 +255,7 @@ beforeEach(() => {
   connectError = "Mock transport cannot connect"
   clientCreateCount = 0
   transportCloseCount = 0
+  remoteAuthProviders = []
 })
 
 // Import after mocks
@@ -308,6 +320,23 @@ test(
     ).toEqual({ status: "connected" })
     expect(await MCPFacade.status()).toEqual({})
     expect(serverState.closed).toBe(true)
+  }),
+)
+
+test(
+  "probe reports an OAuth challenge without enabling OAuth side effects",
+  withInstance({}, async () => {
+    connectShouldFail = true
+    connectError = new MockUnauthorizedError()
+
+    expect(
+      await MCPFacade.probe({
+        type: "remote",
+        url: "https://oauth.example/mcp",
+      }),
+    ).toEqual({ status: "needs_auth" })
+    expect(remoteAuthProviders).toEqual([undefined, undefined])
+    expect(transportCloseCount).toBeGreaterThanOrEqual(1)
   }),
 )
 
