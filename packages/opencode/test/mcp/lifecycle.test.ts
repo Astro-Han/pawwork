@@ -324,10 +324,10 @@ test(
 )
 
 test(
-  "probe reports an OAuth challenge without enabling OAuth side effects",
+  "probe maps a transport 401 to needs_auth without enabling OAuth side effects",
   withInstance({}, async () => {
     connectShouldFail = true
-    connectError = new MockUnauthorizedError()
+    connectError = Object.assign(new Error("HTTP 401"), { code: 401 })
 
     expect(
       await MCPFacade.probe({

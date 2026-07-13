@@ -129,6 +129,13 @@ export namespace MCP {
     return typeof entry === "object" && entry !== null && "type" in entry
   }
 
+  function isUnauthorized(error: unknown) {
+    if (error instanceof UnauthorizedError) return true
+    if (!error || typeof error !== "object") return false
+    const transport = error as { code?: unknown; status?: unknown }
+    return transport.code === 401 || transport.status === 401
+  }
+
   const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_")
 
   function getCapabilities(client: MCPClient) {
@@ -429,8 +436,7 @@ export namespace MCP {
             Effect.map((client) => ({ client, transportName: name })),
             Effect.catch((error) => {
               const lastError = error instanceof Error ? error : new Error(String(error))
-              const isAuthError =
-                error instanceof UnauthorizedError || (authProvider && lastError.message.includes("OAuth"))
+              const isAuthError = isUnauthorized(error) || (authProvider && lastError.message.includes("OAuth"))
 
               if (isAuthError) {
                 log.info("mcp server requires authentication", { key, transport: name })
