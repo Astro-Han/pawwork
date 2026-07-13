@@ -1,7 +1,44 @@
 import { describe, expect, test } from "bun:test"
+import path from "path"
 import { FileWatcher } from "../../src/file/watcher"
+import { tmpdir } from "../fixture/fixture"
 
 describe("workspace root discovery", () => {
+  const darwinLiveTest = process.platform === "darwin" ? test : test.skip
+
+  darwinLiveTest(
+    "uses native kqueue and isolates ignored subtree churn",
+    async () => {
+      await using tmp = await tmpdir()
+      const probe = Bun.spawnSync([process.execPath, path.join(import.meta.dir, "watcher-kqueue-live.ts"), tmp.path], {
+        cwd: path.join(import.meta.dir, "../.."),
+        env: process.env,
+      })
+
+      expect(probe.exitCode).toBe(0)
+      const result = JSON.parse(probe.stdout.toString()) as {
+        kqueueDescriptorDelta: number
+        ignoredCallbacks: number
+        idleSnapshots: number
+        rootCallbacks: number
+        rootUpdates: number
+        fallbackTimers: number
+        callbackError?: string
+        discoveryErrors: string[]
+      }
+      expect(result).toEqual({
+        kqueueDescriptorDelta: 1,
+        ignoredCallbacks: 0,
+        idleSnapshots: 0,
+        rootCallbacks: 4,
+        rootUpdates: 4,
+        fallbackTimers: 0,
+        discoveryErrors: [],
+      })
+    },
+    15_000,
+  )
+
   test("subscribes a root-only kqueue sentinel that ignores every current top-level directory", async () => {
     const workspace = "/repo"
     const ignored = [`${workspace}/packages`, `${workspace}/src`]
@@ -60,7 +97,8 @@ describe("workspace root discovery", () => {
       },
     })
 
-    expect(options).toEqual({ backend: "kqueue", ignore: ignored })
+    expect(options?.backend).toBe("kqueue")
+    expect(options?.ignore).toEqual(ignored)
     callback(null, [{ path: `${workspace}/README.md`, type: "create" }])
     expect(signals).toBe(1)
     await subscription.unsubscribe()
@@ -216,8 +254,8 @@ describe("workspace root discovery", () => {
     expect(order).toEqual([
       "subscribe:",
       "apply-plan",
-      "subscribe:generated",
       "unsubscribe:1",
+      "subscribe:generated",
       "rescan",
     ])
     await discovery.dispose()
@@ -268,5 +306,97 @@ describe("workspace root discovery", () => {
     expect(snapshots).toBe(1)
     expect(cancelled).toBe(1)
     await discovery.dispose()
+  })
+
+  test("bounds repeated sentinel recovery backoff", async () => {
+    const scheduled: Array<{ callback: () => void; delayMs: number }> = []
+    const discovery = FileWatcher.createWorkspaceRootDiscovery({
+      initialSnapshot: new Map(),
+      workspace: "/repo",
+      ignore: [],
+      subscribeSentinel: async () => {
+        throw new Error("still unavailable")
+      },
+      snapshotRoot: async () => new Map(),
+      applyPlan: async () => {},
+      publishUpdate: () => {},
+      publishRescan: async () => {},
+      scheduleFallback: (callback, delayMs) => {
+        scheduled.push({ callback, delayMs })
+        return () => {}
+      },
+    })
+
+    await discovery.start()
+    for (let index = 0; index < 5; index++) {
+      scheduled[index]!.callback()
+      while (scheduled.length === index + 1) await Bun.sleep(0)
+    }
+
+    expect(scheduled.map((item) => item.delayMs)).toEqual([500, 1_000, 2_000, 4_000, 5_000, 5_000])
+    await discovery.dispose()
+  })
+
+  test("dispose cancels sentinel, fallback, and in-flight publication", async () => {
+    const workspace = "/repo"
+    const file = `${workspace}/late.txt`
+    let signal!: (signal: FileWatcher.WorkspaceRootSentinelSignal) => void
+    let releaseSnapshot!: (snapshot: Map<string, FileWatcher.RootEntryState>) => void
+    let snapshotStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      snapshotStarted = resolve
+    })
+    const snapshot = new Promise<Map<string, FileWatcher.RootEntryState>>((resolve) => {
+      releaseSnapshot = resolve
+    })
+    let unsubscribed = 0
+    let published = 0
+    let fallbackCancelled = 0
+    const discovery = FileWatcher.createWorkspaceRootDiscovery({
+      initialSnapshot: new Map(),
+      workspace,
+      ignore: [],
+      subscribeSentinel: async (_snapshot, callback) => {
+        signal = callback
+        return {
+          unsubscribe: async () => {
+            unsubscribed++
+          },
+        }
+      },
+      snapshotRoot: async () => {
+        snapshotStarted()
+        return snapshot
+      },
+      applyPlan: async () => {},
+      publishUpdate: () => {
+        published++
+      },
+      publishRescan: async () => {
+        published++
+      },
+      scheduleFallback: () => () => {
+        fallbackCancelled++
+      },
+    })
+
+    await discovery.start()
+    signal({})
+    await started
+    signal({ error: new Error("sentinel failed") })
+    await discovery.dispose()
+    releaseSnapshot(
+      new Map([
+        [
+          "late.txt",
+          { name: "late.txt", path: file, type: "file", size: 1, mtimeMs: 1, ino: 1, ctimeMs: 1 },
+        ],
+      ]),
+    )
+    await Bun.sleep(0)
+
+    expect(unsubscribed).toBe(1)
+    expect(fallbackCancelled).toBe(1)
+    expect(published).toBe(0)
   })
 })

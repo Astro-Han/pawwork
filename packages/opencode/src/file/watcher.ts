@@ -292,6 +292,7 @@ export namespace FileWatcher {
     let reconcileDirty = false
     let fallbackAttempt = 0
     let cancelFallback: (() => void) | undefined
+    let pendingSnapshot: Map<string, RootEntryState> | undefined
 
     const markSentinelHealthy = () => {
       fallbackAttempt = 0
@@ -300,6 +301,10 @@ export namespace FileWatcher {
     }
 
     const replaceSentinel = async (nextSnapshot: Map<string, RootEntryState>) => {
+      const previous = sentinel
+      sentinel = undefined
+      sentinelGeneration++
+      await previous?.unsubscribe()
       const nextGeneration = sentinelGeneration + 1
       const next = await input.subscribeSentinel(nextSnapshot, (event) => {
         if (sentinelGeneration !== nextGeneration) return
@@ -309,16 +314,32 @@ export namespace FileWatcher {
         await next.unsubscribe()
         return
       }
-      const previous = sentinel
       sentinel = next
       sentinelGeneration = nextGeneration
-      await previous?.unsubscribe()
       markSentinelHealthy()
+    }
+
+    const catchUpSentinelGap = async (sentinelSnapshot: Map<string, RootEntryState>) => {
+      if (disposed) return
+      const catchup = await input.snapshotRoot()
+      if (rootEntrySnapshotsEqual(sentinelSnapshot, catchup)) return
+      pendingSnapshot = catchup
+      reconcileDirty = true
     }
 
     const reconcile = async () => {
       if (disposed) return
-      const next = await input.snapshotRoot()
+      const previous = snapshot
+      const generation = sentinelGeneration
+      const next = pendingSnapshot ?? (await input.snapshotRoot())
+      pendingSnapshot = undefined
+      const updates: Array<{ file: string; event: "add" | "change" | "unlink" }> = []
+      let updatesPublished = false
+      const publishUpdates = () => {
+        if (disposed || updatesPublished) return
+        updatesPublished = true
+        for (const event of updates) input.publishUpdate(event)
+      }
       snapshot = await runWorkspaceRootPoll({
         previous: snapshot,
         next,
@@ -330,13 +351,24 @@ export namespace FileWatcher {
           if (disposed) return
           try {
             await replaceSentinel(planSnapshot)
+            await catchUpSentinelGap(planSnapshot)
           } catch (error) {
             enterFallback(error)
           }
+          publishUpdates()
         },
-        publishUpdate: input.publishUpdate,
+        publishUpdate: (event) => updates.push(event),
         publishRescan: input.publishRescan,
       })
+      if (!disposed && generation === sentinelGeneration && rootSentinelNeedsRebuild(previous, snapshot)) {
+        try {
+          await replaceSentinel(snapshot)
+          await catchUpSentinelGap(snapshot)
+        } catch (error) {
+          enterFallback(error)
+        }
+      }
+      publishUpdates()
     }
 
     const runReconcile = async () => {
@@ -583,6 +615,36 @@ export namespace FileWatcher {
 
   function watchPlanEntries(snapshot: Map<string, RootEntryState>): WorkspaceWatchPlanEntry[] {
     return [...snapshot.values()].map((item) => ({ name: item.name, type: item.type }))
+  }
+
+  function rootEntrySnapshotsEqual(left: Map<string, RootEntryState>, right: Map<string, RootEntryState>) {
+    if (left.size !== right.size) return false
+    for (const [name, entry] of left) {
+      const next = right.get(name)
+      if (!next) return false
+      if (
+        entry.type !== next.type ||
+        entry.size !== next.size ||
+        entry.mtimeMs !== next.mtimeMs ||
+        entry.ino !== next.ino ||
+        entry.ctimeMs !== next.ctimeMs
+      )
+        return false
+    }
+    return true
+  }
+
+  function rootSentinelNeedsRebuild(previous: Map<string, RootEntryState>, next: Map<string, RootEntryState>) {
+    for (const [name, before] of previous) {
+      const after = next.get(name)
+      if (before.type === "directory" && (!after || after.type !== "directory")) return true
+      if (before.type !== "directory" && after?.type === "directory") return true
+      if (before.type === "file" && after?.type === "file" && before.ino !== after.ino) return true
+    }
+    for (const [name, after] of next) {
+      if (after.type === "directory" && previous.get(name)?.type !== "directory") return true
+    }
+    return false
   }
 
   function rootFileChanged(prev: RootEntryState | undefined, next: RootEntryState | undefined) {
