@@ -25,6 +25,7 @@ export namespace FileWatcher {
   const SUBSCRIBE_TIMEOUT_MS = 10_000
   const RESCAN_QUIET_MS = 1_000
   const ROOT_DISCOVERY_INTERVAL_MS = 500
+  const ROOT_DISCOVERY_MAX_BACKOFF_MS = 5_000
   const FALLBACK_RESCAN_INTERVAL_MS = 5_000
   export const MAX_WORKSPACE_WATCH_ROOTS = 128
   const LOCAL_ARTIFACT_ENTRIES = new Set([".worktrees", ".claude", ".claire", ".superpowers"])
@@ -282,6 +283,14 @@ export namespace FileWatcher {
     let reconcileQueued = false
     let reconciling = false
     let reconcileDirty = false
+    let fallbackAttempt = 0
+    let cancelFallback: (() => void) | undefined
+
+    const markSentinelHealthy = () => {
+      fallbackAttempt = 0
+      cancelFallback?.()
+      cancelFallback = undefined
+    }
 
     const replaceSentinel = async (nextSnapshot: Map<string, RootEntryState>) => {
       const nextGeneration = sentinelGeneration + 1
@@ -297,6 +306,7 @@ export namespace FileWatcher {
       sentinel = next
       sentinelGeneration = nextGeneration
       await previous?.unsubscribe()
+      markSentinelHealthy()
     }
 
     const reconcile = async () => {
@@ -311,7 +321,11 @@ export namespace FileWatcher {
         applyPlan: async (planSnapshot) => {
           await input.applyPlan(planSnapshot)
           if (disposed) return
-          await replaceSentinel(planSnapshot)
+          try {
+            await replaceSentinel(planSnapshot)
+          } catch (error) {
+            enterFallback(error)
+          }
         },
         publishUpdate: input.publishUpdate,
         publishRescan: input.publishRescan,
@@ -335,7 +349,11 @@ export namespace FileWatcher {
     }
 
     const signal = (event: WorkspaceRootSentinelSignal) => {
-      if (disposed || event.error) return
+      if (disposed) return
+      if (event.error) {
+        enterFallback(event.error)
+        return
+      }
       if (reconciling) {
         reconcileDirty = true
         return
@@ -345,13 +363,53 @@ export namespace FileWatcher {
       queueMicrotask(() => void runReconcile())
     }
 
+    const fallbackTick = async () => {
+      if (disposed) return
+      try {
+        await reconcile()
+      } catch (error) {
+        input.onError?.(error)
+      }
+      if (disposed || sentinel) return
+      try {
+        await replaceSentinel(snapshot)
+      } catch (error) {
+        enterFallback(error)
+      }
+    }
+
+    const enterFallback = (error: unknown) => {
+      if (disposed) return
+      input.onError?.(error)
+      sentinelGeneration++
+      const failed = sentinel
+      sentinel = undefined
+      void failed?.unsubscribe().catch((unsubscribeError) => input.onError?.(unsubscribeError))
+      if (cancelFallback) return
+      const delay = Math.min(ROOT_DISCOVERY_INTERVAL_MS * 2 ** fallbackAttempt, ROOT_DISCOVERY_MAX_BACKOFF_MS)
+      fallbackAttempt++
+      cancelFallback = input.scheduleFallback(() => {
+        const cancel = cancelFallback
+        cancelFallback = undefined
+        cancel?.()
+        void fallbackTick()
+      }, delay)
+    }
+
     return {
       async start() {
         if (disposed || sentinel) return
-        await replaceSentinel(snapshot)
+        try {
+          await replaceSentinel(snapshot)
+        } catch (error) {
+          enterFallback(error)
+        }
       },
       async dispose() {
         disposed = true
+        cancelFallback?.()
+        cancelFallback = undefined
+        sentinelGeneration++
         const current = sentinel
         sentinel = undefined
         await current?.unsubscribe()

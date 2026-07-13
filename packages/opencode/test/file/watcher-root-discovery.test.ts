@@ -158,4 +158,51 @@ describe("workspace root discovery", () => {
     ])
     await discovery.dispose()
   })
+
+  test("polls with backoff only after sentinel failure and cancels fallback on recovery", async () => {
+    let attempts = 0
+    let snapshots = 0
+    let fallback!: () => void
+    let cancelled = 0
+    let recovered!: () => void
+    const recovery = new Promise<void>((resolve) => {
+      recovered = resolve
+    })
+    const discovery = FileWatcher.createWorkspaceRootDiscovery({
+      initialSnapshot: new Map(),
+      workspace: "/repo",
+      ignore: [],
+      subscribeSentinel: async () => {
+        attempts++
+        if (attempts === 1) throw new Error("kqueue unavailable")
+        recovered()
+        return { unsubscribe: async () => {} }
+      },
+      snapshotRoot: async () => {
+        snapshots++
+        return new Map()
+      },
+      applyPlan: async () => {},
+      publishUpdate: () => {},
+      publishRescan: async () => {},
+      scheduleFallback: (callback, delayMs) => {
+        expect(delayMs).toBe(500)
+        fallback = callback
+        return () => {
+          cancelled++
+        }
+      },
+    })
+
+    await discovery.start()
+    expect(snapshots).toBe(0)
+
+    fallback()
+    await recovery
+
+    expect(attempts).toBe(2)
+    expect(snapshots).toBe(1)
+    expect(cancelled).toBe(1)
+    await discovery.dispose()
+  })
 })
