@@ -313,10 +313,6 @@ describe("workspace root discovery", () => {
     let snapshots = 0
     let fallback!: () => void
     let cancelled = 0
-    let recovered!: () => void
-    const recovery = new Promise<void>((resolve) => {
-      recovered = resolve
-    })
     const discovery = FileWatcher.createWorkspaceRootDiscovery({
       initialSnapshot: new Map(),
       workspace: "/repo",
@@ -324,7 +320,6 @@ describe("workspace root discovery", () => {
       subscribeSentinel: async () => {
         attempts++
         if (attempts === 1) throw new Error("kqueue unavailable")
-        recovered()
         return { unsubscribe: async () => {} }
       },
       snapshotRoot: async () => {
@@ -347,11 +342,65 @@ describe("workspace root discovery", () => {
     expect(snapshots).toBe(0)
 
     fallback()
-    await recovery
+    while (snapshots < 2) await Bun.sleep(0)
 
     expect(attempts).toBe(2)
-    expect(snapshots).toBe(1)
+    expect(snapshots).toBe(2)
     expect(cancelled).toBe(1)
+    await discovery.dispose()
+  })
+
+  test("catches up root changes that happen while the fallback sentinel is subscribing", async () => {
+    const workspace = "/repo"
+    const directory = `${workspace}/generated`
+    const empty = new Map<string, FileWatcher.RootEntryState>()
+    const changed = new Map([
+      [
+        "generated",
+        {
+          name: "generated",
+          path: directory,
+          type: "directory" as const,
+          size: 0,
+          mtimeMs: 0,
+          ino: 1,
+          ctimeMs: 1,
+        },
+      ],
+    ])
+    let root = empty
+    let attempts = 0
+    let fallback!: () => void
+    const plans: string[][] = []
+    const discovery = FileWatcher.createWorkspaceRootDiscovery({
+      initialSnapshot: empty,
+      workspace,
+      ignore: [],
+      subscribeSentinel: async () => {
+        attempts++
+        if (attempts === 1) throw new Error("kqueue unavailable")
+        if (attempts === 2) root = changed
+        return { unsubscribe: async () => {} }
+      },
+      snapshotRoot: async () => root,
+      applyPlan: async (snapshot) => {
+        plans.push([...snapshot.keys()])
+      },
+      publishUpdate: () => {},
+      publishRescan: async () => {},
+      scheduleFallback: (callback) => {
+        fallback = callback
+        return () => {}
+      },
+      onError: () => {},
+    })
+
+    await discovery.start()
+    fallback()
+    while (attempts < 2) await Bun.sleep(0)
+    for (let index = 0; index < 5; index++) await Bun.sleep(0)
+
+    expect(plans).toEqual([["generated"]])
     await discovery.dispose()
   })
 

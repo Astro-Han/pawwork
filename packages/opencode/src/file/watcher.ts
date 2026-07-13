@@ -331,15 +331,20 @@ export namespace FileWatcher {
       }
       sentinel = next
       sentinelGeneration = nextGeneration
-      markSentinelHealthy()
     }
 
     const catchUpSentinelGap = async (sentinelSnapshot: Map<string, RootEntryState>) => {
-      if (disposed) return
+      if (disposed) return false
       const catchup = await input.snapshotRoot()
-      if (rootEntrySnapshotsEqual(sentinelSnapshot, catchup)) return
+      if (rootEntrySnapshotsEqual(sentinelSnapshot, catchup)) return false
       pendingSnapshot = catchup
       reconcileDirty = true
+      return true
+    }
+
+    const establishSentinel = async (sentinelSnapshot: Map<string, RootEntryState>) => {
+      await replaceSentinel(sentinelSnapshot)
+      return catchUpSentinelGap(sentinelSnapshot)
     }
 
     const reconcile = async () => {
@@ -365,8 +370,8 @@ export namespace FileWatcher {
           await input.applyPlan(planSnapshot)
           if (disposed) return
           try {
-            await replaceSentinel(planSnapshot)
-            await catchUpSentinelGap(planSnapshot)
+            await establishSentinel(planSnapshot)
+            markSentinelHealthy()
           } catch (error) {
             enterFallback(error)
           }
@@ -377,8 +382,8 @@ export namespace FileWatcher {
       })
       if (!disposed && generation === sentinelGeneration && rootSentinelNeedsRebuild(previous, snapshot)) {
         try {
-          await replaceSentinel(snapshot)
-          await catchUpSentinelGap(snapshot)
+          await establishSentinel(snapshot)
+          markSentinelHealthy()
         } catch (error) {
           enterFallback(error)
         }
@@ -428,7 +433,9 @@ export namespace FileWatcher {
       await runReconcile()
       if (disposed || sentinel) return
       try {
-        await replaceSentinel(snapshot)
+        const changed = await establishSentinel(snapshot)
+        if (changed) await runReconcile()
+        markSentinelHealthy()
       } catch (error) {
         enterFallback(error)
       }
@@ -454,8 +461,9 @@ export namespace FileWatcher {
       async start() {
         if (disposed || sentinel) return
         try {
-          await replaceSentinel(snapshot)
-          await runReconcile()
+          const changed = await establishSentinel(snapshot)
+          if (changed) await runReconcile()
+          markSentinelHealthy()
         } catch (error) {
           enterFallback(error)
         }
