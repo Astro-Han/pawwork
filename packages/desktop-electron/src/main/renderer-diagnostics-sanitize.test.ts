@@ -1,7 +1,45 @@
 import { describe, expect, test } from "bun:test"
-import { sanitizeRendererDiagnosticEvent, type RendererDiagnosticInput } from "./renderer-diagnostics"
+import { parseEventLine, sanitizeRendererDiagnosticEvent, type RendererDiagnosticInput } from "./renderer-diagnostics"
 
 describe("renderer diagnostics sanitizer", () => {
+  test("keeps historical renderer performance samples readable from JSONL", () => {
+    const event = parseEventLine(
+      JSON.stringify({
+        time: "2026-05-02T10:30:12.123Z",
+        level: "info",
+        "event.name": "renderer.perf.sample",
+        app_launch_id: "launch_1",
+        window_id: "7",
+        route_session_id: "ses_route",
+        data: {
+          fps: 60,
+          frame_gap_ms: 17,
+          jank_count: 1,
+          long_task_max_ms: 120,
+          long_task_block_ms: 140,
+          cls: 0.02,
+          heap_used_mb: 256,
+        },
+      }),
+    )
+
+    expect(event).toMatchObject({
+      "event.name": "renderer.perf.sample",
+      app_launch_id: "launch_1",
+      window_id: "7",
+      route_session_id: "ses_route",
+      data: {
+        fps: 60,
+        frame_gap_ms: 17,
+        jank_count: 1,
+        long_task_max_ms: 120,
+        long_task_block_ms: 140,
+        cls: 0.02,
+        heap_used_mb: 256,
+      },
+    })
+  })
+
   test("accepts allowlisted scroll fields and drops hostile fields", () => {
     const input: RendererDiagnosticInput = {
       name: "session.scroll.sample",

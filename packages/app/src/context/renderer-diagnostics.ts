@@ -6,12 +6,6 @@ type DiagnosticsApi = {
   emitRendererDiagnostic?(event: RendererDiagnosticInput): Promise<void>
 }
 
-type PerformanceWithMemory = Performance & {
-  memory?: {
-    usedJSHeapSize?: number
-  }
-}
-
 let warnedRendererDiagnosticsEmitFailure = false
 
 function warnRendererDiagnosticsEmitFailure(reason: string, error?: unknown) {
@@ -20,10 +14,7 @@ function warnRendererDiagnosticsEmitFailure(reason: string, error?: unknown) {
   console.warn(`[renderer-diagnostics] ${reason}`, error)
 }
 
-export function createRendererDiagnosticsEmitter(input: {
-  api?: DiagnosticsApi
-  now?: () => number
-}) {
+export function createRendererDiagnosticsEmitter(input: { api?: DiagnosticsApi; now?: () => number }) {
   return async (event: RendererDiagnosticInput) => {
     const emit = input.api?.emitRendererDiagnostic
     if (!emit) {
@@ -232,17 +223,11 @@ export function createSessionPerformanceDiagnostics(input: {
 }) {
   if (!input.emit && (typeof window === "undefined" || !window.api?.emitRendererDiagnostic)) return
   const emit = input.emit ?? emitRendererDiagnostic
-  let running = true
-  let frame: number | undefined
-  let interval: number | undefined
-  let lastFrame = performance.now()
-  let sampleStartedAt = lastFrame
-  let frameCount = 0
-  let jankCount = 0
-  let maxFrameGap = 0
-  let longTaskMax = 0
-  let longTaskBlock = 0
+  let active = true
   let cls = 0
+  let clsWindowStartedAt: number | undefined
+  let clsLastShiftAt: number | undefined
+  let clsIncidentEmitted = false
   let longTaskObserver: PerformanceObserver | undefined
   let layoutShiftObserver: PerformanceObserver | undefined
 
@@ -252,102 +237,61 @@ export function createSessionPerformanceDiagnostics(input: {
     timeline_session_id: input.timelineSessionID(),
   })
 
-  const tick = (now: number) => {
-    const gap = now - lastFrame
-    lastFrame = now
-    frameCount += 1
-    if (gap > 50) jankCount += 1
-    maxFrameGap = Math.max(maxFrameGap, gap)
-    if (running) frame = requestAnimationFrame(tick)
-  }
-
-  const flush = () => {
-    const now = performance.now()
-    if (document.visibilityState === "hidden") {
-      frameCount = 0
-      jankCount = 0
-      maxFrameGap = 0
-      longTaskMax = 0
-      longTaskBlock = 0
-      cls = 0
-      sampleStartedAt = now
-      lastFrame = now
-      return
-    }
-    const elapsedMs = Math.max(1, now - sampleStartedAt)
-    const fps = Math.round((frameCount * 1000) / elapsedMs)
-    const memory = performance as PerformanceWithMemory
-    const roundedFrameGap = Math.round(maxFrameGap)
-    const roundedLongTaskMax = Math.round(longTaskMax)
-    const base = baseEvent()
-    void emit({
-      name: "renderer.perf.sample",
-      ...base,
-      data: {
-        fps,
-        frame_gap_ms: roundedFrameGap,
-        jank_count: jankCount,
-        long_task_max_ms: roundedLongTaskMax,
-        long_task_block_ms: Math.round(longTaskBlock),
-        cls,
-        // Chrome exposes usedJSHeapSize in bytes.
-        heap_used_mb: memory.memory?.usedJSHeapSize
-          ? Math.round(memory.memory.usedJSHeapSize / 1024 / 1024)
-          : undefined,
-      },
-    })
-    if (cls >= 0.1) {
-      void emit({
-        name: "incident.session_layout_shift",
-        level: "warn",
-        ...base,
-        data: { cls, phase: "perf_sample" },
-      })
-    }
-    if (roundedLongTaskMax >= 100 || roundedFrameGap >= 250) {
-      void emit({
-        name: "incident.session_jank_burst",
-        level: "warn",
-        ...base,
-        data: { long_task_max_ms: roundedLongTaskMax, frame_gap_ms: roundedFrameGap, phase: "perf_sample" },
-      })
-    }
-    frameCount = 0
-    jankCount = 0
-    maxFrameGap = 0
-    longTaskMax = 0
-    longTaskBlock = 0
-    cls = 0
-    sampleStartedAt = now
-  }
-
   if (typeof PerformanceObserver !== "undefined") {
     try {
       longTaskObserver = new PerformanceObserver((list) => {
+        if (!active) return
+        let maxDuration = 0
         for (const entry of list.getEntries()) {
-          longTaskMax = Math.max(longTaskMax, entry.duration)
-          longTaskBlock += entry.duration
+          maxDuration = Math.max(maxDuration, Math.round(entry.duration))
         }
+        if (maxDuration < 100) return
+        void emit({
+          name: "incident.session_jank_burst",
+          level: "warn",
+          ...baseEvent(),
+          data: { long_task_max_ms: maxDuration, phase: "performance_observer" },
+        })
       })
       longTaskObserver.observe({ type: "longtask", buffered: true })
     } catch {}
 
     try {
       layoutShiftObserver = new PerformanceObserver((list) => {
+        if (!active) return
         for (const entry of list.getEntries() as PerformanceEntry[]) {
           const value = (entry as PerformanceEntry & { value?: number; hadRecentInput?: boolean }).value
           const hadRecentInput = (entry as PerformanceEntry & { hadRecentInput?: boolean }).hadRecentInput
-          if (!hadRecentInput && typeof value === "number") cls += value
+          if (hadRecentInput || typeof value !== "number") continue
+          const continuesWindow =
+            clsWindowStartedAt !== undefined &&
+            clsLastShiftAt !== undefined &&
+            entry.startTime - clsLastShiftAt < 1_000 &&
+            entry.startTime - clsWindowStartedAt < 5_000
+          if (continuesWindow) {
+            cls += value
+          } else {
+            cls = value
+            clsWindowStartedAt = entry.startTime
+            clsIncidentEmitted = false
+          }
+          clsLastShiftAt = entry.startTime
+          if (cls < 0.1 || clsIncidentEmitted) continue
+          clsIncidentEmitted = true
+          void emit({
+            name: "incident.session_layout_shift",
+            level: "warn",
+            ...baseEvent(),
+            data: { cls, phase: "performance_observer" },
+          })
         }
       })
       layoutShiftObserver.observe({ type: "layout-shift", buffered: true })
     } catch {}
   }
 
-  frame = requestAnimationFrame(tick)
-  interval = window.setInterval(flush, 5_000)
-
   const onVisibilityChange = () => {
+    if (!active) return
     void emit({
       name: "renderer.visibility",
       ...baseEvent(),
@@ -357,9 +301,7 @@ export function createSessionPerformanceDiagnostics(input: {
   document.addEventListener("visibilitychange", onVisibilityChange)
 
   onCleanup(() => {
-    running = false
-    if (frame !== undefined) cancelAnimationFrame(frame)
-    if (interval !== undefined) window.clearInterval(interval)
+    active = false
     longTaskObserver?.disconnect()
     layoutShiftObserver?.disconnect()
     document.removeEventListener("visibilitychange", onVisibilityChange)
