@@ -4,7 +4,7 @@ import { pathToFileURL } from "url"
 import os from "os"
 import crypto from "crypto"
 import z from "zod"
-import { mergeDeep, pipe } from "remeda"
+import { mergeDeep } from "remeda"
 import { Global } from "@opencode-ai/core/global"
 import fsNode from "fs/promises"
 import { NamedError } from "@opencode-ai/util/error"
@@ -113,9 +113,33 @@ function configPluginDependencyTarget() {
   return Installation.isLocal() ? "*" : InstallationPluginVersion
 }
 
+function mergeMcpEntries(target: Record<string, unknown>, source: Record<string, unknown>) {
+  const merged = mergeDeep(target, source)
+  for (const [name, value] of Object.entries(source)) {
+    if (ConfigMCP.Info.zod.safeParse(value).success) merged[name] = value
+  }
+  return merged
+}
+
+function mergeConfigRecords(target: Record<string, unknown>, source: Record<string, unknown>) {
+  const merged = mergeDeep(target, source)
+  if (isRecord(source.mcp)) {
+    merged.mcp = mergeMcpEntries(isRecord(target.mcp) ? target.mcp : {}, source.mcp)
+  }
+  return merged
+}
+
+// A full higher-priority MCP config replaces the lower-priority server. Only
+// the legacy `{ enabled }` entry is a field-level override. This same merge
+// rule is used for runtime loading, raw recovery state, and first-write seeding
+// so a repaired lower-priority file cannot revive stale credentials or env.
+function mergeConfig(target: Info, source: Info): Info {
+  return mergeConfigRecords(target, source) as Info
+}
+
 // Custom merge function that concatenates array fields instead of replacing them
 function mergeConfigConcatArrays(target: Info, source: Info): Info {
-  const merged = mergeDeep(target, source)
+  const merged = mergeConfig(target, source)
   if (target.instructions && source.instructions) {
     merged.instructions = Array.from(new Set([...target.instructions, ...source.instructions]))
   }
@@ -836,7 +860,7 @@ function seedConfigTextFromSources(sources: { path: string; text: string }[]) {
       continue
     }
     if (!isRecord(merged) || !isRecord(next)) merged = next
-    else merged = mergeDeep(merged, next)
+    else merged = mergeConfigRecords(merged, next)
   }
   if (!isRecord(merged)) return "{}"
   return JSON.stringify(merged, null, 2)
@@ -939,7 +963,7 @@ const rawLayer = Layer.effect(
         const next = yield* keepValidConfig(loadConfig(text, { path: filepath, allowWrite }), (error) =>
           errors.push(error),
         )
-        result = pipe(result, mergeDeep(next))
+        result = mergeConfig(result, next)
       }
 
       const legacy = path.join(Global.Path.config, "config")
@@ -956,7 +980,7 @@ const rawLayer = Layer.effect(
             if (provider && model) migrated.model = `${provider}/${model}`
             const legacyConfig = normalizeWritableConfig(mergeDeep(migrated, rest), legacy)
             if (shouldMergeLegacyTomlIntoRuntime(globalFiles)) {
-              result = mergeDeep(legacyConfig, result)
+              result = mergeConfig(legacyConfig, result)
             }
             target = legacyTomlMigrationTarget()
             action = isRegularFileSync(target) ? "merge" : "create"
@@ -1016,7 +1040,7 @@ const rawLayer = Layer.effect(
           continue
         }
         if (!inspection) continue
-        merged = mergeDeep(merged, inspection.mcp)
+        merged = mergeMcpEntries(merged, inspection.mcp)
         inspection.invalid.forEach((name) => invalid.add(name))
         invalidRoot ||= inspection.invalidRoot
       }
@@ -1709,18 +1733,13 @@ const rawLayer = Layer.effect(
         )
         .pipe(Effect.orDie)
 
-      // Sibling loaded files must be stripped of every name we removed OR wrote.
+      // Sibling loaded files must be stripped of every name we removed.
       // A `remove` deleted from the primary could still be shadowed by a copy in
-      // e.g. a hand-created pawwork.json next to pawwork.jsonc. A `set` is just as
-      // exposed: the primary write is a full overwrite, but the loader deep-merges
-      // sources, so a stale sibling copy would merge its old sub-fields (a deleted
-      // Authorization header, an old environment) back onto the new entry. Only an
-      // `enable` override is meant to shadow-merge onto a sibling's full entry, so
-      // those names are left alone here. `present`/`missing` still track removals
-      // only. Skip the scan (and its parse-failure surface) when nothing is
-      // removed or written.
-      const setNames = setEntries.map(([name]) => name)
-      const siblingStripNames = [...new Set([...removeNames, ...setNames])]
+      // e.g. a hand-created pawwork.json next to pawwork.jsonc. Full `set` entries
+      // now replace lower-priority full configs at the merge owner, while `enable`
+      // remains the sole field-level override, so neither requires rewriting a
+      // sibling. Skip the scan when nothing is removed.
+      const siblingStripNames = removeNames
       for (const file of siblingStripNames.length > 0 ? otherFiles : []) {
         yield* flock
           .withLock(

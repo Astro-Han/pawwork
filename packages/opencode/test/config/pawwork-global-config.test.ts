@@ -51,6 +51,8 @@ const editMcp = (input: { set?: Record<string, ConfigMCP.Info>; remove?: string[
   Effect.runPromise(Config.Service.use((svc) => svc.editGlobalMcp(input)).pipe(Effect.scoped, Effect.provide(layer)))
 const mcpRaw = () =>
   Effect.runPromise(Config.Service.use((svc) => svc.getGlobalMcpRaw()).pipe(Effect.scoped, Effect.provide(layer)))
+const repairMcp = () =>
+  Effect.runPromise(Config.Service.use((svc) => svc.repairGlobalMcp()).pipe(Effect.scoped, Effect.provide(layer)))
 const clear = (wait = false) =>
   Effect.runPromise(Config.Service.use((svc) => svc.invalidate(wait)).pipe(Effect.scoped, Effect.provide(layer)))
 const listConfigDirs = (directory: string, worktree: string) =>
@@ -1616,7 +1618,7 @@ describe("editGlobalMcp", () => {
     }
   })
 
-  test("overwriting an entry strips its stale copy from a sibling file so deleted sub-fields do not merge back", async () => {
+  test("a higher-priority full MCP config replaces stale sibling fields without rewriting the sibling", async () => {
     await using global = await tmpdir()
     await using project = await tmpdir({ git: true })
     const previousConfig = Global.Path.config
@@ -1624,9 +1626,9 @@ describe("editGlobalMcp", () => {
     ;(Global.Path as { config: string }).config = global.path
 
     try {
-      // Same server in both files. The sibling carries an extra header the user
-      // is about to delete; without stripping it, the loader's deep-merge would
-      // reintroduce it (the deleted Authorization header keeps being sent).
+      // Same server in both files. The lower-priority sibling carries a field the
+      // user is about to delete; the higher-priority full config must replace it
+      // without mutating the sibling source.
       const primary = path.join(global.path, "pawwork.jsonc")
       const sibling = path.join(global.path, "pawwork.json")
       await Filesystem.write(
@@ -1645,7 +1647,11 @@ describe("editGlobalMcp", () => {
           const siblingParsed = parseJsonc(await Bun.file(sibling).text()) as {
             mcp?: Record<string, unknown>
           }
-          expect(siblingParsed.mcp?.srv).toBeUndefined()
+          expect(siblingParsed.mcp?.srv).toEqual({
+            type: "remote",
+            url: "https://old",
+            headers: { A: "1", B: "2" },
+          })
           await clear(true)
           const config = await load()
           const srv = config.mcp?.srv as { url?: string; headers?: Record<string, string> } | undefined
@@ -1684,6 +1690,49 @@ describe("editGlobalMcp", () => {
           await clear(true)
           const config = await load()
           expect(config.model).toBe("anthropic/keep")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("does not revive stale MCP fields when an invalid sibling is repaired after an edit", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      await Filesystem.write(
+        path.join(global.path, "pawwork.json"),
+        JSON.stringify({
+          mcp: {
+            srv: {
+              type: "remote",
+              url: "https://old",
+              headers: { A: "1", Authorization: "Bearer stale" },
+            },
+            broken: null,
+          },
+        }),
+      )
+      await Filesystem.write(
+        path.join(global.path, "pawwork.jsonc"),
+        JSON.stringify({ mcp: { srv: { type: "remote", url: "https://old", headers: { A: "1" } } } }),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await editMcp({ set: { srv: { type: "remote", url: "https://new", headers: { A: "1" } } } })
+          await repairMcp()
+          await clear(true)
+
+          const config = await load()
+          expect(config.mcp?.srv).toEqual({ type: "remote", url: "https://new", headers: { A: "1" } })
+          expect((await mcpRaw()).srv).toEqual({ type: "remote", url: "https://new", headers: { A: "1" } })
         },
       })
     } finally {
