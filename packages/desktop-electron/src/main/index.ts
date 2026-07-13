@@ -34,6 +34,7 @@ const APP_IDS: Record<string, string> = {
 }
 const CI_SMOKE_HOME = process.env.PAWWORK_CI_SMOKE_HOME
 const CI_SMOKE_ENABLED = process.env.PAWWORK_CI_SMOKE === "true"
+const gracefulSidecarShutdown = process.platform === "darwin"
 const FEEDBACK_SESSION_EXPORT_TIMEOUT_MS = 3_000
 // How long to wait on one update feed's reachability probe before falling back
 // to the next. The probe is aborted (not abandoned) when it elapses.
@@ -210,6 +211,11 @@ const updater = createUpdaterController({
   downloadUpdate: () => updateFeed.download(),
   clearPendingUpdate: clearPendingUpdate,
   quitAndInstall: () => {
+    if (!gracefulSidecarShutdown) {
+      killSidecar()
+      autoUpdater.quitAndInstall()
+      return
+    }
     void shutdownSidecar().finally(() => autoUpdater.quitAndInstall())
   },
   log: (message, data) => logger.log(message, data),
@@ -402,6 +408,11 @@ function setupApp() {
   })
 
   app.on("before-quit", (event) => {
+    if (!gracefulSidecarShutdown) {
+      void remoteBridge.stop()
+      killSidecar()
+      return
+    }
     if (gracefulQuitReady) return
     event.preventDefault()
     if (gracefulQuitStarted) return
@@ -425,7 +436,12 @@ function setupApp() {
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
-      app.quit()
+      if (gracefulSidecarShutdown) {
+        app.quit()
+        return
+      }
+      killSidecar()
+      app.exit(0)
     })
   }
 
@@ -599,6 +615,12 @@ function wireMenu() {
     },
     reload: () => commandWindow()?.reload(),
     relaunch: () => {
+      if (!gracefulSidecarShutdown) {
+        killSidecar()
+        app.relaunch()
+        app.exit(0)
+        return
+      }
       void shutdownSidecar().finally(() => {
         app.relaunch()
         app.exit(0)
@@ -703,6 +725,12 @@ async function shutdownSidecar() {
 }
 
 function killSidecar() {
+  if (!gracefulSidecarShutdown) {
+    if (!server) return
+    void server.stop(true)
+    server = null
+    return
+  }
   void shutdownSidecar().catch((error) => logger.error("sidecar shutdown failed", error))
 }
 

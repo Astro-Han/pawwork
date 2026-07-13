@@ -9,6 +9,7 @@ describe("desktop sidecar source guard", () => {
     expect(source).toContain('app.setPath("logs", join(app.getPath("userData"), "logs"))')
     expect(source).toContain('logger.log("server ready", { url: res.url })')
     expect(source).toContain('logger.log("init done")')
+    expect(source).toContain('const gracefulSidecarShutdown = process.platform === "darwin"')
     expect(source).toContain("event.preventDefault()")
     expect(source).toContain('Instance.disposeAll({ mode: "force" })')
     expect(source).toContain("await active.stop(true)")
