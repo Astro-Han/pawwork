@@ -136,7 +136,7 @@ describe("renderer diagnostics", () => {
     expect(intervals).toBe(0)
   })
 
-  test("emits a jank incident directly from a threshold long task", () => {
+  test("emits one jank incident with the maximum long task in an observer batch", () => {
     const notify = capturePerformanceObservers()
     const events: RendererDiagnosticInput[] = []
 
@@ -150,7 +150,12 @@ describe("renderer diagnostics", () => {
         },
       })
 
-      notify("longtask", [{ duration: 100.4 } as PerformanceEntry])
+      notify("longtask", [
+        { duration: 99.4 } as PerformanceEntry,
+        { duration: 100.4 } as PerformanceEntry,
+        { duration: 175.6 } as PerformanceEntry,
+        { duration: 130.2 } as PerformanceEntry,
+      ])
       dispose()
     })
 
@@ -161,7 +166,7 @@ describe("renderer diagnostics", () => {
         route_session_id: "route-session",
         visible_session_id: "visible-session",
         timeline_session_id: "timeline-session",
-        data: { long_task_max_ms: 100, phase: "performance_observer" },
+        data: { long_task_max_ms: 176, phase: "performance_observer" },
       },
     ])
   })

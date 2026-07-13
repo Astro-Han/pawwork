@@ -241,16 +241,17 @@ export function createSessionPerformanceDiagnostics(input: {
     try {
       longTaskObserver = new PerformanceObserver((list) => {
         if (!active) return
+        let maxDuration = 0
         for (const entry of list.getEntries()) {
-          const duration = Math.round(entry.duration)
-          if (duration < 100) continue
-          void emit({
-            name: "incident.session_jank_burst",
-            level: "warn",
-            ...baseEvent(),
-            data: { long_task_max_ms: duration, phase: "performance_observer" },
-          })
+          maxDuration = Math.max(maxDuration, Math.round(entry.duration))
         }
+        if (maxDuration < 100) return
+        void emit({
+          name: "incident.session_jank_burst",
+          level: "warn",
+          ...baseEvent(),
+          data: { long_task_max_ms: maxDuration, phase: "performance_observer" },
+        })
       })
       longTaskObserver.observe({ type: "longtask", buffered: true })
     } catch {}
