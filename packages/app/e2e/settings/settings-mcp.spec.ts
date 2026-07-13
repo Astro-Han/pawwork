@@ -92,3 +92,36 @@ test("tests an unsaved MCP draft and keeps save available after failure", async 
   await sheet.getByRole("button", { name: "Cancel" }).click()
   await closeSettingsPanel(page, settings)
 })
+
+test("discards an in-flight connection result after the draft changes", async ({ page, gotoSession }) => {
+  test.setTimeout(120_000)
+  await gotoSession()
+
+  let markStarted!: () => void
+  const started = new Promise<void>((resolve) => (markStarted = resolve))
+  let releaseResponse!: () => void
+  const held = new Promise<void>((resolve) => (releaseResponse = resolve))
+  await page.route("**/mcp/probe", async (route) => {
+    markStarted()
+    await held
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "connected" }) })
+  })
+
+  const settings = await openSettings(page)
+  await settings.getByRole("tab", { name: "Integrations" }).click()
+  await settings.getByRole("button", { name: "Add MCP server" }).click()
+  const sheet = page.locator('[data-component="sheet"]').filter({ has: page.getByText("Add MCP server") })
+  await sheet.getByRole("button", { name: "Remote" }).click()
+  await sheet.getByLabel("URL").fill("https://old.example/mcp")
+  await sheet.getByRole("button", { name: "Test connection" }).click()
+  await started
+
+  await sheet.getByLabel("URL").fill("https://new.example/mcp")
+  releaseResponse()
+  await expect(sheet.getByRole("button", { name: "Test connection" })).toBeEnabled()
+  await expect(sheet.getByRole("status")).toHaveCount(0)
+
+  await page.unroute("**/mcp/probe")
+  await sheet.getByRole("button", { name: "Cancel" }).click()
+  await closeSettingsPanel(page, settings)
+})

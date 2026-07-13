@@ -51,6 +51,7 @@ export function McpForm(props: Props) {
   const initialAuth = readMcpAuth(initial?.type === "remote" ? initial.headers : undefined)
   const isEdit = props.mode === "edit"
   const [probeResult, setProbeResult] = createSignal<McpStatus>()
+  let probeRevision = 0
 
   const [form, setForm] = createStore({
     type: initialType as "local" | "remote",
@@ -64,7 +65,10 @@ export function McpForm(props: Props) {
     err: {} as { name?: string; command?: string; url?: string },
   })
 
-  const clearProbe = () => setProbeResult(undefined)
+  const clearProbe = () => {
+    probeRevision++
+    setProbeResult(undefined)
+  }
   const addRow = (field: "env" | "headers") => {
     clearProbe()
     setForm(field, produce((rows) => rows.push({ key: "", value: "" })))
@@ -138,10 +142,21 @@ export function McpForm(props: Props) {
   }))
 
   const probe = useMutation(() => ({
-    mutationFn: () => globalSync.probeMcp({ config: buildConfig(), directory: props.directory }),
-    onSuccess: setProbeResult,
-    onError: (error) =>
-      setProbeResult({ status: "failed", error: error instanceof Error ? error.message : String(error) }),
+    mutationFn: async () => {
+      const revision = ++probeRevision
+      try {
+        const result = await globalSync.probeMcp({ config: buildConfig(), directory: props.directory })
+        return { revision, result }
+      } catch (error) {
+        return {
+          revision,
+          result: { status: "failed", error: error instanceof Error ? error.message : String(error) } as McpStatus,
+        }
+      }
+    },
+    onSuccess: ({ revision, result }) => {
+      if (revision === probeRevision) setProbeResult(result)
+    },
   }))
 
   const remove = useMutation(() => ({

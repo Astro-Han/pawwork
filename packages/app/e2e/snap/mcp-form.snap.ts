@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test"
-import { test } from "../fixtures"
+import { expect, test } from "../fixtures"
 import { openSettings } from "../actions"
 import { applyDarkModeForTests } from "../utils"
 import { composeGrid, snapOutputPath, type Shot } from "./_compose"
@@ -19,7 +19,10 @@ async function openMcpForm(page: Page): Promise<Locator> {
   // Fill a little so the form reads as a real editing surface, not empty fields.
   await sheet.getByLabel("Name").fill("filesystem")
   await sheet.getByLabel("Command").fill("npx -y @modelcontextprotocol/server-filesystem /work")
-  await page.waitForTimeout(250)
+  await expect(sheet.getByLabel("Name")).toHaveValue("filesystem")
+  await expect(sheet.getByLabel("Command")).toHaveValue("npx -y @modelcontextprotocol/server-filesystem /work")
+  await expect(sheet.getByRole("button", { name: "Save server" })).toBeEnabled()
+  await expect(sheet.locator('[data-slot="sheet-content"]')).toHaveCSS("transform", "none")
   return sheet
 }
 
