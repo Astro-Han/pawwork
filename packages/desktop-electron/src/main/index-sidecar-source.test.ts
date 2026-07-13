@@ -13,6 +13,9 @@ describe("desktop sidecar source guard", () => {
     expect(source).toContain("event.preventDefault()")
     expect(source).toContain('Instance.disposeAll({ mode: "force" })')
     expect(source).toContain("await active.stop(true)")
+    expect(source).toMatch(
+      /try\s*{\s*await Instance\.disposeAll\({ mode: "force" }\)\s*}\s*finally\s*{\s*await active\.stop\(true\)/,
+    )
     expect(source).not.toContain("sqliteFileExists")
     expect(source).not.toContain('username: "opencode"')
   })

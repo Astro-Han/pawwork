@@ -718,8 +718,11 @@ async function shutdownSidecar() {
     server = null
     if (!active) return
     const { Instance } = await import("virtual:opencode-server")
-    await Instance.disposeAll({ mode: "force" })
-    await active.stop(true)
+    try {
+      await Instance.disposeAll({ mode: "force" })
+    } finally {
+      await active.stop(true)
+    }
   })()
   await sidecarShutdown
 }
