@@ -195,7 +195,7 @@ export function SettingsMcp(props: { directory?: string }) {
               <li class="flex items-center gap-3 py-2 border-b border-border-weak last:border-none">
                 <StatusIcon state={stateOf(entry.status)} />
                 <div class="flex flex-col min-w-0 flex-1">
-                  <span class="truncate text-body font-medium text-fg-base">{entry.name}</span>
+                  <span class="truncate text-body font-emphasis text-fg-base">{entry.name}</span>
                   <span class="truncate text-small text-fg-weaker">{summary(entry)}</span>
                   <Show when={entry.error}>
                     <span class="truncate text-small text-error-text">{entry.error}</span>
