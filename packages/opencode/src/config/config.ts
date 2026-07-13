@@ -4,7 +4,7 @@ import { pathToFileURL } from "url"
 import os from "os"
 import crypto from "crypto"
 import z from "zod"
-import { mergeDeep, pipe } from "remeda"
+import { mergeDeep } from "remeda"
 import { Global } from "@opencode-ai/core/global"
 import fsNode from "fs/promises"
 import { NamedError } from "@opencode-ai/util/error"
@@ -113,9 +113,33 @@ function configPluginDependencyTarget() {
   return Installation.isLocal() ? "*" : InstallationPluginVersion
 }
 
+function mergeMcpEntries(target: Record<string, unknown>, source: Record<string, unknown>) {
+  const merged = mergeDeep(target, source)
+  for (const [name, value] of Object.entries(source)) {
+    if (ConfigMCP.Info.zod.safeParse(value).success) merged[name] = value
+  }
+  return merged
+}
+
+function mergeConfigRecords(target: Record<string, unknown>, source: Record<string, unknown>) {
+  const merged = mergeDeep(target, source)
+  if (isRecord(source.mcp)) {
+    merged.mcp = mergeMcpEntries(isRecord(target.mcp) ? target.mcp : {}, source.mcp)
+  }
+  return merged
+}
+
+// A full higher-priority MCP config replaces the lower-priority server. Only
+// the legacy `{ enabled }` entry is a field-level override. This same merge
+// rule is used for runtime loading, raw recovery state, and first-write seeding
+// so a repaired lower-priority file cannot revive stale credentials or env.
+function mergeConfig(target: Info, source: Info): Info {
+  return mergeConfigRecords(target, source) as Info
+}
+
 // Custom merge function that concatenates array fields instead of replacing them
 function mergeConfigConcatArrays(target: Info, source: Info): Info {
-  const merged = mergeDeep(target, source)
+  const merged = mergeConfig(target, source)
   if (target.instructions && source.instructions) {
     merged.instructions = Array.from(new Set([...target.instructions, ...source.instructions]))
   }
@@ -260,7 +284,7 @@ export const Info = Schema.Struct({
       Schema.Union([
         ConfigMCP.Info,
         // Matches the legacy `{ enabled: false }` form used to disable a server.
-        Schema.Any.annotate({ [ZodOverride]: z.object({ enabled: z.boolean() }).strict() }),
+        ConfigMCP.Toggle,
       ]),
     ),
   ).annotate({ description: "MCP (Model Context Protocol) server configurations" }),
@@ -449,6 +473,37 @@ function keepValidConfig<E, R>(
   )
 }
 
+function inspectGlobalMcpText(text: string, file: string) {
+  const parsed = ConfigParse.jsonc(text, file)
+  if (!isRecord(parsed)) return
+  const normalized = normalizeLoadedConfig(parsed, file)
+  const whole = Info.zod.safeParse(normalized)
+  // A non-MCP schema error still makes the loader skip this whole file and
+  // cannot be repaired safely from the MCP surface. Only peel apart a file
+  // whose schema failures are confined to its MCP subtree.
+  if (!whole.success && whole.error.issues.some((issue) => issue.path[0] !== "mcp")) return
+  if (!isRecord(parsed.mcp)) {
+    return parsed.mcp === undefined
+      ? { mcp: {}, invalid: [], invalidRoot: false }
+      : { mcp: {}, invalid: [], invalidRoot: true }
+  }
+
+  const mcp: Record<string, unknown> = {}
+  const invalid: string[] = []
+  for (const [name, value] of Object.entries(parsed.mcp)) {
+    const editable = ConfigMCP.Info.zod.safeParse(value).success
+    const toggle = ConfigMCP.Toggle.zod.safeParse(value).success
+    if (!editable && !toggle) {
+      invalid.push(name)
+      continue
+    }
+    // Rebase relative `{file:...}` references to absolute against this file's
+    // own directory. `{env:...}` deliberately stays literal.
+    mcp[name] = rewriteFilePlaceholdersDeep(value, file)
+  }
+  return { mcp, invalid, invalidRoot: false }
+}
+
 type State = {
   config: Info
   directories: string[]
@@ -470,6 +525,12 @@ export interface Interface {
     enable?: Record<string, boolean>
   }) => Effect.Effect<{ changed: boolean; missing: string[] }>
   readonly getGlobalMcpRaw: () => Effect.Effect<Record<string, unknown>>
+  readonly getGlobalMcpState: () => Effect.Effect<{
+    mcp: Record<string, unknown>
+    invalid: string[]
+    invalidRoot: boolean
+  }>
+  readonly repairGlobalMcp: () => Effect.Effect<{ changed: boolean; repaired: string[]; backups: string[] }>
   readonly invalidate: (wait?: boolean) => Effect.Effect<void>
   readonly directories: () => Effect.Effect<string[]>
   readonly waitForDependencies: () => Effect.Effect<void>
@@ -799,7 +860,7 @@ function seedConfigTextFromSources(sources: { path: string; text: string }[]) {
       continue
     }
     if (!isRecord(merged) || !isRecord(next)) merged = next
-    else merged = mergeDeep(merged, next)
+    else merged = mergeConfigRecords(merged, next)
   }
   if (!isRecord(merged)) return "{}"
   return JSON.stringify(merged, null, 2)
@@ -815,11 +876,12 @@ async function writeLegacyTomlMigration(target: string, legacyConfig: Info, opti
       if (!options?.mergeExisting) return
       const existing = ConfigParse.jsonc(existingText, target)
       if (!isRecord(existing)) return
-      const patch = missingConfigPatch(legacyConfig, existing)
+      const merged = mergeConfigRecords(legacyConfig, existing)
+      const patch = missingConfigPatch(merged, existing)
       if (!patch) return
       const updated = target.endsWith(".jsonc")
         ? patchJsonc(existingText, patch)
-        : JSON.stringify(mergeDeep(legacyConfig, existing), null, 2)
+        : JSON.stringify(merged, null, 2)
       await writeConfigTextAtomic(target, updated)
       return
     }
@@ -902,7 +964,7 @@ const rawLayer = Layer.effect(
         const next = yield* keepValidConfig(loadConfig(text, { path: filepath, allowWrite }), (error) =>
           errors.push(error),
         )
-        result = pipe(result, mergeDeep(next))
+        result = mergeConfig(result, next)
       }
 
       const legacy = path.join(Global.Path.config, "config")
@@ -919,7 +981,7 @@ const rawLayer = Layer.effect(
             if (provider && model) migrated.model = `${provider}/${model}`
             const legacyConfig = normalizeWritableConfig(mergeDeep(migrated, rest), legacy)
             if (shouldMergeLegacyTomlIntoRuntime(globalFiles)) {
-              result = mergeDeep(legacyConfig, result)
+              result = mergeConfig(legacyConfig, result)
             }
             target = legacyTomlMigrationTarget()
             action = isRegularFileSync(target) ? "merge" : "create"
@@ -964,38 +1026,81 @@ const rawLayer = Layer.effect(
     // client that fed that back into an edit would persist resolved secrets to
     // disk. Management UIs read this instead: what they display and write back
     // keeps secret placeholders literal.
-    const getGlobalMcpRaw = Effect.fn("Config.getGlobalMcpRaw")(function* () {
+    const getGlobalMcpState = Effect.fn("Config.getGlobalMcpState")(function* () {
       let merged: Record<string, unknown> = {}
+      const invalid = new Set<string>()
+      let invalidRoot = false
       for (const file of globalConfigFilesToLoad()) {
         const text = yield* readConfigFile(file)
         if (text === undefined) continue
-        let parsed: unknown
+        let inspection: ReturnType<typeof inspectGlobalMcpText>
         try {
-          parsed = ConfigParse.jsonc(text, file)
-          // Mirror the loader's tolerance precisely: a file that is valid JSONC
-          // but violates the schema (e.g. `{ mcp: { x: null } }`) is skipped
-          // whole in PawWork so a broken neighbor never reaches — and crashes —
-          // the management page; plain opencode keeps failing fast. Without this
-          // the raw read only caught JSONC syntax errors, so a null/garbage entry
-          // would sail through and break `"type" in config` in the UI.
-          ConfigParse.schema(Info.zod, normalizeLoadedConfig(parsed, file), file)
+          inspection = inspectGlobalMcpText(text, file)
         } catch (error) {
           if (!Runtime.isPawWork()) throw error
           continue
         }
-        if (isRecord(parsed) && isRecord(parsed.mcp)) {
-          // Rebase relative `{file:...}` references to absolute against this
-          // file's own directory, exactly as the seed does when it migrates a
-          // config into PawWork Home. An edit writes the full entry back to the
-          // primary file, so a relative path captured from a different source dir
-          // would otherwise resolve against the wrong base after the write.
-          // `{env:...}` is deliberately left literal — never resolve a secret
-          // into what the UI would persist.
-          const rebased = rewriteFilePlaceholdersDeep(parsed.mcp, file) as Record<string, unknown>
-          merged = mergeDeep(merged, rebased)
-        }
+        if (!inspection) continue
+        merged = mergeMcpEntries(merged, inspection.mcp)
+        inspection.invalid.forEach((name) => invalid.add(name))
+        invalidRoot ||= inspection.invalidRoot
       }
-      return merged
+      return { mcp: merged, invalid: [...invalid].sort((a, b) => a.localeCompare(b)), invalidRoot }
+    })
+
+    const getGlobalMcpRaw = Effect.fn("Config.getGlobalMcpRaw")(function* () {
+      return (yield* getGlobalMcpState()).mcp
+    })
+
+    const repairGlobalMcp = Effect.fn("Config.repairGlobalMcp")(function* () {
+      if (Runtime.isPawWork()) yield* Effect.promise(() => PawWorkHome.ensurePrimary())
+      const repaired = new Set<string>()
+      const backups: string[] = []
+      let changed = false
+      const opts = { formattingOptions: { insertSpaces: true, tabSize: 2 } }
+
+      for (const file of globalConfigFilesToLoad()) {
+        yield* flock
+          .withLock(
+            Effect.gen(function* () {
+              const before = yield* readConfigFile(file)
+              if (before === undefined) return
+              let inspection: ReturnType<typeof inspectGlobalMcpText>
+              try {
+                inspection = inspectGlobalMcpText(before, file)
+              } catch (error) {
+                if (!Runtime.isPawWork()) throw error
+                return
+              }
+              if (!inspection || (!inspection.invalidRoot && inspection.invalid.length === 0)) return
+
+              const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 17)
+              const backup = `${file}.backup-${stamp.slice(0, 8)}-${stamp.slice(8)}`
+              yield* Effect.promise(() => fsNode.copyFile(file, backup)).pipe(Effect.orDie)
+
+              const text = inspection.invalidRoot
+                ? applyEdits(before, modify(before, ["mcp"], undefined, opts))
+                : inspection.invalid.reduce(
+                    (current, name) => applyEdits(current, modify(current, ["mcp", name], undefined, opts)),
+                    before,
+                  )
+              ConfigParse.jsonc(text, file)
+              yield* Effect.promise(() => writeConfigTextAtomic(file, text)).pipe(Effect.orDie)
+              inspection.invalid.forEach((name) => repaired.add(name))
+              backups.push(backup)
+              changed = true
+            }),
+            configFileLockKey(file),
+          )
+          .pipe(Effect.orDie)
+      }
+
+      if (changed) yield* invalidate(undefined, "config.repairGlobalMcp")
+      return {
+        changed,
+        repaired: [...repaired].sort((a, b) => a.localeCompare(b)),
+        backups,
+      }
     })
 
     const ensureGitignore = Effect.fn("Config.ensureGitignore")(function* (dir: string) {
@@ -1576,13 +1681,16 @@ const rawLayer = Layer.effect(
         return { changed: false, missing: [] as string[] }
 
       if (Runtime.isPawWork()) yield* Effect.promise(() => PawWorkHome.ensurePrimary())
+      const writeFile = globalConfigFile()
       // Seed scattered global sources into the primary file first. Deletion works
       // by absence, and absence in one file must not be shadowed by a copy in
       // another loaded source; after seeding, every loaded entry lives together.
-      yield* updateGlobal({})
+      // An existing primary is already the write authority and must not pass
+      // through updateGlobal's whole-config schema check: the MCP editor is also
+      // the recovery path when one legacy MCP entry makes that config invalid.
+      if ((yield* readConfigFile(writeFile)) === undefined) yield* updateGlobal({})
 
       const opts = { formattingOptions: { insertSpaces: true, tabSize: 2 } }
-      const writeFile = globalConfigFile()
       const otherFiles = globalConfigFilesToLoad().filter((file) => file !== writeFile)
       const present = new Set<string>()
       let changed = false
@@ -1613,10 +1721,11 @@ const rawLayer = Layer.effect(
             for (const [name, enabled] of enableEntries)
               text = applyEdits(text, modify(text, ["mcp", name, "enabled"], enabled, opts))
             if (text !== before) {
-              // Validate a normalized copy so a primary that still carries a
-              // deprecated key (theme/keybinds/...) — which the loader accepts —
-              // does not block the edit; the written `text` keeps the raw file.
-              ConfigParse.schema(Info.zod, normalizeLoadedConfig(ConfigParse.jsonc(text, writeFile), writeFile), writeFile)
+              // The request schema already validates every value in `set`, while
+              // remove/enable only make path-local edits. Do not schema-check the
+              // unrelated config here: this write path must remain available to
+              // repair a primary containing a legacy or malformed MCP neighbor.
+              ConfigParse.jsonc(text, writeFile)
               yield* Effect.promise(() => writeConfigTextAtomic(writeFile, text)).pipe(Effect.orDie)
               changed = true
             }
@@ -1625,18 +1734,13 @@ const rawLayer = Layer.effect(
         )
         .pipe(Effect.orDie)
 
-      // Sibling loaded files must be stripped of every name we removed OR wrote.
+      // Sibling loaded files must be stripped of every name we removed.
       // A `remove` deleted from the primary could still be shadowed by a copy in
-      // e.g. a hand-created pawwork.json next to pawwork.jsonc. A `set` is just as
-      // exposed: the primary write is a full overwrite, but the loader deep-merges
-      // sources, so a stale sibling copy would merge its old sub-fields (a deleted
-      // Authorization header, an old environment) back onto the new entry. Only an
-      // `enable` override is meant to shadow-merge onto a sibling's full entry, so
-      // those names are left alone here. `present`/`missing` still track removals
-      // only. Skip the scan (and its parse-failure surface) when nothing is
-      // removed or written.
-      const setNames = setEntries.map(([name]) => name)
-      const siblingStripNames = [...new Set([...removeNames, ...setNames])]
+      // e.g. a hand-created pawwork.json next to pawwork.jsonc. Full `set` entries
+      // now replace lower-priority full configs at the merge owner, while `enable`
+      // remains the sole field-level override, so neither requires rewriting a
+      // sibling. Skip the scan when nothing is removed.
+      const siblingStripNames = removeNames
       for (const file of siblingStripNames.length > 0 ? otherFiles : []) {
         yield* flock
           .withLock(
@@ -1663,7 +1767,29 @@ const rawLayer = Layer.effect(
                 Effect.exit,
               )
               if (Exit.isFailure(loadExit)) {
-                if (Runtime.isPawWork()) return
+                if (Runtime.isPawWork()) {
+                  // A sibling with another invalid MCP entry stays unloadable
+                  // after removing one of its valid neighbors. Deleting that
+                  // requested neighbor is therefore safe and prevents a later
+                  // explicit repair from reviving it. Do not touch malformed
+                  // JSON, non-MCP schema failures, unresolved placeholders, or
+                  // the invalid entry itself: those could make unrelated config
+                  // active without the repair flow and its backup.
+                  let inspection: ReturnType<typeof inspectGlobalMcpText>
+                  try {
+                    inspection = inspectGlobalMcpText(before, file)
+                  } catch {
+                    return
+                  }
+                  if (!inspection || inspection.invalid.length === 0) return
+                  const removable = removeNames.filter((name) => name in inspection.mcp)
+                  if (removable.length === 0) return
+                  removable.forEach((name) => present.add(name))
+                  const text = stripKeys(before, removable)
+                  yield* Effect.promise(() => writeConfigTextAtomic(file, text)).pipe(Effect.orDie)
+                  changed = true
+                  return
+                }
                 return yield* Effect.failCause(loadExit.cause)
               }
               const parsed = ConfigParse.jsonc(before, file)
@@ -1695,6 +1821,8 @@ const rawLayer = Layer.effect(
       updateGlobal,
       editGlobalMcp,
       getGlobalMcpRaw,
+      getGlobalMcpState,
+      repairGlobalMcp,
       invalidate,
       directories,
       waitForDependencies,

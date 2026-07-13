@@ -27,11 +27,19 @@ export const EditMcpConfigResponse = Schema.Struct({
 // view that `configGet` returns.
 const McpRawEntry = Schema.Union([
   ConfigMCP.Info,
-  Schema.Struct({ enabled: Schema.optional(Schema.Boolean) }).annotate({ identifier: "McpToggleConfig" }),
+  ConfigMCP.Toggle,
 ])
 
 export const GlobalMcpRawResponse = Schema.Struct({
   mcp: Schema.Record(Schema.String, McpRawEntry),
+  invalid: Schema.Array(Schema.String),
+  invalidRoot: Schema.Boolean,
+})
+
+export const RepairMcpConfigResponse = Schema.Struct({
+  changed: Schema.Boolean,
+  repaired: Schema.Array(Schema.String),
+  backups: Schema.Array(Schema.String),
 })
 
 const GlobalHealth = Schema.Struct({
@@ -80,6 +88,7 @@ const GlobalUpgradeServerError = GlobalUpgradeFailure.pipe(
 export const GlobalPaths = {
   config: "/global/config",
   configMcp: "/global/config/mcp",
+  configMcpRepair: "/global/config/mcp/repair",
   health: "/global/health",
   dispose: "/global/dispose",
   upgrade: "/global/upgrade",
@@ -129,6 +138,16 @@ export const GlobalApi = HttpApi.make("global")
             summary: "Edit global MCP servers",
             description:
               "Add, edit, rename, enable/disable, or delete MCP servers in the global config. `set` writes entries, `remove` deletes keys, `enable` patches only the `enabled` field in place (preserving raw placeholder values); `missing` lists removal names not found in any global config file (e.g. project-scoped or nonexistent).",
+          }),
+        ),
+        HttpApiEndpoint.post("configRepairMcp", GlobalPaths.configMcpRepair, {
+          success: RepairMcpConfigResponse,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "global.config.repairMcp",
+            summary: "Repair invalid global MCP entries",
+            description:
+              "Back up each affected global config file, then remove only MCP entries that fail the MCP schema. Other configuration and JSONC comments are preserved.",
           }),
         ),
         HttpApiEndpoint.get("health", GlobalPaths.health, {

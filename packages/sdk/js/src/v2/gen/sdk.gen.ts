@@ -67,6 +67,7 @@ import type {
   GlobalConfigEditMcpResponses,
   GlobalConfigGetResponses,
   GlobalConfigMcpRawResponses,
+  GlobalConfigRepairMcpResponses,
   GlobalConfigUpdateErrors,
   GlobalConfigUpdateResponses,
   GlobalDisposeResponses,
@@ -91,6 +92,8 @@ import type {
   McpConnectResponses,
   McpDisconnectResponses,
   McpLocalConfig,
+  McpProbeErrors,
+  McpProbeResponses,
   McpRemoteConfig,
   McpStatusResponses,
   MemoryDeleteEntryResponses,
@@ -534,6 +537,18 @@ export class Config extends HeyApiClient {
         },
       },
     )
+  }
+
+  /**
+   * Repair invalid global MCP entries
+   *
+   * Back up each affected global config file, then remove only MCP entries that fail the MCP schema. Other configuration and JSONC comments are preserved.
+   */
+  public repairMcp<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).post<GlobalConfigRepairMcpResponses, unknown, ThrowOnError>({
+      url: "/global/config/mcp/repair",
+      ...options,
+    })
   }
 }
 
@@ -4473,6 +4488,43 @@ export class Mcp extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<McpAddResponses, McpAddErrors, ThrowOnError>({
       url: "/mcp",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Test MCP configuration
+   *
+   * Test an unsaved MCP server configuration without adding it to the current workspace.
+   */
+  public probe<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      config: McpLocalConfig | McpRemoteConfig
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "config" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<McpProbeResponses, McpProbeErrors, ThrowOnError>({
+      url: "/mcp/probe",
       ...options,
       ...params,
       headers: {

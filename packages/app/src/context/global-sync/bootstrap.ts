@@ -123,6 +123,8 @@ export async function bootstrapGlobal(input: {
         // view where secret placeholders are already resolved.
         input.globalSDK.global.config.mcpRaw().then((x) => {
           input.setGlobalStore("mcpRaw", reconcile(x.data?.mcp ?? {}))
+          input.setGlobalStore("mcpInvalid", reconcile(x.data?.invalid ?? []))
+          input.setGlobalStore("mcpInvalidRoot", x.data?.invalidRoot ?? false)
         }),
       ),
     () =>

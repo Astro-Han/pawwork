@@ -1,7 +1,8 @@
 export * as ConfigMCP from "./mcp"
 
 import { Schema } from "effect"
-import { zod } from "@/util/effect-zod"
+import z from "zod"
+import { zod, ZodOverride } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
 
 const PositiveInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThan(0))
@@ -62,3 +63,8 @@ export const Info = Schema.Union([Local, Remote])
   .annotate({ discriminator: "type" })
   .pipe(withStatics((s) => ({ zod: zod(s) })))
 export type Info = Schema.Schema.Type<typeof Info>
+
+export const Toggle = Schema.Struct({ enabled: Schema.Boolean })
+  .annotate({ identifier: "McpToggleConfig", [ZodOverride]: z.object({ enabled: z.boolean() }).strict() })
+  .pipe(withStatics((schema) => ({ zod: zod(schema) })))
+export type Toggle = Schema.Schema.Type<typeof Toggle>

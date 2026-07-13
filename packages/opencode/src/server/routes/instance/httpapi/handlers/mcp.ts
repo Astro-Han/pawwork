@@ -6,6 +6,7 @@ import {
   connectMcpServer,
   disconnectMcpServer,
   getMcpStatus,
+  probeMcpServer,
   removeMcpAuth,
   startMcpAuth,
 } from "@/server/instance/mcp-actions"
@@ -19,6 +20,10 @@ import { McpApi } from "../groups/mcp"
 
 const AddMcpInput = z.object({
   name: z.string(),
+  config: Config.Mcp,
+})
+
+const ProbeMcpInput = z.object({
   config: Config.Mcp,
 })
 
@@ -86,6 +91,14 @@ export const mcpHandlers = HttpApiBuilder.group(McpApi, "mcp", (handlers) =>
         if (HttpServerResponse.isHttpServerResponse(payload)) return payload
         const result = yield* addMcpServer(payload)
         return HttpServerResponse.jsonUnsafe(result.status)
+      }).pipe(Effect.catch(mcpFailure), Effect.catchDefect(mcpFailure)),
+    )
+    .handleRaw("probe", (ctx) =>
+      Effect.gen(function* () {
+        const payload = yield* parseJsonBody(ctx.request, ProbeMcpInput)
+        if (HttpServerResponse.isHttpServerResponse(payload)) return payload
+        const status = yield* probeMcpServer(payload.config)
+        return HttpServerResponse.jsonUnsafe(status)
       }).pipe(Effect.catch(mcpFailure), Effect.catchDefect(mcpFailure)),
     )
     .handleRaw("authStart", (ctx) =>

@@ -77,6 +77,9 @@ describe("global config routes", () => {
 
     expect(spec.paths["/global/config"]).toHaveProperty("get")
     expect(spec.paths["/global/config"]).toHaveProperty("patch")
+    expect(spec.paths["/global/config/mcp"]).toHaveProperty("get")
+    expect(spec.paths["/global/config/mcp"]).toHaveProperty("post")
+    expect(spec.paths["/global/config/mcp/repair"]).toHaveProperty("post")
     expect(spec.paths["/global/health"]).toHaveProperty("get")
     expect(spec.paths["/global/dispose"]).toHaveProperty("post")
     expect(spec.paths["/global/upgrade"]).toHaveProperty("post")
@@ -100,6 +103,115 @@ describe("global config routes", () => {
         expect(response.status).toBe(200)
         expect(body.model).toBe("test/model")
         expect(JSON.parse(await fs.readFile(path.join(globalDir, "pawwork.json"), "utf8")).model).toBe("test/model")
+      })
+    })
+  })
+
+  test("reports invalid MCP entries without hiding valid neighbors", async () => {
+    await withConfigDepsLock(async () => {
+      await withIsolatedGlobalConfig(async (globalDir) => {
+        await fs.writeFile(
+          path.join(globalDir, "pawwork.json"),
+          JSON.stringify({
+            username: "kept-user",
+            mcp: {
+              working: { type: "remote", url: "https://working.example/mcp" },
+              broken: null,
+            },
+          }),
+          "utf8",
+        )
+
+        const response = await Server.Default().app.request("/global/config/mcp")
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({
+          mcp: { working: { type: "remote", url: "https://working.example/mcp" } },
+          invalid: ["broken"],
+          invalidRoot: false,
+        })
+      })
+    })
+  })
+
+  test("reports an invalid MCP root separately from server names", async () => {
+    await withConfigDepsLock(async () => {
+      await withIsolatedGlobalConfig(async (globalDir) => {
+        await fs.writeFile(path.join(globalDir, "pawwork.json"), JSON.stringify({ mcp: null }), "utf8")
+
+        const response = await Server.Default().app.request("/global/config/mcp")
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ mcp: {}, invalid: [], invalidRoot: true })
+      })
+    })
+  })
+
+  test("reports an empty object as an invalid MCP entry", async () => {
+    await withConfigDepsLock(async () => {
+      await withIsolatedGlobalConfig(async (globalDir) => {
+        await fs.writeFile(path.join(globalDir, "pawwork.json"), JSON.stringify({ mcp: { broken: {} } }), "utf8")
+
+        const response = await Server.Default().app.request("/global/config/mcp")
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ mcp: {}, invalid: ["broken"], invalidRoot: false })
+      })
+    })
+  })
+
+  test("backs up the config before repairing only invalid MCP entries", async () => {
+    await withConfigDepsLock(async () => {
+      await withIsolatedGlobalConfig(async (globalDir) => {
+        const file = path.join(globalDir, "pawwork.jsonc")
+        const original =
+          '{\n  // keep this comment\n  "username": "kept-user",\n  "mcp": {\n    "working": { "type": "remote", "url": "https://working.example/mcp" },\n    "broken": null\n  }\n}\n'
+        await fs.writeFile(file, original, "utf8")
+
+        const response = await Server.Default().app.request("/global/config/mcp/repair", { method: "POST" })
+        const result = (await response.json()) as { changed: boolean; repaired: string[]; backups: string[] }
+
+        expect(response.status).toBe(200)
+        expect(result.changed).toBe(true)
+        expect(result.repaired).toEqual(["broken"])
+        expect(result.backups).toHaveLength(1)
+        expect(path.dirname(result.backups[0]!)).toBe(globalDir)
+        expect(path.basename(result.backups[0]!)).toMatch(/^pawwork\.jsonc\.backup-\d{8}-\d{9}$/)
+        expect(await fs.readFile(result.backups[0]!, "utf8")).toBe(original)
+
+        const repaired = await fs.readFile(file, "utf8")
+        expect(repaired).toContain("// keep this comment")
+        expect(repaired).toContain('"username": "kept-user"')
+        expect(repaired).toContain('"working"')
+        expect(repaired).not.toContain('"broken"')
+      })
+    })
+  })
+
+  test("repairs an invalid server named $mcp without deleting valid neighbors", async () => {
+    await withConfigDepsLock(async () => {
+      await withIsolatedGlobalConfig(async (globalDir) => {
+        const file = path.join(globalDir, "pawwork.jsonc")
+        await fs.writeFile(
+          file,
+          JSON.stringify({
+            mcp: {
+              working: { type: "remote", url: "https://working.example/mcp" },
+              $mcp: null,
+            },
+          }),
+          "utf8",
+        )
+
+        const response = await Server.Default().app.request("/global/config/mcp/repair", { method: "POST" })
+        const result = (await response.json()) as { repaired: string[] }
+        const repaired = JSON.parse(await fs.readFile(file, "utf8")) as { mcp?: Record<string, unknown> }
+
+        expect(response.status).toBe(200)
+        expect(result.repaired).toEqual(["$mcp"])
+        expect(repaired.mcp).toEqual({
+          working: { type: "remote", url: "https://working.example/mcp" },
+        })
       })
     })
   })

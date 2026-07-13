@@ -1,22 +1,24 @@
 import { Button } from "@opencode-ai/ui/button"
-import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Switch } from "@opencode-ai/ui/switch"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Icon } from "@opencode-ai/ui/icon"
+import { Switch } from "@opencode-ai/ui/switch"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useMutation } from "@tanstack/solid-query"
 import { For, Show, createMemo, createSignal } from "solid-js"
 import type { McpLocalConfig, McpRemoteConfig, McpStatus } from "@opencode-ai/sdk/v2/client"
 import { useGlobalSync, type McpRawEntry } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
-import { DialogMcpForm } from "@/components/dialog-mcp-form"
-import { EmptyHint, type ItemState, SectionHeader, StatusDot } from "@/components/settings-integrations-parts"
+import { McpForm } from "@/components/mcp-form"
+import { McpDeleteDialog } from "@/components/mcp-delete-dialog"
+import { EmptyHint, type ItemState, SectionHeader, StatusIcon } from "@/components/settings-integrations-parts"
 
 type McpConfig = McpLocalConfig | McpRemoteConfig
 
 type McpEntry = {
   name: string
   config: McpRawEntry
-  // A full local/remote config the DialogMcpForm can edit. A legacy `{ enabled }`
+  // A full local/remote config the MCP Sheet can edit. A legacy `{ enabled }`
   // override has no `type`, so it can only be toggled or deleted, not edited.
   editable: McpConfig | undefined
   enabled: boolean
@@ -30,7 +32,8 @@ function asEditable(config: McpRawEntry): McpConfig | undefined {
 }
 
 // MCP section of the Integrations settings page. The list is inline (page never
-// jumps); add / edit / delete happen in a focused DialogMcpForm. Presence is
+// jumps); add / edit happen in a focused Sheet, while deletion is confirmed in
+// a Dialog. Presence is
 // driven purely by the raw global config (fresh after every editMcp
 // re-bootstrap), so a deleted server disappears immediately without waiting on a
 // child-store refresh. The raw map keeps `{env:...}` / `{file:...}` placeholders
@@ -42,6 +45,9 @@ export function SettingsMcp(props: { directory?: string }) {
   const language = useLanguage()
   const globalSync = useGlobalSync()
   const dialog = useDialog()
+  const [editor, setEditor] = createSignal<
+    { mode: "add" } | { mode: "edit"; name: string; config: McpConfig } | undefined
+  >(undefined)
 
   const childStore = createMemo(() => {
     const dir = props.directory
@@ -51,6 +57,8 @@ export function SettingsMcp(props: { directory?: string }) {
   })
 
   const globalMcp = createMemo(() => globalSync.data.mcpRaw)
+  const invalid = createMemo(() => globalSync.data.mcpInvalid)
+  const invalidRoot = createMemo(() => globalSync.data.mcpInvalidRoot)
   const runtime = createMemo(() => childStore()?.mcp ?? {})
 
   const entries = createMemo<McpEntry[]>(() => {
@@ -81,7 +89,8 @@ export function SettingsMcp(props: { directory?: string }) {
   }
 
   const statusLabel = (status?: McpStatus["status"]) => {
-    if (!status || status === "connected") return undefined
+    if (!status) return language.t("settings.mcp.status.notChecked")
+    if (status === "connected") return language.t("settings.mcp.status.connected")
     if (status === "disabled") return language.t("status.connections.state.disabled")
     if (status === "failed") return language.t("status.connections.state.failed")
     if (status === "needs_auth") return language.t("status.connections.state.needs_auth")
@@ -89,13 +98,19 @@ export function SettingsMcp(props: { directory?: string }) {
     return undefined
   }
 
-  const openAdd = () =>
-    dialog.show(() => <DialogMcpForm mode="add" existingNames={existingNames()} />)
+  const summary = (entry: McpEntry) => {
+    const config = entry.editable
+    if (!config) return language.t("settings.mcp.summary.legacy")
+    if (config.type === "remote") return language.t("settings.mcp.summary.remote", { value: config.url })
+    return language.t("settings.mcp.summary.local", { value: config.command.join(" ") })
+  }
+
+  const openAdd = () => setEditor({ mode: "add" })
 
   const openEdit = (entry: McpEntry) => {
     const config = entry.editable
     if (!config) return
-    dialog.show(() => <DialogMcpForm mode="edit" name={entry.name} config={config} existingNames={existingNames()} />)
+    setEditor({ mode: "edit", name: entry.name, config })
   }
 
   const toggle = useMutation(() => ({
@@ -113,18 +128,35 @@ export function SettingsMcp(props: { directory?: string }) {
     },
   }))
 
-  // Delete for entries that have no editable form (a legacy `{ enabled }`
-  // override): the DialogMcpForm — which hosts delete for full local/remote
-  // configs — needs a type, so these get an inline two-click confirm right in
-  // the row instead. `confirmingDelete` holds the name awaiting the second click.
-  const [confirmingDelete, setConfirmingDelete] = createSignal<string | undefined>(undefined)
   const remove = useMutation(() => ({
     mutationFn: async (name: string) => globalSync.editMcp({ remove: [name] }),
-    onSettled: () => setConfirmingDelete(undefined),
     onError: (error) => {
       showToast({
         variant: "error",
         title: language.t("settings.mcp.toast.deleteFailed.title"),
+        description: error instanceof Error ? error.message : String(error),
+      })
+    },
+  }))
+
+  const confirmLegacyDelete = (name: string) =>
+    dialog.show(() => <McpDeleteDialog name={name} onDelete={() => remove.mutateAsync(name)} />)
+
+  const repair = useMutation(() => ({
+    mutationFn: () => globalSync.repairMcp(),
+    onSuccess: (result) => {
+      showToast({
+        variant: "success",
+        title: language.t("settings.mcp.repair.success.title"),
+        description: language.t("settings.mcp.repair.success.description", {
+          path: result?.backups?.[0] ?? "",
+        }),
+      })
+    },
+    onError: (error) => {
+      showToast({
+        variant: "error",
+        title: language.t("settings.mcp.repair.failed.title"),
         description: error instanceof Error ? error.message : String(error),
       })
     },
@@ -141,28 +173,41 @@ export function SettingsMcp(props: { directory?: string }) {
           </Button>
         )}
       />
+      <Show when={invalidRoot() || invalid().length > 0}>
+        <div class="my-2 flex items-start gap-3 border-l-2 border-warning bg-warning-bg px-3 py-2.5">
+          <Icon name="warning" class="mt-0.5 shrink-0 text-warning-text" />
+          <div class="min-w-0 flex-1">
+            <div class="text-body text-fg-strong">{language.t("settings.mcp.repair.title")}</div>
+            <div class="text-small text-fg-weak">
+              {language.t("settings.mcp.repair.description", {
+                names: [...(invalidRoot() ? ["MCP"] : []), ...invalid()].join(", "),
+              })}
+            </div>
+          </div>
+          <Button variant="secondary" size="small" disabled={repair.isPending} onClick={() => repair.mutate()}>
+            {repair.isPending ? language.t("settings.mcp.repair.repairing") : language.t("settings.mcp.repair.action")}
+          </Button>
+        </div>
+      </Show>
       <Show when={entries().length > 0} fallback={<EmptyHint text={language.t("settings.integrations.empty")} />}>
         <ul class="flex flex-col">
           <For each={entries()}>
             {(entry) => (
               <li class="flex items-center gap-3 py-2 border-b border-border-weak last:border-none">
-                <StatusDot state={stateOf(entry.status)} />
+                <StatusIcon state={stateOf(entry.status)} />
                 <div class="flex flex-col min-w-0 flex-1">
-                  <span class="truncate text-body text-fg-base">{entry.name}</span>
+                  <span class="truncate text-body font-emphasis text-fg-base">{entry.name}</span>
+                  <span class="truncate text-small text-fg-weaker">{summary(entry)}</span>
                   <Show when={entry.error}>
-                    <span class="truncate text-small text-fg-weaker">{entry.error}</span>
+                    <span class="truncate text-small text-error-text">{entry.error}</span>
                   </Show>
                 </div>
-                <Show when={statusLabel(entry.status)}>
-                  {(label) => (
-                    <span
-                      class="text-small shrink-0"
-                      classList={{ "text-error": stateOf(entry.status) === "warn", "text-fg-weak": stateOf(entry.status) !== "warn" }}
-                    >
-                      {label()}
-                    </span>
-                  )}
-                </Show>
+                <span
+                  class="text-small shrink-0"
+                  classList={{ "text-error": stateOf(entry.status) === "warn", "text-fg-weak": stateOf(entry.status) !== "warn" }}
+                >
+                  {statusLabel(entry.status)}
+                </span>
                 <Switch
                   checked={entry.enabled}
                   disabled={toggle.isPending}
@@ -174,35 +219,14 @@ export function SettingsMcp(props: { directory?: string }) {
                 <Show
                   when={entry.editable}
                   fallback={
-                    <Show
-                      when={confirmingDelete() === entry.name}
-                      fallback={
-                        <IconButton
-                          icon="trash"
-                          variant="ghost"
-                          class="text-error"
-                          disabled={remove.isPending}
-                          onClick={() => setConfirmingDelete(entry.name)}
-                          aria-label={language.t("settings.mcp.delete", { name: entry.name })}
-                        />
-                      }
-                    >
-                      <IconButton
-                        icon="check"
-                        variant="ghost"
-                        class="text-error"
-                        disabled={remove.isPending}
-                        onClick={() => remove.mutate(entry.name)}
-                        aria-label={language.t("settings.mcp.delete.confirm")}
-                      />
-                      <IconButton
-                        icon="close"
-                        variant="ghost"
-                        disabled={remove.isPending}
-                        onClick={() => setConfirmingDelete(undefined)}
-                        aria-label={language.t("common.cancel")}
-                      />
-                    </Show>
+                    <IconButton
+                      icon="trash"
+                      variant="ghost"
+                      class="text-error"
+                      disabled={remove.isPending}
+                      onClick={() => confirmLegacyDelete(entry.name)}
+                      aria-label={language.t("settings.mcp.delete", { name: entry.name })}
+                    />
                   }
                 >
                   <IconButton
@@ -216,6 +240,22 @@ export function SettingsMcp(props: { directory?: string }) {
             )}
           </For>
         </ul>
+      </Show>
+      <Show when={editor()}>
+        {(current) => {
+          const selected = current()
+          return (
+            <McpForm
+              open
+              onOpenChange={(open) => !open && setEditor(undefined)}
+              mode={selected.mode}
+              name={selected.mode === "edit" ? selected.name : undefined}
+              config={selected.mode === "edit" ? selected.config : undefined}
+              existingNames={existingNames()}
+              directory={props.directory}
+            />
+          )
+        }}
       </Show>
     </>
   )

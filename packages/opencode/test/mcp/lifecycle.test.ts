@@ -43,11 +43,22 @@ const clientStates = new Map<string, MockClientState>()
 let lastCreatedClientName: string | undefined
 let connectShouldFail = false
 let connectShouldHang = false
-let connectError = "Mock transport cannot connect"
+let connectError: unknown = "Mock transport cannot connect"
 // Tracks how many Client instances were created (detects leaks)
 let clientCreateCount = 0
 // Tracks how many times transport.close() is called across all mock transports
 let transportCloseCount = 0
+let remoteAuthProviders: unknown[] = []
+
+class MockUnauthorizedError extends Error {
+  constructor() {
+    super("Unauthorized")
+  }
+}
+
+function connectionFailure() {
+  return connectError instanceof Error ? connectError : new Error(String(connectError))
+}
 
 function getOrCreateClientState(name?: string): MockClientState {
   const key = name ?? "default"
@@ -91,7 +102,7 @@ class MockStdioTransport {
   constructor(_opts: any) {}
   async start() {
     if (connectShouldHang) return new Promise<void>(() => {}) // never resolves
-    if (connectShouldFail) throw new Error(connectError)
+    if (connectShouldFail) throw connectionFailure()
   }
   async close() {
     transportCloseCount++
@@ -99,10 +110,12 @@ class MockStdioTransport {
 }
 
 class MockStreamableHTTP {
-  constructor(_url: URL, _opts?: any) {}
+  constructor(_url: URL, opts?: { authProvider?: unknown }) {
+    remoteAuthProviders.push(opts?.authProvider)
+  }
   async start() {
     if (connectShouldHang) return new Promise<void>(() => {}) // never resolves
-    if (connectShouldFail) throw new Error(connectError)
+    if (connectShouldFail) throw connectionFailure()
   }
   async close() {
     transportCloseCount++
@@ -111,10 +124,12 @@ class MockStreamableHTTP {
 }
 
 class MockSSE {
-  constructor(_url: URL, _opts?: any) {}
+  constructor(_url: URL, opts?: { authProvider?: unknown }) {
+    remoteAuthProviders.push(opts?.authProvider)
+  }
   async start() {
     if (connectShouldHang) return new Promise<void>(() => {}) // never resolves
-    if (connectShouldFail) throw new Error(connectError)
+    if (connectShouldFail) throw connectionFailure()
   }
   async close() {
     transportCloseCount++
@@ -134,11 +149,7 @@ mock.module("@modelcontextprotocol/sdk/client/sse.js", () => ({
 }))
 
 mock.module("@modelcontextprotocol/sdk/client/auth.js", () => ({
-  UnauthorizedError: class extends Error {
-    constructor() {
-      super("Unauthorized")
-    }
-  },
+  UnauthorizedError: MockUnauthorizedError,
 }))
 
 // Mock Client that delegates to per-name MockClientState
@@ -244,6 +255,7 @@ beforeEach(() => {
   connectError = "Mock transport cannot connect"
   clientCreateCount = 0
   transportCloseCount = 0
+  remoteAuthProviders = []
 })
 
 // Import after mocks
@@ -260,6 +272,7 @@ const MCPFacade = {
   prompts: () => mcpRuntime.runPromise((mcp) => mcp.prompts()),
   resources: () => mcpRuntime.runPromise((mcp) => mcp.resources()),
   add: (name: string, mcpConfig: any) => mcpRuntime.runPromise((mcp) => mcp.add(name, mcpConfig)),
+  probe: (mcpConfig: any) => mcpRuntime.runPromise((mcp) => (mcp as any).probe(mcpConfig)),
   connect: (name: string) => mcpRuntime.runPromise((mcp) => mcp.connect(name)),
   disconnect: (name: string) => mcpRuntime.runPromise((mcp) => mcp.disconnect(name)),
 }
@@ -291,6 +304,73 @@ function withInstance(config: Record<string, any>, fn: () => Promise<void>, extr
     })
   }
 }
+
+test(
+  "probe validates a draft without adding it to runtime state and closes the transient client",
+  withInstance({}, async () => {
+    lastCreatedClientName = "draft-server"
+    const serverState = getOrCreateClientState("draft-server")
+
+    expect(await MCPFacade.status()).toEqual({})
+    expect(
+      await MCPFacade.probe({
+        type: "local",
+        command: ["echo", "test"],
+      }),
+    ).toEqual({ status: "connected" })
+    expect(await MCPFacade.status()).toEqual({})
+    expect(serverState.closed).toBe(true)
+  }),
+)
+
+test(
+  "probe maps a transport 401 to needs_auth without enabling OAuth side effects",
+  withInstance({}, async () => {
+    connectShouldFail = true
+    connectError = Object.assign(new Error("HTTP 401"), { code: 401 })
+
+    expect(
+      await MCPFacade.probe({
+        type: "remote",
+        url: "https://oauth.example/mcp",
+      }),
+    ).toEqual({ status: "needs_auth" })
+    expect(remoteAuthProviders).toEqual([undefined, undefined])
+    expect(transportCloseCount).toBeGreaterThanOrEqual(1)
+  }),
+)
+
+test(
+  "probe maps the legacy SSE POST 401 shape to needs_auth",
+  withInstance({}, async () => {
+    connectShouldFail = true
+    connectError = new Error("Error POSTing to endpoint (HTTP 401): auth required")
+
+    expect(
+      await MCPFacade.probe({
+        type: "remote",
+        url: "https://oauth.example/sse",
+      }),
+    ).toEqual({ status: "needs_auth" })
+    expect(remoteAuthProviders).toEqual([undefined, undefined])
+  }),
+)
+
+test(
+  "probe keeps a 401 with client registration text classified as needs_auth",
+  withInstance({}, async () => {
+    connectShouldFail = true
+    connectError = Object.assign(new Error("HTTP 401: client_id is required"), { code: 401 })
+
+    expect(
+      await MCPFacade.probe({
+        type: "remote",
+        url: "https://oauth.example/mcp",
+      }),
+    ).toEqual({ status: "needs_auth" })
+    expect(remoteAuthProviders).toEqual([undefined, undefined])
+  }),
+)
 
 // ========================================================================
 // Test: tools() are cached after connect

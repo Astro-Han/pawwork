@@ -4,6 +4,7 @@ import type {
   Config,
   McpLocalConfig,
   McpRemoteConfig,
+  McpStatus,
   McpToggleConfig,
   OpencodeClient,
   Path,
@@ -99,6 +100,8 @@ export type GlobalStore = {
   // persist a resolved secret to disk. An entry may be a full local/remote
   // config or the legacy `{ enabled }` override form.
   mcpRaw: Record<string, McpRawEntry>
+  mcpInvalid: string[]
+  mcpInvalidRoot: boolean
   reload: undefined | "pending" | "complete"
 }
 
@@ -137,6 +140,8 @@ function createGlobalSync() {
     provider_auth: {},
     config: {},
     mcpRaw: {},
+    mcpInvalid: [],
+    mcpInvalidRoot: false,
     reload: undefined,
   })
   const queryClient = useQueryClient()
@@ -767,6 +772,35 @@ function createGlobalSync() {
     }
   }
 
+  const repairMcp = async () => {
+    setGlobalStore("reload", "pending")
+    const actionClient = globalSDK.createClient({
+      headers: clientActionHeaders({ kind: "global.config.repairMcp" }),
+      throwOnError: true,
+    })
+    try {
+      const response = await actionClient.global.config.repairMcp()
+      await bootstrap()
+      queue.refresh()
+      setGlobalStore("reload", undefined)
+      queue.refresh()
+      return response.data
+    } catch (error) {
+      setGlobalStore("reload", undefined)
+      throw error
+    }
+  }
+
+  const probeMcp = async (input: {
+    config: McpLocalConfig | McpRemoteConfig
+    directory?: string
+  }): Promise<McpStatus> => {
+    const directory = input.directory || globalStore.path.directory || globalStore.path.home
+    const response = await sdkFor(directory).mcp.probe({ config: input.config })
+    if (!response.data) throw new Error("MCP connection test returned no status")
+    return response.data
+  }
+
   return {
     data: globalStore,
     set,
@@ -787,6 +821,8 @@ function createGlobalSync() {
     bootstrap,
     updateConfig,
     editMcp,
+    repairMcp,
+    probeMcp,
     project: projectApi,
     automation: {
       create: createAutomation,

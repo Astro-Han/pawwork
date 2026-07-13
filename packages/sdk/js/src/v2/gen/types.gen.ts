@@ -1742,6 +1742,10 @@ export type McpRemoteConfig = {
   timeout?: number
 }
 
+export type McpToggleConfig = {
+  enabled: boolean
+}
+
 /**
  * @deprecated Always uses stretch layout.
  */
@@ -1875,12 +1879,7 @@ export type Config = {
    * MCP (Model Context Protocol) server configurations
    */
   mcp?: {
-    [key: string]:
-      | McpLocalConfig
-      | McpRemoteConfig
-      | {
-          enabled: boolean
-        }
+    [key: string]: McpLocalConfig | McpRemoteConfig | McpToggleConfig
   }
   lsp?:
     | boolean
@@ -1974,10 +1973,6 @@ export type Config = {
      */
     mcp_timeout?: number
   }
-}
-
-export type McpToggleConfig = {
-  enabled?: boolean | null
 }
 
 /**
@@ -2959,6 +2954,8 @@ export type GlobalConfigMcpRawResponses = {
     mcp: {
       [key: string]: McpLocalConfig | McpRemoteConfig | McpToggleConfig
     }
+    invalid: Array<string>
+    invalidRoot: boolean
   }
 }
 
@@ -2999,6 +2996,26 @@ export type GlobalConfigEditMcpResponses = {
 }
 
 export type GlobalConfigEditMcpResponse = GlobalConfigEditMcpResponses[keyof GlobalConfigEditMcpResponses]
+
+export type GlobalConfigRepairMcpData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/config/mcp/repair"
+}
+
+export type GlobalConfigRepairMcpResponses = {
+  /**
+   * Success
+   */
+  200: {
+    changed: boolean
+    repaired: Array<string>
+    backups: Array<string>
+  }
+}
+
+export type GlobalConfigRepairMcpResponse = GlobalConfigRepairMcpResponses[keyof GlobalConfigRepairMcpResponses]
 
 export type GlobalHealthData = {
   body?: never
@@ -6675,6 +6692,53 @@ export type McpAddResponses = {
 }
 
 export type McpAddResponse = McpAddResponses[keyof McpAddResponses]
+
+export type McpProbeData = {
+  body: {
+    config: McpLocalConfig | McpRemoteConfig
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mcp/probe"
+}
+
+export type McpProbeErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type McpProbeError = McpProbeErrors[keyof McpProbeErrors]
+
+export type McpProbeResponses = {
+  /**
+   * Success
+   */
+  200:
+    | {
+        status: "connected"
+      }
+    | {
+        status: "disabled"
+      }
+    | {
+        status: "failed"
+        error: string
+      }
+    | {
+        status: "needs_auth"
+      }
+    | {
+        status: "needs_client_registration"
+        error: string
+      }
+}
+
+export type McpProbeResponse = McpProbeResponses[keyof McpProbeResponses]
 
 export type McpAuthRemoveData = {
   body?: never

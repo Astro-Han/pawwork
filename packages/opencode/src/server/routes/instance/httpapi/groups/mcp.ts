@@ -14,6 +14,10 @@ export const AddMcpPayload = Schema.Struct({
   config: ConfigMCP.Info,
 })
 
+export const ProbeMcpPayload = Schema.Struct({
+  config: ConfigMCP.Info,
+})
+
 const McpStatus = Schema.Union([
   Schema.Struct({ status: Schema.Literal("connected") }),
   Schema.Struct({ status: Schema.Literal("disabled") }),
@@ -72,6 +76,18 @@ export const McpApi = HttpApi.make("mcp")
             identifier: "mcp.add",
             summary: "Add MCP server",
             description: "Dynamically add a new Model Context Protocol (MCP) server to the system.",
+          }),
+        ),
+        HttpApiEndpoint.post("probe", `${root}/probe`, {
+          query: WorkspaceRoutingQuery,
+          payload: ProbeMcpPayload,
+          success: McpStatus,
+          error: BadRequestError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "mcp.probe",
+            summary: "Test MCP configuration",
+            description: "Test an unsaved MCP server configuration without adding it to the current workspace.",
           }),
         ),
         HttpApiEndpoint.post("authStart", `${root}/:name/auth`, {

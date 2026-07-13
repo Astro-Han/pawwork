@@ -51,6 +51,8 @@ const editMcp = (input: { set?: Record<string, ConfigMCP.Info>; remove?: string[
   Effect.runPromise(Config.Service.use((svc) => svc.editGlobalMcp(input)).pipe(Effect.scoped, Effect.provide(layer)))
 const mcpRaw = () =>
   Effect.runPromise(Config.Service.use((svc) => svc.getGlobalMcpRaw()).pipe(Effect.scoped, Effect.provide(layer)))
+const repairMcp = () =>
+  Effect.runPromise(Config.Service.use((svc) => svc.repairGlobalMcp()).pipe(Effect.scoped, Effect.provide(layer)))
 const clear = (wait = false) =>
   Effect.runPromise(Config.Service.use((svc) => svc.invalidate(wait)).pipe(Effect.scoped, Effect.provide(layer)))
 const listConfigDirs = (directory: string, worktree: string) =>
@@ -469,6 +471,47 @@ describe("PawWork global config isolation", () => {
     }
   })
 
+  test("legacy TOML migration does not restore stale MCP fields into JSON", async () => {
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = path.join(platformLegacy.path, "empty-home")
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      const legacyJson = path.join(platformLegacy.path, "pawwork.json")
+      await Filesystem.write(
+        legacyJson,
+        JSON.stringify({ mcp: { server: { type: "remote", url: "https://new.example/mcp" } } }, null, 2),
+      )
+      await Filesystem.write(
+        path.join(platformLegacy.path, "config"),
+        [
+          "[mcp.server]",
+          'type = "remote"',
+          'url = "https://old.example/mcp"',
+          "[mcp.server.headers]",
+          'Authorization = "Bearer stale"',
+        ].join("\n"),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await load()
+          await clear(true)
+          const reloaded = await load()
+          expect(reloaded.mcp?.server).toEqual({ type: "remote", url: "https://new.example/mcp" })
+          const migrated = JSON.parse(await Bun.file(legacyJson).text())
+          expect(migrated.mcp.server).toEqual({ type: "remote", url: "https://new.example/mcp" })
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
   test("legacy TOML migration merges missing fields into active PawWork JSONC", async () => {
     await using platformLegacy = await tmpdir()
     await using project = await tmpdir({ git: true })
@@ -500,6 +543,49 @@ describe("PawWork global config isolation", () => {
           expect(migrated.username).toBe("jsonc-user")
           expect(migrated.model).toBe("toml/model")
           expect((migrated.watcher as Record<string, unknown> | undefined)?.unknown).toBeUndefined()
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("legacy TOML migration does not restore stale MCP fields into JSONC", async () => {
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = path.join(platformLegacy.path, "empty-home")
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      const legacyJsonc = path.join(platformLegacy.path, "pawwork.jsonc")
+      await Filesystem.write(
+        legacyJsonc,
+        '{\n  // keep active MCP config\n  "mcp": {\n    "server": { "type": "remote", "url": "https://new.example/mcp" }\n  }\n}\n',
+      )
+      await Filesystem.write(
+        path.join(platformLegacy.path, "config"),
+        [
+          "[mcp.server]",
+          'type = "remote"',
+          'url = "https://old.example/mcp"',
+          "[mcp.server.headers]",
+          'Authorization = "Bearer stale"',
+        ].join("\n"),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await load()
+          await clear(true)
+          const reloaded = await load()
+          expect(reloaded.mcp?.server).toEqual({ type: "remote", url: "https://new.example/mcp" })
+          const migratedText = await Bun.file(legacyJsonc).text()
+          expect(migratedText).toContain("// keep active MCP config")
+          const migrated = parseJsonc(migratedText) as { mcp: Record<string, unknown> }
+          expect(migrated.mcp.server).toEqual({ type: "remote", url: "https://new.example/mcp" })
         },
       })
     } finally {
@@ -1476,6 +1562,37 @@ describe("PawWork config load resilience", () => {
 })
 
 describe("editGlobalMcp", () => {
+  test("adds a valid MCP server when another MCP entry makes the primary config schema-invalid", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      const file = path.join(global.path, "pawwork.json")
+      await Filesystem.write(file, JSON.stringify({ username: "kept", mcp: { broken: null } }))
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const result = await editMcp({ set: { working: { type: "remote", url: "https://working.example/mcp" } } })
+
+          expect(result).toEqual({ changed: true, missing: [] })
+          expect(JSON.parse(await Bun.file(file).text())).toEqual({
+            username: "kept",
+            mcp: {
+              broken: null,
+              working: { type: "remote", url: "https://working.example/mcp" },
+            },
+          })
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
   test("adds, overwrites, renames, and deletes global MCP entries in one write path", async () => {
     await using project = await tmpdir({ git: true })
     await using global = await tmpdir()
@@ -1585,7 +1702,7 @@ describe("editGlobalMcp", () => {
     }
   })
 
-  test("overwriting an entry strips its stale copy from a sibling file so deleted sub-fields do not merge back", async () => {
+  test("a higher-priority full MCP config replaces stale sibling fields without rewriting the sibling", async () => {
     await using global = await tmpdir()
     await using project = await tmpdir({ git: true })
     const previousConfig = Global.Path.config
@@ -1593,9 +1710,9 @@ describe("editGlobalMcp", () => {
     ;(Global.Path as { config: string }).config = global.path
 
     try {
-      // Same server in both files. The sibling carries an extra header the user
-      // is about to delete; without stripping it, the loader's deep-merge would
-      // reintroduce it (the deleted Authorization header keeps being sent).
+      // Same server in both files. The lower-priority sibling carries a field the
+      // user is about to delete; the higher-priority full config must replace it
+      // without mutating the sibling source.
       const primary = path.join(global.path, "pawwork.jsonc")
       const sibling = path.join(global.path, "pawwork.json")
       await Filesystem.write(
@@ -1614,7 +1731,11 @@ describe("editGlobalMcp", () => {
           const siblingParsed = parseJsonc(await Bun.file(sibling).text()) as {
             mcp?: Record<string, unknown>
           }
-          expect(siblingParsed.mcp?.srv).toBeUndefined()
+          expect(siblingParsed.mcp?.srv).toEqual({
+            type: "remote",
+            url: "https://old",
+            headers: { A: "1", B: "2" },
+          })
           await clear(true)
           const config = await load()
           const srv = config.mcp?.srv as { url?: string; headers?: Record<string, string> } | undefined
@@ -1653,6 +1774,88 @@ describe("editGlobalMcp", () => {
           await clear(true)
           const config = await load()
           expect(config.model).toBe("anthropic/keep")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("does not revive stale MCP fields when an invalid sibling is repaired after an edit", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      await Filesystem.write(
+        path.join(global.path, "pawwork.json"),
+        JSON.stringify({
+          mcp: {
+            srv: {
+              type: "remote",
+              url: "https://old",
+              headers: { A: "1", Authorization: "Bearer stale" },
+            },
+            broken: null,
+          },
+        }),
+      )
+      await Filesystem.write(
+        path.join(global.path, "pawwork.jsonc"),
+        JSON.stringify({ mcp: { srv: { type: "remote", url: "https://old", headers: { A: "1" } } } }),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await editMcp({ set: { srv: { type: "remote", url: "https://new", headers: { A: "1" } } } })
+          await repairMcp()
+          await clear(true)
+
+          const config = await load()
+          expect(config.mcp?.srv).toEqual({ type: "remote", url: "https://new", headers: { A: "1" } })
+          expect((await mcpRaw()).srv).toEqual({ type: "remote", url: "https://new", headers: { A: "1" } })
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("does not revive an MCP server when an invalid sibling is repaired after removal", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      await Filesystem.write(
+        path.join(global.path, "pawwork.json"),
+        JSON.stringify({
+          mcp: {
+            srv: { type: "remote", url: "https://old", headers: { Authorization: "Bearer stale" } },
+            broken: null,
+          },
+        }),
+      )
+      await Filesystem.write(
+        path.join(global.path, "pawwork.jsonc"),
+        JSON.stringify({ mcp: { srv: { type: "remote", url: "https://new" } } }),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const removed = await editMcp({ remove: ["srv"] })
+          expect(removed.missing).toEqual([])
+          await repairMcp()
+          await clear(true)
+
+          expect((await load()).mcp?.srv).toBeUndefined()
+          expect((await mcpRaw()).srv).toBeUndefined()
         },
       })
     } finally {

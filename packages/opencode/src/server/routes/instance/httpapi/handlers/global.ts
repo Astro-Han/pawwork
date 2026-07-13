@@ -112,7 +112,7 @@ export const globalHandlers = HttpApiBuilder.group(GlobalApi, "global", (handler
         }),
       )
       .handleRaw("configMcpGet", () =>
-        config.getGlobalMcpRaw().pipe(Effect.map((mcp) => HttpServerResponse.jsonUnsafe({ mcp }))),
+        config.getGlobalMcpState().pipe(Effect.map((state) => HttpServerResponse.jsonUnsafe(state))),
       )
       .handleRaw("configEditMcp", (ctx) =>
         Effect.gen(function* () {
@@ -121,6 +121,9 @@ export const globalHandlers = HttpApiBuilder.group(GlobalApi, "global", (handler
           const result = yield* config.editGlobalMcp(body)
           return HttpServerResponse.jsonUnsafe(result)
         }),
+      )
+      .handleRaw("configRepairMcp", () =>
+        config.repairGlobalMcp().pipe(Effect.map((result) => HttpServerResponse.jsonUnsafe(result))),
       )
       .handleRaw("health", () =>
         Effect.succeed(HttpServerResponse.jsonUnsafe({ healthy: true, version: Installation.VERSION })),

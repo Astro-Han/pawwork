@@ -1,4 +1,5 @@
 import { type JSX, Show } from "solid-js"
+import { Icon } from "@opencode-ai/ui/icon"
 
 // Shared presentational pieces for the Integrations settings surface. Kept in one
 // small file so the page and the MCP section render identical chrome without
@@ -6,19 +7,16 @@ import { type JSX, Show } from "solid-js"
 
 export type ItemState = "ok" | "warn" | "neutral"
 
-export function StatusDot(props: { state: ItemState }) {
-  const className = () => {
-    if (props.state === "warn") return "size-1.5 rounded-full shrink-0 bg-error"
-    if (props.state === "ok") return "size-1.5 rounded-full shrink-0 bg-icon-success-base"
-    return "size-1.5 rounded-full shrink-0 bg-border-weak"
-  }
-  return <div class={className()} aria-hidden />
+export function StatusIcon(props: { state: ItemState }) {
+  if (props.state === "warn") return <Icon name="circle-x" class="shrink-0 text-error" aria-hidden />
+  if (props.state === "ok") return <Icon name="circle-check" class="shrink-0 text-icon-success-base" aria-hidden />
+  return <Icon name="circle" class="shrink-0 text-icon-weak" aria-hidden />
 }
 
 export function ItemRow(props: { name: string; state: ItemState; status?: string; bad?: boolean }) {
   return (
     <li class="flex items-center gap-3 py-2.5 border-b border-border-weak last:border-none">
-      <StatusDot state={props.state} />
+      <StatusIcon state={props.state} />
       <span class="truncate text-body text-fg-base flex-1 min-w-0">{props.name}</span>
       <Show when={props.status}>
         <span

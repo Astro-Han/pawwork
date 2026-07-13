@@ -129,6 +129,14 @@ export namespace MCP {
     return typeof entry === "object" && entry !== null && "type" in entry
   }
 
+  function isUnauthorized(error: unknown) {
+    if (error instanceof UnauthorizedError) return true
+    if (error instanceof Error && /^Error POSTing to endpoint \(HTTP 401\):/.test(error.message)) return true
+    if (!error || typeof error !== "object") return false
+    const transport = error as { code?: unknown; status?: unknown }
+    return transport.code === 401 || transport.status === 401
+  }
+
   const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_")
 
   function getCapabilities(client: MCPClient) {
@@ -318,6 +326,7 @@ export namespace MCP {
     readonly prompts: () => Effect.Effect<Record<string, PromptInfo & { client: string }>>
     readonly resources: () => Effect.Effect<Record<string, ResourceInfo & { client: string }>>
     readonly add: (name: string, mcp: Config.Mcp) => Effect.Effect<{ status: Record<string, Status> | Status }>
+    readonly probe: (mcp: Config.Mcp) => Effect.Effect<Status>
     readonly connect: (name: string) => Effect.Effect<void>
     readonly disconnect: (name: string) => Effect.Effect<void>
     readonly getPrompt: (
@@ -428,13 +437,15 @@ export namespace MCP {
             Effect.map((client) => ({ client, transportName: name })),
             Effect.catch((error) => {
               const lastError = error instanceof Error ? error : new Error(String(error))
-              const isAuthError =
-                error instanceof UnauthorizedError || (authProvider && lastError.message.includes("OAuth"))
+              const isAuthError = isUnauthorized(error) || (authProvider && lastError.message.includes("OAuth"))
 
               if (isAuthError) {
                 log.info("mcp server requires authentication", { key, transport: name })
 
-                if (lastError.message.includes("registration") || lastError.message.includes("client_id")) {
+                if (
+                  authProvider &&
+                  (lastError.message.includes("registration") || lastError.message.includes("client_id"))
+                ) {
                   lastStatus = {
                     status: "needs_client_registration" as const,
                     error: "Server does not support dynamic client registration. Please provide clientId in config.",
@@ -716,6 +727,29 @@ export namespace MCP {
         s.config[name] = mcp
         yield* createAndStore(name, mcp)
         return { status: s.status }
+      })
+
+      const probe = Effect.fn("MCP.probe")(function* (mcp: Config.Mcp) {
+        const key = `probe-${crypto.randomUUID()}`
+        let client: MCPClient | undefined
+        const draft =
+          mcp.type === "remote" ? ({ ...mcp, enabled: true, oauth: false } as const) : { ...mcp, enabled: true }
+
+        return yield* Effect.gen(function* () {
+          const result = yield* create(key, draft)
+          client = result.mcpClient
+          if (result.status.status !== "failed") return result.status
+          return { ...result.status, error: result.status.error.replaceAll(key, "draft") }
+        }).pipe(
+          Effect.ensuring(
+            Effect.gen(function* () {
+              if (client) yield* Effect.tryPromise(() => client!.close()).pipe(Effect.ignore)
+              const pending = pendingOAuthTransports.get(key)
+              if (pending) yield* Effect.tryPromise(() => pending.close()).pipe(Effect.ignore)
+              pendingOAuthTransports.delete(key)
+            }),
+          ),
+        )
       })
 
       const connect = Effect.fn("MCP.connect")(function* (name: string) {
@@ -1064,6 +1098,7 @@ export namespace MCP {
         prompts,
         resources,
         add,
+        probe,
         connect,
         disconnect,
         getPrompt,
