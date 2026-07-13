@@ -277,10 +277,27 @@ export namespace FileWatcher {
   }) {
     let snapshot = input.initialSnapshot
     let sentinel: WorkspaceRootSentinel | undefined
+    let sentinelGeneration = 0
     let disposed = false
     let reconcileQueued = false
     let reconciling = false
     let reconcileDirty = false
+
+    const replaceSentinel = async (nextSnapshot: Map<string, RootEntryState>) => {
+      const nextGeneration = sentinelGeneration + 1
+      const next = await input.subscribeSentinel(nextSnapshot, (event) => {
+        if (sentinelGeneration !== nextGeneration) return
+        signal(event)
+      })
+      if (disposed) {
+        await next.unsubscribe()
+        return
+      }
+      const previous = sentinel
+      sentinel = next
+      sentinelGeneration = nextGeneration
+      await previous?.unsubscribe()
+    }
 
     const reconcile = async () => {
       if (disposed) return
@@ -291,7 +308,11 @@ export namespace FileWatcher {
         workspace: input.workspace,
         ignore: input.ignore,
         isDisposed: () => disposed,
-        applyPlan: input.applyPlan,
+        applyPlan: async (planSnapshot) => {
+          await input.applyPlan(planSnapshot)
+          if (disposed) return
+          await replaceSentinel(planSnapshot)
+        },
         publishUpdate: input.publishUpdate,
         publishRescan: input.publishRescan,
       })
@@ -327,7 +348,7 @@ export namespace FileWatcher {
     return {
       async start() {
         if (disposed || sentinel) return
-        sentinel = await input.subscribeSentinel(snapshot, signal)
+        await replaceSentinel(snapshot)
       },
       async dispose() {
         disposed = true
