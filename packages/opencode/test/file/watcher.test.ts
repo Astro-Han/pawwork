@@ -8,6 +8,7 @@ import { Bus } from "../../src/bus"
 import { Config } from "../../src/config/config"
 import { FileWatcher } from "../../src/file/watcher"
 import { Git } from "../../src/git"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { shouldRunNativeWatcherTests } from "./native-watcher-ci-guard"
 import { subscribeBus } from "../lib/bus"
@@ -35,7 +36,7 @@ function withWatcher<E>(directory: string, body: Effect.Effect<void, E>) {
     directory,
     fn: async () => {
       const layer: Layer.Layer<FileWatcher.Service, never, never> = FileWatcher.layer.pipe(
-        Layer.provide(Bus.defaultLayer),
+        Layer.provide(Layer.succeed(Bus.Service, AppRuntime.runSync(Bus.Service))),
         Layer.provide(Config.defaultLayer),
         Layer.provide(Git.defaultLayer),
         Layer.provide(watcherConfigLayer),
