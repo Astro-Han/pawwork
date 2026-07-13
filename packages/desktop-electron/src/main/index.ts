@@ -417,6 +417,15 @@ function setupApp() {
     event.preventDefault()
     if (gracefulQuitStarted) return
     gracefulQuitStarted = true
+    const finishGracefulQuit = () => {
+      if (gracefulQuitReady) return
+      gracefulQuitReady = true
+      app.quit()
+    }
+    const gracefulQuitTimeout = setTimeout(() => {
+      logger.error("graceful sidecar shutdown timed out, forcing quit")
+      finishGracefulQuit()
+    }, 10_000)
     // Best-effort: signal the bridge to stop polling before the server it talks
     // to is torn down, then let every instance scope release native watchers.
     void remoteBridge
@@ -425,8 +434,8 @@ function setupApp() {
       .then(() => shutdownSidecar())
       .catch((error) => logger.error("sidecar shutdown failed", error))
       .finally(() => {
-        gracefulQuitReady = true
-        app.quit()
+        clearTimeout(gracefulQuitTimeout)
+        finishGracefulQuit()
       })
   })
 

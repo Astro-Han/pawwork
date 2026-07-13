@@ -11,6 +11,9 @@ describe("desktop sidecar source guard", () => {
     expect(source).toContain('logger.log("init done")')
     expect(source).toContain('const gracefulSidecarShutdown = process.platform === "darwin"')
     expect(source).toContain("event.preventDefault()")
+    expect(source).toContain('logger.error("graceful sidecar shutdown timed out, forcing quit")')
+    expect(source).toMatch(/const gracefulQuitTimeout = setTimeout\([\s\S]*?finishGracefulQuit\(\)[\s\S]*?10_000\)/)
+    expect(source).toMatch(/\.finally\(\(\) => \{\s*clearTimeout\(gracefulQuitTimeout\)\s*finishGracefulQuit\(\)/)
     expect(source).toContain('Instance.disposeAll({ mode: "force" })')
     expect(source).toContain("await active.stop(true)")
     expect(source).toMatch(
