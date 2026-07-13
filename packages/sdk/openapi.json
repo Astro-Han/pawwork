@@ -325,10 +325,17 @@
                           }
                         ]
                       }
+                    },
+                    "invalid": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     }
                   },
                   "required": [
-                    "mcp"
+                    "mcp",
+                    "invalid"
                   ],
                   "additionalProperties": false
                 }
@@ -434,6 +441,59 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\"\n\nconst client = createOpencodeClient()\nawait client.global.config.editMcp({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/global/config/mcp/repair": {
+      "post": {
+        "tags": [
+          "global"
+        ],
+        "operationId": "global.config.repairMcp",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "changed": {
+                      "type": "boolean"
+                    },
+                    "repaired": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "backups": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "changed",
+                    "repaired",
+                    "backups"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "description": "Back up each affected global config file, then remove only MCP entries that fail the MCP schema. Other configuration and JSONC comments are preserved.",
+        "summary": "Repair invalid global MCP entries",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\"\n\nconst client = createOpencodeClient()\nawait client.global.config.repairMcp({\n  ...\n})"
           }
         ]
       }

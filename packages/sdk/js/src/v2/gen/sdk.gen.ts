@@ -67,6 +67,7 @@ import type {
   GlobalConfigEditMcpResponses,
   GlobalConfigGetResponses,
   GlobalConfigMcpRawResponses,
+  GlobalConfigRepairMcpResponses,
   GlobalConfigUpdateErrors,
   GlobalConfigUpdateResponses,
   GlobalDisposeResponses,
@@ -534,6 +535,18 @@ export class Config extends HeyApiClient {
         },
       },
     )
+  }
+
+  /**
+   * Repair invalid global MCP entries
+   *
+   * Back up each affected global config file, then remove only MCP entries that fail the MCP schema. Other configuration and JSONC comments are preserved.
+   */
+  public repairMcp<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).post<GlobalConfigRepairMcpResponses, unknown, ThrowOnError>({
+      url: "/global/config/mcp/repair",
+      ...options,
+    })
   }
 }
 

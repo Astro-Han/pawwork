@@ -2959,6 +2959,7 @@ export type GlobalConfigMcpRawResponses = {
     mcp: {
       [key: string]: McpLocalConfig | McpRemoteConfig | McpToggleConfig
     }
+    invalid: Array<string>
   }
 }
 
@@ -2999,6 +3000,26 @@ export type GlobalConfigEditMcpResponses = {
 }
 
 export type GlobalConfigEditMcpResponse = GlobalConfigEditMcpResponses[keyof GlobalConfigEditMcpResponses]
+
+export type GlobalConfigRepairMcpData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/config/mcp/repair"
+}
+
+export type GlobalConfigRepairMcpResponses = {
+  /**
+   * Success
+   */
+  200: {
+    changed: boolean
+    repaired: Array<string>
+    backups: Array<string>
+  }
+}
+
+export type GlobalConfigRepairMcpResponse = GlobalConfigRepairMcpResponses[keyof GlobalConfigRepairMcpResponses]
 
 export type GlobalHealthData = {
   body?: never
