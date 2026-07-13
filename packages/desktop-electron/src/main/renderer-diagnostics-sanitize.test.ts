@@ -25,6 +25,8 @@ describe("renderer diagnostics sanitizer", () => {
 
     expect(event).toMatchObject({
       "event.name": "renderer.perf.sample",
+      app_launch_id: "launch_1",
+      window_id: "7",
       route_session_id: "ses_route",
       data: {
         fps: 60,
