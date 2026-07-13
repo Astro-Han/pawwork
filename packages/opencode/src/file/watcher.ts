@@ -90,6 +90,10 @@ export namespace FileWatcher {
     size: number
     mtimeMs: number
   }
+  export type WorkspaceRootSentinel = {
+    unsubscribe: () => Promise<void>
+  }
+  export type WorkspaceRootSentinelSignal = { error?: unknown }
   type RescanRequest = {
     directory: string
     subscriptionDirectory?: string
@@ -250,6 +254,37 @@ export namespace FileWatcher {
       },
       exit() {
         active = false
+      },
+    }
+  }
+
+  export function createWorkspaceRootDiscovery(input: {
+    initialSnapshot: Map<string, RootEntryState>
+    workspace: string
+    ignore: string[]
+    subscribeSentinel: (
+      snapshot: Map<string, RootEntryState>,
+      signal: (signal: WorkspaceRootSentinelSignal) => void,
+    ) => Promise<WorkspaceRootSentinel>
+    snapshotRoot: () => Promise<Map<string, RootEntryState>>
+    applyPlan: (next: Map<string, RootEntryState>) => Promise<void>
+    publishUpdate: (event: { file: string; event: "add" | "change" | "unlink" }) => void
+    publishRescan: (directory: string) => void | Promise<void>
+    scheduleFallback: (callback: () => void, delayMs: number) => () => void
+  }) {
+    let sentinel: WorkspaceRootSentinel | undefined
+    let disposed = false
+
+    return {
+      async start() {
+        if (disposed || sentinel) return
+        sentinel = await input.subscribeSentinel(input.initialSnapshot, () => {})
+      },
+      async dispose() {
+        disposed = true
+        const current = sentinel
+        sentinel = undefined
+        await current?.unsubscribe()
       },
     }
   }
