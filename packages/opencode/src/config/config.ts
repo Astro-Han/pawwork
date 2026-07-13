@@ -1766,7 +1766,29 @@ const rawLayer = Layer.effect(
                 Effect.exit,
               )
               if (Exit.isFailure(loadExit)) {
-                if (Runtime.isPawWork()) return
+                if (Runtime.isPawWork()) {
+                  // A sibling with another invalid MCP entry stays unloadable
+                  // after removing one of its valid neighbors. Deleting that
+                  // requested neighbor is therefore safe and prevents a later
+                  // explicit repair from reviving it. Do not touch malformed
+                  // JSON, non-MCP schema failures, unresolved placeholders, or
+                  // the invalid entry itself: those could make unrelated config
+                  // active without the repair flow and its backup.
+                  let inspection: ReturnType<typeof inspectGlobalMcpText>
+                  try {
+                    inspection = inspectGlobalMcpText(before, file)
+                  } catch {
+                    return
+                  }
+                  if (!inspection || inspection.invalid.length === 0) return
+                  const removable = removeNames.filter((name) => name in inspection.mcp)
+                  if (removable.length === 0) return
+                  removable.forEach((name) => present.add(name))
+                  const text = stripKeys(before, removable)
+                  yield* Effect.promise(() => writeConfigTextAtomic(file, text)).pipe(Effect.orDie)
+                  changed = true
+                  return
+                }
                 return yield* Effect.failCause(loadExit.cause)
               }
               const parsed = ConfigParse.jsonc(before, file)

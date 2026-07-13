@@ -1740,6 +1740,45 @@ describe("editGlobalMcp", () => {
     }
   })
 
+  test("does not revive an MCP server when an invalid sibling is repaired after removal", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      await Filesystem.write(
+        path.join(global.path, "pawwork.json"),
+        JSON.stringify({
+          mcp: {
+            srv: { type: "remote", url: "https://old", headers: { Authorization: "Bearer stale" } },
+            broken: null,
+          },
+        }),
+      )
+      await Filesystem.write(
+        path.join(global.path, "pawwork.jsonc"),
+        JSON.stringify({ mcp: { srv: { type: "remote", url: "https://new" } } }),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const removed = await editMcp({ remove: ["srv"] })
+          expect(removed.missing).toEqual([])
+          await repairMcp()
+          await clear(true)
+
+          expect((await load()).mcp?.srv).toBeUndefined()
+          expect((await mcpRaw()).srv).toBeUndefined()
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
   test("leaves a sibling the loader skips on a missing {env:} placeholder untouched", async () => {
     await using global = await tmpdir()
     await using project = await tmpdir({ git: true })

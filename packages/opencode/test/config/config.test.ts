@@ -2396,11 +2396,7 @@ test("project config can override MCP server enabled status", async () => {
         JSON.stringify({
           $schema: "https://opencode.ai/config.json",
           mcp: {
-            jira: {
-              type: "remote",
-              url: "https://jira.example.com/mcp",
-              enabled: true,
-            },
+            jira: { enabled: true },
           },
         }),
       )
@@ -2426,7 +2422,7 @@ test("project config can override MCP server enabled status", async () => {
   })
 })
 
-test("MCP config deep merges preserving base config properties", async () => {
+test("a higher-priority full MCP config replaces lower-priority properties", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       // Base config with full MCP definition
@@ -2446,7 +2442,7 @@ test("MCP config deep merges preserving base config properties", async () => {
           },
         }),
       )
-      // Override just enables it, should preserve other properties
+      // A complete higher-priority config is authoritative for the server.
       await Filesystem.write(
         path.join(dir, "opencode.jsonc"),
         JSON.stringify({
@@ -2454,7 +2450,7 @@ test("MCP config deep merges preserving base config properties", async () => {
           mcp: {
             myserver: {
               type: "remote",
-              url: "https://myserver.example.com/mcp",
+              url: "https://replacement.example.com/mcp",
               enabled: true,
             },
           },
@@ -2468,11 +2464,8 @@ test("MCP config deep merges preserving base config properties", async () => {
       const config = await load()
       expect(config.mcp?.myserver).toEqual({
         type: "remote",
-        url: "https://myserver.example.com/mcp",
+        url: "https://replacement.example.com/mcp",
         enabled: true,
-        headers: {
-          "X-Custom-Header": "value",
-        },
       })
     },
   })
