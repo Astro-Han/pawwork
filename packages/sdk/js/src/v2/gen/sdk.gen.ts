@@ -92,6 +92,8 @@ import type {
   McpConnectResponses,
   McpDisconnectResponses,
   McpLocalConfig,
+  McpProbeErrors,
+  McpProbeResponses,
   McpRemoteConfig,
   McpStatusResponses,
   MemoryDeleteEntryResponses,
@@ -4486,6 +4488,43 @@ export class Mcp extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<McpAddResponses, McpAddErrors, ThrowOnError>({
       url: "/mcp",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Test MCP configuration
+   *
+   * Test an unsaved MCP server configuration without adding it to the current workspace.
+   */
+  public probe<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      config: McpLocalConfig | McpRemoteConfig
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "config" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<McpProbeResponses, McpProbeErrors, ThrowOnError>({
+      url: "/mcp/probe",
       ...options,
       ...params,
       headers: {

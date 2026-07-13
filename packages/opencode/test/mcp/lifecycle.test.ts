@@ -260,6 +260,7 @@ const MCPFacade = {
   prompts: () => mcpRuntime.runPromise((mcp) => mcp.prompts()),
   resources: () => mcpRuntime.runPromise((mcp) => mcp.resources()),
   add: (name: string, mcpConfig: any) => mcpRuntime.runPromise((mcp) => mcp.add(name, mcpConfig)),
+  probe: (mcpConfig: any) => mcpRuntime.runPromise((mcp) => (mcp as any).probe(mcpConfig)),
   connect: (name: string) => mcpRuntime.runPromise((mcp) => mcp.connect(name)),
   disconnect: (name: string) => mcpRuntime.runPromise((mcp) => mcp.disconnect(name)),
 }
@@ -291,6 +292,24 @@ function withInstance(config: Record<string, any>, fn: () => Promise<void>, extr
     })
   }
 }
+
+test(
+  "probe validates a draft without adding it to runtime state and closes the transient client",
+  withInstance({}, async () => {
+    lastCreatedClientName = "draft-server"
+    const serverState = getOrCreateClientState("draft-server")
+
+    expect(await MCPFacade.status()).toEqual({})
+    expect(
+      await MCPFacade.probe({
+        type: "local",
+        command: ["echo", "test"],
+      }),
+    ).toEqual({ status: "connected" })
+    expect(await MCPFacade.status()).toEqual({})
+    expect(serverState.closed).toBe(true)
+  }),
+)
 
 // ========================================================================
 // Test: tools() are cached after connect

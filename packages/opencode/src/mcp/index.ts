@@ -318,6 +318,7 @@ export namespace MCP {
     readonly prompts: () => Effect.Effect<Record<string, PromptInfo & { client: string }>>
     readonly resources: () => Effect.Effect<Record<string, ResourceInfo & { client: string }>>
     readonly add: (name: string, mcp: Config.Mcp) => Effect.Effect<{ status: Record<string, Status> | Status }>
+    readonly probe: (mcp: Config.Mcp) => Effect.Effect<Status>
     readonly connect: (name: string) => Effect.Effect<void>
     readonly disconnect: (name: string) => Effect.Effect<void>
     readonly getPrompt: (
@@ -718,6 +719,17 @@ export namespace MCP {
         return { status: s.status }
       })
 
+      const probe = Effect.fn("MCP.probe")(function* (mcp: Config.Mcp) {
+        const key = `probe-${crypto.randomUUID()}`
+        const result = yield* create(key, { ...mcp, enabled: true })
+        if (result.mcpClient) yield* Effect.tryPromise(() => result.mcpClient!.close()).pipe(Effect.ignore)
+        const pending = pendingOAuthTransports.get(key)
+        if (pending) yield* Effect.tryPromise(() => pending.close()).pipe(Effect.ignore)
+        pendingOAuthTransports.delete(key)
+        if (result.status.status !== "failed") return result.status
+        return { ...result.status, error: result.status.error.replaceAll(key, "draft") }
+      })
+
       const connect = Effect.fn("MCP.connect")(function* (name: string) {
         const mcp = yield* requireMcpConfig(name)
         yield* createAndStore(name, { ...mcp, enabled: true })
@@ -1064,6 +1076,7 @@ export namespace MCP {
         prompts,
         resources,
         add,
+        probe,
         connect,
         disconnect,
         getPrompt,

@@ -51,6 +51,7 @@ describe("MCP routes", () => {
     const spec = OpenApi.fromApi(McpApi) as any
 
     expect(spec.paths).toHaveProperty("/mcp")
+    expect(spec.paths).toHaveProperty("/mcp/probe")
     expect(spec.paths).toHaveProperty("/mcp/{name}/auth")
     expect(spec.paths).toHaveProperty("/mcp/{name}/auth/callback")
     expect(spec.paths).toHaveProperty("/mcp/{name}/auth/authenticate")
@@ -88,6 +89,23 @@ describe("MCP routes", () => {
         expect(await response.json()).toEqual({
           "httpapi-disabled": { status: "disabled" },
         })
+      },
+    })
+  })
+
+  test("probes an unsaved MCP configuration through the HttpApi handlers", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const response = await requestMcpHttpApi("/mcp/probe", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ config: { type: "remote", url: "not-a-url", oauth: false } }),
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ status: "failed", error: 'Invalid MCP URL for "draft"' })
       },
     })
   })

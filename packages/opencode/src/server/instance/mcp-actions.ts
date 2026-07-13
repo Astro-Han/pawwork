@@ -12,6 +12,11 @@ export const addMcpServer = Effect.fn("McpHttpApi.add")(function* (input: { name
   return yield* mcp.add(input.name, input.config)
 })
 
+export const probeMcpServer = Effect.fn("McpHttpApi.probe")(function* (config: Config.Mcp) {
+  const mcp = yield* MCP.Service
+  return yield* mcp.probe(config)
+})
+
 export const startMcpAuth = Effect.fn("McpHttpApi.auth.start")(function* (name: string) {
   const mcp = yield* MCP.Service
   const supportsOAuth = yield* mcp.supportsOAuth(name)

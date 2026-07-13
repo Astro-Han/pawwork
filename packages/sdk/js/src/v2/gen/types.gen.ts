@@ -6697,6 +6697,53 @@ export type McpAddResponses = {
 
 export type McpAddResponse = McpAddResponses[keyof McpAddResponses]
 
+export type McpProbeData = {
+  body: {
+    config: McpLocalConfig | McpRemoteConfig
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mcp/probe"
+}
+
+export type McpProbeErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type McpProbeError = McpProbeErrors[keyof McpProbeErrors]
+
+export type McpProbeResponses = {
+  /**
+   * Success
+   */
+  200:
+    | {
+        status: "connected"
+      }
+    | {
+        status: "disabled"
+      }
+    | {
+        status: "failed"
+        error: string
+      }
+    | {
+        status: "needs_auth"
+      }
+    | {
+        status: "needs_client_registration"
+        error: string
+      }
+}
+
+export type McpProbeResponse = McpProbeResponses[keyof McpProbeResponses]
+
 export type McpAuthRemoveData = {
   body?: never
   path: {
