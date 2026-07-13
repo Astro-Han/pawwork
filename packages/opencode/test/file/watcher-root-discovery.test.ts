@@ -2,6 +2,70 @@ import { describe, expect, test } from "bun:test"
 import { FileWatcher } from "../../src/file/watcher"
 
 describe("workspace root discovery", () => {
+  test("subscribes a root-only kqueue sentinel that ignores every current top-level directory", async () => {
+    const workspace = "/repo"
+    const ignored = [`${workspace}/packages`, `${workspace}/src`]
+    let options: { backend?: string; ignore?: string[] } | undefined
+    let callback!: (error: Error | null, events: Array<{ path: string; type: "create" }>) => void
+    let signals = 0
+    const subscription = await FileWatcher.subscribeWorkspaceRootSentinel({
+      workspace,
+      snapshot: new Map([
+        [
+          "packages",
+          {
+            name: "packages",
+            path: ignored[0]!,
+            type: "directory",
+            size: 0,
+            mtimeMs: 0,
+            ino: 0,
+            ctimeMs: 0,
+          },
+        ],
+        [
+          "README.md",
+          {
+            name: "README.md",
+            path: `${workspace}/README.md`,
+            type: "file",
+            size: 1,
+            mtimeMs: 1,
+            ino: 1,
+            ctimeMs: 1,
+          },
+        ],
+        [
+          "src",
+          {
+            name: "src",
+            path: ignored[1]!,
+            type: "directory",
+            size: 0,
+            mtimeMs: 0,
+            ino: 0,
+            ctimeMs: 0,
+          },
+        ],
+      ]),
+      signal: () => {
+        signals++
+      },
+      binding: {
+        subscribe: async (_directory, nextCallback, nextOptions) => {
+          callback = nextCallback
+          options = nextOptions
+          return { unsubscribe: async () => {} }
+        },
+      },
+    })
+
+    expect(options).toEqual({ backend: "kqueue", ignore: ignored })
+    callback(null, [{ path: `${workspace}/README.md`, type: "create" }])
+    expect(signals).toBe(1)
+    await subscription.unsubscribe()
+  })
+
   test("healthy idle creates no fallback timer or root snapshot work", async () => {
     let snapshots = 0
     let timers = 0

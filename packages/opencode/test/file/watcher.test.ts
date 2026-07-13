@@ -224,7 +224,7 @@ describe("FileWatcher git metadata filtering", () => {
       userConfig: ["local-cache/**"],
     })
 
-    expect(plan.rootFilesStrategy).toBe("poll-root-entries")
+    expect(plan.rootFilesStrategy).toBe("root-only-kqueue-sentinel")
     expect(plan.refreshStrategy).toBe("refresh-plan-on-top-level-entry-change")
     expect(plan.roots.map((root) => path.basename(root.directory)).sort()).toEqual(["packages", "src"])
     expect(plan.excluded.map((item) => [path.basename(item.path), item.reason]).sort()).toEqual([

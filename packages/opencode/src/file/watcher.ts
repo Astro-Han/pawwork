@@ -97,6 +97,13 @@ export namespace FileWatcher {
     unsubscribe: () => Promise<void>
   }
   export type WorkspaceRootSentinelSignal = { error?: unknown }
+  export type WorkspaceRootSentinelBinding = {
+    subscribe: (
+      directory: string,
+      callback: ParcelWatcher.SubscribeCallback,
+      options: { ignore: string[]; backend: "kqueue" },
+    ) => Promise<WorkspaceRootSentinel>
+  }
   type RescanRequest = {
     directory: string
     subscriptionDirectory?: string
@@ -120,7 +127,7 @@ export namespace FileWatcher {
     rootCount: number
     maxRootCount: number
     fallbackStrategy?: "limited-child-watchers"
-    rootFilesStrategy: "poll-root-entries"
+    rootFilesStrategy: "root-only-kqueue-sentinel"
     refreshStrategy: "refresh-plan-on-top-level-entry-change"
   }
   export type RescanIncidentSummary = {
@@ -417,6 +424,24 @@ export namespace FileWatcher {
     }
   }
 
+  export function subscribeWorkspaceRootSentinel(input: {
+    workspace: string
+    snapshot: Map<string, RootEntryState>
+    signal: (signal: WorkspaceRootSentinelSignal) => void
+    binding?: WorkspaceRootSentinelBinding
+  }) {
+    const binding = input.binding ?? (watcher() as unknown as WorkspaceRootSentinelBinding | undefined)
+    if (!binding) throw new Error("native file watcher binding is unavailable")
+    const ignore = [...input.snapshot.values()].filter((entry) => entry.type === "directory").map((entry) => entry.path)
+    return binding.subscribe(
+      input.workspace,
+      (error) => {
+        input.signal(error ? { error } : {})
+      },
+      { ignore, backend: "kqueue" },
+    )
+  }
+
   function hasGlobSyntax(value: string) {
     return /[*?[\]{}]/.test(value)
   }
@@ -529,7 +554,7 @@ export namespace FileWatcher {
       rootCount,
       maxRootCount: MAX_WORKSPACE_WATCH_ROOTS,
       fallbackStrategy,
-      rootFilesStrategy: "poll-root-entries",
+      rootFilesStrategy: "root-only-kqueue-sentinel",
       refreshStrategy: "refresh-plan-on-top-level-entry-change",
     }
   }
@@ -848,6 +873,7 @@ export namespace FileWatcher {
                 const active = new Map<string, ParcelWatcher.AsyncSubscription>()
                 let watchPlanDisposed = false
                 const fallbackRescan = createFallbackRescanThrottle()
+                let cancelUncoveredRescan: (() => void) | undefined
                 const publishWorkspaceRescan = () =>
                   publish(Event.Rescan, { directory: ctx.directory }).catch((error) =>
                     log.warn("failed to publish watcher rescan", { dir: ctx.directory, error }),
@@ -885,8 +911,25 @@ export namespace FileWatcher {
 
                   if (plan.fallbackStrategy === "limited-child-watchers") {
                     if (fallbackRescan.enter()) yield* Effect.promise(publishWorkspaceRescan)
+                    if (!cancelUncoveredRescan) {
+                      const schedule = () => {
+                        const timer = setTimeout(
+                          () =>
+                            Instance.restore(ctx, () => {
+                              if (watchPlanDisposed) return
+                              if (fallbackRescan.tick()) void publishWorkspaceRescan()
+                              schedule()
+                            }),
+                          FALLBACK_RESCAN_INTERVAL_MS,
+                        )
+                        cancelUncoveredRescan = () => clearTimeout(timer)
+                      }
+                      schedule()
+                    }
                   } else {
                     fallbackRescan.exit()
+                    cancelUncoveredRescan?.()
+                    cancelUncoveredRescan = undefined
                   }
 
                   const nextRoots = new Set(plan.roots.map((root) => root.directory))
@@ -933,46 +976,40 @@ export namespace FileWatcher {
                 })
 
                 yield* applyPlan(snapshot)
-                let polling = false
-                const timer = setInterval(() => {
-                  if (polling || watchPlanDisposed) return
-                  polling = true
-                  Instance.restore(ctx, () => {
-                    rootEntrySnapshot(ctx.directory)
-                      .then((next) =>
-                        runWorkspaceRootPoll({
-                          previous: snapshot,
-                          next,
-                          workspace: ctx.directory,
-                          ignore: workspaceSubscription.ignore,
-                          isDisposed: () => watchPlanDisposed,
-                          applyPlan: (planSnapshot) => Effect.runPromise(applyPlan(planSnapshot)),
-                          publishUpdate: (event) => {
-                            void publish(Event.Updated, event).catch((error) =>
-                              log.warn("failed to publish watcher update", { event, error }),
-                            )
-                          },
-                          publishRescan: (directory) =>
-                            publish(Event.Rescan, { directory }).catch((error) =>
-                              log.warn("failed to publish watcher rescan", { dir: directory, error }),
-                            ),
-                        }),
-                      )
-                      .then((next) => {
-                        snapshot = next
-                        if (watchPlanDisposed || !fallbackRescan.tick()) return
-                        return publishWorkspaceRescan()
-                      })
-                      .catch((error) => log.warn("failed to poll workspace root", { dir: ctx.directory, error }))
-                      .finally(() => {
-                        polling = false
-                      })
-                  })
-                }, ROOT_DISCOVERY_INTERVAL_MS)
+                const rootDiscovery = createWorkspaceRootDiscovery({
+                  initialSnapshot: snapshot,
+                  workspace: ctx.directory,
+                  ignore: workspaceSubscription.ignore,
+                  subscribeSentinel: (sentinelSnapshot, signal) =>
+                    subscribeWorkspaceRootSentinel({
+                      workspace: ctx.directory,
+                      snapshot: sentinelSnapshot,
+                      signal,
+                    }),
+                  snapshotRoot: () => rootEntrySnapshot(ctx.directory),
+                  applyPlan: (planSnapshot) => Effect.runPromise(applyPlan(planSnapshot)),
+                  publishUpdate: (event) => {
+                    void publish(Event.Updated, event).catch((error) =>
+                      log.warn("failed to publish watcher update", { event, error }),
+                    )
+                  },
+                  publishRescan: (directory) =>
+                    publish(Event.Rescan, { directory }).catch((error) =>
+                      log.warn("failed to publish watcher rescan", { dir: directory, error }),
+                    ),
+                  scheduleFallback: (callback, delayMs) => {
+                    const timer = setTimeout(() => Instance.restore(ctx, callback), delayMs)
+                    return () => clearTimeout(timer)
+                  },
+                  onError: (error) => log.warn("workspace root sentinel degraded", { dir: ctx.directory, error }),
+                })
+                yield* Effect.promise(() => rootDiscovery.start())
                 yield* Effect.addFinalizer(() =>
-                  Effect.sync(() => {
+                  Effect.promise(async () => {
                     watchPlanDisposed = true
-                    clearInterval(timer)
+                    cancelUncoveredRescan?.()
+                    cancelUncoveredRescan = undefined
+                    await rootDiscovery.dispose()
                   }),
                 )
               } else {
