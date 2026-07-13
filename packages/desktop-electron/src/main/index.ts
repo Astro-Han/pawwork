@@ -145,6 +145,9 @@ function clearProgressBar() {
 }
 
 let server: Server.Listener | null = null
+let sidecarShutdown: Promise<void> | undefined
+let gracefulQuitStarted = false
+let gracefulQuitReady = false
 const loadingComplete = defer<void>()
 const deepLinkReadyWindows = new WeakSet<BrowserWindow>()
 let menuLocale: MenuLocale = readStoredMenuLocale(app.getLocale())
@@ -207,8 +210,7 @@ const updater = createUpdaterController({
   downloadUpdate: () => updateFeed.download(),
   clearPendingUpdate: clearPendingUpdate,
   quitAndInstall: () => {
-    killSidecar()
-    autoUpdater.quitAndInstall()
+    void shutdownSidecar().finally(() => autoUpdater.quitAndInstall())
   },
   log: (message, data) => logger.log(message, data),
   error: (message, error) => logger.error(message, error),
@@ -399,11 +401,22 @@ function setupApp() {
     platform: process.platform,
   })
 
-  app.on("before-quit", () => {
+  app.on("before-quit", (event) => {
+    if (gracefulQuitReady) return
+    event.preventDefault()
+    if (gracefulQuitStarted) return
+    gracefulQuitStarted = true
     // Best-effort: signal the bridge to stop polling before the server it talks
-    // to is torn down. Its poll fetches are aborted, so this returns promptly.
-    void remoteBridge.stop()
-    killSidecar()
+    // to is torn down, then let every instance scope release native watchers.
+    void remoteBridge
+      .stop()
+      .catch((error) => logger.error("remote bridge shutdown failed", error))
+      .then(() => shutdownSidecar())
+      .catch((error) => logger.error("sidecar shutdown failed", error))
+      .finally(() => {
+        gracefulQuitReady = true
+        app.quit()
+      })
   })
 
   app.on("will-quit", () => {
@@ -412,8 +425,7 @@ function setupApp() {
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
-      killSidecar()
-      app.exit(0)
+      app.quit()
     })
   }
 
@@ -587,9 +599,10 @@ function wireMenu() {
     },
     reload: () => commandWindow()?.reload(),
     relaunch: () => {
-      killSidecar()
-      app.relaunch()
-      app.exit(0)
+      void shutdownSidecar().finally(() => {
+        app.relaunch()
+        app.exit(0)
+      })
     },
     newWindow: () => openMainWindow(),
     reportProblem: () => {
@@ -677,10 +690,20 @@ registerAboutIpc()
 registerBrowserIpc({ sessionIDForWindow: (windowID) => desktopContexts.current(windowID).sessionID })
 registerRemoteIpc(remoteBridge)
 
+async function shutdownSidecar() {
+  sidecarShutdown ??= (async () => {
+    const active = server
+    server = null
+    if (!active) return
+    const { Instance } = await import("virtual:opencode-server")
+    await Instance.disposeAll({ mode: "force" })
+    await active.stop(true)
+  })()
+  await sidecarShutdown
+}
+
 function killSidecar() {
-  if (!server) return
-  server.stop(true)
-  server = null
+  void shutdownSidecar().catch((error) => logger.error("sidecar shutdown failed", error))
 }
 
 function reportCiSmokeReady() {
