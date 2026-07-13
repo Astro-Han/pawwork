@@ -1576,13 +1576,16 @@ const rawLayer = Layer.effect(
         return { changed: false, missing: [] as string[] }
 
       if (Runtime.isPawWork()) yield* Effect.promise(() => PawWorkHome.ensurePrimary())
+      const writeFile = globalConfigFile()
       // Seed scattered global sources into the primary file first. Deletion works
       // by absence, and absence in one file must not be shadowed by a copy in
       // another loaded source; after seeding, every loaded entry lives together.
-      yield* updateGlobal({})
+      // An existing primary is already the write authority and must not pass
+      // through updateGlobal's whole-config schema check: the MCP editor is also
+      // the recovery path when one legacy MCP entry makes that config invalid.
+      if ((yield* readConfigFile(writeFile)) === undefined) yield* updateGlobal({})
 
       const opts = { formattingOptions: { insertSpaces: true, tabSize: 2 } }
-      const writeFile = globalConfigFile()
       const otherFiles = globalConfigFilesToLoad().filter((file) => file !== writeFile)
       const present = new Set<string>()
       let changed = false
@@ -1613,10 +1616,11 @@ const rawLayer = Layer.effect(
             for (const [name, enabled] of enableEntries)
               text = applyEdits(text, modify(text, ["mcp", name, "enabled"], enabled, opts))
             if (text !== before) {
-              // Validate a normalized copy so a primary that still carries a
-              // deprecated key (theme/keybinds/...) — which the loader accepts —
-              // does not block the edit; the written `text` keeps the raw file.
-              ConfigParse.schema(Info.zod, normalizeLoadedConfig(ConfigParse.jsonc(text, writeFile), writeFile), writeFile)
+              // The request schema already validates every value in `set`, while
+              // remove/enable only make path-local edits. Do not schema-check the
+              // unrelated config here: this write path must remain available to
+              // repair a primary containing a legacy or malformed MCP neighbor.
+              ConfigParse.jsonc(text, writeFile)
               yield* Effect.promise(() => writeConfigTextAtomic(writeFile, text)).pipe(Effect.orDie)
               changed = true
             }

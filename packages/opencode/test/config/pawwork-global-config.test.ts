@@ -1476,6 +1476,37 @@ describe("PawWork config load resilience", () => {
 })
 
 describe("editGlobalMcp", () => {
+  test("adds a valid MCP server when another MCP entry makes the primary config schema-invalid", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = global.path
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      const file = path.join(global.path, "pawwork.json")
+      await Filesystem.write(file, JSON.stringify({ username: "kept", mcp: { broken: null } }))
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const result = await editMcp({ set: { working: { type: "remote", url: "https://working.example/mcp" } } })
+
+          expect(result).toEqual({ changed: true, missing: [] })
+          expect(JSON.parse(await Bun.file(file).text())).toEqual({
+            username: "kept",
+            mcp: {
+              broken: null,
+              working: { type: "remote", url: "https://working.example/mcp" },
+            },
+          })
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
   test("adds, overwrites, renames, and deletes global MCP entries in one write path", async () => {
     await using project = await tmpdir({ git: true })
     await using global = await tmpdir()
