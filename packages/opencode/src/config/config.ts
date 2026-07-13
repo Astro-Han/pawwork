@@ -876,11 +876,12 @@ async function writeLegacyTomlMigration(target: string, legacyConfig: Info, opti
       if (!options?.mergeExisting) return
       const existing = ConfigParse.jsonc(existingText, target)
       if (!isRecord(existing)) return
-      const patch = missingConfigPatch(legacyConfig, existing)
+      const merged = mergeConfigRecords(legacyConfig, existing)
+      const patch = missingConfigPatch(merged, existing)
       if (!patch) return
       const updated = target.endsWith(".jsonc")
         ? patchJsonc(existingText, patch)
-        : JSON.stringify(mergeDeep(legacyConfig, existing), null, 2)
+        : JSON.stringify(merged, null, 2)
       await writeConfigTextAtomic(target, updated)
       return
     }

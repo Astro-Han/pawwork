@@ -471,6 +471,47 @@ describe("PawWork global config isolation", () => {
     }
   })
 
+  test("legacy TOML migration does not restore stale MCP fields into JSON", async () => {
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = path.join(platformLegacy.path, "empty-home")
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      const legacyJson = path.join(platformLegacy.path, "pawwork.json")
+      await Filesystem.write(
+        legacyJson,
+        JSON.stringify({ mcp: { server: { type: "remote", url: "https://new.example/mcp" } } }, null, 2),
+      )
+      await Filesystem.write(
+        path.join(platformLegacy.path, "config"),
+        [
+          "[mcp.server]",
+          'type = "remote"',
+          'url = "https://old.example/mcp"',
+          "[mcp.server.headers]",
+          'Authorization = "Bearer stale"',
+        ].join("\n"),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await load()
+          await clear(true)
+          const reloaded = await load()
+          expect(reloaded.mcp?.server).toEqual({ type: "remote", url: "https://new.example/mcp" })
+          const migrated = JSON.parse(await Bun.file(legacyJson).text())
+          expect(migrated.mcp.server).toEqual({ type: "remote", url: "https://new.example/mcp" })
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
   test("legacy TOML migration merges missing fields into active PawWork JSONC", async () => {
     await using platformLegacy = await tmpdir()
     await using project = await tmpdir({ git: true })
@@ -502,6 +543,49 @@ describe("PawWork global config isolation", () => {
           expect(migrated.username).toBe("jsonc-user")
           expect(migrated.model).toBe("toml/model")
           expect((migrated.watcher as Record<string, unknown> | undefined)?.unknown).toBeUndefined()
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("legacy TOML migration does not restore stale MCP fields into JSONC", async () => {
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = path.join(platformLegacy.path, "empty-home")
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      const legacyJsonc = path.join(platformLegacy.path, "pawwork.jsonc")
+      await Filesystem.write(
+        legacyJsonc,
+        '{\n  // keep active MCP config\n  "mcp": {\n    "server": { "type": "remote", "url": "https://new.example/mcp" }\n  }\n}\n',
+      )
+      await Filesystem.write(
+        path.join(platformLegacy.path, "config"),
+        [
+          "[mcp.server]",
+          'type = "remote"',
+          'url = "https://old.example/mcp"',
+          "[mcp.server.headers]",
+          'Authorization = "Bearer stale"',
+        ].join("\n"),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await load()
+          await clear(true)
+          const reloaded = await load()
+          expect(reloaded.mcp?.server).toEqual({ type: "remote", url: "https://new.example/mcp" })
+          const migratedText = await Bun.file(legacyJsonc).text()
+          expect(migratedText).toContain("// keep active MCP config")
+          const migrated = parseJsonc(migratedText) as { mcp: Record<string, unknown> }
+          expect(migrated.mcp.server).toEqual({ type: "remote", url: "https://new.example/mcp" })
         },
       })
     } finally {
