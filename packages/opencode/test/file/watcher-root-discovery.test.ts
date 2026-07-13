@@ -104,7 +104,7 @@ describe("workspace root discovery", () => {
     await subscription.unsubscribe()
   })
 
-  test("healthy idle creates no fallback timer or root snapshot work", async () => {
+  test("healthy idle creates no fallback timer or root snapshot work after bootstrap", async () => {
     let snapshots = 0
     let timers = 0
     const discovery = FileWatcher.createWorkspaceRootDiscovery({
@@ -126,9 +126,54 @@ describe("workspace root discovery", () => {
     })
 
     await discovery.start()
+    const bootstrapSnapshots = snapshots
+    await Bun.sleep(0)
 
-    expect(snapshots).toBe(0)
+    expect(bootstrapSnapshots).toBe(1)
+    expect(snapshots).toBe(bootstrapSnapshots)
     expect(timers).toBe(0)
+    await discovery.dispose()
+  })
+
+  test("catches up root changes that happen before the sentinel is active", async () => {
+    const workspace = "/repo"
+    const directory = `${workspace}/generated`
+    const next = new Map([
+      [
+        "generated",
+        {
+          name: "generated",
+          path: directory,
+          type: "directory" as const,
+          size: 0,
+          mtimeMs: 0,
+          ino: 1,
+          ctimeMs: 1,
+        },
+      ],
+    ])
+    let root = new Map<string, FileWatcher.RootEntryState>()
+    const plans: string[][] = []
+    const discovery = FileWatcher.createWorkspaceRootDiscovery({
+      initialSnapshot: root,
+      workspace,
+      ignore: [],
+      subscribeSentinel: async () => {
+        root = next
+        return { unsubscribe: async () => {} }
+      },
+      snapshotRoot: async () => root,
+      applyPlan: async (snapshot) => {
+        plans.push([...snapshot.keys()])
+      },
+      publishUpdate: () => {},
+      publishRescan: async () => {},
+      scheduleFallback: () => () => {},
+    })
+
+    await discovery.start()
+
+    expect(plans).toEqual([["generated"]])
     await discovery.dispose()
   })
 
@@ -151,6 +196,7 @@ describe("workspace root discovery", () => {
       },
       snapshotRoot: async () => {
         snapshots++
+        if (snapshots === 1) return new Map()
         return new Map([
           [
             "README.md",
@@ -165,12 +211,13 @@ describe("workspace root discovery", () => {
     })
 
     await discovery.start()
+    const bootstrapSnapshots = snapshots
     signal({})
     signal({})
     signal({})
     await update
 
-    expect(snapshots).toBe(1)
+    expect(snapshots - bootstrapSnapshots).toBe(1)
     await discovery.dispose()
   })
 
@@ -308,6 +355,62 @@ describe("workspace root discovery", () => {
     await discovery.dispose()
   })
 
+  test("serializes fallback recovery behind an in-flight sentinel reconcile", async () => {
+    let signal!: (signal: FileWatcher.WorkspaceRootSentinelSignal) => void
+    let fallback!: () => void
+    let snapshots = 0
+    let activeSnapshots = 0
+    let maxActiveSnapshots = 0
+    let firstStarted!: () => void
+    let releaseFirst!: () => void
+    const started = new Promise<void>((resolve) => {
+      firstStarted = resolve
+    })
+    const blocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const discovery = FileWatcher.createWorkspaceRootDiscovery({
+      initialSnapshot: new Map(),
+      workspace: "/repo",
+      ignore: [],
+      subscribeSentinel: async (_snapshot, callback) => {
+        signal = callback
+        return { unsubscribe: async () => {} }
+      },
+      snapshotRoot: async () => {
+        snapshots++
+        if (snapshots === 1) return new Map()
+        activeSnapshots++
+        maxActiveSnapshots = Math.max(maxActiveSnapshots, activeSnapshots)
+        if (snapshots === 2) {
+          firstStarted()
+          await blocked
+        }
+        activeSnapshots--
+        return new Map()
+      },
+      applyPlan: async () => {},
+      publishUpdate: () => {},
+      publishRescan: async () => {},
+      scheduleFallback: (callback) => {
+        fallback = callback
+        return () => {}
+      },
+    })
+
+    await discovery.start()
+    signal({})
+    await started
+    signal({ error: new Error("sentinel failed") })
+    fallback()
+    await Bun.sleep(0)
+    releaseFirst()
+    await Bun.sleep(0)
+
+    expect(maxActiveSnapshots).toBe(1)
+    await discovery.dispose()
+  })
+
   test("bounds repeated sentinel recovery backoff", async () => {
     const scheduled: Array<{ callback: () => void; delayMs: number }> = []
     const discovery = FileWatcher.createWorkspaceRootDiscovery({
@@ -352,6 +455,7 @@ describe("workspace root discovery", () => {
     let unsubscribed = 0
     let published = 0
     let fallbackCancelled = 0
+    let snapshots = 0
     const discovery = FileWatcher.createWorkspaceRootDiscovery({
       initialSnapshot: new Map(),
       workspace,
@@ -365,6 +469,8 @@ describe("workspace root discovery", () => {
         }
       },
       snapshotRoot: async () => {
+        snapshots++
+        if (snapshots === 1) return new Map()
         snapshotStarted()
         return snapshot
       },

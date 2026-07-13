@@ -79,6 +79,7 @@ const discovery = FileWatcher.createWorkspaceRootDiscovery({
   onError: (error) => discoveryErrors.push(String(error)),
 })
 await discovery.start()
+const bootstrapSnapshots = snapshots
 const after = kqueueCount()
 
 for (const root of roots) {
@@ -88,7 +89,7 @@ for (const root of roots) {
 }
 await Bun.sleep(300)
 const ignoredCallbacks = callbacks
-const idleSnapshots = snapshots
+const idleSnapshots = snapshots - bootstrapSnapshots
 
 const rootFile = path.join(workspace, "root.txt")
 const waitForUpdate = async (event: "add" | "change" | "unlink", trigger: () => Promise<void>) => {

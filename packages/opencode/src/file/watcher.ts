@@ -288,7 +288,7 @@ export namespace FileWatcher {
     let sentinelGeneration = 0
     let disposed = false
     let reconcileQueued = false
-    let reconciling = false
+    let reconcilePromise: Promise<void> | undefined
     let reconcileDirty = false
     let fallbackAttempt = 0
     let cancelFallback: (() => void) | undefined
@@ -371,20 +371,26 @@ export namespace FileWatcher {
       publishUpdates()
     }
 
-    const runReconcile = async () => {
-      if (disposed || reconciling) return
+    const runReconcile = () => {
+      if (disposed) return Promise.resolve()
       reconcileQueued = false
-      reconciling = true
-      try {
-        do {
-          reconcileDirty = false
-          await reconcile()
-        } while (reconcileDirty && !disposed)
-      } catch (error) {
-        input.onError?.(error)
-      } finally {
-        reconciling = false
+      if (reconcilePromise) {
+        reconcileDirty = true
+        return reconcilePromise
       }
+      reconcilePromise = (async () => {
+        try {
+          do {
+            reconcileDirty = false
+            await reconcile()
+          } while (reconcileDirty && !disposed)
+        } catch (error) {
+          input.onError?.(error)
+        } finally {
+          reconcilePromise = undefined
+        }
+      })()
+      return reconcilePromise
     }
 
     const signal = (event: WorkspaceRootSentinelSignal) => {
@@ -393,7 +399,7 @@ export namespace FileWatcher {
         enterFallback(event.error)
         return
       }
-      if (reconciling) {
+      if (reconcilePromise) {
         reconcileDirty = true
         return
       }
@@ -404,11 +410,7 @@ export namespace FileWatcher {
 
     const fallbackTick = async () => {
       if (disposed) return
-      try {
-        await reconcile()
-      } catch (error) {
-        input.onError?.(error)
-      }
+      await runReconcile()
       if (disposed || sentinel) return
       try {
         await replaceSentinel(snapshot)
@@ -440,6 +442,7 @@ export namespace FileWatcher {
         if (disposed || sentinel) return
         try {
           await replaceSentinel(snapshot)
+          await runReconcile()
         } catch (error) {
           enterFallback(error)
         }
