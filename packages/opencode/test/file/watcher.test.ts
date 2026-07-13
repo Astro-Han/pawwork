@@ -321,6 +321,8 @@ describe("FileWatcher git metadata filtering", () => {
           type: "directory" as const,
           size: 0,
           mtimeMs: 0,
+          ino: 0,
+          ctimeMs: 0,
         },
       ],
     ])
@@ -372,6 +374,8 @@ describe("FileWatcher git metadata filtering", () => {
           type: "directory" as const,
           size: 0,
           mtimeMs: 0,
+          ino: 0,
+          ctimeMs: 0,
         },
       ],
     ])

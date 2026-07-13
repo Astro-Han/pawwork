@@ -89,6 +89,8 @@ export namespace FileWatcher {
     type: WorkspaceWatchPlanEntry["type"]
     size: number
     mtimeMs: number
+    ino: number
+    ctimeMs: number
   }
   export type WorkspaceRootSentinel = {
     unsubscribe: () => Promise<void>
@@ -467,6 +469,8 @@ export namespace FileWatcher {
           type,
           size: info?.size ?? 0,
           mtimeMs: info?.mtimeMs ?? 0,
+          ino: info?.ino ?? 0,
+          ctimeMs: info?.ctimeMs ?? 0,
         })
       }),
     )
@@ -479,7 +483,11 @@ export namespace FileWatcher {
 
   function rootFileChanged(prev: RootEntryState | undefined, next: RootEntryState | undefined) {
     if (!prev || !next) return false
-    return prev.type === "file" && next.type === "file" && (prev.size !== next.size || prev.mtimeMs !== next.mtimeMs)
+    return (
+      prev.type === "file" &&
+      next.type === "file" &&
+      (prev.size !== next.size || prev.mtimeMs !== next.mtimeMs || prev.ino !== next.ino || prev.ctimeMs !== next.ctimeMs)
+    )
   }
 
   function shouldPublishWorkspacePath(file: string, workspace: string, ignore: string[]) {

@@ -52,7 +52,7 @@ describe("workspace root discovery", () => {
         return new Map([
           [
             "README.md",
-            { name: "README.md", path: file, type: "file", size: 1, mtimeMs: 1 },
+            { name: "README.md", path: file, type: "file", size: 1, mtimeMs: 1, ino: 1, ctimeMs: 1 },
           ],
         ])
       },
@@ -70,5 +70,33 @@ describe("workspace root discovery", () => {
 
     expect(snapshots).toBe(1)
     await discovery.dispose()
+  })
+
+  test("detects a same-size atomic root-file replacement", async () => {
+    const workspace = "/repo"
+    const file = `${workspace}/package.json`
+    const state = (ino: number, ctimeMs: number) => ({
+      name: "package.json",
+      path: file,
+      type: "file" as const,
+      size: 20,
+      mtimeMs: 100,
+      ino,
+      ctimeMs,
+    })
+    const updates: Array<{ file: string; event: "add" | "change" | "unlink" }> = []
+
+    await FileWatcher.runWorkspaceRootPoll({
+      previous: new Map([["package.json", state(1, 100)]]),
+      next: new Map([["package.json", state(2, 101)]]),
+      workspace,
+      ignore: [],
+      isDisposed: () => false,
+      applyPlan: async () => {},
+      publishUpdate: (event) => updates.push(event),
+      publishRescan: async () => {},
+    })
+
+    expect(updates).toEqual([{ file, event: "change" }])
   })
 })
