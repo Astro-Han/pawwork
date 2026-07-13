@@ -4,7 +4,7 @@ import { closeSettingsPanel, openSettings } from "../actions"
 // Real user path for MCP management (issue #1485): open Settings → Integrations,
 // add a local MCP server, confirm it lands in the list, edit it, toggle it off
 // and on, then delete it. The e2e backend is a real opencode server, so this
-// exercises the full stack: DialogMcpForm → global.config.editMcp → global config
+// exercises the full stack: MCP Sheet → global.config.editMcp → global config
 // write → re-bootstrap → list render (rendered from the raw, unexpanded config).
 // The added server never actually connects (echo is not an MCP server), which is
 // fine: the row is keyed on config, not on connection status.
@@ -17,25 +17,25 @@ test("add, edit, toggle, and delete an MCP server from the Integrations settings
 
   // Add
   await settings.getByRole("button", { name: "Add MCP server" }).click()
-  const addDialog = page.getByRole("dialog").filter({ has: page.getByText("Add MCP server") })
-  await expect(addDialog).toBeVisible()
-  await addDialog.getByLabel("Name").fill("e2e-mcp")
-  await addDialog.getByLabel("Command").fill("echo hi")
-  await addDialog.getByRole("button", { name: "Save" }).click()
-  await expect(addDialog).toHaveCount(0)
+  const addSheet = page.locator('[data-component="sheet"]').filter({ has: page.getByText("Add MCP server") })
+  await expect(addSheet).toBeVisible()
+  await addSheet.getByLabel("Name").fill("e2e-mcp")
+  await addSheet.getByLabel("Command").fill("echo hi")
+  await addSheet.getByRole("button", { name: "Save server" }).click()
+  await expect(addSheet).toHaveCount(0)
 
   // Appears in the list
   const row = settings.locator("li").filter({ hasText: "e2e-mcp" })
   await expect(row).toBeVisible()
 
-  // Edit: name is read-only (rename is not offered in v1 via this field), command prefilled
+  // Edit: the existing values are prefilled.
   await row.getByRole("button", { name: "Edit MCP server" }).click()
-  const editDialog = page.getByRole("dialog").filter({ has: page.getByText("Edit MCP server") })
-  await expect(editDialog).toBeVisible()
-  await expect(editDialog.getByLabel("Name")).toHaveValue("e2e-mcp")
-  await editDialog.getByLabel("Command").fill("echo edited")
-  await editDialog.getByRole("button", { name: "Save" }).click()
-  await expect(editDialog).toHaveCount(0)
+  const editSheet = page.locator('[data-component="sheet"]').filter({ has: page.getByText("Edit MCP server") })
+  await expect(editSheet).toBeVisible()
+  await expect(editSheet.getByLabel("Name")).toHaveValue("e2e-mcp")
+  await editSheet.getByLabel("Command").fill("echo edited")
+  await editSheet.getByRole("button", { name: "Save server" }).click()
+  await expect(editSheet).toHaveCount(0)
   await expect(settings.locator("li").filter({ hasText: "e2e-mcp" })).toBeVisible()
 
   // Toggle: the switch carries the server name as its accessible name (screen
@@ -48,6 +48,7 @@ test("add, edit, toggle, and delete an MCP server from the Integrations settings
   await expect(toggleInput).toBeChecked()
   await toggle.locator('[data-slot="switch-control"]').click()
   await expect(toggleInput).not.toBeChecked()
+  await expect(toggleInput).toBeEnabled()
   await toggle.locator('[data-slot="switch-control"]').click()
   await expect(toggleInput).toBeChecked()
 
@@ -57,12 +58,37 @@ test("add, edit, toggle, and delete an MCP server from the Integrations settings
     .filter({ hasText: "e2e-mcp" })
     .getByRole("button", { name: "Edit MCP server" })
     .click()
-  const deleteDialog = page.getByRole("dialog").filter({ has: page.getByText("Edit MCP server") })
-  await deleteDialog.getByRole("button", { name: "Delete" }).click()
-  // Inline confirm swaps in a second Delete; click it to commit.
-  await deleteDialog.getByRole("button", { name: "Delete" }).click()
+  const deleteSheet = page.locator('[data-component="sheet"]').filter({ has: page.getByText("Edit MCP server") })
+  await deleteSheet.getByRole("button", { name: "Delete server" }).click()
+  const deleteDialog = page.getByRole("dialog").filter({ has: page.getByText("Delete e2e-mcp?") })
+  await expect(deleteDialog).toBeVisible()
+  await deleteDialog.getByRole("button", { name: "Delete server" }).click()
   await expect(deleteDialog).toHaveCount(0)
+  await expect(deleteSheet).toHaveCount(0)
   await expect(settings.locator("li").filter({ hasText: "e2e-mcp" })).toHaveCount(0)
 
+  await closeSettingsPanel(page, settings)
+})
+
+test("tests an unsaved MCP draft and keeps save available after failure", async ({ page, gotoSession }) => {
+  test.setTimeout(120_000)
+  await gotoSession()
+
+  const settings = await openSettings(page)
+  await settings.getByRole("tab", { name: "Integrations" }).click()
+  await settings.getByRole("button", { name: "Add MCP server" }).click()
+
+  const sheet = page.locator('[data-component="sheet"]').filter({ has: page.getByText("Add MCP server") })
+  await sheet.getByRole("button", { name: "Remote" }).click()
+  await sheet.getByLabel("URL").fill("not-a-url")
+  await sheet.getByRole("button", { name: "Test connection" }).click()
+
+  const result = sheet.getByRole("status")
+  await expect(result).toContainText("Connection failed")
+  await expect(result).toContainText('Invalid MCP URL for "draft"')
+  await expect(result).toContainText("You can still save this server")
+  await expect(sheet.getByRole("button", { name: "Save server" })).toBeEnabled()
+
+  await sheet.getByRole("button", { name: "Cancel" }).click()
   await closeSettingsPanel(page, settings)
 })

@@ -15,6 +15,7 @@ const globalStoreFixture = (): GlobalStore => ({
   provider_auth: {},
   config: {},
   mcpRaw: {},
+  mcpInvalid: [],
   reload: undefined,
 })
 
