@@ -102,7 +102,7 @@
     },
     "packages/desktop-electron": {
       "name": "@opencode-ai/desktop-electron",
-      "version": "2026.7.1",
+      "version": "2026.7.2",
       "dependencies": {
         "@opencode-ai/remote-bridge": "workspace:*",
         "@opencode-ai/util": "workspace:*",
