@@ -10,12 +10,44 @@ import type { RendererDiagnosticInput } from "./platform"
 
 describe("renderer diagnostics", () => {
   const originalRequestAnimationFrame = globalThis.requestAnimationFrame
+  const originalSetInterval = window.setInterval
+  const originalPerformanceObserver = globalThis.PerformanceObserver
   const originalApi = window.api
 
   afterEach(() => {
     globalThis.requestAnimationFrame = originalRequestAnimationFrame
+    window.setInterval = originalSetInterval
+    globalThis.PerformanceObserver = originalPerformanceObserver
     window.api = originalApi
   })
+
+  function capturePerformanceObservers() {
+    const callbacks = new Map<string, PerformanceObserverCallback>()
+    globalThis.PerformanceObserver = class {
+      constructor(callback: PerformanceObserverCallback) {
+        this.callback = callback
+      }
+
+      private callback: PerformanceObserverCallback
+
+      observe(options: PerformanceObserverInit) {
+        if (options.type) callbacks.set(options.type, this.callback)
+      }
+
+      disconnect() {}
+      takeRecords() {
+        return []
+      }
+    } as unknown as typeof PerformanceObserver
+
+    return (type: string, entries: PerformanceEntry[]) => {
+      callbacks.get(type)?.({ getEntries: () => entries } as PerformanceObserverEntryList, {} as PerformanceObserver)
+    }
+  }
+
+  function layoutShift(startTime: number, value: number) {
+    return { startTime, value, hadRecentInput: false } as unknown as PerformanceEntry
+  }
 
   test("emits through the desktop API with monotonic time", async () => {
     const events: RendererDiagnosticInput[] = []
@@ -77,6 +109,120 @@ describe("renderer diagnostics", () => {
     expect(frames).toBe(0)
   })
 
+  test("session performance diagnostics stays passive while a visible session is idle", () => {
+    let frames = 0
+    let intervals = 0
+    globalThis.requestAnimationFrame = (() => {
+      frames += 1
+      return 1
+    }) as typeof requestAnimationFrame
+    window.setInterval = (() => {
+      intervals += 1
+      return 1
+    }) as unknown as typeof setInterval
+
+    createRoot((dispose) => {
+      createSessionPerformanceDiagnostics({
+        routeSessionID: () => "route-session",
+        visibleSessionID: () => "visible-session",
+        timelineSessionID: () => "timeline-session",
+        emit: () => {},
+      })
+      document.dispatchEvent(new Event("visibilitychange"))
+      dispose()
+    })
+
+    expect(frames).toBe(0)
+    expect(intervals).toBe(0)
+  })
+
+  test("emits a jank incident directly from a threshold long task", () => {
+    const notify = capturePerformanceObservers()
+    const events: RendererDiagnosticInput[] = []
+
+    createRoot((dispose) => {
+      createSessionPerformanceDiagnostics({
+        routeSessionID: () => "route-session",
+        visibleSessionID: () => "visible-session",
+        timelineSessionID: () => "timeline-session",
+        emit: (event) => {
+          events.push(event)
+        },
+      })
+
+      notify("longtask", [{ duration: 100.4 } as PerformanceEntry])
+      dispose()
+    })
+
+    expect(events).toEqual([
+      {
+        name: "incident.session_jank_burst",
+        level: "warn",
+        route_session_id: "route-session",
+        visible_session_id: "visible-session",
+        timeline_session_id: "timeline-session",
+        data: { long_task_max_ms: 100, phase: "performance_observer" },
+      },
+    ])
+  })
+
+  test("emits a layout-shift incident when an event-driven session window crosses the CLS threshold", () => {
+    const notify = capturePerformanceObservers()
+    const events: RendererDiagnosticInput[] = []
+
+    createRoot((dispose) => {
+      createSessionPerformanceDiagnostics({
+        routeSessionID: () => "route-session",
+        visibleSessionID: () => "visible-session",
+        timelineSessionID: () => "timeline-session",
+        emit: (event) => {
+          events.push(event)
+        },
+      })
+
+      notify("layout-shift", [
+        layoutShift(100, 0.04),
+        layoutShift(800, 0.05),
+        layoutShift(1_500, 0.02),
+        layoutShift(1_600, 0.2),
+      ])
+      dispose()
+    })
+
+    expect(events).toEqual([
+      {
+        name: "incident.session_layout_shift",
+        level: "warn",
+        route_session_id: "route-session",
+        visible_session_id: "visible-session",
+        timeline_session_id: "timeline-session",
+        data: { cls: 0.11, phase: "performance_observer" },
+      },
+    ])
+  })
+
+  test("does not emit observer or visibility events after cleanup", () => {
+    const notify = capturePerformanceObservers()
+    const events: RendererDiagnosticInput[] = []
+
+    createRoot((dispose) => {
+      createSessionPerformanceDiagnostics({
+        routeSessionID: () => "route-session",
+        visibleSessionID: () => "visible-session",
+        timelineSessionID: () => "timeline-session",
+        emit: (event) => {
+          events.push(event)
+        },
+      })
+      dispose()
+    })
+
+    notify("longtask", [{ duration: 120 } as PerformanceEntry])
+    notify("layout-shift", [layoutShift(100, 0.2)])
+    document.dispatchEvent(new Event("visibilitychange"))
+
+    expect(events).toEqual([])
+  })
 
   test("detects automatic scroll jumps to top", () => {
     const incident = detectSessionScrollJumpToTop({
@@ -216,9 +362,9 @@ describe("renderer diagnostics", () => {
     const detect = createRendererIncidentDetector()
 
     expect(detect({ name: "session.timeline.mount", timeline_session_id: "session-1", data: {} })).toEqual([])
-    expect(detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 5 } })).toEqual(
-      [],
-    )
+    expect(
+      detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 5 } }),
+    ).toEqual([])
     expect(detect({ name: "session.timeline.unmount", timeline_session_id: "session-1", data: {} })).toEqual([])
     expect(detect({ name: "session.timeline.mount", timeline_session_id: "session-1", data: {} })).toEqual([
       expect.objectContaining({
@@ -226,8 +372,12 @@ describe("renderer diagnostics", () => {
         data: { timeline_mount_count: 2, timeline_unmount_count: 1 },
       }),
     ])
-    expect(detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 0 } })).toEqual([])
-    expect(detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 4 } })).toEqual([
+    expect(
+      detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 0 } }),
+    ).toEqual([])
+    expect(
+      detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 4 } }),
+    ).toEqual([
       expect.objectContaining({
         name: "incident.session_visible_messages_cleared",
         data: { before_count: 5, during_count: 0, after_count: 4 },
@@ -239,9 +389,9 @@ describe("renderer diagnostics", () => {
     const detect = createRendererIncidentDetector()
 
     expect(detect({ name: "session.timeline.mount", timeline_session_id: "session-1", data: {} })).toEqual([])
-    expect(detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 80 } })).toEqual(
-      [],
-    )
+    expect(
+      detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 80 } }),
+    ).toEqual([])
     expect(
       detect({
         name: "session.scroll.sample",
@@ -249,9 +399,9 @@ describe("renderer diagnostics", () => {
         data: { scroll_top: 20451, distance_from_bottom: 0, client_height: 720, user_scrolled: false },
       }),
     ).toEqual([])
-    expect(detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 80 } })).toEqual(
-      [],
-    )
+    expect(
+      detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 80 } }),
+    ).toEqual([])
     expect(
       detect({
         name: "session.scroll.sample",
