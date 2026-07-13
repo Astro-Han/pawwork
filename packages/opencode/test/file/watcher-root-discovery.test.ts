@@ -563,6 +563,75 @@ describe("workspace root discovery", () => {
     await discovery.dispose()
   })
 
+  test("dispose waits for an in-flight sentinel replacement before returning", async () => {
+    const workspace = "/repo"
+    const directory = `${workspace}/generated`
+    const changed = new Map([
+      [
+        "generated",
+        {
+          name: "generated",
+          path: directory,
+          type: "directory" as const,
+          size: 0,
+          mtimeMs: 0,
+          ino: 1,
+          ctimeMs: 1,
+        },
+      ],
+    ])
+    let root = new Map<string, FileWatcher.RootEntryState>()
+    let signal!: (signal: FileWatcher.WorkspaceRootSentinelSignal) => void
+    let replacementStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      replacementStarted = resolve
+    })
+    let releaseReplacement!: (sentinel: FileWatcher.WorkspaceRootSentinel) => void
+    const replacement = new Promise<FileWatcher.WorkspaceRootSentinel>((resolve) => {
+      releaseReplacement = resolve
+    })
+    let subscriptions = 0
+    let replacementUnsubscribed = 0
+    const discovery = FileWatcher.createWorkspaceRootDiscovery({
+      initialSnapshot: root,
+      workspace,
+      ignore: [],
+      subscribeSentinel: async (_snapshot, callback) => {
+        subscriptions++
+        signal = callback
+        if (subscriptions === 1) return { unsubscribe: async () => {} }
+        replacementStarted()
+        return replacement
+      },
+      snapshotRoot: async () => root,
+      applyPlan: async () => {},
+      publishUpdate: () => {},
+      publishRescan: async () => {},
+      scheduleFallback: () => () => {},
+    })
+
+    await discovery.start()
+    root = changed
+    signal({})
+    await started
+
+    let disposeResolved = false
+    const disposing = discovery.dispose().then(() => {
+      disposeResolved = true
+    })
+    await Bun.sleep(0)
+    const resolvedBeforeReplacement = disposeResolved
+    releaseReplacement({
+      unsubscribe: async () => {
+        replacementUnsubscribed++
+      },
+    })
+    await disposing
+
+    expect(resolvedBeforeReplacement).toBe(false)
+    expect(replacementUnsubscribed).toBe(1)
+  })
+
   test("dispose cancels sentinel, fallback, and in-flight publication", async () => {
     const workspace = "/repo"
     const file = `${workspace}/late.txt`

@@ -294,6 +294,7 @@ export namespace FileWatcher {
     let fallbackAttempt = 0
     let cancelFallback: (() => void) | undefined
     let pendingSnapshot: Map<string, RootEntryState> | undefined
+    let sentinelTransition: Promise<void> | undefined
 
     const markSentinelHealthy = () => {
       fallbackAttempt = 0
@@ -315,22 +316,28 @@ export namespace FileWatcher {
       if (errors.length > 1) throw new AggregateError(errors, "workspace root sentinel cleanup failed")
     }
 
-    const replaceSentinel = async (nextSnapshot: Map<string, RootEntryState>) => {
-      sentinel = undefined
-      sentinelGeneration++
-      await clearOwnedSentinels()
-      const nextGeneration = sentinelGeneration + 1
-      const next = await input.subscribeSentinel(nextSnapshot, (event) => {
-        if (sentinelGeneration !== nextGeneration) return
-        signal(event)
-      })
-      ownedSentinels.add(next)
-      if (disposed) {
+    const replaceSentinel = (nextSnapshot: Map<string, RootEntryState>) => {
+      const transition = (async () => {
+        sentinel = undefined
+        sentinelGeneration++
         await clearOwnedSentinels()
-        return
-      }
-      sentinel = next
-      sentinelGeneration = nextGeneration
+        const nextGeneration = sentinelGeneration + 1
+        const next = await input.subscribeSentinel(nextSnapshot, (event) => {
+          if (sentinelGeneration !== nextGeneration) return
+          signal(event)
+        })
+        ownedSentinels.add(next)
+        if (disposed) {
+          await clearOwnedSentinels()
+          return
+        }
+        sentinel = next
+        sentinelGeneration = nextGeneration
+      })()
+      sentinelTransition = transition
+      return transition.finally(() => {
+        if (sentinelTransition === transition) sentinelTransition = undefined
+      })
     }
 
     const catchUpSentinelGap = async (sentinelSnapshot: Map<string, RootEntryState>) => {
@@ -474,7 +481,11 @@ export namespace FileWatcher {
         cancelFallback = undefined
         sentinelGeneration++
         sentinel = undefined
-        await clearOwnedSentinels()
+        try {
+          await sentinelTransition
+        } finally {
+          await clearOwnedSentinels()
+        }
       },
     }
   }
