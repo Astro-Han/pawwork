@@ -442,7 +442,10 @@ export namespace MCP {
               if (isAuthError) {
                 log.info("mcp server requires authentication", { key, transport: name })
 
-                if (lastError.message.includes("registration") || lastError.message.includes("client_id")) {
+                if (
+                  authProvider &&
+                  (lastError.message.includes("registration") || lastError.message.includes("client_id"))
+                ) {
                   lastStatus = {
                     status: "needs_client_registration" as const,
                     error: "Server does not support dynamic client registration. Please provide clientId in config.",

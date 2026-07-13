@@ -356,6 +356,22 @@ test(
   }),
 )
 
+test(
+  "probe keeps a 401 with client registration text classified as needs_auth",
+  withInstance({}, async () => {
+    connectShouldFail = true
+    connectError = Object.assign(new Error("HTTP 401: client_id is required"), { code: 401 })
+
+    expect(
+      await MCPFacade.probe({
+        type: "remote",
+        url: "https://oauth.example/mcp",
+      }),
+    ).toEqual({ status: "needs_auth" })
+    expect(remoteAuthProviders).toEqual([undefined, undefined])
+  }),
+)
+
 // ========================================================================
 // Test: tools() are cached after connect
 // ========================================================================
