@@ -166,7 +166,7 @@ describe("renderer diagnostics", () => {
     ])
   })
 
-  test("emits a layout-shift incident when an event-driven session window crosses the CLS threshold", () => {
+  test("emits once per CLS session window and resets at the gap and duration boundaries", () => {
     const notify = capturePerformanceObservers()
     const events: RendererDiagnosticInput[] = []
 
@@ -181,24 +181,35 @@ describe("renderer diagnostics", () => {
       })
 
       notify("layout-shift", [
-        layoutShift(100, 0.04),
-        layoutShift(800, 0.05),
-        layoutShift(1_500, 0.02),
-        layoutShift(1_600, 0.2),
+        layoutShift(0, 0.06),
+        layoutShift(999, 0.05),
+        layoutShift(1_500, 0.2),
+        // An exact one-second gap starts a new session window.
+        layoutShift(2_500, 0.06),
+        layoutShift(3_499, 0.05),
+        // A third window stays active until exactly five seconds after its first shift.
+        layoutShift(4_499, 0.01),
+        layoutShift(5_498, 0.01),
+        layoutShift(6_497, 0.01),
+        layoutShift(7_496, 0.01),
+        layoutShift(8_495, 0.01),
+        layoutShift(9_494, 0.01),
+        layoutShift(9_499, 0.06),
+        layoutShift(10_498, 0.05),
       ])
       dispose()
     })
 
-    expect(events).toEqual([
-      {
+    expect(events).toEqual(
+      Array.from({ length: 3 }, () => ({
         name: "incident.session_layout_shift",
         level: "warn",
         route_session_id: "route-session",
         visible_session_id: "visible-session",
         timeline_session_id: "timeline-session",
         data: { cls: 0.11, phase: "performance_observer" },
-      },
-    ])
+      })),
+    )
   })
 
   test("does not emit observer or visibility events after cleanup", () => {
