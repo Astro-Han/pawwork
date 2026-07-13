@@ -271,14 +271,61 @@ export namespace FileWatcher {
     publishUpdate: (event: { file: string; event: "add" | "change" | "unlink" }) => void
     publishRescan: (directory: string) => void | Promise<void>
     scheduleFallback: (callback: () => void, delayMs: number) => () => void
+    onError?: (error: unknown) => void
   }) {
+    let snapshot = input.initialSnapshot
     let sentinel: WorkspaceRootSentinel | undefined
     let disposed = false
+    let reconcileQueued = false
+    let reconciling = false
+    let reconcileDirty = false
+
+    const reconcile = async () => {
+      if (disposed) return
+      const next = await input.snapshotRoot()
+      snapshot = await runWorkspaceRootPoll({
+        previous: snapshot,
+        next,
+        workspace: input.workspace,
+        ignore: input.ignore,
+        isDisposed: () => disposed,
+        applyPlan: input.applyPlan,
+        publishUpdate: input.publishUpdate,
+        publishRescan: input.publishRescan,
+      })
+    }
+
+    const runReconcile = async () => {
+      if (disposed || reconciling) return
+      reconcileQueued = false
+      reconciling = true
+      try {
+        do {
+          reconcileDirty = false
+          await reconcile()
+        } while (reconcileDirty && !disposed)
+      } catch (error) {
+        input.onError?.(error)
+      } finally {
+        reconciling = false
+      }
+    }
+
+    const signal = (event: WorkspaceRootSentinelSignal) => {
+      if (disposed || event.error) return
+      if (reconciling) {
+        reconcileDirty = true
+        return
+      }
+      if (reconcileQueued) return
+      reconcileQueued = true
+      queueMicrotask(() => void runReconcile())
+    }
 
     return {
       async start() {
         if (disposed || sentinel) return
-        sentinel = await input.subscribeSentinel(input.initialSnapshot, () => {})
+        sentinel = await input.subscribeSentinel(snapshot, signal)
       },
       async dispose() {
         disposed = true
