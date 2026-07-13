@@ -94,6 +94,7 @@ declare module "virtual:opencode-server" {
 
   export namespace Instance {
     export function directories(): string[]
+    export function disposeAll(input?: { mode?: "maintenance" | "force" }): Promise<unknown>
     export function provide<R>(input: {
       directory: string
       init?: () => Promise<unknown>

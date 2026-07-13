@@ -34,6 +34,7 @@ const APP_IDS: Record<string, string> = {
 }
 const CI_SMOKE_HOME = process.env.PAWWORK_CI_SMOKE_HOME
 const CI_SMOKE_ENABLED = process.env.PAWWORK_CI_SMOKE === "true"
+const gracefulSidecarShutdown = process.platform === "darwin"
 const FEEDBACK_SESSION_EXPORT_TIMEOUT_MS = 3_000
 // How long to wait on one update feed's reachability probe before falling back
 // to the next. The probe is aborted (not abandoned) when it elapses.
@@ -145,6 +146,9 @@ function clearProgressBar() {
 }
 
 let server: Server.Listener | null = null
+let sidecarShutdown: Promise<void> | undefined
+let gracefulQuitStarted = false
+let gracefulQuitReady = false
 const loadingComplete = defer<void>()
 const deepLinkReadyWindows = new WeakSet<BrowserWindow>()
 let menuLocale: MenuLocale = readStoredMenuLocale(app.getLocale())
@@ -207,8 +211,12 @@ const updater = createUpdaterController({
   downloadUpdate: () => updateFeed.download(),
   clearPendingUpdate: clearPendingUpdate,
   quitAndInstall: () => {
-    killSidecar()
-    autoUpdater.quitAndInstall()
+    if (!gracefulSidecarShutdown) {
+      killSidecar()
+      autoUpdater.quitAndInstall()
+      return
+    }
+    void shutdownSidecar().finally(() => autoUpdater.quitAndInstall())
   },
   log: (message, data) => logger.log(message, data),
   error: (message, error) => logger.error(message, error),
@@ -399,11 +407,36 @@ function setupApp() {
     platform: process.platform,
   })
 
-  app.on("before-quit", () => {
+  app.on("before-quit", (event) => {
+    if (!gracefulSidecarShutdown) {
+      void remoteBridge.stop()
+      killSidecar()
+      return
+    }
+    if (gracefulQuitReady) return
+    event.preventDefault()
+    if (gracefulQuitStarted) return
+    gracefulQuitStarted = true
+    const finishGracefulQuit = () => {
+      if (gracefulQuitReady) return
+      gracefulQuitReady = true
+      app.quit()
+    }
+    const gracefulQuitTimeout = setTimeout(() => {
+      logger.error("graceful sidecar shutdown timed out, forcing quit")
+      finishGracefulQuit()
+    }, 10_000)
     // Best-effort: signal the bridge to stop polling before the server it talks
-    // to is torn down. Its poll fetches are aborted, so this returns promptly.
-    void remoteBridge.stop()
-    killSidecar()
+    // to is torn down, then let every instance scope release native watchers.
+    void remoteBridge
+      .stop()
+      .catch((error) => logger.error("remote bridge shutdown failed", error))
+      .then(() => shutdownSidecar())
+      .catch((error) => logger.error("sidecar shutdown failed", error))
+      .finally(() => {
+        clearTimeout(gracefulQuitTimeout)
+        finishGracefulQuit()
+      })
   })
 
   app.on("will-quit", () => {
@@ -412,6 +445,10 @@ function setupApp() {
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
+      if (gracefulSidecarShutdown) {
+        app.quit()
+        return
+      }
       killSidecar()
       app.exit(0)
     })
@@ -587,9 +624,16 @@ function wireMenu() {
     },
     reload: () => commandWindow()?.reload(),
     relaunch: () => {
-      killSidecar()
-      app.relaunch()
-      app.exit(0)
+      if (!gracefulSidecarShutdown) {
+        killSidecar()
+        app.relaunch()
+        app.exit(0)
+        return
+      }
+      void shutdownSidecar().finally(() => {
+        app.relaunch()
+        app.exit(0)
+      })
     },
     newWindow: () => openMainWindow(),
     reportProblem: () => {
@@ -677,10 +721,29 @@ registerAboutIpc()
 registerBrowserIpc({ sessionIDForWindow: (windowID) => desktopContexts.current(windowID).sessionID })
 registerRemoteIpc(remoteBridge)
 
+async function shutdownSidecar() {
+  sidecarShutdown ??= (async () => {
+    const active = server
+    server = null
+    if (!active) return
+    const { Instance } = await import("virtual:opencode-server")
+    try {
+      await Instance.disposeAll({ mode: "force" })
+    } finally {
+      await active.stop(true)
+    }
+  })()
+  await sidecarShutdown
+}
+
 function killSidecar() {
-  if (!server) return
-  server.stop(true)
-  server = null
+  if (!gracefulSidecarShutdown) {
+    if (!server) return
+    void server.stop(true)
+    server = null
+    return
+  }
+  void shutdownSidecar().catch((error) => logger.error("sidecar shutdown failed", error))
 }
 
 function reportCiSmokeReady() {

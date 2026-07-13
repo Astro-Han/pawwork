@@ -8,6 +8,7 @@ import { Bus } from "../../src/bus"
 import { Config } from "../../src/config/config"
 import { FileWatcher } from "../../src/file/watcher"
 import { Git } from "../../src/git"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { Instance } from "../../src/project/instance"
 import { shouldRunNativeWatcherTests } from "./native-watcher-ci-guard"
 import { subscribeBus } from "../lib/bus"
@@ -35,7 +36,7 @@ function withWatcher<E>(directory: string, body: Effect.Effect<void, E>) {
     directory,
     fn: async () => {
       const layer: Layer.Layer<FileWatcher.Service, never, never> = FileWatcher.layer.pipe(
-        Layer.provide(Bus.defaultLayer),
+        Layer.provide(Layer.succeed(Bus.Service, AppRuntime.runSync(Bus.Service))),
         Layer.provide(Config.defaultLayer),
         Layer.provide(Git.defaultLayer),
         Layer.provide(watcherConfigLayer),
@@ -224,7 +225,7 @@ describe("FileWatcher git metadata filtering", () => {
       userConfig: ["local-cache/**"],
     })
 
-    expect(plan.rootFilesStrategy).toBe("poll-root-entries")
+    expect(plan.rootFilesStrategy).toBe("root-only-kqueue-sentinel")
     expect(plan.refreshStrategy).toBe("refresh-plan-on-top-level-entry-change")
     expect(plan.roots.map((root) => path.basename(root.directory)).sort()).toEqual(["packages", "src"])
     expect(plan.excluded.map((item) => [path.basename(item.path), item.reason]).sort()).toEqual([
@@ -321,6 +322,8 @@ describe("FileWatcher git metadata filtering", () => {
           type: "directory" as const,
           size: 0,
           mtimeMs: 0,
+          ino: 0,
+          ctimeMs: 0,
         },
       ],
     ])
@@ -372,6 +375,8 @@ describe("FileWatcher git metadata filtering", () => {
           type: "directory" as const,
           size: 0,
           mtimeMs: 0,
+          ino: 0,
+          ctimeMs: 0,
         },
       ],
     ])
