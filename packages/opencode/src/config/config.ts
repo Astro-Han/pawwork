@@ -260,7 +260,7 @@ export const Info = Schema.Struct({
       Schema.Union([
         ConfigMCP.Info,
         // Matches the legacy `{ enabled: false }` form used to disable a server.
-        Schema.Any.annotate({ [ZodOverride]: z.object({ enabled: z.boolean() }).strict() }),
+        ConfigMCP.Toggle,
       ]),
     ),
   ).annotate({ description: "MCP (Model Context Protocol) server configurations" }),
@@ -459,17 +459,16 @@ function inspectGlobalMcpText(text: string, file: string) {
   // whose schema failures are confined to its MCP subtree.
   if (!whole.success && whole.error.issues.some((issue) => issue.path[0] !== "mcp")) return
   if (!isRecord(parsed.mcp)) {
-    return parsed.mcp === undefined ? { mcp: {}, invalid: [] } : { mcp: {}, invalid: ["$mcp"] }
+    return parsed.mcp === undefined
+      ? { mcp: {}, invalid: [], invalidRoot: false }
+      : { mcp: {}, invalid: [], invalidRoot: true }
   }
 
   const mcp: Record<string, unknown> = {}
   const invalid: string[] = []
   for (const [name, value] of Object.entries(parsed.mcp)) {
     const editable = ConfigMCP.Info.zod.safeParse(value).success
-    const toggle =
-      isRecord(value) &&
-      Object.keys(value).every((key) => key === "enabled") &&
-      (value.enabled === undefined || typeof value.enabled === "boolean")
+    const toggle = ConfigMCP.Toggle.zod.safeParse(value).success
     if (!editable && !toggle) {
       invalid.push(name)
       continue
@@ -478,7 +477,7 @@ function inspectGlobalMcpText(text: string, file: string) {
     // own directory. `{env:...}` deliberately stays literal.
     mcp[name] = rewriteFilePlaceholdersDeep(value, file)
   }
-  return { mcp, invalid }
+  return { mcp, invalid, invalidRoot: false }
 }
 
 type State = {
@@ -502,7 +501,11 @@ export interface Interface {
     enable?: Record<string, boolean>
   }) => Effect.Effect<{ changed: boolean; missing: string[] }>
   readonly getGlobalMcpRaw: () => Effect.Effect<Record<string, unknown>>
-  readonly getGlobalMcpState: () => Effect.Effect<{ mcp: Record<string, unknown>; invalid: string[] }>
+  readonly getGlobalMcpState: () => Effect.Effect<{
+    mcp: Record<string, unknown>
+    invalid: string[]
+    invalidRoot: boolean
+  }>
   readonly repairGlobalMcp: () => Effect.Effect<{ changed: boolean; repaired: string[]; backups: string[] }>
   readonly invalidate: (wait?: boolean) => Effect.Effect<void>
   readonly directories: () => Effect.Effect<string[]>
@@ -1001,6 +1004,7 @@ const rawLayer = Layer.effect(
     const getGlobalMcpState = Effect.fn("Config.getGlobalMcpState")(function* () {
       let merged: Record<string, unknown> = {}
       const invalid = new Set<string>()
+      let invalidRoot = false
       for (const file of globalConfigFilesToLoad()) {
         const text = yield* readConfigFile(file)
         if (text === undefined) continue
@@ -1014,8 +1018,9 @@ const rawLayer = Layer.effect(
         if (!inspection) continue
         merged = mergeDeep(merged, inspection.mcp)
         inspection.invalid.forEach((name) => invalid.add(name))
+        invalidRoot ||= inspection.invalidRoot
       }
-      return { mcp: merged, invalid: [...invalid].sort((a, b) => a.localeCompare(b)) }
+      return { mcp: merged, invalid: [...invalid].sort((a, b) => a.localeCompare(b)), invalidRoot }
     })
 
     const getGlobalMcpRaw = Effect.fn("Config.getGlobalMcpRaw")(function* () {
@@ -1042,13 +1047,13 @@ const rawLayer = Layer.effect(
                 if (!Runtime.isPawWork()) throw error
                 return
               }
-              if (!inspection || inspection.invalid.length === 0) return
+              if (!inspection || (!inspection.invalidRoot && inspection.invalid.length === 0)) return
 
               const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 17)
               const backup = `${file}.backup-${stamp.slice(0, 8)}-${stamp.slice(8)}`
               yield* Effect.promise(() => fsNode.copyFile(file, backup)).pipe(Effect.orDie)
 
-              const text = inspection.invalid.includes("$mcp")
+              const text = inspection.invalidRoot
                 ? applyEdits(before, modify(before, ["mcp"], undefined, opts))
                 : inspection.invalid.reduce(
                     (current, name) => applyEdits(current, modify(current, ["mcp", name], undefined, opts)),

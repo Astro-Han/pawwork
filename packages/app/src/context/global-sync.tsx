@@ -101,6 +101,7 @@ export type GlobalStore = {
   // config or the legacy `{ enabled }` override form.
   mcpRaw: Record<string, McpRawEntry>
   mcpInvalid: string[]
+  mcpInvalidRoot: boolean
   reload: undefined | "pending" | "complete"
 }
 
@@ -140,6 +141,7 @@ function createGlobalSync() {
     config: {},
     mcpRaw: {},
     mcpInvalid: [],
+    mcpInvalidRoot: false,
     reload: undefined,
   })
   const queryClient = useQueryClient()

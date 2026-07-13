@@ -58,6 +58,7 @@ export function SettingsMcp(props: { directory?: string }) {
 
   const globalMcp = createMemo(() => globalSync.data.mcpRaw)
   const invalid = createMemo(() => globalSync.data.mcpInvalid)
+  const invalidRoot = createMemo(() => globalSync.data.mcpInvalidRoot)
   const runtime = createMemo(() => childStore()?.mcp ?? {})
 
   const entries = createMemo<McpEntry[]>(() => {
@@ -172,14 +173,14 @@ export function SettingsMcp(props: { directory?: string }) {
           </Button>
         )}
       />
-      <Show when={invalid().length > 0}>
+      <Show when={invalidRoot() || invalid().length > 0}>
         <div class="my-2 flex items-start gap-3 border-l-2 border-warning bg-warning-bg px-3 py-2.5">
           <Icon name="warning" class="mt-0.5 shrink-0 text-warning-text" />
           <div class="min-w-0 flex-1">
             <div class="text-body text-fg-strong">{language.t("settings.mcp.repair.title")}</div>
             <div class="text-small text-fg-weak">
               {language.t("settings.mcp.repair.description", {
-                names: invalid().map((name) => (name === "$mcp" ? "MCP" : name)).join(", "),
+                names: [...(invalidRoot() ? ["MCP"] : []), ...invalid()].join(", "),
               })}
             </div>
           </div>

@@ -128,7 +128,34 @@ describe("global config routes", () => {
         expect(await response.json()).toEqual({
           mcp: { working: { type: "remote", url: "https://working.example/mcp" } },
           invalid: ["broken"],
+          invalidRoot: false,
         })
+      })
+    })
+  })
+
+  test("reports an invalid MCP root separately from server names", async () => {
+    await withConfigDepsLock(async () => {
+      await withIsolatedGlobalConfig(async (globalDir) => {
+        await fs.writeFile(path.join(globalDir, "pawwork.json"), JSON.stringify({ mcp: null }), "utf8")
+
+        const response = await Server.Default().app.request("/global/config/mcp")
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ mcp: {}, invalid: [], invalidRoot: true })
+      })
+    })
+  })
+
+  test("reports an empty object as an invalid MCP entry", async () => {
+    await withConfigDepsLock(async () => {
+      await withIsolatedGlobalConfig(async (globalDir) => {
+        await fs.writeFile(path.join(globalDir, "pawwork.json"), JSON.stringify({ mcp: { broken: {} } }), "utf8")
+
+        const response = await Server.Default().app.request("/global/config/mcp")
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ mcp: {}, invalid: ["broken"], invalidRoot: false })
       })
     })
   })
@@ -157,6 +184,34 @@ describe("global config routes", () => {
         expect(repaired).toContain('"username": "kept-user"')
         expect(repaired).toContain('"working"')
         expect(repaired).not.toContain('"broken"')
+      })
+    })
+  })
+
+  test("repairs an invalid server named $mcp without deleting valid neighbors", async () => {
+    await withConfigDepsLock(async () => {
+      await withIsolatedGlobalConfig(async (globalDir) => {
+        const file = path.join(globalDir, "pawwork.jsonc")
+        await fs.writeFile(
+          file,
+          JSON.stringify({
+            mcp: {
+              working: { type: "remote", url: "https://working.example/mcp" },
+              $mcp: null,
+            },
+          }),
+          "utf8",
+        )
+
+        const response = await Server.Default().app.request("/global/config/mcp/repair", { method: "POST" })
+        const result = (await response.json()) as { repaired: string[] }
+        const repaired = JSON.parse(await fs.readFile(file, "utf8")) as { mcp?: Record<string, unknown> }
+
+        expect(response.status).toBe(200)
+        expect(result.repaired).toEqual(["$mcp"])
+        expect(repaired.mcp).toEqual({
+          working: { type: "remote", url: "https://working.example/mcp" },
+        })
       })
     })
   })

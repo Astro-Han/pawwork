@@ -27,12 +27,13 @@ export const EditMcpConfigResponse = Schema.Struct({
 // view that `configGet` returns.
 const McpRawEntry = Schema.Union([
   ConfigMCP.Info,
-  Schema.Struct({ enabled: Schema.optional(Schema.Boolean) }).annotate({ identifier: "McpToggleConfig" }),
+  ConfigMCP.Toggle,
 ])
 
 export const GlobalMcpRawResponse = Schema.Struct({
   mcp: Schema.Record(Schema.String, McpRawEntry),
   invalid: Schema.Array(Schema.String),
+  invalidRoot: Schema.Boolean,
 })
 
 export const RepairMcpConfigResponse = Schema.Struct({

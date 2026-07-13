@@ -331,11 +331,15 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "invalidRoot": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
                     "mcp",
-                    "invalid"
+                    "invalid",
+                    "invalidRoot"
                   ],
                   "additionalProperties": false
                 }
@@ -18715,6 +18719,18 @@
           "url"
         ]
       },
+      "McpToggleConfig": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "additionalProperties": false
+      },
       "LayoutConfig": {
         "description": "@deprecated Always uses stretch layout.",
         "type": "string",
@@ -19024,16 +19040,7 @@
                   ]
                 },
                 {
-                  "type": "object",
-                  "properties": {
-                    "enabled": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "enabled"
-                  ],
-                  "additionalProperties": false
+                  "$ref": "#/components/schemas/McpToggleConfig"
                 }
               ]
             }
@@ -19218,22 +19225,6 @@
                 "maximum": 9007199254740991
               }
             }
-          }
-        },
-        "additionalProperties": false
-      },
-      "McpToggleConfig": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "additionalProperties": false

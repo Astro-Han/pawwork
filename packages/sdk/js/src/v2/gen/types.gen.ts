@@ -1742,6 +1742,10 @@ export type McpRemoteConfig = {
   timeout?: number
 }
 
+export type McpToggleConfig = {
+  enabled: boolean
+}
+
 /**
  * @deprecated Always uses stretch layout.
  */
@@ -1875,12 +1879,7 @@ export type Config = {
    * MCP (Model Context Protocol) server configurations
    */
   mcp?: {
-    [key: string]:
-      | McpLocalConfig
-      | McpRemoteConfig
-      | {
-          enabled: boolean
-        }
+    [key: string]: McpLocalConfig | McpRemoteConfig | McpToggleConfig
   }
   lsp?:
     | boolean
@@ -1974,10 +1973,6 @@ export type Config = {
      */
     mcp_timeout?: number
   }
-}
-
-export type McpToggleConfig = {
-  enabled?: boolean | null
 }
 
 /**
@@ -2960,6 +2955,7 @@ export type GlobalConfigMcpRawResponses = {
       [key: string]: McpLocalConfig | McpRemoteConfig | McpToggleConfig
     }
     invalid: Array<string>
+    invalidRoot: boolean
   }
 }
 
