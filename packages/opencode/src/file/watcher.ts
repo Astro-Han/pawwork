@@ -283,6 +283,7 @@ export namespace FileWatcher {
     scheduleFallback: (callback: () => void, delayMs: number) => () => void
     onError?: (error: unknown) => void
   }) {
+    type InstalledSentinel = { sentinel: WorkspaceRootSentinel; generation: number }
     let snapshot = input.initialSnapshot
     let sentinel: WorkspaceRootSentinel | undefined
     const ownedSentinels = new Set<WorkspaceRootSentinel>()
@@ -294,9 +295,10 @@ export namespace FileWatcher {
     let fallbackAttempt = 0
     let cancelFallback: (() => void) | undefined
     let pendingSnapshot: Map<string, RootEntryState> | undefined
-    let sentinelTransition: Promise<void> | undefined
+    let sentinelTransition: Promise<InstalledSentinel | undefined> | undefined
 
-    const markSentinelHealthy = () => {
+    const markSentinelHealthy = (installed: InstalledSentinel | undefined) => {
+      if (!installed || sentinel !== installed.sentinel || sentinelGeneration !== installed.generation) return
       fallbackAttempt = 0
       cancelFallback?.()
       cancelFallback = undefined
@@ -333,6 +335,7 @@ export namespace FileWatcher {
         }
         sentinel = next
         sentinelGeneration = nextGeneration
+        return { sentinel: next, generation: nextGeneration }
       })()
       sentinelTransition = transition
       return transition.finally(() => {
@@ -350,8 +353,9 @@ export namespace FileWatcher {
     }
 
     const establishSentinel = async (sentinelSnapshot: Map<string, RootEntryState>) => {
-      await replaceSentinel(sentinelSnapshot)
-      return catchUpSentinelGap(sentinelSnapshot)
+      const installed = await replaceSentinel(sentinelSnapshot)
+      const changed = await catchUpSentinelGap(sentinelSnapshot)
+      return { installed, changed }
     }
 
     const reconcile = async () => {
@@ -377,8 +381,8 @@ export namespace FileWatcher {
           await input.applyPlan(planSnapshot)
           if (disposed) return
           try {
-            await establishSentinel(planSnapshot)
-            markSentinelHealthy()
+            const established = await establishSentinel(planSnapshot)
+            markSentinelHealthy(established.installed)
           } catch (error) {
             enterFallback(error)
           }
@@ -389,8 +393,8 @@ export namespace FileWatcher {
       })
       if (!disposed && generation === sentinelGeneration && rootSentinelNeedsRebuild(previous, snapshot)) {
         try {
-          await establishSentinel(snapshot)
-          markSentinelHealthy()
+          const established = await establishSentinel(snapshot)
+          markSentinelHealthy(established.installed)
         } catch (error) {
           enterFallback(error)
         }
@@ -440,9 +444,9 @@ export namespace FileWatcher {
       await runReconcile()
       if (disposed || sentinel) return
       try {
-        const changed = await establishSentinel(snapshot)
-        if (changed) await runReconcile()
-        markSentinelHealthy()
+        const established = await establishSentinel(snapshot)
+        if (established.changed) await runReconcile()
+        markSentinelHealthy(established.installed)
       } catch (error) {
         enterFallback(error)
       }
@@ -468,9 +472,9 @@ export namespace FileWatcher {
       async start() {
         if (disposed || sentinel) return
         try {
-          const changed = await establishSentinel(snapshot)
-          if (changed) await runReconcile()
-          markSentinelHealthy()
+          const established = await establishSentinel(snapshot)
+          if (established.changed) await runReconcile()
+          markSentinelHealthy(established.installed)
         } catch (error) {
           enterFallback(error)
         }

@@ -177,6 +177,54 @@ describe("workspace root discovery", () => {
     await discovery.dispose()
   })
 
+  test("keeps fallback armed when the sentinel fails during catch-up", async () => {
+    let signal!: (signal: FileWatcher.WorkspaceRootSentinelSignal) => void
+    let snapshotStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      snapshotStarted = resolve
+    })
+    let releaseSnapshot!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      releaseSnapshot = resolve
+    })
+    let fallbackTimers = 0
+    let fallbackCancellations = 0
+    const discovery = FileWatcher.createWorkspaceRootDiscovery({
+      initialSnapshot: new Map(),
+      workspace: "/repo",
+      ignore: [],
+      subscribeSentinel: async (_snapshot, callback) => {
+        signal = callback
+        return { unsubscribe: async () => {} }
+      },
+      snapshotRoot: async () => {
+        snapshotStarted()
+        await blocked
+        return new Map()
+      },
+      applyPlan: async () => {},
+      publishUpdate: () => {},
+      publishRescan: async () => {},
+      scheduleFallback: () => {
+        fallbackTimers++
+        return () => {
+          fallbackCancellations++
+        }
+      },
+      onError: () => {},
+    })
+
+    const starting = discovery.start()
+    await started
+    signal({ error: new Error("sentinel failed during catch-up") })
+    releaseSnapshot()
+    await starting
+
+    expect(fallbackTimers).toBe(1)
+    expect(fallbackCancellations).toBe(0)
+    await discovery.dispose()
+  })
+
   test("coalesces a burst of sentinel hints into one snapshot reconcile", async () => {
     const workspace = "/repo"
     const file = `${workspace}/README.md`
