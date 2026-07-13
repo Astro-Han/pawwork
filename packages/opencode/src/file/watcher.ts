@@ -276,6 +276,7 @@ export namespace FileWatcher {
       snapshot: Map<string, RootEntryState>,
       signal: (signal: WorkspaceRootSentinelSignal) => void,
     ) => Promise<WorkspaceRootSentinel>
+    subscribeTimeoutMs?: number
     snapshotRoot: () => Promise<Map<string, RootEntryState>>
     applyPlan: (next: Map<string, RootEntryState>) => Promise<void>
     publishUpdate: (event: { file: string; event: "add" | "change" | "unlink" }) => void
@@ -296,6 +297,7 @@ export namespace FileWatcher {
     let cancelFallback: (() => void) | undefined
     let pendingSnapshot: Map<string, RootEntryState> | undefined
     let sentinelTransition: Promise<InstalledSentinel | undefined> | undefined
+    const subscribeTimeoutMs = input.subscribeTimeoutMs ?? SUBSCRIBE_TIMEOUT_MS
 
     const markSentinelHealthy = (installed: InstalledSentinel | undefined) => {
       if (!installed || sentinel !== installed.sentinel || sentinelGeneration !== installed.generation) return
@@ -318,13 +320,40 @@ export namespace FileWatcher {
       if (errors.length > 1) throw new AggregateError(errors, "workspace root sentinel cleanup failed")
     }
 
+    const subscribeSentinelWithTimeout = async (
+      nextSnapshot: Map<string, RootEntryState>,
+      callback: (event: WorkspaceRootSentinelSignal) => void,
+    ) => {
+      const pending = input.subscribeSentinel(nextSnapshot, callback)
+      let timer: ReturnType<typeof setTimeout> | undefined
+      let timedOut = false
+      const timeout = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true
+          reject(new Error(`workspace root sentinel subscribe timed out after ${subscribeTimeoutMs}ms`))
+        }, subscribeTimeoutMs)
+      })
+      try {
+        return await Promise.race([pending, timeout])
+      } catch (error) {
+        if (timedOut) {
+          void pending
+            .then((late) => late.unsubscribe())
+            .catch((lateError) => input.onError?.(lateError))
+        }
+        throw error
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+
     const replaceSentinel = (nextSnapshot: Map<string, RootEntryState>) => {
       const transition = (async () => {
         sentinel = undefined
         sentinelGeneration++
         await clearOwnedSentinels()
         const nextGeneration = sentinelGeneration + 1
-        const next = await input.subscribeSentinel(nextSnapshot, (event) => {
+        const next = await subscribeSentinelWithTimeout(nextSnapshot, (event) => {
           if (sentinelGeneration !== nextGeneration) return
           signal(event)
         })

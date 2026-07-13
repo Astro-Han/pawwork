@@ -398,6 +398,46 @@ describe("workspace root discovery", () => {
     await discovery.dispose()
   })
 
+  test("times out a stuck sentinel subscribe and cleans up a late handle", async () => {
+    let releaseSubscribe!: (sentinel: FileWatcher.WorkspaceRootSentinel) => void
+    const pending = new Promise<FileWatcher.WorkspaceRootSentinel>((resolve) => {
+      releaseSubscribe = resolve
+    })
+    let fallbackTimers = 0
+    let lateUnsubscribed = 0
+    const discovery = FileWatcher.createWorkspaceRootDiscovery({
+      initialSnapshot: new Map(),
+      workspace: "/repo",
+      ignore: [],
+      subscribeTimeoutMs: 5,
+      subscribeSentinel: async () => pending,
+      snapshotRoot: async () => new Map(),
+      applyPlan: async () => {},
+      publishUpdate: () => {},
+      publishRescan: async () => {},
+      scheduleFallback: () => {
+        fallbackTimers++
+        return () => {}
+      },
+      onError: () => {},
+    })
+
+    const starting = discovery.start()
+    const settledWithinBound = await Promise.race([starting.then(() => true), Bun.sleep(50).then(() => false)])
+    releaseSubscribe({
+      unsubscribe: async () => {
+        lateUnsubscribed++
+      },
+    })
+    await starting
+    await Bun.sleep(0)
+
+    expect(settledWithinBound).toBe(true)
+    expect(fallbackTimers).toBe(1)
+    expect(lateUnsubscribed).toBe(1)
+    await discovery.dispose()
+  })
+
   test("catches up root changes that happen while the fallback sentinel is subscribing", async () => {
     const workspace = "/repo"
     const directory = `${workspace}/generated`
