@@ -131,6 +131,7 @@ export namespace MCP {
 
   function isUnauthorized(error: unknown) {
     if (error instanceof UnauthorizedError) return true
+    if (error instanceof Error && /^Error POSTing to endpoint \(HTTP 401\):/.test(error.message)) return true
     if (!error || typeof error !== "object") return false
     const transport = error as { code?: unknown; status?: unknown }
     return transport.code === 401 || transport.status === 401

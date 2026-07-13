@@ -340,6 +340,22 @@ test(
   }),
 )
 
+test(
+  "probe maps the legacy SSE POST 401 shape to needs_auth",
+  withInstance({}, async () => {
+    connectShouldFail = true
+    connectError = new Error("Error POSTing to endpoint (HTTP 401): auth required")
+
+    expect(
+      await MCPFacade.probe({
+        type: "remote",
+        url: "https://oauth.example/sse",
+      }),
+    ).toEqual({ status: "needs_auth" })
+    expect(remoteAuthProviders).toEqual([undefined, undefined])
+  }),
+)
+
 // ========================================================================
 // Test: tools() are cached after connect
 // ========================================================================
