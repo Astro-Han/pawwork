@@ -440,6 +440,80 @@ describe("workspace root discovery", () => {
     await discovery.dispose()
   })
 
+  test("retries failed sentinel cleanup before opening a replacement", async () => {
+    const workspace = "/repo"
+    const directory = `${workspace}/generated`
+    const empty = new Map<string, FileWatcher.RootEntryState>()
+    const changed = new Map([
+      [
+        "generated",
+        {
+          name: "generated",
+          path: directory,
+          type: "directory" as const,
+          size: 0,
+          mtimeMs: 0,
+          ino: 1,
+          ctimeMs: 1,
+        },
+      ],
+    ])
+    let root = empty
+    let signal!: (signal: FileWatcher.WorkspaceRootSentinelSignal) => void
+    let fallback!: () => void
+    let scheduled!: () => void
+    const fallbackScheduled = new Promise<void>((resolve) => {
+      scheduled = resolve
+    })
+    let recovered!: () => void
+    const recovery = new Promise<void>((resolve) => {
+      recovered = resolve
+    })
+    const order: string[] = []
+    let subscriptions = 0
+    let firstUnsubscribeAttempts = 0
+    const discovery = FileWatcher.createWorkspaceRootDiscovery({
+      initialSnapshot: empty,
+      workspace,
+      ignore: [],
+      subscribeSentinel: async (_snapshot, callback) => {
+        subscriptions++
+        const id = subscriptions
+        signal = callback
+        order.push(`subscribe:${id}`)
+        if (id === 2) recovered()
+        return {
+          unsubscribe: async () => {
+            order.push(`unsubscribe:${id}`)
+            if (id !== 1) return
+            firstUnsubscribeAttempts++
+            if (firstUnsubscribeAttempts === 1) throw new Error("cleanup failed")
+          },
+        }
+      },
+      snapshotRoot: async () => root,
+      applyPlan: async () => {},
+      publishUpdate: () => {},
+      publishRescan: async () => {},
+      scheduleFallback: (callback) => {
+        fallback = callback
+        scheduled()
+        return () => {}
+      },
+      onError: () => {},
+    })
+
+    await discovery.start()
+    root = changed
+    signal({})
+    await fallbackScheduled
+    fallback()
+    await recovery
+
+    expect(order).toEqual(["subscribe:1", "unsubscribe:1", "unsubscribe:1", "subscribe:2"])
+    await discovery.dispose()
+  })
+
   test("dispose cancels sentinel, fallback, and in-flight publication", async () => {
     const workspace = "/repo"
     const file = `${workspace}/late.txt`

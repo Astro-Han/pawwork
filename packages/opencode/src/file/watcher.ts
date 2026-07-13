@@ -285,6 +285,7 @@ export namespace FileWatcher {
   }) {
     let snapshot = input.initialSnapshot
     let sentinel: WorkspaceRootSentinel | undefined
+    const ownedSentinels = new Set<WorkspaceRootSentinel>()
     let sentinelGeneration = 0
     let disposed = false
     let reconcileQueued = false
@@ -300,18 +301,32 @@ export namespace FileWatcher {
       cancelFallback = undefined
     }
 
+    const clearOwnedSentinels = async () => {
+      const errors: unknown[] = []
+      for (const owned of ownedSentinels) {
+        try {
+          await owned.unsubscribe()
+          ownedSentinels.delete(owned)
+        } catch (error) {
+          errors.push(error)
+        }
+      }
+      if (errors.length === 1) throw errors[0]
+      if (errors.length > 1) throw new AggregateError(errors, "workspace root sentinel cleanup failed")
+    }
+
     const replaceSentinel = async (nextSnapshot: Map<string, RootEntryState>) => {
-      const previous = sentinel
       sentinel = undefined
       sentinelGeneration++
-      await previous?.unsubscribe()
+      await clearOwnedSentinels()
       const nextGeneration = sentinelGeneration + 1
       const next = await input.subscribeSentinel(nextSnapshot, (event) => {
         if (sentinelGeneration !== nextGeneration) return
         signal(event)
       })
+      ownedSentinels.add(next)
       if (disposed) {
-        await next.unsubscribe()
+        await clearOwnedSentinels()
         return
       }
       sentinel = next
@@ -423,9 +438,7 @@ export namespace FileWatcher {
       if (disposed) return
       input.onError?.(error)
       sentinelGeneration++
-      const failed = sentinel
       sentinel = undefined
-      void failed?.unsubscribe().catch((unsubscribeError) => input.onError?.(unsubscribeError))
       if (cancelFallback) return
       const delay = Math.min(ROOT_DISCOVERY_INTERVAL_MS * 2 ** fallbackAttempt, ROOT_DISCOVERY_MAX_BACKOFF_MS)
       fallbackAttempt++
@@ -452,9 +465,8 @@ export namespace FileWatcher {
         cancelFallback?.()
         cancelFallback = undefined
         sentinelGeneration++
-        const current = sentinel
         sentinel = undefined
-        await current?.unsubscribe()
+        await clearOwnedSentinels()
       },
     }
   }
