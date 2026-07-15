@@ -361,44 +361,12 @@ describe("currentSessionCacheReady", () => {
 })
 
 describe("currentSessionActionReady", () => {
-  test("waits for the directory status list as well as cache hydration", () => {
+  test("does not let status hydration block an otherwise hydrated session", () => {
     expect(
       currentSessionActionReady({
         sessionID: "ses",
         sessionInfo: { id: "ses" },
         rawMessages: [],
-        statusReady: false,
-      }),
-    ).toBe(false)
-
-    expect(
-      currentSessionActionReady({
-        sessionID: "ses",
-        sessionInfo: { id: "ses" },
-        rawMessages: [],
-        statusReady: true,
-      }),
-    ).toBe(true)
-  })
-
-  test("does not wait for model selection or provider hydration", () => {
-    expect(
-      currentSessionActionReady({
-        sessionID: "ses",
-        sessionInfo: { id: "ses" },
-        rawMessages: [],
-        statusReady: true,
-      }),
-    ).toBe(true)
-  })
-
-  test("treats a loaded empty status list as idle for an otherwise hydrated session", () => {
-    expect(
-      currentSessionActionReady({
-        sessionID: "ses",
-        sessionInfo: { id: "ses" },
-        rawMessages: [],
-        statusReady: true,
       }),
     ).toBe(true)
   })
@@ -410,7 +378,6 @@ describe("currentSessionSubmitReady", () => {
       sessionID: "ses",
       sessionInfo: { id: "ses" },
       rawMessages: [],
-      statusReady: true,
     }
 
     expect(currentSessionSubmitReady({ ...ready, localReady: false, providerUsable: true })).toBe(false)
@@ -455,17 +422,7 @@ describe("sessionStatusKnown", () => {
     ).toBe(true)
   })
 
-  test("allows degraded actions after status list hydration fails", () => {
+  test("treats a failed status list as known degraded state", () => {
     expect(sessionStatusKnown({ statusState: "error", status: undefined })).toBe(true)
-    expect(
-      currentSessionSubmitReady({
-        sessionID: "ses",
-        sessionInfo: { id: "ses" },
-        rawMessages: [],
-        statusReady: sessionStatusKnown({ statusState: "error", status: undefined }),
-        localReady: true,
-        providerUsable: true,
-      }),
-    ).toBe(true)
   })
 })

@@ -78,13 +78,9 @@ describe("session action readiness", () => {
     ).toBe(false)
   })
 
-  test("session actions wait for cache and status", () => {
-    expect(currentSessionActionReady({ sessionID: "ses_1", sessionInfo: {}, rawMessages: [], statusReady: true })).toBe(
-      true,
-    )
-    expect(
-      currentSessionActionReady({ sessionID: "ses_1", sessionInfo: undefined, rawMessages: [], statusReady: true }),
-    ).toBe(false)
+  test("session actions stay available while status hydration is pending", () => {
+    expect(currentSessionActionReady({ sessionID: "ses_1", sessionInfo: {}, rawMessages: [] })).toBe(true)
+    expect(currentSessionActionReady({ sessionID: "ses_1", sessionInfo: undefined, rawMessages: [] })).toBe(false)
   })
 
   test("submit waits for local model and provider usability", () => {
@@ -93,7 +89,6 @@ describe("session action readiness", () => {
         sessionID: "ses_1",
         sessionInfo: {},
         rawMessages: [],
-        statusReady: true,
         localReady: true,
         providerUsable: true,
       }),
@@ -103,7 +98,6 @@ describe("session action readiness", () => {
         sessionID: "ses_1",
         sessionInfo: {},
         rawMessages: [],
-        statusReady: true,
         localReady: false,
         providerUsable: true,
       }),

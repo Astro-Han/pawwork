@@ -2,6 +2,42 @@ import { describe, expect, test } from "bun:test"
 import { parseEventLine, sanitizeRendererDiagnosticEvent, type RendererDiagnosticInput } from "./renderer-diagnostics"
 
 describe("renderer diagnostics sanitizer", () => {
+  test("keeps session readiness gates and status hydration timeouts", () => {
+    const context = {
+      appLaunchID: "launch_1",
+      now: () => new Date("2026-05-02T10:30:12.123Z"),
+      windowID: 7,
+    }
+    const view = sanitizeRendererDiagnosticEvent(
+      {
+        name: "session.view.state",
+        data: {
+          action_ready: true,
+          message_cache_present: true,
+          session_info_present: true,
+          status_known: false,
+        },
+      },
+      context,
+    )
+    const timeout = sanitizeRendererDiagnosticEvent(
+      {
+        name: "incident.session_status_hydration_timeout",
+        level: "warn",
+        data: { timeout_ms: 5_000 },
+      },
+      context,
+    )
+
+    expect(view?.data).toEqual({
+      action_ready: true,
+      message_cache_present: true,
+      session_info_present: true,
+      status_known: false,
+    })
+    expect(timeout?.data).toEqual({ timeout_ms: 5_000 })
+  })
+
   test("keeps historical renderer performance samples readable from JSONL", () => {
     const event = parseEventLine(
       JSON.stringify({

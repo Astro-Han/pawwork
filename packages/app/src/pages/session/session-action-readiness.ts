@@ -47,17 +47,15 @@ export function currentSessionActionReady(input: {
   sessionID: string | undefined
   sessionInfo: unknown
   rawMessages: unknown
-  statusReady: boolean
 }) {
   if (!input.sessionID) return true
-  return currentSessionCacheReady(input) && input.statusReady
+  return currentSessionCacheReady(input)
 }
 
 export function currentSessionSubmitReady(input: {
   sessionID: string | undefined
   sessionInfo: unknown
   rawMessages: unknown
-  statusReady: boolean
   localReady: boolean
   providerUsable: boolean
 }) {
