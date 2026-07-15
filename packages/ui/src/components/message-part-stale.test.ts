@@ -37,6 +37,14 @@ test("assistant part renderers keep standalone parts stable and trow slots react
   expect(source).toContain("defaultOpen={defaultOpen()}")
 })
 
+test("trow renderers retain the last message instead of exposing a Show callback accessor", () => {
+  const source = readFileSync(join(COMPONENT_DIR, "message-part", "assistant-parts.tsx"), "utf8")
+
+  expect(source).toContain("const stableMessage = latestDefined(() => msgs().get(part().messageID))")
+  expect(source).toContain("message={stableMessage()!}")
+  expect(source).not.toMatch(/<Show when=\{message\(\)\}>\s*\{\(message\) =>/)
+})
+
 test("tool file accordions account for tool content gap in sticky offset", () => {
   const source = readMessagePartSources()
 

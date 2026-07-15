@@ -66,24 +66,22 @@ export function AssistantParts(props: {
                 const singleTool = createMemo(() => toolParts().length === 1 && parts().length === 1)
                 const defaultOpenForTool = (tool: ToolPart) => partDefaultOpen(tool) ?? singleTool()
                 const renderPart = (part: Accessor<TrowPart>) => {
-                  const message = createMemo(() => msgs().get(part().messageID))
+                  const stableMessage = latestDefined(() => msgs().get(part().messageID))
                   const stateKey = () => `${part().type === "tool" ? "tool" : "reasoning"}:${part().id}`
                   const defaultOpen = () => {
                     const current = part()
                     return current.type === "tool" ? defaultOpenForTool(current) : false
                   }
                   return (
-                    <Show when={message()}>
-                      {(message) => (
-                        <div data-slot="trow-result-body" data-timeline-anchor={stateKey()}>
-                          <Part
-                            part={part()}
-                            message={message()}
-                            defaultOpen={defaultOpen()}
-                            stateKey={stateKey()}
-                          />
-                        </div>
-                      )}
+                    <Show when={stableMessage()}>
+                      <div data-slot="trow-result-body" data-timeline-anchor={stateKey()}>
+                        <Part
+                          part={part()}
+                          message={stableMessage()!}
+                          defaultOpen={defaultOpen()}
+                          stateKey={stateKey()}
+                        />
+                      </div>
                     </Show>
                   )
                 }
