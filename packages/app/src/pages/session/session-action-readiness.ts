@@ -48,7 +48,6 @@ export function currentSessionActionReady(input: {
   sessionInfo: unknown
   rawMessages: unknown
 }) {
-  if (!input.sessionID) return true
   return currentSessionCacheReady(input)
 }
 

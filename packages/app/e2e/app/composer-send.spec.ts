@@ -29,6 +29,7 @@ test("existing session stays sendable while status hydration is pending", async 
       const session = await sdk.session.create({ title: "Pending status hydration" }).then((response) => response.data)
       if (!session?.id) throw new Error("Failed to create pending-status session")
       sessionID = session.id
+      project.trackSession(sessionID)
       await sdk.session.prompt({
         sessionID,
         noReply: true,
@@ -36,7 +37,6 @@ test("existing session stays sendable while status hydration is pending", async 
       })
     },
   })
-  project.trackSession(sessionID)
   await project.gotoSession(sessionID)
   await expect.poll(() => statusRequested).toBe(true)
 

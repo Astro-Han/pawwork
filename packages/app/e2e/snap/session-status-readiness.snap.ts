@@ -1,5 +1,4 @@
-import { expect } from "@playwright/test"
-import { test } from "../fixtures"
+import { expect, test } from "../fixtures"
 import { promptSelector, sessionComposerDockSelector } from "../selectors"
 import { composeGrid, snapOutputPath } from "./_compose"
 
@@ -16,6 +15,7 @@ test("session-status-readiness", async ({ page, project }) => {
       const session = await sdk.session.create({ title: "Pending status hydration" }).then((response) => response.data)
       if (!session?.id) throw new Error("Failed to create pending-status session")
       sessionID = session.id
+      project.trackSession(sessionID)
       await sdk.session.prompt({
         sessionID,
         noReply: true,
@@ -23,7 +23,6 @@ test("session-status-readiness", async ({ page, project }) => {
       })
     },
   })
-  project.trackSession(sessionID)
   await project.gotoSession(sessionID)
 
   const prompt = page.locator(promptSelector)
