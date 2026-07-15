@@ -2,7 +2,7 @@ import { APICallError } from "ai"
 import { STATUS_CODES } from "http"
 import z from "zod"
 import { iife } from "@/util/iife"
-import type { ProviderID } from "./schema"
+import { ProviderID } from "./schema"
 
 // Canonical, serializable classification of a provider/API failure. Populated
 // once where the payload is parsed and carried on APIError.data.providerFailure
@@ -212,6 +212,15 @@ function extractProviderCode(body: unknown): string | undefined {
   if (error && typeof error.status === "string") return error.status
   if (typeof body.status === "string") return body.status
   return undefined
+}
+
+function isOpenCodeModelUnavailable(providerID: ProviderID, body: unknown) {
+  if (providerID !== ProviderID.opencode || !isRecord(body) || body.type !== "error") return false
+  const error = isRecord(body.error) ? body.error : undefined
+  // Zen uses 401 for this router-capacity failure, so the structured body must
+  // override the status without weakening genuine auth handling for any other
+  // provider or error shape.
+  return error?.type === "ModelError" && error.message === "No provider available"
 }
 
 function message(providerID: ProviderID, e: APICallError) {
@@ -460,6 +469,7 @@ export function parseAPICallError(input: { providerID: ProviderID; error: APICal
   const m = message(input.providerID, input.error)
   const body = json(input.error.responseBody)
   const code = extractProviderCode(body)
+  const modelUnavailable = isOpenCodeModelUnavailable(input.providerID, body)
   if (isOverflow(m) || input.error.statusCode === 413 || code === "context_length_exceeded") {
     return {
       type: "context_overflow",
@@ -482,11 +492,15 @@ export function parseAPICallError(input: { providerID: ProviderID; error: APICal
     type: "api_error",
     message: m,
     statusCode: input.error.statusCode,
-    isRetryable: input.providerID.startsWith("openai") ? isOpenAiErrorRetryable(input.error) : input.error.isRetryable,
+    isRetryable: modelUnavailable
+      ? true
+      : input.providerID.startsWith("openai")
+        ? isOpenAiErrorRetryable(input.error)
+        : input.error.isRetryable,
     responseHeaders: input.error.responseHeaders,
     responseBody: input.error.responseBody,
     metadata,
-    kind: billingKind ?? apiCallErrorKind(input.error.statusCode, code),
+    kind: modelUnavailable ? "server_overload" : (billingKind ?? apiCallErrorKind(input.error.statusCode, code)),
     code,
   }
 }

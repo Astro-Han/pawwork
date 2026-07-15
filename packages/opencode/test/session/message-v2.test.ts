@@ -2234,6 +2234,36 @@ describe("session.message-v2.fromError — PR1 classification completeness", () 
     expect((result as MessageV2.APIError).data.providerFailure?.kind).toBe("rate_limit")
   })
 
+  test("classifies OpenCode Zen's 401 No provider available response as a retryable server overload", () => {
+    const responseBody = JSON.stringify({
+      type: "error",
+      error: { type: "ModelError", message: "No provider available" },
+    })
+    const result = MessageV2.fromError(
+      makeApiError({
+        message: "No provider available",
+        statusCode: 401,
+        responseBody,
+      }),
+      { providerID: ProviderID.opencode },
+    )
+
+    expect(MessageV2.APIError.isInstance(result)).toBe(true)
+    expect((result as MessageV2.APIError).data).toMatchObject({
+      isRetryable: true,
+      providerFailure: { kind: "server_overload", code: "ModelError" },
+    })
+
+    const otherProvider = MessageV2.fromError(
+      makeApiError({ message: "No provider available", statusCode: 401, responseBody }),
+      { providerID },
+    )
+    expect((otherProvider as MessageV2.APIError).data).toMatchObject({
+      isRetryable: false,
+      providerFailure: { kind: "auth", code: "ModelError" },
+    })
+  })
+
   test("does not let a rate-limit signal on a billing-shaped status become terminal quota_exhausted", () => {
     // The weak billing patterns ("quota exceeded") fire only on a 400/402/403
     // with no rate-limit signal. A Retry-After header means the provider is
