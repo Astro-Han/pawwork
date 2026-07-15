@@ -188,7 +188,6 @@ export function createSessionTimelineData(input: {
       sessionID: id,
       sessionInfo: sessionInfo(),
       rawMessages: id ? input.sync.data.message[id] : undefined,
-      statusReady: statusKnown(),
     })
   })
   const actionReady = createMemo(() => {
@@ -197,7 +196,6 @@ export function createSessionTimelineData(input: {
       sessionID: id,
       sessionInfo: sessionInfo(),
       rawMessages: id ? input.sync.data.message[id] : undefined,
-      statusReady: statusKnown(),
       localReady: input.local.session.ready(),
       providerUsable: currentDirectoryProviderUsable({
         providerReady: input.sync.data.provider_ready,

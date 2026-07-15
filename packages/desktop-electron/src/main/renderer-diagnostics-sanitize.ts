@@ -12,6 +12,10 @@ const eventDataFields = {
     "timeline_session_id",
     "route_ready",
     "visible_ready",
+    "action_ready",
+    "message_cache_present",
+    "session_info_present",
+    "status_known",
     "transitioning",
     "message_count",
     "part_count",
@@ -105,6 +109,7 @@ const eventDataFields = {
   "incident.session_visible_messages_cleared": ["before_count", "during_count", "after_count"],
   "incident.session_layout_shift": ["cls", "phase"],
   "incident.session_jank_burst": ["long_task_max_ms", "frame_gap_ms", "phase"],
+  "incident.session_status_hydration_timeout": ["timeout_ms"],
 } as const
 
 export const highFrequencyDiagnosticEvents = new Set([

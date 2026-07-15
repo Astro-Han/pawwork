@@ -20,6 +20,7 @@ import { mergeAutomationList } from "./automation-store"
 import { pendingExternalResultQuestionFromPart, type PendingExternalResultQuestion } from "./external-result-question"
 import { cmp, normalizeAgentList, normalizeProviderList } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
+import type { RendererDiagnosticInput } from "@/context/platform"
 import { QueryClient, queryOptions } from "@tanstack/solid-query"
 import { loadSessionsQuery, type GlobalStore } from "../global-sync"
 
@@ -55,6 +56,30 @@ function isNotFoundError(error: unknown) {
 }
 
 const providerRev = new Map<string, number>()
+const SESSION_STATUS_TIMEOUT_MS = 5_000
+
+class SessionStatusHydrationTimeoutError extends Error {
+  constructor(readonly timeoutMs: number) {
+    super(`Session status hydration timed out after ${timeoutMs}ms`)
+    this.name = "SessionStatusHydrationTimeoutError"
+  }
+}
+
+async function withSessionStatusTimeout<T>(request: (signal: AbortSignal) => Promise<T>, timeoutMs: number) {
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new SessionStatusHydrationTimeoutError(timeoutMs))
+      controller.abort()
+    }, timeoutMs)
+  })
+  try {
+    return await Promise.race([request(controller.signal), timeout])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
 
 export function clearProviderRev(directory: string) {
   providerRev.delete(directory)
@@ -409,6 +434,8 @@ export async function bootstrapDirectory(input: {
   }
   queryClient: QueryClient
   pendingQuestions: { reconcile: (directory: string, entries: PendingExternalResultQuestion[]) => void }
+  sessionStatusTimeoutMs?: number
+  emitDiagnostic?: (event: RendererDiagnosticInput) => Promise<void> | void
 }) {
   const loading = input.store.status !== "complete"
   const seededProject = projectID(input.directory, input.global.project)
@@ -494,7 +521,10 @@ export async function bootstrapDirectory(input: {
           .catch((err) => console.error("Failed to load config errors", err)),
       () =>
         retry(() =>
-          input.sdk.session.status().then((x) => {
+          withSessionStatusTimeout(
+            (signal) => input.sdk.session.status(undefined, { signal }),
+            input.sessionStatusTimeoutMs ?? SESSION_STATUS_TIMEOUT_MS,
+          ).then((x) => {
             input.setStore(
               "session_status",
               reconcile(
@@ -508,7 +538,16 @@ export async function bootstrapDirectory(input: {
             input.setStore("session_status_state", "ready")
             input.setStore("session_status_ready", true)
           }),
-        ).catch((err) => {
+        ).catch(async (err) => {
+          if (err instanceof SessionStatusHydrationTimeoutError) {
+            await Promise.resolve(
+              input.emitDiagnostic?.({
+                name: "incident.session_status_hydration_timeout",
+                level: "warn",
+                data: { timeout_ms: err.timeoutMs },
+              }),
+            ).catch((diagnosticError) => console.warn("Failed to record session status timeout", diagnosticError))
+          }
           input.setStore("session_status_state", "error")
           input.setStore("session_status_ready", false)
           throw err

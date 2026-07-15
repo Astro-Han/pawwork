@@ -396,6 +396,76 @@ describe("bootstrapDirectory", () => {
     }
   })
 
+  test("times out status hydration and records a diagnostic when the endpoint never settles", async () => {
+    const originalError = console.error
+    console.error = mock(() => undefined) as typeof console.error
+    const directory = "/tmp/project"
+    const queryClient = new QueryClient()
+    const [store, setStore] = createStore(createState())
+    const status = deferred<{ data: Record<string, never> }>()
+    let statusSignal: AbortSignal | undefined
+    const diagnostics: Array<{ name: string; level?: "info" | "warn"; data?: Record<string, unknown> }> = []
+
+    const sdk = {
+      app: { agents: async () => ({ data: [] }) },
+      config: { get: async () => ({ data: {} as Config }), errors: async () => ({ data: [] }) },
+      session: {
+        status: async (_parameters: unknown, options?: { signal?: AbortSignal }) => {
+          statusSignal = options?.signal
+          return status.promise
+        },
+        get: async () => ({ data: undefined }),
+      },
+      project: { current: async () => ({ data: { id: "project-1" } }) },
+      path: { get: async () => ({ data: { state: "", config: "", skills: "", worktree: "", directory, home: "" } as Path }) },
+      vcs: { get: async () => ({ data: undefined }) },
+      command: { list: async () => ({ data: [] }) },
+      permission: { list: async () => ({ data: [] }) },
+      externalResult: { list: async () => ({ data: [] }) },
+      mcp: { status: async () => ({ data: {} }) },
+      automation: { list: async () => ({ data: { items: [] } }) },
+      provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+    } as any
+
+    try {
+      await bootstrapDirectory({
+        directory,
+        sdk,
+        store,
+        setStore,
+        vcsCache: createVcsCache(),
+        loadSessions: () => undefined,
+        pendingQuestions: { reconcile() {} },
+        translate: (key) => key,
+        global: {
+          config: {} as Config,
+          path: { state: "", config: "", skills: "", worktree: "", directory: "", home: "" } as Path,
+          project: [] as Project[],
+          provider: { all: [], connected: [], default: {} },
+        },
+        queryClient,
+        sessionStatusTimeoutMs: 10,
+        emitDiagnostic: (event) => {
+          diagnostics.push(event)
+        },
+      })
+
+      await waitFor(() => store.session_status_state === "error")
+      expect(store.session_status_ready).toBe(false)
+      expect(statusSignal?.aborted).toBe(true)
+      expect(diagnostics).toEqual([
+        {
+          name: "incident.session_status_hydration_timeout",
+          level: "warn",
+          data: { timeout_ms: 10 },
+        },
+      ])
+    } finally {
+      status.resolve({ data: {} })
+      console.error = originalError
+    }
+  })
+
   test("skips pending interaction entries when warm session lookup returns 404", async () => {
     const directory = "/tmp/project"
     const queryClient = new QueryClient()

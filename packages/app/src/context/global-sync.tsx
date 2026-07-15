@@ -19,6 +19,7 @@ import { getFilename } from "@opencode-ai/util/path"
 import { createContext, getOwner, onCleanup, onMount, type ParentProps, untrack, useContext } from "solid-js"
 import { createStore, produce, reconcile, type SetStoreFunction } from "solid-js/store"
 import { useLanguage } from "@/context/language"
+import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import { Persist, persisted } from "@/utils/persist"
 import { clientActionHeaders } from "@/utils/server"
 import type { InitError } from "../pages/error"
@@ -523,6 +524,7 @@ function createGlobalSync() {
         translate: language.t,
         queryClient,
         pendingQuestions: { reconcile: questions.reconcile },
+        emitDiagnostic: emitRendererDiagnostic,
       })
     })
 
