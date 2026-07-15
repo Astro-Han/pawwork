@@ -18,7 +18,7 @@ export function AssistantParts(props: {
   const emptyTools: ToolPart[] = []
   const emptyTrowParts: TrowPart[] = []
   const msgs = createMemo(() => index(props.messages))
-  const part = createMemo(
+  const partsByMessage = createMemo(
     () =>
       new Map(
         props.messages.map((message) => [message.id, index(list(data.store.part?.[message.id], emptyParts))] as const),
@@ -56,7 +56,7 @@ export function AssistantParts(props: {
                     const entry = entryAccessor()
                     if (entry.type !== "trow") return emptyTrowParts
                     return entry.refs
-                      .map((ref) => part().get(ref.messageID)?.get(ref.partID))
+                      .map((ref) => partsByMessage().get(ref.messageID)?.get(ref.partID))
                       .filter((p): p is TrowPart => !!p && (p.type === "tool" || p.type === "reasoning"))
                   },
                   emptyTrowParts,
@@ -113,7 +113,7 @@ export function AssistantParts(props: {
                 const item = createMemo(() => {
                   const entry = entryAccessor()
                   if (entry.type !== "part") return
-                  return part().get(entry.ref.messageID)?.get(entry.ref.partID)
+                  return partsByMessage().get(entry.ref.messageID)?.get(entry.ref.partID)
                 })
                 const stableMessage = latestDefined(() => message())
                 const stableItem = latestDefined(() => item())
