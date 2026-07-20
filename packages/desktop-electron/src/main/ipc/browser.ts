@@ -1,8 +1,8 @@
 import { BrowserWindow, ipcMain, session, type IpcMainInvokeEvent } from "electron"
 import type { BrowserViewLayout } from "@opencode-ai/app/desktop-api"
-import { browserControllers } from "../browser/controller-automation"
+import { browserControllers, browserProfiles } from "../browser/controller-automation"
 import { draftKey } from "../browser/registry"
-import { BROWSER_PARTITION } from "../browser/options"
+import { browserPartition, LEGACY_BROWSER_PARTITION } from "../browser/options"
 
 /**
  * Wires the embedded-browser IPC. Controllers live in the shared main-process
@@ -80,14 +80,20 @@ export function registerBrowserIpc(deps: { sessionIDForWindow: (windowID: number
     const resolved = resolve(event, target)
     if (resolved) browserControllers.dispose(resolved.key)
   })
-  // Browsing data lives in the shared persistent partition, not in any one view,
-  // so clear the session directly — this works even before a view exists (e.g.
-  // opening the tab fresh after restart). Then reload any live views so they
-  // reflect the signed-out state immediately.
+  // Clear every persisted profile, including profiles without a live view, plus
+  // the pre-isolation shared partition. Then reload live views so they reflect
+  // the signed-out state immediately.
   ipcMain.handle("browser:clear-data", async () => {
-    const partition = session.fromPartition(BROWSER_PARTITION)
-    await partition.clearStorageData()
-    await partition.clearCache()
+    const profileIDs = new Set(browserProfiles.profileIDs())
+    for (const controller of browserControllers.all()) profileIDs.add(controller.browserProfileID())
+    const partitionNames = [LEGACY_BROWSER_PARTITION, ...[...profileIDs].map(browserPartition)]
+    await Promise.all(
+      partitionNames.map(async (partitionName) => {
+        const partition = session.fromPartition(partitionName)
+        await partition.clearStorageData()
+        await partition.clearCache()
+      }),
+    )
     for (const controller of browserControllers.all()) controller.reloadIfLoaded()
   })
   // Page zoom only — does not touch the app shell zoom factor. No-op without a

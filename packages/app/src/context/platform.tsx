@@ -63,8 +63,8 @@ export type BrowserState = {
 export type BrowserTarget = string
 
 /**
- * Control surface for the embedded browser (one app-owned WebContentsView per
- * conversation, all sharing a persistent partition). Every call names its
+ * Control surface for the embedded browser (one app-owned WebContentsView and
+ * persistent browser profile per conversation). Every call names its
  * target conversation; main validates the target against what the calling
  * window is showing. Desktop/Electron only — undefined on web, where there is
  * no native view to drive. Gate usage with `canUseBrowser`.
@@ -87,10 +87,10 @@ export type BrowserBridge = {
   adoptDraft(sessionID: string): Promise<{ adopted: boolean; hasPage: boolean }>
   /** Destroy the target's page outright (view, history, renderer process) via
    *  the same chain as session delete/archive. WYSIWYG counterpart of the
-   *  browser tab's ×. Cookies/storage survive in the shared partition. */
+   *  browser tab's ×. Cookies/storage survive in the conversation's profile. */
   closePage(target: BrowserTarget): Promise<void>
-  /** Sign out of every site: clear cookies, storage, and cache (all targets —
-   *  the partition is shared). */
+  /** Sign out of every site across all conversation profiles: clear cookies,
+   *  storage, and cache. */
   clearData(): Promise<void>
   /** Step or reset the embedded page zoom for this conversation's view. */
   zoom(target: BrowserTarget, action: "in" | "out" | "reset"): Promise<void>

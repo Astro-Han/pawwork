@@ -1,11 +1,16 @@
 import type { WebPreferences } from "electron"
 
+/** The pre-isolation shared profile, retained only so Clear Data can erase it. */
+export const LEGACY_BROWSER_PARTITION = "persist:pawwork-browser"
+
 /**
- * Single app-owned persistent partition: one browsing session shared by every
- * window, surviving restarts. `persist:` keeps cookies/storage on disk so logins
- * stick; clear-data wipes it. Multi-profile is intentionally out of scope (#1186).
+ * A persistent Electron partition owned by one browser profile. Different
+ * profiles must never share a partition: Electron makes cookies, storage,
+ * cache, service workers, and permission handlers session-wide.
  */
-export const BROWSER_PARTITION = "persist:pawwork-browser"
+export function browserPartition(profileID: string): string {
+  return `persist:pawwork-browser-${profileID}`
+}
 
 /**
  * WebPreferences for the embedded browser's WebContentsView. It loads arbitrary
@@ -13,9 +18,9 @@ export const BROWSER_PARTITION = "persist:pawwork-browser"
  * renderer (window-options.ts): no preload — the page must never receive the
  * app's IPC bridge — plus sandbox, context isolation, no Node, web security on.
  */
-export function browserViewWebPreferences(): WebPreferences {
+export function browserViewWebPreferences(profileID: string): WebPreferences {
   return {
-    partition: BROWSER_PARTITION,
+    partition: browserPartition(profileID),
     sandbox: true,
     contextIsolation: true,
     nodeIntegration: false,
