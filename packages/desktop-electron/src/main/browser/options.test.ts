@@ -1,19 +1,21 @@
 import { describe, expect, test } from "bun:test"
-import { BROWSER_PARTITION, browserViewWebPreferences } from "./options"
+import type { Session } from "electron"
+import { browserViewWebPreferences } from "./options"
 
 describe("embedded browser security", () => {
-  test("uses a locked-down, preload-free, sandboxed view on a persistent partition", () => {
-    const prefs = browserViewWebPreferences()
+  test("uses the supplied profile session with locked-down web preferences", () => {
+    const profileSession = {} as Session
+    const preferences = browserViewWebPreferences(profileSession)
 
-    expect(prefs).toMatchObject({
+    expect(preferences).toMatchObject({
+      session: profileSession,
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
     })
     // The embedded page must never receive the app's IPC preload bridge.
-    expect(prefs.preload).toBeUndefined()
-    expect(prefs.partition).toBe(BROWSER_PARTITION)
-    expect(BROWSER_PARTITION.startsWith("persist:")).toBe(true)
+    expect(preferences.preload).toBeUndefined()
+    expect(preferences.partition).toBeUndefined()
   })
 })

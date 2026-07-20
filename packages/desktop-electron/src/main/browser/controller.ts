@@ -1,6 +1,6 @@
-import { BrowserWindow, WebContentsView, session, shell } from "electron"
+import { BrowserWindow, WebContentsView, shell, type Session } from "electron"
 import type { BrowserState, BrowserViewLayout } from "@opencode-ai/app/desktop-api"
-import { BROWSER_PARTITION, browserViewWebPreferences } from "./options"
+import { browserViewWebPreferences } from "./options"
 import { configurePartitionUserAgent } from "./user-agent"
 import {
   clampPageZoom,
@@ -29,17 +29,17 @@ export const BROWSER_DISPLAY_TAKEN_CHANNEL = "browser:display-taken"
  */
 const DEFAULT_VIEW_BOUNDS = { x: 0, y: 0, width: 1280, height: 720 }
 
-let partitionUserAgentConfigured = false
+const configuredUserAgentSessions = new WeakSet<Session>()
 /**
- * Configure the browser partition's UA before the first view/request, exactly
- * once: present the partition as the faithful Chrome it is (rewrite + rationale
- * in user-agent.ts and the PR). Scoped to the browser partition; the app
+ * Configure the browser profile Session's UA before the first view/request,
+ * exactly once: present the profile as the faithful Chrome it is (rewrite +
+ * rationale in user-agent.ts and the PR). Scoped to the browser Session; the app
  * renderer keeps its own UA.
  */
-function ensureBrowserPartitionUserAgent() {
-  if (partitionUserAgentConfigured) return
-  partitionUserAgentConfigured = true
-  configurePartitionUserAgent(session.fromPartition(BROWSER_PARTITION), process.versions.chrome ?? "")
+function ensureBrowserSessionUserAgent(profileSession: Session) {
+  if (configuredUserAgentSessions.has(profileSession)) return
+  configuredUserAgentSessions.add(profileSession)
+  configurePartitionUserAgent(profileSession, process.versions.chrome ?? "")
 }
 
 /**
@@ -60,18 +60,22 @@ export class BrowserViewController {
   private throttlingBefore: boolean | null = null
   /**
    * Sole source of truth for this conversation's page zoom (1 = 100%).
-   * Chromium may also remember per-origin zoom in the shared partition; we
+   * Chromium may also remember per-origin zoom in this profile's partition; we
    * reassert this value on navigate/display so the UI percent matches the page.
    */
   private pageZoom = PAGE_ZOOM_DEFAULT
   /** Suppress zoom-changed while we write setZoomFactor ourselves. */
   private applyingPageZoom = false
 
-  constructor(private target: string) {
-    // Configure the partition UA before the view exists, so its very first
+  constructor(
+    private target: string,
+    profileSession: Session,
+    private readonly onRetarget: (target: string) => void = () => {},
+  ) {
+    // Configure the profile UA before the view exists, so its very first
     // request already carries the faithful Chrome UA.
-    ensureBrowserPartitionUserAgent()
-    this.view = new WebContentsView({ webPreferences: browserViewWebPreferences() })
+    ensureBrowserSessionUserAgent(profileSession)
+    this.view = new WebContentsView({ webPreferences: browserViewWebPreferences(profileSession) })
     this.view.setVisible(false)
     this.view.setBounds(DEFAULT_VIEW_BOUNDS)
     this.wireEvents()
@@ -84,6 +88,7 @@ export class BrowserViewController {
   /** Draft adoption rekeys the controller; state pushes follow the new owner. */
   retarget(target: string) {
     this.target = target
+    this.onRetarget(target)
   }
 
   private wireEvents() {
@@ -92,7 +97,7 @@ export class BrowserViewController {
     wc.on("did-stop-loading", () => this.emitState())
     wc.on("did-navigate", () => {
       this.favicon = null
-      // HostZoomMap is origin-scoped in the shared partition; reassert so a new
+      // HostZoomMap is origin-scoped in the profile partition; reassert so a new
       // host does not leave the page at 100% while state still shows the old %.
       this.reassertPageZoom()
       this.emitState()
