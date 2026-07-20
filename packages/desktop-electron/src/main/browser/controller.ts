@@ -1,6 +1,6 @@
-import { BrowserWindow, WebContentsView, session, shell } from "electron"
+import { BrowserWindow, WebContentsView, shell, type Session } from "electron"
 import type { BrowserState, BrowserViewLayout } from "@opencode-ai/app/desktop-api"
-import { browserPartition, browserViewWebPreferences } from "./options"
+import { browserViewWebPreferences } from "./options"
 import { configurePartitionUserAgent } from "./user-agent"
 import {
   clampPageZoom,
@@ -29,17 +29,17 @@ export const BROWSER_DISPLAY_TAKEN_CHANNEL = "browser:display-taken"
  */
 const DEFAULT_VIEW_BOUNDS = { x: 0, y: 0, width: 1280, height: 720 }
 
-const configuredUserAgentPartitions = new Set<string>()
+const configuredUserAgentSessions = new WeakSet<Session>()
 /**
- * Configure the browser partition's UA before the first view/request, exactly
- * once: present the partition as the faithful Chrome it is (rewrite + rationale
- * in user-agent.ts and the PR). Scoped to the browser partition; the app
+ * Configure the browser profile Session's UA before the first view/request,
+ * exactly once: present the profile as the faithful Chrome it is (rewrite +
+ * rationale in user-agent.ts and the PR). Scoped to the browser Session; the app
  * renderer keeps its own UA.
  */
-function ensureBrowserPartitionUserAgent(partitionName: string) {
-  if (configuredUserAgentPartitions.has(partitionName)) return
-  configuredUserAgentPartitions.add(partitionName)
-  configurePartitionUserAgent(session.fromPartition(partitionName), process.versions.chrome ?? "")
+function ensureBrowserSessionUserAgent(profileSession: Session) {
+  if (configuredUserAgentSessions.has(profileSession)) return
+  configuredUserAgentSessions.add(profileSession)
+  configurePartitionUserAgent(profileSession, process.versions.chrome ?? "")
 }
 
 /**
@@ -69,13 +69,13 @@ export class BrowserViewController {
 
   constructor(
     private target: string,
-    private readonly profileID: string,
+    profileSession: Session,
     private readonly onRetarget: (target: string) => void = () => {},
   ) {
-    // Configure the partition UA before the view exists, so its very first
+    // Configure the profile UA before the view exists, so its very first
     // request already carries the faithful Chrome UA.
-    ensureBrowserPartitionUserAgent(browserPartition(profileID))
-    this.view = new WebContentsView({ webPreferences: browserViewWebPreferences(profileID) })
+    ensureBrowserSessionUserAgent(profileSession)
+    this.view = new WebContentsView({ webPreferences: browserViewWebPreferences(profileSession) })
     this.view.setVisible(false)
     this.view.setBounds(DEFAULT_VIEW_BOUNDS)
     this.wireEvents()
@@ -89,10 +89,6 @@ export class BrowserViewController {
   retarget(target: string) {
     this.target = target
     this.onRetarget(target)
-  }
-
-  browserProfileID() {
-    return this.profileID
   }
 
   private wireEvents() {

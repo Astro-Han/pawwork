@@ -5,6 +5,7 @@ export const PAWWORK_RUNTIME = {
   serverUsername: "PawWork",
   settingsStore: "pawwork.settings",
   browserProfilesStore: "pawwork.browser-profiles",
+  browserProfilesDirectory: "browser-profiles",
   databaseName: "pawwork.db",
 } as const
 

@@ -1,8 +1,8 @@
 import { BrowserWindow, ipcMain, session, type IpcMainInvokeEvent } from "electron"
 import type { BrowserViewLayout } from "@opencode-ai/app/desktop-api"
-import { browserControllers, browserProfiles } from "../browser/controller-automation"
+import { browserControllers, browserProfileSessions } from "../browser/controller-automation"
 import { draftKey } from "../browser/registry"
-import { browserPartition, LEGACY_BROWSER_PARTITION } from "../browser/options"
+import { LEGACY_BROWSER_PARTITION } from "../browser/options"
 
 /**
  * Wires the embedded-browser IPC. Controllers live in the shared main-process
@@ -84,16 +84,10 @@ export function registerBrowserIpc(deps: { sessionIDForWindow: (windowID: number
   // the pre-isolation shared partition. Then reload live views so they reflect
   // the signed-out state immediately.
   ipcMain.handle("browser:clear-data", async () => {
-    const profileIDs = new Set(browserProfiles.profileIDs())
-    for (const controller of browserControllers.all()) profileIDs.add(controller.browserProfileID())
-    const partitionNames = [LEGACY_BROWSER_PARTITION, ...[...profileIDs].map(browserPartition)]
-    await Promise.all(
-      partitionNames.map(async (partitionName) => {
-        const partition = session.fromPartition(partitionName)
-        await partition.clearStorageData()
-        await partition.clearCache()
-      }),
-    )
+    await browserProfileSessions.clearAll()
+    const legacySession = session.fromPartition(LEGACY_BROWSER_PARTITION)
+    await legacySession.clearStorageData()
+    await legacySession.clearCache()
     for (const controller of browserControllers.all()) controller.reloadIfLoaded()
   })
   // Page zoom only — does not touch the app shell zoom factor. No-op without a

@@ -30,10 +30,9 @@ describe("BrowserProfileRegistry", () => {
 
     const restored = new BrowserProfileRegistry(memory.storage, ids("unused"))
     expect(restored.profileFor("ses_a")).toBe("profile-a")
-    expect(restored.profileIDs()).toEqual(["profile-a", "profile-b"])
   })
 
-  test("keeps draft profiles unique and binds the adopted profile to its new session", () => {
+  test("keeps draft profiles unique without persisting reusable draft owner keys", () => {
     const memory = memoryStorage()
     const profiles = new BrowserProfileRegistry(memory.storage, ids("draft-a", "draft-b"))
 
@@ -41,7 +40,14 @@ describe("BrowserProfileRegistry", () => {
     const secondDraft = profiles.profileFor(draftKey(2))
     expect(firstDraft).toBe("draft-a")
     expect(secondDraft).toBe("draft-b")
+    expect(memory.value()).toEqual({})
+  })
 
+  test("binds an adopted draft profile only to its new session", () => {
+    const memory = memoryStorage()
+    const profiles = new BrowserProfileRegistry(memory.storage, ids("draft-a"))
+
+    const firstDraft = profiles.profileFor(draftKey(1))
     profiles.adopt("ses_new", firstDraft)
     expect(profiles.profileFor("ses_new")).toBe("draft-a")
     expect(memory.value()).toEqual({ ses_new: "draft-a" })

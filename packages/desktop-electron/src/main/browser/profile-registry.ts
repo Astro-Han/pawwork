@@ -59,8 +59,4 @@ export class BrowserProfileRegistry {
     this.readProfiles()[sessionID] = profileID
     this.persist()
   }
-
-  profileIDs(): string[] {
-    return [...new Set(Object.values(this.readProfiles()))]
-  }
 }
