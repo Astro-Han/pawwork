@@ -797,6 +797,70 @@ describe("session.message-v2.toModelMessage", () => {
     expect(serialized).toContain(attachment(2).url.slice(attachment(2).url.indexOf(",") + 1))
   })
 
+  test("strips audio and video tool-result attachments from provider messages", async () => {
+    const userID = "m-user-tool-av-budget"
+    const assistantID = "m-assistant-tool-av-budget"
+    const audioData = "audio-payload".repeat(100)
+    const videoData = "video-payload".repeat(100)
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "inspect media",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "tool-av"),
+            type: "tool",
+            callID: "call-av",
+            tool: "mcp_resource",
+            state: {
+              status: "completed",
+              input: {},
+              output: "media resources",
+              title: "MCP resource",
+              metadata: {},
+              time: { start: 0, end: 1 },
+              attachments: [
+                {
+                  ...basePart(assistantID, "audio-file"),
+                  type: "file",
+                  mime: "audio/mpeg",
+                  filename: "recording.mp3",
+                  url: `data:audio/mpeg;base64,${audioData}`,
+                },
+                {
+                  ...basePart(assistantID, "video-file"),
+                  type: "file",
+                  mime: "video/mp4",
+                  filename: "recording.mp4",
+                  url: `data:video/mp4;base64,${videoData}`,
+                },
+              ],
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const serialized = JSON.stringify(
+      await MessageV2.toModelMessages(input, model, {
+        mediaProjection: "stripped",
+      }),
+    )
+    expect(serialized).toContain("audio/mpeg: recording.mp3 omitted to fit the provider request limit")
+    expect(serialized).toContain("video/mp4: recording.mp4 omitted to fit the provider request limit")
+    expect(serialized).not.toContain(audioData)
+    expect(serialized).not.toContain(videoData)
+  })
+
   test("moves bedrock pdf tool-result media into a separate user message", async () => {
     const bedrockModel: Provider.Model = {
       ...model,
@@ -2215,6 +2279,46 @@ describe("session.message-v2.fromError", () => {
         true,
       )
     }
+  })
+
+  test("uses typed stream top-level and wrapper messages as classification evidence", () => {
+    const contextMessage = "Input exceeds the context window of this model"
+    const requestBody = {
+      type: "error",
+      error: {
+        code: "request_too_large",
+      },
+    }
+    const topLevel = {
+      ...requestBody,
+      message: contextMessage,
+    }
+    const wrapped = new Error(contextMessage, {
+      cause: {
+        body: requestBody,
+      },
+    })
+
+    for (const error of [topLevel, wrapped]) {
+      expect(MessageV2.ContextOverflowError.isInstance(MessageV2.fromError(error, { providerID }))).toBe(true)
+    }
+
+    expect(
+      MessageV2.fromError(
+        {
+          type: "error",
+          message: "Payload Too Large",
+          error: {},
+        },
+        { providerID },
+      ),
+    ).toMatchObject({
+      name: "APIError",
+      data: {
+        message: "Payload Too Large",
+        providerFailure: { kind: "invalid_request", code: "request_too_large" },
+      },
+    })
   })
 
   test("keeps explicit context_length_exceeded precedence over HTTP 413", () => {

@@ -375,29 +375,25 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
   const code =
     typeof error.code === "string" ? error.code : typeof error.type === "string" ? error.type : undefined
   const providerMessage = typeof error.message === "string" ? error.message : undefined
-  if (providerMessage && isOverflow(providerMessage)) {
+  const wrapperMessage = typeof raw.message === "string" && !isStreamErrorBody(inner) ? raw.message : undefined
+  const evidence = `${providerMessage ?? ""}\n${typeof raw.message === "string" ? raw.message : ""}`
+  if (code === "context_length_exceeded" || isOverflow(evidence)) {
     return {
       type: "context_overflow",
-      message: providerMessage,
+      message: providerMessage ?? wrapperMessage ?? "Input exceeds context window of this model",
       responseBody,
+    }
+  }
+  if (code === "request_too_large" || code === "payload_too_large" || isRequestTooLarge(evidence)) {
+    return {
+      type: "request_too_large",
+      message: providerMessage ?? wrapperMessage ?? "Provider request is too large.",
+      responseBody,
+      code: code === "payload_too_large" ? code : "request_too_large",
     }
   }
 
   switch (code) {
-    case "request_too_large":
-    case "payload_too_large":
-      return {
-        type: "request_too_large",
-        message: typeof error.message === "string" ? error.message : "Provider request is too large.",
-        responseBody,
-        code,
-      }
-    case "context_length_exceeded":
-      return {
-        type: "context_overflow",
-        message: "Input exceeds context window of this model",
-        responseBody,
-      }
     case "insufficient_quota":
       return {
         type: "api_error",
@@ -457,15 +453,6 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
         kind: "rate_limit",
         code,
       }
-  }
-
-  if (providerMessage && isRequestTooLarge(providerMessage)) {
-    return {
-      type: "request_too_large",
-      message: providerMessage,
-      responseBody,
-      code: "request_too_large",
-    }
   }
 
   const text = `${providerMessage ?? ""}\n${responseBody}`
