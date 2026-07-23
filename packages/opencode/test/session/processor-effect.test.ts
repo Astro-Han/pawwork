@@ -1517,6 +1517,262 @@ it.live("surfaces a terminal provider API error's real message instead of a conn
   ),
 )
 
+it.live("retries HTTP 413 media projections with an unclassified local tool boundary", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.error(413, { error: "request entity too large" })
+        yield* llm.error(413, { error: "request entity too large" })
+        yield* llm.text("recovered")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "inspect attachments")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "normal media" }],
+          nextMediaMessages: async (current) => {
+            const projection = current === "normal" ? "degraded" : current === "degraded" ? "stripped" : undefined
+            if (!projection) return
+            return {
+              projection,
+              messages: [{ role: "user" as const, content: `${projection} media` }],
+            }
+          },
+          tools: {
+            edit: tool({
+              description: "ordinary local tool with incomplete effect classification",
+              inputSchema: z.object({}),
+            }),
+          },
+        })
+
+        const inputs = yield* llm.inputs
+        expect(value).toBe("continue")
+        expect(
+          inputs.map(
+            (input) => (input.messages as Array<{ content?: unknown }> | undefined)?.at(-1)?.content,
+          ),
+        ).toEqual(["normal media", "degraded media", "stripped media"])
+        expect(handle.message.error).toBeUndefined()
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("retries a message-only typed stream 413 with a smaller media projection", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.push(
+          raw({
+            chunks: [{ type: "error", error: { message: "Payload Too Large" } }],
+          }),
+        )
+        yield* llm.text("recovered")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "inspect attachments")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+        const originalMessages = [{ role: "user" as const, content: "normal media payload" }]
+        const projectedMessages = [{ role: "user" as const, content: "stripped" }]
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: originalMessages,
+          nextMediaMessages: async (current) =>
+            current === "normal"
+              ? {
+                  projection: "stripped",
+                  messages: projectedMessages,
+                }
+              : undefined,
+          tools: {},
+        })
+
+        const inputs = yield* llm.inputs
+        const inputMessages = inputs.map((input) => input.messages)
+        const bytes = (messages: unknown) => new TextEncoder().encode(JSON.stringify(messages)).byteLength
+        expect(value).toBe("continue")
+        expect(
+          inputMessages.map(
+            (messages) => (messages as Array<{ content?: unknown }> | undefined)?.at(-1)?.content,
+          ),
+        ).toEqual(["normal media payload", "stripped"])
+        expect(bytes(inputMessages[1])).toBeLessThan(bytes(inputMessages[0]))
+        expect(handle.message.error).toBeUndefined()
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("compacts typed stream context overflow before considering request-size projection", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.push(
+          raw({
+            chunks: [
+              {
+                type: "error",
+                error: {
+                  code: "request_too_large",
+                  message: "Input exceeds the context window of this model. Payload Too Large.",
+                },
+              },
+            ],
+          }),
+        )
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "inspect attachments")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+        let projectionCalls = 0
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "normal media payload" }],
+          nextMediaMessages: async () => {
+            projectionCalls += 1
+            return {
+              projection: "stripped",
+              messages: [{ role: "user", content: "stripped" }],
+            }
+          },
+          tools: {},
+        })
+
+        expect(value).toBe("compact")
+        expect(yield* llm.calls).toBe(1)
+        expect(projectionCalls).toBe(0)
+        expect(handle.message.error).toBeUndefined()
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("stops after the stripped request media projection is also rejected with HTTP 413", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.error(413, { error: "request entity too large" })
+        yield* llm.error(413, { error: "request entity too large" })
+        yield* llm.error(413, { error: "request entity too large" })
+        yield* llm.text("must not run")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "inspect attachments")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "normal media" }],
+          nextMediaMessages: async (current) => {
+            const projection = current === "normal" ? "degraded" : current === "degraded" ? "stripped" : undefined
+            if (!projection) return
+            return {
+              projection,
+              messages: [{ role: "user" as const, content: `${projection} media` }],
+            }
+          },
+          tools: {},
+        })
+
+        expect(value).toBe("stop")
+        expect(yield* llm.calls).toBe(3)
+        expect(handle.message.error).toMatchObject({
+          name: "APIError",
+          data: {
+            statusCode: 413,
+            providerFailure: { kind: "invalid_request", code: "request_too_large" },
+          },
+        })
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("session.processor effect tests retry recognized structured json errors", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>

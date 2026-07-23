@@ -97,7 +97,6 @@ const OVERFLOW_PATTERNS = [
   /context window exceeds limit/i, // MiniMax
   /exceeded model token limit/i, // Kimi For Coding, Moonshot
   /context[_ ]length[_ ]exceeded/i, // Generic fallback
-  /request entity too large/i, // HTTP 413
   /context length is only \d+ tokens/i, // vLLM
   /input length.*exceeds.*context length/i, // vLLM
   /prompt too long; exceeded (?:max )?context length/i, // Ollama explicit overflow error
@@ -117,10 +116,13 @@ function isOpenAiErrorRetryable(e: APICallError) {
 function isOverflow(message: string) {
   if (OVERFLOW_PATTERNS.some((p) => p.test(message))) return true
 
-  // Providers/status patterns handled outside of regex list:
-  // - Cerebras: often returns "400 (no body)" / "413 (no body)"
-  // - Mistral: often returns "400 (no body)" / "413 (no body)"
-  return /^4(00|13)\s*(status code)?\s*\(no body\)/i.test(message)
+  // Cerebras and Mistral often return "400 (no body)" for context overflow.
+  // HTTP 413 is deliberately classified as request-body size below.
+  return /^400\s*(status code)?\s*\(no body\)/i.test(message)
+}
+
+function isRequestTooLarge(message: string) {
+  return /request entity too large|payload too large|^413\s*(status code)?\s*\(no body\)/i.test(message)
 }
 
 // Billing/quota failures providers report under inconsistent status codes and
@@ -313,6 +315,12 @@ export type ParsedStreamError =
       responseBody: string
     }
   | {
+      type: "request_too_large"
+      message: string
+      responseBody: string
+      code: "request_too_large" | "payload_too_large"
+    }
+  | {
       type: "api_error"
       message: string
       isRetryable: boolean
@@ -321,9 +329,34 @@ export type ParsedStreamError =
       code?: string
     }
 
+function parseBareStreamMessage(input: unknown): ParsedStreamError | undefined {
+  const message =
+    typeof input === "string"
+      ? input
+      : isRecord(input) && typeof input.message === "string"
+        ? input.message
+        : undefined
+  if (!message) return
+  if (isOverflow(message)) {
+    return {
+      type: "context_overflow",
+      message,
+      responseBody: message,
+    }
+  }
+  if (isRequestTooLarge(message)) {
+    return {
+      type: "request_too_large",
+      message,
+      responseBody: message,
+      code: "request_too_large",
+    }
+  }
+}
+
 export function parseStreamError(input: unknown): ParsedStreamError | undefined {
   const raw = json(input)
-  if (!isRecord(raw)) return
+  if (!isRecord(raw)) return parseBareStreamMessage(input)
 
   const inner = typeof raw.message === "string" ? json(raw.message) : undefined
   const cause = isRecord(raw.cause) ? raw.cause : undefined
@@ -334,20 +367,33 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
 
   const responseBody = JSON.stringify(body)
   const error = body.type === "error" && isRecord(body.error) ? body.error : isBareProviderError(body) ? body : undefined
-  if (!error) return
+  if (!error) return parseBareStreamMessage(input)
 
   // Read code from the resolved error only (never dig into an untyped body —
   // that is the over-match guard `if (!error) return` above protects). Fall back
   // to error.type so providers that put the code under `type` still classify.
   const code =
     typeof error.code === "string" ? error.code : typeof error.type === "string" ? error.type : undefined
+  const providerMessage = typeof error.message === "string" ? error.message : undefined
+  const wrapperMessage = typeof raw.message === "string" && !isStreamErrorBody(inner) ? raw.message : undefined
+  const evidence = `${providerMessage ?? ""}\n${typeof raw.message === "string" ? raw.message : ""}`
+  if (code === "context_length_exceeded" || isOverflow(evidence)) {
+    return {
+      type: "context_overflow",
+      message: providerMessage ?? wrapperMessage ?? "Input exceeds context window of this model",
+      responseBody,
+    }
+  }
+  if (code === "request_too_large" || code === "payload_too_large" || isRequestTooLarge(evidence)) {
+    return {
+      type: "request_too_large",
+      message: providerMessage ?? wrapperMessage ?? "Provider request is too large.",
+      responseBody,
+      code: code === "payload_too_large" ? code : "request_too_large",
+    }
+  }
+
   switch (code) {
-    case "context_length_exceeded":
-      return {
-        type: "context_overflow",
-        message: "Input exceeds context window of this model",
-        responseBody,
-      }
     case "insufficient_quota":
       return {
         type: "api_error",
@@ -409,7 +455,6 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
       }
   }
 
-  const providerMessage = typeof error.message === "string" ? error.message : undefined
   const text = `${providerMessage ?? ""}\n${responseBody}`
   // No statusCode on the stream path, so only the unconditional strong billing
   // patterns can match here (weak patterns are status-gated).
@@ -454,6 +499,13 @@ export type ParsedAPICallError =
       responseBody?: string
     }
   | {
+      type: "request_too_large"
+      message: string
+      statusCode?: number
+      responseBody?: string
+      code: string
+    }
+  | {
       type: "api_error"
       message: string
       statusCode?: number
@@ -470,11 +522,23 @@ export function parseAPICallError(input: { providerID: ProviderID; error: APICal
   const body = json(input.error.responseBody)
   const code = extractProviderCode(body)
   const modelUnavailable = isOpenCodeModelUnavailable(input.providerID, body)
-  if (isOverflow(m) || input.error.statusCode === 413 || code === "context_length_exceeded") {
+  const requestTooLarge =
+    code === "request_too_large" || code === "payload_too_large" || isRequestTooLarge(m)
+  const contextOverflow = code === "context_length_exceeded" || isOverflow(m)
+  if (contextOverflow) {
     return {
       type: "context_overflow",
       message: m,
       responseBody: input.error.responseBody,
+    }
+  }
+  if (input.error.statusCode === 413 || requestTooLarge) {
+    return {
+      type: "request_too_large",
+      message: m,
+      statusCode: input.error.statusCode,
+      responseBody: input.error.responseBody,
+      code: code ?? "request_too_large",
     }
   }
 

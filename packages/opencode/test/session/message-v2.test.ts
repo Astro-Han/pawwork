@@ -551,6 +551,316 @@ describe("session.message-v2.toModelMessage", () => {
     })
   })
 
+  test("keeps the two most recent media in the degraded request projection", async () => {
+    const userID = "m-user-media-budget"
+    const media = (index: number): MessageV2.FilePart => ({
+      ...basePart(userID, `file-${index}`),
+      type: "file",
+      mime: "image/png",
+      filename: `image-${index}.png`,
+      url: `data:image/png;base64,${Buffer.from(`image-${index}`).toString("base64")}`,
+    })
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "compare these images",
+          },
+          media(1),
+          media(2),
+          media(3),
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(
+      await MessageV2.toModelMessages(input, model, {
+        mediaProjection: "degraded",
+      }),
+    ).toStrictEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "compare these images" },
+          {
+            type: "text",
+            text: "[Attached image/png: image-1.png omitted to fit the provider request limit]",
+          },
+          {
+            type: "file",
+            mediaType: "image/png",
+            filename: "image-2.png",
+            data: media(2).url,
+          },
+          {
+            type: "file",
+            mediaType: "image/png",
+            filename: "image-3.png",
+            data: media(3).url,
+          },
+        ],
+      },
+    ])
+  })
+
+  test("has no lower request media projection when history contains no media", async () => {
+    const userID = "m-user-no-media"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "a large text-only request",
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const messages = await MessageV2.toModelMessages(input, model)
+    expect(await MessageV2.nextMediaMessages(input, model, "normal", messages)).toBeUndefined()
+  })
+
+  test("skips degraded projection when it would retain the same media", async () => {
+    const userID = "m-user-one-media"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "file-1"),
+            type: "file",
+            mime: "image/png",
+            filename: "only-image.png",
+            url: "data:image/png;base64,aW1hZ2U=",
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const messages = await MessageV2.toModelMessages(input, model)
+    expect(await MessageV2.nextMediaMessages(input, model, "normal", messages)).toMatchObject({
+      projection: "stripped",
+    })
+  })
+
+  test("has no lower request projection when omission markers would not shrink the payload", async () => {
+    const userID = "m-user-tiny-media"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: Array.from({ length: 3 }, (_, index) => ({
+          ...basePart(userID, `tiny-${index}`),
+          type: "file",
+          mime: "image/png",
+          filename: "x",
+          url: "data:image/png;base64,",
+        })) as MessageV2.Part[],
+      },
+    ]
+
+    const messages = await MessageV2.toModelMessages(input, model)
+    expect(await MessageV2.nextMediaMessages(input, model, "normal", messages)).toBeUndefined()
+  })
+
+  test("uses only serializable messages when selecting request media", async () => {
+    const userID = "m-user-visible-media"
+    const assistantID = "m-assistant-filtered-media"
+    const media = (messageID: string, id: string): MessageV2.FilePart => ({
+      ...basePart(messageID, id),
+      type: "file",
+      mime: "image/png",
+      filename: `${id}.png`,
+      url: `data:image/png;base64,${Buffer.from(id).toString("base64")}`,
+    })
+    const visible = media(userID, "visible")
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [visible] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(
+          assistantID,
+          userID,
+          new MessageV2.APIError({
+            message: "fatal provider failure",
+            isRetryable: false,
+          }).toObject() as MessageV2.APIError,
+        ),
+        parts: [
+          {
+            ...basePart(assistantID, "tool-filtered-media"),
+            type: "tool",
+            callID: "call-filtered-media",
+            tool: "read",
+            state: {
+              status: "completed",
+              input: {},
+              output: "filtered",
+              title: "Read",
+              metadata: {},
+              time: { start: 0, end: 1 },
+              attachments: Array.from({ length: 8 }, (_, index) => media(assistantID, `filtered-${index}`)),
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const messages = await MessageV2.toModelMessages(input, model)
+    expect(JSON.stringify(messages)).toContain(visible.url)
+    expect(await MessageV2.nextMediaMessages(input, model, "normal", messages)).toMatchObject({
+      projection: "stripped",
+    })
+  })
+
+  test("keeps the most recent media when the aggregate request bytes are over budget", async () => {
+    const userID = "m-user-media-byte-budget"
+    const media = (index: number): MessageV2.FilePart => ({
+      ...basePart(userID, `byte-file-${index}`),
+      type: "file",
+      mime: "image/png",
+      filename: `byte-image-${index}.png`,
+      url: `data:image/png;base64,${Buffer.from(`data-${index}`).toString("base64")}`,
+    })
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [media(1), media(2), media(3)] as MessageV2.Part[],
+      },
+    ]
+
+    const messages = await MessageV2.toModelMessages(input, model, {
+      mediaMaxBytes: 16,
+    })
+    const serialized = JSON.stringify(messages)
+    expect(serialized).toContain("byte-image-1.png omitted to fit the provider request limit")
+    expect(serialized).not.toContain(media(1).url)
+    expect(serialized).toContain(media(2).url)
+    expect(serialized).toContain(media(3).url)
+  })
+
+  test("applies the aggregate media budget to tool-result attachments", async () => {
+    const userID = "m-user-tool-media-budget"
+    const assistantID = "m-assistant-tool-media-budget"
+    const attachment = (index: number): MessageV2.FilePart => ({
+      ...basePart(assistantID, `tool-file-${index}`),
+      type: "file",
+      mime: "application/pdf",
+      filename: `report-${index}.pdf`,
+      url: `data:application/pdf;base64,${Buffer.from(`pdf-${index}`).toString("base64")}`,
+    })
+    const tool = (index: number): MessageV2.ToolPart => ({
+      ...basePart(assistantID, `tool-${index}`),
+      type: "tool",
+      callID: `call-${index}`,
+      tool: "read",
+      state: {
+        status: "completed",
+        input: { filePath: `report-${index}.pdf` },
+        output: `read report ${index}`,
+        title: "Read",
+        metadata: {},
+        time: { start: 0, end: 1 },
+        attachments: [attachment(index)],
+      },
+    })
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "compare reports",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [tool(1), tool(2)] as MessageV2.Part[],
+      },
+    ]
+
+    const serialized = JSON.stringify(
+      await MessageV2.toModelMessages(input, model, {
+        mediaMaxCount: 1,
+      }),
+    )
+    expect(serialized).toContain("report-1.pdf omitted to fit the provider request limit")
+    expect(serialized).not.toContain(attachment(1).url.slice(attachment(1).url.indexOf(",") + 1))
+    expect(serialized).toContain(attachment(2).url.slice(attachment(2).url.indexOf(",") + 1))
+  })
+
+  test("strips audio and video tool-result attachments from provider messages", async () => {
+    const userID = "m-user-tool-av-budget"
+    const assistantID = "m-assistant-tool-av-budget"
+    const audioData = "audio-payload".repeat(100)
+    const videoData = "video-payload".repeat(100)
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "inspect media",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "tool-av"),
+            type: "tool",
+            callID: "call-av",
+            tool: "mcp_resource",
+            state: {
+              status: "completed",
+              input: {},
+              output: "media resources",
+              title: "MCP resource",
+              metadata: {},
+              time: { start: 0, end: 1 },
+              attachments: [
+                {
+                  ...basePart(assistantID, "audio-file"),
+                  type: "file",
+                  mime: "audio/mpeg",
+                  filename: "recording.mp3",
+                  url: `data:audio/mpeg;base64,${audioData}`,
+                },
+                {
+                  ...basePart(assistantID, "video-file"),
+                  type: "file",
+                  mime: "video/mp4",
+                  filename: "recording.mp4",
+                  url: `data:video/mp4;base64,${videoData}`,
+                },
+              ],
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const serialized = JSON.stringify(
+      await MessageV2.toModelMessages(input, model, {
+        mediaProjection: "stripped",
+      }),
+    )
+    expect(serialized).toContain("audio/mpeg: recording.mp3 omitted to fit the provider request limit")
+    expect(serialized).toContain("video/mp4: recording.mp4 omitted to fit the provider request limit")
+    expect(serialized).not.toContain(audioData)
+    expect(serialized).not.toContain(videoData)
+  })
+
   test("moves bedrock pdf tool-result media into a separate user message", async () => {
     const bedrockModel: Provider.Model = {
       ...model,
@@ -1886,7 +2196,6 @@ describe("session.message-v2.fromError", () => {
       "The input token count (1196265) exceeds the maximum number of tokens allowed (1048575)",
       "Please reduce the length of the messages or completion",
       "400 status code (no body)",
-      "413 status code (no body)",
     ]
 
     cases.forEach((message) => {
@@ -1901,6 +2210,173 @@ describe("session.message-v2.fromError", () => {
       const result = MessageV2.fromError(error, { providerID })
       expect(MessageV2.ContextOverflowError.isInstance(result)).toBe(true)
     })
+  })
+
+  test("classifies HTTP 413 as request size overflow instead of context overflow", () => {
+    const error = new APICallError({
+      message: "413 status code (no body)",
+      url: "https://example.com",
+      requestBodyValues: {},
+      statusCode: 413,
+      responseHeaders: { "content-type": "application/json" },
+      isRetryable: false,
+    })
+
+    const result = MessageV2.fromError(error, { providerID })
+    expect(result).toMatchObject({
+      name: "APIError",
+      data: {
+        statusCode: 413,
+        providerFailure: { kind: "invalid_request", code: "request_too_large" },
+      },
+    })
+    expect(MessageV2.ContextOverflowError.isInstance(result)).toBe(false)
+  })
+
+  test("classifies bare request-size errors without structured provider metadata", () => {
+    const cases = ["413 status code (no body)", "Payload Too Large", "Request Entity Too Large"]
+
+    for (const message of cases) {
+      expect(MessageV2.fromError(new Error(message), { providerID })).toMatchObject({
+        name: "APIError",
+        data: {
+          message,
+          isRetryable: false,
+          providerFailure: { kind: "invalid_request", code: "request_too_large" },
+        },
+      })
+    }
+  })
+
+  test("classifies message-only typed stream request-size errors", () => {
+    const cases = ["413 status code (no body)", "Payload Too Large", "Request Entity Too Large"]
+
+    for (const message of cases) {
+      const payload = JSON.stringify({ type: "error", error: { message } })
+      expect(MessageV2.fromError(new Error(payload), { providerID })).toMatchObject({
+        name: "APIError",
+        data: {
+          message,
+          isRetryable: false,
+          responseBody: payload,
+          providerFailure: { kind: "invalid_request", code: "request_too_large" },
+        },
+      })
+    }
+  })
+
+  test("keeps explicit context-window evidence ahead of request-size text in typed stream errors", () => {
+    for (const code of [undefined, "request_too_large", "payload_too_large"]) {
+      const payload = JSON.stringify({
+        type: "error",
+        error: {
+          code,
+          message: "Input exceeds the context window of this model. Payload Too Large.",
+        },
+      })
+
+      expect(MessageV2.ContextOverflowError.isInstance(MessageV2.fromError(new Error(payload), { providerID }))).toBe(
+        true,
+      )
+    }
+  })
+
+  test("uses typed stream top-level and wrapper messages as classification evidence", () => {
+    const contextMessage = "Input exceeds the context window of this model"
+    const requestBody = {
+      type: "error",
+      error: {
+        code: "request_too_large",
+      },
+    }
+    const topLevel = {
+      ...requestBody,
+      message: contextMessage,
+    }
+    const wrapped = new Error(contextMessage, {
+      cause: {
+        body: requestBody,
+      },
+    })
+
+    for (const error of [topLevel, wrapped]) {
+      expect(MessageV2.ContextOverflowError.isInstance(MessageV2.fromError(error, { providerID }))).toBe(true)
+    }
+
+    expect(
+      MessageV2.fromError(
+        {
+          type: "error",
+          message: "Payload Too Large",
+          error: {},
+        },
+        { providerID },
+      ),
+    ).toMatchObject({
+      name: "APIError",
+      data: {
+        message: "Payload Too Large",
+        providerFailure: { kind: "invalid_request", code: "request_too_large" },
+      },
+    })
+  })
+
+  test("keeps explicit context_length_exceeded precedence over HTTP 413", () => {
+    const error = new APICallError({
+      message: "Request failed",
+      url: "https://example.com",
+      requestBodyValues: {},
+      statusCode: 413,
+      responseHeaders: { "content-type": "application/json" },
+      responseBody: JSON.stringify({
+        error: {
+          message: "Input exceeds the context window",
+          code: "context_length_exceeded",
+        },
+      }),
+      isRetryable: false,
+    })
+
+    const result = MessageV2.fromError(error, { providerID })
+    expect(MessageV2.ContextOverflowError.isInstance(result)).toBe(true)
+  })
+
+  test("keeps an explicit context-window message precedence over bare HTTP 413", () => {
+    const error = new APICallError({
+      message: "Request failed",
+      url: "https://example.com",
+      requestBodyValues: {},
+      statusCode: 413,
+      responseHeaders: { "content-type": "application/json" },
+      responseBody: JSON.stringify({
+        error: {
+          message: "Input exceeds the context window of this model",
+        },
+      }),
+      isRetryable: false,
+    })
+
+    const result = MessageV2.fromError(error, { providerID })
+    expect(MessageV2.ContextOverflowError.isInstance(result)).toBe(true)
+  })
+
+  test("keeps an explicit context-window message precedence over the HTTP 413 reason phrase", () => {
+    const error = new APICallError({
+      message: "Payload Too Large",
+      url: "https://example.com",
+      requestBodyValues: {},
+      statusCode: 413,
+      responseHeaders: { "content-type": "application/json" },
+      responseBody: JSON.stringify({
+        error: {
+          message: "Input exceeds the context window of this model",
+        },
+      }),
+      isRetryable: false,
+    })
+
+    const result = MessageV2.fromError(error, { providerID })
+    expect(MessageV2.ContextOverflowError.isInstance(result)).toBe(true)
   })
 
   test("detects context overflow from context_length_exceeded code in response body", () => {

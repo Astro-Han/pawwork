@@ -870,13 +870,109 @@ function providerMeta(metadata: Record<string, any> | undefined) {
   return Object.keys(rest).length > 0 ? rest : undefined
 }
 
+export type MediaProjection = "normal" | "degraded" | "stripped"
+
+export interface ModelMessageProjectionOptions {
+  mediaProjection?: MediaProjection
+  mediaMaxBytes?: number
+  mediaMaxCount?: number
+  toolOutputMaxChars?: number
+  toolInputMaxChars?: number
+}
+
+const MEDIA_MAX_BYTES = 12 * 1024 * 1024
+const MEDIA_MAX_COUNT = 8
+const MEDIA_DEGRADED_MAX_COUNT = 2
+
+function shouldSerializeMessage(message: WithParts) {
+  if (message.info.role !== "assistant" || !message.info.error) return true
+  return (
+    AbortedError.isInstance(message.info.error) &&
+    message.parts.some((part) => part.type !== "step-start" && part.type !== "reasoning")
+  )
+}
+
+function mediaCandidates(input: WithParts[]) {
+  const candidates: FilePart[] = []
+  for (const message of input) {
+    if (!shouldSerializeMessage(message)) continue
+    for (const part of message.parts) {
+      if (part.type === "file" && isMedia(part.mime)) candidates.push(part)
+      if (part.type !== "tool" || part.state.status !== "completed" || part.state.time.compacted) continue
+      for (const attachment of part.state.attachments ?? []) {
+        if (isMedia(attachment.mime)) candidates.push(attachment)
+      }
+    }
+  }
+  return candidates
+}
+
+function mediaRequestBytes(part: FilePart) {
+  if (!part.url.startsWith("data:")) return 0
+  const comma = part.url.indexOf(",")
+  if (comma === -1) return new TextEncoder().encode(part.url).byteLength
+  return new TextEncoder().encode(part.url.slice(comma + 1)).byteLength
+}
+
+function selectedMedia(input: WithParts[], options?: ModelMessageProjectionOptions) {
+  const projection = options?.mediaProjection ?? "normal"
+  const configuredMax = options?.mediaMaxCount ?? MEDIA_MAX_COUNT
+  const maxCount =
+    projection === "stripped"
+      ? 0
+      : projection === "degraded"
+        ? Math.min(configuredMax, MEDIA_DEGRADED_MAX_COUNT)
+        : configuredMax
+  const maxBytes = projection === "stripped" ? 0 : (options?.mediaMaxBytes ?? MEDIA_MAX_BYTES)
+  const selected = new Set<FilePart>()
+  let usedBytes = 0
+  for (const part of mediaCandidates(input).reverse()) {
+    const bytes = mediaRequestBytes(part)
+    if (selected.size >= Math.max(0, maxCount) || usedBytes + bytes > Math.max(0, maxBytes)) continue
+    selected.add(part)
+    usedBytes += bytes
+  }
+  return selected
+}
+
+function mediaProjectionsAfter(current: MediaProjection) {
+  const projections: Exclude<MediaProjection, "normal">[] =
+    current === "normal" ? ["degraded", "stripped"] : current === "degraded" ? ["stripped"] : []
+  return projections
+}
+
+function modelMessagesBytes(messages: ModelMessage[]) {
+  return new TextEncoder().encode(JSON.stringify(messages)).byteLength
+}
+
+export async function nextMediaMessages(
+  input: WithParts[],
+  model: Provider.Model,
+  current: MediaProjection,
+  currentMessages: ModelMessage[],
+  suffix: ModelMessage[] = [],
+) {
+  const currentBytes = modelMessagesBytes(currentMessages)
+  const projections = mediaProjectionsAfter(current)
+  for (const projection of projections) {
+    const messages = [...(await toModelMessages(input, model, { mediaProjection: projection })), ...suffix]
+    if (modelMessagesBytes(messages) >= currentBytes) continue
+    return { projection, messages }
+  }
+}
+
+function omittedMedia(part: Pick<FilePart, "mime" | "filename">) {
+  return `[Attached ${part.mime}: ${part.filename ?? "file"} omitted to fit the provider request limit]`
+}
+
 export const toModelMessagesEffect = Effect.fnUntraced(function* (
   input: WithParts[],
   model: Provider.Model,
-  options?: { stripMedia?: boolean; toolOutputMaxChars?: number; toolInputMaxChars?: number },
+  options?: ModelMessageProjectionOptions,
 ) {
   const result: UIMessage[] = []
   const toolNames = new Set<string>()
+  const includedMedia = selectedMedia(input, options)
   // Track media from tool results that need to be injected as user messages
   // for providers that don't support that media type in tool results.
   //
@@ -933,7 +1029,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
   }
 
   for (const msg of input) {
-    if (msg.parts.length === 0) continue
+    if (msg.parts.length === 0 || !shouldSerializeMessage(msg)) continue
 
     if (msg.info.role === "user") {
       const userMessage: UIMessage = {
@@ -949,10 +1045,10 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
           })
         // text/plain and directory files are converted into text parts, ignore them
         if (part.type === "file" && part.mime !== "text/plain" && part.mime !== "application/x-directory") {
-          if (options?.stripMedia && isMedia(part.mime)) {
+          if (isMedia(part.mime) && !includedMedia.has(part)) {
             userMessage.parts.push({
               type: "text",
-              text: `[Attached ${part.mime}: ${part.filename ?? "file"}]`,
+              text: omittedMedia(part),
             })
           } else {
             userMessage.parts.push({
@@ -984,15 +1080,6 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
       const differentModel = `${model.providerID}/${model.id}` !== `${msg.info.providerID}/${msg.info.modelID}`
       const media: Array<{ mime: string; url: string; filename?: string }> = []
 
-      if (
-        msg.info.error &&
-        !(
-          AbortedError.isInstance(msg.info.error) &&
-          msg.parts.some((part) => part.type !== "step-start" && part.type !== "reasoning")
-        )
-      ) {
-        continue
-      }
       const assistantMessage: UIMessage = {
         id: msg.info.id,
         role: "assistant",
@@ -1018,10 +1105,17 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
         if (part.type === "tool") {
           toolNames.add(part.tool)
           if (part.state.status === "completed") {
-            const outputText = part.state.time.compacted
+            const baseOutputText = part.state.time.compacted
               ? "[Old tool result content cleared]"
               : truncateToolOutput(part.state.output, options?.toolOutputMaxChars)
-            const attachments = part.state.time.compacted || options?.stripMedia ? [] : (part.state.attachments ?? [])
+            const sourceAttachments = part.state.time.compacted ? [] : (part.state.attachments ?? [])
+            const omittedAttachments = sourceAttachments.filter(
+              (attachment) => isMedia(attachment.mime) && !includedMedia.has(attachment),
+            )
+            const outputText = [baseOutputText, ...omittedAttachments.map(omittedMedia)].filter(Boolean).join("\n")
+            const attachments = sourceAttachments.filter(
+              (attachment) => !isMedia(attachment.mime) || includedMedia.has(attachment),
+            )
 
             // For providers that don't support media in tool results, extract media files
             // (images, PDFs) to be sent as a separate user message
@@ -1154,7 +1248,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
 export function toModelMessages(
   input: WithParts[],
   model: Provider.Model,
-  options?: { stripMedia?: boolean; toolOutputMaxChars?: number; toolInputMaxChars?: number },
+  options?: ModelMessageProjectionOptions,
 ): Promise<ModelMessage[]> {
   return Effect.runPromise(toModelMessagesEffect(input, model, options).pipe(Effect.provide(EffectLogger.layer)))
 }
@@ -1421,6 +1515,19 @@ export function fromError(
           { cause: e },
         ).toObject()
       }
+      if (parsed.type === "request_too_large") {
+        return new APIError(
+          {
+            message: parsed.message,
+            statusCode: parsed.statusCode,
+            isRetryable: false,
+            responseBody: parsed.responseBody,
+            providerID: ctx.providerID,
+            providerFailure: { kind: "invalid_request", code: parsed.code },
+          },
+          { cause: e },
+        ).toObject()
+      }
 
       return new APIError(
         {
@@ -1448,6 +1555,18 @@ export function fromError(
               {
                 message: parsed.message,
                 responseBody: parsed.responseBody,
+              },
+              { cause: e },
+            ).toObject()
+          }
+          if (parsed.type === "request_too_large") {
+            return new APIError(
+              {
+                message: parsed.message,
+                isRetryable: false,
+                responseBody: parsed.responseBody,
+                providerID: ctx.providerID,
+                providerFailure: { kind: "invalid_request", code: parsed.code },
               },
               { cause: e },
             ).toObject()
