@@ -1517,6 +1517,114 @@ it.live("surfaces a terminal provider API error's real message instead of a conn
   ),
 )
 
+it.live("retries HTTP 413 with degraded then stripped request media projections", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.error(413, { error: "request entity too large" })
+        yield* llm.error(413, { error: "request entity too large" })
+        yield* llm.text("recovered")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "inspect attachments")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "normal media" }],
+          projectMediaMessages: (projection) =>
+            Promise.resolve([{ role: "user" as const, content: `${projection} media` }]),
+          tools: {},
+        })
+
+        const inputs = yield* llm.inputs
+        expect(value).toBe("continue")
+        expect(
+          inputs.map(
+            (input) => (input.messages as Array<{ content?: unknown }> | undefined)?.at(-1)?.content,
+          ),
+        ).toEqual(["normal media", "degraded media", "stripped media"])
+        expect(handle.message.error).toBeUndefined()
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("stops after the stripped request media projection is also rejected with HTTP 413", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.error(413, { error: "request entity too large" })
+        yield* llm.error(413, { error: "request entity too large" })
+        yield* llm.error(413, { error: "request entity too large" })
+        yield* llm.text("must not run")
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "inspect attachments")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "normal media" }],
+          projectMediaMessages: (projection) =>
+            Promise.resolve([{ role: "user" as const, content: `${projection} media` }]),
+          tools: {},
+        })
+
+        expect(value).toBe("stop")
+        expect(yield* llm.calls).toBe(3)
+        expect(handle.message.error).toMatchObject({
+          name: "APIError",
+          data: {
+            statusCode: 413,
+            providerFailure: { kind: "invalid_request", code: "request_too_large" },
+          },
+        })
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("session.processor effect tests retry recognized structured json errors", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>

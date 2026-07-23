@@ -49,6 +49,9 @@ export type Result = "compact" | "stop" | "continue"
 export type Event = LLM.Event
 
 type ProcessInput = LLM.StreamInput & {
+  projectMediaMessages?: (
+    projection: Exclude<MessageV2.MediaProjection, "normal">,
+  ) => Promise<LLM.StreamInput["messages"]>
   toolDrainTimeoutMs?: number
 }
 
@@ -1738,6 +1741,7 @@ export const layer: Layer.Layer<
         let processAttemptID: RunObservability.AttemptID | undefined
         let automaticStreamRetriesUsed = 0
         let safeRetryNoticeWritten = false
+        let mediaProjection: MessageV2.MediaProjection = "normal"
 
         const retryStillAllowed = Effect.fn("SessionProcessor.retryStillAllowed")(function* (stage: string) {
           const lifecycleAction = currentLifecycleCloseAction(ctx.directory)
@@ -1771,11 +1775,16 @@ export const layer: Layer.Layer<
           return { allowed: true as const }
         })
 
-        const retrySignalFor = (error: unknown) => {
+        const retrySignalFor = (
+          error: unknown,
+          parsed: NonNullable<MessageV2.Assistant["error"]>,
+          canReduceRequestMedia: boolean,
+        ) => {
           const phase = watchdogPhase(error)
           if (phase) {
             return {
               retryable: true,
+              requestTooLarge: false,
               message: "Connection timed out" as string | undefined,
               watchdog: { phase } as { phase: "connect" | "silent_stream" | "unknown" } | undefined,
               providerFailure: undefined as
@@ -1790,7 +1799,6 @@ export const layer: Layer.Layer<
           // transport disconnect. The provider's own message rides along too so
           // the halt path renders it without a second parse that could drift
           // from this classification.
-          const parsed = parse(error)
           const apiError = MessageV2.APIError.isInstance(parsed) ? parsed : undefined
           const providerFailure = apiError?.data.providerFailure
             ? {
@@ -1802,14 +1810,49 @@ export const layer: Layer.Layer<
               }
             : undefined
           const providerMessage = apiError?.data.message
+          const requestTooLarge =
+            apiError?.data.statusCode === 413 ||
+            apiError?.data.providerFailure?.code === "request_too_large" ||
+            apiError?.data.providerFailure?.code === "payload_too_large"
+          if (requestTooLarge) {
+            return {
+              retryable: canReduceRequestMedia,
+              requestTooLarge: true,
+              message: providerMessage,
+              watchdog: undefined,
+              providerFailure,
+              providerMessage,
+            }
+          }
           const classification = SessionRetry.classifyRetry(parsed)
           if (!classification)
-            return { retryable: false, message: undefined, watchdog: undefined, providerFailure, providerMessage }
+            return {
+              retryable: false,
+              requestTooLarge: false,
+              message: undefined,
+              watchdog: undefined,
+              providerFailure,
+              providerMessage,
+            }
           if (SessionRetry.retryAction(classification) === "stop") {
             ctx.terminalClassification = classification
-            return { retryable: false, message: undefined, watchdog: undefined, providerFailure, providerMessage }
+            return {
+              retryable: false,
+              requestTooLarge: false,
+              message: undefined,
+              watchdog: undefined,
+              providerFailure,
+              providerMessage,
+            }
           }
-          return { retryable: true, message: classification.raw, watchdog: undefined, providerFailure, providerMessage }
+          return {
+            retryable: true,
+            requestTooLarge: false,
+            message: classification.raw,
+            watchdog: undefined,
+            providerFailure,
+            providerMessage,
+          }
         }
 
         const removeReasoningForAttempt = Effect.fn("SessionProcessor.removeReasoningForAttempt")(function* (
@@ -1896,10 +1939,20 @@ export const layer: Layer.Layer<
           })
           let stream: Stream.Stream<LLM.Event, unknown>
           try {
+            const projectedMedia = mediaProjection === "normal" ? undefined : mediaProjection
+            const projectMediaMessages = streamInput.projectMediaMessages
+            const messages =
+              projectedMedia === undefined
+                ? streamInput.messages
+                : projectMediaMessages
+                  ? yield* Effect.promise(() => projectMediaMessages(projectedMedia))
+                  : streamInput.messages
+            const { projectMediaMessages: _, toolDrainTimeoutMs: __, ...llmInput } = streamInput
             stream = llm.stream({
-              ...ProviderTransform.streamTimeouts(streamInput.model),
-              ...streamInput,
+              ...ProviderTransform.streamTimeouts(llmInput.model),
+              ...llmInput,
               ...sessionTimeouts,
+              messages,
               tools: activeTools,
               trace: ctx.trace,
               toolAbortSignal: toolAbortController.signal,
@@ -1943,7 +1996,14 @@ export const layer: Layer.Layer<
             if (result.ok !== false) break
 
             const attemptID = processAttemptID
-            const retrySignal = retrySignalFor(result.error)
+            const parsedError = parse(result.error)
+            const nextMediaProjection =
+              mediaProjection === "normal" ? "degraded" : mediaProjection === "degraded" ? "stripped" : undefined
+            const retrySignal = retrySignalFor(
+              result.error,
+              parsedError,
+              nextMediaProjection !== undefined && streamInput.projectMediaMessages !== undefined,
+            )
             yield* finalizeToolLifecycles()
             const decision = ctx.runTrace.recordAttemptFailureAndDeriveRecovery({
               attemptID,
@@ -2000,6 +2060,32 @@ export const layer: Layer.Layer<
               allowsPr1MinimalContinueForToolSettlement(decision.recommendation) &&
               hasPr1ModelConsumableToolSettlement()
             ) {
+              break
+            }
+
+            if (
+              attemptID &&
+              nextMediaProjection &&
+              retrySignal.requestTooLarge &&
+              retryDecision.canRetry &&
+              retryDecision.recoveryMode === "replay"
+            ) {
+              const beforeRetry = yield* retryStillAllowed("before_media_projection_retry")
+              if (beforeRetry.allowed) {
+                automaticStreamRetriesUsed += 1
+                mediaProjection = nextMediaProjection
+                yield* removeReasoningForAttempt(attemptID)
+                ctx.runTrace.recordAutoRetryAttempted({
+                  attemptID,
+                  at: Date.now(),
+                  monotonicMs: performance.now(),
+                })
+                continue
+              }
+              yield* halt(result.error, attemptID, {
+                recordFailure: false,
+                interruptionMessage: beforeRetry.interruptionMessage,
+              })
               break
             }
 

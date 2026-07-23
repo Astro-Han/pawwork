@@ -551,7 +551,7 @@ describe("session.message-v2.toModelMessage", () => {
     })
   })
 
-  test("keeps the most recent media when the aggregate request count is over budget", async () => {
+  test("keeps the two most recent media in the degraded request projection", async () => {
     const userID = "m-user-media-budget"
     const media = (index: number): MessageV2.FilePart => ({
       ...basePart(userID, `file-${index}`),
@@ -578,7 +578,7 @@ describe("session.message-v2.toModelMessage", () => {
 
     expect(
       await MessageV2.toModelMessages(input, model, {
-        mediaMaxCount: 2,
+        mediaProjection: "degraded",
       }),
     ).toStrictEqual([
       {
@@ -2019,7 +2019,6 @@ describe("session.message-v2.fromError", () => {
       "The input token count (1196265) exceeds the maximum number of tokens allowed (1048575)",
       "Please reduce the length of the messages or completion",
       "400 status code (no body)",
-      "413 status code (no body)",
     ]
 
     cases.forEach((message) => {
@@ -2034,6 +2033,27 @@ describe("session.message-v2.fromError", () => {
       const result = MessageV2.fromError(error, { providerID })
       expect(MessageV2.ContextOverflowError.isInstance(result)).toBe(true)
     })
+  })
+
+  test("classifies HTTP 413 as request size overflow instead of context overflow", () => {
+    const error = new APICallError({
+      message: "413 status code (no body)",
+      url: "https://example.com",
+      requestBodyValues: {},
+      statusCode: 413,
+      responseHeaders: { "content-type": "application/json" },
+      isRetryable: false,
+    })
+
+    const result = MessageV2.fromError(error, { providerID })
+    expect(result).toMatchObject({
+      name: "APIError",
+      data: {
+        statusCode: 413,
+        providerFailure: { kind: "invalid_request", code: "request_too_large" },
+      },
+    })
+    expect(MessageV2.ContextOverflowError.isInstance(result)).toBe(false)
   })
 
   test("detects context overflow from context_length_exceeded code in response body", () => {

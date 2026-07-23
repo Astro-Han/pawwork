@@ -1489,6 +1489,19 @@ export function fromError(
           { cause: e },
         ).toObject()
       }
+      if (parsed.type === "request_too_large") {
+        return new APIError(
+          {
+            message: parsed.message,
+            statusCode: parsed.statusCode,
+            isRetryable: false,
+            responseBody: parsed.responseBody,
+            providerID: ctx.providerID,
+            providerFailure: { kind: "invalid_request", code: parsed.code },
+          },
+          { cause: e },
+        ).toObject()
+      }
 
       return new APIError(
         {
@@ -1516,6 +1529,18 @@ export function fromError(
               {
                 message: parsed.message,
                 responseBody: parsed.responseBody,
+              },
+              { cause: e },
+            ).toObject()
+          }
+          if (parsed.type === "request_too_large") {
+            return new APIError(
+              {
+                message: parsed.message,
+                isRetryable: false,
+                responseBody: parsed.responseBody,
+                providerID: ctx.providerID,
+                providerFailure: { kind: "invalid_request", code: parsed.code },
               },
               { cause: e },
             ).toObject()
