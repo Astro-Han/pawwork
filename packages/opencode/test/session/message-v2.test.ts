@@ -551,6 +551,139 @@ describe("session.message-v2.toModelMessage", () => {
     })
   })
 
+  test("keeps the most recent media when the aggregate request count is over budget", async () => {
+    const userID = "m-user-media-budget"
+    const media = (index: number): MessageV2.FilePart => ({
+      ...basePart(userID, `file-${index}`),
+      type: "file",
+      mime: "image/png",
+      filename: `image-${index}.png`,
+      url: `data:image/png;base64,${Buffer.from(`image-${index}`).toString("base64")}`,
+    })
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "compare these images",
+          },
+          media(1),
+          media(2),
+          media(3),
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(
+      await MessageV2.toModelMessages(input, model, {
+        mediaMaxCount: 2,
+      }),
+    ).toStrictEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "compare these images" },
+          {
+            type: "text",
+            text: "[Attached image/png: image-1.png omitted to fit the provider request limit]",
+          },
+          {
+            type: "file",
+            mediaType: "image/png",
+            filename: "image-2.png",
+            data: media(2).url,
+          },
+          {
+            type: "file",
+            mediaType: "image/png",
+            filename: "image-3.png",
+            data: media(3).url,
+          },
+        ],
+      },
+    ])
+  })
+
+  test("keeps the most recent media when the aggregate request bytes are over budget", async () => {
+    const userID = "m-user-media-byte-budget"
+    const media = (index: number): MessageV2.FilePart => ({
+      ...basePart(userID, `byte-file-${index}`),
+      type: "file",
+      mime: "image/png",
+      filename: `byte-image-${index}.png`,
+      url: `data:image/png;base64,${Buffer.from(`data-${index}`).toString("base64")}`,
+    })
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [media(1), media(2), media(3)] as MessageV2.Part[],
+      },
+    ]
+
+    const messages = await MessageV2.toModelMessages(input, model, {
+      mediaMaxBytes: 16,
+    })
+    const serialized = JSON.stringify(messages)
+    expect(serialized).toContain("byte-image-1.png omitted to fit the provider request limit")
+    expect(serialized).not.toContain(media(1).url)
+    expect(serialized).toContain(media(2).url)
+    expect(serialized).toContain(media(3).url)
+  })
+
+  test("applies the aggregate media budget to tool-result attachments", async () => {
+    const userID = "m-user-tool-media-budget"
+    const assistantID = "m-assistant-tool-media-budget"
+    const attachment = (index: number): MessageV2.FilePart => ({
+      ...basePart(assistantID, `tool-file-${index}`),
+      type: "file",
+      mime: "application/pdf",
+      filename: `report-${index}.pdf`,
+      url: `data:application/pdf;base64,${Buffer.from(`pdf-${index}`).toString("base64")}`,
+    })
+    const tool = (index: number): MessageV2.ToolPart => ({
+      ...basePart(assistantID, `tool-${index}`),
+      type: "tool",
+      callID: `call-${index}`,
+      tool: "read",
+      state: {
+        status: "completed",
+        input: { filePath: `report-${index}.pdf` },
+        output: `read report ${index}`,
+        title: "Read",
+        metadata: {},
+        time: { start: 0, end: 1 },
+        attachments: [attachment(index)],
+      },
+    })
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "compare reports",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [tool(1), tool(2)] as MessageV2.Part[],
+      },
+    ]
+
+    const serialized = JSON.stringify(
+      await MessageV2.toModelMessages(input, model, {
+        mediaMaxCount: 1,
+      }),
+    )
+    expect(serialized).toContain("report-1.pdf omitted to fit the provider request limit")
+    expect(serialized).not.toContain(attachment(1).url.slice(attachment(1).url.indexOf(",") + 1))
+    expect(serialized).toContain(attachment(2).url.slice(attachment(2).url.indexOf(",") + 1))
+  })
+
   test("moves bedrock pdf tool-result media into a separate user message", async () => {
     const bedrockModel: Provider.Model = {
       ...model,

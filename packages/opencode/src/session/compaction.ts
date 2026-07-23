@@ -246,7 +246,7 @@ export const layer: Layer.Layer<
     }) {
       // Size the retained tail the way it actually re-enters the live prompt:
       // prompt.ts serializes messages with no options, i.e. full media and
-      // un-truncated tool output. Only the head is summarized cheaply (stripMedia
+      // un-truncated tool output. Only the head is summarized cheaply (stripped media
       // + truncation in processCompaction()); the tail is kept verbatim. Using
       // those head options here undercounts the tail, so select()/splitTurn()
       // keep recent turns that overflow the very next live prompt.
@@ -493,7 +493,7 @@ export const layer: Layer.Layer<
           const msgs = structuredClone(selected.head)
           yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
           const modelMessages = yield* MessageV2.toModelMessagesEffect(msgs, model, {
-            stripMedia: true,
+            mediaProjection: "stripped",
             toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
             toolInputMaxChars: TOOL_INPUT_MAX_CHARS,
           })
