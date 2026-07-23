@@ -2184,6 +2184,36 @@ describe("session.message-v2.fromError", () => {
     }
   })
 
+  test("classifies message-only typed stream request-size errors", () => {
+    const cases = ["413 status code (no body)", "Payload Too Large", "Request Entity Too Large"]
+
+    for (const message of cases) {
+      const payload = JSON.stringify({ type: "error", error: { message } })
+      expect(MessageV2.fromError(new Error(payload), { providerID })).toMatchObject({
+        name: "APIError",
+        data: {
+          message,
+          isRetryable: false,
+          responseBody: payload,
+          providerFailure: { kind: "invalid_request", code: "request_too_large" },
+        },
+      })
+    }
+  })
+
+  test("keeps explicit context-window evidence ahead of request-size text in typed stream errors", () => {
+    const payload = JSON.stringify({
+      type: "error",
+      error: {
+        message: "Input exceeds the context window of this model. Payload Too Large.",
+      },
+    })
+
+    expect(MessageV2.ContextOverflowError.isInstance(MessageV2.fromError(new Error(payload), { providerID }))).toBe(
+      true,
+    )
+  })
+
   test("keeps explicit context_length_exceeded precedence over HTTP 413", () => {
     const error = new APICallError({
       message: "Request failed",

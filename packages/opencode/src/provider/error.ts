@@ -451,6 +451,22 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
   }
 
   const providerMessage = typeof error.message === "string" ? error.message : undefined
+  if (providerMessage && isOverflow(providerMessage)) {
+    return {
+      type: "context_overflow",
+      message: providerMessage,
+      responseBody,
+    }
+  }
+  if (providerMessage && isRequestTooLarge(providerMessage)) {
+    return {
+      type: "request_too_large",
+      message: providerMessage,
+      responseBody,
+      code: "request_too_large",
+    }
+  }
+
   const text = `${providerMessage ?? ""}\n${responseBody}`
   // No statusCode on the stream path, so only the unconditional strong billing
   // patterns can match here (weak patterns are status-gated).
