@@ -1552,12 +1552,12 @@ it.live("retries HTTP 413 media projections with an unclassified local tool boun
           agent: agent(),
           system: [],
           messages: [{ role: "user", content: "normal media" }],
-          nextMediaMessages: (current) => {
+          nextMediaMessages: async (current) => {
             const projection = current === "normal" ? "degraded" : current === "degraded" ? "stripped" : undefined
             if (!projection) return
             return {
               projection,
-              messages: () => Promise.resolve([{ role: "user" as const, content: `${projection} media` }]),
+              messages: [{ role: "user" as const, content: `${projection} media` }],
             }
           },
           tools: {
@@ -1617,12 +1617,12 @@ it.live("stops after the stripped request media projection is also rejected with
           agent: agent(),
           system: [],
           messages: [{ role: "user", content: "normal media" }],
-          nextMediaMessages: (current) => {
+          nextMediaMessages: async (current) => {
             const projection = current === "normal" ? "degraded" : current === "degraded" ? "stripped" : undefined
             if (!projection) return
             return {
               projection,
-              messages: () => Promise.resolve([{ role: "user" as const, content: `${projection} media` }]),
+              messages: [{ role: "user" as const, content: `${projection} media` }],
             }
           },
           tools: {},

@@ -2273,6 +2273,7 @@ export const layer = Layer.effect(
             ]
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
+            const messageSuffix = isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : []
             const result = yield* handle.process({
               user: lastUser,
               agent,
@@ -2280,19 +2281,9 @@ export const layer = Layer.effect(
               sessionID,
               parentSessionID: session.parentID,
               system,
-              messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
-              nextMediaMessages: (current) => {
-                const projection = MessageV2.nextMediaProjection(msgs, current)
-                if (!projection) return
-                return {
-                  projection,
-                  messages: () =>
-                    MessageV2.toModelMessages(msgs, model, { mediaProjection: projection }).then((messages) => [
-                      ...messages,
-                      ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : []),
-                    ]),
-                }
-              },
+              messages: [...modelMsgs, ...messageSuffix],
+              nextMediaMessages: (current, currentMessages) =>
+                MessageV2.nextMediaMessages(msgs, model, current, currentMessages, messageSuffix),
               tools,
               availableDeferredTools: resolvedTools.availableDeferredTools,
               model,

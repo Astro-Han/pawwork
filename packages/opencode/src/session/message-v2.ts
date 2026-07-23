@@ -935,15 +935,29 @@ function selectedMedia(input: WithParts[], options?: ModelMessageProjectionOptio
   return selected
 }
 
-export function nextMediaProjection(input: WithParts[], current: MediaProjection) {
+function mediaProjectionsAfter(current: MediaProjection) {
   const projections: Exclude<MediaProjection, "normal">[] =
     current === "normal" ? ["degraded", "stripped"] : current === "degraded" ? ["stripped"] : []
-  const currentMedia = selectedMedia(input, { mediaProjection: current })
+  return projections
+}
+
+function modelMessagesBytes(messages: ModelMessage[]) {
+  return new TextEncoder().encode(JSON.stringify(messages)).byteLength
+}
+
+export async function nextMediaMessages(
+  input: WithParts[],
+  model: Provider.Model,
+  current: MediaProjection,
+  currentMessages: ModelMessage[],
+  suffix: ModelMessage[] = [],
+) {
+  const currentBytes = modelMessagesBytes(currentMessages)
+  const projections = mediaProjectionsAfter(current)
   for (const projection of projections) {
-    const nextMedia = selectedMedia(input, { mediaProjection: projection })
-    if (currentMedia.size !== nextMedia.size || [...currentMedia].some((part) => !nextMedia.has(part))) {
-      return projection
-    }
+    const messages = [...(await toModelMessages(input, model, { mediaProjection: projection })), ...suffix]
+    if (modelMessagesBytes(messages) >= currentBytes) continue
+    return { projection, messages }
   }
 }
 

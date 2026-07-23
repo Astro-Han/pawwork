@@ -49,12 +49,16 @@ export type Result = "compact" | "stop" | "continue"
 export type Event = LLM.Event
 
 type ProcessInput = LLM.StreamInput & {
-  nextMediaMessages?: (current: MessageV2.MediaProjection) =>
+  nextMediaMessages?: (
+    current: MessageV2.MediaProjection,
+    currentMessages: LLM.StreamInput["messages"],
+  ) => Promise<
     | {
         projection: Exclude<MessageV2.MediaProjection, "normal">
-        messages: () => Promise<LLM.StreamInput["messages"]>
+        messages: LLM.StreamInput["messages"]
       }
     | undefined
+  >
   toolDrainTimeoutMs?: number
 }
 
@@ -1750,7 +1754,8 @@ export const layer: Layer.Layer<
         let automaticStreamRetriesUsed = 0
         let safeRetryNoticeWritten = false
         let mediaProjection: MessageV2.MediaProjection = "normal"
-        let projectMediaMessages: (() => Promise<LLM.StreamInput["messages"]>) | undefined
+        let projectedMediaMessages: LLM.StreamInput["messages"] | undefined
+        let currentMessages = streamInput.messages
 
         const retryStillAllowed = Effect.fn("SessionProcessor.retryStillAllowed")(function* (stage: string) {
           const lifecycleAction = currentLifecycleCloseAction(ctx.directory)
@@ -1945,8 +1950,8 @@ export const layer: Layer.Layer<
           })
           let stream: Stream.Stream<LLM.Event, unknown>
           try {
-            const projector = projectMediaMessages
-            const messages = projector ? yield* Effect.promise(() => projector()) : streamInput.messages
+            const messages = projectedMediaMessages ?? streamInput.messages
+            currentMessages = messages
             const { nextMediaMessages: _, toolDrainTimeoutMs: __, ...llmInput } = streamInput
             stream = llm.stream({
               ...ProviderTransform.streamTimeouts(llmInput.model),
@@ -1997,9 +2002,11 @@ export const layer: Layer.Layer<
 
             const attemptID = processAttemptID
             const parsedError = parse(result.error)
-            const nextMedia = isRequestTooLarge(parsedError)
-              ? streamInput.nextMediaMessages?.(mediaProjection)
-              : undefined
+            const nextMedia = yield* Effect.promise(() =>
+              isRequestTooLarge(parsedError) && streamInput.nextMediaMessages
+                ? streamInput.nextMediaMessages(mediaProjection, currentMessages)
+                : Promise.resolve(undefined),
+            )
             const retrySignal = retrySignalFor(
               result.error,
               parsedError,
@@ -2075,7 +2082,7 @@ export const layer: Layer.Layer<
               if (beforeRetry.allowed) {
                 automaticStreamRetriesUsed += 1
                 mediaProjection = nextMedia.projection
-                projectMediaMessages = nextMedia.messages
+                projectedMediaMessages = nextMedia.messages
                 yield* removeReasoningForAttempt(attemptID)
                 ctx.runTrace.recordAutoRetryAttempted({
                   attemptID,

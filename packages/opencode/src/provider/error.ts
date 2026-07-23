@@ -329,9 +329,34 @@ export type ParsedStreamError =
       code?: string
     }
 
+function parseBareStreamMessage(input: unknown): ParsedStreamError | undefined {
+  const message =
+    typeof input === "string"
+      ? input
+      : isRecord(input) && typeof input.message === "string"
+        ? input.message
+        : undefined
+  if (!message) return
+  if (isOverflow(message)) {
+    return {
+      type: "context_overflow",
+      message,
+      responseBody: message,
+    }
+  }
+  if (isRequestTooLarge(message)) {
+    return {
+      type: "request_too_large",
+      message,
+      responseBody: message,
+      code: "request_too_large",
+    }
+  }
+}
+
 export function parseStreamError(input: unknown): ParsedStreamError | undefined {
   const raw = json(input)
-  if (!isRecord(raw)) return
+  if (!isRecord(raw)) return parseBareStreamMessage(input)
 
   const inner = typeof raw.message === "string" ? json(raw.message) : undefined
   const cause = isRecord(raw.cause) ? raw.cause : undefined
@@ -342,7 +367,7 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
 
   const responseBody = JSON.stringify(body)
   const error = body.type === "error" && isRecord(body.error) ? body.error : isBareProviderError(body) ? body : undefined
-  if (!error) return
+  if (!error) return parseBareStreamMessage(input)
 
   // Read code from the resolved error only (never dig into an untyped body —
   // that is the over-match guard `if (!error) return` above protects). Fall back

@@ -606,7 +606,7 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
-  test("has no lower request media projection when history contains no media", () => {
+  test("has no lower request media projection when history contains no media", async () => {
     const userID = "m-user-no-media"
     const input: MessageV2.WithParts[] = [
       {
@@ -621,10 +621,11 @@ describe("session.message-v2.toModelMessage", () => {
       },
     ]
 
-    expect(MessageV2.nextMediaProjection(input, "normal")).toBeUndefined()
+    const messages = await MessageV2.toModelMessages(input, model)
+    expect(await MessageV2.nextMediaMessages(input, model, "normal", messages)).toBeUndefined()
   })
 
-  test("skips degraded projection when it would retain the same media", () => {
+  test("skips degraded projection when it would retain the same media", async () => {
     const userID = "m-user-one-media"
     const input: MessageV2.WithParts[] = [
       {
@@ -641,7 +642,29 @@ describe("session.message-v2.toModelMessage", () => {
       },
     ]
 
-    expect(MessageV2.nextMediaProjection(input, "normal")).toBe("stripped")
+    const messages = await MessageV2.toModelMessages(input, model)
+    expect(await MessageV2.nextMediaMessages(input, model, "normal", messages)).toMatchObject({
+      projection: "stripped",
+    })
+  })
+
+  test("has no lower request projection when omission markers would not shrink the payload", async () => {
+    const userID = "m-user-tiny-media"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: Array.from({ length: 3 }, (_, index) => ({
+          ...basePart(userID, `tiny-${index}`),
+          type: "file",
+          mime: "image/png",
+          filename: "x",
+          url: "data:image/png;base64,",
+        })) as MessageV2.Part[],
+      },
+    ]
+
+    const messages = await MessageV2.toModelMessages(input, model)
+    expect(await MessageV2.nextMediaMessages(input, model, "normal", messages)).toBeUndefined()
   })
 
   test("uses only serializable messages when selecting request media", async () => {
@@ -691,7 +714,9 @@ describe("session.message-v2.toModelMessage", () => {
 
     const messages = await MessageV2.toModelMessages(input, model)
     expect(JSON.stringify(messages)).toContain(visible.url)
-    expect(MessageV2.nextMediaProjection(input, "normal")).toBe("stripped")
+    expect(await MessageV2.nextMediaMessages(input, model, "normal", messages)).toMatchObject({
+      projection: "stripped",
+    })
   })
 
   test("keeps the most recent media when the aggregate request bytes are over budget", async () => {
@@ -2142,6 +2167,21 @@ describe("session.message-v2.fromError", () => {
       },
     })
     expect(MessageV2.ContextOverflowError.isInstance(result)).toBe(false)
+  })
+
+  test("classifies bare request-size errors without structured provider metadata", () => {
+    const cases = ["413 status code (no body)", "Payload Too Large", "Request Entity Too Large"]
+
+    for (const message of cases) {
+      expect(MessageV2.fromError(new Error(message), { providerID })).toMatchObject({
+        name: "APIError",
+        data: {
+          message,
+          isRetryable: false,
+          providerFailure: { kind: "invalid_request", code: "request_too_large" },
+        },
+      })
+    }
   })
 
   test("keeps explicit context_length_exceeded precedence over HTTP 413", () => {
