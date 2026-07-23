@@ -251,8 +251,9 @@ export function deriveCommandTitleSeed(parts: ReadonlyArray<MessageV2.Part>): st
   return "Command: /" + name + (args.length > 0 ? " " + args : "")
 }
 
-function officePathOnly(filepath: string) {
-  return OFFICE_EXTS.has(pathSuffix(filepath))
+function documentPathOnly(filepath: string) {
+  const suffix = pathSuffix(filepath)
+  return OFFICE_EXTS.has(suffix) || suffix === "pdf"
 }
 
 function attachedLocalFileText(filepath: string, filename?: string) {
@@ -1537,7 +1538,7 @@ export const layer = Layer.effect(
               }
 
               if (part.mime === "text/plain") {
-                if (officePathOnly(filepath)) {
+                if (documentPathOnly(filepath)) {
                   return [
                     {
                       messageID: info.id,

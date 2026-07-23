@@ -1530,7 +1530,7 @@ it.live("tells the model when image content cannot be provided to it", () =>
   ),
 )
 
-it.live("text file part promotes PDF attachment when model has image input", () =>
+it.live("text file part keeps PDF path-only when model has image input", () =>
   provideTmpdirInstance(
     (dir) =>
       Effect.gen(function* () {
@@ -1551,7 +1551,13 @@ it.live("text file part promotes PDF attachment when model has image input", () 
           ],
         })
 
-        expect(msg.parts.some((part) => part.type === "file" && part.mime === "application/pdf")).toBe(true)
+        expect(msg.parts.some((part) => part.type === "file" && part.mime === "application/pdf")).toBe(false)
+        expect(msg.parts.some((part) => part.type === "file" && part.url === pdfUrl)).toBe(true)
+        expect(
+          msg.parts.some(
+            (part) => part.type === "text" && part.synthetic && part.text === `Attached local file by path: ${pdf}`,
+          ),
+        ).toBe(true)
       }),
     { git: true, config: imageCfg },
   ),
