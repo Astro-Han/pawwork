@@ -1552,8 +1552,14 @@ it.live("retries HTTP 413 with degraded then stripped request media projections"
           agent: agent(),
           system: [],
           messages: [{ role: "user", content: "normal media" }],
-          projectMediaMessages: (projection) =>
-            Promise.resolve([{ role: "user" as const, content: `${projection} media` }]),
+          nextMediaMessages: (current) => {
+            const projection = current === "normal" ? "degraded" : current === "degraded" ? "stripped" : undefined
+            if (!projection) return
+            return {
+              projection,
+              messages: () => Promise.resolve([{ role: "user" as const, content: `${projection} media` }]),
+            }
+          },
           tools: {},
         })
 
@@ -1606,8 +1612,14 @@ it.live("stops after the stripped request media projection is also rejected with
           agent: agent(),
           system: [],
           messages: [{ role: "user", content: "normal media" }],
-          projectMediaMessages: (projection) =>
-            Promise.resolve([{ role: "user" as const, content: `${projection} media` }]),
+          nextMediaMessages: (current) => {
+            const projection = current === "normal" ? "degraded" : current === "degraded" ? "stripped" : undefined
+            if (!projection) return
+            return {
+              projection,
+              messages: () => Promise.resolve([{ role: "user" as const, content: `${projection} media` }]),
+            }
+          },
           tools: {},
         })
 

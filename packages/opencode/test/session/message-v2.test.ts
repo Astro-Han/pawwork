@@ -606,6 +606,44 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
+  test("has no lower request media projection when history contains no media", () => {
+    const userID = "m-user-no-media"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "a large text-only request",
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(MessageV2.nextMediaProjection(input, "normal")).toBeUndefined()
+  })
+
+  test("skips degraded projection when it would retain the same media", () => {
+    const userID = "m-user-one-media"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "file-1"),
+            type: "file",
+            mime: "image/png",
+            filename: "only-image.png",
+            url: "data:image/png;base64,aW1hZ2U=",
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(MessageV2.nextMediaProjection(input, "normal")).toBe("stripped")
+  })
+
   test("keeps the most recent media when the aggregate request bytes are over budget", async () => {
     const userID = "m-user-media-byte-budget"
     const media = (index: number): MessageV2.FilePart => ({
@@ -2054,6 +2092,45 @@ describe("session.message-v2.fromError", () => {
       },
     })
     expect(MessageV2.ContextOverflowError.isInstance(result)).toBe(false)
+  })
+
+  test("keeps explicit context_length_exceeded precedence over HTTP 413", () => {
+    const error = new APICallError({
+      message: "Request failed",
+      url: "https://example.com",
+      requestBodyValues: {},
+      statusCode: 413,
+      responseHeaders: { "content-type": "application/json" },
+      responseBody: JSON.stringify({
+        error: {
+          message: "Input exceeds the context window",
+          code: "context_length_exceeded",
+        },
+      }),
+      isRetryable: false,
+    })
+
+    const result = MessageV2.fromError(error, { providerID })
+    expect(MessageV2.ContextOverflowError.isInstance(result)).toBe(true)
+  })
+
+  test("keeps an explicit context-window message precedence over bare HTTP 413", () => {
+    const error = new APICallError({
+      message: "Request failed",
+      url: "https://example.com",
+      requestBodyValues: {},
+      statusCode: 413,
+      responseHeaders: { "content-type": "application/json" },
+      responseBody: JSON.stringify({
+        error: {
+          message: "Input exceeds the context window of this model",
+        },
+      }),
+      isRetryable: false,
+    })
+
+    const result = MessageV2.fromError(error, { providerID })
+    expect(MessageV2.ContextOverflowError.isInstance(result)).toBe(true)
   })
 
   test("detects context overflow from context_length_exceeded code in response body", () => {

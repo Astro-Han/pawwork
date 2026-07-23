@@ -926,6 +926,18 @@ function selectedMedia(input: WithParts[], options?: ModelMessageProjectionOptio
   return selected
 }
 
+export function nextMediaProjection(input: WithParts[], current: MediaProjection) {
+  const projections: Exclude<MediaProjection, "normal">[] =
+    current === "normal" ? ["degraded", "stripped"] : current === "degraded" ? ["stripped"] : []
+  const currentMedia = selectedMedia(input, { mediaProjection: current })
+  for (const projection of projections) {
+    const nextMedia = selectedMedia(input, { mediaProjection: projection })
+    if (currentMedia.size !== nextMedia.size || [...currentMedia].some((part) => !nextMedia.has(part))) {
+      return projection
+    }
+  }
+}
+
 function omittedMedia(part: Pick<FilePart, "mime" | "filename">) {
   return `[Attached ${part.mime}: ${part.filename ?? "file"} omitted to fit the provider request limit]`
 }

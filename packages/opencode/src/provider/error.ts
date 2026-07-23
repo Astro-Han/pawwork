@@ -493,25 +493,22 @@ export function parseAPICallError(input: { providerID: ProviderID; error: APICal
   const body = json(input.error.responseBody)
   const code = extractProviderCode(body)
   const modelUnavailable = isOpenCodeModelUnavailable(input.providerID, body)
-  if (
-    input.error.statusCode === 413 ||
-    code === "request_too_large" ||
-    code === "payload_too_large" ||
-    isRequestTooLarge(m)
-  ) {
+  const requestTooLarge =
+    code === "request_too_large" || code === "payload_too_large" || isRequestTooLarge(m)
+  if (code === "context_length_exceeded" || (isOverflow(m) && !requestTooLarge)) {
+    return {
+      type: "context_overflow",
+      message: m,
+      responseBody: input.error.responseBody,
+    }
+  }
+  if (input.error.statusCode === 413 || requestTooLarge) {
     return {
       type: "request_too_large",
       message: m,
       statusCode: input.error.statusCode,
       responseBody: input.error.responseBody,
       code: code ?? "request_too_large",
-    }
-  }
-  if (isOverflow(m) || code === "context_length_exceeded") {
-    return {
-      type: "context_overflow",
-      message: m,
-      responseBody: input.error.responseBody,
     }
   }
 

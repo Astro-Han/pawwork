@@ -2281,11 +2281,18 @@ export const layer = Layer.effect(
               parentSessionID: session.parentID,
               system,
               messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
-              projectMediaMessages: (projection) =>
-                MessageV2.toModelMessages(msgs, model, { mediaProjection: projection }).then((messages) => [
-                  ...messages,
-                  ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : []),
-                ]),
+              nextMediaMessages: (current) => {
+                const projection = MessageV2.nextMediaProjection(msgs, current)
+                if (!projection) return
+                return {
+                  projection,
+                  messages: () =>
+                    MessageV2.toModelMessages(msgs, model, { mediaProjection: projection }).then((messages) => [
+                      ...messages,
+                      ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : []),
+                    ]),
+                }
+              },
               tools,
               availableDeferredTools: resolvedTools.availableDeferredTools,
               model,

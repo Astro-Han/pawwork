@@ -49,9 +49,12 @@ export type Result = "compact" | "stop" | "continue"
 export type Event = LLM.Event
 
 type ProcessInput = LLM.StreamInput & {
-  projectMediaMessages?: (
-    projection: Exclude<MessageV2.MediaProjection, "normal">,
-  ) => Promise<LLM.StreamInput["messages"]>
+  nextMediaMessages?: (current: MessageV2.MediaProjection) =>
+    | {
+        projection: Exclude<MessageV2.MediaProjection, "normal">
+        messages: () => Promise<LLM.StreamInput["messages"]>
+      }
+    | undefined
   toolDrainTimeoutMs?: number
 }
 
@@ -454,6 +457,11 @@ export const layer: Layer.Layer<
           providerID: input.model.providerID,
           aborted,
         })
+      const isRequestTooLarge = (error: NonNullable<MessageV2.Assistant["error"]>) =>
+        MessageV2.APIError.isInstance(error) &&
+        (error.data.statusCode === 413 ||
+          error.data.providerFailure?.code === "request_too_large" ||
+          error.data.providerFailure?.code === "payload_too_large")
 
       const releaseToolLifecycleWaiters = Effect.fn("SessionProcessor.releaseToolLifecycleWaiters")(function* (
         call: ToolLifecycleRecord,
@@ -1742,6 +1750,7 @@ export const layer: Layer.Layer<
         let automaticStreamRetriesUsed = 0
         let safeRetryNoticeWritten = false
         let mediaProjection: MessageV2.MediaProjection = "normal"
+        let projectMediaMessages: (() => Promise<LLM.StreamInput["messages"]>) | undefined
 
         const retryStillAllowed = Effect.fn("SessionProcessor.retryStillAllowed")(function* (stage: string) {
           const lifecycleAction = currentLifecycleCloseAction(ctx.directory)
@@ -1810,10 +1819,7 @@ export const layer: Layer.Layer<
               }
             : undefined
           const providerMessage = apiError?.data.message
-          const requestTooLarge =
-            apiError?.data.statusCode === 413 ||
-            apiError?.data.providerFailure?.code === "request_too_large" ||
-            apiError?.data.providerFailure?.code === "payload_too_large"
+          const requestTooLarge = isRequestTooLarge(parsed)
           if (requestTooLarge) {
             return {
               retryable: canReduceRequestMedia,
@@ -1939,15 +1945,9 @@ export const layer: Layer.Layer<
           })
           let stream: Stream.Stream<LLM.Event, unknown>
           try {
-            const projectedMedia = mediaProjection === "normal" ? undefined : mediaProjection
-            const projectMediaMessages = streamInput.projectMediaMessages
-            const messages =
-              projectedMedia === undefined
-                ? streamInput.messages
-                : projectMediaMessages
-                  ? yield* Effect.promise(() => projectMediaMessages(projectedMedia))
-                  : streamInput.messages
-            const { projectMediaMessages: _, toolDrainTimeoutMs: __, ...llmInput } = streamInput
+            const projector = projectMediaMessages
+            const messages = projector ? yield* Effect.promise(() => projector()) : streamInput.messages
+            const { nextMediaMessages: _, toolDrainTimeoutMs: __, ...llmInput } = streamInput
             stream = llm.stream({
               ...ProviderTransform.streamTimeouts(llmInput.model),
               ...llmInput,
@@ -1997,12 +1997,13 @@ export const layer: Layer.Layer<
 
             const attemptID = processAttemptID
             const parsedError = parse(result.error)
-            const nextMediaProjection =
-              mediaProjection === "normal" ? "degraded" : mediaProjection === "degraded" ? "stripped" : undefined
+            const nextMedia = isRequestTooLarge(parsedError)
+              ? streamInput.nextMediaMessages?.(mediaProjection)
+              : undefined
             const retrySignal = retrySignalFor(
               result.error,
               parsedError,
-              nextMediaProjection !== undefined && streamInput.projectMediaMessages !== undefined,
+              nextMedia !== undefined,
             )
             yield* finalizeToolLifecycles()
             const decision = ctx.runTrace.recordAttemptFailureAndDeriveRecovery({
@@ -2065,7 +2066,7 @@ export const layer: Layer.Layer<
 
             if (
               attemptID &&
-              nextMediaProjection &&
+              nextMedia &&
               retrySignal.requestTooLarge &&
               retryDecision.canRetry &&
               retryDecision.recoveryMode === "replay"
@@ -2073,7 +2074,8 @@ export const layer: Layer.Layer<
               const beforeRetry = yield* retryStillAllowed("before_media_projection_retry")
               if (beforeRetry.allowed) {
                 automaticStreamRetriesUsed += 1
-                mediaProjection = nextMediaProjection
+                mediaProjection = nextMedia.projection
+                projectMediaMessages = nextMedia.messages
                 yield* removeReasoningForAttempt(attemptID)
                 ctx.runTrace.recordAutoRetryAttempted({
                   attemptID,
