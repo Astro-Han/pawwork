@@ -63,7 +63,6 @@ export function recoveryFor(input: {
   }
   if (
     canAutoRetryBeforeFirstProviderProgress({
-      cause: input.cause,
       facts: input.facts,
       terminalFacts,
       retryableProviderFailure,
@@ -193,14 +192,12 @@ export function recoveryFor(input: {
 }
 
 function canAutoRetryBeforeFirstProviderProgress(input: {
-  cause: TerminalCause
   facts: IncidentFacts
   terminalFacts: IncidentFacts
   retryableProviderFailure: boolean
 }) {
   if (!input.retryableProviderFailure) return false
   if (input.facts.user_cancel_seen || input.facts.lifecycle_close_seen) return false
-  if (!isBeforeFirstProviderProgressCause(input.cause)) return false
   if (input.terminalFacts.provider_progress_seen) return false
   if (!attemptHasNoOutputOrToolActivity(input.terminalFacts)) return false
   return boundaryAllowsBeforeProgressRetry(input.terminalFacts.side_effect_boundary_snapshot)

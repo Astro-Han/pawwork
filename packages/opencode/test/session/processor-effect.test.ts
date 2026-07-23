@@ -1517,7 +1517,7 @@ it.live("surfaces a terminal provider API error's real message instead of a conn
   ),
 )
 
-it.live("retries HTTP 413 with degraded then stripped request media projections", () =>
+it.live("retries HTTP 413 media projections with an unclassified local tool boundary", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
       Effect.gen(function* () {
@@ -1560,7 +1560,12 @@ it.live("retries HTTP 413 with degraded then stripped request media projections"
               messages: () => Promise.resolve([{ role: "user" as const, content: `${projection} media` }]),
             }
           },
-          tools: {},
+          tools: {
+            edit: tool({
+              description: "ordinary local tool with incomplete effect classification",
+              inputSchema: z.object({}),
+            }),
+          },
         })
 
         const inputs = yield* llm.inputs

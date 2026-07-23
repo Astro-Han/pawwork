@@ -495,7 +495,8 @@ export function parseAPICallError(input: { providerID: ProviderID; error: APICal
   const modelUnavailable = isOpenCodeModelUnavailable(input.providerID, body)
   const requestTooLarge =
     code === "request_too_large" || code === "payload_too_large" || isRequestTooLarge(m)
-  if (code === "context_length_exceeded" || (isOverflow(m) && !requestTooLarge)) {
+  const contextOverflow = code === "context_length_exceeded" || isOverflow(m)
+  if (contextOverflow) {
     return {
       type: "context_overflow",
       message: m,

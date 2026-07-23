@@ -644,6 +644,56 @@ describe("session.message-v2.toModelMessage", () => {
     expect(MessageV2.nextMediaProjection(input, "normal")).toBe("stripped")
   })
 
+  test("uses only serializable messages when selecting request media", async () => {
+    const userID = "m-user-visible-media"
+    const assistantID = "m-assistant-filtered-media"
+    const media = (messageID: string, id: string): MessageV2.FilePart => ({
+      ...basePart(messageID, id),
+      type: "file",
+      mime: "image/png",
+      filename: `${id}.png`,
+      url: `data:image/png;base64,${Buffer.from(id).toString("base64")}`,
+    })
+    const visible = media(userID, "visible")
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [visible] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(
+          assistantID,
+          userID,
+          new MessageV2.APIError({
+            message: "fatal provider failure",
+            isRetryable: false,
+          }).toObject() as MessageV2.APIError,
+        ),
+        parts: [
+          {
+            ...basePart(assistantID, "tool-filtered-media"),
+            type: "tool",
+            callID: "call-filtered-media",
+            tool: "read",
+            state: {
+              status: "completed",
+              input: {},
+              output: "filtered",
+              title: "Read",
+              metadata: {},
+              time: { start: 0, end: 1 },
+              attachments: Array.from({ length: 8 }, (_, index) => media(assistantID, `filtered-${index}`)),
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const messages = await MessageV2.toModelMessages(input, model)
+    expect(JSON.stringify(messages)).toContain(visible.url)
+    expect(MessageV2.nextMediaProjection(input, "normal")).toBe("stripped")
+  })
+
   test("keeps the most recent media when the aggregate request bytes are over budget", async () => {
     const userID = "m-user-media-byte-budget"
     const media = (index: number): MessageV2.FilePart => ({
@@ -2117,6 +2167,25 @@ describe("session.message-v2.fromError", () => {
   test("keeps an explicit context-window message precedence over bare HTTP 413", () => {
     const error = new APICallError({
       message: "Request failed",
+      url: "https://example.com",
+      requestBodyValues: {},
+      statusCode: 413,
+      responseHeaders: { "content-type": "application/json" },
+      responseBody: JSON.stringify({
+        error: {
+          message: "Input exceeds the context window of this model",
+        },
+      }),
+      isRetryable: false,
+    })
+
+    const result = MessageV2.fromError(error, { providerID })
+    expect(MessageV2.ContextOverflowError.isInstance(result)).toBe(true)
+  })
+
+  test("keeps an explicit context-window message precedence over the HTTP 413 reason phrase", () => {
+    const error = new APICallError({
+      message: "Payload Too Large",
       url: "https://example.com",
       requestBodyValues: {},
       statusCode: 413,

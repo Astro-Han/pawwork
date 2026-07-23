@@ -884,9 +884,18 @@ const MEDIA_MAX_BYTES = 12 * 1024 * 1024
 const MEDIA_MAX_COUNT = 8
 const MEDIA_DEGRADED_MAX_COUNT = 2
 
+function shouldSerializeMessage(message: WithParts) {
+  if (message.info.role !== "assistant" || !message.info.error) return true
+  return (
+    AbortedError.isInstance(message.info.error) &&
+    message.parts.some((part) => part.type !== "step-start" && part.type !== "reasoning")
+  )
+}
+
 function mediaCandidates(input: WithParts[]) {
   const candidates: FilePart[] = []
   for (const message of input) {
+    if (!shouldSerializeMessage(message)) continue
     for (const part of message.parts) {
       if (part.type === "file" && isMedia(part.mime)) candidates.push(part)
       if (part.type !== "tool" || part.state.status !== "completed" || part.state.time.compacted) continue
@@ -1006,7 +1015,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
   }
 
   for (const msg of input) {
-    if (msg.parts.length === 0) continue
+    if (msg.parts.length === 0 || !shouldSerializeMessage(msg)) continue
 
     if (msg.info.role === "user") {
       const userMessage: UIMessage = {
@@ -1057,15 +1066,6 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
       const differentModel = `${model.providerID}/${model.id}` !== `${msg.info.providerID}/${msg.info.modelID}`
       const media: Array<{ mime: string; url: string; filename?: string }> = []
 
-      if (
-        msg.info.error &&
-        !(
-          AbortedError.isInstance(msg.info.error) &&
-          msg.parts.some((part) => part.type !== "step-start" && part.type !== "reasoning")
-        )
-      ) {
-        continue
-      }
       const assistantMessage: UIMessage = {
         id: msg.info.id,
         role: "assistant",
