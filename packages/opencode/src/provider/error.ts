@@ -374,6 +374,15 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
   // to error.type so providers that put the code under `type` still classify.
   const code =
     typeof error.code === "string" ? error.code : typeof error.type === "string" ? error.type : undefined
+  const providerMessage = typeof error.message === "string" ? error.message : undefined
+  if (providerMessage && isOverflow(providerMessage)) {
+    return {
+      type: "context_overflow",
+      message: providerMessage,
+      responseBody,
+    }
+  }
+
   switch (code) {
     case "request_too_large":
     case "payload_too_large":
@@ -450,14 +459,6 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
       }
   }
 
-  const providerMessage = typeof error.message === "string" ? error.message : undefined
-  if (providerMessage && isOverflow(providerMessage)) {
-    return {
-      type: "context_overflow",
-      message: providerMessage,
-      responseBody,
-    }
-  }
   if (providerMessage && isRequestTooLarge(providerMessage)) {
     return {
       type: "request_too_large",

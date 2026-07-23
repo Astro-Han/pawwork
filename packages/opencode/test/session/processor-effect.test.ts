@@ -1647,6 +1647,71 @@ it.live("retries a message-only typed stream 413 with a smaller media projection
   ),
 )
 
+it.live("compacts typed stream context overflow before considering request-size projection", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.push(
+          raw({
+            chunks: [
+              {
+                type: "error",
+                error: {
+                  code: "request_too_large",
+                  message: "Input exceeds the context window of this model. Payload Too Large.",
+                },
+              },
+            ],
+          }),
+        )
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "inspect attachments")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          safeRecoveryDelay: FAST_SAFE_RECOVERY_DELAY,
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+        let projectionCalls = 0
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "normal media payload" }],
+          nextMediaMessages: async () => {
+            projectionCalls += 1
+            return {
+              projection: "stripped",
+              messages: [{ role: "user", content: "stripped" }],
+            }
+          },
+          tools: {},
+        })
+
+        expect(value).toBe("compact")
+        expect(yield* llm.calls).toBe(1)
+        expect(projectionCalls).toBe(0)
+        expect(handle.message.error).toBeUndefined()
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("stops after the stripped request media projection is also rejected with HTTP 413", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
