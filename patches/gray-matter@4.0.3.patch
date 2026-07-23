@@ -1,0 +1,24 @@
+diff --git a/lib/engines.js b/lib/engines.js
+index 38f993db06cf364191ac635a6590c2d29303297d..1dfec8d9527653ad9ccfaacfa59732246fdb1e32 100644
+--- a/lib/engines.js
++++ b/lib/engines.js
+@@ -15,4 +15,4 @@
+ engines.yaml = {
+-  parse: yaml.safeLoad.bind(yaml),
+-  stringify: yaml.safeDump.bind(yaml)
++  parse: yaml.load.bind(yaml),
++  stringify: yaml.dump.bind(yaml)
+ };
+diff --git a/package.json b/package.json
+index c5a1fff7587dd332d26865381eeaf76ef425eb80..3ba2e022b0c31b5ad49be6fe0139ace4a68f90aa 100644
+--- a/package.json
++++ b/package.json
+@@ -34,7 +34,7 @@
+     "test": "mocha"
+   },
+   "dependencies": {
+-    "js-yaml": "^3.13.1",
++    "js-yaml": "^4.3.0",
+     "kind-of": "^6.0.2",
+     "section-matter": "^1.0.0",
+     "strip-bom-string": "^1.0.0"

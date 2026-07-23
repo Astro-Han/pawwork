@@ -42,7 +42,7 @@
     "@types/node": "catalog:",
     "@types/sortablejs": "1.15.9",
     "@typescript/native-preview": "catalog:",
-    "sharp": "0.34.5",
+    "sharp": "0.35.3",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plugin-icons-spritesheet": "3.0.1",

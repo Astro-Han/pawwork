@@ -1,4 +1,5 @@
 import { expect, test, describe } from "bun:test"
+import matter from "gray-matter"
 import { ConfigMarkdown } from "../../src/config"
 
 describe("ConfigMarkdown: normal template", () => {
@@ -169,6 +170,14 @@ describe("ConfigMarkdown: frontmatter parsing", async () => {
     expect(parsed.content).toContain("fake_field: this is not yaml")
     expect(parsed.content).toContain("url: https://should-not-be-parsed.com:3000")
   })
+})
+
+test("gray-matter parses and stringifies frontmatter with the patched js-yaml API", () => {
+  const source = matter.stringify("Body", { name: "test" })
+  const parsed = matter(source)
+
+  expect(parsed.data.name).toBe("test")
+  expect(parsed.content.trim()).toBe("Body")
 })
 
 describe("ConfigMarkdown: frontmatter parsing w/ empty frontmatter", async () => {
