@@ -115,6 +115,12 @@
     gap: var(--space-md);
   }
 
+  [data-slot="assistant-turn-footer-actions"] {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+  }
+
   [data-slot="session-turn-message-container"]:hover [data-slot="assistant-turn-footer"],
   [data-slot="session-turn-message-container"]:focus-within [data-slot="assistant-turn-footer"] {
     opacity: 1;

@@ -1,9 +1,10 @@
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { createMemo, createEffect, createSignal, on } from "solid-js"
 import { createMediaQuery } from "@solid-primitives/media"
+import { base64Encode } from "@opencode-ai/util/encode"
 import { useLocal } from "@/context/local"
 import { useFile } from "@/context/file"
-import { useLocation, useSearchParams } from "@solidjs/router"
+import { useLocation, useNavigate, useSearchParams } from "@solidjs/router"
 import { useComments } from "@/context/comments"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -60,6 +61,7 @@ export default function Page() {
   const comments = useComments()
   const terminal = useTerminal()
   const location = useLocation()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string; skill?: string }>()
   const { params, tabs, view } = useSessionLayout()
 
@@ -395,7 +397,28 @@ export default function Page() {
     roll: revertSupport.roll,
   })
 
-  const actions = { revert: sessionRevert.revert }
+  const fork = async (input: { sessionID: string; messageID: string }) => {
+    const nextUserMessage = sync.data.message[input.sessionID]?.find(
+      (message) => message.role === "user" && message.id > input.messageID,
+    )
+
+    try {
+      const result = await sdk.client.session.fork({
+        sessionID: input.sessionID,
+        ...(nextUserMessage ? { messageID: nextUserMessage.id } : {}),
+      })
+      const forked = result.data
+      if (!forked) {
+        fail(result.error ?? new Error("Failed to fork session"))
+        return
+      }
+      navigate(`/${base64Encode(sdk.directory)}/session/${forked.id}`)
+    } catch (error) {
+      fail(error)
+    }
+  }
+
+  const actions = { fork, revert: sessionRevert.revert }
 
   createEffect(
     on(

@@ -453,6 +453,11 @@ export function SessionTurn(
                       text={target().text}
                       message={target().message}
                       turnDurationMs={turnDurationMs()}
+                      onFork={
+                        props.actions?.fork
+                          ? () => props.actions?.fork?.({ sessionID: props.sessionID, messageID: props.messageID })
+                          : undefined
+                      }
                     />
                   )}
                 </Show>
