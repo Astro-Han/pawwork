@@ -111,20 +111,24 @@
   "overrides": {
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
+    "brace-expansion": "5.0.8",
     "@xmldom/xmldom": "0.8.13",
     "fast-uri": "3.1.4",
     "fastify": "5.8.5",
     "form-data": "4.0.6",
+    "find-my-way": "9.7.0",
     "hono": "catalog:",
     "esbuild": "0.28.1",
     "lodash": "4.18.1",
     "js-yaml": "4.3.0",
+    "postcss": "8.5.23",
     "sigstore": "4.1.1",
     "tar": "7.5.21",
     "ws": "8.21.0",
     "tmp": "0.2.7"
   },
   "patchedDependencies": {
-    "gray-matter@4.0.3": "patches/gray-matter@4.0.3.patch"
+    "gray-matter@4.0.3": "patches/gray-matter@4.0.3.patch",
+    "brace-expansion@5.0.8": "patches/brace-expansion@5.0.8.patch"
   }
 }
