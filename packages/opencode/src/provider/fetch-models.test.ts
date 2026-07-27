@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test"
 import { FetchModels } from "@/provider/fetch-models"
 
+const resolveCompatible = (input: Omit<FetchModels.ResolveInput, "providerID" | "providerNPMs">) =>
+  FetchModels.resolve({
+    providerID: "custom-gateway",
+    providerNPMs: ["@ai-sdk/openai-compatible"],
+    ...input,
+  })
+
 test("parses OpenAI-compatible { data: [...] } shape", () => {
   expect(FetchModels.parse({ data: [{ id: "a" }, { id: "b", name: "Model B" }] })).toEqual([
     { id: "a", name: "a" },
@@ -44,49 +51,72 @@ test("throws on an unrecognized response shape", () => {
 })
 
 test("builds the /models endpoint and normalizes trailing slashes", () => {
-  expect(FetchModels.endpoint("https://gateway.example/v1")).toBe("https://gateway.example/v1/models")
-  expect(FetchModels.endpoint("https://gateway.example/v1/")).toBe("https://gateway.example/v1/models")
-  expect(FetchModels.endpoint("  https://gateway.example/v1//  ")).toBe("https://gateway.example/v1/models")
+  expect(resolveCompatible({ providerBaseURL: "https://gateway.example/v1" })?.endpoint).toBe(
+    "https://gateway.example/v1/models",
+  )
+  expect(resolveCompatible({ providerBaseURL: "https://gateway.example/v1/" })?.endpoint).toBe(
+    "https://gateway.example/v1/models",
+  )
+  expect(resolveCompatible({ providerBaseURL: "  https://gateway.example/v1//  " })?.endpoint).toBe(
+    "https://gateway.example/v1/models",
+  )
 })
 
-test("request: base URL precedence is endpoint > baseURL > catalog", () => {
+test("resolves base URL precedence as endpoint > baseURL > configured provider API > catalog", () => {
   expect(
-    FetchModels.request({
+    resolveCompatible({
       configOptions: { endpoint: "https://endpoint.example", baseURL: "https://base.example" },
+      providerBaseURL: "https://configured.example",
       catalogBaseURL: "https://catalog.example",
-    })?.baseURL,
-  ).toBe("https://endpoint.example")
+    })?.endpoint,
+  ).toBe("https://endpoint.example/models")
   expect(
-    FetchModels.request({ configOptions: { baseURL: "https://base.example" }, catalogBaseURL: "https://catalog.example" })
-      ?.baseURL,
-  ).toBe("https://base.example")
-  expect(FetchModels.request({ catalogBaseURL: "https://catalog.example" })?.baseURL).toBe("https://catalog.example")
+    resolveCompatible({
+      configOptions: { baseURL: "https://base.example" },
+      providerBaseURL: "https://configured.example",
+      catalogBaseURL: "https://catalog.example",
+    })?.endpoint,
+  ).toBe("https://base.example/models")
+  expect(
+    resolveCompatible({
+      providerBaseURL: "https://configured.example",
+      catalogBaseURL: "https://catalog.example",
+    })?.endpoint,
+  ).toBe("https://configured.example/models")
+  expect(resolveCompatible({ catalogBaseURL: "https://catalog.example" })?.endpoint).toBe(
+    "https://catalog.example/models",
+  )
 })
 
-test("request: returns undefined when no base URL is known", () => {
-  expect(FetchModels.request({})).toBeUndefined()
-  expect(FetchModels.request({ configOptions: {} })).toBeUndefined()
+test("returns undefined when no model discovery base URL is known", () => {
+  expect(resolveCompatible({})).toBeUndefined()
+  expect(resolveCompatible({ configOptions: {} })).toBeUndefined()
 })
 
-test("request: copies string config headers and drops non-string values", () => {
-  const result = FetchModels.request({
+test("returns undefined for an unresolved or invalid model discovery base URL", () => {
+  expect(resolveCompatible({ providerBaseURL: "https://${GATEWAY_HOST}/v1" })).toBeUndefined()
+  expect(resolveCompatible({ providerBaseURL: "not a URL" })).toBeUndefined()
+})
+
+test("copies string config headers and drops non-string values", () => {
+  const result = resolveCompatible({
     catalogBaseURL: "https://catalog.example",
     configOptions: { headers: { "X-Title": "pawwork", "X-Bad": 5 as unknown as string } },
   })
   expect(result?.headers).toEqual({ "X-Title": "pawwork" })
 })
 
-test("request: adds a Bearer header from the auth key, preferring it over a config apiKey", () => {
+test("adds a Bearer header from the auth key, preferring it over a config apiKey", () => {
   expect(
-    FetchModels.request({ catalogBaseURL: "https://catalog.example", authKey: "auth-key" })?.headers["Authorization"],
+    resolveCompatible({ catalogBaseURL: "https://catalog.example", authKey: "auth-key" })?.headers["Authorization"],
   ).toBe("Bearer auth-key")
   expect(
-    FetchModels.request({ catalogBaseURL: "https://catalog.example", configOptions: { apiKey: "config-key" } })?.headers[
+    resolveCompatible({ catalogBaseURL: "https://catalog.example", configOptions: { apiKey: "config-key" } })?.headers[
       "Authorization"
     ],
   ).toBe("Bearer config-key")
   expect(
-    FetchModels.request({
+    resolveCompatible({
       catalogBaseURL: "https://catalog.example",
       authKey: "auth-key",
       configOptions: { apiKey: "config-key" },
@@ -94,8 +124,8 @@ test("request: adds a Bearer header from the auth key, preferring it over a conf
   ).toBe("Bearer auth-key")
 })
 
-test("request: does not overwrite an explicit Authorization header from config", () => {
-  const result = FetchModels.request({
+test("does not overwrite an explicit Authorization header from config", () => {
+  const result = resolveCompatible({
     catalogBaseURL: "https://catalog.example",
     authKey: "auth-key",
     configOptions: { headers: { authorization: "Token preset" } },
@@ -131,18 +161,49 @@ test("uses MiniMax's OpenAI-compatible endpoint for model discovery", () => {
   })
 })
 
+test("keeps MiniMax discovery on its OpenAI endpoint when inference overrides use Anthropic", () => {
+  expect(
+    FetchModels.resolve({
+      providerID: "minimax",
+      providerNPMs: ["@ai-sdk/anthropic"],
+      providerBaseURL: "https://api.minimax.io/anthropic/v1",
+      configOptions: { baseURL: "https://api.minimax.io/anthropic/v1" },
+      authKey: "minimax-key",
+    }),
+  ).toEqual({
+    endpoint: "https://api.minimax.io/v1/models",
+    headers: { Authorization: "Bearer minimax-key" },
+  })
+})
+
+test("lets an explicit MiniMax discovery endpoint override the official profile", () => {
+  expect(
+    FetchModels.resolve({
+      providerID: "minimax",
+      providerNPMs: ["@ai-sdk/anthropic"],
+      providerBaseURL: "https://api.minimax.io/anthropic/v1",
+      configOptions: { endpoint: "https://corp-proxy.example/openai/v1" },
+      authKey: "proxy-secret",
+    }),
+  ).toEqual({
+    endpoint: "https://corp-proxy.example/openai/v1/models",
+    headers: { Authorization: "Bearer proxy-secret" },
+  })
+})
+
 test("uses the region-specific OpenAI-compatible endpoint for MiniMax variants", () => {
   const providers = [
-    ["minimax-coding-plan", "https://api.minimax.io/v1"],
-    ["minimax-cn", "https://api.minimaxi.com/v1"],
-    ["minimax-cn-coding-plan", "https://api.minimaxi.com/v1"],
+    ["minimax-coding-plan", "https://api.minimax.io/anthropic/v1", "https://api.minimax.io/v1"],
+    ["minimax-cn", "https://api.minimaxi.com/anthropic/v1", "https://api.minimaxi.com/v1"],
+    ["minimax-cn-coding-plan", "https://api.minimaxi.com/anthropic/v1", "https://api.minimaxi.com/v1"],
   ] as const
 
-  for (const [providerID, discoveryBaseURL] of providers) {
+  for (const [providerID, catalogBaseURL, discoveryBaseURL] of providers) {
     expect(
       FetchModels.resolve({
         providerID,
         providerNPMs: ["@ai-sdk/anthropic"],
+        catalogBaseURL,
         authKey: "minimax-key",
       }),
     ).toEqual({
@@ -160,7 +221,7 @@ test("resolves Anthropic discovery with its native base URL and version header",
       authKey: "anthropic-key",
     }),
   ).toEqual({
-    endpoint: "https://api.anthropic.com/v1/models",
+    endpoint: "https://api.anthropic.com/v1/models?limit=1000",
     headers: {
       "X-Api-Key": "anthropic-key",
       "anthropic-version": "2023-06-01",
@@ -246,10 +307,53 @@ test("lets explicit config headers override a provider discovery profile", () =>
       },
     }),
   ).toEqual({
-    endpoint: "https://api.anthropic.com/v1/models",
+    endpoint: "https://api.anthropic.com/v1/models?limit=1000",
     headers: {
       "x-api-key": "configured-key",
       "anthropic-version": "configured-version",
+    },
+  })
+})
+
+test("overrides provider profile headers case-insensitively", () => {
+  expect(
+    FetchModels.resolve({
+      providerID: "anthropic",
+      providerNPMs: ["@ai-sdk/anthropic"],
+      authKey: "anthropic-key",
+      configOptions: {
+        headers: {
+          "Anthropic-Version": "configured-version",
+        },
+      },
+    }),
+  ).toEqual({
+    endpoint: "https://api.anthropic.com/v1/models?limit=1000",
+    headers: {
+      "Anthropic-Version": "configured-version",
+      "X-Api-Key": "anthropic-key",
+    },
+  })
+})
+
+test("keeps a routing API key while adding Bearer authentication", () => {
+  expect(
+    FetchModels.resolve({
+      providerID: "custom-gateway",
+      providerNPMs: ["@ai-sdk/openai-compatible"],
+      authKey: "gateway-key",
+      configOptions: {
+        baseURL: "https://gateway.example/v1",
+        headers: {
+          "x-api-key": "routing-key",
+        },
+      },
+    }),
+  ).toEqual({
+    endpoint: "https://gateway.example/v1/models",
+    headers: {
+      "x-api-key": "routing-key",
+      Authorization: "Bearer gateway-key",
     },
   })
 })

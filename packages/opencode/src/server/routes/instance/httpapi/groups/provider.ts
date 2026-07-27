@@ -114,7 +114,7 @@ export const ProviderApi = HttpApi.make("provider")
             identifier: "provider.fetchModels",
             summary: "Fetch provider models",
             description:
-              "Discover an OpenAI-compatible provider's models live from its /models endpoint using the provider's configured base URL, auth, and headers. Returns the parsed list without persisting it.",
+              "Discover a supported provider's models live using its resolved discovery endpoint, auth, and headers. Returns the parsed list without persisting it.",
           }),
         ),
       )

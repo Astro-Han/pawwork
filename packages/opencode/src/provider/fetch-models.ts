@@ -10,22 +10,31 @@ export namespace FetchModels {
   // discovery protocol is native or differs from the adapter/base URL used for inference.
   type DiscoveryProfile = {
     apiKeyHeader?: "authorization" | "x-api-key"
-    baseURL?: string
+    baseURLAliases?: Record<string, string>
+    defaultBaseURL?: string
     headers?: Record<string, string>
+    query?: Record<string, string>
+  }
+  const minimaxGlobal: DiscoveryProfile = {
+    baseURLAliases: { "https://api.minimax.io/anthropic/v1": "https://api.minimax.io/v1" },
+  }
+  const minimaxChina: DiscoveryProfile = {
+    baseURLAliases: { "https://api.minimaxi.com/anthropic/v1": "https://api.minimaxi.com/v1" },
   }
   const discoveryProfiles: Record<string, DiscoveryProfile> = {
     anthropic: {
       apiKeyHeader: "x-api-key",
-      baseURL: "https://api.anthropic.com/v1",
+      defaultBaseURL: "https://api.anthropic.com/v1",
       headers: { "anthropic-version": "2023-06-01" },
+      query: { limit: "1000" },
     },
     freemodel: {},
     "kimi-for-coding": {},
-    minimax: { baseURL: "https://api.minimax.io/v1" },
-    "minimax-coding-plan": { baseURL: "https://api.minimax.io/v1" },
-    "minimax-cn": { baseURL: "https://api.minimaxi.com/v1" },
-    "minimax-cn-coding-plan": { baseURL: "https://api.minimaxi.com/v1" },
-    openai: { baseURL: "https://api.openai.com/v1" },
+    minimax: minimaxGlobal,
+    "minimax-coding-plan": minimaxGlobal,
+    "minimax-cn": minimaxChina,
+    "minimax-cn-coding-plan": minimaxChina,
+    openai: { defaultBaseURL: "https://api.openai.com/v1" },
     subconscious: {},
   }
 
@@ -67,11 +76,13 @@ export namespace FetchModels {
     return result
   }
 
-  export function endpoint(baseURL: string): string {
-    return `${baseURL.trim().replace(/\/+$/, "")}/models`
+  function endpoint(baseURL: string, query?: Record<string, string>): string {
+    const url = `${baseURL.trim().replace(/\/+$/, "")}/models`
+    const params = new URLSearchParams(query).toString()
+    return params ? `${url}?${params}` : url
   }
 
-  export type RequestInput = {
+  type ResolveOptions = {
     // Provider config `options` (user override): endpoint/baseURL/apiKey/headers.
     configOptions?: {
       endpoint?: string
@@ -81,16 +92,13 @@ export namespace FetchModels {
     }
     // API key from the auth store (preferred over a config-embedded apiKey).
     authKey?: string
+    // Resolved provider API for providers whose discovery follows their inference base.
+    providerBaseURL?: string
     // models.dev catalog base URL, used when the user has not overridden one.
     catalogBaseURL?: string
   }
 
-  type ProfileRequestInput = RequestInput & {
-    apiKeyHeader?: DiscoveryProfile["apiKeyHeader"]
-    defaultHeaders?: Record<string, string>
-  }
-
-  export type ResolveInput = RequestInput & {
+  export type ResolveInput = ResolveOptions & {
     providerID: string
     providerNPMs: Iterable<string>
   }
@@ -100,48 +108,47 @@ export namespace FetchModels {
     if (!profile && !Array.from(input.providerNPMs).includes(OPENAI_COMPATIBLE)) {
       return undefined
     }
-    const resolved = prepareRequest({
-      ...input,
-      apiKeyHeader: profile?.apiKeyHeader,
-      catalogBaseURL: profile?.baseURL ?? input.catalogBaseURL,
-      defaultHeaders: profile?.headers,
-    })
+    const resolved = prepareRequest(input, profile)
     if (!resolved) return undefined
     return {
-      endpoint: endpoint(resolved.baseURL),
+      endpoint: endpoint(resolved.baseURL, profile?.query),
       headers: resolved.headers,
     }
   }
 
-  // Resolve the base URL and request headers for the /models call. Base URL precedence: config
-  // endpoint, then config baseURL, then the catalog entry — so a connected provider like Kilo Gateway
-  // works untouched. Returns undefined when no base URL is known. Adds a Bearer header from the key
-  // unless the config already carries an explicit authentication header.
-  export function request(input: RequestInput): { baseURL: string; headers: Record<string, string> } | undefined {
-    return prepareRequest(input)
-  }
-
   function prepareRequest(
-    input: ProfileRequestInput,
+    input: ResolveOptions,
+    profile: DiscoveryProfile | undefined,
   ): { baseURL: string; headers: Record<string, string> } | undefined {
     const options = input.configOptions
-    const baseURL = (options?.endpoint ?? options?.baseURL ?? input.catalogBaseURL ?? "").trim()
-    if (!baseURL) return undefined
+    const inferredBaseURL =
+      options?.baseURL ?? input.providerBaseURL ?? input.catalogBaseURL ?? profile?.defaultBaseURL ?? ""
+    const normalizedBaseURL = inferredBaseURL.trim().replace(/\/+$/, "")
+    const baseURL = (options?.endpoint ?? profile?.baseURLAliases?.[normalizedBaseURL] ?? inferredBaseURL).trim()
+    if (!baseURL || baseURL.includes("${") || !URL.canParse(baseURL)) return undefined
 
-    const headers: Record<string, string> = { ...input.defaultHeaders }
+    const headers: Record<string, string> = {}
+    for (const [key, value] of Object.entries(profile?.headers ?? {})) {
+      setHeader(headers, key, value)
+    }
     if (options?.headers) {
       for (const [key, value] of Object.entries(options.headers)) {
-        if (typeof value === "string") headers[key] = value
+        if (typeof value === "string") setHeader(headers, key, value)
       }
     }
     const key = input.authKey ?? (typeof options?.apiKey === "string" ? options.apiKey : undefined)
-    const hasAuthHeader = Object.keys(headers).some((header) =>
-      ["authorization", "x-api-key"].includes(header.toLowerCase()),
-    )
+    const authHeader = profile?.apiKeyHeader === "x-api-key" ? "x-api-key" : "authorization"
+    const hasAuthHeader = Object.keys(headers).some((header) => header.toLowerCase() === authHeader)
     if (key && !hasAuthHeader) {
-      if (input.apiKeyHeader === "x-api-key") headers["X-Api-Key"] = key
+      if (profile?.apiKeyHeader === "x-api-key") headers["X-Api-Key"] = key
       else headers["Authorization"] = `Bearer ${key}`
     }
     return { baseURL, headers }
+  }
+
+  function setHeader(headers: Record<string, string>, key: string, value: string) {
+    const existing = Object.keys(headers).find((header) => header.toLowerCase() === key.toLowerCase())
+    if (existing) delete headers[existing]
+    headers[key] = value
   }
 }
