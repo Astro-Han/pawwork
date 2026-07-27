@@ -1,6 +1,7 @@
 import { test, expect } from "../fixtures"
-import { withSession } from "../actions"
+import { sessionIDFromUrl, withSession } from "../actions"
 import { bodyText } from "../prompt/mock"
+import { promptSelector } from "../selectors"
 
 test("assistant footer is hover-only and copy writes response to clipboard", async ({
   page,
@@ -29,6 +30,42 @@ test("assistant footer is hover-only and copy writes response to clipboard", asy
   await copy.click()
   const clip = await page.evaluate(() => navigator.clipboard.readText())
   expect(clip).toBe(reply)
+})
+
+test("assistant footer forks through the selected turn into a new session", async ({ page, project, llm }) => {
+  await project.open()
+
+  const firstPrompt = "seed the fork source turn"
+  const firstReply = "First reply kept in the fork."
+  const secondPrompt = "seed a later turn excluded from the fork"
+  const secondReply = "Later reply excluded from the fork."
+
+  await llm.text(firstReply)
+  const sourceSessionID = await project.prompt(firstPrompt)
+  await llm.text(secondReply)
+  expect(await project.prompt(secondPrompt)).toBe(sourceSessionID)
+
+  const firstTurn = page.locator('[data-slot="session-turn-message-container"]').filter({ hasText: firstReply })
+  await firstTurn.hover()
+  await firstTurn.getByRole("button", { name: "Fork to new session" }).click()
+
+  await expect.poll(() => sessionIDFromUrl(page.url()) ?? "").not.toBe(sourceSessionID)
+  const forkedSessionID = sessionIDFromUrl(page.url())
+  if (!forkedSessionID) throw new Error("Expected the forked session route")
+  project.trackSession(forkedSessionID)
+
+  await expect(page.getByText(firstPrompt, { exact: true })).toBeVisible()
+  await expect(page.getByText(firstReply, { exact: true })).toBeVisible()
+  await expect(page.getByText(secondPrompt, { exact: true })).toHaveCount(0)
+  await expect(page.getByText(secondReply, { exact: true })).toHaveCount(0)
+  await expect(page.locator(promptSelector).first()).toHaveText("")
+
+  const sourceMessages = await project.sdk.session
+    .messages({ sessionID: sourceSessionID, limit: 100 })
+    .then((result) => result.data ?? [])
+  expect(sourceMessages.some((message) => message.parts.some((part) => part.type === "text" && part.text === secondReply))).toBe(
+    true,
+  )
 })
 
 test("assistant footer renders below the turn changes panel in the same turn", async ({ page, project, llm }) => {

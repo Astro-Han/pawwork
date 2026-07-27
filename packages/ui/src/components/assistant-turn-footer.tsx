@@ -9,11 +9,13 @@ export function AssistantTurnFooter(props: {
   text: string
   message: AssistantMessage
   turnDurationMs?: number
+  onFork?: () => Promise<void> | void
 }) {
   const data = useData()
   const i18n = useI18n()
   const numfmt = createMemo(() => new Intl.NumberFormat(i18n.locale()))
   const [copied, setCopied] = createSignal(false)
+  const [forking, setForking] = createSignal(false)
 
   const interrupted = createMemo(() => props.message.error?.name === "MessageAbortedError")
 
@@ -57,22 +59,50 @@ export function AssistantTurnFooter(props: {
     }
   }
 
+  const handleFork = async () => {
+    if (!props.onFork || forking()) return
+    setForking(true)
+    try {
+      await props.onFork()
+    } finally {
+      setForking(false)
+    }
+  }
+
   return (
     <div data-slot="assistant-turn-footer">
-      <Tooltip
-        value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
-        placement="top"
-        gutter={4}
-      >
-        <IconButton
-          icon={copied() ? "check" : "copy"}
-          size="normal"
-          variant="ghost"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={handleCopy}
-          aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
-        />
-      </Tooltip>
+      <div data-slot="assistant-turn-footer-actions">
+        <Tooltip
+          value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
+          placement="top"
+          gutter={4}
+        >
+          <IconButton
+            icon={copied() ? "check" : "copy"}
+            size="normal"
+            variant="ghost"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={handleCopy}
+            aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
+          />
+        </Tooltip>
+        <Show when={props.onFork}>
+          <Tooltip value={i18n.t("ui.message.forkMessage")} placement="top" gutter={4}>
+            <IconButton
+              icon="branch"
+              size="normal"
+              variant="ghost"
+              disabled={forking()}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                event.stopPropagation()
+                void handleFork()
+              }}
+              aria-label={i18n.t("ui.message.forkMessage")}
+            />
+          </Tooltip>
+        </Show>
+      </div>
       <Show when={metaItems().length > 0}>
         <span data-slot="assistant-turn-footer-meta" class="text-body text-fg-weak cursor-default">
           <For each={metaItems()}>{(item) => <span>{item}</span>}</For>
