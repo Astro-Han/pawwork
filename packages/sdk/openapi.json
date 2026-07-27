@@ -8859,7 +8859,7 @@
                     "all": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/Provider"
+                        "$ref": "#/components/schemas/ListedProvider"
                       }
                     },
                     "default": {
@@ -9377,7 +9377,7 @@
             }
           }
         },
-        "description": "Discover an OpenAI-compatible provider's models live from its /models endpoint using the provider's configured base URL, auth, and headers. Returns the parsed list without persisting it.",
+        "description": "Discover a supported provider's models live using its resolved discovery endpoint, auth, and headers. Returns the parsed list without persisting it.",
         "summary": "Fetch provider models",
         "x-codeSamples": [
           {
@@ -19772,6 +19772,63 @@
         ],
         "additionalProperties": false,
         "description": "Cloud sharing is disabled"
+      },
+      "ListedProvider": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "env",
+              "config",
+              "custom",
+              "api"
+            ]
+          },
+          "env": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "key": {
+            "type": "string"
+          },
+          "options": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "models": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Model"
+            }
+          },
+          "canFetchModels": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "source",
+          "env",
+          "options",
+          "models",
+          "canFetchModels"
+        ]
       },
       "ProviderAuthMethod": {
         "type": "object",

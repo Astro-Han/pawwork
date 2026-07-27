@@ -19,10 +19,6 @@ import { compareModelsForDisplay } from "@/utils/model-order"
 
 type ModelItem = ReturnType<ReturnType<typeof useModels>["list"]>[number]
 
-// Only OpenAI-compatible providers (custom providers + gateways like Kilo) expose a /models endpoint
-// we can discover from. Native SDKs (anthropic, etc.) do not, so the action stays hidden for them.
-const OPENAI_COMPATIBLE = "@ai-sdk/openai-compatible"
-
 const ListLoadingState: Component<{ label: string }> = (props) => {
   return (
     <div class="flex flex-col items-center justify-center py-12 text-center">
@@ -155,11 +151,11 @@ export const SettingsModels: Component = () => {
           >
             <For each={list.grouped.latest}>
               {(group) => (
-                <div class="flex flex-col gap-1">
+                <div class="flex flex-col gap-1" data-component="provider-models" data-provider={group.category}>
                   <div class="flex items-center gap-2 pb-2">
                     <ProviderIcon id={group.category} class="size-5 shrink-0 text-icon-strong" />
                     <span class="text-h3 text-fg-strong">{group.items[0].provider.name}</span>
-                    <Show when={group.items.some((item) => item.api?.npm === OPENAI_COMPATIBLE)}>
+                    <Show when={group.items[0].provider.canFetchModels}>
                       <Button
                         type="button"
                         variant="ghost"

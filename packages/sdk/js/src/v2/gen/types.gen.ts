@@ -2136,6 +2136,21 @@ export type SessionShareDisabledError = {
   error: "cloud_share_disabled"
 }
 
+export type ListedProvider = {
+  id: string
+  name: string
+  source: "env" | "config" | "custom" | "api"
+  env: Array<string>
+  key?: string
+  options: {
+    [key: string]: unknown
+  }
+  models: {
+    [key: string]: Model
+  }
+  canFetchModels: boolean
+}
+
 export type ProviderAuthMethod = {
   type: "oauth" | "api"
   label: string
@@ -5859,7 +5874,7 @@ export type ProviderListResponses = {
    * Success
    */
   200: {
-    all: Array<Provider>
+    all: Array<ListedProvider>
     default: {
       [key: string]: string
     }

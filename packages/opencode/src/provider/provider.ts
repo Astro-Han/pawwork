@@ -957,8 +957,16 @@ const defaultModelOverride: Record<string, string> = {
   [VOLCENGINE_PLAN_PROVIDER_ID]: VOLCENGINE_PLAN_DEFAULT_MODEL_ID,
 }
 
+export const ListInfo = Schema.Struct({
+  ...Info.fields,
+  canFetchModels: Schema.Boolean,
+})
+  .annotate({ identifier: "ListedProvider" })
+  .pipe(withStatics((s) => ({ zod: zod(s) })))
+export type ListInfo = Types.DeepMutable<Schema.Schema.Type<typeof ListInfo>>
+
 export const ListResult = Schema.Struct({
-  all: Schema.Array(Info),
+  all: Schema.Array(ListInfo),
   default: DefaultModelIDs,
   connected: Schema.Array(Schema.String),
 }).pipe(withStatics((s) => ({ zod: zod(s) })))
@@ -1922,6 +1930,7 @@ const ProviderServiceValue = Service
 const ProviderDefaultLayerValue = defaultLayer
 const ProviderModelValue = Model
 const ProviderInfoValue = Info
+const ProviderListInfoValue = ListInfo
 const ProviderListResultValue = ListResult
 const ProviderConfigProvidersResultValue = ConfigProvidersResult
 const ProviderDefaultModelIDValue = defaultModelID
@@ -1938,6 +1947,7 @@ export namespace Provider {
   export type Interface = import("./provider").Interface
   export type Service = import("./provider").Service
   export type Info = import("./provider").Info
+  export type ListInfo = import("./provider").ListInfo
   export type Model = import("./provider").Model
   export type Language = import("./provider").Language
 
@@ -1945,6 +1955,7 @@ export namespace Provider {
   export const defaultLayer = ProviderDefaultLayerValue
   export const Model = ProviderModelValue.zod
   export const Info = ProviderInfoValue.zod
+  export const ListInfo = ProviderListInfoValue.zod
   export const ListResult = ProviderListResultValue.zod
   export const ConfigProvidersResult = ProviderConfigProvidersResultValue.zod
   export const defaultModelID = ProviderDefaultModelIDValue

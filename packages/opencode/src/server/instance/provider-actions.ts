@@ -10,12 +10,35 @@ import { ProviderAuth } from "../../provider/auth"
 import { Provider } from "../../provider/provider"
 import { ModelID, ProviderID } from "../../provider/schema"
 
+function resolveModelDiscovery(provider: Provider.Info | undefined, auth: Auth.Info | undefined) {
+  if (!provider || auth?.type === "oauth") return undefined
+
+  const providerNPMs = new Set<string>()
+  for (const model of Object.values(provider.models)) providerNPMs.add(model.api.npm)
+
+  const providerModelAPIs = new Set(
+    Object.values(provider.models)
+      .map((model) => model.api.url.trim())
+      .filter((api): api is string => Boolean(api)),
+  )
+  const providerBaseURL = providerModelAPIs.size === 1 ? providerModelAPIs.values().next().value : undefined
+
+  return FetchModels.resolve({
+    providerID: provider.id,
+    providerNPMs,
+    configOptions: provider.options,
+    authKey: provider.key,
+    providerBaseURL,
+  })
+}
+
 export const listProviders = Effect.fn("ProviderHttpApi.list")(function* () {
   const config = yield* Config.Service
+  const auth = yield* Auth.Service
   const modelsDev = yield* ModelsDev.Service
   const provider = yield* Provider.Service
-  const [configInfo, modelsDevProviders, connected] = yield* Effect.all(
-    [config.get(), modelsDev.data().pipe(Effect.orDie), provider.list()],
+  const [configInfo, authInfo, modelsDevProviders, connected] = yield* Effect.all(
+    [config.get(), auth.all().pipe(Effect.orDie), modelsDev.data().pipe(Effect.orDie), provider.list()],
     { concurrency: "unbounded" },
   )
   const allProviders = withPawWorkProviders(modelsDevProviders)
@@ -34,7 +57,10 @@ export const listProviders = Effect.fn("ProviderHttpApi.list")(function* () {
     connected,
   )
   return {
-    all: Object.values(providers),
+    all: Object.values(providers).map((item) => ({
+      ...item,
+      canFetchModels: Boolean(resolveModelDiscovery(item, authInfo[item.id])),
+    })),
     default: mapValues(providers, (item) => Provider.defaultModelID(item)),
     connected: Object.keys(connected),
   }
@@ -74,41 +100,30 @@ export type FetchProviderModelsResult =
   // verbatim and does not branch on a code, so no numeric status is returned. Issue #1463.
   | { ok: false; message: string }
 
-// Live-discover an OpenAI-compatible provider's models by calling its `/models` endpoint with the
-// provider's already-configured base URL + auth + headers. The base URL comes from the user's config
-// override when present, otherwise the models.dev catalog entry (so connected providers like Kilo
-// Gateway work without re-entering anything). This only reads and returns the parsed list; persisting
-// the chosen additions is the app's job (merge into config.provider.<id>.models). Issue #1463.
+// Live-discover a provider's models with the same capability resolver used by provider.list. This only
+// reads and returns the parsed list; persisting chosen additions is the app's job. Issue #1463.
 export const fetchProviderModels = Effect.fn("ProviderHttpApi.models.fetch")(function* (input: {
   providerID: ProviderID
 }) {
-  const config = yield* Config.Service
   const auth = yield* Auth.Service
-  const modelsDev = yield* ModelsDev.Service
+  const provider = yield* Provider.Service
 
-  const [configInfo, authInfo, modelsDevProviders] = yield* Effect.all(
-    [
-      config.get(),
-      auth.get(input.providerID).pipe(Effect.orElseSucceed(() => undefined)),
-      modelsDev.data().pipe(Effect.orElseSucceed(() => ({}) as Record<string, ModelsDev.Provider>)),
-    ],
+  const [authInfo, connected] = yield* Effect.all(
+    [auth.get(input.providerID).pipe(Effect.orElseSucceed(() => undefined)), provider.list()],
     { concurrency: "unbounded" },
   )
 
-  const catalog = withPawWorkProviders(modelsDevProviders)[input.providerID]
-  const resolved = FetchModels.request({
-    configOptions: configInfo.provider?.[input.providerID]?.options,
-    authKey: authInfo?.type === "api" ? authInfo.key : undefined,
-    catalogBaseURL: catalog?.api,
-  })
+  const resolved = resolveModelDiscovery(connected[input.providerID], authInfo)
   if (!resolved) {
-    return { ok: false as const, message: "No base URL configured for this provider" }
+    return { ok: false as const, message: "Model discovery is not supported for this provider" }
   }
-  const { baseURL, headers } = resolved
 
   return yield* Effect.promise(async (): Promise<FetchProviderModelsResult> => {
     try {
-      const response = await fetch(FetchModels.endpoint(baseURL), { headers, signal: AbortSignal.timeout(10_000) })
+      const response = await fetch(resolved.endpoint, {
+        headers: resolved.headers,
+        signal: AbortSignal.timeout(10_000),
+      })
       if (!response.ok) {
         return {
           ok: false,

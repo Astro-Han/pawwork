@@ -2,6 +2,39 @@ import { test, expect } from "../fixtures"
 import { promptSelector } from "../selectors"
 import { closeSettingsPanel, openSettings } from "../actions"
 
+test("fetches models for Kimi even though inference uses the Anthropic adapter", async ({ page, project }) => {
+  let fetchMethod: string | undefined
+
+  await project.open({
+    beforeGoto: async ({ sdk }) => {
+      await sdk.auth.set({
+        providerID: "kimi-for-coding",
+        auth: { type: "api", key: "e2e-kimi-key" },
+      })
+    },
+  })
+  await page.route(/\/provider\/kimi-for-coding\/models(?:\?|$)/, async (route) => {
+    fetchMethod = route.request().method()
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ models: [{ id: "kimi-e2e-live", name: "Kimi E2E Live" }] }),
+    })
+  })
+
+  const settings = await openSettings(page)
+  await settings.getByRole("tab", { name: "Models" }).click()
+
+  const kimi = settings.locator('[data-component="provider-models"][data-provider="kimi-for-coding"]')
+  await expect(kimi).toBeVisible()
+  const beforeFetch = page.url()
+  await kimi.getByRole("button", { name: "Fetch models" }).click()
+
+  await expect(settings.getByRole("switch", { name: "Kimi E2E Live" })).not.toBeChecked()
+  expect(fetchMethod).toBe("POST")
+  await expect(page).toHaveURL(beforeFetch)
+})
+
 test("hiding a model removes it from the model picker", async ({ page, gotoSession }) => {
   await gotoSession()
 
