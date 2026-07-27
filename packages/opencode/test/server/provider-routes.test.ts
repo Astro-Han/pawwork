@@ -458,29 +458,33 @@ describe("provider routes", () => {
   test("does not offer API model discovery for OpenAI OAuth", async () => {
     await using tmp = await tmpdir({ git: true })
 
-    await Instance.provide({
-      directory: tmp.path,
-      init: async () => {
-        await AppRuntime.runPromise(
-          Auth.Service.use((auth) =>
-            auth.set("openai", {
-              type: "oauth",
-              refresh: "refresh-token",
-              access: "access-token",
-              expires: Date.now() + 60_000,
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        init: async () => {
+          await AppRuntime.runPromise(
+            Auth.Service.use((auth) =>
+              auth.set("openai", {
+                type: "oauth",
+                refresh: "refresh-token",
+                access: "access-token",
+                expires: Date.now() + 60_000,
+              }),
+            ),
+          )
+        },
+        fn: async () => {
+          await withProviderClient((client) =>
+            Effect.gen(function* () {
+              const providers = yield* client.provider.list({ query: {} })
+              expect(providers.connected).toContain("openai")
+              expect(providers.all.find((provider) => provider.id === "openai")?.canFetchModels).toBe(false)
             }),
-          ),
-        )
-      },
-      fn: async () => {
-        await withProviderClient((client) =>
-          Effect.gen(function* () {
-            const providers = yield* client.provider.list({ query: {} })
-            expect(providers.connected).toContain("openai")
-            expect(providers.all.find((provider) => provider.id === "openai")?.canFetchModels).toBe(false)
-          }),
-        )
-      },
-    })
+          )
+        },
+      })
+    } finally {
+      await AppRuntime.runPromise(Auth.Service.use((auth) => auth.remove("openai")))
+    }
   }, 30000)
 })

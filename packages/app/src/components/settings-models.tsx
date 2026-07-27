@@ -151,7 +151,7 @@ export const SettingsModels: Component = () => {
           >
             <For each={list.grouped.latest}>
               {(group) => (
-                <div class="flex flex-col gap-1">
+                <div class="flex flex-col gap-1" data-component="provider-models" data-provider={group.category}>
                   <div class="flex items-center gap-2 pb-2">
                     <ProviderIcon id={group.category} class="size-5 shrink-0 text-icon-strong" />
                     <span class="text-h3 text-fg-strong">{group.items[0].provider.name}</span>

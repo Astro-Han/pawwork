@@ -27,18 +27,13 @@ test("settings-models-fetch", async ({ page, project }) => {
   const settings = await openSettings(page)
   await settings.getByRole("tab", { name: "Models" }).click()
 
-  const kimiHeading = settings.getByText("Kimi For Coding", { exact: true }).last()
-  await expect(kimiHeading).toBeVisible({ timeout: 30_000 })
-  const fetchButton = kimiHeading.locator("..").getByRole("button", { name: "Fetch models" })
+  const kimi = settings.locator('[data-component="provider-models"][data-provider="kimi-for-coding"]')
+  await expect(kimi).toBeVisible({ timeout: 30_000 })
+  const fetchButton = kimi.getByRole("button", { name: "Fetch models" })
   await expect(fetchButton).toBeVisible({ timeout: 30_000 })
   await fetchButton.scrollIntoViewIfNeeded()
 
-  // Frame the provider group (button -> header (..) -> group (..)) so the shot stays on the header +
-  // model rows rather than the providers list stacked above it.
-  const group = fetchButton.locator("xpath=../..")
-  await expect(group).toBeVisible({ timeout: 10_000 })
-
-  const shots: Shot[] = [{ name: "default", buf: await group.screenshot() }]
+  const shots: Shot[] = [{ name: "default", buf: await kimi.screenshot() }]
   const out = snapOutputPath("settings-models-fetch")
   await composeGrid(shots, out)
   process.stdout.write(`\n[snap] settings-models-fetch grid -> ${out}\n\n`)
