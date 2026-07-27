@@ -1,0 +1,18 @@
+diff --git a/dist/commonjs/index.js b/dist/commonjs/index.js
+index be9df86be09c7655787a65c55ae6da01858894c3..28b14978349281f7a41f62ff3674c0d06e530308 100644
+--- a/dist/commonjs/index.js
++++ b/dist/commonjs/index.js
+@@ -260,4 +260,13 @@ function expand_(str, max, maxLength, isTop) {
+     }
+     return acc;
+ }
++// brace-expansion 5 switched its CommonJS entry point from a callable export
++// to named exports. Keep the secure implementation while remaining compatible
++// with minimatch 3, 5, and 9, which still call require('brace-expansion')
++// directly or through TypeScript's default-import helper.
++module.exports = Object.assign(expand, {
++    expand,
++    EXPANSION_MAX: exports.EXPANSION_MAX,
++    EXPANSION_MAX_LENGTH: exports.EXPANSION_MAX_LENGTH,
++});
+ //# sourceMappingURL=index.js.map

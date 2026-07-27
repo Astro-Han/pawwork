@@ -111,6 +111,7 @@
   "overrides": {
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
+    "brace-expansion": "5.0.8",
     "@xmldom/xmldom": "0.8.13",
     "fast-uri": "3.1.4",
     "fastify": "5.8.5",
@@ -127,6 +128,7 @@
     "tmp": "0.2.7"
   },
   "patchedDependencies": {
-    "gray-matter@4.0.3": "patches/gray-matter@4.0.3.patch"
+    "gray-matter@4.0.3": "patches/gray-matter@4.0.3.patch",
+    "brace-expansion@5.0.8": "patches/brace-expansion@5.0.8.patch"
   }
 }
