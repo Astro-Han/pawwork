@@ -8859,7 +8859,7 @@
                     "all": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/Provider"
+                        "$ref": "#/components/schemas/ListedProvider"
                       }
                     },
                     "default": {
@@ -19772,6 +19772,63 @@
         ],
         "additionalProperties": false,
         "description": "Cloud sharing is disabled"
+      },
+      "ListedProvider": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "env",
+              "config",
+              "custom",
+              "api"
+            ]
+          },
+          "env": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "key": {
+            "type": "string"
+          },
+          "options": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "models": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Model"
+            }
+          },
+          "canFetchModels": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "source",
+          "env",
+          "options",
+          "models",
+          "canFetchModels"
+        ]
       },
       "ProviderAuthMethod": {
         "type": "object",

@@ -2,6 +2,24 @@ import { test, expect } from "../fixtures"
 import { promptSelector } from "../selectors"
 import { closeSettingsPanel, openSettings } from "../actions"
 
+test("shows model discovery for Kimi even though inference uses the Anthropic adapter", async ({ page, project }) => {
+  await project.open({
+    beforeGoto: async ({ sdk }) => {
+      await sdk.auth.set({
+        providerID: "kimi-for-coding",
+        auth: { type: "api", key: "e2e-kimi-key" },
+      })
+    },
+  })
+
+  const settings = await openSettings(page)
+  await settings.getByRole("tab", { name: "Models" }).click()
+
+  const heading = settings.getByText("Kimi For Coding", { exact: true }).last()
+  await expect(heading).toBeVisible()
+  await expect(heading.locator("..").getByRole("button", { name: "Fetch models" })).toBeVisible()
+})
+
 test("hiding a model removes it from the model picker", async ({ page, gotoSession }) => {
   await gotoSession()
 

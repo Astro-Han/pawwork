@@ -249,12 +249,32 @@ describe("bootstrapDirectory", () => {
     setStore("session_status", "ses_stale", { type: "idle" })
     const providers = [
       {
-        all: [{ id: "dir-provider-a", name: "Dir Provider A", source: "custom", env: [], options: {}, models: {} }],
+        all: [
+          {
+            id: "dir-provider-a",
+            name: "Dir Provider A",
+            source: "custom",
+            env: [],
+            options: {},
+            models: {},
+            canFetchModels: false,
+          },
+        ],
         connected: ["dir-provider-a"],
         default: {},
       },
       {
-        all: [{ id: "dir-provider-b", name: "Dir Provider B", source: "custom", env: [], options: {}, models: {} }],
+        all: [
+          {
+            id: "dir-provider-b",
+            name: "Dir Provider B",
+            source: "custom",
+            env: [],
+            options: {},
+            models: {},
+            canFetchModels: false,
+          },
+        ],
         connected: ["dir-provider-b"],
         default: {},
       },
@@ -618,7 +638,17 @@ describe("bootstrapDirectory", () => {
     const [store, setStore] = createStore(createState())
     const permission = deferred<{ data: [] }>()
     const providers = {
-      all: [{ id: "dir-provider", name: "Dir Provider", source: "custom", env: [], options: {}, models: {} }],
+      all: [
+        {
+          id: "dir-provider",
+          name: "Dir Provider",
+          source: "custom",
+          env: [],
+          options: {},
+          models: {},
+          canFetchModels: false,
+        },
+      ],
       connected: ["dir-provider"],
       default: {},
     } satisfies ProviderListResponse
@@ -797,12 +827,32 @@ describe("bootstrapDirectory", () => {
     const first = deferred<{ data: ProviderListResponse }>()
     let calls = 0
     const oldProviders = {
-      all: [{ id: "old-provider", name: "Old Provider", source: "custom", env: [], options: {}, models: {} }],
+      all: [
+        {
+          id: "old-provider",
+          name: "Old Provider",
+          source: "custom",
+          env: [],
+          options: {},
+          models: {},
+          canFetchModels: false,
+        },
+      ],
       connected: ["old-provider"],
       default: {},
     } satisfies ProviderListResponse
     const newProviders = {
-      all: [{ id: "new-provider", name: "New Provider", source: "custom", env: [], options: {}, models: {} }],
+      all: [
+        {
+          id: "new-provider",
+          name: "New Provider",
+          source: "custom",
+          env: [],
+          options: {},
+          models: {},
+          canFetchModels: false,
+        },
+      ],
       connected: ["new-provider"],
       default: {},
     } satisfies ProviderListResponse

@@ -8,6 +8,12 @@ test("parses OpenAI-compatible { data: [...] } shape", () => {
   ])
 })
 
+test("uses Anthropic display_name when normalizing a model list", () => {
+  expect(FetchModels.parse({ data: [{ id: "claude-sonnet", display_name: "Claude Sonnet" }] })).toEqual([
+    { id: "claude-sonnet", name: "Claude Sonnet" },
+  ])
+})
+
 test("parses { models: [...] } shape", () => {
   expect(FetchModels.parse({ models: [{ id: "m" }] })).toEqual([{ id: "m", name: "m" }])
 })
@@ -95,4 +101,155 @@ test("request: does not overwrite an explicit Authorization header from config",
     configOptions: { headers: { authorization: "Token preset" } },
   })
   expect(result?.headers).toEqual({ authorization: "Token preset" })
+})
+
+test("resolves Kimi model discovery independently of its Anthropic inference adapter", () => {
+  expect(
+    FetchModels.resolve({
+      providerID: "kimi-for-coding",
+      providerNPMs: ["@ai-sdk/anthropic"],
+      catalogBaseURL: "https://api.kimi.com/coding/v1",
+      authKey: "kimi-key",
+    }),
+  ).toEqual({
+    endpoint: "https://api.kimi.com/coding/v1/models",
+    headers: { Authorization: "Bearer kimi-key" },
+  })
+})
+
+test("uses MiniMax's OpenAI-compatible endpoint for model discovery", () => {
+  expect(
+    FetchModels.resolve({
+      providerID: "minimax",
+      providerNPMs: ["@ai-sdk/anthropic"],
+      catalogBaseURL: "https://api.minimax.io/anthropic/v1",
+      authKey: "minimax-key",
+    }),
+  ).toEqual({
+    endpoint: "https://api.minimax.io/v1/models",
+    headers: { Authorization: "Bearer minimax-key" },
+  })
+})
+
+test("uses the region-specific OpenAI-compatible endpoint for MiniMax variants", () => {
+  const providers = [
+    ["minimax-coding-plan", "https://api.minimax.io/v1"],
+    ["minimax-cn", "https://api.minimaxi.com/v1"],
+    ["minimax-cn-coding-plan", "https://api.minimaxi.com/v1"],
+  ] as const
+
+  for (const [providerID, discoveryBaseURL] of providers) {
+    expect(
+      FetchModels.resolve({
+        providerID,
+        providerNPMs: ["@ai-sdk/anthropic"],
+        authKey: "minimax-key",
+      }),
+    ).toEqual({
+      endpoint: `${discoveryBaseURL}/models`,
+      headers: { Authorization: "Bearer minimax-key" },
+    })
+  }
+})
+
+test("resolves Anthropic discovery with its native base URL and version header", () => {
+  expect(
+    FetchModels.resolve({
+      providerID: "anthropic",
+      providerNPMs: ["@ai-sdk/anthropic"],
+      authKey: "anthropic-key",
+    }),
+  ).toEqual({
+    endpoint: "https://api.anthropic.com/v1/models",
+    headers: {
+      "X-Api-Key": "anthropic-key",
+      "anthropic-version": "2023-06-01",
+    },
+  })
+})
+
+test("resolves a dual-protocol provider that shares one OpenAI-compatible base URL", () => {
+  expect(
+    FetchModels.resolve({
+      providerID: "freemodel",
+      providerNPMs: ["@ai-sdk/anthropic"],
+      catalogBaseURL: "https://cc.freemodel.dev/v1",
+    }),
+  ).toEqual({
+    endpoint: "https://cc.freemodel.dev/v1/models",
+    headers: {},
+  })
+})
+
+test("resolves Subconscious discovery despite its Anthropic inference adapter", () => {
+  expect(
+    FetchModels.resolve({
+      providerID: "subconscious",
+      providerNPMs: ["@ai-sdk/anthropic"],
+      catalogBaseURL: "https://api.subconscious.dev/v1",
+      authKey: "subconscious-key",
+    }),
+  ).toEqual({
+    endpoint: "https://api.subconscious.dev/v1/models",
+    headers: { Authorization: "Bearer subconscious-key" },
+  })
+})
+
+test("resolves the native OpenAI provider without treating its SDK as the discovery contract", () => {
+  expect(
+    FetchModels.resolve({
+      providerID: "openai",
+      providerNPMs: ["@ai-sdk/openai"],
+      authKey: "openai-key",
+    }),
+  ).toEqual({
+    endpoint: "https://api.openai.com/v1/models",
+    headers: { Authorization: "Bearer openai-key" },
+  })
+})
+
+test("preserves discovery for generic OpenAI-compatible providers", () => {
+  expect(
+    FetchModels.resolve({
+      providerID: "custom-gateway",
+      providerNPMs: ["@ai-sdk/openai-compatible"],
+      configOptions: { baseURL: "https://gateway.example/v1" },
+      authKey: "gateway-key",
+    }),
+  ).toEqual({
+    endpoint: "https://gateway.example/v1/models",
+    headers: { Authorization: "Bearer gateway-key" },
+  })
+})
+
+test("does not infer discovery support from an Anthropic inference adapter", () => {
+  expect(
+    FetchModels.resolve({
+      providerID: "custom-anthropic-provider",
+      providerNPMs: ["@ai-sdk/anthropic"],
+      catalogBaseURL: "https://api.example.com/v1",
+    }),
+  ).toBeUndefined()
+})
+
+test("lets explicit config headers override a provider discovery profile", () => {
+  expect(
+    FetchModels.resolve({
+      providerID: "anthropic",
+      providerNPMs: ["@ai-sdk/anthropic"],
+      authKey: "ignored-key",
+      configOptions: {
+        headers: {
+          "x-api-key": "configured-key",
+          "anthropic-version": "configured-version",
+        },
+      },
+    }),
+  ).toEqual({
+    endpoint: "https://api.anthropic.com/v1/models",
+    headers: {
+      "x-api-key": "configured-key",
+      "anthropic-version": "configured-version",
+    },
+  })
 })

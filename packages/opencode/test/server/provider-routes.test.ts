@@ -24,7 +24,11 @@ describe("provider routes", () => {
   type ProviderClient = {
     provider: {
       list: (input?: { query?: { directory?: string; workspace?: string } }) => Effect.Effect<
-        { all: ReadonlyArray<unknown>; default: Readonly<Record<string, string>>; connected: ReadonlyArray<string> },
+        {
+          all: ReadonlyArray<{ id: string; canFetchModels: boolean }>
+          default: Readonly<Record<string, string>>
+          connected: ReadonlyArray<string>
+        },
         unknown,
         unknown
       >
@@ -195,9 +199,9 @@ describe("provider routes", () => {
             expect(providers.all).toBeArray()
             expect(providers.default).toBeObject()
             expect(providers.connected).toBeArray()
-            const hasVolcenginePlan = providers.all.some(
-              (provider) => (provider as { id?: string }).id === VOLCENGINE_PLAN_PROVIDER_ID,
-            )
+            expect(providers.all.every((provider) => typeof provider.canFetchModels === "boolean")).toBe(true)
+            expect(providers.all.find((provider) => provider.id === "kimi-for-coding")?.canFetchModels).toBe(true)
+            const hasVolcenginePlan = providers.all.some((provider) => provider.id === VOLCENGINE_PLAN_PROVIDER_ID)
             expect(hasVolcenginePlan).toBe(true)
             expect(providers.default[VOLCENGINE_PLAN_PROVIDER_ID]).toBe(VOLCENGINE_PLAN_DEFAULT_MODEL_ID)
 

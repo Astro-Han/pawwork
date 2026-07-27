@@ -5,7 +5,35 @@ import { z } from "zod"
 // generic: we only keep id + display name, never infer capabilities from arbitrary
 // gateway IDs (wrong metadata would break agent behavior — see issue #1463).
 export namespace FetchModels {
-  const Item = z.object({ id: z.string(), name: z.string().optional() })
+  const OPENAI_COMPATIBLE = "@ai-sdk/openai-compatible"
+  // Inference adapters are not model-discovery contracts. Profiles describe providers whose
+  // discovery protocol is native or differs from the adapter/base URL used for inference.
+  type DiscoveryProfile = {
+    apiKeyHeader?: "authorization" | "x-api-key"
+    baseURL?: string
+    headers?: Record<string, string>
+  }
+  const discoveryProfiles: Record<string, DiscoveryProfile> = {
+    anthropic: {
+      apiKeyHeader: "x-api-key",
+      baseURL: "https://api.anthropic.com/v1",
+      headers: { "anthropic-version": "2023-06-01" },
+    },
+    freemodel: {},
+    "kimi-for-coding": {},
+    minimax: { baseURL: "https://api.minimax.io/v1" },
+    "minimax-coding-plan": { baseURL: "https://api.minimax.io/v1" },
+    "minimax-cn": { baseURL: "https://api.minimaxi.com/v1" },
+    "minimax-cn-coding-plan": { baseURL: "https://api.minimaxi.com/v1" },
+    openai: { baseURL: "https://api.openai.com/v1" },
+    subconscious: {},
+  }
+
+  const Item = z.object({
+    id: z.string(),
+    name: z.string().optional(),
+    display_name: z.string().optional(),
+  })
   const Shape = z.union([
     z.object({ data: z.array(z.unknown()) }),
     z.object({ models: z.array(z.unknown()) }),
@@ -34,7 +62,7 @@ export namespace FetchModels {
       const id = item.data.id.trim()
       if (!id || seen.has(id)) continue
       seen.add(id)
-      result.push({ id, name: item.data.name?.trim() || id })
+      result.push({ id, name: item.data.name?.trim() || item.data.display_name?.trim() || id })
     }
     return result
   }
@@ -57,24 +85,62 @@ export namespace FetchModels {
     catalogBaseURL?: string
   }
 
+  type ProfileRequestInput = RequestInput & {
+    apiKeyHeader?: DiscoveryProfile["apiKeyHeader"]
+    defaultHeaders?: Record<string, string>
+  }
+
+  export type ResolveInput = RequestInput & {
+    providerID: string
+    providerNPMs: Iterable<string>
+  }
+
+  export function resolve(input: ResolveInput): { endpoint: string; headers: Record<string, string> } | undefined {
+    const profile = discoveryProfiles[input.providerID]
+    if (!profile && !Array.from(input.providerNPMs).includes(OPENAI_COMPATIBLE)) {
+      return undefined
+    }
+    const resolved = prepareRequest({
+      ...input,
+      apiKeyHeader: profile?.apiKeyHeader,
+      catalogBaseURL: profile?.baseURL ?? input.catalogBaseURL,
+      defaultHeaders: profile?.headers,
+    })
+    if (!resolved) return undefined
+    return {
+      endpoint: endpoint(resolved.baseURL),
+      headers: resolved.headers,
+    }
+  }
+
   // Resolve the base URL and request headers for the /models call. Base URL precedence: config
   // endpoint, then config baseURL, then the catalog entry — so a connected provider like Kilo Gateway
   // works untouched. Returns undefined when no base URL is known. Adds a Bearer header from the key
-  // unless the config already carries an explicit Authorization header.
+  // unless the config already carries an explicit authentication header.
   export function request(input: RequestInput): { baseURL: string; headers: Record<string, string> } | undefined {
+    return prepareRequest(input)
+  }
+
+  function prepareRequest(
+    input: ProfileRequestInput,
+  ): { baseURL: string; headers: Record<string, string> } | undefined {
     const options = input.configOptions
     const baseURL = (options?.endpoint ?? options?.baseURL ?? input.catalogBaseURL ?? "").trim()
     if (!baseURL) return undefined
 
-    const headers: Record<string, string> = {}
+    const headers: Record<string, string> = { ...input.defaultHeaders }
     if (options?.headers) {
       for (const [key, value] of Object.entries(options.headers)) {
         if (typeof value === "string") headers[key] = value
       }
     }
     const key = input.authKey ?? (typeof options?.apiKey === "string" ? options.apiKey : undefined)
-    if (key && !Object.keys(headers).some((header) => header.toLowerCase() === "authorization")) {
-      headers["Authorization"] = `Bearer ${key}`
+    const hasAuthHeader = Object.keys(headers).some((header) =>
+      ["authorization", "x-api-key"].includes(header.toLowerCase()),
+    )
+    if (key && !hasAuthHeader) {
+      if (input.apiKeyHeader === "x-api-key") headers["X-Api-Key"] = key
+      else headers["Authorization"] = `Bearer ${key}`
     }
     return { baseURL, headers }
   }
