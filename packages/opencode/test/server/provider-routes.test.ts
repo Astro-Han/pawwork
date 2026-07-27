@@ -455,21 +455,6 @@ describe("provider routes", () => {
     expect(received.authorization).toBe("Bearer proxy-minimax-key")
   }, 30000)
 
-  test("maps unsupported model discovery to 400", async () => {
-    await using tmp = await tmpdir({ git: true })
-
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const response = await requestProviderHttpApi("/provider/google/models", { method: "POST" })
-        expect(response.status).toBe(400)
-        expect(await response.json()).toMatchObject({
-          message: "Model discovery is not supported for this provider",
-        })
-      },
-    })
-  }, 30000)
-
   test("does not offer API model discovery for OpenAI OAuth", async () => {
     await using tmp = await tmpdir({ git: true })
 

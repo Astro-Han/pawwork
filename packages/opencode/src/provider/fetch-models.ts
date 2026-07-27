@@ -94,8 +94,6 @@ export namespace FetchModels {
     authKey?: string
     // Resolved provider API for providers whose discovery follows their inference base.
     providerBaseURL?: string
-    // models.dev catalog base URL, used when the user has not overridden one.
-    catalogBaseURL?: string
   }
 
   export type ResolveInput = ResolveOptions & {
@@ -121,8 +119,7 @@ export namespace FetchModels {
     profile: DiscoveryProfile | undefined,
   ): { baseURL: string; headers: Record<string, string> } | undefined {
     const options = input.configOptions
-    const inferredBaseURL =
-      options?.baseURL ?? input.providerBaseURL ?? input.catalogBaseURL ?? profile?.defaultBaseURL ?? ""
+    const inferredBaseURL = options?.baseURL ?? input.providerBaseURL ?? profile?.defaultBaseURL ?? ""
     const normalizedBaseURL = inferredBaseURL.trim().replace(/\/+$/, "")
     const baseURL = (options?.endpoint ?? profile?.baseURLAliases?.[normalizedBaseURL] ?? inferredBaseURL).trim()
     if (!baseURL || baseURL.includes("${") || !URL.canParse(baseURL)) return undefined

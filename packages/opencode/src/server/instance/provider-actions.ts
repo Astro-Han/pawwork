@@ -10,32 +10,25 @@ import { ProviderAuth } from "../../provider/auth"
 import { Provider } from "../../provider/provider"
 import { ModelID, ProviderID } from "../../provider/schema"
 
-function resolveModelDiscovery(input: {
-  providerID: string
-  provider?: Provider.Info
-  catalog?: ModelsDev.Provider
-  auth?: Auth.Info
-}) {
-  if (input.auth?.type === "oauth") return undefined
+function resolveModelDiscovery(provider: Provider.Info | undefined, auth: Auth.Info | undefined) {
+  if (!provider || auth?.type === "oauth") return undefined
 
-  const provider = input.provider
   const providerNPMs = new Set<string>()
-  for (const model of Object.values(provider?.models ?? {})) providerNPMs.add(model.api.npm)
+  for (const model of Object.values(provider.models)) providerNPMs.add(model.api.npm)
 
   const providerModelAPIs = new Set(
-    Object.values(provider?.models ?? {})
+    Object.values(provider.models)
       .map((model) => model.api.url.trim())
       .filter((api): api is string => Boolean(api)),
   )
   const providerBaseURL = providerModelAPIs.size === 1 ? providerModelAPIs.values().next().value : undefined
 
   return FetchModels.resolve({
-    providerID: input.providerID,
+    providerID: provider.id,
     providerNPMs,
-    configOptions: provider?.options,
-    authKey: provider?.key ?? (input.auth?.type === "api" ? input.auth.key : undefined),
+    configOptions: provider.options,
+    authKey: provider.key,
     providerBaseURL,
-    catalogBaseURL: input.catalog?.api,
   })
 }
 
@@ -66,14 +59,7 @@ export const listProviders = Effect.fn("ProviderHttpApi.list")(function* () {
   return {
     all: Object.values(providers).map((item) => ({
       ...item,
-      canFetchModels: Boolean(
-        resolveModelDiscovery({
-          providerID: item.id,
-          provider: item,
-          catalog: allProviders[item.id],
-          auth: authInfo[item.id],
-        }),
-      ),
+      canFetchModels: Boolean(resolveModelDiscovery(item, authInfo[item.id])),
     })),
     default: mapValues(providers, (item) => Provider.defaultModelID(item)),
     connected: Object.keys(connected),
@@ -120,25 +106,14 @@ export const fetchProviderModels = Effect.fn("ProviderHttpApi.models.fetch")(fun
   providerID: ProviderID
 }) {
   const auth = yield* Auth.Service
-  const modelsDev = yield* ModelsDev.Service
   const provider = yield* Provider.Service
 
-  const [authInfo, modelsDevProviders, connected] = yield* Effect.all(
-    [
-      auth.get(input.providerID).pipe(Effect.orElseSucceed(() => undefined)),
-      modelsDev.data().pipe(Effect.orElseSucceed(() => ({}) as Record<string, ModelsDev.Provider>)),
-      provider.list(),
-    ],
+  const [authInfo, connected] = yield* Effect.all(
+    [auth.get(input.providerID).pipe(Effect.orElseSucceed(() => undefined)), provider.list()],
     { concurrency: "unbounded" },
   )
 
-  const catalog = withPawWorkProviders(modelsDevProviders)[input.providerID]
-  const resolved = resolveModelDiscovery({
-    providerID: input.providerID,
-    provider: connected[input.providerID],
-    catalog,
-    auth: authInfo,
-  })
+  const resolved = resolveModelDiscovery(connected[input.providerID], authInfo)
   if (!resolved) {
     return { ok: false as const, message: "Model discovery is not supported for this provider" }
   }
