@@ -17,6 +17,7 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import z from "zod"
 import { ExperimentalApi } from "../groups/experimental"
+import { logHttpApiFailure } from "./failure"
 
 const ConsoleSwitchBody = z.object({
   accountID: z.string(),
@@ -58,14 +59,17 @@ function parseJsonBody<T>(request: HttpServerRequest.HttpServerRequest, schema: 
 }
 
 function experimentalFailure(error: unknown) {
+  const report = logHttpApiFailure("experimental", error)
   if (error instanceof NamedError) {
     const status = error.name.startsWith("Worktree") ? 400 : 500
-    return Effect.succeed(HttpServerResponse.jsonUnsafe(error.toObject(), { status }))
+    return report.pipe(Effect.as(HttpServerResponse.jsonUnsafe(error.toObject(), { status })))
   }
-  return Effect.succeed(
-    HttpServerResponse.jsonUnsafe(
-      new NamedError.Unknown({ message: "Unexpected server error. Check server logs for details." }).toObject(),
-      { status: 500 },
+  return report.pipe(
+    Effect.as(
+      HttpServerResponse.jsonUnsafe(
+        new NamedError.Unknown({ message: "Unexpected server error. Check server logs for details." }).toObject(),
+        { status: 500 },
+      ),
     ),
   )
 }

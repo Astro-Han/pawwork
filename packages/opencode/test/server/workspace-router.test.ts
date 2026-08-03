@@ -57,6 +57,18 @@ function disableWorkspaceSync() {
   return spyOn(Workspace, "ensureSync").mockImplementation(() => {})
 }
 
+async function captureServerErrorLogs<T>(fn: () => Promise<T>) {
+  const logger = Log.create({ service: "server" })
+  const original = logger.error
+  const calls: { message?: unknown; extra?: Record<string, unknown> }[] = []
+  logger.error = (message, extra) => calls.push({ message, extra })
+  try {
+    return { result: await fn(), calls }
+  } finally {
+    logger.error = original
+  }
+}
+
 async function readEffectContext() {
   return AppRuntime.runPromise(
     Effect.gen(function* () {
@@ -394,11 +406,13 @@ describe("workspace router", () => {
 
     try {
       const app = Server.Default().app
-      const response = await app.request(`/session?workspace=${workspace.id}`, {
-        headers: {
-          "x-opencode-directory": tmp.path,
-        },
-      })
+      const { result: response, calls } = await captureServerErrorLogs(() =>
+        app.request(`/session?workspace=${workspace.id}`, {
+          headers: {
+            "x-opencode-directory": tmp.path,
+          },
+        }),
+      )
 
       expect(response.status).toBe(500)
       const body = await response.json()
@@ -406,6 +420,19 @@ describe("workspace router", () => {
       // The unexpected 500 body is intentionally redacted to a constant (the internal
       // routing error stays in the server log only); see ErrorMiddleware.
       expect(body.data.message).toBe("Unexpected server error. Check server logs for details.")
+      expect(calls).toEqual([
+        {
+          message: "failed",
+          extra: {
+            error: expect.any(Error),
+            httpapi: "session",
+            request: {
+              method: "GET",
+              path: "/session",
+            },
+          },
+        },
+      ])
       expect(remoteHits).toBe(0)
     } finally {
       ensureSync.mockRestore()
