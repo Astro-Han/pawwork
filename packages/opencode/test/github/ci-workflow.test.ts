@@ -17,7 +17,7 @@ const pinned = {
   setupNode: "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
   setupBun: "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6",
   cache: "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
-  hardenRunner: "step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411",
+  hardenRunner: "step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920",
   junit: "mikepenz/action-junit-report@3a81627bfac62268172037048872e8ebd4207e6d",
   artifact: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
 }
