@@ -48,10 +48,10 @@ describe("desktop smoke workflow", () => {
     expect(smokeCheckoutStep?.uses).toBe("actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0")
 
     expect(changes?.outputs).toEqual({ docs_only: "${{ steps.filter.outputs.docs_only }}" })
-    expect(docsPathsStep?.uses).toBe("dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d")
+    expect(docsPathsStep?.uses).toBe("dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706")
     expect(docsPathsStep?.with?.filters).toContain("docs:")
     expect(docsPathsStep?.with?.filters).toContain("'docs/**'")
-    expect(codePathsStep?.uses).toBe("dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d")
+    expect(codePathsStep?.uses).toBe("dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706")
     expect(codePathsStep?.with?.["predicate-quantifier"]).toBe("every")
     expect(codePathsStep?.with?.filters).toContain("'!docs/**'")
     expect(codePathsStep?.with?.filters).not.toContain("*.md")
