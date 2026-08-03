@@ -1,4 +1,4 @@
-import { createMemo, createResource, type Accessor } from "solid-js"
+import { createMemo, type Accessor } from "solid-js"
 import { useParams } from "@solidjs/router"
 import { showToast } from "@opencode-ai/ui/toast"
 import type { Part } from "@opencode-ai/sdk/v2"
@@ -9,6 +9,7 @@ import { useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
 import { normalizeArtifactPathKey, type FilesTabEntry } from "@/pages/session/files-tab-state"
 import { aggregateFiles } from "@/pages/session/session-aggregate-files"
+import { createArtifactFileExists } from "./artifact-file-exists"
 import { SessionStatusSummary } from "./session-status-summary"
 
 export function SessionStatusPanel(props: {
@@ -74,18 +75,11 @@ export function SessionStatusPanel(props: {
   // capability) every file is treated as existing — clicking still no-ops
   // because canOpenLocalPath returns false there.
   const artifactPaths = createMemo(() => (props.artifactFiles?.() ?? []).map((file) => file.path))
-  const [artifactStats] = createResource(artifactPaths, async (paths) => {
-    if (paths.length === 0) return {} as Record<string, { size: number; exists: boolean }>
-    if (!platform.statPaths) {
-      return Object.fromEntries(paths.map((path) => [path, { size: 0, exists: true }]))
-    }
-    return platform.statPaths(paths)
-  })
   // While the resource is pending the row should still feel actionable, so
   // assume the file exists until we know otherwise. This matches how the row
   // first renders right after a turn — the file did exist when the agent wrote
   // it, and the click is no-op-safe even if stat later reports missing.
-  const artifactExists = (path: string) => artifactStats()?.[path]?.exists ?? true
+  const artifactExists = createArtifactFileExists(artifactPaths, (paths) => platform.statPaths?.(paths))
 
   const reportFailure = (error: unknown) => {
     showToast({
