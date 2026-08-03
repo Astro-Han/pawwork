@@ -40,10 +40,12 @@ type ProbeOptions = {
 
 type BuildSmokeEnvOptions = {
   cdpPort?: number
+  e2eLlmUrl?: string
 }
 
 type LaunchAppOptions = {
   cdpPort?: number
+  e2eLlmUrl?: string
 }
 
 const APP_ID_BY_CHANNEL: Record<SmokeChannel, string> = {
@@ -98,6 +100,9 @@ export function buildSmokeEnv(
     XDG_STATE_HOME: homeDir,
     OPENCODE_CHANNEL: channel,
     ...(options.cdpPort !== undefined ? { PAWWORK_CI_SMOKE_CDP_PORT: String(options.cdpPort) } : {}),
+    ...(options.e2eLlmUrl !== undefined
+      ? { OPENCODE_E2E_ENABLED: "true", OPENCODE_E2E_LLM_URL: options.e2eLlmUrl }
+      : {}),
   }
 }
 
@@ -266,7 +271,10 @@ function launchApp(homeDir: string, target: SmokeTarget, options: LaunchAppOptio
   const spawnError = { current: undefined as Error | undefined }
   try {
     const child = spawn(launch.command, launch.args, {
-      env: buildSmokeEnv(homeDir, target.channel, process.env, { cdpPort: options.cdpPort }),
+      env: buildSmokeEnv(homeDir, target.channel, process.env, {
+        cdpPort: options.cdpPort,
+        e2eLlmUrl: options.e2eLlmUrl,
+      }),
       stdio: ["ignore", "pipe", "pipe"],
     })
     child.on("error", (error) => {
@@ -352,7 +360,18 @@ async function main() {
   const target = parseSmokeArgs(Bun.argv.slice(2))
   const homeDir = mkdtempSync(join(tmpdir(), "pawwork-ci-smoke-"))
   const cdpPort = await resolveCiSmokeCdpPort(process.env)
-  const { child, spawnError } = launchApp(homeDir, target, { cdpPort })
+  const sessionConcurrency = process.env.PAWWORK_CI_SMOKE_SESSION_CONCURRENCY === "true"
+  const llm = sessionConcurrency
+    ? await import("../../opencode/test/lib/llm-server").then(({ startTestLLMServer }) => startTestLLMServer())
+    : undefined
+  if (llm) {
+    await Promise.all(
+      [0, 1, 2].map((index) =>
+        llm.textMatch(`run Windows Electron task ${index}`, `completed task ${index}`),
+      ),
+    )
+  }
+  const { child, spawnError } = launchApp(homeDir, target, { cdpPort, e2eLlmUrl: llm?.url })
   const logs = watchChildLogs(child)
 
   const artifactDir = process.env.PAWWORK_CI_SMOKE_ARTIFACT_DIR
@@ -364,15 +383,20 @@ async function main() {
   try {
     await waitForCiSmokeReady(homeDir, target, child, spawnError, logs.recent)
     if (cdpPort !== undefined) await probeCiSmokeCdpTarget(cdpPort)
-    if (process.env.PAWWORK_CI_SMOKE_SESSION_CONCURRENCY === "true") {
+    if (sessionConcurrency) {
       if (cdpPort === undefined) throw new Error("Electron session concurrency diagnostic requires CDP")
       diagnostic = await runSessionConcurrencyCdpWithNode(cdpPort, homeDir)
+      const pendingResponses = await llm!.pending()
+      if (pendingResponses !== 0) {
+        throw new Error(`Electron session concurrency diagnostic left ${pendingResponses} model responses unused`)
+      }
     }
   } catch (error) {
     failure = error
   } finally {
     logs.close()
     await stopChild(child)
+    await llm?.dispose()
     if (artifactDir) {
       try {
         const copiedLogs = await collectCiSmokeArtifacts(homeDir, artifactDir)

@@ -94,15 +94,33 @@ async function seedCompletedSessions(page: Page, directories: string[]): Promise
           body: JSON.stringify({ title: `windows-electron-concurrency-${index}` }),
         }).then((response) => response.json() as Promise<{ id: string }>)
 
-        await request(`/session/${created.id}/message`, directory, {
+        const completed = await request(`/session/${created.id}/message`, directory, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            noReply: true,
-            model: { providerID: "test", modelID: "test" },
-            parts: [{ type: "text", text: `completed Windows Electron task ${index}` }],
+            model: { providerID: "opencode", modelID: "big-pickle" },
+            parts: [{ type: "text", text: `run Windows Electron task ${index}` }],
           }),
-        })
+        }).then(
+          (response) =>
+            response.json() as Promise<{
+              info?: { role?: string }
+              parts?: Array<{ type?: string; text?: string }>
+            }>,
+        )
+        if (completed.info?.role !== "assistant") {
+          throw new Error(`session ${created.id} did not complete an assistant turn`)
+        }
+        if (!completed.parts?.some((part) => part.type === "text" && part.text === `completed task ${index}`)) {
+          throw new Error(`session ${created.id} did not return the controlled completion`)
+        }
+
+        const statuses = await request("/session/status", directory).then(
+          (response) => response.json() as Promise<Record<string, { type?: string }>>,
+        )
+        if (statuses[created.id] && statuses[created.id].type !== "idle") {
+          throw new Error(`session ${created.id} remained ${statuses[created.id].type ?? "busy"} after completion`)
+        }
 
         return { directory, sessionID: created.id }
       }),
@@ -217,7 +235,7 @@ export async function runSessionConcurrencyCdp(input: { port: number; homeDir: s
       )
     }
 
-    return { projects: projects.length, switches: 12, failedResponses: 0 }
+    return { projects: projects.length, completedTasks: projects.length, switches: 12, failedResponses: 0 }
   } finally {
     await browser.close()
   }

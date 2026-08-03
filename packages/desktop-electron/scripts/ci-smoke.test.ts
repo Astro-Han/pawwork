@@ -112,6 +112,13 @@ describe("ci smoke helpers", () => {
     expect(env.PAWWORK_CI_SMOKE_CDP_PORT).toBe("48291")
   })
 
+  test("buildSmokeEnv routes completed-task diagnostics through the controlled e2e model", () => {
+    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", "dev", {}, { e2eLlmUrl: "http://127.0.0.1:48292" })
+
+    expect(env.OPENCODE_E2E_ENABLED).toBe("true")
+    expect(env.OPENCODE_E2E_LLM_URL).toBe("http://127.0.0.1:48292")
+  })
+
   test("parseSmokeCdpPort accepts only concrete TCP ports", () => {
     expect(parseSmokeCdpPort("48291")).toBe(48291)
     expect(parseSmokeCdpPort(undefined)).toBeUndefined()

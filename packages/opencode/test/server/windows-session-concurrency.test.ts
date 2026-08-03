@@ -1,13 +1,32 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
 import { Instance } from "../../src/project/instance"
 import { Server } from "../../src/server/server"
 import type { Session } from "../../src/session"
 import { tmpdir } from "../fixture/fixture"
+import { startTestLLMServer } from "../lib/llm-server"
 
 type SeededProject = {
   directory: string
   session: Session.Info
 }
+
+const originalE2EEnabled = process.env.OPENCODE_E2E_ENABLED
+const originalE2ELlmURL = process.env.OPENCODE_E2E_LLM_URL
+let llm: Awaited<ReturnType<typeof startTestLLMServer>>
+
+beforeAll(async () => {
+  llm = await startTestLLMServer()
+  process.env.OPENCODE_E2E_ENABLED = "true"
+  process.env.OPENCODE_E2E_LLM_URL = llm.url
+})
+
+afterAll(async () => {
+  if (originalE2EEnabled === undefined) delete process.env.OPENCODE_E2E_ENABLED
+  else process.env.OPENCODE_E2E_ENABLED = originalE2EEnabled
+  if (originalE2ELlmURL === undefined) delete process.env.OPENCODE_E2E_LLM_URL
+  else process.env.OPENCODE_E2E_LLM_URL = originalE2ELlmURL
+  await llm.dispose()
+})
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -38,19 +57,31 @@ async function seedProject(directory: string, index: number): Promise<SeededProj
   )
   const session = (await sessionResponse.json()) as Session.Info
 
-  await requestOk(
+  await llm.textMatch(`run task ${index}`, `completed task ${index}`)
+  const completed = await requestOk(
     `project ${index} completed prompt`,
     withDirectory(`/session/${session.id}/message`, directory),
     {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        noReply: true,
-        model: { providerID: "test", modelID: "test" },
-        parts: [{ type: "text", text: `completed task ${index}` }],
+        model: { providerID: "opencode", modelID: "big-pickle" },
+        parts: [{ type: "text", text: `run task ${index}` }],
       }),
     },
   )
+  const assistant = (await completed.json()) as {
+    info?: { role?: string }
+    parts?: Array<{ type?: string; text?: string }>
+  }
+  expect(assistant.info?.role).toBe("assistant")
+  expect(assistant.parts).toContainEqual(expect.objectContaining({ type: "text", text: `completed task ${index}` }))
+
+  const statuses = (await requestOk(
+    `project ${index} completed status`,
+    withDirectory("/session/status", directory),
+  ).then((response) => response.json())) as Record<string, { type?: string }>
+  expect(statuses[session.id]?.type ?? "idle").toBe("idle")
 
   return { directory, session }
 }
@@ -81,6 +112,7 @@ describe("Windows multi-project session concurrency", () => {
       const projects = await Promise.all(
         [first.path, second.path, third.path].map((directory, index) => seedProject(directory, index)),
       )
+      expect(await llm.pending()).toBe(0)
 
       for (let round = 0; round < 12; round++) {
         const active = projects[round % projects.length]
