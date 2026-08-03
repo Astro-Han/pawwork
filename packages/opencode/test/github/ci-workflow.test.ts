@@ -27,6 +27,7 @@ const githubSha = "${{ github.sha }}"
 const lintJobName = "lint"
 const frontendArchitectureJobName = "frontend-architecture"
 const windowsUnitJobName = "unit-windows"
+const windowsElectronCdpJobName = "electron-cdp-windows"
 const setupAction = "./.github/actions/setup"
 const actionlintJobName = "actionlint"
 const actionlintVersion = "1.7.12"
@@ -687,6 +688,57 @@ describe("ci workflow", () => {
     // The final exit code is the last attempt's status, not the first.
     // Otherwise a recovered run would still turn the advisory red.
     expect(unitRun).toMatch(/exit "\$status"\s*$/)
+  })
+
+  test("runs the Electron session concurrency diagnostic once and always uploads logs", () => {
+    const parsed = parseWorkflow(windowsAdvisoryWorkflowPath)
+    const job = parsed.jobs?.[windowsElectronCdpJobName]
+    const diagnostic = stepByName(
+      windowsElectronCdpJobName,
+      "Run Electron CDP session concurrency",
+      windowsAdvisoryWorkflowPath,
+    )
+    const artifact = stepByName(
+      windowsElectronCdpJobName,
+      "Upload Electron session concurrency logs",
+      windowsAdvisoryWorkflowPath,
+    )
+
+    expect(job?.name).toBe("electron-cdp-windows")
+    expect(job?.needs).toBe("changes")
+    expect(job?.if).toBe("needs.changes.outputs.docs_only != 'true'")
+    expect(job?.["runs-on"]).toBe("windows-latest")
+    expect(job?.["timeout-minutes"]).toBe(30)
+    expect(job?.["continue-on-error"]).toBeUndefined()
+    expect(job?.defaults?.run?.shell).toBe("bash")
+    expect(checkoutStep(windowsElectronCdpJobName, windowsAdvisoryWorkflowPath)?.uses).toBe(pinned.checkout)
+    expect(
+      steps(windowsElectronCdpJobName, windowsAdvisoryWorkflowPath).find((step) =>
+        step.uses?.startsWith("actions/setup-node@"),
+      )?.uses,
+    ).toBe(pinned.setupNode)
+    expect(
+      steps(windowsElectronCdpJobName, windowsAdvisoryWorkflowPath).find((step) =>
+        step.uses?.startsWith("oven-sh/setup-bun@"),
+      )?.uses,
+    ).toBe(pinned.setupBun)
+    expect(diagnostic?.run).toBe("bun run smoke:ci")
+    expect(diagnostic?.["working-directory"]).toBe("packages/desktop-electron")
+    expect(diagnostic?.env).toEqual({
+      PAWWORK_CI_SMOKE_CDP: "true",
+      PAWWORK_CI_SMOKE_SESSION_CONCURRENCY: "true",
+      PAWWORK_CI_SMOKE_ARTIFACT_DIR: ".artifacts/session-concurrency",
+    })
+    expect(diagnostic?.run).not.toContain("retry")
+    expect(diagnostic?.run).not.toContain("attempt")
+    expect(diagnostic?.["continue-on-error"]).toBeUndefined()
+    expect(artifact?.if).toBe("always()")
+    expect(artifact?.uses).toBe(pinned.artifact)
+    expect(artifact?.with?.name).toBe(
+      "electron-cdp-windows-${{ github.sha }}-${{ github.run_attempt }}",
+    )
+    expect(artifact?.with?.path).toBe("packages/desktop-electron/.artifacts/session-concurrency")
+    expect(artifact?.with?.["if-no-files-found"]).toBe("error")
   })
 
   test("defines Windows unit packages and opencode shards", () => {

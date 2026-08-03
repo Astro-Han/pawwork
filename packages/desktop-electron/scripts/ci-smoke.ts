@@ -1,10 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { once } from "node:events"
 import { existsSync, mkdtempSync } from "node:fs"
+import { copyFile, mkdir, readdir, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import process from "node:process"
 import readline from "node:readline"
 import { rendererOrigin } from "../src/main/renderer-protocol"
@@ -290,6 +291,63 @@ async function stopChild(child: ChildProcessWithoutNullStreams) {
   }
 }
 
+export async function collectCiSmokeArtifacts(homeDir: string, artifactDir: string) {
+  const copied: string[] = []
+  const visit = async (directory: string): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const source = join(directory, entry.name)
+      if (entry.isDirectory()) {
+        await visit(source)
+        continue
+      }
+      const relative = source.slice(homeDir.length + 1).split("\\").join("/")
+      const segments = relative.toLowerCase().split("/")
+      if (
+        !entry.isFile() ||
+        !entry.name.endsWith(".log") ||
+        !segments.some((part) => part === "log" || part === "logs")
+      ) {
+        continue
+      }
+      const destination = join(artifactDir, relative)
+      await mkdir(dirname(destination), { recursive: true })
+      await copyFile(source, destination)
+      copied.push(relative)
+    }
+  }
+
+  await mkdir(artifactDir, { recursive: true })
+  await visit(homeDir)
+  return copied
+}
+
+async function runSessionConcurrencyCdpWithNode(port: number, homeDir: string) {
+  const outdir = resolve(import.meta.dir, "../.artifacts/session-concurrency-harness")
+  const build = await Bun.build({
+    entrypoints: [resolve(import.meta.dir, "session-concurrency-cdp-runner.ts")],
+    target: "node",
+    external: ["@playwright/test"],
+    outdir,
+    naming: "runner.mjs",
+  })
+  if (!build.success) {
+    throw new Error(`Failed to build Electron CDP harness: ${build.logs.map((item) => item.message).join("\n")}`)
+  }
+
+  const child = Bun.spawn(["node", join(outdir, "runner.mjs"), String(port), homeDir], {
+    cwd: resolve(import.meta.dir, ".."),
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ])
+  if (exitCode !== 0) throw new Error(`Electron CDP harness failed (exit ${exitCode}):\n${stdout}${stderr}`)
+  return JSON.parse(stdout.trim()) as unknown
+}
+
 async function main() {
   const target = parseSmokeArgs(Bun.argv.slice(2))
   const homeDir = mkdtempSync(join(tmpdir(), "pawwork-ci-smoke-"))
@@ -297,13 +355,47 @@ async function main() {
   const { child, spawnError } = launchApp(homeDir, target, { cdpPort })
   const logs = watchChildLogs(child)
 
+  const artifactDir = process.env.PAWWORK_CI_SMOKE_ARTIFACT_DIR
+    ? resolve(process.env.PAWWORK_CI_SMOKE_ARTIFACT_DIR)
+    : undefined
+  let failure: unknown
+  let diagnostic: unknown
+
   try {
     await waitForCiSmokeReady(homeDir, target, child, spawnError, logs.recent)
     if (cdpPort !== undefined) await probeCiSmokeCdpTarget(cdpPort)
+    if (process.env.PAWWORK_CI_SMOKE_SESSION_CONCURRENCY === "true") {
+      if (cdpPort === undefined) throw new Error("Electron session concurrency diagnostic requires CDP")
+      diagnostic = await runSessionConcurrencyCdpWithNode(cdpPort, homeDir)
+    }
+  } catch (error) {
+    failure = error
   } finally {
     logs.close()
     await stopChild(child)
+    if (artifactDir) {
+      try {
+        const copiedLogs = await collectCiSmokeArtifacts(homeDir, artifactDir)
+        await writeFile(
+          join(artifactDir, "summary.json"),
+          JSON.stringify(
+            {
+              status: failure ? "failed" : "passed",
+              diagnostic,
+              error: failure instanceof Error ? failure.stack ?? failure.message : failure ? String(failure) : undefined,
+              copiedLogs,
+            },
+            null,
+            2,
+          ),
+        )
+      } catch (error) {
+        if (!failure) failure = error
+      }
+    }
   }
+
+  if (failure) throw failure
 }
 
 if (import.meta.main) {
