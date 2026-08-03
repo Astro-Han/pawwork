@@ -19,6 +19,7 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import z from "zod"
 import { SessionApi } from "../groups/session"
+import { logHttpApiFailure } from "./failure"
 
 const log = Log.create({ service: "server" })
 
@@ -102,15 +103,20 @@ function unknownError(message = "Unexpected server error. Check server logs for 
 }
 
 function sessionFailure(error: unknown) {
-  if (error instanceof NotFoundError) return Effect.succeed(HttpServerResponse.jsonUnsafe(error.toObject(), { status: 404 }))
+  if (error instanceof NotFoundError) {
+    return Effect.succeed(HttpServerResponse.jsonUnsafe(error.toObject(), { status: 404 }))
+  }
+  const report = logHttpApiFailure("session", error)
   if (error instanceof Provider.ModelNotFoundError) {
-    return Effect.succeed(HttpServerResponse.jsonUnsafe(error.toObject(), { status: 400 }))
+    return report.pipe(Effect.as(HttpServerResponse.jsonUnsafe(error.toObject(), { status: 400 })))
   }
   if (error instanceof SessionNs.BusyError) {
-    return Effect.succeed(HttpServerResponse.jsonUnsafe(unknownError(error.message), { status: 409 }))
+    return report.pipe(Effect.as(HttpServerResponse.jsonUnsafe(unknownError(error.message), { status: 409 })))
   }
-  if (error instanceof NamedError) return Effect.succeed(HttpServerResponse.jsonUnsafe(error.toObject(), { status: 500 }))
-  return Effect.succeed(HttpServerResponse.jsonUnsafe(unknownError(), { status: 500 }))
+  if (error instanceof NamedError) {
+    return report.pipe(Effect.as(HttpServerResponse.jsonUnsafe(error.toObject(), { status: 500 })))
+  }
+  return report.pipe(Effect.as(HttpServerResponse.jsonUnsafe(unknownError(), { status: 500 })))
 }
 
 function jsonResponse<A>(effect: Effect.Effect<A, unknown, unknown>) {
