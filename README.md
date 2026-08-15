@@ -10,8 +10,8 @@
 
 ## 里程碑
 
-- **M0（当前）**：Electron 壳 + 官方 dsh profile 跑通——拉起本地 `dsh web`，探测就绪后加载 Web UI，退出清理进程
-- **M1**：私有 bundle 注入（内部模型端点、内部配置）
+- **M0（已完成并验证）**：Electron 壳 + 官方 dsh profile 跑通——拉起本地 `dsh web`，探测就绪后加载 Web UI，退出清理进程。已验证：spawn → 3080 HTTP 200 → Electron 渲染真实 UI（title=DeepSeek Harness）→ 精确停止
+- **M1（进行中）**：私有 bundle 注入（内部模型端点、内部配置）
 - **M2**：内部工具、权限/审计、UI 皮肤
 - **M3**：内部分发/签名 → v1 退役归档
 
@@ -21,11 +21,18 @@
 npm i -g @deepseek-ai/dsh     # 首次：安装 DSH CLI（M0 不做自动安装）
 pnpm install                  # 安装 Electron
 pnpm start                    # 启动：spawn dsh web → 加载 http://127.0.0.1:3080
+pnpm smoke                    # 验证：spawn dsh → 加载 UI → 截图到 logs/smoke.png
 ```
 
 - 日志与 pid 落在 `logs/`（可用 `DSH_DATA_DIR` 重定向）
 - 退出时按 pid 文件结束本应用拉起的 `dsh web`，不误杀外部实例
 - `DSH_BIN` 可显式指定 dsh 可执行文件路径
+
+## 实现要点（踩坑记录）
+
+- spawn `dsh` 必须用 `process.execPath`（Electron 内置 Node）+ 环境变量 `ELECTRON_RUN_AS_NODE=1`，否则 Electron 以 GUI 模式启动而不会真正执行 dsh
+- dsh 的 HMR 插件（cordis-plugin-hmr）要求 `--expose-internals`，spawn 参数需带上
+- 用 pid 文件精确停止本应用拉起的实例，避免误杀外部 `dsh web`
 
 ## 目录结构
 
@@ -35,6 +42,7 @@ electron/
   preload.js      # contextIsolation 安全壳（M0 占位）
 scripts/
   dsh-server.js   # dsh web 服务生命周期（spawn/probe/stop）
+  smoke.js        # M0 验证：spawn dsh → 加载 UI → 截图 + title/body 断言
 ```
 
 ## 许可注意

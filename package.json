@@ -7,7 +7,8 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "start:dev": "ELECTRON_ENABLE_LOGGING=1 electron ."
+    "start:dev": "ELECTRON_ENABLE_LOGGING=1 electron .",
+    "smoke": "electron scripts/smoke.js"
   },
   "devDependencies": {
     "electron": "^43.4.0"

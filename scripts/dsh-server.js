@@ -62,6 +62,8 @@ function resolveDshBin() {
 }
 
 // 构造 spawn 环境：把常见 bin 目录注入 PATH，供 dsh 内部子进程使用。
+// ELECTRON_RUN_AS_NODE=1：开发/打包下 process.execPath 是 Electron 二进制，
+// 必须以此变量让它在纯 Node 模式下运行 dsh。
 function buildSpawnEnv(port) {
   const extraDirs = [
     path.join(os.homedir(), '.local', 'bin'),
@@ -70,11 +72,12 @@ function buildSpawnEnv(port) {
     '/usr/local/bin',
   ].filter(Boolean);
   const PATH = [...new Set([...extraDirs, process.env.PATH || ''])].filter(Boolean).join(':');
-  return { ...process.env, PATH, PORT: String(port) };
+  return { ...process.env, PATH, PORT: String(port), ELECTRON_RUN_AS_NODE: '1' };
 }
 
 // 拉起常驻 dsh web（detached + unref）。核心：用 process.execPath（Electron 内置 Node）执行 dsh，
 // 不依赖系统 PATH 中的 node，也不依赖 dsh 的 shebang。
+// --expose-internals 是 dsh HMR 插件（cordis-plugin-hmr）的要求。
 function spawnDshServer(port) {
   const dshBin = resolveDshBin();
   if (!dshBin) {
@@ -84,7 +87,7 @@ function spawnDshServer(port) {
   const outFd = fs.openSync(path.join(logDir, 'dsh-web.stdout.log'), 'a');
   const errFd = fs.openSync(path.join(logDir, 'dsh-web.stderr.log'), 'a');
   console.log(`[pawwork] spawning dsh via process.execPath: ${dshBin}`);
-  const proc = spawn(process.execPath, [dshBin, 'web'], {
+  const proc = spawn(process.execPath, ['--expose-internals', dshBin, 'web'], {
     detached: true,
     stdio: ['ignore', outFd, errFd],
     env: buildSpawnEnv(port),
