@@ -1,0 +1,15 @@
+{
+  "name": "pawwork",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PawWork v2 — 基于 DeepSeek Harness (DSH) 的桌面 agent。M0: Electron 壳 + 官方 dsh profile。",
+  "main": "electron/main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "start:dev": "ELECTRON_ENABLE_LOGGING=1 electron ."
+  },
+  "devDependencies": {
+    "electron": "^43.4.0"
+  }
+}
