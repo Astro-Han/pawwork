@@ -8,6 +8,7 @@ const os = require('os');
 const path = require('path');
 const {
   buildDshArgs,
+  buildNodeArgs,
   buildLaunchEnv,
   ensureProductHome,
   resolveDshBin,
@@ -73,7 +74,7 @@ function spawnDshServer(port, electronApp) {
   const logDir = getLogDir(home);
   const outFd = fs.openSync(path.join(logDir, 'dsh-web.stdout.log'), 'a');
   const errFd = fs.openSync(path.join(logDir, 'dsh-web.stderr.log'), 'a');
-  const args = ['--expose-internals', dshBin, ...buildDshArgs('web', ['--port', String(port)], home)];
+  const args = buildNodeArgs(dshBin, buildDshArgs('web', ['--port', String(port)], home));
   console.log(`[pawwork] spawning dsh home=${home} bin=${dshBin}`);
   const proc = spawn(process.execPath, args, {
     detached: true,

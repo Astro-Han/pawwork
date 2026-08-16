@@ -9,11 +9,12 @@ const {
   ensureProductHome,
   buildLaunchEnv,
   buildDshArgs,
+  buildNodeArgs,
   resolveProductHome,
   resolveDshBin,
   PRODUCT_PATCH_SOURCE,
   PRODUCT_PATCH_FILENAME,
-  ZEN_IDENTITY_HREF,
+  ZEN_IDENTITY_PRELOAD_HREF,
 } = require('./product-home');
 
 function tempHome() {
@@ -28,8 +29,8 @@ test('creates a product home with the public Zen credential and no settings file
   const creds = fs.readFileSync(path.join(home, '.credentials.yaml'), 'utf8');
   assert.match(creds, /OPENCODE_API_KEY:\s*"public"/);
   const patch = fs.readFileSync(result.patch, 'utf8');
-  assert.equal(patch.includes(`name: ${ZEN_IDENTITY_HREF}`), true);
-  assert.equal(patch.includes('__ZEN_IDENTITY__'), false);
+  assert.equal(patch, fs.readFileSync(PRODUCT_PATCH_SOURCE, 'utf8'));
+  assert.equal(patch.includes('zen-identity'), false);
   assert.equal(fs.existsSync(path.join(home, 'settings.yaml')), false);
 });
 
@@ -73,8 +74,7 @@ test('product patch composes Zen Free as the default model', () => {
   assert.equal(dumped.status, 0, dumped.stderr);
   assert.match(dumped.stdout, /id: agent-default-model[\s\S]*provider: opencode[\s\S]*model: big-pickle/);
   assert.match(dumped.stdout, /id: llm-pi-ai[\s\S]*opencode:[\s\S]*apiKeyEnv: OPENCODE_API_KEY/);
-  assert.equal(dumped.stdout.includes('id: zen-identity'), true);
-  assert.equal(dumped.stdout.includes('scripts/zen-identity.mjs'), true);
+  assert.equal(dumped.stdout.includes('id: zen-identity'), false);
   assert.doesNotMatch(dumped.stdout, /provider: deepseek-official/);
 });
 
@@ -91,6 +91,18 @@ test('boots official web with the materialized product patch after launcher flag
     ['--profile', 'headless', '--patch', patch, 'Reply with exactly: OK'],
   );
   assert.deepEqual(buildDshArgs('web'), ['web', '--patch', PRODUCT_PATCH_SOURCE]);
+});
+
+test('preloads Zen identity before the dsh entry so fetch is wrapped first', () => {
+  const dshBin = '/tmp/dsh/lib/bin.js';
+  const args = buildNodeArgs(dshBin, ['web', '--port', '3999']);
+  const importAt = args.indexOf('--import');
+  assert.equal(args[0], '--expose-internals');
+  assert.equal(importAt, 1);
+  assert.equal(args[2], ZEN_IDENTITY_PRELOAD_HREF);
+  assert.equal(args[3], dshBin);
+  assert.deepEqual(args.slice(4), ['web', '--port', '3999']);
+  assert.ok(importAt < args.indexOf(dshBin));
 });
 
 test('resolves the product home from DSH_HOME, then Electron userData, then a local fallback', () => {

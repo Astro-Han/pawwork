@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const {
   buildDshArgs,
+  buildNodeArgs,
   buildLaunchEnv,
   ensureProductHome,
   resolveDshBin,
@@ -20,7 +21,7 @@ ensureProductHome(home);
 const dshBin = resolveDshBin();
 const result = spawnSync(
   process.execPath,
-  ['--expose-internals', dshBin, ...buildDshArgs('headless', ['Reply with exactly: OK'], home)],
+  buildNodeArgs(dshBin, buildDshArgs('headless', ['Reply with exactly: OK'], home)),
   {
     encoding: 'utf8',
     env: buildLaunchEnv(home),

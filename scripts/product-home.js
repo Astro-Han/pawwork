@@ -4,8 +4,8 @@ const path = require('path');
 
 const PUBLIC_CREDENTIAL = 'OPENCODE_API_KEY: "public"\n';
 const PRODUCT_PATCH_SOURCE = path.join(__dirname, '..', 'config', 'product.cordis.patch.yml');
-const ZEN_IDENTITY = path.join(__dirname, 'zen-identity.mjs');
-const ZEN_IDENTITY_HREF = require('url').pathToFileURL(ZEN_IDENTITY).href;
+const ZEN_IDENTITY_PRELOAD = path.join(__dirname, 'zen-identity-preload.mjs');
+const ZEN_IDENTITY_PRELOAD_HREF = require('url').pathToFileURL(ZEN_IDENTITY_PRELOAD).href;
 const PRODUCT_PATCH_FILENAME = 'product.cordis.patch.yml';
 
 const DROPPED_ENV = [
@@ -17,8 +17,7 @@ const DROPPED_ENV = [
 
 function writeProductPatch(home) {
   const dest = path.join(home, PRODUCT_PATCH_FILENAME);
-  const source = fs.readFileSync(PRODUCT_PATCH_SOURCE, 'utf8');
-  fs.writeFileSync(dest, source.replaceAll('__ZEN_IDENTITY__', ZEN_IDENTITY_HREF));
+  fs.copyFileSync(PRODUCT_PATCH_SOURCE, dest);
   return dest;
 }
 
@@ -43,6 +42,10 @@ function buildDshArgs(command, appArgs = [], home = null) {
   return [...launcher, '--patch', patch, ...appArgs];
 }
 
+function buildNodeArgs(dshBin, dshArgs = []) {
+  return ['--expose-internals', '--import', ZEN_IDENTITY_PRELOAD_HREF, dshBin, ...dshArgs];
+}
+
 function resolveProductHome(source = process.env, electronApp = null, repoRoot = path.join(__dirname, '..')) {
   if (source.DSH_HOME) return source.DSH_HOME;
   if (electronApp && typeof electronApp.getPath === 'function') {
@@ -60,11 +63,12 @@ module.exports = {
   PRODUCT_PATCH: PRODUCT_PATCH_SOURCE,
   PRODUCT_PATCH_SOURCE,
   PRODUCT_PATCH_FILENAME,
-  ZEN_IDENTITY,
-  ZEN_IDENTITY_HREF,
+  ZEN_IDENTITY_PRELOAD,
+  ZEN_IDENTITY_PRELOAD_HREF,
   ensureProductHome,
   buildLaunchEnv,
   buildDshArgs,
+  buildNodeArgs,
   resolveProductHome,
   resolveDshBin,
 };

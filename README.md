@@ -25,7 +25,7 @@ pnpm chat-smoke   # one real Zen Free turn, no user key
 - Product patch: `config/product.cordis.patch.yml` via `--patch`
 - Credential: `OPENCODE_API_KEY: "public"` written once into that home
 - Default model: `opencode/big-pickle`
-- Zen identity: product plugin `scripts/zen-identity.mjs` wraps `fetch` so Zen requests send the official OpenCode CLI headers
+- Zen identity: Node `--import` wraps `fetch` before dsh loads, so Zen requests send the official OpenCode CLI headers
 - DeepSeek official stays in the catalog
 
 ## Layout
@@ -35,6 +35,7 @@ config/product.cordis.patch.yml   # product defaults
 electron/main.js                  # window + spawn
 scripts/product-home.js           # home, env, argv
 scripts/zen-identity.mjs          # Zen request identity
+scripts/zen-identity-preload.mjs  # --import apply()
 scripts/dsh-server.js             # dsh web lifecycle
 scripts/smoke.js
 scripts/chat-smoke.js

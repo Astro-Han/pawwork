@@ -2,16 +2,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { spawnSync } = require('child_process');
-const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const {
-  ensureProductHome,
-  buildLaunchEnv,
-  buildDshArgs,
-  ZEN_IDENTITY_HREF,
-} = require('./product-home');
+const { ZEN_IDENTITY_PRELOAD_HREF } = require('./product-home');
 
 function headerRecord(init) {
   return Object.fromEntries(new Headers(init?.headers).entries());
@@ -93,15 +86,17 @@ test('apply wraps global fetch once', async () => {
   }
 });
 
-test('product patch inserts the Zen identity plugin', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-dsh-'));
-  ensureProductHome(home);
-  const dumped = spawnSync(
+test('Node --import wraps fetch before the entry runs', () => {
+  const result = spawnSync(
     process.execPath,
-    ['--expose-internals', require.resolve('@deepseek-ai/dsh/lib/bin.js'), ...buildDshArgs('web', ['--dump-config'], home)],
-    { encoding: 'utf8', env: buildLaunchEnv(home) },
+    [
+      '--import',
+      ZEN_IDENTITY_PRELOAD_HREF,
+      '-e',
+      'process.stdout.write(String(Boolean(globalThis.fetch && globalThis.fetch.__pawworkZenIdentity)))',
+    ],
+    { encoding: 'utf8' },
   );
-  assert.equal(dumped.status, 0, dumped.stderr);
-  assert.equal(dumped.stdout.includes('id: zen-identity'), true);
-  assert.equal(dumped.stdout.includes('scripts/zen-identity.mjs'), true);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, 'true');
 });

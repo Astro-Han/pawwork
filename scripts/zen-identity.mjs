@@ -1,8 +1,6 @@
-// Product plugin: wrap global fetch so OpenCode Zen requests look like the official CLI.
+// Process preload: wrap global fetch so OpenCode Zen requests look like the official CLI.
 // DSH's llm-pi-ai overwrites User-Agent with deepseek-harness attribution, and
-// llm/stream cannot change outbound headers. This is the smallest seam that can.
-
-export const name = 'zen-identity';
+// llm/stream cannot change outbound headers. Loaded with Node --import before dsh.
 
 export const OPENCODE_ZEN_HOST = 'opencode.ai';
 export const OPENCODE_ZEN_HEADERS = Object.freeze({
