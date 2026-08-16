@@ -1,5 +1,5 @@
 // PawWork v2 — Electron 主进程
-// M0：拉起本地 dsh web（官方 profile），探测就绪后加载 Web UI；退出时精确结束本应用拉起的实例。
+// 拉起官方 dsh web + 产品 patch，探测就绪后加载 Web UI；退出时按 pid 停本实例。
 'use strict';
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
@@ -11,6 +11,9 @@ const {
   stopDshServer,
 } = require('../scripts/dsh-server');
 
+app.setName('pawwork-v2');
+app.setPath('userData', path.join(app.getPath('appData'), 'pawwork-v2'));
+
 const PORT = Number(process.env.DSH_PORT || DEFAULT_PORT);
 const APP_URL = `http://127.0.0.1:${PORT}`;
 
@@ -20,7 +23,7 @@ async function ensureDshServer() {
   if (await probePort(PORT)) return true;
   console.log(`[pawwork] port :${PORT} idle, spawning dsh web ...`);
   try {
-    spawnDshServer(PORT);
+    spawnDshServer(PORT, app);
   } catch (err) {
     console.error(`[pawwork] failed to spawn dsh: ${err.message}`);
     app.exit(1);
@@ -28,7 +31,7 @@ async function ensureDshServer() {
   }
   const ok = await waitForServer(PORT);
   if (!ok) {
-    console.error(`[pawwork] dsh web did not become ready on :${PORT} (see logs/dsh-web.stderr.log)`);
+    console.error(`[pawwork] dsh web did not become ready on :${PORT}`);
     app.exit(1);
     return false;
   }
@@ -81,7 +84,7 @@ app.on('before-quit', (e) => {
   if (!app._dshStopping) {
     app._dshStopping = true;
     e.preventDefault();
-    stopDshServer(PORT)
+    stopDshServer(PORT, app)
       .catch(() => {})
       .finally(() => app.quit());
   }

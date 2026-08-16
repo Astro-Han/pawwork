@@ -2,15 +2,20 @@
   "name": "pawwork",
   "version": "0.1.0",
   "private": true,
-  "description": "PawWork v2 — 基于 DeepSeek Harness (DSH) 的桌面 agent。M0: Electron 壳 + 官方 dsh profile。",
+  "description": "PawWork v2 — desktop agent on DeepSeek Harness. Default model: OpenCode Zen Free.",
   "main": "electron/main.js",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
     "start:dev": "ELECTRON_ENABLE_LOGGING=1 electron .",
-    "smoke": "electron scripts/smoke.js"
+    "test": "node --test scripts/product-home.test.js",
+    "smoke": "electron scripts/smoke.js",
+    "chat-smoke": "node scripts/chat-smoke.js"
   },
   "devDependencies": {
     "electron": "^43.4.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.1.0-rc.6"
   }
 }

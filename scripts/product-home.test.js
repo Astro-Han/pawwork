@@ -1,0 +1,98 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { spawnSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const {
+  ensureProductHome,
+  buildLaunchEnv,
+  buildDshArgs,
+  resolveProductHome,
+  resolveDshBin,
+  PRODUCT_PATCH,
+} = require('./product-home');
+
+function tempHome() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-dsh-'));
+}
+
+test('creates a product home with the public Zen credential and no settings file', () => {
+  const home = tempHome();
+  const result = ensureProductHome(home);
+  assert.equal(result.home, home);
+  const creds = fs.readFileSync(path.join(home, '.credentials.yaml'), 'utf8');
+  assert.match(creds, /OPENCODE_API_KEY:\s*"public"/);
+  assert.equal(fs.existsSync(path.join(home, 'settings.yaml')), false);
+});
+
+test('leaves an existing credentials file untouched', () => {
+  const home = tempHome();
+  const credentialsPath = path.join(home, '.credentials.yaml');
+  fs.writeFileSync(credentialsPath, 'OPENCODE_API_KEY: "user-key"\n');
+  ensureProductHome(home);
+  assert.equal(fs.readFileSync(credentialsPath, 'utf8'), 'OPENCODE_API_KEY: "user-key"\n');
+});
+
+test('points DSH_HOME at the product home and drops inherited provider keys', () => {
+  const home = tempHome();
+  const env = buildLaunchEnv(home, {
+    PATH: '/usr/bin',
+    HOME: '/Users/dev',
+    OPENCODE_API_KEY: 'sk-dev',
+    OPENCODE_GO_API_KEY: 'sk-go',
+    DEEPSEEK_API_KEY: 'sk-ds',
+    DEEPSEEK_BASE_URL: 'https://example.invalid',
+    PORT: '3999',
+  });
+  assert.equal(env.DSH_HOME, home);
+  assert.equal(env.PATH, '/usr/bin');
+  assert.equal(env.HOME, '/Users/dev');
+  assert.equal(env.PORT, '3999');
+  assert.equal(env.OPENCODE_API_KEY, undefined);
+  assert.equal(env.OPENCODE_GO_API_KEY, undefined);
+  assert.equal(env.DEEPSEEK_API_KEY, undefined);
+  assert.equal(env.DEEPSEEK_BASE_URL, undefined);
+});
+
+test('product patch composes Zen Free as the default model', () => {
+  const home = tempHome();
+  ensureProductHome(home);
+  const dumped = spawnSync(
+    process.execPath,
+    ['--expose-internals', require.resolve('@deepseek-ai/dsh/lib/bin.js'), 'web', '--patch', PRODUCT_PATCH, '--dump-config'],
+    { encoding: 'utf8', env: buildLaunchEnv(home) },
+  );
+  assert.equal(dumped.status, 0, dumped.stderr);
+  assert.match(dumped.stdout, /id: agent-default-model[\s\S]*provider: opencode[\s\S]*model: big-pickle/);
+  assert.match(dumped.stdout, /id: llm-pi-ai[\s\S]*opencode:[\s\S]*apiKeyEnv: OPENCODE_API_KEY/);
+  assert.doesNotMatch(dumped.stdout, /provider: deepseek-official/);
+});
+
+test('boots official web with the product patch after launcher flags', () => {
+  assert.deepEqual(buildDshArgs('web'), ['web', '--patch', PRODUCT_PATCH]);
+  assert.deepEqual(
+    buildDshArgs('web', ['--port', '3999']),
+    ['web', '--patch', PRODUCT_PATCH, '--port', '3999'],
+  );
+  assert.deepEqual(
+    buildDshArgs('headless', ['Reply with exactly: OK']),
+    ['--profile', 'headless', '--patch', PRODUCT_PATCH, 'Reply with exactly: OK'],
+  );
+});
+
+test('resolves the product home from DSH_HOME, then Electron userData, then a local fallback', () => {
+  const explicit = resolveProductHome({ DSH_HOME: '/tmp/explicit-dsh' });
+  assert.equal(explicit, '/tmp/explicit-dsh');
+  const electron = resolveProductHome({}, { getPath: (name) => (name === 'userData' ? '/tmp/electron-app' : '') });
+  assert.equal(electron, path.join('/tmp/electron-app', 'dsh'));
+  const fallback = resolveProductHome({}, null, '/tmp/repo');
+  assert.equal(fallback, path.join('/tmp/repo', '.pawwork-dsh'));
+});
+
+test('resolves the vendored dsh entry before any global install', () => {
+  const vendored = path.join(__dirname, '..', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
+  assert.equal(resolveDshBin(), vendored);
+  assert.equal(resolveDshBin({ DSH_BIN: '/tmp/custom-dsh' }), '/tmp/custom-dsh');
+});

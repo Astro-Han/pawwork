@@ -1,0 +1,11 @@
+# PawWork product defaults. Applied after the official web profile via --patch.
+# Later user settings still win. A patch replaces the targeted row's whole config.
+- id: agent-default-model
+  config:
+    provider: opencode
+    model: big-pickle
+- id: llm-pi-ai
+  config:
+    providers:
+      opencode:
+        apiKeyEnv: OPENCODE_API_KEY

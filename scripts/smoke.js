@@ -1,16 +1,18 @@
-// PawWork v2 — M0 smoke：spawn dsh → Electron 加载 Web UI → 截图 → 清理退出
-// 用法: pnpm smoke（SMOKE_OUT 可指定输出路径，默认 logs/smoke.png）
+// PawWork v2 — smoke：spawn 产品 dsh web → 加载 UI → 截图 → 清理退出
 'use strict';
 const { app, BrowserWindow } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { DEFAULT_PORT, probePort, spawnDshServer, waitForServer, stopDshServer } = require('./dsh-server');
 
+app.setName('pawwork-v2');
+app.setPath('userData', path.join(app.getPath('appData'), 'pawwork-v2'));
+
 const PORT = Number(process.env.DSH_PORT || DEFAULT_PORT);
 const OUT = process.env.SMOKE_OUT || path.join(__dirname, '..', 'logs', 'smoke.png');
 
 app.whenReady().then(async () => {
-  if (!(await probePort(PORT))) spawnDshServer(PORT);
+  if (!(await probePort(PORT))) spawnDshServer(PORT, app);
   const ok = await waitForServer(PORT);
   if (!ok) {
     console.error('dsh web did not become ready');
@@ -41,7 +43,7 @@ app.whenReady().then(async () => {
   console.log('page title:', info.title);
   console.log('body text:', JSON.stringify(info.bodyText));
 
-  await stopDshServer(PORT);
+  await stopDshServer(PORT, app);
   app.exit(0);
 });
 

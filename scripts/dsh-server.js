@@ -1,23 +1,33 @@
 // PawWork v2 — dsh web 服务生命周期
-// M0：定位 dsh 可执行文件（DSH_BIN → PATH → npx 缓存），用 process.execPath（Electron 内置 Node）
-// 拉起 `dsh web`，HTTP 探测端口就绪，退出时按 pid 文件精确停止本应用拉起的实例。
+// 用项目依赖的 dsh 拉起官方 web profile，加上产品 --patch 与自有 DSH_HOME。
 'use strict';
-const { spawn, spawnSync } = require('child_process');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
+const {
+  buildDshArgs,
+  buildLaunchEnv,
+  ensureProductHome,
+  resolveDshBin,
+  resolveProductHome,
+} = require('./product-home');
 
 const DEFAULT_PORT = 3080;
-const POLL_ATTEMPTS = 60; // 最多等 60 秒
-const POLL_INTERVAL = 1000; // 每秒探测一次
+const POLL_ATTEMPTS = 60;
+const POLL_INTERVAL = 1000;
 
-// 日志目录：优先 DSH_DATA_DIR，否则工程根 logs/（M0 开发模式）
-function getDataDir() {
-  const base = process.env.DSH_DATA_DIR || process.cwd();
-  const dir = path.join(base, 'logs');
+function getLogDir(home) {
+  const dir = path.join(home, 'logs');
   fs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+function prepareProductHome(electronApp) {
+  const home = resolveProductHome(process.env, electronApp || null);
+  ensureProductHome(home);
+  return home;
 }
 
 function probePort(port, timeoutMs = 1500) {
@@ -42,55 +52,33 @@ async function waitForServer(port) {
   return false;
 }
 
-// 定位 dsh 可执行文件；找不到返回 null（M0 不做自动安装，报错引导手动安装）。
-function resolveDshBin() {
-  if (process.env.DSH_BIN) return process.env.DSH_BIN;
-  const which = spawnSync('sh', ['-lc', 'command -v dsh'], { encoding: 'utf8' });
-  if (which.status === 0 && which.stdout.trim()) return which.stdout.trim();
-  const npxRoot = path.join(os.homedir(), '.npm', '_npx');
-  try {
-    if (fs.existsSync(npxRoot)) {
-      const candidates = fs
-        .readdirSync(npxRoot)
-        .map((d) => path.join(npxRoot, d, 'node_modules', '.bin', 'dsh'))
-        .filter((p) => fs.existsSync(p))
-        .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
-      if (candidates.length) return candidates[0];
-    }
-  } catch (_) {}
-  return null;
-}
-
-// 构造 spawn 环境：把常见 bin 目录注入 PATH，供 dsh 内部子进程使用。
-// ELECTRON_RUN_AS_NODE=1：开发/打包下 process.execPath 是 Electron 二进制，
-// 必须以此变量让它在纯 Node 模式下运行 dsh。
-function buildSpawnEnv(port) {
+function buildSpawnEnv(home, port) {
   const extraDirs = [
     path.join(os.homedir(), '.local', 'bin'),
     '/opt/homebrew/bin',
     '/opt/homebrew/sbin',
     '/usr/local/bin',
   ].filter(Boolean);
-  const PATH = [...new Set([...extraDirs, process.env.PATH || ''])].filter(Boolean).join(':');
-  return { ...process.env, PATH, PORT: String(port), ELECTRON_RUN_AS_NODE: '1' };
+  const env = buildLaunchEnv(home);
+  const PATH = [...new Set([...extraDirs, env.PATH || ''])].filter(Boolean).join(':');
+  return { ...env, PATH, PORT: String(port), ELECTRON_RUN_AS_NODE: '1' };
 }
 
-// 拉起常驻 dsh web（detached + unref）。核心：用 process.execPath（Electron 内置 Node）执行 dsh，
-// 不依赖系统 PATH 中的 node，也不依赖 dsh 的 shebang。
-// --expose-internals 是 dsh HMR 插件（cordis-plugin-hmr）的要求。
-function spawnDshServer(port) {
+function spawnDshServer(port, electronApp) {
+  const home = prepareProductHome(electronApp);
   const dshBin = resolveDshBin();
-  if (!dshBin) {
-    throw new Error('dsh not found. Install with: npm i -g @deepseek-ai/dsh (or set DSH_BIN)');
+  if (!fs.existsSync(dshBin)) {
+    throw new Error(`dsh not found at ${dshBin}. Run pnpm install.`);
   }
-  const logDir = getDataDir();
+  const logDir = getLogDir(home);
   const outFd = fs.openSync(path.join(logDir, 'dsh-web.stdout.log'), 'a');
   const errFd = fs.openSync(path.join(logDir, 'dsh-web.stderr.log'), 'a');
-  console.log(`[pawwork] spawning dsh via process.execPath: ${dshBin}`);
-  const proc = spawn(process.execPath, ['--expose-internals', dshBin, 'web'], {
+  const args = ['--expose-internals', dshBin, ...buildDshArgs('web', ['--port', String(port)])];
+  console.log(`[pawwork] spawning dsh home=${home} bin=${dshBin}`);
+  const proc = spawn(process.execPath, args, {
     detached: true,
     stdio: ['ignore', outFd, errFd],
-    env: buildSpawnEnv(port),
+    env: buildSpawnEnv(home, port),
   });
   proc.on('error', (err) => console.error(`[pawwork] failed to start dsh: ${err.message}`));
   try {
@@ -110,8 +98,9 @@ function isAlive(pid) {
 }
 
 // 结束本应用拉起的 dsh web（按 pid 文件精确停止，不误杀外部实例）。
-async function stopDshServer(_port) {
-  const logDir = getDataDir();
+async function stopDshServer(_port, electronApp) {
+  const home = resolveProductHome(process.env, electronApp || null);
+  const logDir = getLogDir(home);
   const pidFile = path.join(logDir, 'dsh-web.pid');
   let pid = null;
   try {
@@ -138,4 +127,5 @@ module.exports = {
   spawnDshServer,
   stopDshServer,
   resolveDshBin,
+  prepareProductHome,
 };

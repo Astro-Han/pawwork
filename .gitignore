@@ -5,3 +5,4 @@ logs/
 *.log
 .DS_Store
 .vite/
+.pawwork-dsh/
