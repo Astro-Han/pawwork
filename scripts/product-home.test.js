@@ -11,7 +11,9 @@ const {
   buildDshArgs,
   resolveProductHome,
   resolveDshBin,
-  PRODUCT_PATCH,
+  PRODUCT_PATCH_SOURCE,
+  PRODUCT_PATCH_FILENAME,
+  ZEN_IDENTITY_HREF,
 } = require('./product-home');
 
 function tempHome() {
@@ -22,8 +24,12 @@ test('creates a product home with the public Zen credential and no settings file
   const home = tempHome();
   const result = ensureProductHome(home);
   assert.equal(result.home, home);
+  assert.equal(result.patch, path.join(home, PRODUCT_PATCH_FILENAME));
   const creds = fs.readFileSync(path.join(home, '.credentials.yaml'), 'utf8');
   assert.match(creds, /OPENCODE_API_KEY:\s*"public"/);
+  const patch = fs.readFileSync(result.patch, 'utf8');
+  assert.equal(patch.includes(`name: ${ZEN_IDENTITY_HREF}`), true);
+  assert.equal(patch.includes('__ZEN_IDENTITY__'), false);
   assert.equal(fs.existsSync(path.join(home, 'settings.yaml')), false);
 });
 
@@ -61,25 +67,30 @@ test('product patch composes Zen Free as the default model', () => {
   ensureProductHome(home);
   const dumped = spawnSync(
     process.execPath,
-    ['--expose-internals', require.resolve('@deepseek-ai/dsh/lib/bin.js'), 'web', '--patch', PRODUCT_PATCH, '--dump-config'],
+    ['--expose-internals', require.resolve('@deepseek-ai/dsh/lib/bin.js'), ...buildDshArgs('web', ['--dump-config'], home)],
     { encoding: 'utf8', env: buildLaunchEnv(home) },
   );
   assert.equal(dumped.status, 0, dumped.stderr);
   assert.match(dumped.stdout, /id: agent-default-model[\s\S]*provider: opencode[\s\S]*model: big-pickle/);
   assert.match(dumped.stdout, /id: llm-pi-ai[\s\S]*opencode:[\s\S]*apiKeyEnv: OPENCODE_API_KEY/);
+  assert.equal(dumped.stdout.includes('id: zen-identity'), true);
+  assert.equal(dumped.stdout.includes('scripts/zen-identity.mjs'), true);
   assert.doesNotMatch(dumped.stdout, /provider: deepseek-official/);
 });
 
-test('boots official web with the product patch after launcher flags', () => {
-  assert.deepEqual(buildDshArgs('web'), ['web', '--patch', PRODUCT_PATCH]);
+test('boots official web with the materialized product patch after launcher flags', () => {
+  const home = '/tmp/pawwork-home';
+  const patch = path.join(home, PRODUCT_PATCH_FILENAME);
+  assert.deepEqual(buildDshArgs('web', [], home), ['web', '--patch', patch]);
   assert.deepEqual(
-    buildDshArgs('web', ['--port', '3999']),
-    ['web', '--patch', PRODUCT_PATCH, '--port', '3999'],
+    buildDshArgs('web', ['--port', '3999'], home),
+    ['web', '--patch', patch, '--port', '3999'],
   );
   assert.deepEqual(
-    buildDshArgs('headless', ['Reply with exactly: OK']),
-    ['--profile', 'headless', '--patch', PRODUCT_PATCH, 'Reply with exactly: OK'],
+    buildDshArgs('headless', ['Reply with exactly: OK'], home),
+    ['--profile', 'headless', '--patch', patch, 'Reply with exactly: OK'],
   );
+  assert.deepEqual(buildDshArgs('web'), ['web', '--patch', PRODUCT_PATCH_SOURCE]);
 });
 
 test('resolves the product home from DSH_HOME, then Electron userData, then a local fallback', () => {

@@ -1,5 +1,8 @@
 # PawWork product defaults. Applied after the official web profile via --patch.
 # Later user settings still win. A patch replaces the targeted row's whole config.
+- insert:
+    - id: zen-identity
+      name: __ZEN_IDENTITY__
 - id: agent-default-model
   config:
     provider: opencode

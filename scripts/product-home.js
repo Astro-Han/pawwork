@@ -3,7 +3,10 @@ const fs = require('fs');
 const path = require('path');
 
 const PUBLIC_CREDENTIAL = 'OPENCODE_API_KEY: "public"\n';
-const PRODUCT_PATCH = path.join(__dirname, '..', 'config', 'product.cordis.patch.yml');
+const PRODUCT_PATCH_SOURCE = path.join(__dirname, '..', 'config', 'product.cordis.patch.yml');
+const ZEN_IDENTITY = path.join(__dirname, 'zen-identity.mjs');
+const ZEN_IDENTITY_HREF = require('url').pathToFileURL(ZEN_IDENTITY).href;
+const PRODUCT_PATCH_FILENAME = 'product.cordis.patch.yml';
 
 const DROPPED_ENV = [
   'OPENCODE_API_KEY',
@@ -12,13 +15,20 @@ const DROPPED_ENV = [
   'DEEPSEEK_BASE_URL',
 ];
 
+function writeProductPatch(home) {
+  const dest = path.join(home, PRODUCT_PATCH_FILENAME);
+  const source = fs.readFileSync(PRODUCT_PATCH_SOURCE, 'utf8');
+  fs.writeFileSync(dest, source.replaceAll('__ZEN_IDENTITY__', ZEN_IDENTITY_HREF));
+  return dest;
+}
+
 function ensureProductHome(home) {
   fs.mkdirSync(home, { recursive: true });
   const credentialsPath = path.join(home, '.credentials.yaml');
   if (!fs.existsSync(credentialsPath)) {
     fs.writeFileSync(credentialsPath, PUBLIC_CREDENTIAL, { mode: 0o600 });
   }
-  return { home };
+  return { home, patch: writeProductPatch(home) };
 }
 
 function buildLaunchEnv(home, source = process.env) {
@@ -27,9 +37,10 @@ function buildLaunchEnv(home, source = process.env) {
   return env;
 }
 
-function buildDshArgs(command, appArgs = []) {
+function buildDshArgs(command, appArgs = [], home = null) {
   const launcher = command === 'web' ? ['web'] : ['--profile', command];
-  return [...launcher, '--patch', PRODUCT_PATCH, ...appArgs];
+  const patch = home ? path.join(home, PRODUCT_PATCH_FILENAME) : PRODUCT_PATCH_SOURCE;
+  return [...launcher, '--patch', patch, ...appArgs];
 }
 
 function resolveProductHome(source = process.env, electronApp = null, repoRoot = path.join(__dirname, '..')) {
@@ -46,7 +57,11 @@ function resolveDshBin(source = process.env, repoRoot = path.join(__dirname, '..
 }
 
 module.exports = {
-  PRODUCT_PATCH,
+  PRODUCT_PATCH: PRODUCT_PATCH_SOURCE,
+  PRODUCT_PATCH_SOURCE,
+  PRODUCT_PATCH_FILENAME,
+  ZEN_IDENTITY,
+  ZEN_IDENTITY_HREF,
   ensureProductHome,
   buildLaunchEnv,
   buildDshArgs,
