@@ -13,7 +13,7 @@ import { Plugin } from "@/plugin"
 import { Config } from "@/config"
 import { Storage } from "@/storage/storage"
 import { ModelID, ProviderID } from "@/provider/schema"
-import { Effect, Layer, Context, Schema } from "effect"
+import { Cause, Effect, Layer, Context, Schema } from "effect"
 import { isOverflow as overflow, usable } from "./overflow"
 
 const log = Log.create({ service: "session.compaction" })
@@ -207,7 +207,7 @@ export interface Interface {
     model: { providerID: ProviderID; modelID: ModelID }
     auto: boolean
     overflow?: boolean
-  }) => Effect.Effect<MessageV2.User>
+  }) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionCompaction") {}
@@ -519,9 +519,14 @@ export const layer: Layer.Layer<
           })
           return { ok: true as const, stalled: false as const, result, processor, replay, selected }
         }).pipe(
-          Effect.catch((error: unknown) => Effect.succeed({ ok: false as const, error })),
-          // Interrupts (abort signal) bypass `Effect.catch` since they live on
-          // the Cause channel, not the error channel. Without this finalizer
+          Effect.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause)
+              ? Effect.failCause(cause)
+              : Effect.succeed({ ok: false as const, error: Cause.squash(cause) }),
+          ),
+          // Pure interrupts are rethrown above so this finalizer records an
+          // aborted terminal state instead of treating cancellation as setup failure.
+          // Without this finalizer
           // the placeholder would persist with no error/finish — the divider
           // state machine would read it as `pending` forever after an abort.
           Effect.onInterrupt(() =>
@@ -742,7 +747,6 @@ export const layer: Layer.Layer<
         auto: input.auto,
         overflow: input.overflow,
       })
-      return msg
     })
 
     return Service.of({

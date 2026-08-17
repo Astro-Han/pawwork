@@ -745,48 +745,41 @@ it.live("prompt persists a terminal assistant when setup fails after the user me
   ),
 )
 
-it.live("prompt finalizes its existing assistant carrier when later setup fails", () =>
+it.live("prompt finalizes its assistant carrier when later setup fails", () =>
   provideTmpdirServer(
     Effect.fnUntraced(function* () {
       const prompt = yield* SessionPrompt.Service
       const sessions = yield* Session.Service
+      const plugin = yield* Plugin.Service
       const chat = yield* sessions.create({ title: "Existing pre-carrier failure" })
-      const savedUser = yield* prompt.prompt({
-        sessionID: chat.id,
-        agent: "build",
-        model: {
-          providerID: ProviderID.make("missing-provider"),
-          modelID: ModelID.make("missing-model"),
-        },
-        noReply: true,
-        parts: [{ type: "text", text: "hello" }],
-      })
-      const pending: MessageV2.Assistant = {
-        id: MessageID.ascending(),
-        role: "assistant",
-        parentID: savedUser.info.id,
-        sessionID: chat.id,
-        mode: "build",
-        agent: "build",
-        path: { cwd: chat.executionContext.activeDirectory, root: chat.executionContext.ownerDirectory },
-        cost: 0,
-        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-        modelID: ModelID.make("missing-model"),
-        providerID: ProviderID.make("missing-provider"),
-        time: { created: Date.now() },
-      }
-      yield* sessions.updateMessage(pending)
+      const mutablePlugin = plugin as Mutable<typeof plugin>
+      const originalTrigger = plugin.trigger
+      mutablePlugin.trigger = ((name: Parameters<typeof plugin.trigger>[0], input: unknown, output: unknown) => {
+        if (name === "experimental.chat.messages.transform") {
+          return Effect.die(new Error("message transform failed"))
+        }
+        return originalTrigger(name as never, input as never, output as never)
+      }) as typeof plugin.trigger
+      yield* Effect.addFinalizer(() => Effect.sync(() => void (mutablePlugin.trigger = originalTrigger)))
 
-      const exit = yield* prompt.loop({ sessionID: chat.id, traceMessageID: savedUser.info.id }).pipe(Effect.exit)
+      const exit = yield* prompt
+        .prompt({
+          sessionID: chat.id,
+          agent: "build",
+          model: ref,
+          parts: [{ type: "text", text: "hello" }],
+        })
+        .pipe(Effect.exit)
 
       expect(Exit.isFailure(exit)).toBe(true)
       const messages = yield* sessions.messages({ sessionID: chat.id })
+      const savedUser = messages.find((message) => message.info.role === "user")
+      expect(savedUser?.info.role).toBe("user")
       const assistants = messages.filter(
-        (message) => message.info.role === "assistant" && message.info.parentID === savedUser.info.id,
+        (message) => message.info.role === "assistant" && message.info.parentID === savedUser?.info.id,
       )
       expect(assistants).toHaveLength(1)
       const terminal = assistants[0]
-      expect(terminal.info.id).toBe(pending.id)
       if (terminal.info.role === "assistant") {
         expect(terminal.info.finish).toBe("error")
         expect(terminal.info.error).toBeDefined()
@@ -820,7 +813,7 @@ it.live("compaction persists a terminal summary when setup fails after its marke
         })
         .pipe(Effect.exit)
 
-      expect(Exit.isFailure(exit)).toBe(true)
+      expect(Exit.isSuccess(exit)).toBe(true)
       const messages = yield* sessions.messages({ sessionID: chat.id })
       const marker = messages.find((message) => message.parts.some((part) => part.type === "compaction"))
       expect(marker).toBeDefined()
@@ -2223,146 +2216,6 @@ it.live(
 )
 
 it.live(
-  "cancel after compaction marker but before placeholder yields aborted carrier",
-  () =>
-    provideTmpdirServer(
-      Effect.fnUntraced(function* ({ llm }) {
-        const prompt = yield* SessionPrompt.Service
-        const sessions = yield* Session.Service
-        const chat = yield* sessions.create({ title: "Compaction prelude race cancel" })
-        yield* seed(chat.id, { finish: "stop" })
-        yield* llm.hang
-
-        const fiber = yield* prompt
-          .loop({
-            sessionID: chat.id,
-            prelude: { type: "compaction", agent: "build", model: ref, auto: false },
-          })
-          .pipe(Effect.forkChild)
-
-        // Polling targets the precise race window: marker present, summary
-        // placeholder not yet written. Breaking only on that combined state
-        // (rather than the marker alone) guarantees the cancel lands inside
-        // the window the new onInterrupt fallback was added to cover.
-        // observedRaceWindow distinguishes "loop hit the window then broke"
-        // from "deadline expired" — a setup failure (placeholder beat
-        // polling) fails explicitly here instead of producing a confusing
-        // propagation_point mismatch downstream.
-        const deadline = Date.now() + 5000
-        let observedRaceWindow = false
-        while (Date.now() < deadline) {
-          const snapshot = yield* sessions.messages({ sessionID: chat.id })
-          const hasMarker = snapshot.some((m) => m.parts.some((p) => p.type === "compaction"))
-          const hasPlaceholder = snapshot.some((m) => m.info.role === "assistant" && m.info.summary === true)
-          if (hasMarker && !hasPlaceholder) {
-            observedRaceWindow = true
-            break
-          }
-          yield* Effect.sleep("1 millis")
-        }
-        expect(observedRaceWindow).toBe(true)
-
-        const cancelled = yield* prompt.cancel(chat.id)
-        expect(cancelled).toBe(true)
-
-        const exit = yield* Fiber.await(fiber)
-        expect(Exit.isSuccess(exit)).toBe(true)
-
-        const msgs = yield* sessions.messages({ sessionID: chat.id })
-        const marker = msgs.find((m) => m.parts.some((p) => p.type === "compaction"))
-        expect(marker).toBeDefined()
-        const summary = msgs.find((m) => m.info.role === "assistant" && m.info.summary === true)
-        expect(summary).toBeDefined()
-        if (summary?.info.role === "assistant" && marker) {
-          expect(summary.info.error?.name).toBe("MessageAbortedError")
-          expect(summary.info.finish).toBe("error")
-          expect(typeof summary.info.time.completed).toBe("number")
-          expect(summary.info.parentID).toBe(marker.info.id)
-          // Locks the new onInterrupt fallback branch — if the test ever
-          // misses the race window and the existing processCompaction
-          // finalizer handles the cancel, propagation_point would differ.
-          expect(summary.info.diagnostics?.abort?.propagation_point).toBe(
-            "session.prompt.loop.onInterrupt.compaction_prelude",
-          )
-        }
-      }),
-      { git: true, config: providerCfg },
-    ),
-)
-
-it.live(
-  "cancel after a queued user message still resolves the orphaned compaction marker",
-  () =>
-    provideTmpdirServer(
-      Effect.fnUntraced(function* ({ llm }) {
-        const prompt = yield* SessionPrompt.Service
-        const sessions = yield* Session.Service
-        const chat = yield* sessions.create({ title: "Compaction queued-prompt race cancel" })
-        yield* seed(chat.id, { finish: "stop" })
-        yield* llm.hang
-
-        const fiber = yield* prompt
-          .loop({
-            sessionID: chat.id,
-            prelude: { type: "compaction", agent: "build", model: ref, auto: false },
-          })
-          .pipe(Effect.forkChild)
-
-        const deadline = Date.now() + 5000
-        let observedRaceWindow = false
-        while (Date.now() < deadline) {
-          const snapshot = yield* sessions.messages({ sessionID: chat.id })
-          const hasMarker = snapshot.some((m) => m.parts.some((p) => p.type === "compaction"))
-          const hasPlaceholder = snapshot.some((m) => m.info.role === "assistant" && m.info.summary === true)
-          if (hasMarker && !hasPlaceholder) {
-            observedRaceWindow = true
-            break
-          }
-          yield* Effect.sleep("1 millis")
-        }
-        expect(observedRaceWindow).toBe(true)
-
-        // Inject a queued user message ahead of the cancel — mirrors what
-        // SessionPrompt.prompt does when it lands while compaction is
-        // running: createUserMessage persists the new user before
-        // ensureRunning awaitRuns the existing run. After this,
-        // currentTurnTarget returns the queued user instead of the
-        // marker, so the older "current turn is marker" gate would skip
-        // the carrier write and leave the marker as an orphan rendering
-        // `failed`. The sweep must find the marker regardless.
-        const queuedUser = yield* user(chat.id, "queued prompt")
-
-        const cancelled = yield* prompt.cancel(chat.id)
-        expect(cancelled).toBe(true)
-
-        const exit = yield* Fiber.await(fiber)
-        expect(Exit.isSuccess(exit)).toBe(true)
-
-        const msgs = yield* sessions.messages({ sessionID: chat.id })
-        const marker = msgs.find((m) => m.parts.some((p) => p.type === "compaction"))
-        expect(marker).toBeDefined()
-        expect(queuedUser.id).not.toBe(marker?.info.id)
-        const summary = msgs.find(
-          (m) =>
-            m.info.role === "assistant" &&
-            m.info.summary === true &&
-            m.info.parentID === marker?.info.id,
-        )
-        expect(summary).toBeDefined()
-        if (summary?.info.role === "assistant" && marker) {
-          expect(summary.info.error?.name).toBe("MessageAbortedError")
-          expect(summary.info.finish).toBe("error")
-          expect(typeof summary.info.time.completed).toBe("number")
-          expect(summary.info.diagnostics?.abort?.propagation_point).toBe(
-            "session.prompt.loop.onInterrupt.compaction_prelude",
-          )
-        }
-      }),
-      { git: true, config: providerCfg },
-    ),
-)
-
-it.live(
   "prelude derives compaction agent from the post-cleanup latest user",
   () =>
     provideTmpdirServer(
@@ -2797,6 +2650,140 @@ it.live(
         const inputs = yield* llm.inputs
         expect(inputs).toHaveLength(2)
         expect(JSON.stringify(inputs.at(-1)?.messages)).toContain("second")
+      }),
+      { git: true, config: providerCfg },
+    ),
+)
+
+it.live(
+  "multiple prompts submitted during an active run share the next assistant turn",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const gate = defer<void>()
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Merged active-run prompts" })
+
+        yield* llm.hold("first", gate.promise)
+        yield* llm.text("combined followup")
+
+        const first = yield* prompt
+          .prompt({
+            sessionID: chat.id,
+            agent: "build",
+            model: ref,
+            parts: [{ type: "text", text: "first" }],
+          })
+          .pipe(Effect.forkChild)
+        yield* llm.wait(1)
+
+        const secondID = MessageID.ascending()
+        const second = yield* prompt
+          .prompt({
+            sessionID: chat.id,
+            messageID: secondID,
+            agent: "build",
+            model: ref,
+            parts: [{ type: "text", text: "second" }],
+          })
+          .pipe(Effect.forkChild)
+        const thirdID = MessageID.ascending()
+        const third = yield* prompt
+          .prompt({
+            sessionID: chat.id,
+            messageID: thirdID,
+            agent: "build",
+            model: ref,
+            parts: [{ type: "text", text: "third" }],
+          })
+          .pipe(Effect.forkChild)
+
+        const deadline = Date.now() + 5000
+        while (Date.now() < deadline) {
+          const messages = yield* sessions.messages({ sessionID: chat.id })
+          const secondSaved = messages.some((message) => message.info.id === secondID)
+          const thirdSaved = messages.some((message) => message.info.id === thirdID)
+          if (secondSaved && thirdSaved) {
+            break
+          }
+          yield* Effect.sleep("5 millis")
+        }
+        gate.resolve()
+
+        const exits = yield* Effect.all([Fiber.await(first), Fiber.await(second), Fiber.await(third)])
+        expect(exits.every(Exit.isSuccess)).toBe(true)
+        expect(yield* llm.calls).toBe(2)
+
+        const messages = yield* sessions.messages({ sessionID: chat.id })
+        const followup = messages.find(
+          (message) => message.info.role === "assistant" && message.info.parentID === thirdID,
+        )
+        expect(followup?.parts.some((part) => part.type === "text" && part.text === "combined followup")).toBe(true)
+        expect(
+          messages.some(
+            (message) =>
+              message.info.role === "assistant" &&
+              message.info.parentID === secondID &&
+              message.info.finish === "error",
+          ),
+        ).toBe(false)
+      }),
+      { git: true, config: providerCfg },
+    ),
+)
+
+it.live(
+  "cancel does not restart a prompt joined to the active run",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Cancel joined prompt" })
+
+        yield* llm.hang
+        yield* llm.text("must not run after cancel")
+
+        const active = yield* prompt
+          .prompt({
+            sessionID: chat.id,
+            agent: "build",
+            model: ref,
+            parts: [{ type: "text", text: "active" }],
+          })
+          .pipe(Effect.forkChild)
+        yield* llm.wait(1)
+
+        const queuedID = MessageID.ascending()
+        const queued = yield* prompt
+          .prompt({
+            sessionID: chat.id,
+            messageID: queuedID,
+            agent: "build",
+            model: ref,
+            parts: [{ type: "text", text: "queued" }],
+          })
+          .pipe(Effect.forkChild)
+
+        const deadline = Date.now() + 5000
+        while (Date.now() < deadline) {
+          const messages = yield* sessions.messages({ sessionID: chat.id })
+          if (messages.some((message) => message.info.id === queuedID)) break
+          yield* Effect.sleep("5 millis")
+        }
+
+        yield* prompt.cancel(chat.id)
+        const exits = yield* Effect.all([Fiber.await(active), Fiber.await(queued)])
+        expect(exits.every(Exit.isSuccess)).toBe(true)
+        expect(yield* llm.calls).toBe(1)
+
+        const messages = yield* sessions.messages({ sessionID: chat.id })
+        expect(
+          messages.some(
+            (message) => message.info.role === "assistant" && message.info.parentID === queuedID,
+          ),
+        ).toBe(false)
       }),
       { git: true, config: providerCfg },
     ),

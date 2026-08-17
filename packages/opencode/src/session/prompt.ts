@@ -2051,14 +2051,7 @@ export const layer = Layer.effect(
               history: msgs,
             }).pipe(Effect.ignore, Effect.forkIn(scope))
 
-          const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
           const task = tasks.pop()
-
-          if (task?.type === "subtask") {
-            yield* handleSubtask({ subtask: task, model, lastUser, sessionID, session, msgs })
-            continue
-          }
-
           if (task?.type === "compaction") {
             const result = yield* compaction.process({
               messages: msgs,
@@ -2069,6 +2062,12 @@ export const layer = Layer.effect(
               executionContext: session.executionContext,
             })
             if (result === "stop") break
+            continue
+          }
+
+          const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
+          if (task?.type === "subtask") {
+            yield* handleSubtask({ subtask: task, model, lastUser, sessionID, session, msgs })
             continue
           }
 
@@ -2338,24 +2337,15 @@ export const layer = Layer.effect(
     )(function* (input: z.infer<typeof LoopInput>, options?: PromptRuntimeOptions) {
       let activeProcessor: SessionProcessor.Handle | undefined
       let interrupted = false
-      let preludeMarkerID: MessageID | undefined
       const persistTerminalErrorCarrier = Effect.fn("SessionPrompt.persistTerminalErrorCarrier")(function* (
         error: unknown,
       ) {
-        let parent: MessageV2.WithParts | undefined
-        if (input.traceMessageID) {
-          const traced = yield* sessions.findMessage(
-            input.sessionID,
-            (message) => message.info.id === input.traceMessageID,
-          )
-          if (Option.isSome(traced)) parent = traced.value
-        } else if (preludeMarkerID) {
-          const marker = yield* sessions.findMessage(
-            input.sessionID,
-            (message) => message.info.id === preludeMarkerID,
-          )
-          if (Option.isSome(marker)) parent = marker.value
-        }
+        if (!input.traceMessageID) return
+        const traced = yield* sessions.findMessage(
+          input.sessionID,
+          (message) => message.info.id === input.traceMessageID,
+        )
+        const parent = Option.isSome(traced) ? traced.value : undefined
         if (!parent || parent.info.role !== "user") return
         const parentInfo = parent.info
 
@@ -2370,27 +2360,26 @@ export const layer = Layer.effect(
         })
         if (Option.isSome(existing) && existing.value.info.role === "assistant") {
           const assistant = existing.value.info
-          if (assistant.time.completed) return
-          yield* sessions.updateMessage({
-            ...assistant,
-            time: { ...assistant.time, completed: completedAt },
-            error: assistant.error ?? (assistant.finish ? undefined : terminalError),
-            finish: assistant.finish ?? "error",
-          })
-          return
+          if (!assistant.time.completed) {
+            yield* sessions.updateMessage({
+              ...assistant,
+              time: { ...assistant.time, completed: completedAt },
+              error: assistant.error ?? terminalError,
+              finish: assistant.finish ?? "error",
+            })
+            return
+          }
         }
 
         const session = yield* sessions.get(input.sessionID)
-        const isCompaction = parent.parts.some((part) => part.type === "compaction")
         const carrier: MessageV2.Assistant = {
           id: MessageID.ascending(),
           role: "assistant",
           parentID: parentInfo.id,
           sessionID: input.sessionID,
-          mode: isCompaction ? "compaction" : parentInfo.agent,
-          agent: isCompaction ? "compaction" : parentInfo.agent,
+          mode: parentInfo.agent,
+          agent: parentInfo.agent,
           variant: parentInfo.model.variant,
-          ...(isCompaction ? { summary: true } : {}),
           path: {
             cwd: session.executionContext.activeDirectory,
             root: session.executionContext.ownerDirectory,
@@ -2410,14 +2399,26 @@ export const layer = Layer.effect(
         }
         yield* sessions.updateMessage(carrier)
       })
-      const tracedMessageHasAssistant = Effect.fn("SessionPrompt.tracedMessageHasAssistant")(function* () {
-        if (!input.traceMessageID) return true
-        const child = yield* sessions.findMessage(
-          input.sessionID,
-          (message) => message.info.role === "assistant" && message.info.parentID === input.traceMessageID,
+      const persistFailure = (cause: Cause.Cause<unknown>) => {
+        if (Cause.hasInterruptsOnly(cause)) return Effect.void
+        return persistTerminalErrorCarrier(Cause.squash(cause)).pipe(
+          Effect.uninterruptible,
+          Effect.catchCause((terminalCause) =>
+            Effect.sync(() => {
+              log.error("failed to persist terminal prompt error", {
+                error: Cause.pretty(terminalCause),
+                original: Cause.pretty(cause),
+              })
+            }),
+          ),
         )
-        return Option.isSome(child)
-      })
+      }
+      // One run may merge several user messages into the assistant turn parented
+      // by the newest message. ID ordering proves an older traced message was
+      // included without requiring every merged user to own a separate child.
+      const tracedMessageCoveredBy = (message: MessageV2.WithParts) =>
+        !input.traceMessageID ||
+        (message.info.role === "assistant" && message.info.summary !== true && message.info.id > input.traceMessageID)
       const onInterrupt = (meta?: {
         source?: string
         reason?: string
@@ -2572,7 +2573,9 @@ export const layer = Layer.effect(
           }
           return assistant
         })
+      let workStarted = false
       const work = Effect.gen(function* () {
+        workStarted = true
         yield* throwIfAborted(options)
         // Two reasons busy goes first. (1) The compaction part event must
         // not race ahead of `session.status: busy` — the divider's
@@ -2607,20 +2610,21 @@ export const layer = Layer.effect(
               }
             }
           }
-          const marker = yield* compaction.create({
+          yield* compaction.create({
             sessionID: input.sessionID,
             agent,
             model: input.prelude.model,
             auto: input.prelude.auto,
           })
-          preludeMarkerID = marker.id
         }
         return yield* runLoop(input.sessionID, {
           onProcessor: (handle) => {
             activeProcessor = handle
           },
         })
-      })
+      }).pipe(
+        Effect.catchCause((cause) => persistFailure(cause).pipe(Effect.andThen(Effect.failCause(cause)))),
+      )
       // rejectIfBusy is the prelude path's safety net: a prelude's side
       // effects (writing the compaction marker) only run when ensureRunning
       // actually executes `work`, and that only happens from the Idle branch
@@ -2644,12 +2648,16 @@ export const layer = Layer.effect(
         state.ensureRunning(input.sessionID, onInterrupt, work, {
           rejectIfBusy: input.prelude !== undefined,
           runLifecycle,
-          onCancel: () => activeProcessor?.abortTools?.() ?? Effect.void,
+          onCancel: () =>
+            Effect.gen(function* () {
+              interrupted = true
+              yield* activeProcessor?.abortTools?.() ?? Effect.void
+            }),
         })
       const exit = yield* runOnce().pipe(Effect.exit)
       if (Exit.isSuccess(exit)) {
         if (interrupted) return exit.value
-        if (yield* tracedMessageHasAssistant()) return exit.value
+        if (tracedMessageCoveredBy(exit.value)) return exit.value
 
         // A prompt can land after the active run's final message scan but
         // before Runner transitions to Idle. In that narrow window
@@ -2657,9 +2665,10 @@ export const layer = Layer.effect(
         // ignored. Retry once after the joined run has completed so the saved
         // user message receives its own turn instead of becoming an orphan.
         const retry = yield* runOnce().pipe(Effect.exit)
-        if (Exit.isSuccess(retry) && (yield* tracedMessageHasAssistant())) return retry.value
+        if (Exit.isSuccess(retry) && interrupted) return retry.value
+        if (Exit.isSuccess(retry) && tracedMessageCoveredBy(retry.value)) return retry.value
         if (Exit.isFailure(retry)) {
-          if (!Cause.hasInterruptsOnly(retry.cause)) yield* persistTerminalErrorCarrier(Cause.squash(retry.cause))
+          if (!workStarted) yield* persistFailure(retry.cause)
           return yield* Effect.failCause(retry.cause)
         }
 
@@ -2669,7 +2678,7 @@ export const layer = Layer.effect(
         yield* persistTerminalErrorCarrier(error)
         return yield* Effect.die(error)
       }
-      if (!Cause.hasInterruptsOnly(exit.cause)) yield* persistTerminalErrorCarrier(Cause.squash(exit.cause))
+      if (!workStarted) yield* persistFailure(exit.cause)
       return yield* Effect.failCause(exit.cause)
     })
 
