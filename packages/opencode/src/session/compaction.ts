@@ -13,7 +13,7 @@ import { Plugin } from "@/plugin"
 import { Config } from "@/config"
 import { Storage } from "@/storage/storage"
 import { ModelID, ProviderID } from "@/provider/schema"
-import { Effect, Layer, Context, Schema } from "effect"
+import { Cause, Effect, Layer, Context, Schema } from "effect"
 import { isOverflow as overflow, usable } from "./overflow"
 
 const log = Log.create({ service: "session.compaction" })
@@ -203,11 +203,12 @@ export interface Interface {
   }) => Effect.Effect<"continue" | "stop">
   readonly create: (input: {
     sessionID: SessionID
+    messageID?: MessageID
     agent: string
     model: { providerID: ProviderID; modelID: ModelID }
     auto: boolean
     overflow?: boolean
-  }) => Effect.Effect<void>
+  }) => Effect.Effect<MessageV2.User>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionCompaction") {}
@@ -519,15 +520,20 @@ export const layer: Layer.Layer<
           })
           return { ok: true as const, stalled: false as const, result, processor, replay, selected }
         }).pipe(
-          Effect.catch((error: unknown) => Effect.succeed({ ok: false as const, error })),
-          // Interrupts (abort signal) bypass `Effect.catch` since they live on
-          // the Cause channel, not the error channel. Without this finalizer
+          Effect.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause)
+              ? Effect.failCause(cause)
+              : Effect.succeed({ ok: false as const, error: Cause.squash(cause) }),
+          ),
+          // Pure interrupts are rethrown above so this finalizer records an
+          // aborted terminal state instead of treating cancellation as setup failure.
+          // Without this finalizer
           // the placeholder would persist with no error/finish — the divider
           // state machine would read it as `pending` forever after an abort.
           Effect.onInterrupt(() =>
             Effect.gen(function* () {
-              if (msg.error || msg.finish) return
-              msg.error = new MessageV2.AbortedError({
+              if (msg.finish && msg.time.completed) return
+              msg.error ??= new MessageV2.AbortedError({
                 message: "Compaction aborted",
               }).toObject()
               msg.finish = "error"
@@ -535,7 +541,7 @@ export const layer: Layer.Layer<
               // `pending` memo (driven by `allMessages()`, which includes
               // the summary assistant) does not keep treating this turn
               // as in-flight.
-              msg.time.completed = Date.now()
+              msg.time.completed ??= Date.now()
               yield* session.updateMessage(msg)
             }),
           ),
@@ -721,27 +727,46 @@ export const layer: Layer.Layer<
 
     const create = Effect.fn("SessionCompaction.create")(function* (input: {
       sessionID: SessionID
+      messageID?: MessageID
       agent: string
       model: { providerID: ProviderID; modelID: ModelID }
       auto: boolean
       overflow?: boolean
     }) {
       const msg = yield* session.updateMessage({
-        id: MessageID.ascending(),
+        id: input.messageID ?? MessageID.ascending(),
         role: "user",
         model: input.model,
         sessionID: input.sessionID,
         agent: input.agent,
         time: { created: Date.now() },
       })
-      yield* session.updatePart({
-        id: PartID.ascending(),
-        messageID: msg.id,
-        sessionID: msg.sessionID,
-        type: "compaction",
-        auto: input.auto,
-        overflow: input.overflow,
-      })
+      yield* session
+        .updatePart({
+          id: PartID.ascending(),
+          messageID: msg.id,
+          sessionID: msg.sessionID,
+          type: "compaction",
+          auto: input.auto,
+          overflow: input.overflow,
+        })
+        .pipe(
+          Effect.catchCause((cause) =>
+            session.removeMessage({ sessionID: msg.sessionID, messageID: msg.id }).pipe(
+              Effect.uninterruptible,
+              Effect.catchCause((cleanupCause) =>
+                Effect.sync(() =>
+                  log.error("failed to roll back incomplete compaction marker", {
+                    messageID: msg.id,
+                    error: Cause.pretty(cleanupCause),
+                  }),
+                ),
+              ),
+              Effect.andThen(Effect.failCause(cause)),
+            ),
+          ),
+        )
+      return msg
     })
 
     return Service.of({

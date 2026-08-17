@@ -52,11 +52,12 @@ import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { envValueCaseInsensitive, prependBundledTools, stripPathKeys, withoutInternalServerAuthEnv } from "@/util/env"
 import { applyUvMirrorEnvDefaults, uvMirrorEnvSnapshot } from "@/util/uv-mirror"
-import { Cause, Deferred, Effect, Exit, Layer, Option, Scope, Context } from "effect"
+import { Cause, Deferred, Effect, Exit, Layer, Option, Scope, Context, Semaphore } from "effect"
 import { EffectLogger } from "@/effect"
 import { InstanceState } from "@/effect"
 import { AgentTool, type AgentPromptOps } from "@/tool/agent"
 import { SessionRunState } from "./run-state"
+import type { InterruptMeta } from "@/effect/runner"
 import { RunLifecycle } from "./run-lifecycle"
 import { EffectBridge } from "@/effect"
 import { attachWith } from "@/effect/run-service"
@@ -1822,51 +1823,219 @@ export const layer = Layer.effect(
       return { info, parts }
     }, Effect.scoped)
 
+    const terminalWriteLock = Semaphore.makeUnsafe(1)
+    const persistTerminalErrorCarrier = Effect.fn("SessionPrompt.persistTerminalErrorCarrier")(function* (input: {
+      sessionID: SessionID
+      parentID: MessageID
+      error: unknown
+      aborted?: boolean
+      preserveCompleted?: boolean
+      diagnostics?: MessageV2.Assistant["diagnostics"]
+    }) {
+      return yield* terminalWriteLock.withPermits(1)(
+        Effect.gen(function* () {
+          const traced = yield* sessions.findMessage(
+            input.sessionID,
+            (message) => message.info.id === input.parentID,
+          )
+          const parent = Option.isSome(traced) ? traced.value : undefined
+          if (!parent || parent.info.role !== "user") return
+          const parentInfo = parent.info
+
+          const messages = yield* sessions.messages({ sessionID: input.sessionID })
+          const existing = [...messages]
+            .reverse()
+            .find((message) => message.info.role === "assistant" && message.info.parentID === parentInfo.id)
+          const completedAt = Date.now()
+          const terminalError = MessageV2.fromError(input.error, {
+            providerID: parentInfo.model.providerID,
+            aborted: input.aborted ?? false,
+          })
+          if (existing?.info.role === "assistant") {
+            const assistant = existing.info
+            if (!assistant.time.completed) {
+              const terminal = yield* sessions.updateMessage({
+                ...assistant,
+                time: { ...assistant.time, completed: completedAt },
+                error: assistant.error ?? terminalError,
+                finish: "error",
+                diagnostics: input.diagnostics
+                  ? { ...(assistant.diagnostics ?? {}), ...input.diagnostics }
+                  : assistant.diagnostics,
+              })
+              return { info: terminal, parts: existing.parts }
+            }
+            if (assistant.error?.name === "MessageAbortedError" && input.diagnostics) {
+              const terminal = yield* sessions.updateMessage({
+                ...assistant,
+                diagnostics: { ...(assistant.diagnostics ?? {}), ...input.diagnostics },
+              })
+              return { info: terminal, parts: existing.parts }
+            }
+            if (assistant.error || assistant.finish === "error") return existing
+            if (input.preserveCompleted) return existing
+          }
+
+          const terminalSession = yield* sessions.get(input.sessionID)
+          const carrier: MessageV2.Assistant = {
+            id: MessageID.ascending(),
+            role: "assistant",
+            parentID: parentInfo.id,
+            sessionID: input.sessionID,
+            mode: parentInfo.agent,
+            agent: parentInfo.agent,
+            variant: parentInfo.model.variant,
+            path: {
+              cwd: terminalSession.executionContext.activeDirectory,
+              root: terminalSession.executionContext.ownerDirectory,
+            },
+            cost: 0,
+            tokens: {
+              input: 0,
+              output: 0,
+              reasoning: 0,
+              cache: { read: 0, write: 0 },
+            },
+            modelID: parentInfo.model.modelID,
+            providerID: parentInfo.model.providerID,
+            time: { created: completedAt, completed: completedAt },
+            error: terminalError,
+            finish: "error",
+            diagnostics: input.diagnostics,
+          }
+          yield* sessions.updateMessage(carrier)
+          return { info: carrier, parts: [] }
+        }),
+      )
+    })
+
+    type PromptAttempt = {
+      sessionID: SessionID
+      traceMessageID?: MessageID
+      interrupted: boolean
+      cancelMeta?: InterruptMeta
+      activeProcessor?: SessionProcessor.Handle
+      activeParentID?: MessageID
+      compactionMarkerID?: MessageID
+    }
+    const persistAttemptAbort = Effect.fn("SessionPrompt.persistAttemptAbort")(function* (
+      attempt: PromptAttempt,
+      propagationPoint = "session.prompt.loop.onInterrupt",
+      traceMessageID = attempt.traceMessageID,
+    ) {
+      if (!traceMessageID) return
+      const recordedAt = attempt.cancelMeta?.recordedAt ?? Date.now()
+      const abortError = new DOMException("Aborted", "AbortError")
+      return yield* persistTerminalErrorCarrier({
+        sessionID: attempt.sessionID,
+        parentID: traceMessageID,
+        error: abortError,
+        aborted: true,
+        preserveCompleted: true,
+        diagnostics: {
+          abort: {
+            source: attempt.cancelMeta?.source,
+            reason: attempt.cancelMeta?.reason,
+            title_generation_state: titleGenerationStateAtAbort(
+              titleGenerationProgress.get(attempt.sessionID),
+              recordedAt,
+            ),
+            propagation_point: attempt.cancelMeta?.propagationPoint ?? propagationPoint,
+            error_name: "MessageAbortedError",
+            error_message: "Aborted",
+            via_ctx_abort: attempt.cancelMeta?.viaCtxAbort,
+            recorded_at: recordedAt,
+          },
+        },
+      })
+    })
+    const cancelAttempt = (attempt: PromptAttempt) => (meta?: InterruptMeta) =>
+      Effect.gen(function* () {
+        attempt.interrupted = true
+        attempt.cancelMeta = meta
+        yield* attempt.activeProcessor?.abortTools?.() ?? Effect.void
+      })
+
     const prompt: (input: PromptInput, options?: PromptRuntimeOptions) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
       "SessionPrompt.prompt",
     )(function* (input: PromptInput, options?: PromptRuntimeOptions) {
-      yield* throwIfAborted(options)
-      interruptedSessions.delete(input.sessionID)
-      const session = yield* sessions.get(input.sessionID)
-      yield* revert.cleanup(session)
-      const message = yield* createUserMessage(input)
-      yield* sessions.touch(input.sessionID)
-
-      const permissions: Permission.Ruleset = []
-      for (const [t, enabled] of Object.entries(input.tools ?? {})) {
-        permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
+      const messageID = input.messageID ?? MessageID.ascending()
+      const promptInput = input.messageID ? input : { ...input, messageID }
+      const attempt: PromptAttempt = {
+        sessionID: input.sessionID,
+        traceMessageID: messageID,
+        interrupted: false,
       }
-      if (permissions.length > 0) {
-        // #26597: the boolean tools map is availability-only — it lists the subagent's structural
-        // denies (agent, worktree, todowrite, primary_tools), not what it inherited from its
-        // caller. The caller's deny rules are the single source of truth for inheritance and live
-        // on session.permission, forwarded at dispatch (tool/agent.ts). Rebuilding from the map
-        // alone would drop them, letting a caller regain access through the child. For agent-tool
-        // children, carry forward external_directory rules plus every caller deny the map does NOT
-        // regenerate: scoped (non-"*") denies (e.g. edit on one path) and whole-tool denies for
-        // keys absent from the map — the wildcard "*" and any tool not listed (automate, MCP,
-        // custom). Per-tool "*" denies for keys the map lists are regenerated each turn, so
-        // dropping them keeps this stable instead of accumulating.
-        // NOTE: like upstream #26597 this is forward-deny only — a caller's allow exception (e.g.
-        // a read-only "*": deny agent that also allows read) is not preserved, so its subagent
-        // loses those tools too. Matching upstream's deriveSubagentSessionPermission; toward deny.
-        const toolKeys = new Set(Object.keys(input.tools ?? {}))
-        const preserved = session.createdByAgentTool
-          ? (session.permission ?? []).filter(
-              (rule) =>
-                rule.permission === "external_directory" ||
-                (rule.action === "deny" && (rule.pattern !== "*" || !toolKeys.has(rule.permission))),
-            )
-          : []
-        const next = [...preserved, ...permissions]
-        session.permission = next
-        yield* sessions.setPermission({ sessionID: session.id, permission: next })
-      }
+      yield* state.observeCancel(input.sessionID, cancelAttempt(attempt))
+      const run = Effect.gen(function* () {
+        yield* throwIfAborted(options)
+        interruptedSessions.delete(input.sessionID)
+        const session = yield* sessions.get(input.sessionID)
+        yield* revert.cleanup(session)
+        const message = yield* createUserMessage(promptInput)
+        yield* sessions.touch(input.sessionID)
 
-      yield* throwIfAborted(options)
-      if (input.noReply === true) return message
-      return yield* loop({ sessionID: input.sessionID, traceMessageID: message.info.id }, options)
-    })
+        const permissions: Permission.Ruleset = []
+        for (const [t, enabled] of Object.entries(input.tools ?? {})) {
+          permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
+        }
+        if (permissions.length > 0) {
+          // #26597: the boolean tools map is availability-only — it lists the subagent's structural
+          // denies (agent, worktree, todowrite, primary_tools), not what it inherited from its
+          // caller. The caller's deny rules are the single source of truth for inheritance and live
+          // on session.permission, forwarded at dispatch (tool/agent.ts). Rebuilding from the map
+          // alone would drop them, letting a caller regain access through the child. For agent-tool
+          // children, carry forward external_directory rules plus every caller deny the map does NOT
+          // regenerate: scoped (non-"*") denies (e.g. edit on one path) and whole-tool denies for
+          // keys absent from the map — the wildcard "*" and any tool not listed (automate, MCP,
+          // custom). Per-tool "*" denies for keys the map lists are regenerated each turn, so
+          // dropping them keeps this stable instead of accumulating.
+          // NOTE: like upstream #26597 this is forward-deny only — a caller's allow exception (e.g.
+          // a read-only "*": deny agent that also allows read) is not preserved, so its subagent
+          // loses those tools too. Matching upstream's deriveSubagentSessionPermission; toward deny.
+          const toolKeys = new Set(Object.keys(input.tools ?? {}))
+          const preserved = session.createdByAgentTool
+            ? (session.permission ?? []).filter(
+                (rule) =>
+                  rule.permission === "external_directory" ||
+                  (rule.action === "deny" && (rule.pattern !== "*" || !toolKeys.has(rule.permission))),
+              )
+            : []
+          const next = [...preserved, ...permissions]
+          session.permission = next
+          yield* sessions.setPermission({ sessionID: session.id, permission: next })
+        }
+
+        yield* throwIfAborted(options)
+        if (input.noReply === true) return message
+        return yield* loopAttempt({ sessionID: input.sessionID, traceMessageID: message.info.id }, options, attempt)
+      })
+      return yield* run.pipe(
+        Effect.catchCause((cause) => {
+          if (input.noReply === true) return Effect.failCause(cause)
+          const interrupted = Cause.hasInterruptsOnly(cause)
+          const error = interrupted ? new DOMException("Aborted", "AbortError") : Cause.squash(cause)
+          return persistTerminalErrorCarrier({
+            sessionID: input.sessionID,
+            parentID: messageID,
+            error,
+            aborted: interrupted,
+            preserveCompleted: interrupted,
+          }).pipe(
+            Effect.uninterruptible,
+            Effect.catchCause((terminalCause) =>
+              Effect.sync(() => {
+                log.error("failed to persist terminal prompt error", {
+                  error: Cause.pretty(terminalCause),
+                  original: Cause.pretty(cause),
+                })
+              }),
+            ),
+            Effect.andThen(Effect.failCause(cause)),
+          )
+        }),
+      )
+    }, Effect.scoped)
 
     const appendRunLifecycleEvent = Effect.fn("SessionPrompt.appendRunLifecycleEvent")(function* (
       sessionID: SessionID,
@@ -1893,18 +2062,6 @@ export const layer = Layer.effect(
       const msgs = yield* sessions.messages({ sessionID, limit: 1 })
       if (msgs.length > 0) return msgs[0]
       throw new Error("Impossible")
-    })
-
-    const currentTurnTarget = Effect.fnUntraced(function* (sessionID: SessionID) {
-      const latestUser = yield* sessions.findMessage(sessionID, (message) => message.info.role === "user")
-      if (Option.isNone(latestUser)) return yield* lastAssistant(sessionID)
-
-      const currentAssistant = yield* sessions.findMessage(
-        sessionID,
-        (message) => message.info.role === "assistant" && message.info.parentID === latestUser.value.info.id,
-      )
-      if (Option.isSome(currentAssistant)) return currentAssistant.value
-      return latestUser.value
     })
 
     const shellCancelledAssistant = Effect.fnUntraced(function* (sessionID: SessionID) {
@@ -1957,9 +2114,20 @@ export const layer = Layer.effect(
 
     const runLoop: (
       sessionID: SessionID,
-      options?: { onProcessor?: (handle: SessionProcessor.Handle) => void },
+      options?: {
+        onProcessor?: (handle: SessionProcessor.Handle) => void
+        onTurnParent?: (messageID: MessageID) => void
+        onCompactionMarker?: (messageID: MessageID | undefined) => void
+      },
     ) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
-      function* (sessionID: SessionID, options?: { onProcessor?: (handle: SessionProcessor.Handle) => void }) {
+      function* (
+        sessionID: SessionID,
+        options?: {
+          onProcessor?: (handle: SessionProcessor.Handle) => void
+          onTurnParent?: (messageID: MessageID) => void
+          onCompactionMarker?: (messageID: MessageID | undefined) => void
+        },
+      ) {
         const ctx = yield* InstanceState.context
         const automation = yield* AutomationRunContext.current
         const slog = elog.with({ sessionID })
@@ -1991,6 +2159,7 @@ export const layer = Layer.effect(
           }
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+          options?.onTurnParent?.(lastUser.id)
           // Some providers return "stop" even when the assistant message contains tool calls.
           // Keep the loop running so tool results can be sent back to the model, but ignore
           // cleanup-marked interrupted orphans — those are abandoned, not pending work.
@@ -2005,7 +2174,7 @@ export const layer = Layer.effect(
             lastAssistant?.finish &&
             !["tool-calls"].includes(lastAssistant.finish) &&
             !hasToolCalls &&
-            lastUser.id < lastAssistant.id
+            lastAssistant.parentID === lastUser.id
           ) {
             const tokens = lastFinished?.tokens
             const hasTokenUsage =
@@ -2019,8 +2188,11 @@ export const layer = Layer.effect(
             if (lastFinished && lastFinished.summary !== true && hasTokenUsage) {
               const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
               if (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model })) {
+                const markerID = MessageID.ascending()
+                options?.onCompactionMarker?.(markerID)
                 yield* compaction.create({
                   sessionID,
+                  messageID: markerID,
                   agent: lastUser.agent,
                   model: lastUser.model,
                   auto: true,
@@ -2051,14 +2223,7 @@ export const layer = Layer.effect(
               history: msgs,
             }).pipe(Effect.ignore, Effect.forkIn(scope))
 
-          const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
           const task = tasks.pop()
-
-          if (task?.type === "subtask") {
-            yield* handleSubtask({ subtask: task, model, lastUser, sessionID, session, msgs })
-            continue
-          }
-
           if (task?.type === "compaction") {
             const result = yield* compaction.process({
               messages: msgs,
@@ -2068,7 +2233,14 @@ export const layer = Layer.effect(
               overflow: task.overflow,
               executionContext: session.executionContext,
             })
+            options?.onCompactionMarker?.(undefined)
             if (result === "stop") break
+            continue
+          }
+
+          const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
+          if (task?.type === "subtask") {
+            yield* handleSubtask({ subtask: task, model, lastUser, sessionID, session, msgs })
             continue
           }
 
@@ -2077,7 +2249,15 @@ export const layer = Layer.effect(
             lastFinished.summary !== true &&
             (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
           ) {
-            yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
+            const markerID = MessageID.ascending()
+            options?.onCompactionMarker?.(markerID)
+            yield* compaction.create({
+              sessionID,
+              messageID: markerID,
+              agent: lastUser.agent,
+              model: lastUser.model,
+              auto: true,
+            })
             continue
           }
 
@@ -2311,8 +2491,11 @@ export const layer = Layer.effect(
 
             if (result === "stop") return "break" as const
             if (result === "compact") {
+              const markerID = MessageID.ascending()
+              options?.onCompactionMarker?.(markerID)
               yield* compaction.create({
                 sessionID,
+                messageID: markerID,
                 agent: lastUser.agent,
                 model: lastUser.model,
                 auto: true,
@@ -2330,55 +2513,62 @@ export const layer = Layer.effect(
       },
     )
 
-    const loop: (
+    const loopAttempt: (
       input: z.infer<typeof LoopInput>,
-      options?: PromptRuntimeOptions,
+      options: PromptRuntimeOptions | undefined,
+      attempt: PromptAttempt,
     ) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
-      "SessionPrompt.loop",
-    )(function* (input: z.infer<typeof LoopInput>, options?: PromptRuntimeOptions) {
-      let activeProcessor: SessionProcessor.Handle | undefined
-      const onInterrupt = (meta?: {
-        source?: string
-        reason?: string
-        viaCtxAbort?: boolean
-        propagationPoint?: string
-        recordedAt?: number
-      }) =>
+      "SessionPrompt.loopAttempt",
+    )(function* (
+      input: z.infer<typeof LoopInput>,
+      options: PromptRuntimeOptions | undefined,
+      currentAttempt: PromptAttempt,
+    ) {
+      const persistFailure = (cause: Cause.Cause<unknown>) => {
+        if (Cause.hasInterruptsOnly(cause) || !input.traceMessageID) return Effect.void
+        return persistTerminalErrorCarrier({
+          sessionID: input.sessionID,
+          parentID: input.traceMessageID,
+          error: Cause.squash(cause),
+        }).pipe(
+          Effect.uninterruptible,
+          Effect.catchCause((terminalCause) =>
+            Effect.sync(() => {
+              log.error("failed to persist terminal prompt error", {
+                error: Cause.pretty(terminalCause),
+                original: Cause.pretty(cause),
+              })
+            }),
+          ),
+        )
+      }
+      const tracedMessageCoveredBy = Effect.fn("SessionPrompt.tracedMessageCoveredBy")(function* (
+        message: MessageV2.WithParts,
+      ) {
+        if (!input.traceMessageID) return true
+        if (message.info.role !== "assistant") return false
+        const parentID = message.info.parentID
+        const messages = yield* sessions.messages({ sessionID: input.sessionID })
+        const traceIndex = messages.findIndex((candidate) => candidate.info.id === input.traceMessageID)
+        const parentIndex = messages.findIndex((candidate) => candidate.info.id === parentID)
+        return traceIndex >= 0 && parentIndex >= traceIndex
+      })
+      let workStarted = false
+      const onInterrupt = (meta?: InterruptMeta) =>
         Effect.gen(function* () {
+          currentAttempt.interrupted = true
+          currentAttempt.cancelMeta = meta
           interruptedSessions.add(input.sessionID)
-          // Sweep any pending compaction marker first — a user message with
-          // a `compaction` part but no summary assistant child. Covers two
-          // race shapes: (1) marker just written, processCompaction has not
-          // reached its placeholder yet; (2) a normal SessionPrompt.prompt
-          // landed while compaction was running and persisted its user
-          // message before awaitRun, so currentTurnTarget now points at
-          // that newer user instead of the marker. Both leave the marker
-          // orphaned and the divider would render `failed` even though the
-          // cancel was a clean abort.
-          //
-          // Semantic boundary — only handle the *newest* compaction marker,
-          // and only if it lacks a summary child. Do NOT iterate older
-          // markers looking for any orphan. A historical orphan (e.g. left
-          // by a crashed prior session) is rendered `failed` by the divider
-          // because it *actually* failed; rewriting it as `aborted` here
-          // would attribute a past crash to the current cancel and stamp
-          // it with this cancel's `propagation_point`, which is a lie.
-          //
-          // The "newest marker = the marker this cancel can be attributed
-          // to" invariant rests on two upstream guarantees: (a) the Runner
-          // is per-session and serial — only one work effect can be writing
-          // a marker at any moment; (b) the prelude path uses rejectIfBusy
-          // (run-state.ts ~L173), so a second /summarize cannot land
-          // concurrently and produce a competing newer marker. If either
-          // guarantee weakens, this sweep would need run-local attribution
-          // (e.g. capture a high-water-mark message id at work entry and
-          // only match markers above it).
-          const pendingMarker = yield* sessions.findMessage(input.sessionID, (m) =>
-            m.info.role === "user" && m.parts.some((p) => p.type === "compaction"),
-          )
-          if (Option.isSome(pendingMarker)) {
-            const markerInfo = pendingMarker.value.info
-            if (markerInfo.role === "user") {
+          if (currentAttempt.compactionMarkerID) {
+            const pendingMarker = yield* sessions.findMessage(
+              input.sessionID,
+              (message) => message.info.id === currentAttempt.compactionMarkerID,
+            )
+            if (Option.isNone(pendingMarker)) {
+              currentAttempt.compactionMarkerID = undefined
+              if (!input.traceMessageID) return yield* lastAssistant(input.sessionID)
+            } else if (pendingMarker.value.info.role === "user") {
+              const markerInfo = pendingMarker.value.info
               const summaryChild = yield* sessions.findMessage(
                 input.sessionID,
                 (m) =>
@@ -2439,58 +2629,28 @@ export const layer = Layer.effect(
                 yield* sessions.updateMessage(placeholder)
                 return { info: placeholder, parts: [] }
               }
+              return summaryChild.value
             }
           }
-          const assistant = yield* currentTurnTarget(input.sessionID)
-          if (assistant.info.role === "assistant") {
-            const shouldFinalize = !assistant.info.time.completed
-            const error =
-              assistant.info.error ??
-              (shouldFinalize
-                ? MessageV2.fromError(new DOMException("Aborted", "AbortError"), {
-                    providerID: assistant.info.providerID,
-                    aborted: true,
-                  })
-                : undefined)
-            const errorMessage =
-              error && "data" in error && error.data && typeof error.data === "object" && "message" in error.data
-                ? String(error.data.message)
-                : undefined
-            const recordedAt = meta?.recordedAt ?? Date.now()
-            yield* sessions.updateMessage({
-              ...assistant.info,
-              ...(shouldFinalize
-                ? {
-                    error,
-                    time: {
-                      ...assistant.info.time,
-                      completed: recordedAt,
-                    },
-                  }
-                : {}),
-              diagnostics: {
-                ...(assistant.info.diagnostics ?? {}),
-                abort: {
-                  ...(assistant.info.diagnostics?.abort ?? {}),
-                  source: meta?.source,
-                  reason: meta?.reason,
-                  title_generation_state: titleGenerationStateAtAbort(
-                    titleGenerationProgress.get(input.sessionID),
-                    recordedAt,
-                  ),
-                  propagation_point: meta?.propagationPoint ?? "session.prompt.loop.onInterrupt",
-                  error_name: error?.name,
-                  error_message: errorMessage,
-                  via_ctx_abort: meta?.viaCtxAbort,
-                  recorded_at: recordedAt,
-                },
-              },
-            })
-            return yield* lastAssistant(input.sessionID)
+          if (input.traceMessageID) {
+            const terminal = yield* persistAttemptAbort(currentAttempt)
+            return terminal ?? (yield* lastAssistant(input.sessionID))
           }
-          return assistant
+          if (input.prelude || !workStarted) return yield* lastAssistant(input.sessionID)
+          if (!currentAttempt.activeParentID) return yield* lastAssistant(input.sessionID)
+          const terminal = yield* persistAttemptAbort(
+            currentAttempt,
+            "session.prompt.loop.onInterrupt",
+            currentAttempt.activeParentID,
+          )
+          return terminal ?? (yield* lastAssistant(input.sessionID))
         })
       const work = Effect.gen(function* () {
+        workStarted = true
+        if (currentAttempt.interrupted) {
+          const terminal = yield* persistAttemptAbort(currentAttempt)
+          return terminal ?? (yield* onInterrupt(currentAttempt.cancelMeta))
+        }
         yield* throwIfAborted(options)
         // Two reasons busy goes first. (1) The compaction part event must
         // not race ahead of `session.status: busy` — the divider's
@@ -2525,8 +2685,11 @@ export const layer = Layer.effect(
               }
             }
           }
+          const markerID = MessageID.ascending()
+          currentAttempt.compactionMarkerID = markerID
           yield* compaction.create({
             sessionID: input.sessionID,
+            messageID: markerID,
             agent,
             model: input.prelude.model,
             auto: input.prelude.auto,
@@ -2534,10 +2697,18 @@ export const layer = Layer.effect(
         }
         return yield* runLoop(input.sessionID, {
           onProcessor: (handle) => {
-            activeProcessor = handle
+            currentAttempt.activeProcessor = handle
+          },
+          onTurnParent: (messageID) => {
+            currentAttempt.activeParentID = messageID
+          },
+          onCompactionMarker: (messageID) => {
+            currentAttempt.compactionMarkerID = messageID
           },
         })
-      })
+      }).pipe(
+        Effect.catchCause((cause) => persistFailure(cause).pipe(Effect.andThen(Effect.failCause(cause)))),
+      )
       // rejectIfBusy is the prelude path's safety net: a prelude's side
       // effects (writing the compaction marker) only run when ensureRunning
       // actually executes `work`, and that only happens from the Idle branch
@@ -2557,12 +2728,64 @@ export const layer = Layer.effect(
           }
         : undefined
       yield* throwIfAborted(options)
-      return yield* state.ensureRunning(input.sessionID, onInterrupt, work, {
-        rejectIfBusy: input.prelude !== undefined,
-        runLifecycle,
-        onCancel: () => activeProcessor?.abortTools?.() ?? Effect.void,
-      })
+      const runOnce = () =>
+        state.ensureRunning(input.sessionID, onInterrupt, work, {
+          rejectIfBusy: input.prelude !== undefined,
+          runLifecycle,
+        })
+      const exit = yield* runOnce().pipe(Effect.exit)
+      if (currentAttempt.interrupted) {
+        const terminal = yield* persistAttemptAbort(currentAttempt).pipe(Effect.uninterruptible)
+        if (terminal) return terminal
+        if (Exit.isSuccess(exit)) return exit.value
+      }
+      if (Exit.isSuccess(exit)) {
+        if (yield* tracedMessageCoveredBy(exit.value)) return exit.value
+
+        // A prompt can land after the active run's final message scan but
+        // before Runner transitions to Idle. In that narrow window
+        // ensureRunning joins the finishing run and its work is intentionally
+        // ignored. Retry once after the joined run has completed so the saved
+        // user message receives its own turn instead of becoming an orphan.
+        workStarted = false
+        currentAttempt.activeProcessor = undefined
+        const retry = yield* runOnce().pipe(Effect.exit)
+        if (currentAttempt.interrupted) {
+          const terminal = yield* persistAttemptAbort(currentAttempt).pipe(Effect.uninterruptible)
+          if (terminal) return terminal
+          if (Exit.isSuccess(retry)) return retry.value
+        }
+        if (Exit.isSuccess(retry) && (yield* tracedMessageCoveredBy(retry.value))) return retry.value
+        if (Exit.isFailure(retry)) {
+          if (!workStarted) yield* persistFailure(retry.cause)
+          return yield* Effect.failCause(retry.cause)
+        }
+
+        const error = new NamedError.Unknown({
+          message: "Session run completed without handling the submitted message",
+        })
+        const cause = Cause.die(error)
+        yield* persistFailure(cause)
+        return yield* Effect.failCause(cause)
+      }
+      if (!workStarted) yield* persistFailure(exit.cause)
+      return yield* Effect.failCause(exit.cause)
     })
+
+    const loop: (
+      input: z.infer<typeof LoopInput>,
+      options?: PromptRuntimeOptions,
+    ) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
+      "SessionPrompt.loop",
+    )(function* (input: z.infer<typeof LoopInput>, options?: PromptRuntimeOptions) {
+      const attempt: PromptAttempt = {
+        sessionID: input.sessionID,
+        traceMessageID: input.traceMessageID,
+        interrupted: false,
+      }
+      yield* state.observeCancel(input.sessionID, cancelAttempt(attempt))
+      return yield* loopAttempt(input, options, attempt)
+    }, Effect.scoped)
 
     const shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.shell")(
       function* (input: ShellInput) {
