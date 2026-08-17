@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import type { Message } from "@opencode-ai/sdk/v2/client"
-import { buildTurnMessagesByUserID, readSessionMessages, readUserMessages } from "./session-messages"
+import {
+  buildTurnMessagesByUserID,
+  messageAfterID,
+  messageBeforeID,
+  messagesBeforeID,
+  readSessionMessages,
+  readUserMessages,
+} from "./session-messages"
 
 const message = (id: string, role: Message["role"], parentID?: string): Message =>
   ({
@@ -45,6 +52,23 @@ describe("session message readers", () => {
     const loaded = [null, {}, message("msg_1", "assistant"), message("msg_2", "user")]
 
     expect(readUserMessages(loaded).map((item) => item.id)).toEqual(["msg_2"])
+  })
+
+  test("selects messages before a boundary by position when IDs wrap", () => {
+    const older = message("msg_fd0000000000old", "user")
+    const boundary = message("msg_000000000000new", "user")
+
+    expect(messagesBeforeID([older, boundary], boundary.id).map((item) => item.id)).toEqual([older.id])
+  })
+
+  test("navigates neighboring messages by position when IDs wrap", () => {
+    const older = message("msg_fd0000000000old", "user")
+    const boundary = message("msg_000000000000new", "user")
+    const newer = message("msg_010000000000next", "user")
+    const messages = [older, boundary, newer]
+
+    expect(messageBeforeID(messages, boundary.id)?.id).toBe(older.id)
+    expect(messageAfterID(messages, boundary.id)?.id).toBe(newer.id)
   })
 })
 

@@ -5,7 +5,6 @@ import type { Agent } from "../agent/agent"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { evaluate } from "@/permission/evaluate"
 import { Config } from "../config/config"
-import { Identifier } from "../id/id"
 import { Log } from "../util"
 import { ToolID } from "./schema"
 import { TRUNCATION_DIR } from "./truncation-dir"
@@ -55,14 +54,17 @@ export namespace Truncate {
       const fs = yield* AppFileSystem.Service
 
       const cleanup = Effect.fn("Truncate.cleanup")(function* () {
-        const cutoff = Identifier.timestamp(Identifier.create("tool", false, Date.now() - Duration.toMillis(RETENTION)))
+        const cutoff = Date.now() - Duration.toMillis(RETENTION)
         const entries = yield* fs.readDirectory(TRUNCATION_DIR).pipe(
           Effect.map((all) => all.filter((name) => name.startsWith("tool_"))),
           Effect.catch(() => Effect.succeed([])),
         )
         for (const entry of entries) {
-          if (Identifier.timestamp(entry) >= cutoff) continue
-          yield* fs.remove(path.join(TRUNCATION_DIR, entry)).pipe(Effect.catch(() => Effect.void))
+          const file = path.join(TRUNCATION_DIR, entry)
+          const info = yield* fs.stat(file).pipe(Effect.option)
+          if (Option.isNone(info) || Option.isNone(info.value.mtime)) continue
+          if (info.value.mtime.value.getTime() >= cutoff) continue
+          yield* fs.remove(file).pipe(Effect.catch(() => Effect.void))
         }
       })
 

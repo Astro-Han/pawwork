@@ -174,18 +174,47 @@ describe("Truncate", () => {
   describe("cleanup", () => {
     const DAY_MS = 24 * 60 * 60 * 1000
 
+    it.live("preserves a recent file when its ID crosses the timestamp rollover", () =>
+      Effect.gen(function* () {
+        const svc = yield* Truncate.Service
+        const fs = yield* FileSystem.FileSystem
+        const now = 1_786_965_195_136
+        const recentTime = now - 3 * DAY_MS
+        const recent = path.join(Truncate.DIR, Identifier.create("tool", false, now))
+
+        yield* fs.makeDirectory(Truncate.DIR, { recursive: true })
+        yield* writeFileStringScoped(recent, "recent content")
+        yield* fs.utimes(recent, new Date(recentTime), new Date(recentTime))
+
+        const originalNow = Date.now
+        Date.now = () => now
+        yield* svc.cleanup().pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              Date.now = originalNow
+            }),
+          ),
+        )
+
+        expect(yield* fs.exists(recent)).toBe(true)
+      }),
+    )
+
     it.live("deletes files older than 7 days and preserves recent files", () =>
       Effect.gen(function* () {
         const svc = yield* Truncate.Service
         const fs = yield* FileSystem.FileSystem
+        const now = Date.now()
 
         yield* fs.makeDirectory(Truncate.DIR, { recursive: true })
 
-        const old = path.join(Truncate.DIR, Identifier.create("tool", false, Date.now() - 10 * DAY_MS))
-        const recent = path.join(Truncate.DIR, Identifier.create("tool", false, Date.now() - 3 * DAY_MS))
+        const old = path.join(Truncate.DIR, Identifier.create("tool", false, now - 10 * DAY_MS))
+        const recent = path.join(Truncate.DIR, Identifier.create("tool", false, now - 3 * DAY_MS))
 
         yield* writeFileStringScoped(old, "old content")
         yield* writeFileStringScoped(recent, "recent content")
+        yield* fs.utimes(old, new Date(now - 10 * DAY_MS), new Date(now - 10 * DAY_MS))
+        yield* fs.utimes(recent, new Date(now - 3 * DAY_MS), new Date(now - 3 * DAY_MS))
         yield* svc.cleanup()
 
         expect(yield* fs.exists(old)).toBe(false)

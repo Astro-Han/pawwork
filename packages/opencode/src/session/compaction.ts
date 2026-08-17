@@ -476,11 +476,17 @@ export const layer: Layer.Layer<
             model,
           })
           const previousTailStartId = compactionPart?.tail_start_id ?? latestPrior?.tailStartId
+          const previousTailIndex = previousTailStartId
+            ? history.findIndex((message) => message.info.id === previousTailStartId)
+            : -1
+          const selectedTailIndex = selected.tail_start_id
+            ? history.findIndex((message) => message.info.id === selected.tail_start_id)
+            : -1
           const stalledTailBoundary =
             input.auto &&
-            previousTailStartId !== undefined &&
-            selected.tail_start_id !== undefined &&
-            selected.tail_start_id <= previousTailStartId
+            previousTailIndex >= 0 &&
+            selectedTailIndex >= 0 &&
+            selectedTailIndex <= previousTailIndex
           if (stalledTailBoundary) {
             return { ok: true as const, stalled: true as const, tail_start_id: selected.tail_start_id }
           }

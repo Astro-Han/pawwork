@@ -4,11 +4,11 @@ import { applyOptimisticAdd, applyOptimisticRemove, mergeOptimisticPage } from "
 
 type Text = Extract<Part, { type: "text" }>
 
-const userMessage = (id: string, sessionID: string): Message => ({
+const userMessage = (id: string, sessionID: string, created = 1): Message => ({
   id,
   sessionID,
   role: "user",
-  time: { created: 1 },
+  time: { created },
   agent: "assistant",
   model: { providerID: "openai", modelID: "gpt" },
 })
@@ -37,6 +37,20 @@ describe("sync optimistic reducers", () => {
 
     expect(draft.message[sessionID]?.map((x) => x.id)).toEqual(["msg_1", "msg_2"])
     expect(draft.part.msg_1?.map((x) => x.id)).toEqual(["prt_1", "prt_2"])
+  })
+
+  test("applyOptimisticAdd keeps a post-rollover message at the chronological tail", () => {
+    const sessionID = "ses_1"
+    const older = userMessage("msg_fd0000000000old", sessionID, 1_786_000_000_000)
+    const newer = userMessage("msg_000000000000new", sessionID, 1_787_000_000_000)
+    const draft = {
+      message: { [sessionID]: [older] },
+      part: {} as Record<string, Part[] | undefined>,
+    }
+
+    applyOptimisticAdd(draft, { sessionID, message: newer, parts: [] })
+
+    expect(draft.message[sessionID]?.map((message) => message.id)).toEqual([older.id, newer.id])
   })
 
   test("applyOptimisticRemove removes message and part entries", () => {
@@ -71,6 +85,19 @@ describe("sync optimistic reducers", () => {
     expect(page.part.find((x) => x.id === "msg_2")?.part.map((x) => x.id)).toEqual(["prt_2"])
     expect(page.confirmed).toEqual([])
     expect(page.complete).toBe(true)
+  })
+
+  test("mergeOptimisticPage keeps a post-rollover optimistic message at the chronological tail", () => {
+    const sessionID = "ses_1"
+    const older = userMessage("msg_fd0000000000old", sessionID, 1_786_000_000_000)
+    const newer = userMessage("msg_000000000000new", sessionID, 1_787_000_000_000)
+
+    const page = mergeOptimisticPage(
+      { session: [older], part: [], complete: true },
+      [{ message: newer, parts: [] }],
+    )
+
+    expect(page.session.map((message) => message.id)).toEqual([older.id, newer.id])
   })
 
   test("mergeOptimisticPage keeps missing optimistic parts until the server has them", () => {

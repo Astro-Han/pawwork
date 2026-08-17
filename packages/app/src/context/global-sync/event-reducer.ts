@@ -21,6 +21,7 @@ import { message as clean } from "@/utils/diffs"
 import type { createBlockerTerminalCache } from "./blocker-terminal-cache"
 import type { TodoHydrateCoordinator } from "./todo-hydrate-coordinator"
 import { shouldStoreMessagePart } from "../message-part-storage"
+import { upsertMessageByCreated } from "./message-order"
 
 // A recurring automation that fails this many times in a row earns one subtle
 // toast on the rising edge. The threshold and the rising-edge gate keep SSE
@@ -284,23 +285,8 @@ export function applyDirectoryEvent(input: {
     }
     case "message.updated": {
       const info = clean((event.properties as { info: Message }).info)
-      const messages = input.store.message[info.sessionID]
-      if (!messages) {
-        input.setStore("message", info.sessionID, [info])
-        break
-      }
-      const result = Binary.search(messages, info.id, (m) => m.id)
-      if (result.found) {
-        input.setStore("message", info.sessionID, result.index, reconcile(info))
-        break
-      }
-      input.setStore(
-        "message",
-        info.sessionID,
-        produce((draft) => {
-          draft.splice(result.index, 0, info)
-        }),
-      )
+      const messages = input.store.message[info.sessionID] ?? []
+      input.setStore("message", info.sessionID, reconcile(upsertMessageByCreated(messages, info), { key: "id" }))
       break
     }
     case "message.removed": {
@@ -309,8 +295,8 @@ export function applyDirectoryEvent(input: {
         produce((draft) => {
           const messages = draft.message[props.sessionID]
           if (messages) {
-            const result = Binary.search(messages, props.messageID, (m) => m.id)
-            if (result.found) messages.splice(result.index, 1)
+            const index = messages.findIndex((message) => message.id === props.messageID)
+            if (index >= 0) messages.splice(index, 1)
           }
           delete draft.part[props.messageID]
         }),

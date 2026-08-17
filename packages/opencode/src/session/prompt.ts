@@ -2376,8 +2376,10 @@ export const layer = Layer.effect(
               yield* summary.summarize({ sessionID, messageID: lastUser.id }).pipe(Effect.ignore, Effect.forkIn(scope))
 
             if (step > 1 && lastFinished) {
-              for (const m of msgs) {
-                if (m.info.role !== "user" || m.info.id <= lastFinished.id) continue
+              const lastFinishedIndex = msgs.findIndex((message) => message.info.id === lastFinished.id)
+              const messagesAfterFinished = lastFinishedIndex >= 0 ? msgs.slice(lastFinishedIndex + 1) : []
+              for (const m of messagesAfterFinished) {
+                if (m.info.role !== "user") continue
                 for (const p of m.parts) {
                   if (p.type !== "text" || p.ignored || p.synthetic) continue
                   if (!p.text.trim()) continue

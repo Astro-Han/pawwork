@@ -16,6 +16,12 @@ import { dropSessionCaches } from "./global-sync/session-cache"
 import type { TodoHydrateReason } from "./global-sync/todo-hydrate-coordinator"
 import { diffs as list, message as clean } from "@/utils/diffs"
 import { shouldStoreMessagePart } from "./message-part-storage"
+import {
+  compareMessagesByCreated,
+  mergeMessagesByCreated,
+  type OrderedMessage,
+  upsertMessageByCreated,
+} from "./global-sync/message-order"
 
 function sortParts(parts: Part[]) {
   return parts.filter((part) => !!part?.id).sort((a, b) => cmp(a.id, b.id))
@@ -43,17 +49,11 @@ function isNotFoundError(error: unknown) {
   return value.response?.status === 404
 }
 
-function merge<T extends { id: string }>(a: readonly T[], b: readonly T[]) {
-  const map = new Map(a.map((item) => [item.id, item] as const))
-  for (const item of b) map.set(item.id, item)
-  return [...map.values()].sort((x, y) => cmp(x.id, y.id))
-}
-
 function storedAfterFetchStarted<T extends { id: string }>(item: T, storedIDsBeforeFetch: ReadonlySet<string> | undefined) {
   return storedIDsBeforeFetch !== undefined && !storedIDsBeforeFetch.has(item.id)
 }
 
-export function resolveLoadMessagePage<T extends { id: string }>(params: {
+export function resolveLoadMessagePage<T extends OrderedMessage>(params: {
   mode?: "prepend" | "replace"
   stored: readonly T[] | undefined
   fetched: readonly T[]
@@ -62,7 +62,7 @@ export function resolveLoadMessagePage<T extends { id: string }>(params: {
 }): T[] {
   const { stored, fetched } = params
   if (stored && stored.length > 0) {
-    const merged = merge(stored, fetched)
+    const merged = mergeMessagesByCreated(stored, fetched)
     const fetchedIDs = new Set(fetched.map((item) => item.id))
     const hasStableOverlap = stored.some((item) => {
       if (!fetchedIDs.has(item.id)) return false
@@ -70,7 +70,7 @@ export function resolveLoadMessagePage<T extends { id: string }>(params: {
       return params.storedIDsBeforeFetch.has(item.id)
     })
     if (params.mode !== "prepend" && !params.fetchedComplete && fetched.length > 0 && !hasStableOverlap) {
-      return merge(
+      return mergeMessagesByCreated(
         stored.filter((item) => storedAfterFetchStarted(item, params.storedIDsBeforeFetch)),
         fetched,
       )
@@ -196,9 +196,8 @@ export function mergeOptimisticPage(page: MessagePage, items: OptimisticItem[]) 
   const confirmed: string[] = []
 
   for (const item of items) {
-    const result = Binary.search(session, item.message.id, (message) => message.id)
-    const found = result.found
-    if (!found) session.splice(result.index, 0, item.message)
+    const found = session.some((message) => message.id === item.message.id)
+    if (!found) session.push(item.message)
 
     const current = part.get(item.message.id)
     if (found && hasParts(current, item.parts)) {
@@ -208,6 +207,7 @@ export function mergeOptimisticPage(page: MessagePage, items: OptimisticItem[]) 
 
     part.set(item.message.id, mergeParts(current, item.parts))
   }
+  session.sort(compareMessagesByCreated)
 
   return {
     cursor: page.cursor,
@@ -221,8 +221,7 @@ export function mergeOptimisticPage(page: MessagePage, items: OptimisticItem[]) 
 export function applyOptimisticAdd(draft: OptimisticStore, input: OptimisticAddInput) {
   const messages = draft.message[input.sessionID]
   if (messages) {
-    const result = Binary.search(messages, input.message.id, (m) => m.id)
-    messages.splice(result.index, 0, input.message)
+    messages.splice(0, messages.length, ...upsertMessageByCreated(messages, input.message))
   } else {
     draft.message[input.sessionID] = [input.message]
   }
@@ -232,8 +231,8 @@ export function applyOptimisticAdd(draft: OptimisticStore, input: OptimisticAddI
 export function applyOptimisticRemove(draft: OptimisticStore, input: OptimisticRemoveInput) {
   const messages = draft.message[input.sessionID]
   if (messages) {
-    const result = Binary.search(messages, input.messageID, (m) => m.id)
-    if (result.found) messages.splice(result.index, 1)
+    const index = messages.findIndex((message) => message.id === input.messageID)
+    if (index >= 0) messages.splice(index, 1)
   }
   delete draft.part[input.messageID]
 }
@@ -241,10 +240,7 @@ export function applyOptimisticRemove(draft: OptimisticStore, input: OptimisticR
 function setOptimisticAdd(setStore: (...args: unknown[]) => void, input: OptimisticAddInput) {
   setStore("message", input.sessionID, (messages: Message[] | undefined) => {
     if (!messages) return [input.message]
-    const result = Binary.search(messages, input.message.id, (m) => m.id)
-    const next = [...messages]
-    next.splice(result.index, 0, input.message)
-    return next
+    return upsertMessageByCreated(messages, input.message)
   })
   setStore("part", input.message.id, sortParts(input.parts))
 }
@@ -252,10 +248,10 @@ function setOptimisticAdd(setStore: (...args: unknown[]) => void, input: Optimis
 function setOptimisticRemove(setStore: (...args: unknown[]) => void, input: OptimisticRemoveInput) {
   setStore("message", input.sessionID, (messages: Message[] | undefined) => {
     if (!messages) return messages
-    const result = Binary.search(messages, input.messageID, (m) => m.id)
-    if (!result.found) return messages
+    const index = messages.findIndex((message) => message.id === input.messageID)
+    if (index < 0) return messages
     const next = [...messages]
-    next.splice(result.index, 1)
+    next.splice(index, 1)
     return next
   })
   setStore("part", (part: Record<string, Part[] | undefined>) => {
@@ -409,7 +405,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         input.client.session.messages({ sessionID: input.sessionID, limit: input.limit, before: input.before }),
       )
       const items = (messages.data ?? []).filter((x) => !!x?.info?.id)
-      const session = items.map((x) => clean(x.info)).sort((a, b) => cmp(a.id, b.id))
+      const session = items.map((x) => clean(x.info)).sort(compareMessagesByCreated)
       const part = items.map((message) => ({ id: message.info.id, part: sortParts(message.parts) }))
       const cursor = messages.response?.headers.get("x-next-cursor") ?? undefined
       return {

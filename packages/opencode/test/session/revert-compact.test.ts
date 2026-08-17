@@ -260,6 +260,48 @@ describe("revert + compact workflow", () => {
   )
 
   it.live(
+    "keeps chronological history before a revert boundary when message IDs wrap",
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const revert = yield* SessionRevert.Service
+          const info = yield* session.create({})
+          const older = MessageID.ascending("msg_fd0000000000old")
+          const boundary = MessageID.ascending("msg_000000000000new")
+
+          for (const [id, created] of [
+            [older, 1_786_000_000_000],
+            [boundary, 1_787_000_000_000],
+          ] as const) {
+            yield* session.updateMessage({
+              id,
+              role: "user",
+              sessionID: info.id,
+              agent: "default",
+              model: { providerID: ProviderID.make("openai"), modelID: ModelID.make("gpt-4") },
+              time: { created },
+            })
+            yield* session.updatePart({
+              id: PartID.ascending(),
+              messageID: id,
+              sessionID: info.id,
+              type: "text",
+              text: id,
+            })
+          }
+
+          yield* revert.revert({ sessionID: info.id, messageID: boundary })
+          yield* revert.cleanup(yield* session.get(info.id))
+
+          expect((yield* session.messages({ sessionID: info.id })).map((message) => message.info.id)).toEqual([older])
+          yield* session.remove(info.id)
+        }),
+      { git: true },
+    ),
+  )
+
+  it.live(
     "should properly clean up revert state before creating compaction message",
     provideTmpdirInstance(
       (dir) =>

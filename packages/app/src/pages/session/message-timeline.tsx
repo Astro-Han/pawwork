@@ -7,7 +7,6 @@ import { RateLimitCardWiring } from "@/components/rate-limit-card-wiring"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import type { AssistantMessage, Message as MessageType, Part, UserMessage } from "@opencode-ai/sdk/v2"
 import { showToast } from "@opencode-ai/ui/toast"
-import { Binary } from "@opencode-ai/util/binary"
 import { collectTimelineScrollMetrics } from "@/pages/session/session-timeline-scroll-anchors"
 import {
   type TimelineScrollControllerResult,
@@ -226,8 +225,7 @@ export function MessageTimeline(props: {
     const parentID = working() ? pending()?.parentID : undefined
     if (parentID) {
       const messages = sessionMessages()
-      const result = Binary.search(messages, parentID, (message) => message.id)
-      const message = result.found ? messages[result.index] : messages.find((item) => item.id === parentID)
+      const message = messages.find((item) => item.id === parentID)
       if (message && message.role === "user") return message.id
     }
 

@@ -118,20 +118,12 @@ export const layer = Layer.effect(
       const sessionID = session.id
       const msgs = yield* sessions.messages({ sessionID })
       const messageID = session.revert.messageID
-      const remove = [] as MessageV2.WithParts[]
-      let target: MessageV2.WithParts | undefined
-      for (const msg of msgs) {
-        if (msg.info.id < messageID) continue
-        if (msg.info.id > messageID) {
-          remove.push(msg)
-          continue
-        }
-        if (session.revert.partID) {
-          target = msg
-          continue
-        }
-        remove.push(msg)
+      const targetIndex = msgs.findIndex((msg) => msg.info.id === messageID)
+      if (targetIndex < 0) {
+        return yield* Effect.die(new Error(`Cannot clean up missing revert message: ${messageID}`))
       }
+      const target = session.revert.partID ? msgs[targetIndex] : undefined
+      const remove = msgs.slice(session.revert.partID ? targetIndex + 1 : targetIndex)
       for (const msg of remove) {
         SyncEvent.run(MessageV2.Event.Removed, {
           sessionID,

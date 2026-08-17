@@ -47,6 +47,19 @@ describe("resolveLoadMessagePage", () => {
     expect(result.map((x) => x.text)).toEqual(["shell-user-db", "shell-assistant"])
   })
 
+  test("keeps newer messages after older messages when IDs wrap", () => {
+    const older = m("msg_fd0000000000old", "before rollover", 1_786_000_000_000)
+    const shared = m("msg_fe0000000000shared", "before rollover", 1_786_500_000_000)
+    const newer = m("msg_000000000000new", "after rollover", 1_787_000_000_000)
+
+    const result = resolveLoadMessagePage<TestMsg>({
+      stored: [shared, newer],
+      fetched: [older, shared],
+    })
+
+    expect(result.map((message) => message.id)).toEqual([older.id, shared.id, newer.id])
+  })
+
   test("normal refresh with cached meta keeps the loaded message set monotonic", () => {
     const stored = [m("msg_1", "old"), m("msg_2", "visible")]
     const fetched = [m("msg_1", "current")]
