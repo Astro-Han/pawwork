@@ -3293,11 +3293,16 @@ it.live(
           .pipe(Effect.forkChild)
 
         const deadline = Date.now() + 5000
+        let saved = false
         while (Date.now() < deadline) {
           const messages = yield* sessions.messages({ sessionID: chat.id })
-          if (messages.some((message) => message.info.id === messageID)) break
+          if (messages.some((message) => message.info.id === messageID)) {
+            saved = true
+            break
+          }
           yield* Effect.sleep("5 millis")
         }
+        expect(saved).toBe(true)
         gate.resolve()
 
         expect(Exit.isSuccess(yield* Fiber.await(occupying))).toBe(true)
