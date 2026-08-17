@@ -97,6 +97,8 @@ export function createBackendEnv(input: {
   sandbox: string
   llmUrl?: string
 }): Record<string, string | undefined> {
+  const base = input.base ?? process.env
+  const sandboxXdgKeys = ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"] as const
   const env = {
     ...(input.base ?? process.env),
     OPENCODE_DISABLE_LSP_DOWNLOAD: "true",
@@ -112,6 +114,14 @@ export function createBackendEnv(input: {
     OPENCODE_E2E_ENABLED: "true",
     OPENCODE_E2E_LLM_URL: input.llmUrl,
   }
+  // Mirror the PawWork desktop injector (desktop-electron server.ts): the
+  // sandbox XDG namespaces the e2e backend itself, and the restore
+  // instruction carries the host's pre-existing values so user-command
+  // surfaces (terminals, bash tool) see the user's environment, not the
+  // sandbox. Same wire contract: the key list lives with the injector.
+  env.PAWWORK_USER_ENV_RESTORE = JSON.stringify(
+    Object.fromEntries(sandboxXdgKeys.map((key) => [key, base[key] ?? null])),
+  )
   for (const key of Object.keys(env)) {
     if (INTERNAL_SERVER_AUTH_ENV.has(key.toLowerCase())) delete env[key]
     else if (PROVIDER_ENV_PATTERN.test(key) || PROVIDER_ENV_EXTRA.has(key)) delete env[key]

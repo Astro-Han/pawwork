@@ -116,6 +116,19 @@ function buildServerEnv(password: string) {
     ...originalEnv,
     ...(shellEnv.PATH ? { PATH: shellEnv.PATH } : {}),
   }
+  // The XDG redirection below namespaces the embedded server's own
+  // config/data/cache/state. Because the embedded server runs in-process and
+  // reads process.env at module load, the redirection must mutate the shared
+  // environment — it cannot be scoped to the server import. Every
+  // user-command child (PTY terminals, the bash tool) inherits it, so the
+  // injector also publishes this restore instruction: each injected key
+  // mapped to the user's pre-existing value, or null when they had none.
+  // Consumers execute it verbatim (opencode util/env restoreUserEnv), which
+  // keeps the injected-key list in this single place.
+  const namespacedEnvKeys = ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"] as const
+  const userEnvRestore = Object.fromEntries(
+    namespacedEnvKeys.map((key) => [key, originalEnv[key] ?? null]),
+  ) as Record<(typeof namespacedEnvKeys)[number], string | null>
   return {
     ...mergedEnv,
     OPENCODE_EXPERIMENTAL_ICON_DISCOVERY: "true",
@@ -129,6 +142,7 @@ function buildServerEnv(password: string) {
     XDG_CACHE_HOME: roots.cache,
     XDG_CONFIG_HOME: roots.config,
     XDG_STATE_HOME: roots.state,
+    PAWWORK_USER_ENV_RESTORE: JSON.stringify(userEnvRestore),
   }
 }
 

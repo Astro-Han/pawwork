@@ -83,6 +83,27 @@ describe("desktop server runtime namespace", () => {
     expect(env.XDG_STATE_HOME).toBe(serverRoots.state)
   })
 
+  test("publishes a restore instruction mapping injected XDG keys to the user's pre-existing values", async () => {
+    // CI runners may carry their own XDG_* values; control all four so the
+    // payload assertion is deterministic.
+    const xdgKeys = ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"] as const
+    for (const key of xdgKeys) delete process.env[key]
+    process.env.XDG_CONFIG_HOME = "/shell/user-config"
+    process.env.XDG_CACHE_HOME = "/process/user-cache"
+    const { buildServerEnvForTest } = await import("./server")
+
+    const env = buildServerEnvForTest("secret")
+
+    // Keys the user actually had keep their value; the rest map to null so
+    // user-command surfaces (terminals, bash tool) delete the app injection.
+    expect(JSON.parse(env.PAWWORK_USER_ENV_RESTORE)).toEqual({
+      XDG_CONFIG_HOME: "/shell/user-config",
+      XDG_DATA_HOME: null,
+      XDG_CACHE_HOME: "/process/user-cache",
+      XDG_STATE_HOME: null,
+    })
+  })
+
   test("tracks the backend log file after server log init", async () => {
     const { backendLogFilePathForTest, setBackendLogFilePathForTest } = await import("./server")
 

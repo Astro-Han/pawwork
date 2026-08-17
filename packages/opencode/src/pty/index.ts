@@ -8,7 +8,7 @@ import { Log } from "@opencode-ai/core/util/log"
 import { lazy } from "@opencode-ai/util/lazy"
 import { Shell } from "@/shell/shell"
 import { Plugin } from "@/plugin"
-import { envValueCaseInsensitive, prependBundledTools, stripPathKeys, withoutInternalServerAuthEnv } from "@/util/env"
+import { envValueCaseInsensitive, prependBundledTools, restoreUserEnv, stripPathKeys, withoutInternalServerAuthEnv } from "@/util/env"
 import { Process } from "@/util/process"
 import { applyUvMirrorEnvDefaults, uvMirrorEnvSnapshot } from "@/util/uv-mirror"
 import { PtyID } from "./schema"
@@ -283,6 +283,17 @@ export namespace Pty {
         // being visible inside user terminals.
         env.OPENCODE_SERVER_USERNAME = envValueCaseInsensitive(input.env, "OPENCODE_SERVER_USERNAME") ?? ""
         env.OPENCODE_SERVER_PASSWORD = envValueCaseInsensitive(input.env, "OPENCODE_SERVER_PASSWORD") ?? ""
+        // A user terminal must see the user's environment, not the embedded
+        // server's: undo the app's XDG namespace injection (issue #1528).
+        // bun-pty merges the PTY parent's native environment into spawned
+        // children (same constraint as the OPENCODE_SERVER_* blanking above):
+        // deleted keys resurrect from it, so blank-override the unset ones —
+        // every mainstream XDG consumer (Go zero-value lookup, shell :-
+        // expansion, Rust dirs' empty filter) treats "" as unset.
+        const unsetUserEnvKeys = restoreUserEnv(env)
+        if (typeof Bun !== "undefined") {
+          for (const key of unsetUserEnvKeys) env[key] = ""
+        }
 
         if (process.platform === "win32") {
           env.LC_ALL = "C.UTF-8"

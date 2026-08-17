@@ -50,7 +50,7 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Truncate } from "@/tool/truncate"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
-import { envValueCaseInsensitive, prependBundledTools, stripPathKeys, withoutInternalServerAuthEnv } from "@/util/env"
+import { envValueCaseInsensitive, prependBundledTools, restoreUserEnv, stripPathKeys, withoutInternalServerAuthEnv } from "@/util/env"
 import { applyUvMirrorEnvDefaults, uvMirrorEnvSnapshot } from "@/util/uv-mirror"
 import { Cause, Deferred, Effect, Exit, Layer, Option, Scope, Context, Semaphore } from "effect"
 import { EffectLogger } from "@/effect"
@@ -1238,6 +1238,9 @@ export const layer = Layer.effect(
           // Non-blocking: returns the cached probe result (or {} while the
           // first background probe runs) and never overrides user-set UV_* keys.
           applyUvMirrorEnvDefaults(env, uvMirrorEnvSnapshot())
+          // User commands must see the user's environment, not the embedded
+          // server's: undo the app's XDG namespace injection (issue #1528).
+          restoreUserEnv(env)
 
           const cmd = ChildProcess.make(sh, args, {
             cwd,
