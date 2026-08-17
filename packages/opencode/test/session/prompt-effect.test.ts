@@ -3539,14 +3539,30 @@ unix("shell cancellation stays responsive while a revert mutation is running", (
           })) as typeof snapshot.restore
         yield* Effect.addFinalizer(() => Effect.sync(() => void (mutableSnapshot.restore = originalRestore)))
 
+        const lockAttempted = defer<void>()
+        const releaseLockAttempt = defer<void>()
+        const mutableRevert = revert as Mutable<typeof revert>
+        const originalCleanupBeforeOrBusy = revert.cleanupBeforeOrBusy
+        mutableRevert.cleanupBeforeOrBusy = ((sessionID, work) =>
+          Effect.gen(function* () {
+            lockAttempted.resolve()
+            yield* Effect.promise(() => releaseLockAttempt.promise)
+            return yield* originalCleanupBeforeOrBusy(sessionID, work)
+          })) as typeof revert.cleanupBeforeOrBusy
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => void (mutableRevert.cleanupBeforeOrBusy = originalCleanupBeforeOrBusy)),
+        )
+
         const unrevertFiber = yield* revert.unrevert({ sessionID: chat.id }).pipe(Effect.forkChild)
         yield* Effect.promise(() => restoreEntered.promise)
         const shellFiber = yield* prompt
           .shell({ sessionID: chat.id, agent: "build", command: "printf done" })
           .pipe(Effect.forkChild)
-        yield* Effect.sleep("20 millis")
+        yield* Effect.promise(() => lockAttempted.promise)
 
-        const cancelExit = yield* prompt.cancel(chat.id).pipe(Effect.timeout("250 millis"), Effect.exit)
+        const cancelFiber = yield* prompt.cancel(chat.id).pipe(Effect.forkChild)
+        releaseLockAttempt.resolve()
+        const cancelExit = yield* Fiber.await(cancelFiber)
         releaseRestore.resolve()
         yield* Fiber.await(unrevertFiber)
         const shellExit = yield* Fiber.await(shellFiber)
