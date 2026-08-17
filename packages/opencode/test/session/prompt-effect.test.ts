@@ -708,6 +708,137 @@ it.live("loop calls LLM and returns assistant message", () =>
   ),
 )
 
+it.live("prompt persists a terminal assistant when setup fails after the user message is saved", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* () {
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Pre-carrier failure" })
+
+      const exit = yield* prompt
+        .prompt({
+          sessionID: chat.id,
+          agent: "build",
+          model: {
+            providerID: ProviderID.make("missing-provider"),
+            modelID: ModelID.make("missing-model"),
+          },
+          parts: [{ type: "text", text: "hello" }],
+        })
+        .pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      const savedUser = messages.find((message) => message.info.role === "user")
+      expect(savedUser).toBeDefined()
+      const terminal = messages.find(
+        (message) => message.info.role === "assistant" && message.info.parentID === savedUser?.info.id,
+      )
+      expect(terminal?.info.role).toBe("assistant")
+      if (terminal?.info.role === "assistant") {
+        expect(terminal.info.finish).toBe("error")
+        expect(terminal.info.error).toBeDefined()
+        expect(typeof terminal.info.time.completed).toBe("number")
+      }
+    }),
+    { git: true, config: providerCfg },
+  ),
+)
+
+it.live("prompt finalizes its existing assistant carrier when later setup fails", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* () {
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Existing pre-carrier failure" })
+      const savedUser = yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        model: {
+          providerID: ProviderID.make("missing-provider"),
+          modelID: ModelID.make("missing-model"),
+        },
+        noReply: true,
+        parts: [{ type: "text", text: "hello" }],
+      })
+      const pending: MessageV2.Assistant = {
+        id: MessageID.ascending(),
+        role: "assistant",
+        parentID: savedUser.info.id,
+        sessionID: chat.id,
+        mode: "build",
+        agent: "build",
+        path: { cwd: chat.executionContext.activeDirectory, root: chat.executionContext.ownerDirectory },
+        cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        modelID: ModelID.make("missing-model"),
+        providerID: ProviderID.make("missing-provider"),
+        time: { created: Date.now() },
+      }
+      yield* sessions.updateMessage(pending)
+
+      const exit = yield* prompt.loop({ sessionID: chat.id, traceMessageID: savedUser.info.id }).pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      const assistants = messages.filter(
+        (message) => message.info.role === "assistant" && message.info.parentID === savedUser.info.id,
+      )
+      expect(assistants).toHaveLength(1)
+      const terminal = assistants[0]
+      expect(terminal.info.id).toBe(pending.id)
+      if (terminal.info.role === "assistant") {
+        expect(terminal.info.finish).toBe("error")
+        expect(terminal.info.error).toBeDefined()
+        expect(typeof terminal.info.time.completed).toBe("number")
+      }
+    }),
+    { git: true, config: providerCfg },
+  ),
+)
+
+it.live("compaction persists a terminal summary when setup fails after its marker is saved", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* () {
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Compaction pre-carrier failure" })
+      yield* seed(chat.id, { finish: "stop" })
+
+      const exit = yield* prompt
+        .loop({
+          sessionID: chat.id,
+          prelude: {
+            type: "compaction",
+            agent: "build",
+            model: {
+              providerID: ProviderID.make("missing-provider"),
+              modelID: ModelID.make("missing-model"),
+            },
+            auto: false,
+          },
+        })
+        .pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      const marker = messages.find((message) => message.parts.some((part) => part.type === "compaction"))
+      expect(marker).toBeDefined()
+      const terminal = messages.find(
+        (message) =>
+          message.info.role === "assistant" && message.info.summary === true && message.info.parentID === marker?.info.id,
+      )
+      expect(terminal?.info.role).toBe("assistant")
+      if (terminal?.info.role === "assistant") {
+        expect(terminal.info.finish).toBe("error")
+        expect(terminal.info.error).toBeDefined()
+        expect(typeof terminal.info.time.completed).toBe("number")
+      }
+    }),
+    { git: true, config: providerCfg },
+  ),
+)
+
 it.live("prompt records lifecycle wait diagnostics on the queued user message", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
@@ -2666,6 +2797,63 @@ it.live(
         const inputs = yield* llm.inputs
         expect(inputs).toHaveLength(2)
         expect(JSON.stringify(inputs.at(-1)?.messages)).toContain("second")
+      }),
+      { git: true, config: providerCfg },
+    ),
+)
+
+it.live(
+  "prompt starts a new run when the joined run exits without handling its user message",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const gate = defer<void>()
+        const ready = defer<void>()
+        const { prompt, run, sessions, chat } = yield* boot({ title: "Joined run exits" })
+        const seeded = yield* seed(chat.id, { finish: "stop" })
+        const previous = { info: seeded.assistant, parts: [] } satisfies MessageV2.WithParts
+
+        const occupying = yield* run
+          .ensureRunning(
+            chat.id,
+            () => Effect.succeed(previous),
+            Effect.gen(function* () {
+              ready.resolve()
+              yield* Effect.promise(() => gate.promise)
+              return previous
+            }),
+          )
+          .pipe(Effect.forkChild)
+        yield* Effect.promise(() => ready.promise)
+
+        yield* llm.text("handled after join")
+        const messageID = MessageID.ascending()
+        const submitted = yield* prompt
+          .prompt({
+            sessionID: chat.id,
+            messageID,
+            agent: "build",
+            model: ref,
+            parts: [{ type: "text", text: "queued at runner exit" }],
+          })
+          .pipe(Effect.forkChild)
+
+        const deadline = Date.now() + 5000
+        while (Date.now() < deadline) {
+          const messages = yield* sessions.messages({ sessionID: chat.id })
+          if (messages.some((message) => message.info.id === messageID)) break
+          yield* Effect.sleep("5 millis")
+        }
+        gate.resolve()
+
+        expect(Exit.isSuccess(yield* Fiber.await(occupying))).toBe(true)
+        expect(Exit.isSuccess(yield* Fiber.await(submitted))).toBe(true)
+        expect(yield* llm.calls).toBe(1)
+        const messages = yield* sessions.messages({ sessionID: chat.id })
+        const assistant = messages.find(
+          (message) => message.info.role === "assistant" && message.info.parentID === messageID,
+        )
+        expect(assistant?.parts.some((part) => part.type === "text" && part.text === "handled after join")).toBe(true)
       }),
       { git: true, config: providerCfg },
     ),

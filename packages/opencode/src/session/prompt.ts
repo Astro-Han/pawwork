@@ -2337,6 +2337,87 @@ export const layer = Layer.effect(
       "SessionPrompt.loop",
     )(function* (input: z.infer<typeof LoopInput>, options?: PromptRuntimeOptions) {
       let activeProcessor: SessionProcessor.Handle | undefined
+      let interrupted = false
+      let preludeMarkerID: MessageID | undefined
+      const persistTerminalErrorCarrier = Effect.fn("SessionPrompt.persistTerminalErrorCarrier")(function* (
+        error: unknown,
+      ) {
+        let parent: MessageV2.WithParts | undefined
+        if (input.traceMessageID) {
+          const traced = yield* sessions.findMessage(
+            input.sessionID,
+            (message) => message.info.id === input.traceMessageID,
+          )
+          if (Option.isSome(traced)) parent = traced.value
+        } else if (preludeMarkerID) {
+          const marker = yield* sessions.findMessage(
+            input.sessionID,
+            (message) => message.info.id === preludeMarkerID,
+          )
+          if (Option.isSome(marker)) parent = marker.value
+        }
+        if (!parent || parent.info.role !== "user") return
+        const parentInfo = parent.info
+
+        const existing = yield* sessions.findMessage(
+          input.sessionID,
+          (message) => message.info.role === "assistant" && message.info.parentID === parentInfo.id,
+        )
+        const completedAt = Date.now()
+        const terminalError = MessageV2.fromError(error, {
+          providerID: parentInfo.model.providerID,
+          aborted: false,
+        })
+        if (Option.isSome(existing) && existing.value.info.role === "assistant") {
+          const assistant = existing.value.info
+          if (assistant.time.completed) return
+          yield* sessions.updateMessage({
+            ...assistant,
+            time: { ...assistant.time, completed: completedAt },
+            error: assistant.error ?? (assistant.finish ? undefined : terminalError),
+            finish: assistant.finish ?? "error",
+          })
+          return
+        }
+
+        const session = yield* sessions.get(input.sessionID)
+        const isCompaction = parent.parts.some((part) => part.type === "compaction")
+        const carrier: MessageV2.Assistant = {
+          id: MessageID.ascending(),
+          role: "assistant",
+          parentID: parentInfo.id,
+          sessionID: input.sessionID,
+          mode: isCompaction ? "compaction" : parentInfo.agent,
+          agent: isCompaction ? "compaction" : parentInfo.agent,
+          variant: parentInfo.model.variant,
+          ...(isCompaction ? { summary: true } : {}),
+          path: {
+            cwd: session.executionContext.activeDirectory,
+            root: session.executionContext.ownerDirectory,
+          },
+          cost: 0,
+          tokens: {
+            input: 0,
+            output: 0,
+            reasoning: 0,
+            cache: { read: 0, write: 0 },
+          },
+          modelID: parentInfo.model.modelID,
+          providerID: parentInfo.model.providerID,
+          time: { created: completedAt, completed: completedAt },
+          error: terminalError,
+          finish: "error",
+        }
+        yield* sessions.updateMessage(carrier)
+      })
+      const tracedMessageHasAssistant = Effect.fn("SessionPrompt.tracedMessageHasAssistant")(function* () {
+        if (!input.traceMessageID) return true
+        const child = yield* sessions.findMessage(
+          input.sessionID,
+          (message) => message.info.role === "assistant" && message.info.parentID === input.traceMessageID,
+        )
+        return Option.isSome(child)
+      })
       const onInterrupt = (meta?: {
         source?: string
         reason?: string
@@ -2345,6 +2426,7 @@ export const layer = Layer.effect(
         recordedAt?: number
       }) =>
         Effect.gen(function* () {
+          interrupted = true
           interruptedSessions.add(input.sessionID)
           // Sweep any pending compaction marker first — a user message with
           // a `compaction` part but no summary assistant child. Covers two
@@ -2525,12 +2607,13 @@ export const layer = Layer.effect(
               }
             }
           }
-          yield* compaction.create({
+          const marker = yield* compaction.create({
             sessionID: input.sessionID,
             agent,
             model: input.prelude.model,
             auto: input.prelude.auto,
           })
+          preludeMarkerID = marker.id
         }
         return yield* runLoop(input.sessionID, {
           onProcessor: (handle) => {
@@ -2557,11 +2640,37 @@ export const layer = Layer.effect(
           }
         : undefined
       yield* throwIfAborted(options)
-      return yield* state.ensureRunning(input.sessionID, onInterrupt, work, {
-        rejectIfBusy: input.prelude !== undefined,
-        runLifecycle,
-        onCancel: () => activeProcessor?.abortTools?.() ?? Effect.void,
-      })
+      const runOnce = () =>
+        state.ensureRunning(input.sessionID, onInterrupt, work, {
+          rejectIfBusy: input.prelude !== undefined,
+          runLifecycle,
+          onCancel: () => activeProcessor?.abortTools?.() ?? Effect.void,
+        })
+      const exit = yield* runOnce().pipe(Effect.exit)
+      if (Exit.isSuccess(exit)) {
+        if (interrupted) return exit.value
+        if (yield* tracedMessageHasAssistant()) return exit.value
+
+        // A prompt can land after the active run's final message scan but
+        // before Runner transitions to Idle. In that narrow window
+        // ensureRunning joins the finishing run and its work is intentionally
+        // ignored. Retry once after the joined run has completed so the saved
+        // user message receives its own turn instead of becoming an orphan.
+        const retry = yield* runOnce().pipe(Effect.exit)
+        if (Exit.isSuccess(retry) && (yield* tracedMessageHasAssistant())) return retry.value
+        if (Exit.isFailure(retry)) {
+          if (!Cause.hasInterruptsOnly(retry.cause)) yield* persistTerminalErrorCarrier(Cause.squash(retry.cause))
+          return yield* Effect.failCause(retry.cause)
+        }
+
+        const error = new NamedError.Unknown({
+          message: "Session run completed without handling the submitted message",
+        })
+        yield* persistTerminalErrorCarrier(error)
+        return yield* Effect.die(error)
+      }
+      if (!Cause.hasInterruptsOnly(exit.cause)) yield* persistTerminalErrorCarrier(Cause.squash(exit.cause))
+      return yield* Effect.failCause(exit.cause)
     })
 
     const shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.shell")(
