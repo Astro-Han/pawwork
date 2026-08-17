@@ -1915,6 +1915,7 @@ export const layer = Layer.effect(
       interrupted: boolean
       cancelMeta?: InterruptMeta
       activeProcessor?: SessionProcessor.Handle
+      activeParentID?: MessageID
       compactionMarkerID?: MessageID
     }
     const persistAttemptAbort = Effect.fn("SessionPrompt.persistAttemptAbort")(function* (
@@ -2063,18 +2064,6 @@ export const layer = Layer.effect(
       throw new Error("Impossible")
     })
 
-    const currentTurnTarget = Effect.fnUntraced(function* (sessionID: SessionID) {
-      const latestUser = yield* sessions.findMessage(sessionID, (message) => message.info.role === "user")
-      if (Option.isNone(latestUser)) return yield* lastAssistant(sessionID)
-
-      const currentAssistant = yield* sessions.findMessage(
-        sessionID,
-        (message) => message.info.role === "assistant" && message.info.parentID === latestUser.value.info.id,
-      )
-      if (Option.isSome(currentAssistant)) return currentAssistant.value
-      return latestUser.value
-    })
-
     const shellCancelledAssistant = Effect.fnUntraced(function* (sessionID: SessionID) {
       const message = yield* lastAssistant(sessionID)
       if (message.info.role !== "assistant") return message
@@ -2127,6 +2116,7 @@ export const layer = Layer.effect(
       sessionID: SessionID,
       options?: {
         onProcessor?: (handle: SessionProcessor.Handle) => void
+        onTurnParent?: (messageID: MessageID) => void
         onCompactionMarker?: (messageID: MessageID | undefined) => void
       },
     ) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
@@ -2134,6 +2124,7 @@ export const layer = Layer.effect(
         sessionID: SessionID,
         options?: {
           onProcessor?: (handle: SessionProcessor.Handle) => void
+          onTurnParent?: (messageID: MessageID) => void
           onCompactionMarker?: (messageID: MessageID | undefined) => void
         },
       ) {
@@ -2168,6 +2159,7 @@ export const layer = Layer.effect(
           }
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+          options?.onTurnParent?.(lastUser.id)
           // Some providers return "stop" even when the assistant message contains tool calls.
           // Keep the loop running so tool results can be sent back to the model, but ignore
           // cleanup-marked interrupted orphans — those are abandoned, not pending work.
@@ -2645,17 +2637,12 @@ export const layer = Layer.effect(
             return terminal ?? (yield* lastAssistant(input.sessionID))
           }
           if (input.prelude || !workStarted) return yield* lastAssistant(input.sessionID)
-
-          const target = yield* currentTurnTarget(input.sessionID)
-          if (
-            target.info.role === "assistant" &&
-            target.info.time.completed &&
-            target.info.error?.name !== "MessageAbortedError"
-          ) {
-            return target
-          }
-          const parentID = target.info.role === "user" ? target.info.id : target.info.parentID
-          const terminal = yield* persistAttemptAbort(currentAttempt, "session.prompt.loop.onInterrupt", parentID)
+          if (!currentAttempt.activeParentID) return yield* lastAssistant(input.sessionID)
+          const terminal = yield* persistAttemptAbort(
+            currentAttempt,
+            "session.prompt.loop.onInterrupt",
+            currentAttempt.activeParentID,
+          )
           return terminal ?? (yield* lastAssistant(input.sessionID))
         })
       const work = Effect.gen(function* () {
@@ -2711,6 +2698,9 @@ export const layer = Layer.effect(
         return yield* runLoop(input.sessionID, {
           onProcessor: (handle) => {
             currentAttempt.activeProcessor = handle
+          },
+          onTurnParent: (messageID) => {
+            currentAttempt.activeParentID = messageID
           },
           onCompactionMarker: (messageID) => {
             currentAttempt.compactionMarkerID = messageID

@@ -2228,7 +2228,7 @@ it.live(
 )
 
 it.live(
-  "cancel after assistant scaffold save finalizes before processor handle",
+  "cancel finalizes the active scaffold and queued prompt against their own parents",
   () =>
     provideTmpdirServer(
       Effect.fnUntraced(function* () {
@@ -2261,10 +2261,30 @@ it.live(
           Effect.exit,
         )
         expect(Exit.isSuccess(startedExit)).toBe(true)
+
+        const queuedID = MessageID.ascending()
+        const queued = yield* prompt
+          .prompt({
+            sessionID: chat.id,
+            messageID: queuedID,
+            agent: "build",
+            model: ref,
+            parts: [{ type: "text", text: "queued" }],
+          })
+          .pipe(Effect.forkChild)
+        const queuedDeadline = Date.now() + 1000
+        while (Date.now() < queuedDeadline) {
+          const pending = yield* sessions.messages({ sessionID: chat.id })
+          if (pending.some((message) => message.info.id === queuedID)) break
+          yield* Effect.sleep("5 millis")
+        }
+
         const cancelExit = yield* prompt.cancel(chat.id).pipe(Effect.timeout(cancelRaceCheckpointTimeout), Effect.exit)
         expect(Exit.isSuccess(cancelExit)).toBe(true)
-        const exit = yield* Fiber.await(fiber).pipe(Effect.timeout(cancelRaceCheckpointTimeout))
-        expect(Exit.isSuccess(exit)).toBe(true)
+        const exits = yield* Effect.all([Fiber.await(fiber), Fiber.await(queued)]).pipe(
+          Effect.timeout(cancelRaceCheckpointTimeout),
+        )
+        expect(exits.every(Exit.isSuccess)).toBe(true)
 
         const messages = yield* sessions.messages({ sessionID: chat.id })
         const assistant = messages.find(
@@ -2281,6 +2301,14 @@ it.live(
           propagation_point: "session.prompt.loop.onInterrupt",
           error_name: "MessageAbortedError",
         })
+        const queuedTerminal = messages.find(
+          (message) => message.info.role === "assistant" && message.info.parentID === queuedID,
+        )
+        expect(queuedTerminal?.info.role).toBe("assistant")
+        if (queuedTerminal?.info.role === "assistant") {
+          expect(queuedTerminal.info.error?.name).toBe("MessageAbortedError")
+          expect(queuedTerminal.info.time.completed).toBeNumber()
+        }
       }),
       { git: true, config: providerCfg },
     ),
