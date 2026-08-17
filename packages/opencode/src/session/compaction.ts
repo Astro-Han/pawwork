@@ -532,8 +532,8 @@ export const layer: Layer.Layer<
           // state machine would read it as `pending` forever after an abort.
           Effect.onInterrupt(() =>
             Effect.gen(function* () {
-              if (msg.error || msg.finish) return
-              msg.error = new MessageV2.AbortedError({
+              if (msg.finish && msg.time.completed) return
+              msg.error ??= new MessageV2.AbortedError({
                 message: "Compaction aborted",
               }).toObject()
               msg.finish = "error"
@@ -541,7 +541,7 @@ export const layer: Layer.Layer<
               // `pending` memo (driven by `allMessages()`, which includes
               // the summary assistant) does not keep treating this turn
               // as in-flight.
-              msg.time.completed = Date.now()
+              msg.time.completed ??= Date.now()
               yield* session.updateMessage(msg)
             }),
           ),

@@ -52,11 +52,12 @@ import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { envValueCaseInsensitive, prependBundledTools, stripPathKeys, withoutInternalServerAuthEnv } from "@/util/env"
 import { applyUvMirrorEnvDefaults, uvMirrorEnvSnapshot } from "@/util/uv-mirror"
-import { Cause, Deferred, Effect, Exit, Layer, Option, Scope, Context } from "effect"
+import { Cause, Deferred, Effect, Exit, Layer, Option, Scope, Context, Semaphore } from "effect"
 import { EffectLogger } from "@/effect"
 import { InstanceState } from "@/effect"
 import { AgentTool, type AgentPromptOps } from "@/tool/agent"
 import { SessionRunState } from "./run-state"
+import type { InterruptMeta } from "@/effect/runner"
 import { RunLifecycle } from "./run-lifecycle"
 import { EffectBridge } from "@/effect"
 import { attachWith } from "@/effect/run-service"
@@ -1822,63 +1823,217 @@ export const layer = Layer.effect(
       return { info, parts }
     }, Effect.scoped)
 
+    const terminalWriteLock = Semaphore.makeUnsafe(1)
+    const persistTerminalErrorCarrier = Effect.fn("SessionPrompt.persistTerminalErrorCarrier")(function* (input: {
+      sessionID: SessionID
+      parentID: MessageID
+      error: unknown
+      aborted?: boolean
+      preserveCompleted?: boolean
+      diagnostics?: MessageV2.Assistant["diagnostics"]
+    }) {
+      return yield* terminalWriteLock.withPermits(1)(
+        Effect.gen(function* () {
+          const traced = yield* sessions.findMessage(
+            input.sessionID,
+            (message) => message.info.id === input.parentID,
+          )
+          const parent = Option.isSome(traced) ? traced.value : undefined
+          if (!parent || parent.info.role !== "user") return
+          const parentInfo = parent.info
+
+          const messages = yield* sessions.messages({ sessionID: input.sessionID })
+          const existing = [...messages]
+            .reverse()
+            .find((message) => message.info.role === "assistant" && message.info.parentID === parentInfo.id)
+          const completedAt = Date.now()
+          const terminalError = MessageV2.fromError(input.error, {
+            providerID: parentInfo.model.providerID,
+            aborted: input.aborted ?? false,
+          })
+          if (existing?.info.role === "assistant") {
+            const assistant = existing.info
+            if (!assistant.time.completed) {
+              const terminal = yield* sessions.updateMessage({
+                ...assistant,
+                time: { ...assistant.time, completed: completedAt },
+                error: assistant.error ?? terminalError,
+                finish: "error",
+                diagnostics: input.diagnostics
+                  ? { ...(assistant.diagnostics ?? {}), ...input.diagnostics }
+                  : assistant.diagnostics,
+              })
+              return { info: terminal, parts: existing.parts }
+            }
+            if (assistant.error?.name === "MessageAbortedError" && input.diagnostics) {
+              const terminal = yield* sessions.updateMessage({
+                ...assistant,
+                diagnostics: { ...(assistant.diagnostics ?? {}), ...input.diagnostics },
+              })
+              return { info: terminal, parts: existing.parts }
+            }
+            if (assistant.error || assistant.finish === "error") return existing
+            if (input.preserveCompleted) return existing
+          }
+
+          const terminalSession = yield* sessions.get(input.sessionID)
+          const carrier: MessageV2.Assistant = {
+            id: MessageID.ascending(),
+            role: "assistant",
+            parentID: parentInfo.id,
+            sessionID: input.sessionID,
+            mode: parentInfo.agent,
+            agent: parentInfo.agent,
+            variant: parentInfo.model.variant,
+            path: {
+              cwd: terminalSession.executionContext.activeDirectory,
+              root: terminalSession.executionContext.ownerDirectory,
+            },
+            cost: 0,
+            tokens: {
+              input: 0,
+              output: 0,
+              reasoning: 0,
+              cache: { read: 0, write: 0 },
+            },
+            modelID: parentInfo.model.modelID,
+            providerID: parentInfo.model.providerID,
+            time: { created: completedAt, completed: completedAt },
+            error: terminalError,
+            finish: "error",
+            diagnostics: input.diagnostics,
+          }
+          yield* sessions.updateMessage(carrier)
+          return { info: carrier, parts: [] }
+        }),
+      )
+    })
+
     type PromptAttempt = {
+      sessionID: SessionID
+      traceMessageID?: MessageID
       interrupted: boolean
+      cancelMeta?: InterruptMeta
       activeProcessor?: SessionProcessor.Handle
       compactionMarkerID?: MessageID
     }
-    const cancelAttempt = (attempt: PromptAttempt) => () =>
+    const persistAttemptAbort = Effect.fn("SessionPrompt.persistAttemptAbort")(function* (
+      attempt: PromptAttempt,
+      propagationPoint = "session.prompt.loop.onInterrupt",
+      traceMessageID = attempt.traceMessageID,
+    ) {
+      if (!traceMessageID) return
+      const recordedAt = attempt.cancelMeta?.recordedAt ?? Date.now()
+      const abortError = new DOMException("Aborted", "AbortError")
+      return yield* persistTerminalErrorCarrier({
+        sessionID: attempt.sessionID,
+        parentID: traceMessageID,
+        error: abortError,
+        aborted: true,
+        preserveCompleted: true,
+        diagnostics: {
+          abort: {
+            source: attempt.cancelMeta?.source,
+            reason: attempt.cancelMeta?.reason,
+            title_generation_state: titleGenerationStateAtAbort(
+              titleGenerationProgress.get(attempt.sessionID),
+              recordedAt,
+            ),
+            propagation_point: attempt.cancelMeta?.propagationPoint ?? propagationPoint,
+            error_name: "MessageAbortedError",
+            error_message: "Aborted",
+            via_ctx_abort: attempt.cancelMeta?.viaCtxAbort,
+            recorded_at: recordedAt,
+          },
+        },
+      })
+    })
+    const cancelAttempt = (attempt: PromptAttempt) => (meta?: InterruptMeta) =>
       Effect.gen(function* () {
         attempt.interrupted = true
+        attempt.cancelMeta = meta
         yield* attempt.activeProcessor?.abortTools?.() ?? Effect.void
       })
 
     const prompt: (input: PromptInput, options?: PromptRuntimeOptions) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
       "SessionPrompt.prompt",
     )(function* (input: PromptInput, options?: PromptRuntimeOptions) {
-      const attempt: PromptAttempt = { interrupted: false }
+      const messageID = input.messageID ?? MessageID.ascending()
+      const promptInput = input.messageID ? input : { ...input, messageID }
+      const attempt: PromptAttempt = {
+        sessionID: input.sessionID,
+        traceMessageID: messageID,
+        interrupted: false,
+      }
       yield* state.observeCancel(input.sessionID, cancelAttempt(attempt))
-      yield* throwIfAborted(options)
-      interruptedSessions.delete(input.sessionID)
-      const session = yield* sessions.get(input.sessionID)
-      yield* revert.cleanup(session)
-      const message = yield* createUserMessage(input)
-      yield* sessions.touch(input.sessionID)
+      const run = Effect.gen(function* () {
+        yield* throwIfAborted(options)
+        interruptedSessions.delete(input.sessionID)
+        const session = yield* sessions.get(input.sessionID)
+        yield* revert.cleanup(session)
+        const message = yield* createUserMessage(promptInput)
+        yield* sessions.touch(input.sessionID)
 
-      const permissions: Permission.Ruleset = []
-      for (const [t, enabled] of Object.entries(input.tools ?? {})) {
-        permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
-      }
-      if (permissions.length > 0) {
-        // #26597: the boolean tools map is availability-only — it lists the subagent's structural
-        // denies (agent, worktree, todowrite, primary_tools), not what it inherited from its
-        // caller. The caller's deny rules are the single source of truth for inheritance and live
-        // on session.permission, forwarded at dispatch (tool/agent.ts). Rebuilding from the map
-        // alone would drop them, letting a caller regain access through the child. For agent-tool
-        // children, carry forward external_directory rules plus every caller deny the map does NOT
-        // regenerate: scoped (non-"*") denies (e.g. edit on one path) and whole-tool denies for
-        // keys absent from the map — the wildcard "*" and any tool not listed (automate, MCP,
-        // custom). Per-tool "*" denies for keys the map lists are regenerated each turn, so
-        // dropping them keeps this stable instead of accumulating.
-        // NOTE: like upstream #26597 this is forward-deny only — a caller's allow exception (e.g.
-        // a read-only "*": deny agent that also allows read) is not preserved, so its subagent
-        // loses those tools too. Matching upstream's deriveSubagentSessionPermission; toward deny.
-        const toolKeys = new Set(Object.keys(input.tools ?? {}))
-        const preserved = session.createdByAgentTool
-          ? (session.permission ?? []).filter(
-              (rule) =>
-                rule.permission === "external_directory" ||
-                (rule.action === "deny" && (rule.pattern !== "*" || !toolKeys.has(rule.permission))),
-            )
-          : []
-        const next = [...preserved, ...permissions]
-        session.permission = next
-        yield* sessions.setPermission({ sessionID: session.id, permission: next })
-      }
+        const permissions: Permission.Ruleset = []
+        for (const [t, enabled] of Object.entries(input.tools ?? {})) {
+          permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
+        }
+        if (permissions.length > 0) {
+          // #26597: the boolean tools map is availability-only — it lists the subagent's structural
+          // denies (agent, worktree, todowrite, primary_tools), not what it inherited from its
+          // caller. The caller's deny rules are the single source of truth for inheritance and live
+          // on session.permission, forwarded at dispatch (tool/agent.ts). Rebuilding from the map
+          // alone would drop them, letting a caller regain access through the child. For agent-tool
+          // children, carry forward external_directory rules plus every caller deny the map does NOT
+          // regenerate: scoped (non-"*") denies (e.g. edit on one path) and whole-tool denies for
+          // keys absent from the map — the wildcard "*" and any tool not listed (automate, MCP,
+          // custom). Per-tool "*" denies for keys the map lists are regenerated each turn, so
+          // dropping them keeps this stable instead of accumulating.
+          // NOTE: like upstream #26597 this is forward-deny only — a caller's allow exception (e.g.
+          // a read-only "*": deny agent that also allows read) is not preserved, so its subagent
+          // loses those tools too. Matching upstream's deriveSubagentSessionPermission; toward deny.
+          const toolKeys = new Set(Object.keys(input.tools ?? {}))
+          const preserved = session.createdByAgentTool
+            ? (session.permission ?? []).filter(
+                (rule) =>
+                  rule.permission === "external_directory" ||
+                  (rule.action === "deny" && (rule.pattern !== "*" || !toolKeys.has(rule.permission))),
+              )
+            : []
+          const next = [...preserved, ...permissions]
+          session.permission = next
+          yield* sessions.setPermission({ sessionID: session.id, permission: next })
+        }
 
-      yield* throwIfAborted(options)
-      if (input.noReply === true) return message
-      return yield* loopAttempt({ sessionID: input.sessionID, traceMessageID: message.info.id }, options, attempt)
+        yield* throwIfAborted(options)
+        if (input.noReply === true) return message
+        return yield* loopAttempt({ sessionID: input.sessionID, traceMessageID: message.info.id }, options, attempt)
+      })
+      return yield* run.pipe(
+        Effect.catchCause((cause) => {
+          if (input.noReply === true) return Effect.failCause(cause)
+          const interrupted = Cause.hasInterruptsOnly(cause)
+          const error = interrupted ? new DOMException("Aborted", "AbortError") : Cause.squash(cause)
+          return persistTerminalErrorCarrier({
+            sessionID: input.sessionID,
+            parentID: messageID,
+            error,
+            aborted: interrupted,
+            preserveCompleted: interrupted,
+          }).pipe(
+            Effect.uninterruptible,
+            Effect.catchCause((terminalCause) =>
+              Effect.sync(() => {
+                log.error("failed to persist terminal prompt error", {
+                  error: Cause.pretty(terminalCause),
+                  original: Cause.pretty(cause),
+                })
+              }),
+            ),
+            Effect.andThen(Effect.failCause(cause)),
+          )
+        }),
+      )
     }, Effect.scoped)
 
     const appendRunLifecycleEvent = Effect.fn("SessionPrompt.appendRunLifecycleEvent")(function* (
@@ -2377,82 +2532,13 @@ export const layer = Layer.effect(
       options: PromptRuntimeOptions | undefined,
       currentAttempt: PromptAttempt,
     ) {
-      const persistTerminalErrorCarrier = Effect.fn("SessionPrompt.persistTerminalErrorCarrier")(function* (
-        error: unknown,
-        options?: {
-          parentID?: MessageID
-          aborted?: boolean
-          diagnostics?: MessageV2.Assistant["diagnostics"]
-        },
-      ) {
-        const parentID = options?.parentID ?? input.traceMessageID
-        if (!parentID) return
-        const traced = yield* sessions.findMessage(
-          input.sessionID,
-          (message) => message.info.id === parentID,
-        )
-        const parent = Option.isSome(traced) ? traced.value : undefined
-        if (!parent || parent.info.role !== "user") return
-        const parentInfo = parent.info
-
-        const existing = yield* sessions.findMessage(
-          input.sessionID,
-          (message) => message.info.role === "assistant" && message.info.parentID === parentInfo.id,
-        )
-        const completedAt = Date.now()
-        const terminalError = MessageV2.fromError(error, {
-          providerID: parentInfo.model.providerID,
-          aborted: options?.aborted ?? false,
-        })
-        if (Option.isSome(existing) && existing.value.info.role === "assistant") {
-          const assistant = existing.value.info
-          if (!assistant.time.completed) {
-            yield* sessions.updateMessage({
-              ...assistant,
-              time: { ...assistant.time, completed: completedAt },
-              error: assistant.error ?? terminalError,
-              finish: "error",
-              diagnostics: options?.diagnostics
-                ? { ...(assistant.diagnostics ?? {}), ...options.diagnostics }
-                : assistant.diagnostics,
-            })
-            return
-          }
-          if (assistant.error || assistant.finish === "error") return
-        }
-
-        const session = yield* sessions.get(input.sessionID)
-        const carrier: MessageV2.Assistant = {
-          id: MessageID.ascending(),
-          role: "assistant",
-          parentID: parentInfo.id,
-          sessionID: input.sessionID,
-          mode: parentInfo.agent,
-          agent: parentInfo.agent,
-          variant: parentInfo.model.variant,
-          path: {
-            cwd: session.executionContext.activeDirectory,
-            root: session.executionContext.ownerDirectory,
-          },
-          cost: 0,
-          tokens: {
-            input: 0,
-            output: 0,
-            reasoning: 0,
-            cache: { read: 0, write: 0 },
-          },
-          modelID: parentInfo.model.modelID,
-          providerID: parentInfo.model.providerID,
-          time: { created: completedAt, completed: completedAt },
-          error: terminalError,
-          finish: "error",
-          diagnostics: options?.diagnostics,
-        }
-        yield* sessions.updateMessage(carrier)
-      })
       const persistFailure = (cause: Cause.Cause<unknown>) => {
-        if (Cause.hasInterruptsOnly(cause)) return Effect.void
-        return persistTerminalErrorCarrier(Cause.squash(cause)).pipe(
+        if (Cause.hasInterruptsOnly(cause) || !input.traceMessageID) return Effect.void
+        return persistTerminalErrorCarrier({
+          sessionID: input.sessionID,
+          parentID: input.traceMessageID,
+          error: Cause.squash(cause),
+        }).pipe(
           Effect.uninterruptible,
           Effect.catchCause((terminalCause) =>
             Effect.sync(() => {
@@ -2475,15 +2561,11 @@ export const layer = Layer.effect(
         const parentIndex = messages.findIndex((candidate) => candidate.info.id === parentID)
         return traceIndex >= 0 && parentIndex >= traceIndex
       })
-      const onInterrupt = (meta?: {
-        source?: string
-        reason?: string
-        viaCtxAbort?: boolean
-        propagationPoint?: string
-        recordedAt?: number
-      }) =>
+      let workStarted = false
+      const onInterrupt = (meta?: InterruptMeta) =>
         Effect.gen(function* () {
           currentAttempt.interrupted = true
+          currentAttempt.cancelMeta = meta
           interruptedSessions.add(input.sessionID)
           if (currentAttempt.compactionMarkerID) {
             const pendingMarker = yield* sessions.findMessage(
@@ -2555,94 +2637,33 @@ export const layer = Layer.effect(
                 yield* sessions.updateMessage(placeholder)
                 return { info: placeholder, parts: [] }
               }
+              return summaryChild.value
             }
           }
-          const assistant = yield* currentTurnTarget(input.sessionID)
-          if (assistant.info.role === "user") {
-            const recordedAt = meta?.recordedAt ?? Date.now()
-            const abortError = new DOMException("Aborted", "AbortError")
-            const serialized = MessageV2.fromError(abortError, {
-              providerID: assistant.info.model.providerID,
-              aborted: true,
-            })
-            yield* persistTerminalErrorCarrier(abortError, {
-              parentID: assistant.info.id,
-              aborted: true,
-              diagnostics: {
-                abort: {
-                  source: meta?.source,
-                  reason: meta?.reason,
-                  title_generation_state: titleGenerationStateAtAbort(
-                    titleGenerationProgress.get(input.sessionID),
-                    recordedAt,
-                  ),
-                  propagation_point: meta?.propagationPoint ?? "session.prompt.loop.onInterrupt",
-                  error_name: serialized.name,
-                  error_message:
-                    "data" in serialized &&
-                    serialized.data &&
-                    typeof serialized.data === "object" &&
-                    "message" in serialized.data
-                      ? String(serialized.data.message)
-                      : undefined,
-                  via_ctx_abort: meta?.viaCtxAbort,
-                  recorded_at: recordedAt,
-                },
-              },
-            })
-            return yield* lastAssistant(input.sessionID)
+          if (input.traceMessageID) {
+            const terminal = yield* persistAttemptAbort(currentAttempt)
+            return terminal ?? (yield* lastAssistant(input.sessionID))
           }
-          if (assistant.info.role === "assistant") {
-            const shouldFinalize = !assistant.info.time.completed
-            const error =
-              assistant.info.error ??
-              (shouldFinalize
-                ? MessageV2.fromError(new DOMException("Aborted", "AbortError"), {
-                    providerID: assistant.info.providerID,
-                    aborted: true,
-                  })
-                : undefined)
-            const errorMessage =
-              error && "data" in error && error.data && typeof error.data === "object" && "message" in error.data
-                ? String(error.data.message)
-                : undefined
-            const recordedAt = meta?.recordedAt ?? Date.now()
-            yield* sessions.updateMessage({
-              ...assistant.info,
-              ...(shouldFinalize
-                ? {
-                    error,
-                    time: {
-                      ...assistant.info.time,
-                      completed: recordedAt,
-                    },
-                  }
-                : {}),
-              diagnostics: {
-                ...(assistant.info.diagnostics ?? {}),
-                abort: {
-                  ...(assistant.info.diagnostics?.abort ?? {}),
-                  source: meta?.source,
-                  reason: meta?.reason,
-                  title_generation_state: titleGenerationStateAtAbort(
-                    titleGenerationProgress.get(input.sessionID),
-                    recordedAt,
-                  ),
-                  propagation_point: meta?.propagationPoint ?? "session.prompt.loop.onInterrupt",
-                  error_name: error?.name,
-                  error_message: errorMessage,
-                  via_ctx_abort: meta?.viaCtxAbort,
-                  recorded_at: recordedAt,
-                },
-              },
-            })
-            return yield* lastAssistant(input.sessionID)
+          if (input.prelude || !workStarted) return yield* lastAssistant(input.sessionID)
+
+          const target = yield* currentTurnTarget(input.sessionID)
+          if (
+            target.info.role === "assistant" &&
+            target.info.time.completed &&
+            target.info.error?.name !== "MessageAbortedError"
+          ) {
+            return target
           }
-          return assistant
+          const parentID = target.info.role === "user" ? target.info.id : target.info.parentID
+          const terminal = yield* persistAttemptAbort(currentAttempt, "session.prompt.loop.onInterrupt", parentID)
+          return terminal ?? (yield* lastAssistant(input.sessionID))
         })
-      let workStarted = false
       const work = Effect.gen(function* () {
         workStarted = true
+        if (currentAttempt.interrupted) {
+          const terminal = yield* persistAttemptAbort(currentAttempt)
+          return terminal ?? (yield* onInterrupt(currentAttempt.cancelMeta))
+        }
         yield* throwIfAborted(options)
         // Two reasons busy goes first. (1) The compaction part event must
         // not race ahead of `session.status: busy` — the divider's
@@ -2723,8 +2744,12 @@ export const layer = Layer.effect(
           runLifecycle,
         })
       const exit = yield* runOnce().pipe(Effect.exit)
+      if (currentAttempt.interrupted) {
+        const terminal = yield* persistAttemptAbort(currentAttempt).pipe(Effect.uninterruptible)
+        if (terminal) return terminal
+        if (Exit.isSuccess(exit)) return exit.value
+      }
       if (Exit.isSuccess(exit)) {
-        if (currentAttempt.interrupted) return exit.value
         if (yield* tracedMessageCoveredBy(exit.value)) return exit.value
 
         // A prompt can land after the active run's final message scan but
@@ -2735,7 +2760,11 @@ export const layer = Layer.effect(
         workStarted = false
         currentAttempt.activeProcessor = undefined
         const retry = yield* runOnce().pipe(Effect.exit)
-        if (Exit.isSuccess(retry) && currentAttempt.interrupted) return retry.value
+        if (currentAttempt.interrupted) {
+          const terminal = yield* persistAttemptAbort(currentAttempt).pipe(Effect.uninterruptible)
+          if (terminal) return terminal
+          if (Exit.isSuccess(retry)) return retry.value
+        }
         if (Exit.isSuccess(retry) && (yield* tracedMessageCoveredBy(retry.value))) return retry.value
         if (Exit.isFailure(retry)) {
           if (!workStarted) yield* persistFailure(retry.cause)
@@ -2759,7 +2788,11 @@ export const layer = Layer.effect(
     ) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
       "SessionPrompt.loop",
     )(function* (input: z.infer<typeof LoopInput>, options?: PromptRuntimeOptions) {
-      const attempt: PromptAttempt = { interrupted: false }
+      const attempt: PromptAttempt = {
+        sessionID: input.sessionID,
+        traceMessageID: input.traceMessageID,
+        interrupted: false,
+      }
       yield* state.observeCancel(input.sessionID, cancelAttempt(attempt))
       return yield* loopAttempt(input, options, attempt)
     }, Effect.scoped)
