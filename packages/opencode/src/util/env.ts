@@ -15,6 +15,44 @@ export function envValueCaseInsensitive(env: Record<string, string | undefined> 
   return Object.entries(env ?? {}).find(([key]) => key.toLowerCase() === normalized)?.[1]
 }
 
+// The PawWork desktop app injects XDG_* keys into the embedded server's
+// process environment to namespace its config/data/cache/state directories.
+// Those keys must not reach user-command children (PTY terminals, the bash
+// tool): XDG-following CLIs would then treat PawWork's data directory as
+// their config home and lose their real configuration (issue #1528). The
+// injector (desktop-electron server.ts) publishes this restore instruction
+// alongside the pollution: a JSON map of every injected key to the user's
+// pre-existing value, or null when the user had none. Executing the
+// instruction here keeps the injected-key list in exactly one place. The
+// marker name is a wire contract with the injector (desktop-electron
+// server.ts spells the same literal when publishing it). Returns every key
+// that was deleted from the record — the unset keys plus the marker itself:
+// a spawner that merges the parent environment (bun-pty) resurrects deleted
+// keys and must blank-override each returned one.
+const USER_ENV_RESTORE_INSTRUCTION_KEY = "PAWWORK_USER_ENV_RESTORE"
+
+export function restoreUserEnv(env: Record<string, string | undefined>): string[] {
+  const instruction = process.env[USER_ENV_RESTORE_INSTRUCTION_KEY]
+  const deletedKeys: string[] = [USER_ENV_RESTORE_INSTRUCTION_KEY]
+  delete env[USER_ENV_RESTORE_INSTRUCTION_KEY]
+  if (!instruction) return deletedKeys
+  let restore: Record<string, unknown>
+  try {
+    restore = JSON.parse(instruction)
+  } catch {
+    return deletedKeys
+  }
+  if (!restore || typeof restore !== "object") return deletedKeys
+  for (const [key, value] of Object.entries(restore)) {
+    if (typeof value === "string") env[key] = value
+    else {
+      delete env[key]
+      deletedKeys.push(key)
+    }
+  }
+  return deletedKeys
+}
+
 // Returns the directory holding PawWork's bundled CLI tools (uv, ...),
 // or "" when not running inside the packaged Electron app (e.g. plain `bun dev`).
 // In dev:desktop, process.resourcesPath points to the Electron framework's

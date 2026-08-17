@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import path from "path"
-import { bundledToolsDir, prependBundledTools, stripPathKeys, withoutInternalServerAuthEnv } from "../../src/util/env"
+import { bundledToolsDir, prependBundledTools, restoreUserEnv, stripPathKeys, withoutInternalServerAuthEnv } from "../../src/util/env"
 
 type ResourcesPathBag = { resourcesPath?: string }
 
@@ -83,6 +83,53 @@ describe("util.env.bundledTools", () => {
     // file in cwd shadow a bundled tool. The helper must drop the delimiter.
     setResourcesPath("/r")
     expect(prependBundledTools("")).toBe(path.join("/r", "tools"))
+  })
+})
+
+describe("util.env.restoreUserEnv", () => {
+  const previousInstruction = process.env.PAWWORK_USER_ENV_RESTORE
+
+  afterEach(() => {
+    if (previousInstruction === undefined) delete process.env.PAWWORK_USER_ENV_RESTORE
+    else process.env.PAWWORK_USER_ENV_RESTORE = previousInstruction
+  })
+
+  test("restores user values, removes app-injected keys, and strips the instruction itself", () => {
+    process.env.PAWWORK_USER_ENV_RESTORE = JSON.stringify({
+      XDG_CONFIG_HOME: "/Users/tester/.config",
+      XDG_DATA_HOME: null,
+    })
+    const env: Record<string, string | undefined> = {
+      XDG_CONFIG_HOME: "/tmp/pawwork-user-data/config",
+      XDG_DATA_HOME: "/tmp/pawwork-user-data/data",
+      TERM: "xterm-256color",
+    }
+
+    const unsetKeys = restoreUserEnv(env)
+
+    expect(env).toEqual({ XDG_CONFIG_HOME: "/Users/tester/.config", TERM: "xterm-256color" })
+    expect(unsetKeys).toEqual(["PAWWORK_USER_ENV_RESTORE", "XDG_DATA_HOME"])
+  })
+
+  test("is a no-op without a PawWork instruction (standalone opencode keeps user env verbatim)", () => {
+    delete process.env.PAWWORK_USER_ENV_RESTORE
+    const env: Record<string, string | undefined> = { XDG_CONFIG_HOME: "/custom", TERM: "xterm" }
+
+    const deletedKeys = restoreUserEnv(env)
+
+    expect(env).toEqual({ XDG_CONFIG_HOME: "/custom", TERM: "xterm" })
+    // The marker itself is still reported so merging spawners can blank it.
+    expect(deletedKeys).toEqual(["PAWWORK_USER_ENV_RESTORE"])
+  })
+
+  test("ignores a malformed instruction but still strips it from the child env", () => {
+    process.env.PAWWORK_USER_ENV_RESTORE = "not-json"
+    const env: Record<string, string | undefined> = { TERM: "xterm", PAWWORK_USER_ENV_RESTORE: "not-json" }
+
+    const deletedKeys = restoreUserEnv(env)
+
+    expect(env).toEqual({ TERM: "xterm" })
+    expect(deletedKeys).toEqual(["PAWWORK_USER_ENV_RESTORE"])
   })
 })
 

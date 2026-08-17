@@ -348,6 +348,59 @@ describe("tool.bash", () => {
       else process.env.PAWWORK_E2E_CUSTOM_ENV = previousCustom
     }
   })
+  each("restores user XDG env from the app restore instruction instead of leaking the app namespace", async () => {
+    const previousXdgConfig = process.env.XDG_CONFIG_HOME
+    const previousXdgData = process.env.XDG_DATA_HOME
+    const previousInstruction = process.env.PAWWORK_USER_ENV_RESTORE
+    process.env.XDG_CONFIG_HOME = "/tmp/pawwork-user-data/config"
+    process.env.XDG_DATA_HOME = "/tmp/pawwork-user-data/data"
+    process.env.PAWWORK_USER_ENV_RESTORE = JSON.stringify({
+      XDG_CONFIG_HOME: "/Users/tester/.config",
+      XDG_DATA_HOME: null,
+    })
+    await using tmp = await tmpdir()
+    const scriptPath = path.join(tmp.path, "xdg-probe.mjs")
+    fs.writeFileSync(
+      scriptPath,
+      [
+        'console.log("xdgConfig=" + (process.env.XDG_CONFIG_HOME ?? "unset"))',
+        'console.log("xdgData=" + (process.env.XDG_DATA_HOME ?? "unset"))',
+        'console.log("instruction=" + (process.env.PAWWORK_USER_ENV_RESTORE ?? "unset"))',
+      ].join("\n"),
+    )
+    const scriptArg = quote(scriptPath.replaceAll("\\", "/"))
+    const command = `${PS.has(sh()) ? "& " : ""}${bin} ${scriptArg}`
+
+    try {
+      await Instance.provide({
+        directory: projectRoot,
+        fn: async () => {
+          const result = await runBash((bash) =>
+            bash.execute(
+              {
+                command,
+                description: "Print user XDG environment",
+              },
+              ctx,
+            ),
+          )
+
+          expect(result.metadata.exit).toBe(0)
+          expect(result.output).toContain("xdgConfig=/Users/tester/.config")
+          expect(result.output).toContain("xdgData=unset")
+          expect(result.output).toContain("instruction=unset")
+          expect(result.output).not.toContain("/tmp/pawwork-user-data")
+        },
+      })
+    } finally {
+      if (previousXdgConfig === undefined) delete process.env.XDG_CONFIG_HOME
+      else process.env.XDG_CONFIG_HOME = previousXdgConfig
+      if (previousXdgData === undefined) delete process.env.XDG_DATA_HOME
+      else process.env.XDG_DATA_HOME = previousXdgData
+      if (previousInstruction === undefined) delete process.env.PAWWORK_USER_ENV_RESTORE
+      else process.env.PAWWORK_USER_ENV_RESTORE = previousInstruction
+    }
+  })
 })
 
 describe("tool.bash expected_outputs", () => {
