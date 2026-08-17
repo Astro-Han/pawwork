@@ -15,6 +15,7 @@ import {
   shouldSkipSessionPrefetch,
 } from "@/context/global-sync/session-prefetch"
 import { workspaceKey } from "./helpers"
+import { mergeMessagesByCreated } from "@/context/global-sync/message-order"
 
 type PrefetchQueue = {
   inflight: Set<string>
@@ -39,7 +40,7 @@ const prefetchPendingLimit = 10
 const span = 4
 const PREFETCH_MAX_SESSIONS_PER_DIR = 10
 
-const mergeByID = <T extends { id: string }>(current: T[], incoming: T[]) => {
+const mergePartsByID = <T extends { id: string }>(current: T[], incoming: T[]) => {
   if (current.length === 0) {
     return incoming.slice().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   }
@@ -135,7 +136,7 @@ export function createPawworkSessionPrefetch(input: SessionPrefetchInput) {
 
             const items = (messages.data ?? []).filter((x) => !!x?.info?.id)
             const next = items.map((x) => x.info).filter((m): m is Message => !!m?.id)
-            const sorted = mergeByID([], next)
+            const sorted = mergeMessagesByCreated([], next)
             const stale = markPrefetched(directory, sessionID)
             const cursor = messages.response?.headers.get("x-next-cursor") ?? undefined
             const meta = {
@@ -150,7 +151,7 @@ export function createPawworkSessionPrefetch(input: SessionPrefetchInput) {
             }
 
             const current = store.message[sessionID] ?? []
-            const merged = mergeByID(
+            const merged = mergeMessagesByCreated(
               current.filter((item): item is Message => !!item?.id),
               sorted,
             )
@@ -171,7 +172,7 @@ export function createPawworkSessionPrefetch(input: SessionPrefetchInput) {
 
               for (const message of items) {
                 const currentParts = store.part[message.info.id] ?? []
-                const mergedParts = mergeByID(
+                const mergedParts = mergePartsByID(
                   currentParts.filter((item): item is (typeof currentParts)[number] & { id: string } => !!item?.id),
                   message.parts.filter((item): item is (typeof message.parts)[number] & { id: string } => !!item?.id),
                 )

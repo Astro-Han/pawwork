@@ -13,7 +13,12 @@ import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
 import { useProviders } from "@/hooks/use-providers"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { emptyMessages, emptyUserMessages, readSessionMessages, readUserMessages } from "@/pages/session/session-messages"
+import {
+  emptyMessages,
+  emptyUserMessages,
+  readSessionMessages,
+  userMessagesBeforeID,
+} from "@/pages/session/session-messages"
 import { getRecentTurnCache, getSessionCacheAggregate, getSessionContextMetrics } from "./session-context-metrics"
 import { estimateSessionContextBreakdown, type SessionContextBreakdownKey } from "./session-context-breakdown"
 import { createSessionContextFormatter } from "./session-context-format"
@@ -205,18 +210,8 @@ export function SessionContextTab() {
     { equals: same },
   )
 
-  const userMessages = createMemo(
-    () => readUserMessages(messages()),
-    emptyUserMessages,
-    { equals: same },
-  )
-
   const visibleUserMessages = createMemo(
-    () => {
-      const revert = info()?.revert?.messageID
-      if (!revert) return userMessages()
-      return userMessages().filter((m) => m.id < revert)
-    },
+    () => userMessagesBeforeID(messages(), info()?.revert?.messageID),
     emptyUserMessages,
     { equals: same },
   )

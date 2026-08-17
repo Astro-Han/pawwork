@@ -22,6 +22,26 @@ export function readUserMessages(messages: unknown): UserMessage[] {
   return users.length > 0 ? users : emptyUserMessages
 }
 
+export function messagesBeforeID<T extends { id: string }>(messages: T[], boundaryID?: string): T[] {
+  if (!boundaryID) return messages
+  const index = messages.findIndex((message) => message.id === boundaryID)
+  return index >= 0 ? messages.slice(0, index) : []
+}
+
+export function userMessagesBeforeID(messages: Message[], boundaryID?: string): UserMessage[] {
+  return readUserMessages(messagesBeforeID(messages, boundaryID))
+}
+
+export function userMessageBeforeID(messages: Message[], messageID: string): UserMessage | undefined {
+  return readUserMessages(messagesBeforeID(messages, messageID)).at(-1)
+}
+
+export function userMessageAfterID(messages: Message[], messageID: string): UserMessage | undefined {
+  const index = messages.findIndex((message) => message.id === messageID)
+  if (index < 0) return
+  return messages.slice(index + 1).find(isUserMessage)
+}
+
 export function buildTurnMessagesByUserID(messages: readonly Message[]) {
   const result = new Map<string, AssistantMessage[]>()
   const seenUserIDs = new Set<string>()

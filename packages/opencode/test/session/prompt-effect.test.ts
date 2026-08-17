@@ -708,6 +708,113 @@ it.live("loop calls LLM and returns assistant message", () =>
   ),
 )
 
+it.live(
+  "prompt waits for unrevert before cleaning and saving a new message",
+  () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const { prompt, sessions, chat } = yield* boot()
+          const revert = yield* SessionRevert.Service
+          const snapshot = yield* Snapshot.Service
+          const boundary = yield* user(chat.id, "keep after restore")
+          yield* sessions.setRevert({
+            sessionID: chat.id,
+            revert: { messageID: boundary.id, snapshot: "snapshot_test" },
+            summary: { additions: 0, deletions: 0, files: 0 },
+          })
+
+          const restoreEntered = defer<void>()
+          const releaseRestore = defer<void>()
+          const mutableSnapshot = snapshot as Mutable<typeof snapshot>
+          const originalRestore = snapshot.restore
+          mutableSnapshot.restore = (() =>
+            Effect.gen(function* () {
+              restoreEntered.resolve()
+              yield* Effect.promise(() => releaseRestore.promise)
+            })) as typeof snapshot.restore
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => void (mutableSnapshot.restore = originalRestore)),
+          )
+
+          const unrevertFiber = yield* revert.unrevert({ sessionID: chat.id }).pipe(Effect.forkChild)
+          yield* Effect.promise(() => restoreEntered.promise)
+          const promptCompleted = defer<void>()
+          const promptFiber = yield* prompt
+            .prompt({
+              sessionID: chat.id,
+              agent: "build",
+              noReply: true,
+              parts: [{ type: "text", text: "sent after restore" }],
+            })
+            .pipe(Effect.ensuring(Effect.sync(() => promptCompleted.resolve())))
+            .pipe(Effect.forkChild)
+
+          const promptState = yield* Effect.race(
+            Effect.promise(() => promptCompleted.promise).pipe(Effect.as("completed" as const)),
+            Effect.sleep("50 millis").pipe(Effect.as("waiting" as const)),
+          )
+          expect(promptState).toBe("waiting")
+
+          releaseRestore.resolve()
+          yield* Fiber.join(unrevertFiber)
+          const submitted = yield* Fiber.join(promptFiber)
+          expect((yield* sessions.messages({ sessionID: chat.id })).map((message) => message.info.id)).toEqual([
+            boundary.id,
+            submitted.info.id,
+          ])
+        }),
+      { git: true },
+    ),
+)
+
+it.live(
+  "chat message hooks can reenter revert mutations without deadlocking",
+  () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const { prompt, sessions, chat } = yield* boot()
+          const revert = yield* SessionRevert.Service
+          const snapshot = yield* Snapshot.Service
+          const plugin = yield* Plugin.Service
+          const boundary = yield* user(chat.id, "restore from hook")
+          yield* sessions.setRevert({
+            sessionID: chat.id,
+            revert: { messageID: boundary.id, snapshot: "snapshot_test" },
+            summary: { additions: 0, deletions: 0, files: 0 },
+          })
+
+          const mutableSnapshot = snapshot as Mutable<typeof snapshot>
+          const originalRestore = snapshot.restore
+          mutableSnapshot.restore = (() => Effect.void) as typeof snapshot.restore
+          yield* Effect.addFinalizer(() => Effect.sync(() => void (mutableSnapshot.restore = originalRestore)))
+
+          const mutablePlugin = plugin as Mutable<typeof plugin>
+          const originalTrigger = plugin.trigger
+          mutablePlugin.trigger = ((name: Parameters<typeof plugin.trigger>[0], input: unknown, output: unknown) => {
+            if (name === "chat.message") {
+              return revert.unrevert({ sessionID: chat.id }).pipe(Effect.as(output))
+            }
+            return originalTrigger(name as never, input as never, output as never)
+          }) as typeof plugin.trigger
+          yield* Effect.addFinalizer(() => Effect.sync(() => void (mutablePlugin.trigger = originalTrigger)))
+
+          const exit = yield* prompt
+            .prompt({
+              sessionID: chat.id,
+              agent: "build",
+              noReply: true,
+              parts: [{ type: "text", text: "sent after hook" }],
+            })
+            .pipe(Effect.timeout("1 second"), Effect.exit)
+
+          expect(Exit.isSuccess(exit)).toBe(true)
+        }),
+      { git: true },
+    ),
+)
+
 it.live("prompt handles a custom message ID without restarting the model", () =>
   provideTmpdirServer(
     Effect.fnUntraced(function* ({ llm }) {
@@ -3363,6 +3470,110 @@ it.live("assertNotBusy succeeds when idle", () =>
 )
 
 // Shell semantics
+
+unix("shell derives its model from post-revert history", () =>
+  provideTmpdirInstance(
+    () =>
+      Effect.gen(function* () {
+        const { prompt, sessions, chat } = yield* boot()
+        const olderModel = ModelID.make("older-model")
+        const revertedModel = ModelID.make("reverted-model")
+        const older = yield* sessions.updateMessage({
+          id: MessageID.ascending(),
+          role: "user",
+          sessionID: chat.id,
+          agent: "build",
+          model: { providerID: ref.providerID, modelID: olderModel },
+          time: { created: Date.now() },
+        })
+        const reverted = yield* sessions.updateMessage({
+          id: MessageID.ascending(),
+          role: "user",
+          sessionID: chat.id,
+          agent: "build",
+          model: { providerID: ref.providerID, modelID: revertedModel },
+          time: { created: Date.now() + 1 },
+        })
+        yield* sessions.setRevert({
+          sessionID: chat.id,
+          revert: { messageID: reverted.id },
+          summary: { additions: 0, deletions: 0, files: 0 },
+        })
+
+        yield* prompt.shell({ sessionID: chat.id, agent: "build", command: "printf done" })
+
+        const messages = yield* sessions.messages({ sessionID: chat.id })
+        const shellUser = messages.find(
+          (message) => message.info.role === "user" && message.info.id !== older.id,
+        )
+        expect(shellUser?.info.role).toBe("user")
+        if (shellUser?.info.role === "user") expect(shellUser.info.model.modelID).toBe(olderModel)
+        expect(messages.some((message) => message.info.id === reverted.id)).toBe(false)
+      }),
+    { git: true, config: cfg },
+  ),
+)
+
+unix("shell cancellation stays responsive while a revert mutation is running", () =>
+  provideTmpdirInstance(
+    () =>
+      Effect.gen(function* () {
+        const { prompt, sessions, chat } = yield* boot()
+        const revert = yield* SessionRevert.Service
+        const snapshot = yield* Snapshot.Service
+        const boundary = yield* user(chat.id, "restore before shell")
+        yield* sessions.setRevert({
+          sessionID: chat.id,
+          revert: { messageID: boundary.id, snapshot: "snapshot_test" },
+          summary: { additions: 0, deletions: 0, files: 0 },
+        })
+
+        const restoreEntered = defer<void>()
+        const releaseRestore = defer<void>()
+        const mutableSnapshot = snapshot as Mutable<typeof snapshot>
+        const originalRestore = snapshot.restore
+        mutableSnapshot.restore = (() =>
+          Effect.gen(function* () {
+            restoreEntered.resolve()
+            yield* Effect.promise(() => releaseRestore.promise)
+          })) as typeof snapshot.restore
+        yield* Effect.addFinalizer(() => Effect.sync(() => void (mutableSnapshot.restore = originalRestore)))
+
+        const lockAttempted = defer<void>()
+        const releaseLockAttempt = defer<void>()
+        const mutableRevert = revert as Mutable<typeof revert>
+        const originalCleanupBeforeOrBusy = revert.cleanupBeforeOrBusy
+        mutableRevert.cleanupBeforeOrBusy = ((sessionID, work) =>
+          Effect.gen(function* () {
+            lockAttempted.resolve()
+            yield* Effect.promise(() => releaseLockAttempt.promise)
+            return yield* originalCleanupBeforeOrBusy(sessionID, work)
+          })) as typeof revert.cleanupBeforeOrBusy
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => void (mutableRevert.cleanupBeforeOrBusy = originalCleanupBeforeOrBusy)),
+        )
+
+        const unrevertFiber = yield* revert.unrevert({ sessionID: chat.id }).pipe(Effect.forkChild)
+        yield* Effect.promise(() => restoreEntered.promise)
+        const shellFiber = yield* prompt
+          .shell({ sessionID: chat.id, agent: "build", command: "printf done" })
+          .pipe(Effect.forkChild)
+        yield* Effect.promise(() => lockAttempted.promise)
+
+        const cancelFiber = yield* prompt.cancel(chat.id).pipe(Effect.forkChild)
+        releaseLockAttempt.resolve()
+        const cancelExit = yield* Fiber.await(cancelFiber)
+        releaseRestore.resolve()
+        yield* Fiber.await(unrevertFiber)
+        const shellExit = yield* Fiber.await(shellFiber)
+
+        expect(Exit.isSuccess(cancelExit)).toBe(true)
+        expect(Exit.isFailure(shellExit)).toBe(true)
+        if (Exit.isFailure(shellExit)) expect(Cause.squash(shellExit.cause)).toBeInstanceOf(Session.BusyError)
+      }),
+    { git: true, config: cfg },
+  ),
+)
 
 it.live(
   "shell rejects with BusyError when loop running",

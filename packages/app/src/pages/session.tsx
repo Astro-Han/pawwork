@@ -398,9 +398,9 @@ export default function Page() {
   })
 
   const fork = async (input: { sessionID: string; messageID: string }) => {
-    const nextUserMessage = sync.data.message[input.sessionID]?.find(
-      (message) => message.role === "user" && message.id > input.messageID,
-    )
+    const messages = sync.data.message[input.sessionID] ?? []
+    const messageIndex = messages.findIndex((message) => message.id === input.messageID)
+    const nextUserMessage = messageIndex >= 0 ? messages.slice(messageIndex + 1).find((message) => message.role === "user") : undefined
 
     try {
       const result = await sdk.client.session.fork({

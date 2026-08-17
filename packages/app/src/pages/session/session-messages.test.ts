@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test"
 import type { Message } from "@opencode-ai/sdk/v2/client"
-import { buildTurnMessagesByUserID, readSessionMessages, readUserMessages } from "./session-messages"
+import {
+  buildTurnMessagesByUserID,
+  messagesBeforeID,
+  readSessionMessages,
+  readUserMessages,
+  userMessageAfterID,
+  userMessageBeforeID,
+  userMessagesBeforeID,
+} from "./session-messages"
 
 const message = (id: string, role: Message["role"], parentID?: string): Message =>
   ({
@@ -45,6 +53,40 @@ describe("session message readers", () => {
     const loaded = [null, {}, message("msg_1", "assistant"), message("msg_2", "user")]
 
     expect(readUserMessages(loaded).map((item) => item.id)).toEqual(["msg_2"])
+  })
+
+  test("selects messages before a boundary by position when IDs wrap", () => {
+    const older = message("msg_fd0000000000old", "user")
+    const boundary = message("msg_000000000000new", "user")
+
+    expect(messagesBeforeID([older, boundary], boundary.id).map((item) => item.id)).toEqual([older.id])
+  })
+
+  test("hides messages while a revert boundary is not loaded", () => {
+    const loaded = [message("msg_2", "user"), message("msg_3", "assistant", "msg_2")]
+
+    expect(messagesBeforeID(loaded, "msg_1")).toEqual([])
+  })
+
+  test("selects visible user messages when the revert boundary is an assistant message", () => {
+    const first = message("msg_1", "user")
+    const boundary = message("msg_2", "assistant", first.id)
+    const reverted = message("msg_3", "user")
+
+    expect(userMessagesBeforeID([first, boundary, reverted], boundary.id).map((item) => item.id)).toEqual([
+      first.id,
+    ])
+  })
+
+  test("navigates user turns around an assistant revert boundary", () => {
+    const first = message("msg_1", "user")
+    const firstReply = message("msg_2", "assistant", first.id)
+    const boundary = message("msg_3", "assistant", first.id)
+    const second = message("msg_4", "user")
+    const messages = [first, firstReply, boundary, second]
+
+    expect(userMessageBeforeID(messages, boundary.id)?.id).toBe(first.id)
+    expect(userMessageAfterID(messages, boundary.id)?.id).toBe(second.id)
   })
 })
 

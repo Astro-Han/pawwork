@@ -918,6 +918,41 @@ describe("MessageV2.filterCompacted", () => {
     })
   })
 
+  test("fork stops at a chronological boundary when message IDs wrap", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const session = await svc.create({})
+        const older = MessageID.ascending("msg_fd0000000000old")
+        const boundary = MessageID.ascending("msg_000000000000new")
+        const olderCreated = 1_786_000_000_000
+        const boundaryCreated = 1_787_000_000_000
+        for (const [id, created] of [
+          [older, olderCreated],
+          [boundary, boundaryCreated],
+        ] as const) {
+          await svc.updateMessage({
+            id,
+            sessionID: session.id,
+            role: "user",
+            time: { created },
+            agent: "test",
+            model: { providerID: "test", modelID: "test" },
+            tools: {},
+            mode: "",
+          } as unknown as MessageV2.Info)
+        }
+
+        const forked = await svc.fork({ sessionID: session.id, messageID: boundary })
+
+        const forkedMessages = Array.from(MessageV2.stream(forked.id))
+        expect(forkedMessages.map((message) => message.info.time.created)).toEqual([olderCreated])
+        await svc.remove(forked.id)
+        await svc.remove(session.id)
+      },
+    })
+  })
+
   it.live(
     "keeps retained tail messages after successful compaction summary",
     provideTmpdirInstance(() =>

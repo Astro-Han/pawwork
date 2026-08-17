@@ -830,6 +830,11 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       const directory = yield* InstanceState.directory
       const original = yield* get(input.sessionID)
       const title = getForkedTitle(original.title)
+      const msgs = yield* messages({ sessionID: input.sessionID })
+      const cutoffIndex = input.messageID ? msgs.findIndex((msg) => msg.info.id === input.messageID) : msgs.length
+      if (input.messageID && cutoffIndex < 0) {
+        throw new NotFoundError({ message: `Message not found: ${input.messageID}` })
+      }
       const session = yield* createNext({
         directory,
         workspaceID: original.workspaceID,
@@ -837,11 +842,9 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         skill: original.skill,
         executionContext: original.executionContext,
       })
-      const msgs = yield* messages({ sessionID: input.sessionID })
       const idMap = new Map<string, MessageID>()
 
-      for (const msg of msgs) {
-        if (input.messageID && msg.info.id >= input.messageID) break
+      for (const msg of msgs.slice(0, cutoffIndex)) {
         const newID = MessageID.ascending()
         idMap.set(msg.info.id, newID)
 

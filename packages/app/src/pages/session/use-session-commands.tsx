@@ -14,10 +14,15 @@ import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { showToast } from "@opencode-ai/ui/toast"
 import { isWorkInFlightStatus } from "@opencode-ai/ui/util/session-status"
-import { findLast } from "@opencode-ai/util/array"
 import { canCloseSessionTab, closeSessionTab } from "@/pages/session/close-session-tab"
 import { createSessionTabs } from "@/pages/session/helpers"
-import { readSessionMessages, readUserMessages } from "@/pages/session/session-messages"
+import {
+  readSessionMessages,
+  readUserMessages,
+  userMessageAfterID,
+  userMessageBeforeID,
+  userMessagesBeforeID,
+} from "@/pages/session/session-messages"
 import { createBrowserTabClose, showBrowserCloseConfirm } from "@/pages/session/browser/close-page"
 import { isSessionRunning } from "@/pages/session/session-running-state"
 import { createCloseShellTabRouter, focusActiveTerminalTab, toggleDesktopTerminal } from "@/pages/session/terminal-shell-tab"
@@ -85,11 +90,8 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     const id = params.id
     return readSessionMessages(id ? sync.data.message[id] : undefined)
   }
-  const userMessages = () => readUserMessages(messages())
   const visibleUserMessages = () => {
-    const revert = info()?.revert?.messageID
-    if (!revert) return userMessages()
-    return userMessages().filter((m) => m.id < revert)
+    return userMessagesBeforeID(messages(), info()?.revert?.messageID)
   }
 
   const selectionPreview = (path: string, selection: FileSelection) => {
@@ -258,7 +260,8 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     }
 
     const revert = info()?.revert?.messageID
-    const message = findLast(userMessages(), (x) => !revert || x.id < revert)
+    const all = messages()
+    const message = userMessagesBeforeID(all, revert).at(-1)
     if (!message) return
 
     await sdk.client.session.revert({ sessionID, messageID: message.id })
@@ -268,7 +271,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       prompt.set(restored)
     }
 
-    const prev = findLast(userMessages(), (x) => x.id < message.id)
+    const prev = userMessageBeforeID(all, message.id)
     setActiveMessage(prev)
   }
 
@@ -279,17 +282,19 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     const revertMessageID = info()?.revert?.messageID
     if (!revertMessageID) return
 
-    const next = userMessages().find((x) => x.id > revertMessageID)
+    const all = messages()
+    if (!all.some((message) => message.id === revertMessageID)) return
+
+    const next = userMessageAfterID(all, revertMessageID)
     if (!next) {
       await sdk.client.session.unrevert({ sessionID })
       prompt.reset()
-      const last = findLast(userMessages(), (x) => x.id >= revertMessageID)
-      setActiveMessage(last)
+      setActiveMessage(readUserMessages(all).at(-1))
       return
     }
 
     await sdk.client.session.revert({ sessionID, messageID: next.id })
-    const prev = findLast(userMessages(), (x) => x.id < next.id)
+    const prev = userMessageBeforeID(all, next.id)
     setActiveMessage(prev)
   }
 

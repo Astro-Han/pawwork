@@ -10,6 +10,7 @@ import { Snapshot } from "../../src/snapshot"
 import { Log } from "../../src/util"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import { SyncEvent } from "../../src/sync"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
@@ -260,6 +261,48 @@ describe("revert + compact workflow", () => {
   )
 
   it.live(
+    "keeps chronological history before a revert boundary when message IDs wrap",
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const revert = yield* SessionRevert.Service
+          const info = yield* session.create({})
+          const older = MessageID.ascending("msg_fd0000000000old")
+          const boundary = MessageID.ascending("msg_000000000000new")
+
+          for (const [id, created] of [
+            [older, 1_786_000_000_000],
+            [boundary, 1_787_000_000_000],
+          ] as const) {
+            yield* session.updateMessage({
+              id,
+              role: "user",
+              sessionID: info.id,
+              agent: "default",
+              model: { providerID: ProviderID.make("openai"), modelID: ModelID.make("gpt-4") },
+              time: { created },
+            })
+            yield* session.updatePart({
+              id: PartID.ascending(),
+              messageID: id,
+              sessionID: info.id,
+              type: "text",
+              text: id,
+            })
+          }
+
+          yield* revert.revert({ sessionID: info.id, messageID: boundary })
+          yield* revert.cleanup(yield* session.get(info.id))
+
+          expect((yield* session.messages({ sessionID: info.id })).map((message) => message.info.id)).toEqual([older])
+          yield* session.remove(info.id)
+        }),
+      { git: true },
+    ),
+  )
+
+  it.live(
     "should properly clean up revert state before creating compaction message",
     provideTmpdirInstance(
       (dir) =>
@@ -428,6 +471,71 @@ describe("revert + compact workflow", () => {
   )
 
   it.live(
+    "cleanup removes tail messages before the revert boundary",
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const revert = yield* SessionRevert.Service
+
+          const info = yield* session.create({})
+          const boundary = yield* user(info.id)
+          const tail = yield* assistant(info.id, boundary.id, dir)
+          yield* session.setRevert({
+            sessionID: info.id,
+            revert: { messageID: boundary.id },
+            summary: { additions: 0, deletions: 0, files: 0 },
+          })
+
+          const removed: MessageID[] = []
+          const unsubscribe = SyncEvent.subscribeAll(({ def, event }) => {
+            if (def !== MessageV2.Event.Removed) return
+            removed.push(event.data.messageID as MessageID)
+          })
+          yield* revert.cleanup(yield* session.get(info.id)).pipe(
+            Effect.ensuring(Effect.sync(unsubscribe)),
+          )
+
+          expect(removed).toEqual([tail.id, boundary.id])
+        }),
+      { git: true },
+    ),
+  )
+
+  it.live(
+    "cleanup removes later parts before the revert part boundary",
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const revert = yield* SessionRevert.Service
+
+          const info = yield* session.create({})
+          const message = yield* user(info.id)
+          const boundary = yield* text(info.id, message.id, "boundary")
+          const tail = yield* text(info.id, message.id, "tail")
+          yield* session.setRevert({
+            sessionID: info.id,
+            revert: { messageID: message.id, partID: boundary.id },
+            summary: { additions: 0, deletions: 0, files: 0 },
+          })
+
+          const removed: PartID[] = []
+          const unsubscribe = SyncEvent.subscribeAll(({ def, event }) => {
+            if (def !== MessageV2.Event.PartRemoved) return
+            removed.push(event.data.partID as PartID)
+          })
+          yield* revert.cleanup(yield* session.get(info.id)).pipe(
+            Effect.ensuring(Effect.sync(unsubscribe)),
+          )
+
+          expect(removed).toEqual([tail.id, boundary.id])
+        }),
+      { git: true },
+    ),
+  )
+
+  it.live(
     "cleanup is a no-op when session has no revert state",
     provideTmpdirInstance(
       () =>
@@ -447,6 +555,36 @@ describe("revert + compact workflow", () => {
 
           const msgs = yield* session.messages({ sessionID: sid })
           expect(msgs.length).toBe(1)
+        }),
+      { git: true },
+    ),
+  )
+
+  it.live(
+    "cleanup clears a stale revert without removing remaining messages",
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const revert = yield* SessionRevert.Service
+
+          const info = yield* session.create({})
+          const sid = info.id
+          const remaining = yield* user(sid)
+          yield* text(sid, remaining.id, "still here")
+
+          yield* session.setRevert({
+            sessionID: sid,
+            revert: { messageID: MessageID.make("msg_missing") },
+            summary: { additions: 0, deletions: 0, files: 0 },
+          })
+
+          yield* revert.cleanup(yield* session.get(sid))
+
+          expect((yield* session.get(sid)).revert).toBeUndefined()
+          expect((yield* session.messages({ sessionID: sid })).map((message) => message.info.id)).toEqual([
+            remaining.id,
+          ])
         }),
       { git: true },
     ),

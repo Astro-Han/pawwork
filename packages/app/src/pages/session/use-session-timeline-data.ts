@@ -8,6 +8,7 @@ import {
   emptyUserMessages,
   readSessionMessages,
   readUserMessages,
+  userMessagesBeforeID,
 } from "@/pages/session/session-messages"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { same } from "@/utils/same"
@@ -245,11 +246,7 @@ export function createSessionTimelineData(input: {
     return input.sync.session.get(id)?.revert?.messageID
   })
   const visibleUserMessages = createMemo(
-    () => {
-      const revert = revertMessageID()
-      if (!revert) return userMessages()
-      return userMessages().filter((m) => m.id < revert)
-    },
+    () => userMessagesBeforeID(messages(), revertMessageID()),
     emptyUserMessages,
     { equals: same },
   )

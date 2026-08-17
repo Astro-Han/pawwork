@@ -91,7 +91,7 @@ export function createSessionActiveMessage(input: {
     on(
       input.lastUserMessageID,
       (lastId, prevLastId) => {
-        if (lastId && prevLastId && lastId > prevLastId) {
+        if (lastId && lastId !== prevLastId) {
           setStore("messageId", undefined)
         }
       },

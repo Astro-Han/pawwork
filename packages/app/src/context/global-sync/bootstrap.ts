@@ -23,6 +23,7 @@ import { formatServerError } from "@/utils/server-errors"
 import type { RendererDiagnosticInput } from "@/context/platform"
 import { QueryClient, queryOptions } from "@tanstack/solid-query"
 import { loadSessionsQuery, type GlobalStore } from "../global-sync"
+import { upsertMessageByCreated } from "./message-order"
 
 function waitForPaint() {
   return new Promise<void>((resolve) => {
@@ -332,22 +333,7 @@ export function hydratePendingExternalResults(input: {
       }
 
       const messages = input.store.message[session.id]
-      if (!messages) {
-        input.setStore("message", session.id, [message])
-      } else {
-        const result = Binary.search(messages, message.id, (m) => m.id)
-        if (result.found) {
-          input.setStore("message", session.id, result.index, reconcile(message))
-        } else {
-          input.setStore(
-            "message",
-            session.id,
-            produce((draft) => {
-              draft.splice(result.index, 0, message)
-            }),
-          )
-        }
-      }
+      input.setStore("message", session.id, reconcile(upsertMessageByCreated(messages ?? [], message), { key: "id" }))
 
       if (localTerminalQuestion) continue
       const parts = input.store.part[part.messageID]

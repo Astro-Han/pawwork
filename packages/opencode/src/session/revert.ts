@@ -1,5 +1,5 @@
 import z from "zod"
-import { Effect, Layer, Context } from "effect"
+import { Effect, Layer, Context, Option, Semaphore } from "effect"
 import { Bus } from "../bus"
 import { Snapshot } from "../snapshot"
 import { SyncEvent } from "../sync"
@@ -25,6 +25,14 @@ export interface Interface {
   readonly revert: (input: RevertInput) => Effect.Effect<Session.Info>
   readonly unrevert: (input: { sessionID: SessionID }) => Effect.Effect<Session.Info>
   readonly cleanup: (session: Session.Info) => Effect.Effect<void>
+  readonly cleanupBefore: <A, E, R>(
+    sessionID: SessionID,
+    work: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E, R>
+  readonly cleanupBeforeOrBusy: <A, E, R>(
+    sessionID: SessionID,
+    work: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E, R>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionRevert") {}
@@ -36,6 +44,34 @@ export const layer = Layer.effect(
     const snap = yield* Snapshot.Service
     const bus = yield* Bus.Service
     const state = yield* SessionRunState.Service
+    const locks = new Map<SessionID, { semaphore: Semaphore.Semaphore; users: number }>()
+
+    const trackMutationLock = (sessionID: SessionID) => {
+      const entry = locks.get(sessionID) ?? { semaphore: Semaphore.makeUnsafe(1), users: 0 }
+      entry.users += 1
+      locks.set(sessionID, entry)
+      const release = Effect.sync(() => {
+        entry.users -= 1
+        if (entry.users === 0 && locks.get(sessionID) === entry) locks.delete(sessionID)
+      })
+      return { entry, release }
+    }
+    const withMutationLock = <A, E, R>(sessionID: SessionID, work: Effect.Effect<A, E, R>) =>
+      Effect.suspend(() => {
+        const { entry, release } = trackMutationLock(sessionID)
+        return entry.semaphore.withPermits(1)(work).pipe(Effect.ensuring(release))
+      })
+    const withMutationLockOrBusy = <A, E, R>(sessionID: SessionID, work: Effect.Effect<A, E, R>) =>
+      Effect.suspend(() => {
+        const { entry, release } = trackMutationLock(sessionID)
+        return entry.semaphore.withPermitsIfAvailable(1)(work).pipe(
+          Effect.ensuring(release),
+          Effect.flatMap((result) => {
+            if (Option.isSome(result)) return Effect.succeed(result.value)
+            throw new Session.BusyError(sessionID)
+          }),
+        )
+      })
 
     function revertSummary(diff: string | undefined) {
       if (!diff) return { additions: 0, deletions: 0, files: 0 }
@@ -57,7 +93,7 @@ export const layer = Layer.effect(
       return { additions, deletions, files: files.size }
     }
 
-    const revert = Effect.fn("SessionRevert.revert")(function* (input: RevertInput) {
+    const revertMutation = Effect.fn("SessionRevert.revertMutation")(function* (input: RevertInput) {
       yield* state.assertNotBusy(input.sessionID)
       const all = yield* sessions.messages({ sessionID: input.sessionID })
       let lastUser: MessageV2.User | undefined
@@ -101,8 +137,13 @@ export const layer = Layer.effect(
       yield* bus.publish(Session.Event.TurnChangeInvalidated, { sessionID: input.sessionID })
       return yield* sessions.get(input.sessionID)
     })
+    const revert = Effect.fn("SessionRevert.revert")((input: RevertInput) =>
+      withMutationLock(input.sessionID, revertMutation(input)),
+    )
 
-    const unrevert = Effect.fn("SessionRevert.unrevert")(function* (input: { sessionID: SessionID }) {
+    const unrevertMutation = Effect.fn("SessionRevert.unrevertMutation")(function* (input: {
+      sessionID: SessionID
+    }) {
       log.info("unreverting", input)
       yield* state.assertNotBusy(input.sessionID)
       const session = yield* sessions.get(input.sessionID)
@@ -112,27 +153,26 @@ export const layer = Layer.effect(
       yield* bus.publish(Session.Event.TurnChangeInvalidated, { sessionID: input.sessionID })
       return yield* sessions.get(input.sessionID)
     })
+    const unrevert = Effect.fn("SessionRevert.unrevert")((input: { sessionID: SessionID }) =>
+      withMutationLock(input.sessionID, unrevertMutation(input)),
+    )
 
-    const cleanup = Effect.fn("SessionRevert.cleanup")(function* (session: Session.Info) {
+    const cleanupMutation = Effect.fn("SessionRevert.cleanupMutation")(function* (sessionID: SessionID) {
+      const session = yield* sessions.get(sessionID)
       if (!session.revert) return
-      const sessionID = session.id
       const msgs = yield* sessions.messages({ sessionID })
       const messageID = session.revert.messageID
-      const remove = [] as MessageV2.WithParts[]
-      let target: MessageV2.WithParts | undefined
-      for (const msg of msgs) {
-        if (msg.info.id < messageID) continue
-        if (msg.info.id > messageID) {
-          remove.push(msg)
-          continue
-        }
-        if (session.revert.partID) {
-          target = msg
-          continue
-        }
-        remove.push(msg)
+      const targetIndex = msgs.findIndex((msg) => msg.info.id === messageID)
+      if (targetIndex < 0) {
+        log.warn("clearing stale revert with missing boundary", { sessionID, messageID })
+        yield* sessions.clearRevert(sessionID)
+        yield* bus.publish(Session.Event.TurnChangeInvalidated, { sessionID })
+        return
       }
-      for (const msg of remove) {
+      const target = session.revert.partID ? msgs[targetIndex] : undefined
+      const remove = msgs.slice(session.revert.partID ? targetIndex + 1 : targetIndex)
+      // Keep the persisted boundary until its tail is gone so interrupted cleanup can resume.
+      for (const msg of remove.reverse()) {
         SyncEvent.run(MessageV2.Event.Removed, {
           sessionID,
           messageID: msg.info.id,
@@ -144,7 +184,7 @@ export const layer = Layer.effect(
         if (idx >= 0) {
           const removeParts = target.parts.slice(idx)
           target.parts = target.parts.slice(0, idx)
-          for (const part of removeParts) {
+          for (const part of removeParts.reverse()) {
             SyncEvent.run(MessageV2.Event.PartRemoved, {
               sessionID,
               messageID: target.info.id,
@@ -156,8 +196,15 @@ export const layer = Layer.effect(
       yield* sessions.clearRevert(sessionID)
       yield* bus.publish(Session.Event.TurnChangeInvalidated, { sessionID })
     })
+    const cleanup = Effect.fn("SessionRevert.cleanup")((session: Session.Info) =>
+      withMutationLock(session.id, cleanupMutation(session.id)),
+    )
+    const cleanupBefore: Interface["cleanupBefore"] = (sessionID, work) =>
+      withMutationLock(sessionID, cleanupMutation(sessionID).pipe(Effect.andThen(work)))
+    const cleanupBeforeOrBusy: Interface["cleanupBeforeOrBusy"] = (sessionID, work) =>
+      withMutationLockOrBusy(sessionID, cleanupMutation(sessionID).pipe(Effect.andThen(work)))
 
-    return Service.of({ revert, unrevert, cleanup })
+    return Service.of({ revert, unrevert, cleanup, cleanupBefore, cleanupBeforeOrBusy })
   }),
 )
 

@@ -31,12 +31,12 @@ const rootSession = (input: { id: string; parentID?: string; archived?: number; 
     },
   }) as Session
 
-const userMessage = (id: string, sessionID: string) =>
+const userMessage = (id: string, sessionID: string, created = 1) =>
   ({
     id,
     sessionID,
     role: "user",
-    time: { created: 1 },
+    time: { created },
     agent: "assistant",
     model: { providerID: "openai", modelID: "gpt" },
   }) as Message
@@ -543,6 +543,24 @@ describe("applyDirectoryEvent", () => {
 
     expect(store.message[sessionID]?.map((x) => x.id)).toEqual(["msg_1", "msg_3"])
     expect(store.part.msg_2).toBeUndefined()
+  })
+
+  test("appends a post-rollover message by creation time", () => {
+    const sessionID = "ses_1"
+    const older = userMessage("msg_fd0000000000old", sessionID, 1_786_000_000_000)
+    const newer = userMessage("msg_000000000000new", sessionID, 1_787_000_000_000)
+    const [store, setStore] = createStore(baseState({ message: { [sessionID]: [older] } }))
+
+    applyDirectoryEvent({
+      event: { type: "message.updated", properties: { info: newer } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+
+    expect(store.message[sessionID]?.map((message) => message.id)).toEqual([older.id, newer.id])
   })
 
   test("upserts and prunes message parts", () => {
