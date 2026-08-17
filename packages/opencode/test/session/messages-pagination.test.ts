@@ -925,9 +925,11 @@ describe("MessageV2.filterCompacted", () => {
         const session = await svc.create({})
         const older = MessageID.ascending("msg_fd0000000000old")
         const boundary = MessageID.ascending("msg_000000000000new")
+        const olderCreated = 1_786_000_000_000
+        const boundaryCreated = 1_787_000_000_000
         for (const [id, created] of [
-          [older, 1_786_000_000_000],
-          [boundary, 1_787_000_000_000],
+          [older, olderCreated],
+          [boundary, boundaryCreated],
         ] as const) {
           await svc.updateMessage({
             id,
@@ -943,7 +945,8 @@ describe("MessageV2.filterCompacted", () => {
 
         const forked = await svc.fork({ sessionID: session.id, messageID: boundary })
 
-        expect(Array.from(MessageV2.stream(forked.id))).toHaveLength(1)
+        const forkedMessages = Array.from(MessageV2.stream(forked.id))
+        expect(forkedMessages.map((message) => message.info.time.created)).toEqual([olderCreated])
         await svc.remove(forked.id)
         await svc.remove(session.id)
       },

@@ -1111,10 +1111,6 @@ export const layer = Layer.effect(
       let aborted = false
       const { msg, part, cmd, finish } = yield* Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
-          const session = yield* sessions.get(input.sessionID)
-          if (session.revert) {
-            yield* revert.cleanup(session)
-          }
           const agent = yield* agents.get(input.agent)
           if (!agent) {
             const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
@@ -1123,56 +1119,60 @@ export const layer = Layer.effect(
             yield* bus.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
             throw error
           }
-          const model = input.model ?? agent.model ?? (yield* lastModel(input.sessionID))
-          const userMsg: MessageV2.User = {
-            id: input.messageID ?? MessageID.ascending(),
-            sessionID: input.sessionID,
-            time: { created: Date.now() },
-            role: "user",
-            agent: input.agent,
-            model: { providerID: model.providerID, modelID: model.modelID },
-          }
-          yield* sessions.updateMessage(userMsg)
-          const userPart: MessageV2.Part = {
-            type: "text",
-            id: PartID.ascending(),
-            messageID: userMsg.id,
-            sessionID: input.sessionID,
-            text: "The following tool was executed by the user",
-            synthetic: true,
-          }
-          yield* sessions.updatePart(userPart)
-
-          const msg: MessageV2.Assistant = {
-            id: MessageID.ascending(),
-            sessionID: input.sessionID,
-            parentID: userMsg.id,
-            mode: input.agent,
-            agent: input.agent,
-            cost: 0,
-            path: { cwd: session.executionContext.activeDirectory, root: session.executionContext.ownerDirectory },
-            time: { created: Date.now() },
-            role: "assistant",
-            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-            modelID: model.modelID,
-            providerID: model.providerID,
-          }
-          yield* sessions.updateMessage(msg)
-          const part: MessageV2.ToolPart = {
-            type: "tool",
-            id: PartID.ascending(),
-            messageID: msg.id,
-            sessionID: input.sessionID,
-            tool: "bash",
-            callID: ulid(),
-            state: {
-              status: "running",
-              time: { start: Date.now() },
-              input: { command: input.command },
-            },
-          }
-          yield* sessions.updatePart(part)
-          yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
+          const persist = Effect.gen(function* () {
+            const session = yield* sessions.get(input.sessionID)
+            const model = input.model ?? agent.model ?? (yield* lastModel(input.sessionID))
+            const userMsg: MessageV2.User = {
+              id: input.messageID ?? MessageID.ascending(),
+              sessionID: input.sessionID,
+              time: { created: Date.now() },
+              role: "user",
+              agent: input.agent,
+              model: { providerID: model.providerID, modelID: model.modelID },
+            }
+            const userPart: MessageV2.Part = {
+              type: "text",
+              id: PartID.ascending(),
+              messageID: userMsg.id,
+              sessionID: input.sessionID,
+              text: "The following tool was executed by the user",
+              synthetic: true,
+            }
+            const msg: MessageV2.Assistant = {
+              id: MessageID.ascending(),
+              sessionID: input.sessionID,
+              parentID: userMsg.id,
+              mode: input.agent,
+              agent: input.agent,
+              cost: 0,
+              path: { cwd: session.executionContext.activeDirectory, root: session.executionContext.ownerDirectory },
+              time: { created: Date.now() },
+              role: "assistant",
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              modelID: model.modelID,
+              providerID: model.providerID,
+            }
+            const part: MessageV2.ToolPart = {
+              type: "tool",
+              id: PartID.ascending(),
+              messageID: msg.id,
+              sessionID: input.sessionID,
+              tool: "bash",
+              callID: ulid(),
+              state: {
+                status: "running",
+                time: { start: Date.now() },
+                input: { command: input.command },
+              },
+            }
+            yield* sessions.updateMessage(userMsg)
+            yield* sessions.updatePart(userPart)
+            yield* sessions.updateMessage(msg)
+            yield* sessions.updatePart(part)
+            yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
+            return { session, msg, part }
+          })
+          const { session, msg, part } = yield* revert.cleanupBeforeOrBusy(input.sessionID, persist)
 
           const sh = Shell.preferred()
           const shellName = (
@@ -1379,7 +1379,7 @@ export const layer = Layer.effect(
       return template.trim()
     })
 
-    const createUserMessage = Effect.fn("SessionPrompt.createUserMessage")(function* (input: PromptInput) {
+    const prepareUserMessage = Effect.fn("SessionPrompt.prepareUserMessage")(function* (input: PromptInput) {
       const agentName = input.agent || (yield* agents.defaultAgent())
       const ag = yield* agents.get(agentName)
       if (!ag) {
@@ -1817,11 +1817,16 @@ export const layer = Layer.effect(
         })
       })
 
-      yield* sessions.updateMessage(info)
-      for (const part of parts) yield* sessions.updatePart(part)
-
       return { info, parts }
     }, Effect.scoped)
+
+    const persistUserMessage = Effect.fn("SessionPrompt.persistUserMessage")(function* (
+      message: MessageV2.WithParts,
+    ) {
+      yield* sessions.updateMessage(message.info)
+      for (const part of message.parts) yield* sessions.updatePart(part)
+      return message
+    })
 
     const terminalWriteLock = Semaphore.makeUnsafe(1)
     const persistTerminalErrorCarrier = Effect.fn("SessionPrompt.persistTerminalErrorCarrier")(function* (input: {
@@ -1970,10 +1975,17 @@ export const layer = Layer.effect(
       const run = Effect.gen(function* () {
         yield* throwIfAborted(options)
         interruptedSessions.delete(input.sessionID)
-        const session = yield* sessions.get(input.sessionID)
-        yield* revert.cleanup(session)
-        const message = yield* createUserMessage(promptInput)
-        yield* sessions.touch(input.sessionID)
+        yield* revert.cleanup(yield* sessions.get(input.sessionID))
+        const preparedMessage = yield* prepareUserMessage(promptInput)
+        const { session, message } = yield* revert.cleanupBefore(
+          input.sessionID,
+          Effect.gen(function* () {
+            const session = yield* sessions.get(input.sessionID)
+            const message = yield* persistUserMessage(preparedMessage)
+            yield* sessions.touch(input.sessionID)
+            return { session, message }
+          }),
+        )
 
         const permissions: Permission.Ruleset = []
         for (const [t, enabled] of Object.entries(input.tools ?? {})) {
@@ -2146,7 +2158,9 @@ export const layer = Layer.effect(
           let lastAssistantMsg: MessageV2.WithParts | undefined
           let lastFinished: MessageV2.Assistant | undefined
           let tasks: (MessageV2.CompactionPart | MessageV2.SubtaskPart)[] = []
+          const queuedUserMessageIDs = new Set<string>()
           for (const msg of MessageV2.stream(sessionID)) {
+            if (!lastFinished && msg.info.role === "user") queuedUserMessageIDs.add(msg.info.id)
             if (!lastUser && msg.info.role === "user") lastUser = msg.info
             if (!lastAssistant && msg.info.role === "assistant") {
               lastAssistant = msg.info
@@ -2376,10 +2390,8 @@ export const layer = Layer.effect(
               yield* summary.summarize({ sessionID, messageID: lastUser.id }).pipe(Effect.ignore, Effect.forkIn(scope))
 
             if (step > 1 && lastFinished) {
-              const lastFinishedIndex = msgs.findIndex((message) => message.info.id === lastFinished.id)
-              const messagesAfterFinished = lastFinishedIndex >= 0 ? msgs.slice(lastFinishedIndex + 1) : []
-              for (const m of messagesAfterFinished) {
-                if (m.info.role !== "user") continue
+              for (const m of msgs) {
+                if (m.info.role !== "user" || !queuedUserMessageIDs.has(m.info.id)) continue
                 for (const p of m.parts) {
                   if (p.type !== "text" || p.ignored || p.synthetic) continue
                   if (!p.text.trim()) continue

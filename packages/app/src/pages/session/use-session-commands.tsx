@@ -17,11 +17,11 @@ import { isWorkInFlightStatus } from "@opencode-ai/ui/util/session-status"
 import { canCloseSessionTab, closeSessionTab } from "@/pages/session/close-session-tab"
 import { createSessionTabs } from "@/pages/session/helpers"
 import {
-  messageAfterID,
-  messageBeforeID,
-  messagesBeforeID,
   readSessionMessages,
   readUserMessages,
+  userMessageAfterID,
+  userMessageBeforeID,
+  userMessagesBeforeID,
 } from "@/pages/session/session-messages"
 import { createBrowserTabClose, showBrowserCloseConfirm } from "@/pages/session/browser/close-page"
 import { isSessionRunning } from "@/pages/session/session-running-state"
@@ -90,9 +90,8 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     const id = params.id
     return readSessionMessages(id ? sync.data.message[id] : undefined)
   }
-  const userMessages = () => readUserMessages(messages())
   const visibleUserMessages = () => {
-    return messagesBeforeID(userMessages(), info()?.revert?.messageID)
+    return userMessagesBeforeID(messages(), info()?.revert?.messageID)
   }
 
   const selectionPreview = (path: string, selection: FileSelection) => {
@@ -261,8 +260,8 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     }
 
     const revert = info()?.revert?.messageID
-    const users = userMessages()
-    const message = messagesBeforeID(users, revert).at(-1)
+    const all = messages()
+    const message = userMessagesBeforeID(all, revert).at(-1)
     if (!message) return
 
     await sdk.client.session.revert({ sessionID, messageID: message.id })
@@ -272,7 +271,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       prompt.set(restored)
     }
 
-    const prev = messageBeforeID(users, message.id)
+    const prev = userMessageBeforeID(all, message.id)
     setActiveMessage(prev)
   }
 
@@ -283,17 +282,19 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     const revertMessageID = info()?.revert?.messageID
     if (!revertMessageID) return
 
-    const users = userMessages()
-    const next = messageAfterID(users, revertMessageID)
+    const all = messages()
+    if (!all.some((message) => message.id === revertMessageID)) return
+
+    const next = userMessageAfterID(all, revertMessageID)
     if (!next) {
       await sdk.client.session.unrevert({ sessionID })
       prompt.reset()
-      setActiveMessage(users.at(-1))
+      setActiveMessage(readUserMessages(all).at(-1))
       return
     }
 
     await sdk.client.session.revert({ sessionID, messageID: next.id })
-    const prev = messageBeforeID(users, next.id)
+    const prev = userMessageBeforeID(all, next.id)
     setActiveMessage(prev)
   }
 

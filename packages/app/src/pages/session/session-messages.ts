@@ -25,17 +25,21 @@ export function readUserMessages(messages: unknown): UserMessage[] {
 export function messagesBeforeID<T extends { id: string }>(messages: T[], boundaryID?: string): T[] {
   if (!boundaryID) return messages
   const index = messages.findIndex((message) => message.id === boundaryID)
-  return index >= 0 ? messages.slice(0, index) : messages
+  return index >= 0 ? messages.slice(0, index) : []
 }
 
-export function messageBeforeID<T extends { id: string }>(messages: readonly T[], messageID: string) {
-  const index = messages.findIndex((message) => message.id === messageID)
-  return index > 0 ? messages[index - 1] : undefined
+export function userMessagesBeforeID(messages: Message[], boundaryID?: string): UserMessage[] {
+  return readUserMessages(messagesBeforeID(messages, boundaryID))
 }
 
-export function messageAfterID<T extends { id: string }>(messages: readonly T[], messageID: string) {
+export function userMessageBeforeID(messages: Message[], messageID: string): UserMessage | undefined {
+  return readUserMessages(messagesBeforeID(messages, messageID)).at(-1)
+}
+
+export function userMessageAfterID(messages: Message[], messageID: string): UserMessage | undefined {
   const index = messages.findIndex((message) => message.id === messageID)
-  return index >= 0 ? messages[index + 1] : undefined
+  if (index < 0) return
+  return messages.slice(index + 1).find(isUserMessage)
 }
 
 export function buildTurnMessagesByUserID(messages: readonly Message[]) {

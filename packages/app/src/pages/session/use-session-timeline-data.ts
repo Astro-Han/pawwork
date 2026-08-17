@@ -6,9 +6,9 @@ import type { SessionDiffResponse } from "@opencode-ai/sdk/v2/client"
 import {
   emptyMessages,
   emptyUserMessages,
-  messagesBeforeID,
   readSessionMessages,
   readUserMessages,
+  userMessagesBeforeID,
 } from "@/pages/session/session-messages"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { same } from "@/utils/same"
@@ -246,7 +246,7 @@ export function createSessionTimelineData(input: {
     return input.sync.session.get(id)?.revert?.messageID
   })
   const visibleUserMessages = createMemo(
-    () => messagesBeforeID(userMessages(), revertMessageID()),
+    () => userMessagesBeforeID(messages(), revertMessageID()),
     emptyUserMessages,
     { equals: same },
   )

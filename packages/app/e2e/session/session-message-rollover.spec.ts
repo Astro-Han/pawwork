@@ -2,7 +2,11 @@ import { test, expect } from "../fixtures"
 import { withSession } from "../actions"
 import { sessionMessageItemSelector } from "../selectors"
 
-test("keeps newly sent messages at the end of a session after message IDs wrap", async ({ page, project, assistant }) => {
+test("@smoke keeps newly sent messages at the end of a session after message IDs wrap", async ({
+  page,
+  project,
+  assistant,
+}) => {
   test.setTimeout(120_000)
 
   await project.open()
@@ -51,6 +55,7 @@ test("keeps newly sent messages at the end of a session after message IDs wrap",
         { timeout: 30_000 },
       )
       .toBe(true)
+    expect(userID < olderID).toBe(true)
 
     const renderedIDs = async () =>
       page.locator(sessionMessageItemSelector).evaluateAll((messages) =>
