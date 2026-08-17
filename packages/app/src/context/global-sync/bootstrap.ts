@@ -539,7 +539,8 @@ export async function bootstrapDirectory(input: {
             input.setStore("session_status_ready", true)
           }),
         ).catch(async (err) => {
-          if (err instanceof SessionStatusHydrationTimeoutError) {
+          const timedOut = err instanceof SessionStatusHydrationTimeoutError
+          if (timedOut) {
             await Promise.resolve(
               input.emitDiagnostic?.({
                 name: "incident.session_status_hydration_timeout",
@@ -550,7 +551,14 @@ export async function bootstrapDirectory(input: {
           }
           input.setStore("session_status_state", "error")
           input.setStore("session_status_ready", false)
-          throw err
+          // A timed-out status snapshot is best-effort: the timeout is already recorded
+          // as a diagnostic, session_status_state tells the UI the snapshot is stale, and
+          // the next SSE status event or bootstrap pass restores it. Rethrowing lands it
+          // in slowErrs, firing the project-level "reloadFailed" toast on every bootstrap
+          // pass (app launch and after each assistant turn) on machines where the snapshot
+          // just takes longer than the timeout - the #1550 toast spam. Real fetch failures
+          // still escalate.
+          if (!timedOut) throw err
         }),
       () =>
         seededProject

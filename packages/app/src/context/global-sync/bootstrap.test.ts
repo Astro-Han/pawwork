@@ -1,5 +1,6 @@
-import { describe, expect, mock, test } from "bun:test"
+import { describe, expect, mock, spyOn, test } from "bun:test"
 import type { Config, Path, Project, ProviderListResponse, VcsInfo } from "@opencode-ai/sdk/v2/client"
+import * as uiToast from "@opencode-ai/ui/toast"
 import { QueryClient } from "@tanstack/solid-query"
 import { createStore } from "solid-js/store"
 import {
@@ -400,7 +401,7 @@ describe("bootstrapDirectory", () => {
     }
   })
 
-  test("times out status hydration and records a diagnostic when the endpoint never settles", async () => {
+  test("times out status hydration, records a diagnostic, and keeps the timeout off the project reload toast", async () => {
     const originalError = console.error
     console.error = mock(() => undefined) as typeof console.error
     const directory = "/tmp/project"
@@ -409,6 +410,11 @@ describe("bootstrapDirectory", () => {
     const status = deferred<{ data: Record<string, never> }>()
     let statusSignal: AbortSignal | undefined
     const diagnostics: Array<{ name: string; level?: "info" | "warn"; data?: Record<string, unknown> }> = []
+    const toasts: Array<{ title?: string }> = []
+    const toastSpy = spyOn(uiToast, "showToast").mockImplementation((toast) => {
+      toasts.push(toast as { title?: string })
+      return 0
+    })
 
     const sdk = {
       app: { agents: async () => ({ data: [] }) },
@@ -464,7 +470,13 @@ describe("bootstrapDirectory", () => {
           data: { timeout_ms: 10 },
         },
       ])
+      // The timeout is best-effort: it must not escalate into the project-level
+      // "reloadFailed" toast (the #1550 spam), and the bootstrap must still finish.
+      await waitFor(() => store.status === "complete")
+      expect(toasts).toEqual([])
+      expect(store.status).toBe("complete")
     } finally {
+      toastSpy.mockRestore()
       status.resolve({ data: {} })
       console.error = originalError
     }
