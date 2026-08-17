@@ -708,6 +708,72 @@ it.live("loop calls LLM and returns assistant message", () =>
   ),
 )
 
+it.live("prompt handles a custom message ID without restarting the model", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* ({ llm }) {
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Custom message ID" })
+      const messageID = MessageID.ascending("msg_zzzz")
+      yield* llm.text("world")
+      yield* llm.fail("duplicate run")
+
+      const exit = yield* prompt
+        .prompt({
+          sessionID: chat.id,
+          messageID,
+          agent: "build",
+          model: ref,
+          parts: [{ type: "text", text: "hello" }],
+        })
+        .pipe(Effect.exit)
+
+      expect(Exit.isSuccess(exit)).toBe(true)
+      expect(yield* llm.calls).toBe(1)
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      expect(
+        messages.some(
+          (message) => message.info.role === "assistant" && message.info.parentID === messageID,
+        ),
+      ).toBe(true)
+    }),
+    { git: true, config: providerCfg },
+  ),
+)
+
+it.live("prompt accepts a terminal compaction summary without retrying", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* ({ llm }) {
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Terminal compaction summary" })
+      const seeded = yield* seed(chat.id, { finish: "stop" })
+      yield* sessions.updateMessage({
+        ...seeded.assistant,
+        tokens: { input: 95_000, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+      })
+      yield* llm.fail("compaction failed")
+
+      const exit = yield* prompt
+        .prompt({
+          sessionID: chat.id,
+          agent: "build",
+          model: ref,
+          parts: [{ type: "text", text: "continue" }],
+        })
+        .pipe(Effect.exit)
+
+      expect(Exit.isSuccess(exit)).toBe(true)
+      expect(yield* llm.calls).toBe(1)
+      if (Exit.isSuccess(exit)) {
+        expect(exit.value.info.role).toBe("assistant")
+        if (exit.value.info.role === "assistant") expect(exit.value.info.summary).toBe(true)
+      }
+    }),
+    { git: true, config: providerCfg },
+  ),
+)
+
 it.live("prompt persists a terminal assistant when setup fails after the user message is saved", () =>
   provideTmpdirServer(
     Effect.fnUntraced(function* () {
@@ -832,6 +898,45 @@ it.live("compaction persists a terminal summary when setup fails after its marke
   ),
 )
 
+it.live("compaction rolls back its marker when the marker part cannot be saved", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* () {
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Incomplete compaction marker" })
+      yield* seed(chat.id, { finish: "stop" })
+
+      const mutableSessions = sessions as Mutable<typeof sessions>
+      const originalUpdatePart = sessions.updatePart
+      mutableSessions.updatePart = ((part: MessageV2.Part) =>
+        part.type === "compaction"
+          ? Effect.die(new Error("compaction part write failed"))
+          : originalUpdatePart(part)) as typeof sessions.updatePart
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => void (mutableSessions.updatePart = originalUpdatePart)),
+      )
+
+      const exit = yield* prompt
+        .loop({
+          sessionID: chat.id,
+          prelude: {
+            type: "compaction",
+            agent: "build",
+            model: ref,
+            auto: false,
+          },
+        })
+        .pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      expect(messages.some((message) => message.parts.some((part) => part.type === "compaction"))).toBe(false)
+      expect(messages.filter((message) => message.info.role === "user")).toHaveLength(1)
+    }),
+    { git: true, config: providerCfg },
+  ),
+)
+
 it.live("prompt records lifecycle wait diagnostics on the queued user message", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
@@ -929,7 +1034,11 @@ it.live("cancel prevents a queued prompt from starting after lifecycle wait", ()
           const exit = yield* Fiber.await(fiber).pipe(Effect.timeout(cancelRaceCheckpointTimeout))
           expect(Exit.isSuccess(exit)).toBe(true)
           if (Exit.isSuccess(exit) && queuedUser) {
-            expect(exit.value.info.id).toBe(queuedUser.info.id)
+            expect(exit.value.info.role).toBe("assistant")
+            if (exit.value.info.role === "assistant") {
+              expect(exit.value.info.parentID).toBe(queuedUser.info.id)
+              expect(exit.value.info.error?.name).toBe("MessageAbortedError")
+            }
           }
           expect(yield* llm.calls).toBe(0)
         } finally {
@@ -2169,6 +2278,138 @@ it.live(
 )
 
 it.live(
+  "cancel leaves a historical compaction failure unchanged",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Historical compaction failure" })
+        const historicalMarker = yield* user(chat.id, "historical marker")
+        yield* sessions.updatePart({
+          id: PartID.ascending(),
+          messageID: historicalMarker.id,
+          sessionID: chat.id,
+          type: "compaction",
+          auto: false,
+        })
+        yield* llm.hang
+
+        const active = yield* prompt
+          .prompt({
+            sessionID: chat.id,
+            agent: "build",
+            model: ref,
+            parts: [{ type: "text", text: "current prompt" }],
+          })
+          .pipe(Effect.forkChild)
+        yield* llm.wait(1)
+        yield* prompt.cancel(chat.id)
+        expect(Exit.isSuccess(yield* Fiber.await(active))).toBe(true)
+
+        const messages = yield* sessions.messages({ sessionID: chat.id })
+        expect(
+          messages.some(
+            (message) =>
+              message.info.role === "assistant" &&
+              message.info.parentID === historicalMarker.id &&
+              message.info.summary === true,
+          ),
+        ).toBe(false)
+        const currentUser = messages.find(
+          (message) =>
+            message.info.role === "user" &&
+            message.parts.some((part) => part.type === "text" && part.text === "current prompt"),
+        )
+        const terminal = messages.find(
+          (message) => message.info.role === "assistant" && message.info.parentID === currentUser?.info.id,
+        )
+        expect(terminal?.info.role).toBe("assistant")
+        if (terminal?.info.role === "assistant") expect(terminal.info.error?.name).toBe("MessageAbortedError")
+      }),
+      { git: true, config: providerCfg },
+    ),
+)
+
+it.live(
+  "cancel attributes a pending compaction to the current prelude marker",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const compaction = yield* SessionCompaction.Service
+        const chat = yield* sessions.create({ title: "Current compaction ownership" })
+        yield* seed(chat.id, { finish: "stop" })
+
+        const markerSaved = defer<void>()
+        const mutableCompaction = compaction as Mutable<typeof compaction>
+        const originalCreate = compaction.create
+        // Preserve the real marker write and only hold the boundary before
+        // runLoop can create its summary placeholder.
+        mutableCompaction.create = ((input: Parameters<typeof compaction.create>[0]) =>
+          originalCreate(input).pipe(
+            Effect.tap(() => Effect.sync(() => markerSaved.resolve())),
+            Effect.andThen(Effect.never),
+          )) as typeof compaction.create
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => void (mutableCompaction.create = originalCreate)),
+        )
+
+        const active = yield* prompt
+          .loop({
+            sessionID: chat.id,
+            prelude: {
+              type: "compaction",
+              agent: "build",
+              model: ref,
+              auto: false,
+            },
+          })
+          .pipe(Effect.forkChild)
+        yield* Effect.promise(() => markerSaved.promise)
+
+        const beforeCancel = yield* sessions.messages({ sessionID: chat.id })
+        const currentMarker = beforeCancel.find((message) =>
+          message.parts.some((part) => part.type === "compaction"),
+        )
+        expect(currentMarker?.info.role).toBe("user")
+        const unrelatedMarker = yield* user(chat.id, "unrelated marker")
+        yield* sessions.updatePart({
+          id: PartID.ascending(),
+          messageID: unrelatedMarker.id,
+          sessionID: chat.id,
+          type: "compaction",
+          auto: false,
+        })
+
+        yield* prompt.cancel(chat.id)
+        expect(Exit.isSuccess(yield* Fiber.await(active))).toBe(true)
+
+        const messages = yield* sessions.messages({ sessionID: chat.id })
+        const summary = messages.find(
+          (message) =>
+            message.info.role === "assistant" &&
+            message.info.summary === true &&
+            message.info.parentID === currentMarker?.info.id,
+        )
+        expect(summary?.info.role).toBe("assistant")
+        if (summary?.info.role === "assistant") expect(summary.info.error?.name).toBe("MessageAbortedError")
+        expect(
+          messages.some(
+            (message) =>
+              message.info.role === "assistant" &&
+              message.info.summary === true &&
+              message.info.parentID === unrelatedMarker.id,
+          ),
+        ).toBe(false)
+      }),
+      { git: true, config: providerCfg },
+    ),
+  10_000,
+)
+
+it.live(
   "cancel during compaction prelude interrupts the run",
   () =>
     provideTmpdirServer(
@@ -2734,7 +2975,7 @@ it.live(
 )
 
 it.live(
-  "cancel does not restart a prompt joined to the active run",
+  "cancel finalizes a prompt joined to the active run without restarting",
   () =>
     provideTmpdirServer(
       Effect.fnUntraced(function* ({ llm }) {
@@ -2779,11 +3020,14 @@ it.live(
         expect(yield* llm.calls).toBe(1)
 
         const messages = yield* sessions.messages({ sessionID: chat.id })
-        expect(
-          messages.some(
-            (message) => message.info.role === "assistant" && message.info.parentID === queuedID,
-          ),
-        ).toBe(false)
+        const terminal = messages.find(
+          (message) => message.info.role === "assistant" && message.info.parentID === queuedID,
+        )
+        expect(terminal?.info.role).toBe("assistant")
+        if (terminal?.info.role === "assistant") {
+          expect(terminal.info.error?.name).toBe("MessageAbortedError")
+          expect(terminal.info.time.completed).toBeNumber()
+        }
       }),
       { git: true, config: providerCfg },
     ),

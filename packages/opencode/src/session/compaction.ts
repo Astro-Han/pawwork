@@ -203,11 +203,12 @@ export interface Interface {
   }) => Effect.Effect<"continue" | "stop">
   readonly create: (input: {
     sessionID: SessionID
+    messageID?: MessageID
     agent: string
     model: { providerID: ProviderID; modelID: ModelID }
     auto: boolean
     overflow?: boolean
-  }) => Effect.Effect<void>
+  }) => Effect.Effect<MessageV2.User>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionCompaction") {}
@@ -726,27 +727,46 @@ export const layer: Layer.Layer<
 
     const create = Effect.fn("SessionCompaction.create")(function* (input: {
       sessionID: SessionID
+      messageID?: MessageID
       agent: string
       model: { providerID: ProviderID; modelID: ModelID }
       auto: boolean
       overflow?: boolean
     }) {
       const msg = yield* session.updateMessage({
-        id: MessageID.ascending(),
+        id: input.messageID ?? MessageID.ascending(),
         role: "user",
         model: input.model,
         sessionID: input.sessionID,
         agent: input.agent,
         time: { created: Date.now() },
       })
-      yield* session.updatePart({
-        id: PartID.ascending(),
-        messageID: msg.id,
-        sessionID: msg.sessionID,
-        type: "compaction",
-        auto: input.auto,
-        overflow: input.overflow,
-      })
+      yield* session
+        .updatePart({
+          id: PartID.ascending(),
+          messageID: msg.id,
+          sessionID: msg.sessionID,
+          type: "compaction",
+          auto: input.auto,
+          overflow: input.overflow,
+        })
+        .pipe(
+          Effect.catchCause((cause) =>
+            session.removeMessage({ sessionID: msg.sessionID, messageID: msg.id }).pipe(
+              Effect.uninterruptible,
+              Effect.catchCause((cleanupCause) =>
+                Effect.sync(() =>
+                  log.error("failed to roll back incomplete compaction marker", {
+                    messageID: msg.id,
+                    error: Cause.pretty(cleanupCause),
+                  }),
+                ),
+              ),
+              Effect.andThen(Effect.failCause(cause)),
+            ),
+          ),
+        )
+      return msg
     })
 
     return Service.of({

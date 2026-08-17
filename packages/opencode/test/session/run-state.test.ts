@@ -34,6 +34,33 @@ describe("SessionRunState", () => {
       expect(Exit.isSuccess(idle)).toBe(true)
     })
 
+  it.live("delivers cancel for the full observed attempt before a runner exists", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const run = yield* SessionRunState.Service
+        const sessionID = SessionID.make("ses_cancel_observed_attempt")
+        const ready = yield* Deferred.make<void>()
+        let observed: InterruptMeta | undefined
+
+        const attempt = yield* Effect.gen(function* () {
+          yield* run.observeCancel(sessionID, (meta) =>
+            Effect.sync(() => {
+              observed = meta
+            }),
+          )
+          yield* Deferred.succeed(ready, undefined)
+          return yield* Effect.never
+        })
+          .pipe(Effect.scoped)
+          .pipe(Effect.forkChild)
+        yield* Deferred.await(ready)
+
+        yield* run.cancel(sessionID, { source: "test", reason: "before_runner" })
+        expect(observed).toMatchObject({ source: "test", reason: "before_runner" })
+        yield* Fiber.interrupt(attempt)
+      }),
+    ))
+
   it.live("delivers cancel to an existing shell runner before it reports busy", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {

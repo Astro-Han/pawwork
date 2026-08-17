@@ -16,6 +16,10 @@ type RunLifecycleObserver = {
 export interface Interface {
   readonly assertNotBusy: (sessionID: SessionID) => Effect.Effect<void>
   readonly cancel: (sessionID: SessionID, meta?: InterruptMeta) => Effect.Effect<void>
+  readonly observeCancel: (
+    sessionID: SessionID,
+    observer: (meta?: InterruptMeta) => Effect.Effect<void>,
+  ) => Effect.Effect<void, never, Scope.Scope>
   readonly ensureRunning: (
     sessionID: SessionID,
     onInterrupt: (meta?: InterruptMeta) => Effect.Effect<MessageV2.WithParts>,
@@ -23,7 +27,6 @@ export interface Interface {
     options?: {
       rejectIfBusy?: boolean
       runLifecycle?: RunLifecycleObserver
-      onCancel?: (meta?: InterruptMeta) => Effect.Effect<void>
     },
   ) => Effect.Effect<MessageV2.WithParts>
   readonly startShell: (
@@ -258,15 +261,11 @@ export const layer = Layer.effect(
       options?: {
         rejectIfBusy?: boolean
         runLifecycle?: RunLifecycleObserver
-        onCancel?: (meta?: InterruptMeta) => Effect.Effect<void>
       },
     ) {
       const data = yield* InstanceState.get(state)
       const runnerOptions =
         options?.rejectIfBusy === undefined ? undefined : { rejectIfBusy: options.rejectIfBusy }
-      const unregisterCancelObserver = options?.onCancel
-        ? data.registerCancelObserver(sessionID, options.onCancel)
-        : undefined
       return yield* withActiveRun(
         data.directory,
         sessionID,
@@ -276,8 +275,17 @@ export const layer = Layer.effect(
           return yield* (yield* runner(sessionID, onInterrupt)).ensureRunning(work, runnerOptions)
         }),
         options?.runLifecycle,
-      ).pipe(Effect.ensuring(Effect.sync(() => unregisterCancelObserver?.())))
+      )
     })
+
+    const observeCancel: Interface["observeCancel"] = (sessionID, observer) =>
+      Effect.acquireRelease(
+        Effect.gen(function* () {
+          const data = yield* InstanceState.get(state)
+          return data.registerCancelObserver(sessionID, observer)
+        }),
+        (unregister) => Effect.sync(unregister),
+      ).pipe(Effect.asVoid)
 
     const startShell = Effect.fn("SessionRunState.startShell")(function* (
       sessionID: SessionID,
@@ -295,7 +303,7 @@ export const layer = Layer.effect(
       )
     })
 
-    return Service.of({ assertNotBusy, cancel, ensureRunning, startShell })
+    return Service.of({ assertNotBusy, cancel, observeCancel, ensureRunning, startShell })
   }),
 )
 
