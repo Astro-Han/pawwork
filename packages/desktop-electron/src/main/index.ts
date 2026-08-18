@@ -5,7 +5,7 @@ import { createRequire } from "node:module"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { app, BrowserWindow, dialog, shell, type Event } from "electron"
+import { app, BrowserWindow, dialog, ipcMain, shell, type Event } from "electron"
 import contextMenu from "electron-context-menu"
 import pkg from "electron-updater"
 import {
@@ -19,6 +19,7 @@ import {
   UPDATER_ACTIVE,
 } from "./constants"
 import { ciSmokeCdpSwitches } from "./ci-smoke-cdp"
+import { pickConversationFiles } from "./dsh-file-input"
 import { createDshMenu } from "./dsh-menu"
 import {
   buildDshEnvironment,
@@ -71,6 +72,7 @@ const logger = initLogging()
 const menuLocale = readStoredMenuLocale(app.getLocale())
 
 let dshUrl: string | undefined
+let fileInputPreload: string | undefined
 let sidecar: DshSidecar | undefined
 let sidecarShutdown: Promise<void> | undefined
 let sidecarStopRequested = false
@@ -118,6 +120,13 @@ function setupApp() {
     app.quit()
     return
   }
+
+  ipcMain.handle("pawwork:pick-conversation-files", (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender)
+    return pickConversationFiles((options) =>
+      owner ? dialog.showOpenDialog(owner, options) : dialog.showOpenDialog(options),
+    )
+  })
 
   app.on("second-instance", () => focusMainWindow(true))
   app.on("open-url", (event: Event) => {
@@ -184,6 +193,7 @@ async function startDsh() {
     productHome: join(app.getPath("userData"), "dsh"),
     resources,
   })
+  fileInputPreload = product.fileInputPreload
   const require = createRequire(import.meta.url)
   const dshPackage = resolveDshPackagePath({
     isPackaged: app.isPackaged,
@@ -212,8 +222,8 @@ async function startDsh() {
 }
 
 function openMainWindow() {
-  if (!dshUrl) throw new Error("Cannot open PawWork before DSH is ready")
-  const win = createMainWindow(dshUrl)
+  if (!dshUrl || !fileInputPreload) throw new Error("Cannot open PawWork before DSH is ready")
+  const win = createMainWindow(dshUrl, fileInputPreload)
   if (currentProgress !== null) win.setProgressBar(currentProgress)
   if (CI_SMOKE_ENABLED) {
     win.webContents.once("did-finish-load", () => {

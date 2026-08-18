@@ -72,6 +72,7 @@ describe("DSH product home", () => {
     expect(
       JSON.parse(readFileSync(join(productHome, "node_modules/@pawwork/dsh-product/package.json"), "utf8")).name,
     ).toBe("@pawwork/dsh-product")
+    expect(prepared.fileInputPreload).toBe(join(resources, "product", "preload.cjs"))
     expect(prepared.zenIdentityPreload).toBe(join(resources, "zen-identity-preload.mjs"))
   })
 

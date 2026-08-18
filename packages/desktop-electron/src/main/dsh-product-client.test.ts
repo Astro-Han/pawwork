@@ -85,4 +85,69 @@ describe("PawWork DSH client product layer", () => {
     expect(styles[0].textContent).toContain('content: "PawWork"')
     expect(styles[0].textContent).toContain('content: "爪印"')
   })
+
+  test("adds selected file paths through the public composer input slot", async () => {
+    const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
+    let definition: {
+      factory: (require: (name: string) => unknown) => {
+        apply(ctx: unknown): void
+      }
+    } | null = null
+    const document = {
+      title: "DeepSeek Harness",
+      documentElement: { lang: "zh-CN" },
+      querySelector: () => null,
+      createElement: () => ({ dataset: {}, textContent: "" }),
+      head: { appendChild: () => {} },
+    }
+    const pick = mock(async () => ({
+      status: "selected",
+      paths: ["/tmp/notes.md"],
+    }))
+    const window = {
+      pawworkFiles: { pick },
+      __ModuleLoader__: {
+        load: (value: typeof definition) => {
+          definition = value
+        },
+      },
+    }
+
+    vm.runInNewContext(source, { document, window })
+    const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
+      type,
+      props: { ...props, children },
+    })
+    const plugin = definition!.factory((name) => {
+      if (name === "react") {
+        return {
+          createElement,
+          useEffect: () => {},
+          useRef: <T>(value: T) => ({ current: value }),
+        }
+      }
+      throw new Error(`unexpected product client dependency: ${name}`)
+    })
+    let fileAction: ((props: unknown) => { props: Record<string, unknown> }) | undefined
+    const ctx = {
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (options: { id?: string }, component: typeof fileAction) => {
+          if (options.id === "pawwork-files") fileAction = component
+        },
+      },
+    }
+
+    plugin.apply(ctx)
+    expect(fileAction).toBeDefined()
+    const setDraft = mock(() => {})
+    const button = fileAction!({
+      input: { draft: "请总结", phase: "plain" },
+      inputActions: { setDraft },
+    })
+    await (button.props.onClick as () => Promise<void>)()
+
+    expect(pick).toHaveBeenCalledTimes(1)
+    expect(setDraft).toHaveBeenCalledWith('请总结\n\n文件：\n- "/tmp/notes.md"')
+  })
 })

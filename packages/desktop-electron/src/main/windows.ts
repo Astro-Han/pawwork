@@ -23,7 +23,7 @@ export function setDockIcon() {
   if (!icon.isEmpty()) app.dock?.setIcon(icon)
 }
 
-export function createMainWindow(url: string) {
+export function createMainWindow(url: string, preload: string) {
   const state = windowState({ defaultWidth: 1280, defaultHeight: 800 })
   const win = new BrowserWindow({
     x: state.x,
@@ -41,7 +41,7 @@ export function createMainWindow(url: string) {
           trafficLightPosition: macTrafficLightPosition(),
         }
       : {}),
-    webPreferences: dshWebPreferences(),
+    webPreferences: dshWebPreferences(preload),
   })
 
   state.manage(win)
