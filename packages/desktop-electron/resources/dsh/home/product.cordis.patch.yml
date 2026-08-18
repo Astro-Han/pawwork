@@ -10,6 +10,8 @@
       opencode:
         apiKeyEnv: OPENCODE_API_KEY
 - insert:
+    - id: pawwork-product
+      name: '@pawwork/dsh-product'
     - id: import-v1
       name: '../../plugins/import-v1/index.mjs'
     - id: pawwork-automations

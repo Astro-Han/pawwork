@@ -69,6 +69,9 @@ describe("DSH product home", () => {
 
     expect(readFileSync(credentials, "utf8")).toBe('DEEPSEEK_API_KEY: "user-key"\n')
     expect(readFileSync(prepared.patch, "utf8")).toContain("id: agent-default-model")
+    expect(
+      JSON.parse(readFileSync(join(productHome, "node_modules/@pawwork/dsh-product/package.json"), "utf8")).name,
+    ).toBe("@pawwork/dsh-product")
     expect(prepared.zenIdentityPreload).toBe(join(resources, "zen-identity-preload.mjs"))
   })
 
