@@ -156,6 +156,64 @@ class AutomationStore {
     return structuredClone(definition);
   }
 
+  updateDefinition(id, patch, now = Date.now()) {
+    const index = this.document.definitions.findIndex((entry) => entry.id === id);
+    if (index < 0) throw new Error(`automation not found: ${id}`);
+    const previous = this.document.definitions[index];
+    const next = structuredClone(previous);
+    const updatedAt = assertTimestamp(now, 'now');
+    let scheduleChanged = false;
+    if (patch.title !== undefined) next.title = assertText(patch.title, 'title');
+    if (patch.prompt !== undefined) next.prompt = assertText(patch.prompt, 'prompt');
+    if (patch.model !== undefined) {
+      next.model = {
+        provider: assertText(patch.model.provider, 'model.provider'),
+        model: assertText(patch.model.model, 'model.model'),
+      };
+    }
+    if (patch.timezone !== undefined) {
+      if (!isValidTimezone(patch.timezone)) throw new Error(`invalid timezone: ${patch.timezone}`);
+      next.timezone = patch.timezone;
+      scheduleChanged = true;
+    }
+    if (patch.fireAt !== undefined) {
+      if (next.kind !== 'oneshot') throw new Error('at cannot update a recurring automation');
+      const fireAt = assertTimestamp(patch.fireAt, 'fireAt');
+      if (fireAt <= updatedAt) throw new Error('fireAt must be in the future');
+      next.fireAt = fireAt;
+      scheduleChanged = true;
+    }
+    if (patch.rhythm !== undefined) {
+      if (next.kind !== 'recurring') throw new Error('rhythm cannot update a one-shot automation');
+      if (patch.rhythm.kind === 'interval') {
+        if (!Number.isSafeInteger(patch.rhythm.everyMs) || patch.rhythm.everyMs < MIN_INTERVAL_MS) {
+          throw new Error(`everyMs must be an integer of at least ${MIN_INTERVAL_MS}`);
+        }
+        next.rhythm = { kind: 'interval', everyMs: patch.rhythm.everyMs };
+      } else if (patch.rhythm.kind === 'cron') {
+        const expression = assertText(patch.rhythm.expression, 'rhythm.expression');
+        if (!isValidCronExpression(expression)) throw new Error(`invalid cron expression: ${expression}`);
+        next.rhythm = { kind: 'cron', expression };
+      } else {
+        throw new Error('recurring rhythm must be interval or cron');
+      }
+      scheduleChanged = true;
+    }
+    if (patch.stop !== undefined) {
+      if (next.kind !== 'recurring') throw new Error('run_count cannot update a one-shot automation');
+      next.stop = recurringStop(patch.stop);
+      scheduleChanged = true;
+    }
+    next.revision += 1;
+    next.updatedAt = updatedAt;
+    if (scheduleChanged) {
+      next.nextFireAt = definitionNext(next, updatedAt, this.completedRunCount(id));
+    }
+    this.document.definitions[index] = next;
+    this.save();
+    return structuredClone(next);
+  }
+
   setPaused(id, paused, now = Date.now()) {
     const definition = this.document.definitions.find((entry) => entry.id === id);
     if (!definition) throw new Error(`automation not found: ${id}`);
@@ -437,6 +495,15 @@ function tool(name, description, parameters, execute) {
   };
 }
 
+function parseModelSelection(value) {
+  const text = assertText(value, 'model');
+  const separator = text.indexOf('/');
+  if (separator <= 0 || separator === text.length - 1) {
+    throw new Error('model must use provider/model format');
+  }
+  return { provider: text.slice(0, separator), model: text.slice(separator + 1) };
+}
+
 function createAutomationToolDefinitions({ store, scheduler, cwd, model, now = () => Date.now() }) {
   const current = (id) => {
     const definition = store.getDefinition(id);
@@ -453,7 +520,7 @@ function createAutomationToolDefinitions({ store, scheduler, cwd, model, now = (
   return [
     tool(
       'automation_create',
-      'Create a durable PawWork automation. Use exactly one of at (absolute RFC 3339 time with offset), every_seconds (fixed interval of at least 30 seconds), or cron (five fields evaluated in timezone). run_count optionally stops a recurring automation after that many completed attempts. The automation runs even after its creating conversation is closed.',
+      'Create a durable PawWork automation. Use exactly one of at (absolute RFC 3339 time with offset), every_seconds (fixed interval of at least 30 seconds), or cron (five fields evaluated in timezone). run_count optionally stops a recurring automation after that many completed attempts; 0 means no limit. The automation runs even after its creating conversation is closed.',
       objectParameters({
         title: { type: 'string' },
         prompt: { type: 'string' },
@@ -462,6 +529,7 @@ function createAutomationToolDefinitions({ store, scheduler, cwd, model, now = (
         cron: { type: 'string' },
         timezone: { type: 'string' },
         run_count: { type: 'number' },
+        model: { type: 'string' },
       }, ['title', 'prompt']),
       async (args) => {
         const scheduleFields = Number(args?.at !== undefined)
@@ -493,18 +561,18 @@ function createAutomationToolDefinitions({ store, scheduler, cwd, model, now = (
         if (args.run_count !== undefined && schedule.kind !== 'recurring') {
           throw new Error('run_count is only supported for recurring automations');
         }
-        if (args.run_count !== undefined && (!Number.isSafeInteger(args.run_count) || args.run_count <= 0)) {
-          throw new Error('run_count must be a positive integer');
+        if (args.run_count !== undefined && (!Number.isSafeInteger(args.run_count) || args.run_count < 0)) {
+          throw new Error('run_count must be a non-negative integer');
         }
         const definition = store.createDefinition({
           ...schedule,
           title: args.title,
           prompt: args.prompt,
           cwd: cwd(),
-          model: model(),
+          model: args.model === undefined ? model() : parseModelSelection(args.model),
           timezone: args.timezone,
           ...(schedule.kind === 'recurring'
-            ? { stop: args.run_count === undefined ? { kind: 'never' } : { kind: 'count', count: args.run_count } }
+            ? { stop: !args.run_count ? { kind: 'never' } : { kind: 'count', count: args.run_count } }
             : {}),
         }, createdAt);
         scheduler.refresh();
@@ -521,6 +589,67 @@ function createAutomationToolDefinitions({ store, scheduler, cwd, model, now = (
           recentRuns: store.listRuns(definition.id).slice(0, 5),
         })),
       }),
+    ),
+    tool(
+      'automation_update',
+      'Update an existing PawWork automation in the current workspace without replacing its identity or history. Supply at only for a one-shot automation; supply every_seconds or cron only for a recurring automation. run_count is the completed-attempt limit and 0 removes the limit. model uses provider/model format.',
+      objectParameters({
+        id: { type: 'string' },
+        title: { type: 'string' },
+        prompt: { type: 'string' },
+        at: { type: 'string' },
+        every_seconds: { type: 'number' },
+        cron: { type: 'string' },
+        timezone: { type: 'string' },
+        run_count: { type: 'number' },
+        model: { type: 'string' },
+      }, ['id']),
+      async (args) => {
+        const previous = current(args.id);
+        const scheduleFields = Number(args.at !== undefined)
+          + Number(args.every_seconds !== undefined)
+          + Number(args.cron !== undefined);
+        if (scheduleFields > 1) throw new Error('automation_update accepts at most one schedule field');
+        const patch = {};
+        for (const field of ['title', 'prompt', 'timezone']) {
+          if (args[field] !== undefined) patch[field] = args[field];
+        }
+        if (args.model !== undefined) patch.model = parseModelSelection(args.model);
+        if (args.at !== undefined) {
+          if (previous.kind !== 'oneshot') throw new Error('at cannot update a recurring automation');
+          if (typeof args.at !== 'string' || !/(?:Z|[+-]\d{2}:\d{2})$/.test(args.at)) {
+            throw new Error('at must be an RFC 3339 timestamp with an explicit offset');
+          }
+          const fireAt = Date.parse(args.at);
+          if (!Number.isFinite(fireAt)) throw new Error('at must be a valid timestamp');
+          patch.fireAt = fireAt;
+        }
+        if (args.every_seconds !== undefined) {
+          if (previous.kind !== 'recurring') throw new Error('every_seconds cannot update a one-shot automation');
+          if (!Number.isSafeInteger(args.every_seconds) || args.every_seconds < MIN_INTERVAL_MS / 1_000) {
+            throw new Error(`every_seconds must be an integer of at least ${MIN_INTERVAL_MS / 1_000}`);
+          }
+          patch.rhythm = { kind: 'interval', everyMs: args.every_seconds * 1_000 };
+        }
+        if (args.cron !== undefined) {
+          if (previous.kind !== 'recurring') throw new Error('cron cannot update a one-shot automation');
+          if (typeof args.cron !== 'string' || !isValidCronExpression(args.cron)) {
+            throw new Error('cron must be a valid five-field cron expression');
+          }
+          patch.rhythm = { kind: 'cron', expression: args.cron };
+        }
+        if (args.run_count !== undefined) {
+          if (previous.kind !== 'recurring') throw new Error('run_count cannot update a one-shot automation');
+          if (!Number.isSafeInteger(args.run_count) || args.run_count < 0) {
+            throw new Error('run_count must be a non-negative integer');
+          }
+          patch.stop = args.run_count === 0 ? { kind: 'never' } : { kind: 'count', count: args.run_count };
+        }
+        if (Object.keys(patch).length === 0) throw new Error('automation_update requires at least one change');
+        const definition = store.updateDefinition(args.id, patch, now());
+        scheduler.refresh();
+        return definition;
+      },
     ),
     tool(
       'automation_set_paused',

@@ -219,3 +219,46 @@ test('conversation create accepts cron and finite schedules', async () => {
   assert.deepEqual(definition.stop, { kind: 'count', count: 3 });
   assert.equal(definition.timezone, 'Asia/Shanghai');
 });
+
+test('conversation update edits v1-manageable fields atomically without changing identity', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const tools = createAutomationToolDefinitions({
+    store,
+    scheduler: { refresh() {} },
+    cwd: () => cwd,
+    model: () => ({ provider: 'opencode', model: 'big-pickle' }),
+    now: () => Date.parse('2026-08-18T00:30:00.000Z'),
+  });
+  const byName = Object.fromEntries(tools.map((entry) => [entry.name, entry]));
+  const created = await byName.automation_create.execute({
+    title: 'Daily brief',
+    prompt: 'Write the brief.',
+    cron: '0 9 * * *',
+    timezone: 'UTC',
+  });
+
+  const updated = await byName.automation_update.execute({
+    id: created.id,
+    title: 'Weekday brief',
+    prompt: 'Write a concise brief.',
+    cron: '30 9 * * 1-5',
+    timezone: 'Asia/Shanghai',
+    run_count: 4,
+    model: 'opencode/deepseek-v4-flash-free',
+  });
+
+  assert.equal(updated.id, created.id);
+  assert.equal(updated.revision, 2);
+  assert.equal(updated.title, 'Weekday brief');
+  assert.deepEqual(updated.rhythm, { kind: 'cron', expression: '30 9 * * 1-5' });
+  assert.deepEqual(updated.stop, { kind: 'count', count: 4 });
+  assert.deepEqual(updated.model, { provider: 'opencode', model: 'deepseek-v4-flash-free' });
+  assert.equal(updated.nextFireAt, Date.parse('2026-08-18T01:30:00.000Z'));
+
+  await assert.rejects(
+    () => byName.automation_update.execute({ id: created.id, at: '2026-08-19T09:00:00+08:00' }),
+    /recurring automation/,
+  );
+  assert.deepEqual(store.getDefinition(created.id), updated);
+});
