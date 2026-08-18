@@ -12,3 +12,5 @@
 - insert:
     - id: import-v1
       name: '../../plugins/import-v1/index.mjs'
+    - id: pawwork-automations
+      name: '../../plugins/automations/index.mjs'
