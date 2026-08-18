@@ -262,3 +262,28 @@ test('conversation update edits v1-manageable fields atomically without changing
   );
   assert.deepEqual(store.getDefinition(created.id), updated);
 });
+
+test('continue automations bind immutably to the creating DSH session', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const tools = createAutomationToolDefinitions({
+    store,
+    scheduler: { refresh() {} },
+    cwd: () => cwd,
+    sessionId: () => 'session-existing',
+    model: () => ({ provider: 'opencode', model: 'big-pickle' }),
+    now: () => 1_000,
+  });
+  const create = tools.find((entry) => entry.name === 'automation_create');
+
+  const definition = await create.execute({
+    title: 'Conversation loop',
+    prompt: 'Continue this conversation.',
+    every_seconds: 300,
+    continue_session: true,
+  });
+
+  assert.equal(definition.context, 'continue');
+  assert.equal(definition.sourceSessionId, 'session-existing');
+  assert.equal(Object.hasOwn(definition, 'automationSessionId'), false);
+});

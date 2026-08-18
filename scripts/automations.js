@@ -95,16 +95,22 @@ class AutomationStore {
     const model = assertText(input?.model?.model, 'model.model');
     const timezone = input.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     if (!isValidTimezone(timezone)) throw new Error(`invalid timezone: ${timezone}`);
+    const context = input.context || 'fresh';
+    if (context !== 'fresh' && context !== 'continue') throw new Error('context must be fresh or continue');
+    const sourceSessionId = context === 'continue'
+      ? assertText(input.sourceSessionId, 'sourceSessionId')
+      : null;
     const common = {
       id: `automation-${this.document.nextDefinition++}`,
       title,
       prompt,
       revision: 1,
       paused: false,
-      context: 'fresh',
+      context,
       cwd,
       model: { provider, model },
       timezone,
+      ...(sourceSessionId === null ? {} : { sourceSessionId }),
       createdAt,
       updatedAt: createdAt,
     };
@@ -504,7 +510,14 @@ function parseModelSelection(value) {
   return { provider: text.slice(0, separator), model: text.slice(separator + 1) };
 }
 
-function createAutomationToolDefinitions({ store, scheduler, cwd, model, now = () => Date.now() }) {
+function createAutomationToolDefinitions({
+  store,
+  scheduler,
+  cwd,
+  model,
+  sessionId = () => null,
+  now = () => Date.now(),
+}) {
   const current = (id) => {
     const definition = store.getDefinition(id);
     if (definition.cwd !== cwd()) throw new Error(`automation not found: ${id}`);
@@ -520,7 +533,7 @@ function createAutomationToolDefinitions({ store, scheduler, cwd, model, now = (
   return [
     tool(
       'automation_create',
-      'Create a durable PawWork automation. Use exactly one of at (absolute RFC 3339 time with offset), every_seconds (fixed interval of at least 30 seconds), or cron (five fields evaluated in timezone). run_count optionally stops a recurring automation after that many completed attempts; 0 means no limit. The automation runs even after its creating conversation is closed.',
+      'Create a durable PawWork automation. Use exactly one of at (absolute RFC 3339 time with offset), every_seconds (fixed interval of at least 30 seconds), or cron (five fields evaluated in timezone). run_count optionally stops a recurring automation after that many completed attempts; 0 means no limit. Set continue_session only when the user explicitly wants every run appended to this conversation; otherwise each run gets a fresh DSH session. The automation runs even after its creating conversation is closed.',
       objectParameters({
         title: { type: 'string' },
         prompt: { type: 'string' },
@@ -530,6 +543,7 @@ function createAutomationToolDefinitions({ store, scheduler, cwd, model, now = (
         timezone: { type: 'string' },
         run_count: { type: 'number' },
         model: { type: 'string' },
+        continue_session: { type: 'boolean' },
       }, ['title', 'prompt']),
       async (args) => {
         const scheduleFields = Number(args?.at !== undefined)
@@ -571,6 +585,8 @@ function createAutomationToolDefinitions({ store, scheduler, cwd, model, now = (
           cwd: cwd(),
           model: args.model === undefined ? model() : parseModelSelection(args.model),
           timezone: args.timezone,
+          context: args.continue_session ? 'continue' : 'fresh',
+          ...(args.continue_session ? { sourceSessionId: sessionId() } : {}),
           ...(schedule.kind === 'recurring'
             ? { stop: !args.run_count ? { kind: 'never' } : { kind: 'count', count: args.run_count } }
             : {}),

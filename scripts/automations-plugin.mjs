@@ -40,32 +40,39 @@ function automationResult(agent) {
 function createDshExecutor(ctx) {
   return async (definition, run, signal) => {
     signal.throwIfAborted();
-    const sessionId = `pawwork-${run.id}`;
-    const handle = await ctx.agents.create({
-      sessionId,
-      meta: { cwd: definition.cwd },
-      agentOptions: {
+    const sessionId = definition.context === 'continue'
+      ? definition.sourceSessionId
+      : `pawwork-${run.id}`;
+    let handle;
+    let agent = definition.context === 'continue' ? ctx.agents.get(sessionId) : undefined;
+    if (!agent) {
+      const agentOptions = {
         provider: definition.model.provider,
         model: definition.model.model,
-      },
-      signal,
-    });
-    const cancel = () => handle.agent.cancel({ kind: 'hook', reason: 'automation scheduler stopped' });
-    signal.addEventListener('abort', cancel, { once: true });
+      };
+      handle = definition.context === 'continue'
+        ? await ctx.agents.resume({ resumeSessionId: sessionId, agentOptions, signal })
+        : await ctx.agents.create({ sessionId, meta: { cwd: definition.cwd }, agentOptions, signal });
+      agent = handle.agent;
+    }
+    const cancel = handle
+      ? () => agent.cancel({ kind: 'hook', reason: 'automation scheduler stopped' })
+      : null;
+    if (cancel) signal.addEventListener('abort', cancel, { once: true });
     try {
-      ctx.sessionTitle.rename(handle.agent.session, `Automation: ${definition.title}`);
-      handle.agent.followup({
+      if (definition.context === 'fresh') ctx.sessionTitle.rename(agent.session, `Automation: ${definition.title}`);
+      agent.followup({
         id: `pawwork-automation-message-${run.id}`,
         role: 'user',
         content: [{ type: 'text', text: definition.prompt }],
         source: { kind: 'user' },
       });
-      await handle.agent.whenIdle();
-      await ctx.sessions.flush(handle.agent.session);
-      return { sessionId, result: automationResult(handle.agent) };
+      await agent.whenIdle();
+      await ctx.sessions.flush(agent.session);
+      return { sessionId, result: automationResult(agent) };
     } finally {
-      signal.removeEventListener('abort', cancel);
-      await handle.dispose();
+      if (cancel) signal.removeEventListener('abort', cancel);
+      await handle?.dispose();
     }
   };
 }
@@ -77,6 +84,7 @@ function registerAgentTools(ctx, agent, store, scheduler) {
       store,
       scheduler,
       cwd: () => agent.session.header.cwd || process.cwd(),
+      sessionId: () => agent.id,
       model: () => {
         const current = ctx.agentDefaultModel.currentSelection();
         return {
