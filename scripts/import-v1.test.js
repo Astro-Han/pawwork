@@ -5,8 +5,11 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { createRequire } = require('node:module');
+const { pathToFileURL } = require('node:url');
 const { DatabaseSync } = require('node:sqlite');
 const {
+  buildDshSession,
   createDatabaseSnapshot,
   discoverV1Database,
   readV1Sessions,
@@ -383,4 +386,95 @@ test('reads v1 sessions one at a time with hierarchy, workspace, messages, and p
   assert.equal(sessions[1].id, 'ses_child');
   assert.equal(sessions[1].parentId, 'ses_parent');
   assert.equal(sessions[1].archivedAt, 7_000);
+});
+
+test('builds a valid DSH seed with an explicit legacy boundary and no native tool events', async () => {
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  createV1Fixture(source);
+  const sessions = [];
+  for await (const session of readV1Sessions(source)) sessions.push(session);
+
+  const imported = buildDshSession(sessions[0]);
+  assert.equal(imported.id, 'pawwork-v1-ses_parent');
+  assert.equal(imported.title, 'Original title');
+  assert.deepEqual(imported.meta, {
+    cwd: '/Users/alice/worktree',
+    createdAt: 1_000,
+    seedLength: imported.seed.length,
+  });
+  assert.equal(imported.seed.some((event) => event.type === 'tool/call'), false);
+  assert.equal(imported.seed.some((event) => event.type === 'tool/result'), false);
+  assert.deepEqual(imported.stats, {
+    messages: 2,
+    parts: 5,
+    skippedParts: 0,
+    unsupportedParts: 0,
+  });
+
+  const legacySession = imported.seed[0];
+  assert.equal(legacySession.type, 'pawwork-v1/session');
+  assert.equal(legacySession.ignorable, true);
+  assert.deepEqual(legacySession.data, {
+    schema: 1,
+    sourceSessionId: 'ses_parent',
+    projectId: 'project_1',
+    workspaceId: 'workspace_1',
+    parentId: null,
+    directory: '/Users/alice/work',
+    executionContext: { ownerDirectory: '/Users/alice/work', activeDirectory: '/Users/alice/worktree' },
+    title: 'Original title',
+    version: '1.2.3',
+    createdAt: 1_000,
+    updatedAt: 4_000,
+    archivedAt: null,
+  });
+
+  const dshPackageRequire = createRequire(require.resolve('@deepseek-ai/dsh/package.json'));
+  const dshSessionUrl = pathToFileURL(dshPackageRequire.resolve('@deepseek-ai/dsh-session')).href;
+  const { Session } = await import(dshSessionUrl);
+  const validated = Session.create(imported.id, imported.seed);
+  assert.equal(validated.events.at(-1).type, 'session/end-seed');
+  const messages = validated.deriveMessages();
+  assert.equal(messages.length, 2);
+  assert.deepEqual(messages[0].content, [
+    { type: 'text', text: 'Inspect the project' },
+    {
+      type: 'pawwork-v1-attachment',
+      id: 'part_file',
+      createdAt: 2_001,
+      updatedAt: 2_001,
+      mime: 'text/plain',
+      filename: 'notes.txt',
+      url: 'data:text/plain;base64,aGVsbG8=',
+    },
+  ]);
+  assert.deepEqual(messages[1].content, [
+    { type: 'reasoning', text: 'I should inspect the files.' },
+    {
+      type: 'pawwork-v1-tool',
+      id: 'part_tool',
+      createdAt: 3_200,
+      updatedAt: 3_300,
+      callId: 'call_1',
+      tool: 'bash',
+      state: {
+        status: 'completed',
+        input: { command: 'ls' },
+        output: 'README.md',
+        title: 'List files',
+        metadata: {},
+        time: { start: 3_200, end: 3_300 },
+      },
+    },
+    { type: 'text', text: 'The project contains a README.' },
+  ]);
+  assert.deepEqual(messages[1].source, {
+    kind: 'model',
+    provider: 'opencode',
+    model: 'big-pickle',
+  });
+
+  const child = buildDshSession(sessions[1]);
+  assert.equal(child.meta.parentSession, 'pawwork-v1-ses_parent');
 });
