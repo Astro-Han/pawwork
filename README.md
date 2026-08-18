@@ -27,6 +27,7 @@ pnpm chat-smoke   # one real Zen Free turn, no user key
 - Default model: `opencode/big-pickle`
 - Zen identity: Node `--import` wraps `fetch` before dsh loads, so Zen requests send the official OpenCode CLI headers
 - DeepSeek official stays in the catalog
+- Durable automations live in the PawWork product home, are managed through conversation tools, and create ordinary DSH sessions for each run
 
 ## Layout
 
@@ -39,4 +40,6 @@ scripts/zen-identity-preload.mjs  # --import apply()
 scripts/dsh-server.js             # dsh web lifecycle
 scripts/smoke.js
 scripts/chat-smoke.js
+scripts/automations.js              # durable definitions, run history, scheduler
+scripts/automations-plugin.mjs      # DSH execution + conversation tools
 ```

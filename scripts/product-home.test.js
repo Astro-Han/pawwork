@@ -17,6 +17,8 @@ const {
   IMPORT_V1_PLUGIN_FILENAME,
   IMPORT_V1_CORE_FILENAME,
   IMPORT_V1_SETTINGS_FILENAME,
+  AUTOMATIONS_PLUGIN_FILENAME,
+  AUTOMATIONS_CORE_FILENAME,
   ZEN_IDENTITY_PRELOAD_HREF,
 } = require('./product-home');
 
@@ -45,6 +47,14 @@ test('creates a product home with the public Zen credential and no settings file
   );
   assert.equal(
     fs.existsSync(path.join(home, 'plugins', 'import-v1', IMPORT_V1_SETTINGS_FILENAME)),
+    true,
+  );
+  assert.equal(
+    fs.existsSync(path.join(home, 'plugins', 'automations', AUTOMATIONS_PLUGIN_FILENAME)),
+    true,
+  );
+  assert.equal(
+    fs.existsSync(path.join(home, 'plugins', 'automations', AUTOMATIONS_CORE_FILENAME)),
     true,
   );
 });
@@ -93,6 +103,10 @@ test('product patch composes Zen Free as the default model', () => {
   assert.match(
     dumped.stdout,
     /id: import-v1[\s\S]*name: \.\.\/\.\.\/plugins\/import-v1\/index\.mjs/,
+  );
+  assert.match(
+    dumped.stdout,
+    /id: pawwork-automations[\s\S]*name: \.\.\/\.\.\/plugins\/automations\/index\.mjs/,
   );
   assert.doesNotMatch(dumped.stdout, /provider: deepseek-official/);
 });

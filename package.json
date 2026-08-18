@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron .",
     "start:dev": "ELECTRON_ENABLE_LOGGING=1 electron .",
-    "test": "node --test scripts/product-home.test.js scripts/zen-identity.test.js scripts/import-v1.test.js scripts/import-v1-settings.test.js",
+    "test": "node --test scripts/product-home.test.js scripts/zen-identity.test.js scripts/import-v1.test.js scripts/import-v1-settings.test.js scripts/automations.test.js",
     "smoke": "electron scripts/smoke.js",
     "chat-smoke": "node scripts/chat-smoke.js"
   },

@@ -13,6 +13,10 @@ const IMPORT_V1_SETTINGS_FILENAME = 'import-v1-settings.cjs';
 const IMPORT_V1_SOURCE = path.join(__dirname, 'import-v1-plugin.mjs');
 const IMPORT_V1_CORE_SOURCE = path.join(__dirname, 'import-v1.js');
 const IMPORT_V1_SETTINGS_SOURCE = path.join(__dirname, 'import-v1-settings.js');
+const AUTOMATIONS_PLUGIN_FILENAME = 'index.mjs';
+const AUTOMATIONS_CORE_FILENAME = 'automations.cjs';
+const AUTOMATIONS_PLUGIN_SOURCE = path.join(__dirname, 'automations-plugin.mjs');
+const AUTOMATIONS_CORE_SOURCE = path.join(__dirname, 'automations.js');
 
 function importV1PluginDirectory(home) {
   return path.join(home, 'plugins', 'import-v1');
@@ -24,6 +28,13 @@ function writeImportV1Plugin(home) {
   fs.copyFileSync(IMPORT_V1_SOURCE, path.join(directory, IMPORT_V1_PLUGIN_FILENAME));
   fs.copyFileSync(IMPORT_V1_CORE_SOURCE, path.join(directory, IMPORT_V1_CORE_FILENAME));
   fs.copyFileSync(IMPORT_V1_SETTINGS_SOURCE, path.join(directory, IMPORT_V1_SETTINGS_FILENAME));
+}
+
+function writeAutomationsPlugin(home) {
+  const directory = path.join(home, 'plugins', 'automations');
+  fs.mkdirSync(directory, { recursive: true });
+  fs.copyFileSync(AUTOMATIONS_PLUGIN_SOURCE, path.join(directory, AUTOMATIONS_PLUGIN_FILENAME));
+  fs.copyFileSync(AUTOMATIONS_CORE_SOURCE, path.join(directory, AUTOMATIONS_CORE_FILENAME));
 }
 
 const DROPPED_ENV = [
@@ -46,6 +57,7 @@ function ensureProductHome(home) {
     fs.writeFileSync(credentialsPath, PUBLIC_CREDENTIAL, { mode: 0o600 });
   }
   writeImportV1Plugin(home);
+  writeAutomationsPlugin(home);
   return { home, patch: writeProductPatch(home) };
 }
 
@@ -85,6 +97,8 @@ module.exports = {
   IMPORT_V1_PLUGIN_FILENAME,
   IMPORT_V1_CORE_FILENAME,
   IMPORT_V1_SETTINGS_FILENAME,
+  AUTOMATIONS_PLUGIN_FILENAME,
+  AUTOMATIONS_CORE_FILENAME,
   ZEN_IDENTITY_PRELOAD,
   ZEN_IDENTITY_PRELOAD_HREF,
   ensureProductHome,
