@@ -125,6 +125,15 @@ async function* readV1Sessions(snapshot) {
 }
 
 const INTERNAL_PART_TYPES = new Set(['step-start', 'step-finish', 'snapshot', 'patch', 'compaction']);
+const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+const IMAGE_ADMISSION_ERRORS = new Set([
+  'UNSUPPORTED_IMAGE_TYPE',
+  'INVALID_IMAGE_BASE64',
+  'INVALID_IMAGE',
+  'IMAGE_TYPE_MISMATCH',
+  'IMAGE_TOO_LARGE',
+  'IMAGE_TOO_MANY_PIXELS',
+]);
 
 function dshSessionId(sourceSessionId) {
   return `pawwork-v1-${sourceSessionId}`;
@@ -323,10 +332,147 @@ function buildDshSession(session) {
   };
 }
 
+async function materializeLegacyImages(imported, saveImage) {
+  for (const event of imported.seed) {
+    const content = event.type === 'user/message'
+      ? event.data.content
+      : event.type === 'assistant/message'
+        ? event.data.message.content
+        : null;
+    if (!Array.isArray(content)) continue;
+
+    for (let index = 0; index < content.length; index += 1) {
+      const block = content[index];
+      if (block.type !== 'pawwork-v1-attachment' || !IMAGE_MEDIA_TYPES.has(block.mime)) continue;
+      const match = /^data:([^;,]+);base64,(.*)$/s.exec(block.url);
+      if (!match || match[1] !== block.mime) continue;
+      try {
+        const attachment = await saveImage({
+          data: Buffer.from(match[2], 'base64'),
+          mediaType: block.mime,
+          ...(block.filename ? { name: block.filename } : {}),
+        });
+        content[index] = { type: 'image', attachment };
+      } catch (error) {
+        if (!IMAGE_ADMISSION_ERRORS.has(error?.code)) throw error;
+        if (imported.stats) imported.stats.unsupportedParts += 1;
+      }
+    }
+  }
+  return imported;
+}
+
+function readJson(file, fallback) {
+  if (!fs.existsSync(file)) return fallback;
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+function writeJsonAtomically(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const temporary = `${file}.next`;
+  fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, file);
+}
+
+function emptyResult(sourceDatabase, status) {
+  return {
+    schema: 1,
+    sourceDatabase,
+    status,
+    sessions: { imported: 0, skipped: 0, failed: 0 },
+    parts: { total: 0, skipped: 0, unsupported: 0 },
+    errors: [],
+  };
+}
+
+async function runV1SessionImport({
+  home,
+  sourceDatabase = discoverV1Database(),
+  importSession,
+  signal,
+}) {
+  if (!home || !path.isAbsolute(home)) throw new Error('v1 import home must be absolute');
+  if (typeof importSession !== 'function') throw new Error('v1 importSession adapter is required');
+  const directory = path.join(home, 'import-v1');
+  const ledgerPath = path.join(directory, 'ledger.json');
+  const resultPath = path.join(directory, 'result.json');
+  const ledger = readJson(ledgerPath, {
+    schema: 1,
+    sourceDatabase,
+    stage1Complete: false,
+    sessions: {},
+  });
+  if (ledger.schema !== 1) throw new Error(`unsupported v1 migration ledger schema: ${ledger.schema}`);
+  if (ledger.stage1Complete) return readJson(resultPath, emptyResult(ledger.sourceDatabase, 'complete'));
+  if (ledger.sourceDatabase && sourceDatabase && ledger.sourceDatabase !== sourceDatabase) {
+    throw new Error(`v1 migration source changed from ${ledger.sourceDatabase} to ${sourceDatabase}`);
+  }
+  if (!sourceDatabase) {
+    const result = emptyResult(null, 'not-found');
+    writeJsonAtomically(resultPath, result);
+    ledger.sourceDatabase = null;
+    ledger.stage1Complete = true;
+    writeJsonAtomically(ledgerPath, ledger);
+    return result;
+  }
+
+  fs.mkdirSync(directory, { recursive: true });
+  const snapshot = path.join(directory, 'snapshot.db');
+  const result = emptyResult(sourceDatabase, 'complete');
+  ledger.sourceDatabase = sourceDatabase;
+  try {
+    signal?.throwIfAborted();
+    await createDatabaseSnapshot(sourceDatabase, snapshot);
+    for await (const sourceSession of readV1Sessions(snapshot)) {
+      signal?.throwIfAborted();
+      const imported = buildDshSession(sourceSession);
+      if (ledger.sessions[sourceSession.id]?.status === 'complete') {
+        const stats = ledger.sessions[sourceSession.id].stats || imported.stats;
+        result.parts.total += stats.parts;
+        result.parts.skipped += stats.skippedParts;
+        result.parts.unsupported += stats.unsupportedParts;
+        result.sessions.skipped += 1;
+        continue;
+      }
+      try {
+        const outcome = await importSession(imported);
+        result.sessions[outcome === 'skipped' ? 'skipped' : 'imported'] += 1;
+        ledger.sessions[sourceSession.id] = {
+          status: 'complete',
+          targetId: imported.id,
+          stats: imported.stats,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        result.sessions.failed += 1;
+        result.errors.push({ sourceSessionId: sourceSession.id, message });
+        ledger.sessions[sourceSession.id] = {
+          status: 'failed',
+          targetId: imported.id,
+          message,
+        };
+      }
+      result.parts.total += imported.stats.parts;
+      result.parts.skipped += imported.stats.skippedParts;
+      result.parts.unsupported += imported.stats.unsupportedParts;
+      writeJsonAtomically(ledgerPath, ledger);
+    }
+    if (result.sessions.failed > 0) result.status = 'partial';
+    writeJsonAtomically(resultPath, result);
+    ledger.stage1Complete = result.status === 'complete';
+    writeJsonAtomically(ledgerPath, ledger);
+    return result;
+  } finally {
+    fs.rmSync(snapshot, { force: true });
+  }
+}
+
 module.exports = {
   buildDshSession,
   createDatabaseSnapshot,
   discoverV1Database,
+  materializeLegacyImages,
   readV1Sessions,
+  runV1SessionImport,
   v1DatabaseCandidates,
 };

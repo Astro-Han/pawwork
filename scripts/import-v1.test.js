@@ -12,7 +12,9 @@ const {
   buildDshSession,
   createDatabaseSnapshot,
   discoverV1Database,
+  materializeLegacyImages,
   readV1Sessions,
+  runV1SessionImport,
   v1DatabaseCandidates,
 } = require('./import-v1');
 
@@ -477,4 +479,134 @@ test('builds a valid DSH seed with an explicit legacy boundary and no native too
 
   const child = buildDshSession(sessions[1]);
   assert.equal(child.meta.parentSession, 'pawwork-v1-ses_parent');
+});
+
+test('materializes v1 data images through the official DSH attachment store', async () => {
+  const imported = {
+    seed: [
+      {
+        type: 'user/message',
+        data: {
+          content: [
+            {
+              type: 'pawwork-v1-attachment',
+              mime: 'image/png',
+              filename: 'pixel.png',
+              url: 'data:image/png;base64,iVBORw0KGgo=',
+            },
+            {
+              type: 'pawwork-v1-attachment',
+              mime: 'text/plain',
+              filename: 'notes.txt',
+              url: 'data:text/plain;base64,aGVsbG8=',
+            },
+          ],
+        },
+      },
+    ],
+  };
+  const saved = [];
+
+  await materializeLegacyImages(imported, async (image) => {
+    saved.push(image);
+    return {
+      attachmentId: 'sha256:image',
+      mediaType: image.mediaType,
+      bytes: image.data.byteLength,
+      width: 1,
+      height: 1,
+      name: image.name,
+    };
+  });
+
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].mediaType, 'image/png');
+  assert.equal(saved[0].name, 'pixel.png');
+  assert.equal(Buffer.from(saved[0].data).toString('base64'), 'iVBORw0KGgo=');
+  assert.deepEqual(imported.seed[0].data.content[0], {
+    type: 'image',
+    attachment: {
+      attachmentId: 'sha256:image',
+      mediaType: 'image/png',
+      bytes: 8,
+      width: 1,
+      height: 1,
+      name: 'pixel.png',
+    },
+  });
+  assert.equal(imported.seed[0].data.content[1].type, 'pawwork-v1-attachment');
+});
+
+test('records an idempotent ledger and does no work after a complete session import', async () => {
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  createV1Fixture(source);
+  const importedIds = [];
+
+  const first = await runV1SessionImport({
+    home,
+    sourceDatabase: source,
+    importSession: async (session) => {
+      importedIds.push(session.id);
+      return 'imported';
+    },
+  });
+  assert.deepEqual(importedIds, ['pawwork-v1-ses_parent', 'pawwork-v1-ses_child']);
+  assert.equal(first.status, 'complete');
+  assert.deepEqual(first.sessions, { imported: 2, skipped: 0, failed: 0 });
+  assert.equal(first.parts.unsupported, 0);
+  assert.equal(fs.existsSync(path.join(home, 'import-v1', 'snapshot.db')), false);
+
+  const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+  assert.equal(ledger.schema, 1);
+  assert.equal(ledger.stage1Complete, true);
+  assert.equal(ledger.sessions.ses_parent.targetId, 'pawwork-v1-ses_parent');
+  assert.equal(ledger.sessions.ses_parent.status, 'complete');
+  assert.equal(ledger.sessions.ses_child.status, 'complete');
+
+  const second = await runV1SessionImport({
+    home,
+    sourceDatabase: source,
+    importSession: async () => {
+      throw new Error('completed import must not run again');
+    },
+  });
+  assert.deepEqual(second, first);
+});
+
+test('resumes after a per-session failure without duplicating completed sessions', async () => {
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  createV1Fixture(source);
+  const firstAttempt = [];
+
+  const partial = await runV1SessionImport({
+    home,
+    sourceDatabase: source,
+    importSession: async (session) => {
+      firstAttempt.push(session.id);
+      if (session.id === 'pawwork-v1-ses_parent') session.stats.unsupportedParts += 1;
+      if (session.id === 'pawwork-v1-ses_child') throw new Error('simulated interruption');
+      return 'imported';
+    },
+  });
+  assert.equal(partial.status, 'partial');
+  assert.deepEqual(partial.sessions, { imported: 1, skipped: 0, failed: 1 });
+  assert.equal(partial.parts.unsupported, 1);
+
+  const resumed = [];
+  const complete = await runV1SessionImport({
+    home,
+    sourceDatabase: source,
+    importSession: async (session) => {
+      resumed.push(session.id);
+      return 'imported';
+    },
+  });
+  assert.deepEqual(resumed, ['pawwork-v1-ses_child']);
+  assert.equal(complete.status, 'complete');
+  assert.deepEqual(complete.sessions, { imported: 1, skipped: 1, failed: 0 });
+  assert.equal(complete.parts.unsupported, 1);
 });

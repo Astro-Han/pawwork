@@ -14,6 +14,8 @@ const {
   resolveDshBin,
   PRODUCT_PATCH_SOURCE,
   PRODUCT_PATCH_FILENAME,
+  IMPORT_V1_PLUGIN_FILENAME,
+  IMPORT_V1_CORE_FILENAME,
   ZEN_IDENTITY_PRELOAD_HREF,
 } = require('./product-home');
 
@@ -32,6 +34,14 @@ test('creates a product home with the public Zen credential and no settings file
   assert.equal(patch, fs.readFileSync(PRODUCT_PATCH_SOURCE, 'utf8'));
   assert.equal(patch.includes('zen-identity'), false);
   assert.equal(fs.existsSync(path.join(home, 'settings.yaml')), false);
+  assert.equal(
+    fs.existsSync(path.join(home, 'plugins', 'import-v1', IMPORT_V1_PLUGIN_FILENAME)),
+    true,
+  );
+  assert.equal(
+    fs.existsSync(path.join(home, 'plugins', 'import-v1', IMPORT_V1_CORE_FILENAME)),
+    true,
+  );
 });
 
 test('leaves an existing credentials file untouched', () => {
@@ -75,6 +85,10 @@ test('product patch composes Zen Free as the default model', () => {
   assert.match(dumped.stdout, /id: agent-default-model[\s\S]*provider: opencode[\s\S]*model: big-pickle/);
   assert.match(dumped.stdout, /id: llm-pi-ai[\s\S]*opencode:[\s\S]*apiKeyEnv: OPENCODE_API_KEY/);
   assert.equal(dumped.stdout.includes('id: zen-identity'), false);
+  assert.match(
+    dumped.stdout,
+    /id: import-v1[\s\S]*name: \.\.\/\.\.\/plugins\/import-v1\/index\.mjs/,
+  );
   assert.doesNotMatch(dumped.stdout, /provider: deepseek-official/);
 });
 
