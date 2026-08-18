@@ -22,7 +22,7 @@ test("every minimatch release uses the patched brace-expansion without breaking 
       braceExpand: (pattern: string) => string[]
     }
 
-    expect(braceExpansionPackage.version).toBe("5.0.8")
+    expect(braceExpansionPackage.version).toBe("5.0.9")
     expect(minimatch.braceExpand("file-{a,b}.txt")).toEqual(["file-a.txt", "file-b.txt"])
   }
 })
