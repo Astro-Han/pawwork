@@ -557,6 +557,8 @@ test('records an idempotent ledger and does no work after a complete session imp
   assert.deepEqual(first.sessions, { imported: 2, skipped: 0, failed: 0 });
   assert.equal(first.parts.unsupported, 0);
   assert.equal(fs.existsSync(path.join(home, 'import-v1', 'snapshot.db')), false);
+  assert.equal(fs.existsSync(path.join(home, 'import-v1', 'snapshot.db-shm')), false);
+  assert.equal(fs.existsSync(path.join(home, 'import-v1', 'snapshot.db-wal')), false);
 
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.schema, 1);
@@ -609,4 +611,28 @@ test('resumes after a per-session failure without duplicating completed sessions
   assert.equal(complete.status, 'complete');
   assert.deepEqual(complete.sessions, { imported: 1, skipped: 1, failed: 0 });
   assert.equal(complete.parts.unsupported, 1);
+});
+
+test('can resume Stage 1 from a ledger first written by the settings stage', async () => {
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  createV1Fixture(source);
+  fs.mkdirSync(path.join(home, 'import-v1'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({
+    schema: 1,
+    sourceAppData: '/tmp/v1-app-data',
+    stage2Complete: true,
+    settings: {},
+    credentials: {},
+  }));
+
+  const imported = await runV1SessionImport({
+    home,
+    sourceDatabase: source,
+    importSession: async () => 'imported',
+  });
+
+  assert.equal(imported.status, 'complete');
+  assert.deepEqual(imported.sessions, { imported: 2, skipped: 0, failed: 0 });
 });

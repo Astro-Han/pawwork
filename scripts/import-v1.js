@@ -403,6 +403,7 @@ async function runV1SessionImport({
     sessions: {},
   });
   if (ledger.schema !== 1) throw new Error(`unsupported v1 migration ledger schema: ${ledger.schema}`);
+  ledger.sessions ||= {};
   if (ledger.stage1Complete) return readJson(resultPath, emptyResult(ledger.sourceDatabase, 'complete'));
   if (ledger.sourceDatabase && sourceDatabase && ledger.sourceDatabase !== sourceDatabase) {
     throw new Error(`v1 migration source changed from ${ledger.sourceDatabase} to ${sourceDatabase}`);
@@ -464,6 +465,8 @@ async function runV1SessionImport({
     return result;
   } finally {
     fs.rmSync(snapshot, { force: true });
+    fs.rmSync(`${snapshot}-shm`, { force: true });
+    fs.rmSync(`${snapshot}-wal`, { force: true });
   }
 }
 

@@ -9,8 +9,10 @@ const ZEN_IDENTITY_PRELOAD_HREF = require('url').pathToFileURL(ZEN_IDENTITY_PREL
 const PRODUCT_PATCH_FILENAME = 'product.cordis.patch.yml';
 const IMPORT_V1_PLUGIN_FILENAME = 'index.mjs';
 const IMPORT_V1_CORE_FILENAME = 'import-v1.cjs';
+const IMPORT_V1_SETTINGS_FILENAME = 'import-v1-settings.cjs';
 const IMPORT_V1_SOURCE = path.join(__dirname, 'import-v1-plugin.mjs');
 const IMPORT_V1_CORE_SOURCE = path.join(__dirname, 'import-v1.js');
+const IMPORT_V1_SETTINGS_SOURCE = path.join(__dirname, 'import-v1-settings.js');
 
 function importV1PluginDirectory(home) {
   return path.join(home, 'plugins', 'import-v1');
@@ -21,6 +23,7 @@ function writeImportV1Plugin(home) {
   fs.mkdirSync(directory, { recursive: true });
   fs.copyFileSync(IMPORT_V1_SOURCE, path.join(directory, IMPORT_V1_PLUGIN_FILENAME));
   fs.copyFileSync(IMPORT_V1_CORE_SOURCE, path.join(directory, IMPORT_V1_CORE_FILENAME));
+  fs.copyFileSync(IMPORT_V1_SETTINGS_SOURCE, path.join(directory, IMPORT_V1_SETTINGS_FILENAME));
 }
 
 const DROPPED_ENV = [
@@ -81,6 +84,7 @@ module.exports = {
   PRODUCT_PATCH_FILENAME,
   IMPORT_V1_PLUGIN_FILENAME,
   IMPORT_V1_CORE_FILENAME,
+  IMPORT_V1_SETTINGS_FILENAME,
   ZEN_IDENTITY_PRELOAD,
   ZEN_IDENTITY_PRELOAD_HREF,
   ensureProductHome,

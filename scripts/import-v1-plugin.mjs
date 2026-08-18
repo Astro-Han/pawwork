@@ -3,9 +3,18 @@ import { isDeepStrictEqual } from 'node:util';
 
 const require = createRequire(import.meta.url);
 const importer = require('./import-v1.cjs');
+const settingsImporter = require('./import-v1-settings.cjs');
 
 export const name = 'pawwork-import-v1';
-export const inject = ['attachments', 'sessions', 'sessionPersistence', 'sessionTitle'];
+export const inject = [
+  'agentDefaultModel',
+  'attachments',
+  'llm',
+  'sessions',
+  'sessionPersistence',
+  'sessionTitle',
+  'settings',
+];
 
 function importedPrefixIsComplete(events, imported) {
   if (events.length <= imported.seed.length) return false;
@@ -44,13 +53,28 @@ async function createDshSessionImporter(ctx) {
 
 export function apply(ctx) {
   const controller = new AbortController();
-  const running = createDshSessionImporter(ctx).then((importSession) => importer.runV1SessionImport({
-    home: process.env.DSH_HOME,
-    importSession,
-    signal: controller.signal,
-  }));
-  running.catch((error) => {
-    ctx.logger.warn(`v1 session import failed: ${error instanceof Error ? error.message : String(error)}`);
-  });
+  void (async () => {
+    try {
+      const importSession = await createDshSessionImporter(ctx);
+      await importer.runV1SessionImport({
+        home: process.env.DSH_HOME,
+        importSession,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      ctx.logger.warn(`v1 session import failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    try {
+      const importSetting = settingsImporter.createDshSettingImporter(ctx);
+      await settingsImporter.runV1SettingsImport({
+        home: process.env.DSH_HOME,
+        importSetting,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      ctx.logger.warn(`v1 settings import failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  })();
   ctx.effect(() => () => controller.abort(new Error('PawWork v1 importer stopped')));
 }
