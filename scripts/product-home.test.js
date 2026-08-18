@@ -19,6 +19,7 @@ const {
   IMPORT_V1_SETTINGS_FILENAME,
   AUTOMATIONS_PLUGIN_FILENAME,
   AUTOMATIONS_CORE_FILENAME,
+  AUTOMATIONS_CRON_FILENAME,
   ZEN_IDENTITY_PRELOAD_HREF,
 } = require('./product-home');
 
@@ -55,6 +56,10 @@ test('creates a product home with the public Zen credential and no settings file
   );
   assert.equal(
     fs.existsSync(path.join(home, 'plugins', 'automations', AUTOMATIONS_CORE_FILENAME)),
+    true,
+  );
+  assert.equal(
+    fs.existsSync(path.join(home, 'plugins', 'automations', AUTOMATIONS_CRON_FILENAME)),
     true,
   );
 });

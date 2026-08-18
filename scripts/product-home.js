@@ -15,8 +15,10 @@ const IMPORT_V1_CORE_SOURCE = path.join(__dirname, 'import-v1.js');
 const IMPORT_V1_SETTINGS_SOURCE = path.join(__dirname, 'import-v1-settings.js');
 const AUTOMATIONS_PLUGIN_FILENAME = 'index.mjs';
 const AUTOMATIONS_CORE_FILENAME = 'automations.cjs';
+const AUTOMATIONS_CRON_FILENAME = 'automation-cron.js';
 const AUTOMATIONS_PLUGIN_SOURCE = path.join(__dirname, 'automations-plugin.mjs');
 const AUTOMATIONS_CORE_SOURCE = path.join(__dirname, 'automations.js');
+const AUTOMATIONS_CRON_SOURCE = path.join(__dirname, 'automation-cron.js');
 
 function importV1PluginDirectory(home) {
   return path.join(home, 'plugins', 'import-v1');
@@ -35,6 +37,7 @@ function writeAutomationsPlugin(home) {
   fs.mkdirSync(directory, { recursive: true });
   fs.copyFileSync(AUTOMATIONS_PLUGIN_SOURCE, path.join(directory, AUTOMATIONS_PLUGIN_FILENAME));
   fs.copyFileSync(AUTOMATIONS_CORE_SOURCE, path.join(directory, AUTOMATIONS_CORE_FILENAME));
+  fs.copyFileSync(AUTOMATIONS_CRON_SOURCE, path.join(directory, AUTOMATIONS_CRON_FILENAME));
 }
 
 const DROPPED_ENV = [
@@ -99,6 +102,7 @@ module.exports = {
   IMPORT_V1_SETTINGS_FILENAME,
   AUTOMATIONS_PLUGIN_FILENAME,
   AUTOMATIONS_CORE_FILENAME,
+  AUTOMATIONS_CRON_FILENAME,
   ZEN_IDENTITY_PRELOAD,
   ZEN_IDENTITY_PRELOAD_HREF,
   ensureProductHome,

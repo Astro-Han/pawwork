@@ -167,3 +167,55 @@ test('conversation tools manage only the current workspace and keep model choice
   assert.equal((await byName.automation_delete.execute({ id: created.id })).deleted, true);
   assert.equal((await byName.automation_list.execute({})).items.length, 0);
 });
+
+test('cron definitions keep their timezone and stop after the requested completed run count', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = store.createDefinition({
+    kind: 'recurring',
+    title: 'Weekday brief',
+    prompt: 'Write the brief.',
+    cwd,
+    timezone: 'Asia/Shanghai',
+    rhythm: { kind: 'cron', expression: '0 9 * * 1-5' },
+    stop: { kind: 'count', count: 1 },
+    model: { provider: 'opencode', model: 'big-pickle' },
+  }, Date.parse('2026-08-18T00:30:00.000Z'));
+  const clock = fakeClock(Date.parse('2026-08-18T01:00:00.000Z'));
+  const scheduler = new AutomationScheduler({
+    store,
+    execute: async () => ({ sessionId: 'pawwork-automation-run-1', result: 'done' }),
+    clock,
+  });
+
+  assert.equal(created.nextFireAt, Date.parse('2026-08-18T01:00:00.000Z'));
+  await scheduler.runDue();
+
+  assert.equal(store.listRuns(created.id)[0].state, 'succeeded');
+  assert.equal(store.getDefinition(created.id).nextFireAt, null);
+});
+
+test('conversation create accepts cron and finite schedules', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const tools = createAutomationToolDefinitions({
+    store,
+    scheduler: { refresh() {} },
+    cwd: () => cwd,
+    model: () => ({ provider: 'opencode', model: 'big-pickle' }),
+    now: () => Date.parse('2026-08-18T00:30:00.000Z'),
+  });
+  const create = tools.find((entry) => entry.name === 'automation_create');
+
+  const definition = await create.execute({
+    title: 'Weekday brief',
+    prompt: 'Write the brief.',
+    cron: '0 9 * * 1-5',
+    timezone: 'Asia/Shanghai',
+    run_count: 3,
+  });
+
+  assert.deepEqual(definition.rhythm, { kind: 'cron', expression: '0 9 * * 1-5' });
+  assert.deepEqual(definition.stop, { kind: 'count', count: 3 });
+  assert.equal(definition.timezone, 'Asia/Shanghai');
+});
