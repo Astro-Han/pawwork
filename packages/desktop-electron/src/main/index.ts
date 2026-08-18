@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto"
+import { spawn } from "node:child_process"
 import { EventEmitter } from "node:events"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { rm } from "node:fs/promises"
-import { createServer } from "node:net"
+import { createRequire } from "node:module"
 import os, { homedir } from "node:os"
 import { dirname, join } from "node:path"
+import { pathToFileURL } from "node:url"
 import type { Event } from "electron"
 import { app, BrowserWindow, dialog, safeStorage, shell } from "electron"
 import pkg from "electron-updater"
@@ -34,7 +36,6 @@ const APP_IDS: Record<string, string> = {
 }
 const CI_SMOKE_HOME = process.env.PAWWORK_CI_SMOKE_HOME
 const CI_SMOKE_ENABLED = process.env.PAWWORK_CI_SMOKE === "true"
-const gracefulSidecarShutdown = process.platform === "darwin"
 const FEEDBACK_SESSION_EXPORT_TIMEOUT_MS = 3_000
 // How long to wait on one update feed's reachability probe before falling back
 // to the next. The probe is aborted (not abandoned) when it elapses.
@@ -74,12 +75,18 @@ import {
 } from "./constants"
 import { normalizeDesktopContextPayload, syncWindowTitleForDesktopContext } from "./desktop-context-window"
 import { createDesktopContextStore } from "./desktop-context-store"
+import {
+  buildDshEnvironment,
+  prepareDshProductHome,
+  resolveDshPackagePath,
+  resolveDshResources,
+} from "./dsh-product-home"
+import { launchDshSidecar, type DshSidecar } from "./dsh-sidecar"
 import { createFeedbackHandler } from "./feedback"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { registerAboutIpc, triggerAbout } from "./ipc/about"
 import { registerBrowserIpc } from "./ipc/browser"
 import { registerRemoteIpc } from "./ipc/remote"
-import { createDesktopBrowserBridgeHost } from "./browser/automation-host"
 import { browserControllers } from "./browser/controller-automation"
 import { diagnosticsLogTail, filePath, initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
@@ -93,7 +100,7 @@ import {
   rendererDiagnosticsRoot,
   SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
 } from "./renderer-diagnostics"
-import { backendLogFilePath, getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, spawnLocalServer } from "./server"
+import { backendLogFilePath, getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig } from "./server"
 import { createRemoteBridgeRuntime } from "./remote-pairers"
 import { safeStorageCredentialStore, type CredentialStoreEnv } from "./remote-credentials"
 import { PAWWORK_RUNTIME } from "./runtime-namespace"
@@ -116,7 +123,6 @@ import {
   shouldQueueDeepLinks,
   takeQueuedDeepLinksForReadyWindow,
 } from "./window-lifecycle"
-import type { Server } from "virtual:opencode-server"
 
 const initEmitter = new EventEmitter()
 let initStep: InitStep = { phase: "server_waiting" }
@@ -145,7 +151,8 @@ function clearProgressBar() {
   applyProgressBar(-1)
 }
 
-let server: Server.Listener | null = null
+let server: DshSidecar | null = null
+let dshUrl: string | null = null
 let sidecarShutdown: Promise<void> | undefined
 let gracefulQuitStarted = false
 let gracefulQuitReady = false
@@ -211,11 +218,6 @@ const updater = createUpdaterController({
   downloadUpdate: () => updateFeed.download(),
   clearPendingUpdate: clearPendingUpdate,
   quitAndInstall: () => {
-    if (!gracefulSidecarShutdown) {
-      killSidecar()
-      autoUpdater.quitAndInstall()
-      return
-    }
     void shutdownSidecar().finally(() => autoUpdater.quitAndInstall())
   },
   log: (message, data) => logger.log(message, data),
@@ -408,11 +410,6 @@ function setupApp() {
   })
 
   app.on("before-quit", (event) => {
-    if (!gracefulSidecarShutdown) {
-      void remoteBridge.stop()
-      killSidecar()
-      return
-    }
     if (gracefulQuitReady) return
     event.preventDefault()
     if (gracefulQuitStarted) return
@@ -445,22 +442,24 @@ function setupApp() {
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
-      if (gracefulSidecarShutdown) {
-        app.quit()
-        return
-      }
-      killSidecar()
-      app.exit(0)
+      app.quit()
     })
   }
 
-  void app.whenReady().then(async () => {
-    app.setAsDefaultProtocolClient("opencode")
-    registerRendererProtocol()
-    setDockIcon()
-    setupAutoUpdater()
-    await initialize()
-  })
+  void app
+    .whenReady()
+    .then(async () => {
+      app.setAsDefaultProtocolClient("opencode")
+      registerRendererProtocol()
+      setDockIcon()
+      setupAutoUpdater()
+      await initialize()
+    })
+    .catch(async (error) => {
+      logger.error("app initialization failed", error)
+      await shutdownSidecar().catch((shutdownError) => logger.error("sidecar shutdown failed", shutdownError))
+      app.exit(1)
+    })
 }
 
 function emitDeepLinks(urls: string[]) {
@@ -495,7 +494,8 @@ function focusMainWindow(options: { openIfMissing?: boolean } = {}) {
 }
 
 function openMainWindow() {
-  const win = createMainWindow()
+  if (!dshUrl) throw new Error("Cannot open PawWork before DSH is ready")
+  const win = createMainWindow(dshUrl)
   mainWindow = win
   win.once("ready-to-show", () => {
     if (currentProgress !== null) {
@@ -530,24 +530,46 @@ async function initialize() {
   const needsMigration = false
   let overlay: BrowserWindow | null = null
 
-  const port = await getSidecarPort()
-  const hostname = "127.0.0.1"
-  const url = `http://${hostname}:${port}`
-  const password = randomUUID()
+  const resources = resolveDshResources({
+    appPath: app.getAppPath(),
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+  })
+  const product = prepareDshProductHome({
+    productHome: join(app.getPath("userData"), "dsh"),
+    resources,
+  })
+  const require = createRequire(import.meta.url)
+  const dshPackage = resolveDshPackagePath({
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    resolveDevelopmentPackage: () => require.resolve("@deepseek-ai/dsh/package.json"),
+  })
+  const dshBin = join(dirname(dshPackage), "lib", "bin.js")
+  const environment = buildDshEnvironment(product.home)
 
-  logger.log("spawning sidecar", { url })
-  const { listener, health } = await spawnLocalServer(hostname, port, password)
-  server = listener
-
-  // Hand the in-process server its browser-automation host. Same-process
-  // injection by design: the CDP endpoint/secret must never cross renderer
-  // IPC or preload (PR1 security contract rule 7).
-  const { BrowserBridge } = await import("virtual:opencode-server")
-  BrowserBridge.provideHost(createDesktopBrowserBridgeHost())
+  logger.log("spawning DSH sidecar")
+  server = await launchDshSidecar({
+    executable: process.execPath,
+    dshBin,
+    zenIdentityPreload: pathToFileURL(product.zenIdentityPreload).href,
+    productHome: product.home,
+    productPatch: product.patch,
+    env: environment,
+    timeoutMs: 30_000,
+    spawn: (executable, args, options) => spawn(executable, args, options),
+    onStdout: (chunk) => logger.log("DSH stdout", { chunk: chunk.trimEnd() }),
+    onStderr: (chunk) => logger.error("DSH stderr", chunk.trimEnd()),
+  })
+  const url = server.url
+  void server.exited.then((code) => {
+    logger.error("DSH sidecar exited", { code })
+  })
+  dshUrl = url
   serverReady.resolve({
     url,
-    username: PAWWORK_RUNTIME.serverUsername,
-    password,
+    username: null,
+    password: null,
   })
 
   const loadingTask = (async () => {
@@ -557,15 +579,6 @@ async function initialize() {
       setInitStep({ phase: "sqlite_waiting" })
       if (overlay) sendSqliteMigrationProgress(overlay, progress)
       if (mainWindow) sendSqliteMigrationProgress(mainWindow, progress)
-    })
-
-    await Promise.race([
-      health.wait,
-      delay(30_000).then(() => {
-        throw new Error("Sidecar health check timed out")
-      }),
-    ]).catch((error) => {
-      logger.error("sidecar health check failed", error)
     })
 
     logger.log("loading task finished")
@@ -581,11 +594,6 @@ async function initialize() {
 
   await loadingTask
   setInitStep({ phase: "done" })
-
-  // Start the mobile-companion bridge only after the server is healthy, in the
-  // background so it never blocks opening the main window. Failures land in the
-  // bridge's own status (degraded), not here.
-  void remoteBridge.startIfConfigured()
 
   if (overlay) {
     await loadingComplete.promise
@@ -624,12 +632,6 @@ function wireMenu() {
     },
     reload: () => commandWindow()?.reload(),
     relaunch: () => {
-      if (!gracefulSidecarShutdown) {
-        killSidecar()
-        app.relaunch()
-        app.exit(0)
-        return
-      }
       void shutdownSidecar().finally(() => {
         app.relaunch()
         app.exit(0)
@@ -726,23 +728,12 @@ async function shutdownSidecar() {
     const active = server
     server = null
     if (!active) return
-    const { Instance } = await import("virtual:opencode-server")
-    try {
-      await Instance.disposeAll({ mode: "force" })
-    } finally {
-      await active.stop(true)
-    }
+    await active.stop()
   })()
   await sidecarShutdown
 }
 
 function killSidecar() {
-  if (!gracefulSidecarShutdown) {
-    if (!server) return
-    void server.stop(true)
-    server = null
-    return
-  }
   void shutdownSidecar().catch((error) => logger.error("sidecar shutdown failed", error))
 }
 
@@ -770,29 +761,6 @@ function ensureLoopbackNoProxy() {
 
   upsert("NO_PROXY")
   upsert("no_proxy")
-}
-
-async function getSidecarPort() {
-  const fromEnv = process.env.OPENCODE_PORT
-  if (fromEnv) {
-    const parsed = Number.parseInt(fromEnv, 10)
-    if (!Number.isNaN(parsed)) return parsed
-  }
-
-  return await new Promise<number>((resolve, reject) => {
-    const server = createServer()
-    server.on("error", reject)
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address()
-      if (typeof address !== "object" || !address) {
-        server.close()
-        reject(new Error("Failed to get port"))
-        return
-      }
-      const port = address.port
-      server.close(() => resolve(port))
-    })
-  })
 }
 
 async function clearPendingUpdate() {

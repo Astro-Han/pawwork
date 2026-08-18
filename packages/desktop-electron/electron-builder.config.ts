@@ -108,11 +108,15 @@ const repositoryUrl = (channel: Channel) => `https://github.com/Astro-Han/${getP
 
 const getBase = (channel: Channel): Configuration => ({
   artifactName: "pawwork-${os}-${arch}-${version}.${ext}",
+  // DSH maintains real symlinks from its user profile to the installed
+  // dependency closure. Keep dependencies outside the virtual ASAR filesystem
+  // so those links remain traversable in packaged builds.
+  asarUnpack: ["node_modules/**/*"],
   directories: {
     output: "dist",
     buildResources: "resources",
   },
-  files: ["out/**/*", "resources/**/*"],
+  files: ["out/**/*", "resources/**/*", "!resources/dsh/**/*"],
   // electron-builder reads .git/config for repository info, which fails on
   // CI runners with persist-credentials: false. Set explicitly via
   // extraMetadata to avoid "Cannot detect repository by .git/config".
@@ -120,6 +124,11 @@ const getBase = (channel: Channel): Configuration => ({
     repository: { type: "git", url: repositoryUrl(channel) },
   },
   extraResources: [
+    {
+      from: "resources/dsh/",
+      to: "dsh/",
+      filter: ["**/*", "!**/*.test.cjs"],
+    },
     ...nativeWatcherFileSets(),
     ...openCliRuntimeFileSets(),
     {

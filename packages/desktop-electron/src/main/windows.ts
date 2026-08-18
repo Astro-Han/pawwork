@@ -60,7 +60,7 @@ export function registerRendererProtocol() {
   })
 }
 
-export function createMainWindow() {
+export function createMainWindow(url: string) {
   const state = windowState({
     defaultWidth: 1280,
     defaultHeight: 800,
@@ -90,7 +90,7 @@ export function createMainWindow() {
 
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }))
 
-  loadWindow(win, "index.html")
+  void win.loadURL(url)
   wireZoom(win)
 
   win.once("ready-to-show", () => {
