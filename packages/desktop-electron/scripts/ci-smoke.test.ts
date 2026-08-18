@@ -3,16 +3,14 @@ import { spawnSync } from "node:child_process"
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { desktopShellMainSelector, titlebarShellSelector } from "../src/renderer/ci-smoke-selectors"
 import {
   allocateCiSmokeCdpPort,
   appIdForSmoke,
   buildSmokeEnv,
-  isCiSmokeRendererTarget,
+  isCiSmokeDshTarget,
   parseSmokeArgs,
   parseSmokeCdpPort,
   probeCiSmokeCdpTarget,
-  requiredSelectors,
   resolveCiSmokeReadyFile,
   resolveCiSmokeCdpPort,
   resolveLaunchCommand,
@@ -36,10 +34,6 @@ describe("ci smoke helpers", () => {
     expect(env.XDG_CONFIG_HOME).toBe("/tmp/pawwork-ci-smoke")
     expect(env.XDG_STATE_HOME).toBe("/tmp/pawwork-ci-smoke")
     expect(env.CI).toBe("true")
-  })
-
-  test("required selectors lock one real renderer affordance", () => {
-    expect(requiredSelectors).toEqual([titlebarShellSelector, desktopShellMainSelector])
   })
 
   test("resolveCiSmokeReadyFile points at the CI-ready marker inside the isolated user data dir", () => {
@@ -123,17 +117,15 @@ describe("ci smoke helpers", () => {
     expect(port).toBeLessThanOrEqual(65_535)
   })
 
-  test("isCiSmokeRendererTarget accepts real renderer page URLs only", () => {
-    expect(isCiSmokeRendererTarget({ type: "page", url: "http://127.0.0.1:5173/index.html" })).toBe(true)
-    expect(isCiSmokeRendererTarget({ type: "page", url: "http://localhost:5173/index.html#/chat" })).toBe(true)
-    expect(isCiSmokeRendererTarget({ type: "page", url: "http://[::1]:5173/index.html?debug=1" })).toBe(true)
-    expect(isCiSmokeRendererTarget({ type: "page", url: "pawwork-renderer://renderer/index.html#/session" })).toBe(true)
-
-    expect(isCiSmokeRendererTarget({ type: "page", url: "about:blank" })).toBe(false)
-    expect(isCiSmokeRendererTarget({ type: "page", url: "devtools://devtools/bundled/inspector.html" })).toBe(false)
-    expect(isCiSmokeRendererTarget({ type: "iframe", url: "pawwork-renderer://renderer/index.html" })).toBe(false)
-    expect(isCiSmokeRendererTarget({ type: "page", url: "file:///Applications/PawWork/index.html" })).toBe(false)
-    expect(isCiSmokeRendererTarget({ type: "page", url: "pawwork-renderer://wrong/index.html" })).toBe(false)
+  test("isCiSmokeDshTarget accepts DSH loopback pages only", () => {
+    expect(isCiSmokeDshTarget({ type: "page", url: "http://127.0.0.1:5173/index.html" })).toBe(true)
+    expect(isCiSmokeDshTarget({ type: "page", url: "http://localhost:5173/index.html#/chat" })).toBe(true)
+    expect(isCiSmokeDshTarget({ type: "page", url: "http://[::1]:5173/index.html?debug=1" })).toBe(true)
+    expect(isCiSmokeDshTarget({ type: "page", url: "about:blank" })).toBe(false)
+    expect(isCiSmokeDshTarget({ type: "page", url: "devtools://devtools/bundled/inspector.html" })).toBe(false)
+    expect(isCiSmokeDshTarget({ type: "iframe", url: "pawwork-renderer://renderer/index.html" })).toBe(false)
+    expect(isCiSmokeDshTarget({ type: "page", url: "file:///Applications/PawWork/index.html" })).toBe(false)
+    expect(isCiSmokeDshTarget({ type: "page", url: "pawwork-renderer://renderer/index.html" })).toBe(false)
   })
 
   test("probeCiSmokeCdpTarget retries until the renderer target is discoverable", async () => {
@@ -142,7 +134,7 @@ describe("ci smoke helpers", () => {
       Promise.reject(new Error("connect ECONNREFUSED")),
       Promise.resolve(new Response(JSON.stringify([{ type: "page", url: "about:blank" }]))),
       Promise.resolve(
-        new Response(JSON.stringify([{ type: "page", url: "pawwork-renderer://renderer/index.html" }])),
+        new Response(JSON.stringify([{ type: "page", url: "http://127.0.0.1:53501/" }])),
       ),
     ]
 
@@ -171,7 +163,7 @@ describe("ci smoke helpers", () => {
         fetch: () => Promise.resolve(new Response(JSON.stringify([{ type: "page", url: "about:blank" }]))),
         sleep: () => Promise.resolve(),
       }),
-    ).rejects.toThrow("CDP endpoint on port 48291 did not expose a renderer page target")
+    ).rejects.toThrow("CDP endpoint on port 48291 did not expose a DSH page target")
   })
 
   test("probeCiSmokeCdpTarget drains non-OK discovery responses before retrying", async () => {

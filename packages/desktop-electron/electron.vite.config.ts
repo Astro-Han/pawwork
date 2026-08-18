@@ -1,137 +1,18 @@
 import { defineConfig } from "electron-vite"
-import appPlugin from "@opencode-ai/app/vite"
-import { existsSync, realpathSync } from "node:fs"
-import * as fs from "node:fs/promises"
-import path from "node:path"
-import {
-  embeddedServerArtifacts,
-  embeddedServerMissingArtifacts,
-  embeddedServerMissingArtifactsMessage,
-} from "./src/main/embedded-server-contract"
-import { createRendererWorkspaceConfig } from "./renderer-workspace-config"
-import { includeOpenCliRuntimeDirectory, includeOpenCliRuntimeFile, openCliRuntimePackages } from "./opencli-runtime"
 
 const channel = (() => {
   const raw = process.env.OPENCODE_CHANNEL
   if (raw === "dev" || raw === "beta" || raw === "prod") return raw
   return "dev"
 })()
-const feedbackFormUrl = process.env.PAWWORK_FEEDBACK_FORM_URL ?? ""
-const buildSha = process.env.PAWWORK_BUILD_SHA ?? ""
-
-const OPENCODE_ROOT = path.resolve(process.cwd(), "../opencode")
-const { runtimeDir: OPENCODE_SERVER_DIST, runtimeEntry: OPENCODE_SERVER_ENTRY } = embeddedServerArtifacts(OPENCODE_ROOT)
-const missingArtifacts = embeddedServerMissingArtifacts(OPENCODE_ROOT, existsSync)
-
-if (missingArtifacts.length > 0) {
-  throw new Error(embeddedServerMissingArtifactsMessage(OPENCODE_ROOT, missingArtifacts))
-}
-
-const nodePtyPkg = `@lydell/node-pty-${process.platform}-${process.arch}`
-const rendererWorkspaceConfig = createRendererWorkspaceConfig(process.cwd(), realpathSync)
-
-async function copyOpenCliRuntimePackage(pkg: ReturnType<typeof openCliRuntimePackages>[number], target: string) {
-  const stack = [{ source: pkg.dir, destination: target, relativePath: "" }]
-  while (stack.length > 0) {
-    const current = stack.pop()!
-    await fs.mkdir(current.destination, { recursive: true })
-    for (const entry of await fs.readdir(current.source, { withFileTypes: true })) {
-      const source = path.join(current.source, entry.name)
-      const destination = path.join(current.destination, entry.name)
-      const relativePath = current.relativePath ? path.join(current.relativePath, entry.name) : entry.name
-      if (entry.isDirectory()) {
-        if (includeOpenCliRuntimeDirectory(pkg.name, relativePath)) {
-          stack.push({ source, destination, relativePath })
-        }
-        continue
-      }
-      if (entry.isFile() && includeOpenCliRuntimeFile(pkg.name, relativePath)) {
-        await fs.copyFile(source, destination)
-      }
-    }
-  }
-}
-
 export default defineConfig({
   main: {
     define: {
       "import.meta.env.OPENCODE_CHANNEL": JSON.stringify(channel),
-      "import.meta.env.PAWWORK_FEEDBACK_FORM_URL": JSON.stringify(feedbackFormUrl),
-      "import.meta.env.PAWWORK_BUILD_SHA": JSON.stringify(buildSha),
     },
     build: {
       rollupOptions: {
         input: { index: "src/main/index.ts" },
-      },
-      // remote-bridge ships TypeScript source only (exports map → ./src/*.ts) and
-      // has no runtime deps, so it must be BUNDLED into out/main rather than
-      // externalized — a bare `import "@opencode-ai/remote-bridge/..."` left in the
-      // output would resolve to .ts at runtime, which Electron cannot execute (and
-      // the runtime-import-guard fails the build on exactly that).
-      externalizeDeps: { include: [nodePtyPkg], exclude: ["@opencode-ai/remote-bridge"] },
-    },
-    plugins: [
-      {
-        name: "opencode:node-pty-narrower",
-        enforce: "pre",
-        resolveId(s) {
-          if (s === "@lydell/node-pty") return nodePtyPkg
-        },
-      },
-      {
-        name: "opencode:virtual-server-module",
-        enforce: "pre",
-        resolveId(id) {
-          if (id === "virtual:opencode-server") return this.resolve(OPENCODE_SERVER_ENTRY)
-        },
-      },
-      {
-        name: "opencode:copy-server-assets",
-        async writeBundle() {
-          for (const l of await fs.readdir(OPENCODE_SERVER_DIST)) {
-            if (!l.endsWith(".wasm")) continue
-            await fs.writeFile(`./out/main/chunks/${l}`, await fs.readFile(path.join(OPENCODE_SERVER_DIST, l)))
-          }
-        },
-      },
-      {
-        name: "opencode:copy-opencli-runtime",
-        async writeBundle() {
-          for (const pkg of openCliRuntimePackages()) {
-            const target = path.join("./out/main/chunks/node_modules", ...pkg.name.split("/"))
-            await fs.rm(target, { recursive: true, force: true })
-            await copyOpenCliRuntimePackage(pkg, target)
-          }
-        },
-      },
-    ],
-  },
-  preload: {
-    build: {
-      rollupOptions: {
-        input: { index: "src/preload/index.ts" },
-        output: {
-          // Electron sandboxed preload scripts require CommonJS.
-          format: "cjs",
-          entryFileNames: "[name].js",
-        },
-      },
-    },
-  },
-  renderer: {
-    plugins: [appPlugin],
-    publicDir: "../../../app/public",
-    root: "src/renderer",
-    define: {
-      "import.meta.env.VITE_OPENCODE_CHANNEL": JSON.stringify(channel),
-    },
-    ...rendererWorkspaceConfig,
-    build: {
-      rollupOptions: {
-        input: {
-          main: "src/renderer/index.html",
-          loading: "src/renderer/loading.html",
-        },
       },
     },
   },

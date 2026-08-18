@@ -1,24 +1,15 @@
 import { execFile } from "node:child_process"
 import { mkdir, writeFile } from "node:fs/promises"
-import { createRequire } from "node:module"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
 import { writeAppUpdateConfig, type GitHubPublishConfig } from "./scripts/write-app-update-config"
-import { openCliRuntimeFileSets, openCliRuntimePackageNames } from "./opencli-runtime"
-
-export { openCliRuntimeFileSets, openCliRuntimePackageNames } from "./opencli-runtime"
 
 const execFileAsync = promisify(execFile)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const signScript = path.join(rootDir, "script", "sign-windows.ps1")
-const requireFromOpencode = createRequire(path.join(rootDir, "packages", "opencode", "package.json"))
-const opencodePackage = requireFromOpencode("./package.json") as {
-  dependencies?: Record<string, string>
-  devDependencies?: Record<string, string>
-}
 type Channel = "dev" | "beta" | "prod"
 const localizedMacDisplayNameByChannel: Record<Channel, string> = {
   dev: "爪印 Dev",
@@ -41,50 +32,6 @@ function currentChannel(): Channel {
   const raw = process.env.OPENCODE_CHANNEL
   if (raw === "dev" || raw === "beta" || raw === "prod") return raw
   return "dev"
-}
-
-const nativeWatcherPackages = [
-  "@parcel/watcher-darwin-arm64",
-  "@parcel/watcher-darwin-x64",
-  "@parcel/watcher-linux-arm64-glibc",
-  "@parcel/watcher-linux-arm64-musl",
-  "@parcel/watcher-linux-x64-glibc",
-  "@parcel/watcher-linux-x64-musl",
-  "@parcel/watcher-win32-arm64",
-  "@parcel/watcher-win32-x64",
-] as const
-
-export function nativeWatcherPackageNames() {
-  return [...nativeWatcherPackages]
-}
-
-function bunPackageFallbackDir(packageName: string) {
-  const version = opencodePackage.devDependencies?.[packageName] ?? opencodePackage.dependencies?.[packageName]
-  if (!version) throw new Error(`Missing ${packageName} in packages/opencode/package.json`)
-  return path.join(
-    rootDir,
-    "node_modules",
-    ".bun",
-    `${packageName.replace("/", "+")}@${version}`,
-    "node_modules",
-    ...packageName.split("/"),
-  )
-}
-
-function nativeWatcherPackageDir(packageName: string) {
-  try {
-    return path.dirname(requireFromOpencode.resolve(`${packageName}/package.json`))
-  } catch {
-    return bunPackageFallbackDir(packageName)
-  }
-}
-
-export function nativeWatcherFileSets() {
-  return nativeWatcherPackages.map((packageName) => ({
-    from: nativeWatcherPackageDir(packageName),
-    to: path.join("node_modules", ...packageName.split("/")),
-    filter: ["**/*"],
-  }))
 }
 
 export function getPublishConfig(channel: Channel): GitHubPublishConfig | undefined {
@@ -116,7 +63,7 @@ const getBase = (channel: Channel): Configuration => ({
     output: "dist",
     buildResources: "resources",
   },
-  files: ["out/**/*", "resources/**/*", "!resources/dsh/**/*"],
+  files: ["out/main/**/*", "resources/**/*", "!resources/dsh/**/*"],
   // electron-builder reads .git/config for repository info, which fails on
   // CI runners with persist-credentials: false. Set explicitly via
   // extraMetadata to avoid "Cannot detect repository by .git/config".
@@ -129,8 +76,6 @@ const getBase = (channel: Channel): Configuration => ({
       to: "dsh/",
       filter: ["**/*", "!**/*.test.cjs"],
     },
-    ...nativeWatcherFileSets(),
-    ...openCliRuntimeFileSets(),
     {
       from: path.join(rootDir, "skills"),
       to: "skills",

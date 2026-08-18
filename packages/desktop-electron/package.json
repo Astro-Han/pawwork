@@ -49,18 +49,12 @@
     "@deepseek-ai/dsh-subprocess": "0.1.0-rc.7",
     "@deepseek-ai/dsh-timeout": "0.1.0-rc.7",
     "@deepseek-ai/dsh-workflow": "0.1.0-rc.7",
-    "@opencode-ai/remote-bridge": "workspace:*",
-    "@opencode-ai/util": "workspace:*",
     "electron-context-menu": "4.1.2",
     "electron-log": "^5",
     "electron-store": "^10",
     "electron-updater": "6.8.9",
     "electron-window-state": "^5.0.3",
-    "marked": "^15",
-    "qrcode": "1.5.4",
-    "semver": "^7.6.0",
-    "undici": "7.29.0",
-    "ws": "8.21.0"
+    "semver": "^7.6.0"
   },
   "devDependencies": {
     "@lydell/node-pty": "catalog:",
@@ -88,13 +82,5 @@
     "typescript": "~5.6.2",
     "vite": "catalog:",
     "zod-openapi": "5.4.6"
-  },
-  "optionalDependencies": {
-    "@lydell/node-pty-darwin-arm64": "1.2.0-beta.10",
-    "@lydell/node-pty-darwin-x64": "1.2.0-beta.10",
-    "@lydell/node-pty-linux-arm64": "1.2.0-beta.10",
-    "@lydell/node-pty-linux-x64": "1.2.0-beta.10",
-    "@lydell/node-pty-win32-arm64": "1.2.0-beta.10",
-    "@lydell/node-pty-win32-x64": "1.2.0-beta.10"
   }
 }

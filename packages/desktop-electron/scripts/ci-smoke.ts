@@ -7,10 +7,6 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import process from "node:process"
 import readline from "node:readline"
-import { rendererOrigin } from "../src/main/renderer-protocol"
-import { desktopShellMainSelector, titlebarShellSelector } from "../src/renderer/ci-smoke-selectors"
-
-export const requiredSelectors = [titlebarShellSelector, desktopShellMainSelector]
 const require = createRequire(import.meta.url)
 
 export type SmokeChannel = "dev" | "beta" | "prod"
@@ -144,16 +140,11 @@ export async function resolveCiSmokeCdpPort(
   return await allocate()
 }
 
-export function isCiSmokeRendererTarget(target: CdpTarget) {
+export function isCiSmokeDshTarget(target: CdpTarget) {
   if (target.type !== "page" || typeof target.url !== "string") return false
   if (target.url === "about:blank" || target.url.startsWith("devtools://")) return false
 
-  return (
-    target.url.startsWith("http://127.0.0.1:") ||
-    target.url.startsWith("http://localhost:") ||
-    target.url.startsWith("http://[::1]:") ||
-    target.url.startsWith(`${rendererOrigin}/`)
-  )
+  return target.url.startsWith("http://127.0.0.1:") || target.url.startsWith("http://localhost:") || target.url.startsWith("http://[::1]:")
 }
 
 export async function probeCiSmokeCdpTarget(port: number, options: ProbeOptions = {}) {
@@ -172,8 +163,8 @@ export async function probeCiSmokeCdpTarget(port: number, options: ProbeOptions 
         await response.arrayBuffer().catch(() => undefined)
       } else {
         const targets = (await response.json()) as unknown
-        if (Array.isArray(targets) && targets.some(isCiSmokeRendererTarget)) {
-          console.log(`CI smoke CDP renderer target discovered on port ${port}`)
+        if (Array.isArray(targets) && targets.some(isCiSmokeDshTarget)) {
+          console.log(`CI smoke DSH target discovered on port ${port}`)
           return
         }
         lastConnectionError = undefined
@@ -188,7 +179,7 @@ export async function probeCiSmokeCdpTarget(port: number, options: ProbeOptions 
   if (lastConnectionError) {
     throw new Error(`CDP endpoint never came up on port ${port}: ${lastConnectionError}`)
   }
-  throw new Error(`CDP endpoint on port ${port} did not expose a renderer page target`)
+  throw new Error(`CDP endpoint on port ${port} did not expose a DSH page target`)
 }
 
 export function resolveCiSmokeReadyFile(homeDir: string, options: { channel?: SmokeChannel; mode?: SmokeMode } = {}) {

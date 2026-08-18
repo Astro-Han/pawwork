@@ -1,8 +1,5 @@
-import { join } from "node:path"
-
-export function rendererWebPreferences(root: string) {
+export function dshWebPreferences() {
   return {
-    preload: join(root, "../preload/index.js"),
     sandbox: true,
     contextIsolation: true,
     nodeIntegration: false,

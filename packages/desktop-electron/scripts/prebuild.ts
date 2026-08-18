@@ -5,4 +5,3 @@ import { resolveChannel } from "./utils"
 
 const channel = resolveChannel()
 await $`bun ./scripts/generate-icons.ts ${channel}`
-await $`bun ./scripts/prepare-embedded-server.ts`

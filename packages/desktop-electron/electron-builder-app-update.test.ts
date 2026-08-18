@@ -7,10 +7,6 @@ import type { Configuration } from "electron-builder"
 import {
   createConfig,
   getPublishConfig,
-  nativeWatcherFileSets,
-  nativeWatcherPackageNames,
-  openCliRuntimeFileSets,
-  openCliRuntimePackageNames,
 } from "./electron-builder.config"
 import { serializeAppUpdateConfig } from "./scripts/write-app-update-config"
 
@@ -36,6 +32,35 @@ afterEach(() => {
 })
 
 describe("electron builder app-update config", () => {
+  test("production dependencies exclude the retired v1 runtime", () => {
+    const manifest = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf8")) as {
+      dependencies: Record<string, string>
+    }
+
+    expect(Object.keys(manifest.dependencies)).not.toEqual(
+      expect.arrayContaining([
+        "@opencode-ai/remote-bridge",
+        "@opencode-ai/util",
+        "marked",
+        "qrcode",
+        "undici",
+        "ws",
+      ]),
+    )
+  })
+
+  test("packages only the DSH production entry", () => {
+    const config = createConfig("prod")
+
+    expect(config.files).toEqual(["out/main/**/*", "resources/**/*", "!resources/dsh/**/*"])
+    expect(config.extraResources).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ to: expect.stringContaining("@parcel/watcher") }),
+        expect.objectContaining({ to: expect.stringContaining("@jackwener/opencli") }),
+      ]),
+    )
+  })
+
   test("prod publish config feeds local updater config", () => {
     expect(serializeAppUpdateConfig(getPublishConfig("prod")!)).toContain("repo: pawwork\n")
   })
@@ -103,106 +128,6 @@ describe("electron builder app-update config", () => {
           to: "THIRD_PARTY_NOTICES.md",
         }),
       ]),
-    )
-  })
-
-  test("third-party notices include bundled OpenCLI attribution", () => {
-    const notices = readFileSync(join(import.meta.dir, "../..", "THIRD_PARTY_NOTICES.md"), "utf8")
-    const opencodePackage = JSON.parse(
-      readFileSync(join(import.meta.dir, "..", "opencode", "package.json"), "utf8"),
-    ) as { dependencies: Record<string, string> }
-    const openCliVersion = opencodePackage.dependencies["@jackwener/opencli"]
-
-    expect(notices).toContain("## OpenCLI")
-    expect(notices).toContain("https://github.com/jackwener/opencli")
-    expect(notices).toContain("`@jackwener/opencli`")
-    expect(notices).toContain(`Version: ${openCliVersion}`)
-    expect(notices).toContain("Apache License 2.0")
-  })
-
-  test("native watcher package list covers desktop targets", () => {
-    expect(nativeWatcherPackageNames()).toEqual([
-      "@parcel/watcher-darwin-arm64",
-      "@parcel/watcher-darwin-x64",
-      "@parcel/watcher-linux-arm64-glibc",
-      "@parcel/watcher-linux-arm64-musl",
-      "@parcel/watcher-linux-x64-glibc",
-      "@parcel/watcher-linux-x64-musl",
-      "@parcel/watcher-win32-arm64",
-      "@parcel/watcher-win32-x64",
-    ])
-  })
-
-  test("packages native file watcher bindings for the embedded server", () => {
-    const config = createConfig("prod")
-    const resources = nativeWatcherFileSets()
-
-    expect(config.extraResources).toEqual(
-      expect.arrayContaining(
-        resources.map((resource) =>
-          expect.objectContaining({
-            from: resource.from,
-            to: resource.to,
-          }),
-        ),
-      ),
-    )
-    expect(resources.map((resource) => resource.to)).toEqual(
-      nativeWatcherPackageNames().map((packageName) => join("node_modules", ...packageName.split("/"))),
-    )
-  })
-
-  test("packages OpenCLI adapters and runtime dependencies for the embedded server", () => {
-    const config = createConfig("prod")
-    const resources = openCliRuntimeFileSets()
-
-    expect(openCliRuntimePackageNames()).toEqual([
-      "@jackwener/opencli",
-      "@mixmark-io/domino",
-      "@mozilla/readability",
-      "ansi-regex",
-      "argparse",
-      "cli-table3",
-      "commander",
-      "emoji-regex",
-      "is-fullwidth-code-point",
-      "js-yaml",
-      "string-width",
-      "strip-ansi",
-      "turndown",
-      "turndown-plugin-gfm",
-      "undici",
-      "ws",
-    ])
-    expect(config.extraResources).toEqual(
-      expect.arrayContaining(
-        resources.map((resource) =>
-          expect.objectContaining({
-            from: resource.from,
-            to: resource.to,
-          }),
-        ),
-      ),
-    )
-    expect(resources.map((resource) => resource.to)).toEqual(
-      openCliRuntimePackageNames().map((packageName) => join("node_modules", ...packageName.split("/"))),
-    )
-  })
-
-  test("packages only OpenCLI runtime files", () => {
-    const resources = openCliRuntimeFileSets()
-
-    for (const resource of resources) {
-      expect(resource.filter).toEqual(
-        expect.arrayContaining([
-          "!**/.yarn/**",
-          "!**/{test,tests,__tests__,coverage}/**",
-          "!**/*.{test,spec}.{js,mjs,cjs,ts,tsx}",
-        ]),
-      )
-    }
-    expect(resources.find((resource) => resource.to.endsWith(join("@jackwener", "opencli")))?.filter).toContain(
-      "!clis/test-utils.js",
     )
   })
 
