@@ -1,0 +1,220 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const {
+  createDshSettingImporter,
+  readV1Preferences,
+  runV1SettingsImport,
+  v1AppDataCandidates,
+} = require('./import-v1-settings.cjs');
+
+function temporaryDirectory() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-import-v1-settings-'));
+}
+
+function createPreferenceFixture(root) {
+  fs.mkdirSync(path.join(root, 'data', 'pawwork'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'default.dat'), JSON.stringify({
+    settings: {
+      v3: JSON.stringify({
+        general: { followup: 'steer', autoSave: false, lspEnabled: true },
+        updates: { startup: false },
+        appearance: { fontSize: 16 },
+        keybinds: { 'settings.open': 'mod+/' },
+        notify: 'always',
+      }),
+    },
+  }));
+  fs.writeFileSync(path.join(root, 'pawwork.global.dat'), JSON.stringify({
+    language: JSON.stringify({ locale: 'en' }),
+    model: JSON.stringify({
+      recent: [
+        { providerID: 'unavailable', modelID: 'old-model' },
+        { providerID: 'opencode', modelID: 'deepseek-v4-flash-free' },
+      ],
+      user: [{ providerID: 'opencode', modelID: 'hidden-model', visibility: 'hide' }],
+      variant: { 'opencode/deepseek-v4-flash-free': 'high' },
+    }),
+    permission: JSON.stringify({ autoAccept: { session: true } }),
+  }));
+  fs.writeFileSync(path.join(root, 'data', 'pawwork', 'auth.json'), JSON.stringify({
+    openai: { type: 'oauth', access: 'secret' },
+    'kimi-for-coding': { type: 'api', key: 'secret' },
+  }));
+}
+
+test('discovers the official v1 app-data root on macOS and Windows', () => {
+  assert.deepEqual(v1AppDataCandidates({
+    platform: 'darwin',
+    home: '/Users/alice',
+    env: {},
+  }), [path.join('/Users/alice', 'Library', 'Application Support', 'ai.pawwork.desktop')]);
+  assert.deepEqual(v1AppDataCandidates({
+    platform: 'win32',
+    home: 'C:\\Users\\alice',
+    env: { APPDATA: 'C:\\Users\\alice\\AppData\\Roaming' },
+    pathApi: path.win32,
+  }), ['C:\\Users\\alice\\AppData\\Roaming\\ai.pawwork.desktop']);
+});
+
+test('reads only settings with exact DSH equivalents and redacts credential values', () => {
+  const root = temporaryDirectory();
+  createPreferenceFixture(root);
+
+  const preferences = readV1Preferences(root);
+
+  assert.deepEqual(preferences.settings, [
+    { id: 'locale', kind: 'field', namespace: 'locale', field: 'preference', value: 'en' },
+    { id: 'busy-enter', kind: 'field', namespace: 'ui-conversation', field: 'busyEnter', value: 'queue' },
+    {
+      id: 'default-model',
+      kind: 'model',
+      candidates: [
+        { provider: 'unavailable', model: 'old-model' },
+        { provider: 'opencode', model: 'deepseek-v4-flash-free' },
+      ],
+    },
+  ]);
+  assert.deepEqual(preferences.credentials, [
+    { id: 'kimi-for-coding', type: 'api' },
+    { id: 'openai', type: 'oauth' },
+  ]);
+  assert.ok(preferences.unsupportedSettings.includes('appearance.fontSize'));
+  assert.ok(preferences.unsupportedSettings.includes('general.autoSave'));
+  assert.ok(preferences.unsupportedSettings.includes('model.variant'));
+  assert.ok(preferences.unsupportedSettings.includes('permission'));
+  assert.equal(JSON.stringify(preferences).includes('secret'), false);
+});
+
+test('records idempotent Stage 2 results and resumes only failed settings', async () => {
+  const root = temporaryDirectory();
+  const appData = path.join(root, 'v1');
+  const home = path.join(root, 'v2');
+  createPreferenceFixture(appData);
+  const sourceFiles = [
+    path.join(appData, 'default.dat'),
+    path.join(appData, 'pawwork.global.dat'),
+    path.join(appData, 'data', 'pawwork', 'auth.json'),
+  ];
+  const sourceBefore = sourceFiles.map((file) => fs.readFileSync(file));
+  const firstCalls = [];
+
+  const partial = await runV1SettingsImport({
+    home,
+    sourceAppData: appData,
+    importSetting: async (setting) => {
+      firstCalls.push(setting.id);
+      if (setting.id === 'busy-enter') throw new Error('simulated interruption');
+      return setting.id === 'default-model' ? 'unsupported' : 'imported';
+    },
+  });
+  assert.equal(partial.status, 'partial');
+  assert.deepEqual(partial.settings, { imported: 1, skipped: 0, unsupported: 10, failed: 1 });
+  assert.deepEqual(partial.credentials, { imported: 0, skipped: 0, unsupported: 2, failed: 0 });
+
+  const resumedCalls = [];
+  const complete = await runV1SettingsImport({
+    home,
+    sourceAppData: appData,
+    importSetting: async (setting) => {
+      resumedCalls.push(setting.id);
+      return 'skipped';
+    },
+  });
+  assert.deepEqual(resumedCalls, ['busy-enter']);
+  assert.equal(complete.status, 'complete');
+  assert.deepEqual(complete.settings, { imported: 0, skipped: 2, unsupported: 10, failed: 0 });
+
+  const third = await runV1SettingsImport({
+    home,
+    sourceAppData: appData,
+    importSetting: async () => {
+      throw new Error('completed Stage 2 must not run again');
+    },
+  });
+  assert.deepEqual(third, complete);
+  assert.deepEqual(sourceFiles.map((file) => fs.readFileSync(file)), sourceBefore);
+});
+
+test('preserves v2 overrides and imports the first model currently advertised by DSH', async () => {
+  const updates = [];
+  const selections = [];
+  const descriptors = [
+    {
+      ns: 'locale',
+      value: { preference: 'zh' },
+      user: { preference: 'zh' },
+    },
+    {
+      ns: 'ui-conversation',
+      value: { busyEnter: 'steer' },
+    },
+    {
+      ns: 'agent-default-model',
+      value: { provider: 'opencode', model: 'big-pickle' },
+    },
+  ];
+  const importSetting = createDshSettingImporter({
+    settings: {
+      describe: () => descriptors,
+      update: async (namespace, patch) => updates.push({ namespace, patch }),
+    },
+    llm: {
+      listProviders: () => [{ id: 'opencode', name: 'OpenCode Zen' }],
+      listModels: async () => [{ provider: 'opencode', id: 'deepseek-v4-flash-free', name: 'DeepSeek V4' }],
+    },
+    agentDefaultModel: {
+      currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }),
+      saveSelection: async (selection) => selections.push(selection),
+    },
+  });
+
+  assert.equal(await importSetting({
+    id: 'locale', kind: 'field', namespace: 'locale', field: 'preference', value: 'en',
+  }), 'skipped');
+  assert.equal(await importSetting({
+    id: 'busy-enter', kind: 'field', namespace: 'ui-conversation', field: 'busyEnter', value: 'queue',
+  }), 'imported');
+  assert.equal(await importSetting({
+    id: 'default-model',
+    kind: 'model',
+    candidates: [
+      { provider: 'missing', model: 'old-model' },
+      { provider: 'opencode', model: 'deepseek-v4-flash-free' },
+    ],
+  }), 'imported');
+
+  assert.deepEqual(updates, [{ namespace: 'ui-conversation', patch: { busyEnter: 'queue' } }]);
+  assert.deepEqual(selections, [{ provider: 'opencode', model: 'deepseek-v4-flash-free' }]);
+});
+
+test('skips an overridden model and rejects settings without a live equivalent', async () => {
+  const importSetting = createDshSettingImporter({
+    settings: {
+      describe: () => [{
+        ns: 'agent-default-model',
+        value: { provider: 'opencode', model: 'big-pickle' },
+        user: { provider: 'opencode' },
+      }],
+      update: async () => assert.fail('unsupported or overridden settings must not be written'),
+    },
+    llm: {
+      listProviders: () => [{ id: 'opencode', name: 'OpenCode Zen' }],
+      listModels: async () => [],
+    },
+    agentDefaultModel: {
+      currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }),
+      saveSelection: async () => assert.fail('overridden models must not be written'),
+    },
+  });
+
+  assert.equal(await importSetting({
+    id: 'default-model', kind: 'model', candidates: [{ provider: 'opencode', model: 'missing' }],
+  }), 'skipped');
+  assert.equal(await importSetting({
+    id: 'unknown', kind: 'field', namespace: 'missing', field: 'value', value: true,
+  }), 'unsupported');
+});
