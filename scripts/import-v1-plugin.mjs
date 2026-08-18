@@ -4,17 +4,46 @@ import { isDeepStrictEqual } from 'node:util';
 const require = createRequire(import.meta.url);
 const importer = require('./import-v1.cjs');
 const settingsImporter = require('./import-v1-settings.cjs');
+const automationImporter = require('./import-v1-automations.cjs');
 
 export const name = 'pawwork-import-v1';
 export const inject = [
   'agentDefaultModel',
   'attachments',
   'llm',
+  'pawworkAutomations',
   'sessions',
   'sessionPersistence',
   'sessionTitle',
   'settings',
 ];
+
+function createAutomationModelResolver(ctx) {
+  const providers = new Set(ctx.llm.listProviders().map((provider) => provider.id));
+  const models = new Map();
+  return async (source) => {
+    const selected = source.data?.model;
+    if (providers.has(selected?.providerID)) {
+      let available = models.get(selected.providerID);
+      if (!available) {
+        try {
+          available = new Set((await ctx.llm.listModels(selected.providerID)).map((model) => model.id));
+        } catch {
+          available = new Set();
+        }
+        models.set(selected.providerID, available);
+      }
+      if (available.has(selected.modelID)) {
+        return { model: { provider: selected.providerID, model: selected.modelID } };
+      }
+    }
+    const fallback = ctx.agentDefaultModel.currentSelection();
+    return {
+      model: { provider: fallback.provider, model: fallback.model },
+      modelWarning: 'model_not_available',
+    };
+  };
+}
 
 function importedPrefixIsComplete(events, imported) {
   if (events.length <= imported.seed.length) return false;
@@ -74,6 +103,19 @@ export function apply(ctx) {
       });
     } catch (error) {
       ctx.logger.warn(`v1 settings import failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    try {
+      await automationImporter.runV1AutomationImport({
+        home: process.env.DSH_HOME,
+        resolveModel: createAutomationModelResolver(ctx),
+        importDefinition: async (definition) => ctx.pawworkAutomations.store.importDefinition(definition),
+        importRun: async (run) => ctx.pawworkAutomations.store.importRun(run),
+        signal: controller.signal,
+      });
+      ctx.pawworkAutomations.scheduler.refresh();
+    } catch (error) {
+      ctx.logger.warn(`v1 automation import failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   })();
   ctx.effect(() => () => controller.abort(new Error('PawWork v1 importer stopped')));

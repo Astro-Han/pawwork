@@ -9,6 +9,7 @@ const {
   mapV1AutomationDefinition,
   mapV1AutomationRun,
   readV1Automations,
+  runV1AutomationImport,
 } = require('./import-v1-automations');
 
 function fixture() {
@@ -76,6 +77,16 @@ function fixture() {
     }),
     4_000, 4_100,
   );
+  insertRun.run(
+    'automation_run_orphan', 'automation_deleted', 'project_1', '/Users/alice/work', 5_000,
+    JSON.stringify({
+      id: 'automation_run_orphan', automationID: 'automation_deleted', revision: 1,
+      definitionRevision: 1, state: 'failed', triggeredAt: 5_000,
+      startedAt: 5_100, completedAt: 5_500, sessionID: 'ses_orphan', result: null,
+      error: { code: 'MODEL_ERROR', message: 'Unavailable' }, cost: 0,
+    }),
+    5_000, 5_500,
+  );
   database.close();
   return file;
 }
@@ -87,7 +98,11 @@ test('reads v1 automation definitions and runs from their authoritative tables',
   assert.equal(data.definitions.length, 1);
   assert.equal(data.definitions[0].ownerDirectory, '/Users/alice/work');
   assert.equal(data.definitions[0].data.rhythm.expression, '0 9 * * 1-5');
-  assert.deepEqual(data.runs.map((run) => run.id), ['automation_run_done', 'automation_run_live']);
+  assert.deepEqual(data.runs.map((run) => run.id), [
+    'automation_run_done',
+    'automation_run_live',
+    'automation_run_orphan',
+  ]);
 });
 
 test('maps v1 definitions into paused v2-owned records pending one takeover', () => {
@@ -126,4 +141,41 @@ test('maps completed history and turns in-flight v1 runs into interrupted histor
   assert.equal(interrupted.stopReason, 'interrupted');
   assert.equal(interrupted.completedAt, 8_000);
   assert.equal(interrupted.sessionId, 'pawwork-v1-ses_live');
+});
+
+test('marks history whose v1 definition was already deleted without inventing a definition', () => {
+  const source = readV1Automations(fixture()).runs[2];
+  const mapped = mapV1AutomationRun(source, { completedAt: 8_000, orphanedDefinition: true });
+
+  assert.equal(mapped.automationId, 'pawwork-v1-automation_deleted');
+  assert.equal(mapped.state, 'failed');
+  assert.equal(mapped.migration.orphanedDefinition, true);
+});
+
+test('imports definitions and runs idempotently with a resumable shared ledger', async () => {
+  const source = fixture();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-v1-automation-home-'));
+  const definitions = [];
+  const runs = [];
+  const options = {
+    home,
+    sourceDatabase: source,
+    resolveModel: async () => ({ model: { provider: 'opencode', model: 'big-pickle' } }),
+    importDefinition: async (definition) => { definitions.push(definition); return 'imported'; },
+    importRun: async (run) => { runs.push(run); return 'imported'; },
+    now: () => 8_000,
+  };
+
+  const first = await runV1AutomationImport(options);
+  const second = await runV1AutomationImport(options);
+
+  assert.equal(first.status, 'complete');
+  assert.deepEqual(first.definitions, { imported: 1, skipped: 0, failed: 0 });
+  assert.deepEqual(first.runs, { imported: 3, skipped: 0, failed: 0 });
+  assert.equal(first.orphanRuns, 1);
+  assert.deepEqual(first.takeover, { required: 1 });
+  assert.equal(definitions.length, 1);
+  assert.equal(runs.length, 3);
+  assert.deepEqual(second, first);
+  assert.equal(fs.existsSync(path.join(home, 'import-v1', 'automation-snapshot.db')), false);
 });

@@ -111,6 +111,7 @@ export function apply(ctx) {
   if (!home || !path.isAbsolute(home)) throw new Error('PawWork automations require an absolute DSH_HOME');
   const store = new AutomationStore(path.join(home, 'automations.json'));
   const scheduler = new AutomationScheduler({ store, execute: createDshExecutor(ctx) });
+  ctx.provide('pawworkAutomations', { store, scheduler });
   ctx.effect(() => {
     const stopCreated = ctx.on('agent/created', ({ agent }) => {
       if (!ctx.agents.roots().includes(agent)) return;

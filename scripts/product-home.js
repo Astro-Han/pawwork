@@ -10,9 +10,11 @@ const PRODUCT_PATCH_FILENAME = 'product.cordis.patch.yml';
 const IMPORT_V1_PLUGIN_FILENAME = 'index.mjs';
 const IMPORT_V1_CORE_FILENAME = 'import-v1.cjs';
 const IMPORT_V1_SETTINGS_FILENAME = 'import-v1-settings.cjs';
+const IMPORT_V1_AUTOMATIONS_FILENAME = 'import-v1-automations.cjs';
 const IMPORT_V1_SOURCE = path.join(__dirname, 'import-v1-plugin.mjs');
 const IMPORT_V1_CORE_SOURCE = path.join(__dirname, 'import-v1.js');
 const IMPORT_V1_SETTINGS_SOURCE = path.join(__dirname, 'import-v1-settings.js');
+const IMPORT_V1_AUTOMATIONS_SOURCE = path.join(__dirname, 'import-v1-automations.js');
 const AUTOMATIONS_PLUGIN_FILENAME = 'index.mjs';
 const AUTOMATIONS_CORE_FILENAME = 'automations.cjs';
 const AUTOMATIONS_CRON_FILENAME = 'automation-cron.js';
@@ -30,6 +32,7 @@ function writeImportV1Plugin(home) {
   fs.copyFileSync(IMPORT_V1_SOURCE, path.join(directory, IMPORT_V1_PLUGIN_FILENAME));
   fs.copyFileSync(IMPORT_V1_CORE_SOURCE, path.join(directory, IMPORT_V1_CORE_FILENAME));
   fs.copyFileSync(IMPORT_V1_SETTINGS_SOURCE, path.join(directory, IMPORT_V1_SETTINGS_FILENAME));
+  fs.copyFileSync(IMPORT_V1_AUTOMATIONS_SOURCE, path.join(directory, IMPORT_V1_AUTOMATIONS_FILENAME));
 }
 
 function writeAutomationsPlugin(home) {
@@ -100,6 +103,7 @@ module.exports = {
   IMPORT_V1_PLUGIN_FILENAME,
   IMPORT_V1_CORE_FILENAME,
   IMPORT_V1_SETTINGS_FILENAME,
+  IMPORT_V1_AUTOMATIONS_FILENAME,
   AUTOMATIONS_PLUGIN_FILENAME,
   AUTOMATIONS_CORE_FILENAME,
   AUTOMATIONS_CRON_FILENAME,

@@ -150,6 +150,101 @@ class AutomationStore {
     return structuredClone(definition);
   }
 
+  importDefinition(input) {
+    const id = assertText(input?.id, 'id');
+    const existing = this.document.definitions.find((entry) => entry.id === id);
+    if (existing) {
+      if (existing.migration?.source === 'pawwork-v1'
+        && existing.migration.sourceId === input.migration?.sourceId) return 'skipped';
+      throw new Error(`automation id conflict: ${id}`);
+    }
+    assertText(input.title, 'title');
+    assertText(input.prompt, 'prompt');
+    if (!path.isAbsolute(assertText(input.cwd, 'cwd'))) throw new Error('cwd must be absolute');
+    assertText(input.model?.provider, 'model.provider');
+    assertText(input.model?.model, 'model.model');
+    if (!isValidTimezone(input.timezone)) throw new Error(`invalid timezone: ${input.timezone}`);
+    assertTimestamp(input.createdAt, 'createdAt');
+    assertTimestamp(input.updatedAt, 'updatedAt');
+    if (!Number.isSafeInteger(input.revision) || input.revision < 1) throw new Error('revision must be positive');
+    if (input.context === 'continue') assertText(input.sourceSessionId, 'sourceSessionId');
+    else if (input.context !== 'fresh') throw new Error('context must be fresh or continue');
+    if (input.migration?.source !== 'pawwork-v1' || !input.migration.sourceId) {
+      throw new Error('imported automation requires v1 migration identity');
+    }
+    if (input.migration.takeover === 'pending' && (!input.paused || input.nextFireAt !== null)) {
+      throw new Error('pending v1 automation must be paused without a next fire');
+    }
+    if (input.kind === 'oneshot') assertTimestamp(input.fireAt, 'fireAt');
+    else if (input.kind === 'recurring') {
+      if (input.rhythm?.kind === 'interval') {
+        if (!Number.isSafeInteger(input.rhythm.everyMs) || input.rhythm.everyMs < MIN_INTERVAL_MS) {
+          throw new Error(`everyMs must be an integer of at least ${MIN_INTERVAL_MS}`);
+        }
+      } else if (input.rhythm?.kind === 'cron') {
+        if (!isValidCronExpression(input.rhythm.expression)) {
+          throw new Error(`invalid cron expression: ${input.rhythm.expression}`);
+        }
+      } else throw new Error('recurring rhythm must be interval or cron');
+      recurringStop(input.stop);
+    } else throw new Error(`unsupported automation kind: ${input.kind}`);
+    this.document.definitions.push(structuredClone(input));
+    this.save();
+    return 'imported';
+  }
+
+  importRun(input) {
+    const id = assertText(input?.id, 'id');
+    const existing = this.document.runs.find((entry) => entry.id === id);
+    if (existing) {
+      if (existing.migration?.source === 'pawwork-v1'
+        && existing.migration.sourceId === input.migration?.sourceId) return 'skipped';
+      throw new Error(`automation run id conflict: ${id}`);
+    }
+    const orphanedV1History = input.migration?.source === 'pawwork-v1'
+      && input.migration.orphanedDefinition === true;
+    if (!this.document.definitions.some((entry) => entry.id === input.automationId) && !orphanedV1History) {
+      throw new Error(`automation not found: ${input.automationId}`);
+    }
+    if (!['succeeded', 'failed', 'stopped'].includes(input.state)) {
+      throw new Error(`imported automation run must be terminal: ${input.state}`);
+    }
+    assertTimestamp(input.triggeredAt, 'triggeredAt');
+    assertTimestamp(input.completedAt, 'completedAt');
+    if (input.startedAt !== null) assertTimestamp(input.startedAt, 'startedAt');
+    this.document.runs.push(structuredClone(input));
+    this.save();
+    return 'imported';
+  }
+
+  pendingV1Takeover(cwd) {
+    return this.document.definitions.filter((definition) => (
+      definition.migration?.source === 'pawwork-v1'
+      && definition.migration.takeover === 'pending'
+      && (cwd === undefined || definition.cwd === cwd)
+    )).map((definition) => structuredClone(definition));
+  }
+
+  confirmV1Takeover(now = Date.now()) {
+    const confirmedAt = assertTimestamp(now, 'now');
+    const confirmed = [];
+    for (const definition of this.document.definitions) {
+      if (definition.migration?.source !== 'pawwork-v1' || definition.migration.takeover !== 'pending') continue;
+      definition.migration.takeover = 'confirmed';
+      definition.paused = false;
+      definition.revision += 1;
+      definition.updatedAt = confirmedAt;
+      definition.nextFireAt = definitionNext(
+        definition,
+        confirmedAt,
+        this.completedRunCount(definition.id),
+      );
+      confirmed.push(structuredClone(definition));
+    }
+    if (confirmed.length > 0) this.save();
+    return confirmed;
+  }
+
   listDefinitions(cwd) {
     return this.document.definitions
       .filter((definition) => cwd === undefined || definition.cwd === cwd)
@@ -600,11 +695,33 @@ function createAutomationToolDefinitions({
       'List durable PawWork automations for the current workspace, including their recent run history.',
       objectParameters({}),
       async () => ({
+        takeoverPending: store.pendingV1Takeover(cwd()).length,
         items: store.listDefinitions(cwd()).map((definition) => ({
           ...definition,
           recentRuns: store.listRuns(definition.id).slice(0, 5),
         })),
       }),
+    ),
+    tool(
+      'automation_takeover_v1',
+      'Finish migration of all active v1 automations. First call with confirmed false to show what is pending. Call with confirmed true only after the user explicitly confirms that PawWork v2 should take over all pending v1 automations. Confirmation is global, happens once, never replays missed work, and schedules only future occurrences.',
+      objectParameters({ confirmed: { type: 'boolean' } }, ['confirmed']),
+      async (args) => {
+        const pending = store.pendingV1Takeover();
+        if (args.confirmed !== true) {
+          return {
+            confirmed: false,
+            pending: pending.map((definition) => ({
+              id: definition.id,
+              title: definition.title,
+              cwd: definition.cwd,
+            })),
+          };
+        }
+        const definitions = store.confirmV1Takeover(now());
+        scheduler.refresh();
+        return { confirmed: true, activated: definitions.length, definitions };
+      },
     ),
     tool(
       'automation_update',

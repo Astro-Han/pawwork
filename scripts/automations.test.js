@@ -287,3 +287,86 @@ test('continue automations bind immutably to the creating DSH session', async ()
   assert.equal(definition.sourceSessionId, 'session-existing');
   assert.equal(Object.hasOwn(definition, 'automationSessionId'), false);
 });
+
+test('imports v1 history idempotently and activates all pending definitions in one takeover', () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const definition = {
+    id: 'pawwork-v1-automation_source',
+    title: 'Imported brief',
+    prompt: 'Write the brief.',
+    revision: 3,
+    paused: true,
+    context: 'fresh',
+    cwd,
+    model: { provider: 'opencode', model: 'big-pickle' },
+    timezone: 'Asia/Shanghai',
+    createdAt: 1_000,
+    updatedAt: 2_000,
+    kind: 'recurring',
+    rhythm: { kind: 'cron', expression: '0 9 * * *' },
+    stop: { kind: 'never' },
+    nextFireAt: null,
+    migration: { source: 'pawwork-v1', sourceId: 'automation_source', takeover: 'pending', warnings: [] },
+  };
+  const run = {
+    id: 'pawwork-v1-automation_run_source',
+    automationId: definition.id,
+    definitionRevision: 2,
+    triggeredAt: 1_500,
+    startedAt: 1_600,
+    completedAt: 1_900,
+    state: 'succeeded',
+    sessionId: 'pawwork-v1-ses_source',
+    result: 'Done',
+    error: null,
+    stopReason: null,
+    migration: { source: 'pawwork-v1', sourceId: 'automation_run_source', sourceState: 'succeeded' },
+  };
+
+  assert.equal(store.importDefinition(definition), 'imported');
+  assert.equal(store.importDefinition(definition), 'skipped');
+  assert.equal(store.importRun(run), 'imported');
+  assert.equal(store.importRun(run), 'skipped');
+  assert.equal(store.pendingV1Takeover().length, 1);
+
+  const confirmed = store.confirmV1Takeover(Date.parse('2026-08-18T00:30:00.000Z'));
+  assert.equal(confirmed.length, 1);
+  assert.equal(confirmed[0].paused, false);
+  assert.equal(confirmed[0].migration.takeover, 'confirmed');
+  assert.equal(confirmed[0].nextFireAt, Date.parse('2026-08-18T01:00:00.000Z'));
+  assert.equal(store.confirmV1Takeover(Date.parse('2026-08-18T00:31:00.000Z')).length, 0);
+  assert.equal(store.listRuns(definition.id).length, 1);
+});
+
+test('imports orphaned v1 history without creating a schedulable definition', () => {
+  const { file } = fixture();
+  const store = new AutomationStore(file);
+  const run = {
+    id: 'pawwork-v1-run_orphan',
+    automationId: 'pawwork-v1-definition_deleted',
+    definitionRevision: 1,
+    triggeredAt: 1_500,
+    startedAt: 1_600,
+    completedAt: 1_900,
+    state: 'failed',
+    sessionId: null,
+    result: null,
+    error: 'Unavailable',
+    stopReason: null,
+    migration: {
+      source: 'pawwork-v1',
+      sourceId: 'run_orphan',
+      sourceState: 'failed',
+      orphanedDefinition: true,
+    },
+  };
+
+  assert.equal(store.importRun(run), 'imported');
+  assert.equal(store.listRuns(run.automationId).length, 1);
+  assert.throws(() => store.getDefinition(run.automationId), /automation not found/);
+  assert.throws(
+    () => store.importRun({ ...run, id: 'pawwork-v1-run_unmarked', migration: { ...run.migration, sourceId: 'run_unmarked', orphanedDefinition: false } }),
+    /automation not found/,
+  );
+});
