@@ -16,6 +16,6 @@
     "electron": "^43.4.0"
   },
   "dependencies": {
-    "@deepseek-ai/dsh": "0.1.0-rc.6"
+    "@deepseek-ai/dsh": "0.1.0-rc.7"
   }
 }
