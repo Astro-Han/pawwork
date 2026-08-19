@@ -112,10 +112,18 @@ describe("icon generation manifest", () => {
   test("anchors source and output paths to the desktop package", () => {
     const iconDest = (generateIcons as Record<string, unknown>).ICON_DEST
 
-    expect(getIconSource("dev")).toBe(path.join(PACKAGE_ROOT, "icons/source/icon.svg"))
-    expect(getIconSource("beta")).toBe(path.join(PACKAGE_ROOT, "icons/source/icon.svg"))
-    expect(getIconSource("prod")).toBe(path.join(PACKAGE_ROOT, "icons/source/icon.svg"))
+    expect(getIconSource("dev")).toBe(path.join(PACKAGE_ROOT, "icons/source/icon.png"))
+    expect(getIconSource("beta")).toBe(path.join(PACKAGE_ROOT, "icons/source/icon.png"))
+    expect(getIconSource("prod")).toBe(path.join(PACKAGE_ROOT, "icons/source/icon.png"))
     expect(iconDest).toBe(path.join(PACKAGE_ROOT, "resources/icons"))
+  })
+
+  test("uses a high-resolution square source with transparency", async () => {
+    const metadata = await sharp(getIconSource("prod")).metadata()
+
+    expect(metadata.width).toBe(metadata.height)
+    expect(metadata.width).toBeGreaterThanOrEqual(1024)
+    expect(metadata.hasAlpha).toBe(true)
   })
 
   test("rejects invalid explicit channel arguments", () => {
@@ -219,7 +227,7 @@ describe("renderDockPng", () => {
     const buf = await renderDockPng(source, canvasSize)
     const { info } = await sharp(buf).trim({ threshold: 0 }).toBuffer({ resolveWithObject: true })
     const expectedInner = Math.round(canvasSize * DOCK_ICON_CONTENT_RATIO)
-    // Allow ±2px tolerance for antialiasing on SVG edges
+    // Allow ±2px tolerance for antialiasing on source edges
     expect(info.width).toBeGreaterThanOrEqual(expectedInner - 2)
     expect(info.width).toBeLessThanOrEqual(expectedInner + 2)
   })

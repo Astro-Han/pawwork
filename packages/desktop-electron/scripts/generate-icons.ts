@@ -29,7 +29,7 @@ type AndroidXmlFile = {
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 export const ICON_DEST = path.join(PACKAGE_ROOT, "resources/icons")
-const SOURCE = path.join(PACKAGE_ROOT, "icons/source/icon.svg")
+const SOURCE = path.join(PACKAGE_ROOT, "icons/source/icon.png")
 export const ANDROID_ICON_BACKGROUND = "#FF7C3A"
 
 export const ICON_PNG_OUTPUTS: IconOutput[] = [
