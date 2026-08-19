@@ -72,7 +72,7 @@ describe("PawWork DSH client product layer", () => {
 
     plugin.apply(ctx)
     expect(document.title).toBe("PawWork")
-    expect(plugin.inject).toEqual(["slots", "layout"])
+    expect(plugin.inject).toEqual(["slots", "layout", "connection", "sessions"])
     const welcome = registrations.find((entry) => entry.options.id === "welcome-notice")
     expect(welcome).toBeDefined()
     expect(welcome!.options.priority).toBe(-1)
@@ -191,23 +191,44 @@ describe("PawWork DSH client product layer", () => {
       type,
       props: { ...props, children },
     })
+    const setters: Array<ReturnType<typeof mock>> = []
+    const useState = <T>(initial: T) => {
+      const setter = mock(() => {})
+      setters.push(setter)
+      return [initial, setter]
+    }
     const plugin = definition!.factory((name) => {
       if (name === "react") {
         return {
           createElement,
-          useEffect: () => {},
+          useEffect: (effect: () => void) => effect(),
           useRef: <T>(value: T) => ({ current: value }),
+          useState,
         }
       }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") {
+        return {
+          Button: "Button",
+          IconCloseOutline16: "IconCloseOutline16",
+          IconPanelLeftOutline16: () => null,
+          IconPauseOutline16: "IconPauseOutline16",
+          IconPlayOutline16: "IconPlayOutline16",
+          IconRefreshOutline16: "IconRefreshOutline16",
+          IconTrashOutline16: "IconTrashOutline16",
+          Modal: "Modal",
+        }
+      }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
     const registrations: Array<{
       options: { id?: string; name?: string }
       component: (props: { wide: boolean }) => { props: Record<string, unknown> }
     }> = []
+    const call = mock(async () => ({ ok: true, value: { definitions: [], orphanedRuns: [], pendingTakeover: [] } }))
     const ctx = {
+      connection: { rpc: { call } },
       layout: { toggleSidebar: () => {} },
+      sessions: { open: () => {} },
       slots: {
         inject: (_name: string, register: () => void) => register(),
         register: (
@@ -226,9 +247,20 @@ describe("PawWork DSH client product layer", () => {
     expect(button.props["aria-label"]).toBe("自动化")
     expect(button.props.className).toBe("pawwork-automation-entry")
     expect(button.props.children[1].props.children).toEqual(["自动化"])
+    expect(typeof button.props.onClick).toBe("function")
+    const overlayRegistration = registrations.find((entry) => entry.options.id === "pawwork-automations-overlay")
+    expect(overlayRegistration?.options.name).toBe("shell.overlay")
+    const overlay = overlayRegistration!.component({ wide: true })
+    ;(overlay.type as (props: Record<string, unknown>) => unknown)(overlay.props)
+    ;(button.props.onClick as () => void)()
+    expect(setters[0]).toHaveBeenCalledWith(true)
     expect(styles[0].textContent).toContain(".pawwork-automation-entry")
     expect(styles[0].textContent).toContain("height: 42px")
     expect(styles[0].textContent).toContain("display: contents")
+    expect(styles[0].textContent).toContain(".pawwork-automation-entry:hover")
+    expect(styles[0].textContent).toContain("cursor: pointer")
+    expect(plugin.inject).toEqual(["slots", "layout", "connection", "sessions"])
+    expect(source).toContain('connection.rpc.call("/pawwork-automations", endpoint, payload, signal)')
   })
 
   test("adds selected file paths through the public composer input slot", async () => {
