@@ -187,7 +187,6 @@ async function runV1SettingsImport({
   if (typeof importSetting !== 'function') throw new Error('v1 importSetting adapter is required');
   const directory = path.join(home, 'import-v1');
   const ledgerPath = path.join(directory, 'ledger.json');
-  fs.rmSync(path.join(directory, 'settings-result.json'), { force: true });
   const ledger = readMigrationLedger(ledgerPath, {
     schema: 1,
     sourceAppData,

@@ -461,7 +461,7 @@ test('continue automations bind immutably to the creating DSH session', async ()
   assert.equal(Object.hasOwn(definition, 'automationSessionId'), false);
 });
 
-test('imports v1 definitions and history idempotently without a takeover state', () => {
+test('imports v1 definitions and history idempotently before scheduling them', () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
   const definition = {
@@ -504,7 +504,6 @@ test('imports v1 definitions and history idempotently without a takeover state',
   store.activateImportedDefinitions(Date.parse('2026-08-18T00:00:00.000Z'));
   store.activateImportedDefinitions(Date.parse('2026-08-18T00:30:00.000Z'));
   assert.equal(store.getDefinition(definition.id).paused, false);
-  assert.equal(Object.hasOwn(store.getDefinition(definition.id).migration, 'takeover'), false);
   assert.equal(store.getDefinition(definition.id).nextFireAt, Date.parse('2026-08-18T01:00:00.000Z'));
   assert.equal(store.listRuns(definition.id).length, 1);
 });

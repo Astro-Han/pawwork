@@ -176,7 +176,6 @@ async function runV1AutomationImport({
   if (typeof importRun !== 'function') throw new Error('v1 importRun adapter is required');
   const directory = path.join(home, 'import-v1');
   const ledgerPath = path.join(directory, 'ledger.json');
-  fs.rmSync(path.join(directory, 'automation-result.json'), { force: true });
   const ledger = readMigrationLedger(ledgerPath, {
     schema: 1,
     sourceDatabase,

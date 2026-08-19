@@ -5,13 +5,6 @@ const path = require('node:path');
 
 const V1_APP_ID = 'ai.pawwork.desktop';
 const V1_DATABASE_SUFFIX = ['data', 'pawwork', 'pawwork.db'];
-const LEGACY_LEDGER_FIELDS = [
-  'credentials',
-  'stage1Complete',
-  'stage2Complete',
-  'stage4DataComplete',
-  'workspaceStageComplete',
-];
 
 function v1DatabaseCandidates({
   platform = process.platform,
@@ -78,7 +71,6 @@ function readJson(file, fallback) {
 function readMigrationLedger(file, fallback) {
   const ledger = readJson(file, fallback);
   if (ledger.schema !== 1) throw new Error(`unsupported v1 migration ledger schema: ${ledger.schema}`);
-  for (const field of LEGACY_LEDGER_FIELDS) delete ledger[field];
   return ledger;
 }
 

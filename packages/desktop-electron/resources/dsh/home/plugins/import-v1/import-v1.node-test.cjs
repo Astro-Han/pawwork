@@ -674,12 +674,9 @@ test('records an idempotent ledger and does no work after a complete session imp
 
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.schema, 1);
-  assert.equal(Object.hasOwn(ledger, 'stage1Complete'), false);
   assert.equal(ledger.sessions.ses_parent.targetId, 'pawwork-v1-ses_parent');
   assert.equal(ledger.sessions.ses_parent.status, 'complete');
   assert.equal(ledger.sessions.ses_child.status, 'complete');
-  fs.writeFileSync(path.join(home, 'import-v1', 'result.json'), '{}');
-
   const second = await runV1SessionImport({
     home,
     sourceDatabase: source,
@@ -689,10 +686,9 @@ test('records an idempotent ledger and does no work after a complete session imp
   });
   assert.equal(second.status, 'complete');
   assert.deepEqual(second.sessions, { imported: 0, skipped: 2, failed: 0 });
-  assert.equal(fs.existsSync(path.join(home, 'import-v1', 'result.json')), false);
 });
 
-test('records the missing source without duplicating stage state', async () => {
+test('records the missing source in the migration ledger', async () => {
   const home = path.join(temporaryDirectory(), 'v2-home');
   const result = await runV1SessionImport({
     home,
@@ -702,8 +698,7 @@ test('records the missing source without duplicating stage state', async () => {
 
   assert.equal(result.status, 'not-found');
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
-  assert.equal(Object.hasOwn(ledger, 'stage1Complete'), false);
-  assert.equal(Object.hasOwn(ledger, 'workspaceStageComplete'), false);
+  assert.equal(ledger.sourceDatabase, null);
 });
 
 test('resumes after a per-session failure without duplicating completed sessions', async () => {
@@ -797,7 +792,6 @@ test('repairs workspace ownership when session records lack an outcome', async (
   assert.deepEqual(result.sessions, { imported: 0, skipped: 2, failed: 0 });
   assert.deepEqual(result.workspaces, { attached: 1, unavailable: 1, failed: 0 });
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
-  assert.equal(Object.hasOwn(ledger, 'workspaceStageComplete'), false);
   assert.equal(ledger.sessions.ses_parent.workspaceAttached, true);
   assert.equal(ledger.sessions.ses_child.workspaceAttached, false);
   assert.equal(ledger.sessions.ses_child.workspaceUnavailable, true);

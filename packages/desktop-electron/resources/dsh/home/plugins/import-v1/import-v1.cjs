@@ -328,7 +328,6 @@ async function runV1SessionImport({
   if (typeof importSession !== 'function') throw new Error('v1 importSession adapter is required');
   const directory = path.join(home, 'import-v1');
   const ledgerPath = path.join(directory, 'ledger.json');
-  fs.rmSync(path.join(directory, 'result.json'), { force: true });
   const ledger = readMigrationLedger(ledgerPath, {
     schema: 1,
     sourceDatabase,
