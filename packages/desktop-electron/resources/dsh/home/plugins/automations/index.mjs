@@ -59,23 +59,34 @@ export function createDshExecutor(ctx) {
     signal.addEventListener('abort', cancel, { once: true });
     try {
       if (definition.context === 'fresh') ctx.sessionTitle.rename(agent.session, `Automation: ${definition.title}`);
-      await agent.whenIdle();
-      signal.throwIfAborted();
-      const previousTurn = [...agent.session.events]
-        .reverse()
-        .map(eventTurn)
-        .find((turn) => turn !== null) ?? null;
       const followup = {
         id: `pawwork-automation-message-${run.id}`,
         role: 'user',
         content: [{ type: 'text', text: definition.prompt }],
         source: { kind: 'user' },
       };
-      await agent.runMaintenance(async (maintenanceSignal) => {
-        maintenanceSignal.throwIfAborted();
+      let previousTurn;
+      for (;;) {
+        await agent.whenIdle();
         signal.throwIfAborted();
-        agent.followup(followup);
-      });
+        previousTurn = [...agent.session.events]
+          .reverse()
+          .map(eventTurn)
+          .find((turn) => turn !== null) ?? null;
+        let maintenance;
+        try {
+          maintenance = agent.runMaintenance(async (maintenanceSignal) => {
+            maintenanceSignal.throwIfAborted();
+            signal.throwIfAborted();
+            agent.followup(followup);
+          });
+        } catch (error) {
+          signal.throwIfAborted();
+          continue;
+        }
+        await maintenance;
+        break;
+      }
       await agent.whenIdle();
       signal.throwIfAborted();
       const events = [...agent.session.events];

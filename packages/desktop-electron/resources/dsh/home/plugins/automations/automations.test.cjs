@@ -381,20 +381,34 @@ test('the DSH executor cancels an already attached continue agent', async () => 
   assert.equal(cancellations, 1);
 });
 
-test('the DSH executor does not reuse an assistant message from an earlier turn', async () => {
-  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?turn-boundary=${Date.now()}`;
+test('the DSH executor retries when maintenance admission races with new user work', async () => {
+  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?maintenance-race=${Date.now()}`;
   const { createDshExecutor } = await import(pluginUrl);
   const events = [
-    { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'old result' }] } } },
-    { type: 'turn/end', data: { reason: { kind: 'completed' } } },
+    { type: 'turn/start', data: { turn: 4 } },
+    { type: 'turn/end', data: { turn: 4, reason: { kind: 'completed' } } },
   ];
+  let idleCalls = 0;
+  let maintenanceCalls = 0;
   const agent = {
     session: { events },
-    followup() {},
-    async whenIdle() {
-      events.push({ type: 'turn/end', data: { reason: { kind: 'completed' } } });
+    followup() {
+      events.push({ type: 'turn/start', data: { turn: 6 } });
+      events.push({ type: 'assistant/message', data: { turn: 6, message: { content: [{ type: 'text', text: 'automation result' }] } } });
+      events.push({ type: 'turn/end', data: { turn: 6, reason: { kind: 'completed' } } });
     },
-    runMaintenance: async (task) => task(new AbortController().signal),
+    async whenIdle() {
+      idleCalls += 1;
+      if (idleCalls === 2) {
+        events.push({ type: 'turn/start', data: { turn: 5 } });
+        events.push({ type: 'turn/end', data: { turn: 5, reason: { kind: 'completed' } } });
+      }
+    },
+    runMaintenance(task) {
+      maintenanceCalls += 1;
+      if (maintenanceCalls === 1) throw new Error('agent is busy');
+      return task(new AbortController().signal);
+    },
     cancel() {},
   };
   const execute = createDshExecutor({
@@ -410,7 +424,8 @@ test('the DSH executor does not reuse an assistant message from an earlier turn'
     prompt: 'Continue.',
   }, { id: 'automation-run-1' }, new AbortController().signal);
 
-  assert.equal(result.result, null);
+  assert.equal(result.result, 'automation result');
+  assert.equal(maintenanceCalls, 2);
 });
 
 test('the DSH executor keeps a continue result inside its single turn', async () => {
