@@ -96,6 +96,11 @@ const getBase = (channel: Channel): Configuration => ({
       filter: ["**/*", "!**/*.test.cjs", "!**/*-test.cjs"],
     },
     {
+      from: "resources/icons/",
+      to: "icons",
+      filter: ["dock.png", "icon.png", "icon.ico"],
+    },
+    {
       from: path.join(rootDir, "skills"),
       to: "skills",
       filter: ["**/*"],

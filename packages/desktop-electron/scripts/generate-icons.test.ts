@@ -11,12 +11,10 @@ import {
   ICNS_OUTPUTS,
   ICON_PNG_OUTPUTS,
   ICON_SOURCE,
-  WINDOWS_TILE_OUTPUTS,
   createIcns,
   createIco,
   createPngCache,
   renderDockPng,
-  resolveIconChannel,
 } from "./generate-icons"
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
@@ -24,25 +22,8 @@ const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 describe("icon generation manifest", () => {
   test("covers every icon file used by electron-builder resources", () => {
     expect(ICON_PNG_OUTPUTS).toEqual([
-      { path: "32x32.png", size: 32 },
-      { path: "64x64.png", size: 64 },
-      { path: "128x128.png", size: 128 },
-      { path: "128x128@2x.png", size: 256 },
       { path: "dock.png", size: 256 },
       { path: "icon.png", size: 1024 },
-    ])
-
-    expect(WINDOWS_TILE_OUTPUTS).toEqual([
-      { path: "Square30x30Logo.png", size: 30 },
-      { path: "Square44x44Logo.png", size: 44 },
-      { path: "StoreLogo.png", size: 50 },
-      { path: "Square71x71Logo.png", size: 71 },
-      { path: "Square89x89Logo.png", size: 89 },
-      { path: "Square107x107Logo.png", size: 107 },
-      { path: "Square142x142Logo.png", size: 142 },
-      { path: "Square150x150Logo.png", size: 150 },
-      { path: "Square284x284Logo.png", size: 284 },
-      { path: "Square310x310Logo.png", size: 310 },
     ])
 
     expect(ICNS_OUTPUTS).toEqual([
@@ -73,13 +54,6 @@ describe("icon generation manifest", () => {
     expect(metadata.width).toBe(metadata.height)
     expect(metadata.width).toBeGreaterThanOrEqual(1024)
     expect(metadata.hasAlpha).toBe(true)
-  })
-
-  test("rejects invalid explicit channel arguments", () => {
-    expect(resolveIconChannel("dev")).toBe("dev")
-    expect(resolveIconChannel("beta")).toBe("beta")
-    expect(resolveIconChannel("prod")).toBe("prod")
-    expect(() => resolveIconChannel("staging")).toThrow("Invalid icon channel: staging")
   })
 
 })

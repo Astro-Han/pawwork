@@ -59,6 +59,7 @@ describe("electron builder app-update config", () => {
     expect(dshResources).toMatchObject({ filter: ["**/*", "!**/*.test.cjs", "!**/*-test.cjs"] })
     expect(config.extraResources).toEqual([
       expect.objectContaining({ to: "dsh/" }),
+      expect.objectContaining({ to: "icons", filter: ["dock.png", "icon.png", "icon.ico"] }),
       expect.objectContaining({ to: "skills" }),
       expect.objectContaining({ to: "THIRD_PARTY_NOTICES.md" }),
       expect.objectContaining({ to: "tools/" }),

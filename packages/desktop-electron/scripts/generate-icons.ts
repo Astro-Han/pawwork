@@ -4,8 +4,6 @@ import { fileURLToPath } from "node:url"
 
 import sharp from "sharp"
 
-import { resolveChannel, type Channel } from "./utils"
-
 type IconOutput = {
   path: string
   size: number
@@ -26,25 +24,8 @@ export const ICON_DEST = path.join(PACKAGE_ROOT, "resources/icons")
 export const ICON_SOURCE = path.join(PACKAGE_ROOT, "icons/source/icon.png")
 
 export const ICON_PNG_OUTPUTS: IconOutput[] = [
-  { path: "32x32.png", size: 32 },
-  { path: "64x64.png", size: 64 },
-  { path: "128x128.png", size: 128 },
-  { path: "128x128@2x.png", size: 256 },
   { path: "dock.png", size: 256 },
   { path: "icon.png", size: 1024 },
-]
-
-export const WINDOWS_TILE_OUTPUTS: IconOutput[] = [
-  { path: "Square30x30Logo.png", size: 30 },
-  { path: "Square44x44Logo.png", size: 44 },
-  { path: "StoreLogo.png", size: 50 },
-  { path: "Square71x71Logo.png", size: 71 },
-  { path: "Square89x89Logo.png", size: 89 },
-  { path: "Square107x107Logo.png", size: 107 },
-  { path: "Square142x142Logo.png", size: 142 },
-  { path: "Square150x150Logo.png", size: 150 },
-  { path: "Square284x284Logo.png", size: 284 },
-  { path: "Square310x310Logo.png", size: 310 },
 ]
 
 export const ICNS_OUTPUTS = [
@@ -61,12 +42,6 @@ export const ICNS_OUTPUTS = [
 ]
 
 const ICO_OUTPUTS = [16, 24, 32, 48, 64, 256]
-
-export function resolveIconChannel(arg: string | undefined) {
-  if (arg === undefined) return resolveChannel()
-  if (arg === "dev" || arg === "beta" || arg === "prod") return arg
-  throw new Error(`Invalid icon channel: ${arg}. Expected one of: dev, beta, prod`)
-}
 
 export function createPngCache(render: (source: string, size: number) => Promise<Buffer>) {
   const cache = new Map<string, Promise<Buffer>>()
@@ -193,10 +168,9 @@ async function writeIco(source: string) {
 }
 
 async function generate() {
-  const channel = resolveIconChannel(process.argv[2])
   const source = ICON_SOURCE
   // dock.png requires transparent padding (see renderDockPng); exclude from the batch path.
-  const outputs = [...ICON_PNG_OUTPUTS, ...WINDOWS_TILE_OUTPUTS].filter((output) => output.path !== "dock.png")
+  const outputs = ICON_PNG_OUTPUTS.filter((output) => output.path !== "dock.png")
   const dockOutput = ICON_PNG_OUTPUTS.find((o) => o.path === "dock.png")!
 
   await rm(ICON_DEST, { recursive: true, force: true })
@@ -205,7 +179,7 @@ async function generate() {
   await writeIco(source)
   await writeIcns(source)
 
-  console.log(`Generated ${channel} icons from ${source} into ${ICON_DEST}`)
+  console.log(`Generated icons from ${source} into ${ICON_DEST}`)
 }
 
 if (import.meta.main) await generate()
