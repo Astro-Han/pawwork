@@ -36,7 +36,6 @@ Codex App 和 Claude Cowork 的开源替代方案。自带免费额度，也支�
 | 免费无需订阅 | 有（OpenCode Zen） | 有限（ChatGPT Free） | 无（需 Pro $20/月） |
 | 桌面应用 | macOS + Windows | macOS + Windows | macOS + Windows |
 | 本地文件访问 | 完整工作区 | 默认沙箱 | 用户选择的文件夹 |
-| 浏览器自动化 | 支持（OpenCLI 支持站点适配器，覆盖范围因站点而异） | 不支持 | 不支持 |
 | 本地模型 | 支持（Ollama、LM Studio 等） | 仅 CLI 支持（Ollama） | 通过网关（Requesty） |
 | Office 文件处理 | 支持（Word/Excel/PPT） | 不支持 | 不支持 |
 | 面向非技术用户 | 是（任务卡片，无需终端） | 面向开发者 | 知识工作 + 编程 |
@@ -63,13 +62,6 @@ Codex App 和 Claude Cowork 的开源替代方案。自带免费额度，也支�
 - 审查一个 PR，总结主要风险
 - 结合日志和源码排查 API 报错
 - 根据一句自然语言需求做一个小工具
-
-### 浏览器和网页服务
-
-- 搜索 Twitter/X，并在爪印里起草回复
-- 查看 Bilibili 或小红书的热门内容
-- 收集受支持网页服务里的帖子、评论或媒体
-- 通过爪印的浏览器工具操作受支持的网页服务
 
 ## 工作方式
 
@@ -109,8 +101,6 @@ bun run dev:desktop
 爪印 PawWork 使用 DeepSeek DSH 作为智能体运行时，外层只有 Electron 原生桌面壳与精简的 PawWork 产品层，负责日常工作流、迁移和 Automation。
 
 感谢 OpenCode 项目和社区。
-
-爪印 PawWork 内置 [@jackwener](https://github.com/jackwener) 的 [OpenCLI](https://github.com/jackwener/opencli)，用于支持基于浏览器的站点适配器。OpenCLI 提供 CDP bridge 和随包命令适配器，在适配覆盖范围匹配任务时，帮助爪印与 Twitter/X、Bilibili、小红书等网页服务交互。感谢 @jackwener 以 Apache-2.0 开源 OpenCLI 项目。
 
 ## 常见问题
 

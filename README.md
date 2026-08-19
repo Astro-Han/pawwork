@@ -34,7 +34,6 @@ PawWork is built for people who want AI agents to do real desktop work, not only
 | Free without subscription | Yes (OpenCode Zen) | Limited (ChatGPT Free) | No (Pro $20/mo required) |
 | Desktop app | macOS + Windows | macOS + Windows | macOS + Windows |
 | Local file access | Full workspace access | Sandboxed by default | User-selected folders |
-| Browser automation | Yes (supported OpenCLI adapters; coverage varies) | No | No |
 | Local models | Yes (Ollama, LM Studio, etc.) | CLI only (Ollama) | Via gateway (Requesty) |
 | Office files (Word/Excel/PPT) | Yes | No | No |
 | Non-technical user focus | Yes (task cards, no terminal) | Developer-focused | Knowledge work + coding |
@@ -61,13 +60,6 @@ PawWork is built for people who want AI agents to do real desktop work, not only
 - review a pull request and summarize the risks
 - debug an API error with logs and source files
 - build a small internal tool from a plain-language request
-
-### Browser and Web Services
-
-- search Twitter/X and draft a reply without leaving PawWork
-- check trending topics on Bilibili or Xiaohongshu
-- collect posts, comments, or media from supported web services
-- interact with supported web services through PawWork's browser tools
 
 ## How It Works
 
@@ -107,8 +99,6 @@ bun run dev:desktop
 PawWork uses DeepSeek DSH as its agent runtime, wrapped by a native Electron desktop shell and a small PawWork product layer for everyday workflows, migration, and Automation.
 
 Thanks to the OpenCode project and community.
-
-PawWork bundles [OpenCLI](https://github.com/jackwener/opencli) by [@jackwener](https://github.com/jackwener) to power browser-based adapters for supported sites. OpenCLI provides the CDP bridge and bundled command adapters that help PawWork interact with web services like Twitter/X, Bilibili, Xiaohongshu, and more where the adapter coverage fits the task. Thanks to @jackwener for the Apache-2.0 open-source OpenCLI project.
 
 ## FAQ
 
