@@ -25,8 +25,7 @@ import { promisify } from "node:util"
 import { parseUpdaterFileUrls, releaseAssetNames } from "./verify-release.ts"
 
 const POINTER_YMLS = ["latest.yml", "latest-mac.yml"] as const
-
-const MUTABLE_POINTERS = new Set(["latest.yml", "latest-mac.yml"])
+const MUTABLE_POINTERS = new Set<string>(POINTER_YMLS)
 const IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
 const POINTER_CACHE = "no-cache, must-revalidate"
 const MANIFEST_NAME = "latest.json"

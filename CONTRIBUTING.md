@@ -39,7 +39,7 @@ AI coding agents should use the same public contribution contract as human contr
 
 ## Development Setup
 
-PawWork uses Bun and requires Node 24 in CI.
+PawWork uses pnpm and requires Node 24 in CI.
 
 ```bash
 pnpm install --frozen-lockfile

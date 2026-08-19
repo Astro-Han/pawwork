@@ -8,7 +8,6 @@ import {
   createConfig,
   getPublishConfig,
 } from "./electron-builder.config"
-import { serializeAppUpdateConfig } from "./scripts/write-app-update-config"
 
 const roots: string[] = []
 type AfterPackContext = Parameters<Extract<NonNullable<Configuration["afterPack"]>, (...args: any[]) => unknown>>[0]
@@ -54,22 +53,16 @@ describe("electron builder app-update config", () => {
 
   test("packages only the DSH production entry", () => {
     const config = createConfig("prod")
+    const dshResources = config.extraResources?.find((resource) => typeof resource === "object" && resource.to === "dsh/")
 
     expect(config.files).toEqual(["out/main/**/*", "resources/**/*", "!resources/dsh/**/*"])
+    expect(dshResources).toMatchObject({ filter: ["**/*", "!**/*.test.cjs", "!**/*-test.cjs"] })
     expect(config.extraResources).toEqual([
       expect.objectContaining({ to: "dsh/" }),
       expect.objectContaining({ to: "skills" }),
       expect.objectContaining({ to: "THIRD_PARTY_NOTICES.md" }),
       expect.objectContaining({ to: "tools/" }),
     ])
-  })
-
-  test("prod publish config feeds local updater config", () => {
-    expect(serializeAppUpdateConfig(getPublishConfig("prod")!)).toContain("repo: pawwork\n")
-  })
-
-  test("beta publish config feeds local updater config", () => {
-    expect(serializeAppUpdateConfig(getPublishConfig("beta")!)).toContain("repo: pawwork-beta\n")
   })
 
   test("dev does not publish updater config", () => {
@@ -116,18 +109,6 @@ describe("electron builder app-update config", () => {
     expect(createConfig("beta").extraMetadata).toMatchObject({
       repository: { type: "git", url: "https://github.com/Astro-Han/pawwork-beta" },
     })
-  })
-
-  test("packages third-party notices into app resources", () => {
-    const config = createConfig("prod")
-    expect(config.extraResources).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          from: expect.stringContaining("THIRD_PARTY_NOTICES.md"),
-          to: "THIRD_PARTY_NOTICES.md",
-        }),
-      ]),
-    )
   })
 
   test("afterPack writes app-update.yml to the packager-reported macOS resources path", async () => {

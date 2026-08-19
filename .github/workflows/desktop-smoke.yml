@@ -43,7 +43,7 @@ jobs:
         env:
           PAWWORK_CI_SMOKE_CDP: "true"
       - name: Package macOS app
-        run: npx electron-builder --mac dir --arm64 --publish never --config electron-builder.config.ts --config.mac.identity=- --config.mac.notarize=false
+        run: pnpm exec electron-builder --mac dir --arm64 --publish never --config electron-builder.config.ts --config.mac.identity=- --config.mac.notarize=false
         working-directory: packages/desktop-electron
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
@@ -80,7 +80,7 @@ jobs:
         env:
           OPENCODE_CHANNEL: dev
       - name: Package Windows app
-        run: npx electron-builder --win dir --x64 --publish never --config electron-builder.config.ts
+        run: pnpm exec electron-builder --win dir --x64 --publish never --config electron-builder.config.ts
         working-directory: packages/desktop-electron
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"

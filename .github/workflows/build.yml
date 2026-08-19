@@ -371,7 +371,7 @@ jobs:
 
       - name: Package signed app
         if: ${{ runner.os == 'macOS' && (inputs.phase == 'submit' || inputs.phase == 'full') }}
-        run: npx electron-builder --mac dir --${{ matrix.arch_label }} --publish never --config electron-builder.config.ts
+        run: pnpm exec electron-builder --mac dir --${{ matrix.arch_label }} --publish never --config electron-builder.config.ts
         working-directory: packages/desktop-electron
         timeout-minutes: 30
         env:
@@ -714,7 +714,7 @@ jobs:
           APP_PATH="$APP_OUT_DIR/$APP_NAME.app"
 
           pnpm exec tsx ./scripts/generate-icons.ts "$OPENCODE_CHANNEL"
-          npx electron-builder --mac dmg zip --${{ matrix.arch_label }} --prepackaged "$APP_PATH" --publish always --config.mac.sign=./script/skip-mac-sign.cjs --config.mac.notarize=false --config electron-builder.config.ts
+          pnpm exec electron-builder --mac dmg zip --${{ matrix.arch_label }} --prepackaged "$APP_PATH" --publish always --config.mac.sign=./script/skip-mac-sign.cjs --config.mac.notarize=false --config electron-builder.config.ts
         working-directory: packages/desktop-electron
         timeout-minutes: 30
         env:
@@ -848,7 +848,7 @@ jobs:
             publish_flag="always"
           fi
 
-          npx electron-builder ${{ matrix.platform_flag }} --publish "$publish_flag" --config electron-builder.config.ts
+          pnpm exec electron-builder ${{ matrix.platform_flag }} --publish "$publish_flag" --config electron-builder.config.ts
         working-directory: packages/desktop-electron
         timeout-minutes: 60
         env:

@@ -74,7 +74,7 @@ const getBase = (channel: Channel): Configuration => ({
     {
       from: "resources/dsh/",
       to: "dsh/",
-      filter: ["**/*", "!**/*.test.cjs"],
+      filter: ["**/*", "!**/*.test.cjs", "!**/*-test.cjs"],
     },
     {
       from: path.join(rootDir, "skills"),

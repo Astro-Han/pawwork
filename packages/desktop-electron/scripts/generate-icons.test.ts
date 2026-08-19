@@ -10,11 +10,11 @@ import {
   DOCK_ICON_CONTENT_RATIO,
   ICNS_OUTPUTS,
   ICON_PNG_OUTPUTS,
+  ICON_SOURCE,
   WINDOWS_TILE_OUTPUTS,
   createIcns,
   createIco,
   createPngCache,
-  getIconSource,
   renderDockPng,
   resolveIconChannel,
 } from "./generate-icons"
@@ -63,14 +63,12 @@ describe("icon generation manifest", () => {
   test("anchors source and output paths to the desktop package", () => {
     const iconDest = (generateIcons as Record<string, unknown>).ICON_DEST
 
-    expect(getIconSource("dev")).toBe(path.join(PACKAGE_ROOT, "icons/source/icon.png"))
-    expect(getIconSource("beta")).toBe(path.join(PACKAGE_ROOT, "icons/source/icon.png"))
-    expect(getIconSource("prod")).toBe(path.join(PACKAGE_ROOT, "icons/source/icon.png"))
+    expect(ICON_SOURCE).toBe(path.join(PACKAGE_ROOT, "icons/source/icon.png"))
     expect(iconDest).toBe(path.join(PACKAGE_ROOT, "resources/icons"))
   })
 
   test("uses a high-resolution square source with transparency", async () => {
-    const metadata = await sharp(getIconSource("prod")).metadata()
+    const metadata = await sharp(ICON_SOURCE).metadata()
 
     expect(metadata.width).toBe(metadata.height)
     expect(metadata.width).toBeGreaterThanOrEqual(1024)
@@ -151,7 +149,7 @@ describe("createIco", () => {
 
 describe("renderDockPng", () => {
   test("canvas size matches the requested size", async () => {
-    const source = getIconSource("dev")
+    const source = ICON_SOURCE
     const buf = await renderDockPng(source, 256)
     const { width, height } = await sharp(buf).metadata()
     expect(width).toBe(256)
@@ -159,7 +157,7 @@ describe("renderDockPng", () => {
   })
 
   test("artwork does not fill the entire canvas (transparent padding prevents oversized Dock icon)", async () => {
-    const source = getIconSource("dev")
+    const source = ICON_SOURCE
     const canvasSize = 256
     const buf = await renderDockPng(source, canvasSize)
     // Trimming transparent edges must produce a smaller image than the full canvas.
@@ -170,7 +168,7 @@ describe("renderDockPng", () => {
   })
 
   test("visible artwork is approximately DOCK_ICON_CONTENT_RATIO of the canvas", async () => {
-    const source = getIconSource("dev")
+    const source = ICON_SOURCE
     const canvasSize = 256
     const buf = await renderDockPng(source, canvasSize)
     const { info } = await sharp(buf).trim({ threshold: 0 }).toBuffer({ resolveWithObject: true })

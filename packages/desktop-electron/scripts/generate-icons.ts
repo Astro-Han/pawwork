@@ -23,7 +23,7 @@ type IcnsImage = {
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 export const ICON_DEST = path.join(PACKAGE_ROOT, "resources/icons")
-const SOURCE = path.join(PACKAGE_ROOT, "icons/source/icon.png")
+export const ICON_SOURCE = path.join(PACKAGE_ROOT, "icons/source/icon.png")
 
 export const ICON_PNG_OUTPUTS: IconOutput[] = [
   { path: "32x32.png", size: 32 },
@@ -61,10 +61,6 @@ export const ICNS_OUTPUTS = [
 ]
 
 const ICO_OUTPUTS = [16, 24, 32, 48, 64, 256]
-
-export function getIconSource(_channel: Channel) {
-  return SOURCE
-}
 
 export function resolveIconChannel(arg: string | undefined) {
   if (arg === undefined) return resolveChannel()
@@ -198,7 +194,7 @@ async function writeIco(source: string) {
 
 async function generate() {
   const channel = resolveIconChannel(process.argv[2])
-  const source = getIconSource(channel)
+  const source = ICON_SOURCE
   // dock.png requires transparent padding (see renderDockPng); exclude from the batch path.
   const outputs = [...ICON_PNG_OUTPUTS, ...WINDOWS_TILE_OUTPUTS].filter((output) => output.path !== "dock.png")
   const dockOutput = ICON_PNG_OUTPUTS.find((o) => o.path === "dock.png")!

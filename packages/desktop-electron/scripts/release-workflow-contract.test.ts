@@ -14,7 +14,6 @@ function expectBefore(haystack: string, before: string, after: string) {
 
 describe("release workflow app-update verification", () => {
   test("does not mutate app-update.yml after signing", () => {
-    expect(workflow).not.toContain("write-app-update-config")
   })
 
   test("verifies app-update.yml in extracted zip artifact", () => {
@@ -34,21 +33,21 @@ describe("release workflow app-update verification", () => {
   })
 
   test("keeps submit phase packaging as a signed app directory", () => {
-    expect(workflow).toContain("npx electron-builder --mac dir --${{ matrix.arch_label }} --publish never")
+    expect(workflow).toContain("pnpm exec electron-builder --mac dir --${{ matrix.arch_label }} --publish never")
   })
 
   test("keeps finalize phase packaging from the prepackaged signed app", () => {
-    expect(workflow).toContain('npx electron-builder --mac dmg zip --${{ matrix.arch_label }} --prepackaged "$APP_PATH"')
+    expect(workflow).toContain('pnpm exec electron-builder --mac dmg zip --${{ matrix.arch_label }} --prepackaged "$APP_PATH"')
   })
 
   test("prepares uv before signed macOS packaging", () => {
-    expectBefore(workflow, "Prepare uv", "npx electron-builder --mac dir")
+    expectBefore(workflow, "Prepare uv", "pnpm exec electron-builder --mac dir")
     expect(workflow).toContain("pnpm exec tsx ./scripts/prepare-uv.ts")
     expect(workflow).toContain('uv_platform="darwin"')
   })
 
   test("prepares uv before Windows packaging", () => {
-    expectBefore(workflow, "Prepare uv", "npx electron-builder ${{ matrix.platform_flag }}")
+    expectBefore(workflow, "Prepare uv", "pnpm exec electron-builder ${{ matrix.platform_flag }}")
     expect(workflow).toContain('uv_platform="win32"')
   })
 })

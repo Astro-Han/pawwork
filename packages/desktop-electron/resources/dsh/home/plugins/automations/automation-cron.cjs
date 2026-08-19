@@ -179,5 +179,4 @@ module.exports = {
   isValidCronExpression,
   isValidTimezone,
   nextCronFireAfter,
-  parseCronExpression,
 };
