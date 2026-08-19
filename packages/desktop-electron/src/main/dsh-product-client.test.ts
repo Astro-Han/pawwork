@@ -23,12 +23,62 @@ describe("PawWork DSH client product layer", () => {
     expect(patch).toContain("name: '@pawwork/dsh-product'")
   })
 
-  test("refreshes the DSH session baseline once after v1 migration completes", () => {
+  test("refreshes the DSH session baseline once after v1 migration completes", async () => {
     const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
+    let definition: {
+      factory: (require: (name: string) => unknown) => { apply(ctx: unknown): void }
+    } | null = null
+    let intervalCallback: (() => void) | undefined
+    const clearInterval = mock(() => {})
+    const window = { __ModuleLoader__: { load: (value: typeof definition) => { definition = value } } }
+    vm.runInNewContext(source, {
+      clearInterval,
+      document: {
+        documentElement: { dataset: {} },
+        querySelector: () => null,
+        createElement: () => ({ dataset: {}, textContent: "" }),
+        head: { appendChild: () => {} },
+      },
+      navigator: { platform: "MacIntel" },
+      setInterval: (callback: () => void) => { intervalCallback = callback; return 1 },
+      window,
+    })
+    let cleanup: (() => void) | undefined
+    const plugin = definition!.factory((name) => {
+      if (name === "react") {
+        return {
+          createElement: (type: unknown, props: unknown) => typeof type === "function" ? type(props) : null,
+          useEffect: (effect: () => (() => void)) => { cleanup = effect() },
+          useRef: <T>(value: T) => ({ current: value }),
+          useState: <T>(value: T) => [value, () => {}],
+        }
+      }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return {}
+      throw new Error(`unexpected product client dependency: ${name}`)
+    })
+    let migrationRefresh: ((props: unknown) => unknown) | undefined
+    const call = mock(async () => ({ ok: true, value: { sessionsComplete: true } }))
+    const refresh = mock(async () => {})
+    plugin.apply({
+      connection: { rpc: { call } },
+      sessions: { refresh },
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (options: { id?: string }, component: typeof migrationRefresh) => {
+          if (options.id === "pawwork-v1-migration-refresh") migrationRefresh = component
+          return () => {}
+        },
+      },
+    })
+    migrationRefresh!({})
+    await Promise.resolve()
+    await Promise.resolve()
 
-    expect(source).toContain('connection.rpc.call("/pawwork-import-v1", "status"')
-    expect(source).toContain("await sessions.refresh()")
-    expect(source).toContain("clearInterval(timer)")
+    expect(call).toHaveBeenCalledWith("/pawwork-import-v1", "status", {})
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(clearInterval).toHaveBeenCalledTimes(1)
+    expect(intervalCallback).toBeDefined()
+    cleanup?.()
   })
 
   test("keeps refreshing a visible automation until its active run finishes", () => {
