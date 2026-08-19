@@ -47,4 +47,11 @@ describe("release workflow app-update verification", () => {
     expectBefore(workflow, "Prepare uv", "pnpm exec electron-builder ${{ matrix.platform_flag }}")
     expect(workflow).toContain('uv_platform="win32"')
   })
+
+  test("finalizes updater metadata only for channels with a release repository", () => {
+    expect(workflow).toContain("inputs.channel != 'dev' &&")
+    expect(workflow).toContain(
+      "GH_REPO: ${{ inputs.channel == 'beta' && 'Astro-Han/pawwork-beta' || github.repository }}",
+    )
+  })
 })

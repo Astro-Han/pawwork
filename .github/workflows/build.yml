@@ -896,12 +896,12 @@ jobs:
         working-directory: packages/desktop-electron
 
       - name: Finalize updater metadata
-        if: ${{ (runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label) || (runner.os == 'Windows' && inputs.phase == 'full') }}
+        if: ${{ inputs.channel != 'dev' && ((runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label) || (runner.os == 'Windows' && inputs.phase == 'full')) }}
         run: pnpm exec tsx ./scripts/finalize-latest-yml.ts
         working-directory: packages/desktop-electron
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
+          GH_REPO: ${{ inputs.channel == 'beta' && 'Astro-Han/pawwork-beta' || github.repository }}
           EXISTING_LATEST_YML_DIR: ${{ runner.temp }}/existing-latest-yml
           LATEST_YML_DIR: ${{ runner.temp }}/latest-yml
           OPENCODE_VERSION: ${{ steps.package_version.outputs.version }}
