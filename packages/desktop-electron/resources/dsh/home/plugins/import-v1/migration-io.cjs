@@ -39,6 +39,9 @@ async function createDatabaseSnapshot(source, destination) {
   }
   if (source === destination) throw new Error('v1 source and snapshot paths must differ');
   fs.mkdirSync(path.dirname(destination), { recursive: true });
+  for (const file of [destination, `${destination}-shm`, `${destination}-wal`]) {
+    fs.rmSync(file, { force: true });
+  }
   const { DatabaseSync } = require('node:sqlite');
   const database = new DatabaseSync(source, { readOnly: true, timeout: 5_000 });
   try {

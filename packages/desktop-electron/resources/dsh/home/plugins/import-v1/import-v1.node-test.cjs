@@ -344,6 +344,7 @@ test('creates a consistent SQLite snapshot without changing source data or its W
     ]),
   );
 
+  fs.writeFileSync(destination, 'stale snapshot from an interrupted migration');
   await createDatabaseSnapshot(source, destination);
 
   const snapshot = new DatabaseSync(destination, { readOnly: true });
