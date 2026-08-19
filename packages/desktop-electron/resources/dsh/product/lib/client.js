@@ -5,31 +5,12 @@ window.__ModuleLoader__.load({
     const exports = module.exports
     const { createElement, useEffect, useRef } = require("react")
 
-    // DSH exposes onboarding as a slot, but not its shipped wordmark or hero.
+    // DSH exposes onboarding as a slot, but not its shipped wordmark or shell chrome.
     // Keep that product delta here and verify it against every pinned DSH RC.
     const identityCss = `
-button:has(> svg[viewBox="0 0 182 24"]) {
-  gap: 6px;
-}
-button:has(> svg[viewBox="0 0 182 24"]) > svg {
-  display: none;
-}
-button:has(> svg[viewBox="0 0 182 24"])::before {
-  content: "PawWork";
-  color: var(--dsw-alias-label-primary);
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-button:has(> svg[viewBox="0 0 182 24"])::after {
-  content: "";
-  width: 6px;
-  height: 6px;
-  background: #f36b2b;
-  border-radius: 50%;
-}
-html[lang^="zh"] button:has(> svg[viewBox="0 0 182 24"])::before {
-  content: "爪印";
+div:has(> button > svg[viewBox="0 0 182 24"]) > button,
+button:has(> svg[viewBox="0 0 23.16 17.04"]) {
+  visibility: hidden;
 }
 span:has(> svg[viewBox="0 0 23.16 17.04"]) {
   display: none;
@@ -47,17 +28,53 @@ html[lang^="zh"] span:has(> svg[viewBox="0 0 23.16 17.04"]) + span::before {
 span:has(> svg[viewBox="0 0 23.16 17.04"]) + span + span {
   display: none;
 }
-button:has(> svg[viewBox="0 0 23.16 17.04"]) > svg[viewBox="0 0 23.16 17.04"] {
-  display: none;
+.pawwork-sidebar-toggle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  left: 12px;
+  padding: 0;
+  pointer-events: auto;
+  position: absolute;
+  top: 8px;
+  width: 28px;
 }
-button:has(> svg[viewBox="0 0 23.16 17.04"])::before {
-  content: "P";
+.pawwork-sidebar-toggle:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
-  font-size: 15px;
-  font-weight: 700;
 }
-html[lang^="zh"] button:has(> svg[viewBox="0 0 23.16 17.04"])::before {
-  content: "爪";
+.pawwork-sidebar-toggle:focus-visible {
+  outline: 2px solid #f36b2b;
+  outline-offset: 1px;
+}
+html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle {
+  left: 72px;
+}
+[data-sidebar-collapsed] {
+  margin-left: -56px;
+  width: calc(100% + 56px);
+}
+[data-sidebar-collapsed] > :first-child {
+  border-right: 0 !important;
+  visibility: hidden;
+}
+[data-sidebar-collapsed] .pawwork-sidebar-toggle {
+  left: 68px;
+}
+html[data-pawwork-platform="macos"] [data-sidebar-collapsed] .pawwork-sidebar-toggle {
+  left: 128px;
+}
+[data-sidebar-collapsed] > :nth-child(2) header:first-of-type > :first-child {
+  padding-left: 52px;
+}
+html[data-pawwork-platform="macos"] [data-sidebar-collapsed] > :nth-child(2) header:first-of-type > :first-child {
+  padding-left: 104px;
 }
 .pawwork-file-action {
   align-items: center;
@@ -92,6 +109,11 @@ html[lang^="zh"] button:has(> svg[viewBox="0 0 23.16 17.04"])::before {
       style.dataset.pluginCss = styleId
       style.textContent = identityCss
       document.head.appendChild(style)
+    }
+
+    if (document.documentElement?.dataset !== undefined) {
+      const platform = typeof navigator === "undefined" ? "" : navigator.platform
+      document.documentElement.dataset.pawworkPlatform = platform.startsWith("Mac") ? "macos" : "other"
     }
 
     function CompleteWelcomeNotice({ complete }) {
@@ -147,7 +169,45 @@ html[lang^="zh"] button:has(> svg[viewBox="0 0 23.16 17.04"])::before {
       )
     }
 
-    const inject = ["slots"]
+    function SidebarToggle({ toggleSidebar }) {
+      const label = document.documentElement.lang.startsWith("zh") ? "切换侧边栏" : "Toggle sidebar"
+      return createElement(
+        "button",
+        {
+          "aria-label": label,
+          className: "pawwork-sidebar-toggle",
+          onClick: toggleSidebar,
+          title: label,
+          type: "button",
+        },
+        createElement(
+          "svg",
+          {
+            "aria-hidden": "true",
+            fill: "none",
+            height: 16,
+            viewBox: "0 0 24 24",
+            width: 16,
+          },
+          createElement("rect", {
+            height: 16,
+            rx: 2,
+            stroke: "currentColor",
+            strokeWidth: 1.8,
+            width: 18,
+            x: 3,
+            y: 4,
+          }),
+          createElement("path", {
+            d: "M9 4v16",
+            stroke: "currentColor",
+            strokeWidth: 1.8,
+          }),
+        ),
+      )
+    }
+
+    const inject = ["slots", "layout"]
 
     function apply(ctx) {
       document.title = "PawWork"
@@ -171,6 +231,16 @@ html[lang^="zh"] button:has(> svg[viewBox="0 0 23.16 17.04"])::before {
             order: -100,
           },
           FileAction,
+        ),
+      )
+      ctx.slots.inject("shell.overlay", () =>
+        ctx.slots.register(
+          {
+            name: "shell.overlay",
+            id: "pawwork-sidebar-toggle",
+            order: -100,
+          },
+          () => SidebarToggle({ toggleSidebar: () => ctx.layout.toggleSidebar() }),
         ),
       )
     }

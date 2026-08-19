@@ -23,7 +23,7 @@ describe("PawWork DSH client product layer", () => {
     expect(patch).toContain("name: '@pawwork/dsh-product'")
   })
 
-  test("replaces the DSH welcome notice and visible brand", () => {
+  test("replaces the DSH welcome notice without adding sidebar branding", () => {
     const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
     const styles: Array<{ dataset: Record<string, string>; textContent: string }> = []
     let definition: {
@@ -71,7 +71,7 @@ describe("PawWork DSH client product layer", () => {
 
     plugin.apply(ctx)
     expect(document.title).toBe("PawWork")
-    expect(plugin.inject).toEqual(["slots"])
+    expect(plugin.inject).toEqual(["slots", "layout"])
     const welcome = registrations.find((entry) => entry.options.id === "welcome-notice")
     expect(welcome).toBeDefined()
     expect(welcome!.options.priority).toBe(-1)
@@ -82,8 +82,69 @@ describe("PawWork DSH client product layer", () => {
     expect(styles).toHaveLength(1)
     expect(styles[0].textContent).toContain('svg[viewBox="0 0 182 24"]')
     expect(styles[0].textContent).toContain('svg[viewBox="0 0 23.16 17.04"]')
-    expect(styles[0].textContent).toContain('content: "PawWork"')
-    expect(styles[0].textContent).toContain('content: "爪印"')
+    expect(styles[0].textContent).not.toContain('button:has(> svg[viewBox="0 0 182 24"])::before')
+    expect(styles[0].textContent).toContain("visibility: hidden")
+  })
+
+  test("owns one titlebar control and fully closes the sidebar rail", () => {
+    const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
+    let definition: {
+      factory: (require: (name: string) => unknown) => {
+        apply(ctx: unknown): void
+      }
+    } | null = null
+    const styles: Array<{ dataset: Record<string, string>; textContent: string }> = []
+    const document = {
+      title: "DeepSeek Harness",
+      documentElement: { lang: "zh-CN", dataset: {} },
+      querySelector: () => null,
+      createElement: () => ({ dataset: {}, textContent: "" }),
+      head: { appendChild: (style: (typeof styles)[number]) => styles.push(style) },
+    }
+    const window = {
+      __ModuleLoader__: {
+        load: (value: typeof definition) => {
+          definition = value
+        },
+      },
+    }
+
+    vm.runInNewContext(source, { document, navigator: { platform: "MacIntel" }, window })
+    const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
+      type,
+      props: { ...props, children },
+    })
+    const plugin = definition!.factory((name) => {
+      if (name === "react") return { createElement, useEffect: () => {}, useRef: <T>(value: T) => ({ current: value }) }
+      throw new Error(`unexpected product client dependency: ${name}`)
+    })
+    const toggleSidebar = mock(() => {})
+    const registrations: Array<{
+      options: { id?: string }
+      component: () => { props: Record<string, unknown> }
+    }> = []
+    const ctx = {
+      layout: { toggleSidebar },
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (options: { id?: string }, component: () => { props: Record<string, unknown> }) => {
+          registrations.push({ options, component })
+        },
+      },
+    }
+
+    plugin.apply(ctx)
+
+    const registration = registrations.find((entry) => entry.options.id === "pawwork-sidebar-toggle")
+    expect(registration).toBeDefined()
+    const button = registration!.component()
+    expect(button.props["aria-label"]).toBe("切换侧边栏")
+    ;(button.props.onClick as () => void)()
+    expect(toggleSidebar).toHaveBeenCalledTimes(1)
+    expect(styles[0].textContent).toContain("[data-sidebar-collapsed]")
+    expect(styles[0].textContent).toContain("margin-left: -56px")
+    expect(styles[0].textContent).toContain("width: calc(100% + 56px)")
+    expect(styles[0].textContent).toContain("border-right: 0 !important;\n  visibility: hidden")
   })
 
   test("adds selected file paths through the public composer input slot", async () => {
