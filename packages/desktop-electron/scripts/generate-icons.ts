@@ -22,15 +22,9 @@ type IcnsImage = {
   png: Buffer
 }
 
-type AndroidXmlFile = {
-  path: string
-  content: string
-}
-
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 export const ICON_DEST = path.join(PACKAGE_ROOT, "resources/icons")
 const SOURCE = path.join(PACKAGE_ROOT, "icons/source/icon.png")
-export const ANDROID_ICON_BACKGROUND = "#FF7C3A"
 
 export const ICON_PNG_OUTPUTS: IconOutput[] = [
   { path: "32x32.png", size: 32 },
@@ -54,45 +48,6 @@ export const WINDOWS_TILE_OUTPUTS: IconOutput[] = [
   { path: "Square310x310Logo.png", size: 310 },
 ]
 
-export const ANDROID_ICON_OUTPUTS: IconOutput[] = [
-  { path: "android/mipmap-mdpi/ic_launcher.png", size: 48 },
-  { path: "android/mipmap-mdpi/ic_launcher_foreground.png", size: 48 },
-  { path: "android/mipmap-mdpi/ic_launcher_round.png", size: 48 },
-  { path: "android/mipmap-hdpi/ic_launcher.png", size: 72 },
-  { path: "android/mipmap-hdpi/ic_launcher_foreground.png", size: 72 },
-  { path: "android/mipmap-hdpi/ic_launcher_round.png", size: 72 },
-  { path: "android/mipmap-xhdpi/ic_launcher.png", size: 96 },
-  { path: "android/mipmap-xhdpi/ic_launcher_foreground.png", size: 96 },
-  { path: "android/mipmap-xhdpi/ic_launcher_round.png", size: 96 },
-  { path: "android/mipmap-xxhdpi/ic_launcher.png", size: 144 },
-  { path: "android/mipmap-xxhdpi/ic_launcher_foreground.png", size: 144 },
-  { path: "android/mipmap-xxhdpi/ic_launcher_round.png", size: 144 },
-  { path: "android/mipmap-xxxhdpi/ic_launcher.png", size: 192 },
-  { path: "android/mipmap-xxxhdpi/ic_launcher_foreground.png", size: 192 },
-  { path: "android/mipmap-xxxhdpi/ic_launcher_round.png", size: 192 },
-]
-
-export const IOS_ICON_OUTPUTS: IconOutput[] = [
-  { path: "ios/AppIcon-20x20@1x.png", size: 20 },
-  { path: "ios/AppIcon-20x20@2x.png", size: 40 },
-  { path: "ios/AppIcon-20x20@2x-1.png", size: 40 },
-  { path: "ios/AppIcon-20x20@3x.png", size: 60 },
-  { path: "ios/AppIcon-29x29@1x.png", size: 29 },
-  { path: "ios/AppIcon-29x29@2x.png", size: 58 },
-  { path: "ios/AppIcon-29x29@2x-1.png", size: 58 },
-  { path: "ios/AppIcon-29x29@3x.png", size: 87 },
-  { path: "ios/AppIcon-40x40@1x.png", size: 40 },
-  { path: "ios/AppIcon-40x40@2x.png", size: 80 },
-  { path: "ios/AppIcon-40x40@2x-1.png", size: 80 },
-  { path: "ios/AppIcon-40x40@3x.png", size: 120 },
-  { path: "ios/AppIcon-60x60@2x.png", size: 120 },
-  { path: "ios/AppIcon-60x60@3x.png", size: 180 },
-  { path: "ios/AppIcon-76x76@1x.png", size: 76 },
-  { path: "ios/AppIcon-76x76@2x.png", size: 152 },
-  { path: "ios/AppIcon-83.5x83.5@2x.png", size: 167 },
-  { path: "ios/AppIcon-512@2x.png", size: 1024 },
-]
-
 export const ICNS_OUTPUTS = [
   { type: "ic04", size: 16 },
   { type: "ic11", size: 32 },
@@ -106,11 +61,6 @@ export const ICNS_OUTPUTS = [
   { type: "ic10", size: 1024 },
 ]
 
-export const ANDROID_XML_OUTPUTS = [
-  "android/mipmap-anydpi-v26/ic_launcher.xml",
-  "android/values/ic_launcher_background.xml",
-]
-
 const ICO_OUTPUTS = [16, 24, 32, 48, 64, 256]
 
 export function getIconSource(_channel: Channel) {
@@ -121,26 +71,6 @@ export function resolveIconChannel(arg: string | undefined) {
   if (arg === undefined) return resolveChannel()
   if (arg === "dev" || arg === "beta" || arg === "prod") return arg
   throw new Error(`Invalid icon channel: ${arg}. Expected one of: dev, beta, prod`)
-}
-
-export function createAndroidXmlFiles(): AndroidXmlFile[] {
-  return [
-    {
-      path: ANDROID_XML_OUTPUTS[0],
-      content: `<?xml version="1.0" encoding="utf-8"?>
-<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-  <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
-  <background android:drawable="@color/ic_launcher_background"/>
-</adaptive-icon>`,
-    },
-    {
-      path: ANDROID_XML_OUTPUTS[1],
-      content: `<?xml version="1.0" encoding="utf-8"?>
-<resources>
-  <color name="ic_launcher_background">${ANDROID_ICON_BACKGROUND}</color>
-</resources>`,
-    },
-  ]
 }
 
 export function createPngCache(render: (source: string, size: number) => Promise<Buffer>) {
@@ -247,14 +177,6 @@ async function writeDockPng(source: string, output: IconOutput) {
   await writeFile(target, await renderDockPng(source, output.size))
 }
 
-async function writeXmlFiles() {
-  for (const file of createAndroidXmlFiles()) {
-    const target = path.join(ICON_DEST, file.path)
-    await mkdir(path.dirname(target), { recursive: true })
-    await writeFile(target, file.content)
-  }
-}
-
 async function writeIcns(source: string) {
   const images = await Promise.all(
     ICNS_OUTPUTS.map(async (output) => ({
@@ -279,15 +201,12 @@ async function generate() {
   const channel = resolveIconChannel(process.argv[2])
   const source = getIconSource(channel)
   // dock.png requires transparent padding (see renderDockPng); exclude from the batch path.
-  const outputs = [...ICON_PNG_OUTPUTS, ...WINDOWS_TILE_OUTPUTS, ...ANDROID_ICON_OUTPUTS, ...IOS_ICON_OUTPUTS].filter(
-    (o) => o.path !== "dock.png",
-  )
+  const outputs = [...ICON_PNG_OUTPUTS, ...WINDOWS_TILE_OUTPUTS].filter((output) => output.path !== "dock.png")
   const dockOutput = ICON_PNG_OUTPUTS.find((o) => o.path === "dock.png")!
 
   await rm(ICON_DEST, { recursive: true, force: true })
   await mkdir(ICON_DEST, { recursive: true })
   await Promise.all([...outputs.map((output) => writePng(source, output)), writeDockPng(source, dockOutput)])
-  await writeXmlFiles()
   await writeIco(source)
   await writeIcns(source)
 

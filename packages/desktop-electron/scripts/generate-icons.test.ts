@@ -7,15 +7,10 @@ import sharp from "sharp"
 import * as generateIcons from "./generate-icons"
 
 import {
-  ANDROID_ICON_OUTPUTS,
-  ANDROID_ICON_BACKGROUND,
-  ANDROID_XML_OUTPUTS,
   DOCK_ICON_CONTENT_RATIO,
   ICNS_OUTPUTS,
   ICON_PNG_OUTPUTS,
-  IOS_ICON_OUTPUTS,
   WINDOWS_TILE_OUTPUTS,
-  createAndroidXmlFiles,
   createIcns,
   createIco,
   createPngCache,
@@ -50,45 +45,6 @@ describe("icon generation manifest", () => {
       { path: "Square310x310Logo.png", size: 310 },
     ])
 
-    expect(ANDROID_ICON_OUTPUTS).toEqual([
-      { path: "android/mipmap-mdpi/ic_launcher.png", size: 48 },
-      { path: "android/mipmap-mdpi/ic_launcher_foreground.png", size: 48 },
-      { path: "android/mipmap-mdpi/ic_launcher_round.png", size: 48 },
-      { path: "android/mipmap-hdpi/ic_launcher.png", size: 72 },
-      { path: "android/mipmap-hdpi/ic_launcher_foreground.png", size: 72 },
-      { path: "android/mipmap-hdpi/ic_launcher_round.png", size: 72 },
-      { path: "android/mipmap-xhdpi/ic_launcher.png", size: 96 },
-      { path: "android/mipmap-xhdpi/ic_launcher_foreground.png", size: 96 },
-      { path: "android/mipmap-xhdpi/ic_launcher_round.png", size: 96 },
-      { path: "android/mipmap-xxhdpi/ic_launcher.png", size: 144 },
-      { path: "android/mipmap-xxhdpi/ic_launcher_foreground.png", size: 144 },
-      { path: "android/mipmap-xxhdpi/ic_launcher_round.png", size: 144 },
-      { path: "android/mipmap-xxxhdpi/ic_launcher.png", size: 192 },
-      { path: "android/mipmap-xxxhdpi/ic_launcher_foreground.png", size: 192 },
-      { path: "android/mipmap-xxxhdpi/ic_launcher_round.png", size: 192 },
-    ])
-
-    expect(IOS_ICON_OUTPUTS).toEqual([
-      { path: "ios/AppIcon-20x20@1x.png", size: 20 },
-      { path: "ios/AppIcon-20x20@2x.png", size: 40 },
-      { path: "ios/AppIcon-20x20@2x-1.png", size: 40 },
-      { path: "ios/AppIcon-20x20@3x.png", size: 60 },
-      { path: "ios/AppIcon-29x29@1x.png", size: 29 },
-      { path: "ios/AppIcon-29x29@2x.png", size: 58 },
-      { path: "ios/AppIcon-29x29@2x-1.png", size: 58 },
-      { path: "ios/AppIcon-29x29@3x.png", size: 87 },
-      { path: "ios/AppIcon-40x40@1x.png", size: 40 },
-      { path: "ios/AppIcon-40x40@2x.png", size: 80 },
-      { path: "ios/AppIcon-40x40@2x-1.png", size: 80 },
-      { path: "ios/AppIcon-40x40@3x.png", size: 120 },
-      { path: "ios/AppIcon-60x60@2x.png", size: 120 },
-      { path: "ios/AppIcon-60x60@3x.png", size: 180 },
-      { path: "ios/AppIcon-76x76@1x.png", size: 76 },
-      { path: "ios/AppIcon-76x76@2x.png", size: 152 },
-      { path: "ios/AppIcon-83.5x83.5@2x.png", size: 167 },
-      { path: "ios/AppIcon-512@2x.png", size: 1024 },
-    ])
-
     expect(ICNS_OUTPUTS).toEqual([
       { type: "ic04", size: 16 },
       { type: "ic11", size: 32 },
@@ -102,11 +58,6 @@ describe("icon generation manifest", () => {
       { type: "ic10", size: 1024 },
     ])
 
-    expect(ANDROID_XML_OUTPUTS).toEqual([
-      "android/mipmap-anydpi-v26/ic_launcher.xml",
-      "android/values/ic_launcher_background.xml",
-    ])
-    expect(ANDROID_ICON_BACKGROUND).toBe("#FF7C3A")
   })
 
   test("anchors source and output paths to the desktop package", () => {
@@ -133,9 +84,6 @@ describe("icon generation manifest", () => {
     expect(() => resolveIconChannel("staging")).toThrow("Invalid icon channel: staging")
   })
 
-  test("uses the Android XML manifest as the writer source of truth", () => {
-    expect(createAndroidXmlFiles().map((file) => file.path)).toEqual(ANDROID_XML_OUTPUTS)
-  })
 })
 
 describe("createPngCache", () => {
