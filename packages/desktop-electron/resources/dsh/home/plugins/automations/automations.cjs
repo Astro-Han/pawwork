@@ -348,29 +348,7 @@ class AutomationStore {
     )).length;
   }
 
-  beginRun(automationId, triggeredAt) {
-    const definition = this.document.definitions.find((entry) => entry.id === automationId);
-    if (!definition) throw new Error(`automation not found: ${automationId}`);
-    const startedAt = assertTimestamp(triggeredAt, 'triggeredAt');
-    const run = {
-      id: `automation-run-${this.document.nextRun++}`,
-      automationId,
-      definitionRevision: definition.revision,
-      triggeredAt: startedAt,
-      startedAt,
-      completedAt: null,
-      state: 'running',
-      sessionId: null,
-      result: null,
-      error: null,
-      stopReason: null,
-    };
-    this.document.runs.push(run);
-    this.save();
-    return structuredClone(run);
-  }
-
-  recordStoppedRun(automationId, triggeredAt, stopReason, completedAt = Date.now()) {
+  createRunRecord(automationId, triggeredAt, state = 'running', completedAt = null, stopReason = null) {
     const definition = this.document.definitions.find((entry) => entry.id === automationId);
     if (!definition) throw new Error(`automation not found: ${automationId}`);
     const run = {
@@ -378,17 +356,35 @@ class AutomationStore {
       automationId,
       definitionRevision: definition.revision,
       triggeredAt: assertTimestamp(triggeredAt, 'triggeredAt'),
-      startedAt: null,
-      completedAt: assertTimestamp(completedAt, 'completedAt'),
-      state: 'stopped',
+      startedAt: state === 'running' ? assertTimestamp(triggeredAt, 'triggeredAt') : null,
+      completedAt: state === 'running' ? null : assertTimestamp(completedAt, 'completedAt'),
+      state,
       sessionId: null,
       result: null,
       error: null,
-      stopReason,
+      stopReason: state === 'running' ? null : assertText(stopReason, 'stopReason'),
     };
+    return run;
+  }
+
+  appendRun(run) {
     this.document.runs.push(run);
     this.save();
     return structuredClone(run);
+  }
+
+  beginRun(automationId, triggeredAt) {
+    return this.appendRun(this.createRunRecord(automationId, triggeredAt));
+  }
+
+  recordStoppedRun(automationId, triggeredAt, stopReason, completedAt = Date.now()) {
+    return this.appendRun(this.createRunRecord(
+      automationId,
+      triggeredAt,
+      'stopped',
+      completedAt,
+      stopReason,
+    ));
   }
 
   completeRun(id, outcome) {
@@ -426,15 +422,26 @@ class AutomationStore {
     if (changed) this.save();
   }
 
-  claimDue(id, target, now) {
+  claimDue(id, target, now, runOutcome) {
     const definition = this.document.definitions.find((entry) => entry.id === id);
     if (!definition || definition.paused || definition.nextFireAt !== target || target > now) return null;
     definition.nextFireAt = definition.kind === 'oneshot'
       ? null
       : definitionNext(definition, now, this.completedRunCount(id));
     definition.updatedAt = now;
+    const run = this.createRunRecord(
+      id,
+      target,
+      runOutcome.state,
+      runOutcome.completedAt,
+      runOutcome.stopReason,
+    );
+    this.document.runs.push(run);
     this.save();
-    return structuredClone(definition);
+    return {
+      definition: structuredClone(definition),
+      run: structuredClone(run),
+    };
   }
 }
 
@@ -469,8 +476,11 @@ class AutomationScheduler {
     for (const definition of this.store.listDefinitions()) {
       const target = definition.nextFireAt;
       if (target === null || target > now || definition.paused) continue;
-      const claimed = this.store.claimDue(definition.id, target, now);
-      if (claimed) this.store.recordStoppedRun(definition.id, target, 'missed_schedule', now);
+      this.store.claimDue(definition.id, target, now, {
+        state: 'stopped',
+        completedAt: now,
+        stopReason: 'missed_schedule',
+      });
     }
     this.arm();
   }
@@ -503,21 +513,18 @@ class AutomationScheduler {
     const executions = [];
     for (const candidate of due) {
       const target = candidate.nextFireAt;
-      const definition = this.store.claimDue(candidate.id, target, now);
-      if (!definition) continue;
-      if (this.store.hasActiveRun(definition.id)) {
-        this.store.recordStoppedRun(definition.id, target, 'previous_run_active', now);
+      const active = this.store.hasActiveRun(candidate.id);
+      const claimed = this.store.claimDue(candidate.id, target, now, active
+        ? { state: 'stopped', completedAt: now, stopReason: 'previous_run_active' }
+        : { state: 'running' });
+      if (!claimed) continue;
+      if (active) {
         continue;
       }
-      const run = this.store.beginRun(definition.id, target);
-      executions.push(this.executeRun(definition, run));
+      executions.push(this.executeRun(claimed.definition, claimed.run));
     }
     void Promise.allSettled(executions);
     this.refresh();
-  }
-
-  async runNow(id, now = this.clock.now()) {
-    return this.startNow(id, now).completion;
   }
 
   startNow(id, now = this.clock.now()) {
@@ -845,7 +852,7 @@ function createAutomationToolDefinitions({
       objectParameters({ id: { type: 'string' } }, ['id']),
       async (args) => {
         current(args.id);
-        return scheduler.runNow(args.id, now());
+        return scheduler.startNow(args.id, now()).completion;
       },
     ),
     tool(

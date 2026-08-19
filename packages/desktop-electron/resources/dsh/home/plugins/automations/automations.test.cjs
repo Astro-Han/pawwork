@@ -103,7 +103,7 @@ test('persists definitions and run history with monotonic ids', () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
   const created = oneShot(store, cwd, 2_000);
-  const run = store.beginRun(created.id, 1_500, false);
+  const run = store.beginRun(created.id, 1_500);
   store.completeRun(run.id, {
     state: 'succeeded',
     completedAt: 1_700,
@@ -134,7 +134,7 @@ test('startup interrupts unfinished runs, does not replay misses, and arms only 
   const store = new AutomationStore(file);
   const missed = oneShot(store, cwd, 2_000);
   const repeating = interval(store, cwd, 300_000);
-  const unfinished = store.beginRun(repeating.id, 20_000, true);
+  const unfinished = store.beginRun(repeating.id, 20_000);
   const clock = fakeClock(901_000);
   const scheduler = new AutomationScheduler({
     store,
@@ -175,6 +175,28 @@ test('executes a due definition once, records its result, and advances recurring
   assert.equal(store.getDefinition(created.id).nextFireAt, 601_000);
   assert.equal(store.listRuns(created.id)[0].state, 'succeeded');
   assert.equal(store.listRuns(created.id)[0].result, 'checked');
+});
+
+test('persists a due claim and its running record in one write', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = interval(store, cwd, 300_000);
+  const clock = fakeClock(301_000);
+  const scheduler = new AutomationScheduler({
+    store,
+    execute: async (_definition, _run, signal) => await new Promise((resolve) => {
+      signal.addEventListener('abort', () => resolve({ result: 'done' }), { once: true });
+    }),
+    clock,
+  });
+
+  await scheduler.runDue();
+
+  const reopened = new AutomationStore(file);
+  assert.equal(reopened.getDefinition(created.id).nextFireAt, 601_000);
+  assert.equal(reopened.listRuns(created.id)[0].state, 'running');
+  await scheduler.stop();
+  assert.equal(store.listRuns(created.id)[0].state, 'stopped');
 });
 
 test('rearms future work without waiting for a due run to finish', async () => {
@@ -247,7 +269,7 @@ test('records executor failures as failed runs', async () => {
     clock: fakeClock(1_500),
   });
 
-  const completed = await scheduler.runNow(created.id);
+  const completed = await scheduler.startNow(created.id).completion;
 
   assert.equal(completed.state, 'failed');
   assert.equal(completed.error, 'model unavailable');
@@ -326,6 +348,7 @@ test('the DSH executor cancels an already attached continue agent', async () => 
     },
     followup() {},
     whenIdle: async () => await idle,
+    runMaintenance: async (task) => task(new AbortController().signal),
     cancel() {
       cancellations += 1;
       releaseIdle();
@@ -371,6 +394,7 @@ test('the DSH executor does not reuse an assistant message from an earlier turn'
     async whenIdle() {
       events.push({ type: 'turn/end', data: { reason: { kind: 'completed' } } });
     },
+    runMaintenance: async (task) => task(new AbortController().signal),
     cancel() {},
   };
   const execute = createDshExecutor({
@@ -387,6 +411,99 @@ test('the DSH executor does not reuse an assistant message from an earlier turn'
   }, { id: 'automation-run-1' }, new AbortController().signal);
 
   assert.equal(result.result, null);
+});
+
+test('the DSH executor keeps a continue result inside its single turn', async () => {
+  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?single-turn=${Date.now()}`;
+  const { createDshExecutor } = await import(pluginUrl);
+  const events = [
+    { type: 'turn/start', data: { turn: 4 } },
+    { type: 'assistant/message', data: { turn: 4, message: { content: [{ type: 'text', text: 'old result' }] } } },
+    { type: 'turn/end', data: { turn: 4, reason: { kind: 'completed' } } },
+  ];
+  let idleCalls = 0;
+  let inMaintenance = false;
+  const agent = {
+    session: { events },
+    followup() {
+      assert.equal(inMaintenance, true);
+      events.push({ type: 'turn/start', data: { turn: 5 } });
+      events.push({ type: 'assistant/message', data: { turn: 5, message: { content: [{ type: 'text', text: 'automation result' }] } } });
+      events.push({ type: 'turn/end', data: { turn: 5, reason: { kind: 'completed' } } });
+    },
+    async whenIdle() {
+      idleCalls += 1;
+      if (idleCalls === 2) {
+        events.push({ type: 'turn/start', data: { turn: 6 } });
+        events.push({ type: 'assistant/message', data: { turn: 6, message: { content: [{ type: 'text', text: 'later user work' }] } } });
+        events.push({ type: 'turn/end', data: { turn: 6, reason: { kind: 'completed' } } });
+      }
+    },
+    runMaintenance: async (task) => {
+      inMaintenance = true;
+      try {
+        return await task(new AbortController().signal);
+      } finally {
+        inMaintenance = false;
+      }
+    },
+    cancel() {},
+  };
+  const execute = createDshExecutor({
+    agents: { get: () => agent },
+    sessions: { flush: async () => {} },
+    sessionTitle: { rename: () => {} },
+  });
+
+  const result = await execute({
+    context: 'continue',
+    sourceSessionId: 'session-existing',
+    model: { provider: 'opencode', model: 'big-pickle' },
+    prompt: 'Continue.',
+  }, { id: 'automation-run-1' }, new AbortController().signal);
+
+  assert.equal(result.result, 'automation result');
+});
+
+test('the DSH executor does not follow up when agent creation or resume aborts after await', async () => {
+  for (const method of ['create', 'resume']) {
+    const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?abort-after-${method}=${Date.now()}`;
+    const { createDshExecutor } = await import(pluginUrl);
+    let resolveAgent;
+    let followups = 0;
+    const agent = {
+      session: { events: [] },
+      followup() { followups += 1; },
+      whenIdle: async () => {},
+      cancel() {},
+      runMaintenance: async (task) => task(new AbortController().signal),
+    };
+    const ctx = {
+      agents: {
+        get: () => undefined,
+        [method]: () => new Promise((resolve) => {
+          resolveAgent = () => resolve({ agent, dispose: async () => {} });
+        }),
+      },
+      sessions: { flush: async () => {} },
+      sessionTitle: { rename: () => {} },
+    };
+    const execute = createDshExecutor(ctx);
+    const controller = new AbortController();
+    const completion = execute({
+      context: method === 'resume' ? 'continue' : 'fresh',
+      sourceSessionId: 'session-existing',
+      model: { provider: 'opencode', model: 'big-pickle' },
+      cwd: '/tmp',
+      title: 'Automation',
+      prompt: 'Continue.',
+    }, { id: `automation-run-${method}` }, controller.signal);
+
+    controller.abort();
+    resolveAgent();
+    await assert.rejects(completion, /aborted|AbortError/);
+    assert.equal(followups, 0);
+  }
 });
 
 test('automation RPC lists only durable definitions and their recent runs', async () => {
@@ -505,12 +622,12 @@ test('automation RPC updates definitions', async () => {
 test('conversation tools manage only the current workspace and keep model choice with the definition', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
-  const runNow = [];
+  const startedNow = [];
   const scheduler = {
     refresh() {},
-    runNow: async (id) => {
-      runNow.push(id);
-      return { id: 'automation-run-1', state: 'succeeded' };
+    startNow: (id) => {
+      startedNow.push(id);
+      return { completion: Promise.resolve({ id: 'automation-run-1', state: 'succeeded' }) };
     },
   };
   const tools = createAutomationToolDefinitions({
@@ -531,7 +648,7 @@ test('conversation tools manage only the current workspace and keep model choice
   assert.equal((await byName.automation_list.execute({})).items.length, 1);
   assert.equal((await byName.automation_set_paused.execute({ id: created.id, paused: true })).paused, true);
   assert.equal((await byName.automation_run_now.execute({ id: created.id })).state, 'succeeded');
-  assert.deepEqual(runNow, [created.id]);
+  assert.deepEqual(startedNow, [created.id]);
   assert.equal((await byName.automation_delete.execute({ id: created.id })).deleted, true);
   assert.equal((await byName.automation_list.execute({})).items.length, 0);
 });

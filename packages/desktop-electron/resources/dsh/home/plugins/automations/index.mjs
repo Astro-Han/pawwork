@@ -14,13 +14,19 @@ export const inject = ['agentDefaultModel', 'agents', 'connection', 'sessions', 
 
 const AUTOMATION_SESSION_PREFIX = 'pawwork-automation-run-';
 
-function automationResult(events) {
-  const end = [...events].reverse().find((event) => event.type === 'turn/end');
+function eventTurn(event) {
+  return Number.isSafeInteger(event?.data?.turn) ? event.data.turn : null;
+}
+
+function automationResult(events, turn) {
+  if (turn === null) return null;
+  const turnEvents = events.filter((event) => eventTurn(event) === turn);
+  const end = [...turnEvents].reverse().find((event) => event.type === 'turn/end');
   if (!end || !['completed', 'max-tokens'].includes(end.data.reason.kind)) {
     if (end?.data.reason.kind === 'error') throw new Error(end.data.reason.error.message);
     throw new Error(`automation turn ended as ${end?.data.reason.kind || 'unknown'}`);
   }
-  const message = [...events].reverse().find((event) => event.type === 'assistant/message');
+  const message = [...turnEvents].reverse().find((event) => event.type === 'assistant/message');
   if (!message) return null;
   const text = message.data.message.content
     .filter((block) => block.type === 'text')
@@ -48,21 +54,39 @@ export function createDshExecutor(ctx) {
         : await ctx.agents.create({ sessionId, meta: { cwd: definition.cwd }, agentOptions, signal });
       agent = handle.agent;
     }
+    signal.throwIfAborted();
     const cancel = () => agent.cancel({ kind: 'hook', reason: 'automation scheduler stopped' });
     signal.addEventListener('abort', cancel, { once: true });
     try {
       if (definition.context === 'fresh') ctx.sessionTitle.rename(agent.session, `Automation: ${definition.title}`);
-      const previousEventCount = agent.session.events.length;
-      agent.followup({
+      await agent.whenIdle();
+      signal.throwIfAborted();
+      const previousTurn = [...agent.session.events]
+        .reverse()
+        .map(eventTurn)
+        .find((turn) => turn !== null) ?? null;
+      const followup = {
         id: `pawwork-automation-message-${run.id}`,
         role: 'user',
         content: [{ type: 'text', text: definition.prompt }],
         source: { kind: 'user' },
+      };
+      await agent.runMaintenance(async (maintenanceSignal) => {
+        maintenanceSignal.throwIfAborted();
+        signal.throwIfAborted();
+        agent.followup(followup);
       });
       await agent.whenIdle();
       signal.throwIfAborted();
+      const events = [...agent.session.events];
+      const turn = events
+        .find((event) => event.type === 'turn/start'
+          && eventTurn(event) !== null
+          && (previousTurn === null || eventTurn(event) > previousTurn));
+      const turnNumber = turn ? eventTurn(turn) : null;
+      const result = automationResult(events, turnNumber);
       await ctx.sessions.flush(agent.session);
-      return { sessionId, result: automationResult([...agent.session.events].slice(previousEventCount)) };
+      return { sessionId, result };
     } finally {
       signal.removeEventListener('abort', cancel);
       await handle?.dispose();
