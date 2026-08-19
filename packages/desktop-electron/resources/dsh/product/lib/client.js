@@ -137,6 +137,7 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
 .pawwork-automation-group[data-multiline="true"] { align-items: start; }
 .pawwork-automation-group-label { font-size: 14px; line-height: 22px; }
 .pawwork-automation-input, .pawwork-automation-input input { width: 100%; }
+.pawwork-automation-readonly { color: var(--dsh-color-text-secondary, #6f6a61); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pawwork-automation-textarea {
   background: var(--dsw-alias-bg-subtle); border: 1px solid var(--dsw-alias-divider-border);
   border-radius: 8px; box-sizing: border-box; color: var(--dsw-alias-label-primary);
@@ -370,9 +371,8 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
     }
     function formState(definition) {
       return {
-        ...scheduleForm(definition), title: definition.title, prompt: definition.prompt, cwd: definition.cwd,
+        ...scheduleForm(definition), title: definition.title, prompt: definition.prompt,
         provider: definition.model.provider, model: definition.model.model, timezone: definition.timezone,
-        context: definition.context,
         runCount: definition.stop?.kind === "count" ? String(definition.stop.count) : "",
       }
     }
@@ -399,11 +399,11 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
     function Field({ label, multiline = false, children }) {
       return h("div", { className: "pawwork-automation-group", "data-multiline": multiline ? "true" : "false" }, h("span", { className: "pawwork-automation-group-label" }, label), children)
     }
-    function SelectControl({ disabled = false, label, onChange, options, value }) {
+    function SelectControl({ label, onChange, options, value }) {
       const [open, setOpen] = useState(false)
       const selected = options.find((option) => option[0] === value)
       const anchor = h(Button, {
-        "aria-label": label, className: "pawwork-automation-select-trigger", disabled,
+        "aria-label": label, className: "pawwork-automation-select-trigger",
         onClick: () => setOpen((current) => !current), size: "md", type: "button", variant: "ghost",
       }, h("span", null, selected?.[1] || value), h(IconChevronDownOutline14, { size: 14 }))
       return h(Menu, {
@@ -413,7 +413,7 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
       })
     }
 
-    function AutomationEditor({ connection, definition, onClose, onDeleted, onSaved, sessions, workspaces }) {
+    function AutomationEditor({ connection, definition, onClose, onDeleted, onSaved, sessions }) {
       const baseline = useRef(formState(definition))
       const [form, setForm] = useState(baseline.current)
       const [busy, setBusy] = useState("")
@@ -430,8 +430,8 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
         setBusy("save")
         setError("")
         try {
-          if (!form.title.trim() || !form.prompt.trim() || !form.cwd || !form.provider.trim() || !form.model.trim()) {
-            throw new Error(text("请填写标题、任务内容、工作区和模型", "Complete title, prompt, workspace, and model"))
+          if (!form.title.trim() || !form.prompt.trim() || !form.provider.trim() || !form.model.trim()) {
+            throw new Error(text("请填写标题、任务内容和模型", "Complete title, prompt, and model"))
           }
           const schedule = schedulePayload(form)
           const common = {
@@ -470,7 +470,6 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
       const scheduleOptions = definition.kind === "oneshot"
         ? [["once", text("单次", "Once")]]
         : [["daily", text("每天", "Daily")], ["weekdays", text("工作日", "Weekdays")], ["weekly", text("每周", "Weekly")], ["interval", text("固定间隔", "Interval")], ["cron", "Cron"]]
-      const workspaceOptions = workspaces.map((workspace) => [workspace.path, workspace.title])
       const weekdayOptions = [["1", text("周一", "Monday")], ["2", text("周二", "Tuesday")], ["3", text("周三", "Wednesday")], ["4", text("周四", "Thursday")], ["5", text("周五", "Friday")], ["6", text("周六", "Saturday")], ["0", text("周日", "Sunday")]]
       return h("section", { className: "pawwork-automation-panel" }, h("div", { className: "pawwork-automation-panel-inner" },
         h("div", { className: "pawwork-automation-panel-head" },
@@ -483,7 +482,7 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
         h("form", { className: "pawwork-automation-form", onSubmit: save },
           h(Field, { label: text("标题", "Title") }, h(Input, { "aria-label": text("标题", "Title"), className: "pawwork-automation-input", onChange: update("title"), value: form.title })),
           h(Field, { label: text("任务内容", "Instructions"), multiline: true }, h("textarea", { "aria-label": text("任务内容", "Instructions"), className: "pawwork-automation-textarea", onChange: update("prompt"), value: form.prompt })),
-          h(Field, { label: text("工作区", "Workspace") }, h(SelectControl, { disabled: true, label: text("工作区", "Workspace"), onChange: choose("cwd"), options: workspaceOptions, value: form.cwd })),
+          h(Field, { label: text("工作区", "Workspace") }, h("span", { className: "pawwork-automation-readonly", title: definition.cwd }, workspaceName(definition.cwd))),
           h("div", { className: "pawwork-automation-grid" },
             h(Field, { label: text("重复", "Repeat") }, h(SelectControl, { label: text("重复", "Repeat"), onChange: choose("frequency"), options: scheduleOptions, value: form.frequency })),
             form.frequency === "once" ? h(Field, { label: text("运行时间", "Run time") }, h(Input, { "aria-label": text("运行时间", "Run time"), className: "pawwork-automation-input", onChange: update("at"), type: "datetime-local", value: form.at })) : null,
@@ -497,7 +496,7 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
                 h(Field, { label: text("模型来源", "Provider") }, h(Input, { "aria-label": text("模型来源", "Provider"), className: "pawwork-automation-input", onChange: update("provider"), value: form.provider })),
                 h(Field, { label: text("模型", "Model") }, h(Input, { "aria-label": text("模型", "Model"), className: "pawwork-automation-input", onChange: update("model"), value: form.model })),
                 h(Field, { label: text("时区", "Timezone") }, h(Input, { "aria-label": text("时区", "Timezone"), className: "pawwork-automation-input", onChange: update("timezone"), value: form.timezone })),
-                h(Field, { label: text("会话", "Session") }, h(SelectControl, { disabled: true, label: text("会话", "Session"), onChange: () => {}, options: [["fresh", text("每次新会话", "New session each run")], ["continue", text("继续原会话", "Continue original session")]], value: form.context })),
+                h(Field, { label: text("会话", "Session") }, h("span", { className: "pawwork-automation-readonly" }, definition.context === "continue" ? text("继续原会话", "Continue original session") : text("每次新会话", "New session each run"))),
                 form.frequency !== "once" ? h(Field, { label: text("运行次数上限", "Run limit") }, h(Input, { "aria-label": text("运行次数上限", "Run limit"), className: "pawwork-automation-input", min: "1", onChange: update("runCount"), placeholder: text("永不停止", "Never"), type: "number", value: form.runCount })) : null))),
           error ? h("div", { className: "pawwork-automations-error", role: "alert" }, error) : null,
           h("div", { className: "pawwork-automation-form-footer" },
@@ -580,7 +579,7 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
             h("span", { className: "pawwork-automation-row-icon" }, h(definition.paused ? IconPauseOutline16 : IconPlayOutline16, { size: 16 })),
             h("span", null, h("span", { className: "pawwork-automation-row-title" }, definition.title), h("span", { className: "pawwork-automation-row-meta" }, `${formatSchedule(definition)}  ${definition.paused ? text("已暂停", "Paused") : `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}`}`)))),
           visible.length === 0 && !loading ? h("div", { className: "pawwork-automations-empty" }, query ? text("没有匹配的自动化", "No matching automations") : text("还没有自动化", "No automations yet")) : null)),
-        split ? h(AutomationEditor, { connection, definition: selected, key: `${selected.id}:${selected.revision}`, onClose: closePanel, onDeleted: async () => { closePanel(); await load() }, onSaved: reloadAfter, sessions, workspaces }) : null)
+        split ? h(AutomationEditor, { connection, definition: selected, key: `${selected.id}:${selected.revision}`, onClose: closePanel, onDeleted: async () => { closePanel(); await load() }, onSaved: reloadAfter, sessions }) : null)
     }
 
     const inject = ["slots", "layout", "connection", "conversation", "sessions", "workspaces"]
