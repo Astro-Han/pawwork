@@ -8,104 +8,34 @@
   "scripts": {
     "dev": "bun run dev:desktop",
     "dev:desktop": "bun --cwd packages/desktop-electron dev",
-    "dev:web": "bun --cwd packages/app dev",
-    "snap": "bun packages/app/script/snap.ts",
-    "dev:opencode": "bun run --cwd packages/opencode --conditions=browser src/index.ts",
-    "frontend:inventory": "node script/frontend-inventory.mjs",
-    "frontend:inventory:json": "node script/frontend-inventory.mjs --format json",
-    "typecheck": "bun turbo typecheck",
-    "lint": "eslint \"packages/{app,ui,desktop-electron}/src/**/*.{ts,tsx}\"",
+    "typecheck": "bun --cwd packages/desktop-electron typecheck",
+    "lint": "eslint \"packages/desktop-electron/src/**/*.ts\"",
     "lint:ci": "bun run lint",
-    "postinstall": "bun run --cwd packages/opencode fix-node-pty",
     "test": "echo 'do not run tests from root' && exit 1"
   },
   "workspaces": {
     "packages": [
-      "packages/*",
-      "packages/sdk/js"
+      "packages/desktop-electron"
     ],
     "catalog": {
-      "@effect/opentelemetry": "4.0.0-beta.78",
-      "@effect/platform-node": "4.0.0-beta.78",
       "@types/bun": "1.3.13",
-      "@types/cross-spawn": "6.0.6",
-      "@octokit/rest": "22.0.0",
-      "@hono/zod-validator": "0.4.2",
-      "ulid": "3.0.1",
-      "@kobalte/core": "0.13.11",
-      "@types/luxon": "3.7.1",
       "@types/node": "22.13.9",
       "@types/semver": "7.7.1",
-      "@tsconfig/node22": "22.0.2",
-      "@tsconfig/bun": "1.0.9",
-      "@openauthjs/openauth": "0.0.0-20250322224806",
-      "@pierre/diffs": "1.1.0-beta.18",
-      "@solid-primitives/storage": "4.3.3",
-      "@tailwindcss/vite": "4.1.11",
-      "diff": "8.0.2",
-      "drizzle-kit": "1.0.0-beta.19-d95b7a4",
-      "drizzle-orm": "1.0.0-beta.19-d95b7a4",
-      "effect": "4.0.0-beta.78",
-      "ai": "6.0.158",
-      "cross-spawn": "7.0.6",
-      "hono": "4.12.25",
-      "hono-openapi": "1.1.2",
-      "fuzzysort": "3.1.0",
-      "luxon": "3.6.1",
-      "marked": "17.0.1",
-      "marked-shiki": "1.2.1",
-      "remend": "1.3.0",
-      "typescript": "5.8.2",
       "@typescript/native-preview": "7.0.0-dev.20251207.1",
-      "zod": "4.1.8",
-      "remeda": "2.26.0",
-      "shiki": "3.20.0",
-      "solid-list": "0.3.0",
-      "tailwindcss": "4.1.11",
-      "virtua": "0.42.3",
-      "vite": "7.3.5",
-      "@solidjs/meta": "0.29.4",
-      "@solidjs/router": "0.15.4",
-      "solid-js": "1.9.13",
-      "vite-plugin-solid": "2.11.10",
-      "@lydell/node-pty": "1.2.0-beta.10"
+      "vite": "7.3.5"
     }
   },
   "devDependencies": {
-    "@tsconfig/bun": "catalog:",
-    "@types/mime-types": "3.0.1",
-    "@typescript/native-preview": "catalog:",
     "eslint": "^9.39.4",
-    "eslint-plugin-solid": "0.14.5",
-    "glob": "13.0.5",
-    "prettier": "3.6.2",
-    "semver": "^7.6.0",
-    "sst": "4.15.2",
-    "turbo": "2.8.13",
     "typescript-eslint": "8.59.3"
-  },
-  "dependencies": {
-    "@opencode-ai/plugin": "workspace:*",
-    "@opencode-ai/script": "workspace:*",
-    "@opencode-ai/sdk": "workspace:*",
-    "typescript": "catalog:"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/Astro-Han/pawwork"
   },
   "license": "Apache-2.0",
-  "prettier": {
-    "semi": false,
-    "printWidth": 120
-  },
   "trustedDependencies": [
     "esbuild",
-    "node-pty",
-    "tree-sitter",
-    "tree-sitter-bash",
-    "tree-sitter-powershell",
-    "web-tree-sitter",
     "electron"
   ],
   "overrides": {
@@ -117,7 +47,6 @@
     "fastify": "5.8.5",
     "form-data": "4.0.6",
     "find-my-way": "9.7.0",
-    "hono": "catalog:",
     "esbuild": "0.28.1",
     "lodash": "4.18.1",
     "ip-address": "10.3.1",
@@ -131,7 +60,6 @@
     "tmp": "0.2.7"
   },
   "patchedDependencies": {
-    "gray-matter@4.0.3": "patches/gray-matter@4.0.3.patch",
     "brace-expansion@5.0.9": "patches/brace-expansion@5.0.9.patch"
   }
 }

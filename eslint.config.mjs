@@ -1,4 +1,3 @@
-import solid from "eslint-plugin-solid"
 import tseslint from "typescript-eslint"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -6,15 +5,7 @@ import { fileURLToPath } from "node:url"
 const rootDir = path.dirname(fileURLToPath(import.meta.url))
 
 const productTs = [
-  "packages/app/src/**/*.{ts,tsx}",
-  "packages/ui/src/**/*.{ts,tsx}",
-  "packages/desktop-electron/src/**/*.{ts,tsx}",
-]
-
-const solidTsx = [
-  "packages/app/src/**/*.tsx",
-  "packages/ui/src/**/*.tsx",
-  "packages/desktop-electron/src/renderer/**/*.tsx",
+  "packages/desktop-electron/src/**/*.ts",
 ]
 
 export default tseslint.config([
@@ -34,13 +25,6 @@ export default tseslint.config([
       "**/__fixtures__/**",
       "**/fixtures/**",
       "**/generated/**",
-      "packages/app/src/sst-env.d.ts",
-      "packages/ui/src/components/app-icons/types.ts",
-      "packages/ui/src/components/file-icons/types.ts",
-      "packages/ui/src/components/provider-icons/types.ts",
-      "packages/ui/src/storybook/fixtures.ts",
-      "packages/opencode/**",
-      "packages/sdk/**",
     ],
   },
   {
@@ -73,20 +57,6 @@ export default tseslint.config([
       ],
       "@typescript-eslint/no-for-in-array": "error",
       "@typescript-eslint/no-array-delete": "error",
-    },
-  },
-  {
-    name: "pawwork/solid-bug-rules",
-    files: solidTsx,
-    plugins: {
-      solid,
-    },
-    rules: {
-      "solid/jsx-no-duplicate-props": "error",
-      "solid/jsx-no-script-url": "error",
-      "solid/jsx-no-undef": "error",
-      "solid/no-react-deps": "error",
-      "solid/no-react-specific-props": "error",
     },
   },
 ])
