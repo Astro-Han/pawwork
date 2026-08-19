@@ -5,6 +5,7 @@ const require = createRequire(import.meta.url);
 const {
   AutomationScheduler,
   AutomationStore,
+  createAutomationRpcHandler,
   createAutomationToolDefinitions,
 } = require('./automations.cjs');
 
@@ -12,6 +13,7 @@ export const name = 'pawwork-automations';
 export const inject = [
   'agentDefaultModel',
   'agents',
+  'connection',
   'sessions',
   'sessionPersistence',
   'sessionTitle',
@@ -111,8 +113,10 @@ export function apply(ctx) {
   if (!home || !path.isAbsolute(home)) throw new Error('PawWork automations require an absolute DSH_HOME');
   const store = new AutomationStore(path.join(home, 'automations.json'));
   const scheduler = new AutomationScheduler({ store, execute: createDshExecutor(ctx) });
+  const rpc = createAutomationRpcHandler({ store, scheduler });
   ctx.provide('pawworkAutomations', { store, scheduler });
   ctx.effect(() => {
+    const stopRpc = ctx.connection.rpc.handle('/pawwork-automations', rpc, { authority: 'loopback' });
     const stopCreated = ctx.on('agent/created', ({ agent }) => {
       if (!ctx.agents.roots().includes(agent)) return;
       registerAgentTools(ctx, agent, store, scheduler);
@@ -122,6 +126,7 @@ export function apply(ctx) {
     });
     return async () => {
       stopCreated();
+      await stopRpc();
       await scheduler.stop();
     };
   }, 'pawwork.automations.lifecycle()');

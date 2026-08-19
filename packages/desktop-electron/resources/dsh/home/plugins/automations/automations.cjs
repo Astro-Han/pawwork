@@ -525,12 +525,17 @@ class AutomationScheduler {
   }
 
   async runNow(id, now = this.clock.now()) {
+    return this.startNow(id, now).completion;
+  }
+
+  startNow(id, now = this.clock.now()) {
     const definition = this.store.getDefinition(id);
     if (this.store.hasActiveRun(id)) {
-      return this.store.recordStoppedRun(id, now, 'previous_run_active', now);
+      const run = this.store.recordStoppedRun(id, now, 'previous_run_active', now);
+      return { run, completion: Promise.resolve(run) };
     }
     const run = this.store.beginRun(id, now);
-    return this.executeRun(definition, run);
+    return { run, completion: this.executeRun(definition, run) };
   }
 
   executeRun(definition, run) {
@@ -578,6 +583,75 @@ class AutomationScheduler {
     await Promise.allSettled([...this.running]);
     this.started = false;
   }
+}
+
+function rpcSuccess(value) {
+  return { ok: true, value };
+}
+
+function rpcFailure(code, message, details = {}) {
+  return { ok: false, error: { code, message, details } };
+}
+
+function rpcPayload(payload) {
+  if (!isRecord(payload)) throw new Error('payload must be an object');
+  return payload;
+}
+
+function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }) {
+  if (!(store instanceof AutomationStore)) throw new Error('automation RPC requires AutomationStore');
+  return async (endpoint, payload, signal) => {
+    try {
+      signal?.throwIfAborted();
+      const args = rpcPayload(payload);
+      if (endpoint === 'list') {
+        const definitions = store.listDefinitions();
+        const definitionIds = new Set(definitions.map((definition) => definition.id));
+        return rpcSuccess({
+          definitions: definitions.map((definition) => ({
+            ...definition,
+            recentRuns: store.listRuns(definition.id).slice(0, 5),
+          })),
+          pendingTakeover: store.pendingV1Takeover(),
+          orphanedRuns: store.listRuns()
+            .filter((run) => !definitionIds.has(run.automationId))
+            .slice(0, 50),
+        });
+      }
+      if (endpoint === 'set-paused') {
+        if (typeof args.id !== 'string' || typeof args.paused !== 'boolean') {
+          return rpcFailure('bad-request', 'id and paused are required', { issues: [] });
+        }
+        const definition = store.setPaused(args.id, args.paused, now());
+        scheduler.refresh();
+        return rpcSuccess(definition);
+      }
+      if (endpoint === 'run-now') {
+        if (typeof args.id !== 'string') return rpcFailure('bad-request', 'id is required', { issues: [] });
+        const started = scheduler.startNow(args.id, now());
+        return rpcSuccess(started.run);
+      }
+      if (endpoint === 'delete') {
+        if (typeof args.id !== 'string') return rpcFailure('bad-request', 'id is required', { issues: [] });
+        store.getDefinition(args.id);
+        const deleted = store.deleteDefinition(args.id);
+        scheduler.refresh();
+        return rpcSuccess({ id: args.id, deleted });
+      }
+      if (endpoint === 'confirm-takeover') {
+        if (args.confirmed !== true) {
+          return rpcFailure('bad-request', 'confirmed must be true', { issues: [] });
+        }
+        const definitions = store.confirmV1Takeover(now());
+        scheduler.refresh();
+        return rpcSuccess({ activated: definitions.length, definitions });
+      }
+      return rpcFailure('bad-request', `unknown automation endpoint: ${endpoint}`, { issues: [] });
+    } catch (error) {
+      if (signal?.aborted) return rpcFailure('cancelled', 'automation request cancelled');
+      return rpcFailure('internal', error instanceof Error ? error.message : String(error));
+    }
+  };
 }
 
 function textResult(value) {
@@ -822,6 +896,7 @@ module.exports = {
   AutomationScheduler,
   AutomationStore,
   MIN_INTERVAL_MS,
+  createAutomationRpcHandler,
   createAutomationToolDefinitions,
   definitionNext,
   recurringNext,

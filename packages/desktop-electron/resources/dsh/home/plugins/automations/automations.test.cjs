@@ -7,6 +7,7 @@ const path = require('node:path');
 const {
   AutomationScheduler,
   AutomationStore,
+  createAutomationRpcHandler,
   createAutomationToolDefinitions,
 } = require('./automations.cjs');
 
@@ -55,6 +56,11 @@ function fakeClock(initial) {
     armed: () => armed,
   };
 }
+
+test('registers the management RPC on a valid single-segment DSH channel', () => {
+  const plugin = fs.readFileSync(path.join(__dirname, 'index.mjs'), 'utf8');
+  assert.match(plugin, /rpc\.handle\('\/pawwork-automations', rpc, \{ authority: 'loopback' \}\)/);
+});
 
 test('persists definitions and run history with monotonic ids', () => {
   const { file, cwd } = fixture();
@@ -132,6 +138,104 @@ test('executes a due definition once, records its result, and advances recurring
   assert.equal(store.getDefinition(created.id).nextFireAt, 601_000);
   assert.equal(store.listRuns(created.id)[0].state, 'succeeded');
   assert.equal(store.listRuns(created.id)[0].result, 'checked');
+});
+
+test('starts an immediate run without making the caller wait for agent completion', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = oneShot(store, cwd, 2_000);
+  let finish;
+  const completed = new Promise((resolve) => { finish = resolve; });
+  const scheduler = new AutomationScheduler({
+    store,
+    execute: async () => completed,
+    clock: fakeClock(1_500),
+  });
+
+  const started = scheduler.startNow(created.id);
+
+  assert.equal(started.run.state, 'running');
+  assert.equal(store.listRuns(created.id)[0].state, 'running');
+  finish({ sessionId: 'pawwork-automation-run-1', result: 'done' });
+  assert.equal((await started.completion).state, 'succeeded');
+});
+
+test('automation RPC lists durable definitions, pending takeover, and orphaned v1 history', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const definition = oneShot(store, cwd, 2_000);
+  const run = store.beginRun(definition.id, 1_200);
+  store.completeRun(run.id, {
+    state: 'succeeded',
+    completedAt: 1_300,
+    sessionId: 'session-current',
+    result: 'done',
+  });
+  store.importRun({
+    id: 'pawwork-v1-run-orphan',
+    automationId: 'pawwork-v1-definition-deleted',
+    definitionRevision: 1,
+    triggeredAt: 900,
+    startedAt: 910,
+    completedAt: 950,
+    state: 'failed',
+    sessionId: 'pawwork-v1-session-orphan',
+    result: null,
+    error: 'Unavailable',
+    stopReason: null,
+    migration: {
+      source: 'pawwork-v1',
+      sourceId: 'run-orphan',
+      sourceState: 'failed',
+      orphanedDefinition: true,
+    },
+  });
+  const rpc = createAutomationRpcHandler({
+    store,
+    scheduler: { refresh() {} },
+    now: () => 1_500,
+  });
+
+  const result = await rpc('list', {}, new AbortController().signal);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.value.definitions[0].id, definition.id);
+  assert.equal(result.value.definitions[0].recentRuns[0].sessionId, 'session-current');
+  assert.equal(result.value.pendingTakeover.length, 0);
+  assert.equal(result.value.orphanedRuns[0].sessionId, 'pawwork-v1-session-orphan');
+});
+
+test('automation RPC validates mutations and returns immediately when running now', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const definition = interval(store, cwd, 300_000);
+  let refreshCalls = 0;
+  let started;
+  const rpc = createAutomationRpcHandler({
+    store,
+    scheduler: {
+      refresh: () => { refreshCalls += 1; },
+      startNow: (id) => {
+        started = id;
+        return { run: { id: 'automation-run-now', automationId: id, state: 'running' }, completion: new Promise(() => {}) };
+      },
+    },
+    now: () => 2_000,
+  });
+
+  const badPause = await rpc('set-paused', { id: definition.id, paused: 'yes' }, new AbortController().signal);
+  assert.equal(badPause.ok, false);
+  assert.equal(badPause.error.code, 'bad-request');
+
+  const paused = await rpc('set-paused', { id: definition.id, paused: true }, new AbortController().signal);
+  assert.equal(paused.ok, true);
+  assert.equal(paused.value.paused, true);
+
+  const running = await rpc('run-now', { id: definition.id }, new AbortController().signal);
+  assert.equal(running.ok, true);
+  assert.equal(running.value.state, 'running');
+  assert.equal(started, definition.id);
+  assert.equal(refreshCalls, 1);
 });
 
 test('conversation tools manage only the current workspace and keep model choice with the definition', async () => {
