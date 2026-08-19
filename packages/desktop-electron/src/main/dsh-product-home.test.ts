@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import {
   buildDshEnvironment,
   prepareDshProductHome,
@@ -19,6 +20,21 @@ function temporaryDirectory() {
   const directory = mkdtempSync(join(tmpdir(), "pawwork-dsh-product-"))
   temporaryDirectories.push(directory)
   return directory
+}
+
+function installedOpenCodeFreeModels() {
+  const require = createRequire(import.meta.url)
+  const dshPackage = require.resolve("@deepseek-ai/dsh/package.json")
+  const webAppPackage = createRequire(dshPackage).resolve("@deepseek-ai/dsh-web-app/package.json")
+  const adapterPackage = createRequire(webAppPackage).resolve("@deepseek-ai/dsh-llm-pi-ai/package.json")
+  const piAiPackage = createRequire(adapterPackage).resolve("@earendil-works/pi-ai/package.json")
+  const catalog = JSON.parse(readFileSync(join(dirname(piAiPackage), "dist/providers/data/opencode.json"), "utf8"))
+
+  return Object.values(catalog)
+    .flatMap((models) => Object.values(models as Record<string, { id: string; cost?: { input?: number } }>))
+    .filter((model) => model.cost?.input === 0)
+    .map((model) => model.id)
+    .sort()
 }
 
 describe("DSH product home", () => {
@@ -83,6 +99,37 @@ describe("DSH product home", () => {
     prepareDshProductHome({ productHome, resources })
 
     expect(readFileSync(join(productHome, ".credentials.yaml"), "utf8")).toBe('OPENCODE_API_KEY: "public"\n')
+  })
+
+  test("publishes the installed zero-cost OpenCode catalog as OpenCode Free", () => {
+    const resources = join(import.meta.dir, "../../resources/dsh")
+    const patch = Bun.YAML.parse(readFileSync(join(resources, "home/product.cordis.patch.yml"), "utf8")) as Array<{
+      id?: string
+      config?: Record<string, unknown>
+    }>
+    const modelDefaults = patch.find((entry) => entry.id === "agent-default-model")?.config as {
+      provider: string
+      model: string
+    }
+    const providerConfig = patch.find((entry) => entry.id === "llm-pi-ai")?.config as {
+      providers: { opencode: { displayName?: string; models?: Array<{ id: string }> } }
+    }
+    const freeModels = installedOpenCodeFreeModels()
+
+    expect(providerConfig.providers.opencode.displayName).toBe("OpenCode Free")
+    expect(providerConfig.providers.opencode.models?.map((model) => model.id).sort()).toEqual(freeModels)
+    expect(modelDefaults.provider).toBe("opencode")
+    expect(freeModels).toContain(modelDefaults.model)
+  })
+
+  test("does not publish the bundled paid DeepSeek route", () => {
+    const resources = join(import.meta.dir, "../../resources/dsh")
+    const patch = Bun.YAML.parse(readFileSync(join(resources, "home/product.cordis.patch.yml"), "utf8")) as Array<{
+      id?: string
+      disabled?: boolean
+    }>
+
+    expect(patch.find((entry) => entry.id === "llm-deepseek")?.disabled).toBe(true)
   })
 
   test("isolates DSH from ambient model credentials", () => {
