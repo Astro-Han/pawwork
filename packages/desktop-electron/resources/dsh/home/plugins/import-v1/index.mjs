@@ -119,14 +119,14 @@ export function apply(ctx) {
     }
 
     try {
-      const result = await automationImporter.runV1AutomationImport({
+      await automationImporter.runV1AutomationImport({
         home: process.env.DSH_HOME,
         resolveModel: createAutomationModelResolver(ctx),
         importDefinition: async (definition) => ctx.pawworkAutomations.store.importDefinition(definition),
         importRun: async (run) => ctx.pawworkAutomations.store.importRun(run),
         signal: controller.signal,
       });
-      if (result.status === 'complete') ctx.pawworkAutomations.store.activateImportedDefinitions();
+      ctx.pawworkAutomations.store.activateImportedDefinitions();
       ctx.pawworkAutomations.scheduler.refresh();
     } catch (error) {
       ctx.logger.warn(`v1 automation import failed: ${error instanceof Error ? error.message : String(error)}`);

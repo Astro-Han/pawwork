@@ -67,7 +67,7 @@ test('keeps the public migration status incomplete after a partial session impor
   settingsModule.runV1SettingsImport = async () => ({ status: 'complete' });
   automationsModule.runV1AutomationImport = async () => {
     backgroundFinished();
-    return { status: 'complete' };
+    return { status: 'partial' };
   };
   try {
     const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?status=${Date.now()}`;
