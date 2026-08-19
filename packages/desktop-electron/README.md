@@ -1,6 +1,6 @@
 # PawWork Desktop
 
-Native PawWork desktop app, built with Electron.
+PawWork's native Electron shell for DeepSeek DSH.
 
 ## Development
 
@@ -11,11 +11,11 @@ bun install
 bun run --cwd packages/desktop-electron dev
 ```
 
-This starts the Electron shell and renderer development server.
+This starts the Electron shell and its owned DSH sidecar.
 
 ## Build
 
-To build the Electron main process, preload script, and renderer:
+To build the Electron main process:
 
 ```bash
 bun run --cwd packages/desktop-electron build
