@@ -156,21 +156,23 @@ function owns(object, field) {
   return isRecord(object) && Object.prototype.hasOwnProperty.call(object, field);
 }
 
-function createDshSettingImporter({ settings, llm, agentDefaultModel }) {
+function createDshSettingImporter({ settings, llm }) {
   return async (setting) => {
     const descriptors = settings.describe();
     if (setting.kind === 'field') {
       const descriptor = descriptors.find((entry) => entry.ns === setting.namespace);
       if (!descriptor) return 'unsupported';
+      if (!Number.isSafeInteger(descriptor.revision)) throw new Error('DSH setting revision is unavailable');
       if (owns(descriptor.user, setting.field)) return 'skipped';
       if (isRecord(descriptor.value) && descriptor.value[setting.field] === setting.value) return 'skipped';
-      await settings.update(setting.namespace, { [setting.field]: setting.value });
+      await settings.update(setting.namespace, { [setting.field]: setting.value }, descriptor.revision);
       return 'imported';
     }
 
     if (setting.kind !== 'model') return 'unsupported';
     const descriptor = descriptors.find((entry) => entry.ns === 'agent-default-model');
     if (!descriptor) return 'unsupported';
+    if (!Number.isSafeInteger(descriptor.revision)) throw new Error('DSH setting revision is unavailable');
     if (owns(descriptor.user, 'provider') || owns(descriptor.user, 'model')) return 'skipped';
 
     const providers = new Set(llm.listProviders().map((provider) => provider.id));
@@ -189,9 +191,9 @@ function createDshSettingImporter({ settings, llm, agentDefaultModel }) {
       }
     }
     if (!selected) return 'unsupported';
-    const current = agentDefaultModel.currentSelection();
+    const current = descriptor.value;
     if (current.provider === selected.provider && current.model === selected.model) return 'skipped';
-    await agentDefaultModel.saveSelection(selected);
+    await settings.replace('agent-default-model', selected, descriptor.revision);
     return 'imported';
   };
 }

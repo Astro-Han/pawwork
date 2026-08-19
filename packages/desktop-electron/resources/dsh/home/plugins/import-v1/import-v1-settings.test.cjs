@@ -145,30 +145,30 @@ test('preserves v2 overrides and imports the first model currently advertised by
   const descriptors = [
     {
       ns: 'locale',
+      revision: 4,
       value: { preference: 'zh' },
       user: { preference: 'zh' },
     },
     {
       ns: 'ui-conversation',
+      revision: 7,
       value: { busyEnter: 'steer' },
     },
     {
       ns: 'agent-default-model',
+      revision: 9,
       value: { provider: 'opencode', model: 'big-pickle' },
     },
   ];
   const importSetting = createDshSettingImporter({
     settings: {
       describe: () => descriptors,
-      update: async (namespace, patch) => updates.push({ namespace, patch }),
+      update: async (namespace, patch, revision) => updates.push({ namespace, patch, revision }),
+      replace: async (namespace, value, revision) => selections.push({ namespace, value, revision }),
     },
     llm: {
       listProviders: () => [{ id: 'opencode', name: 'OpenCode Zen' }],
       listModels: async () => [{ provider: 'opencode', id: 'deepseek-v4-flash-free', name: 'DeepSeek V4' }],
-    },
-    agentDefaultModel: {
-      currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }),
-      saveSelection: async (selection) => selections.push(selection),
     },
   });
 
@@ -187,8 +187,14 @@ test('preserves v2 overrides and imports the first model currently advertised by
     ],
   }), 'imported');
 
-  assert.deepEqual(updates, [{ namespace: 'ui-conversation', patch: { busyEnter: 'queue' } }]);
-  assert.deepEqual(selections, [{ provider: 'opencode', model: 'deepseek-v4-flash-free' }]);
+  assert.deepEqual(updates, [{
+    namespace: 'ui-conversation', patch: { busyEnter: 'queue' }, revision: 7,
+  }]);
+  assert.deepEqual(selections, [{
+    namespace: 'agent-default-model',
+    value: { provider: 'opencode', model: 'deepseek-v4-flash-free' },
+    revision: 9,
+  }]);
 });
 
 test('skips an overridden model and rejects settings without a live equivalent', async () => {
@@ -196,18 +202,16 @@ test('skips an overridden model and rejects settings without a live equivalent',
     settings: {
       describe: () => [{
         ns: 'agent-default-model',
+        revision: 3,
         value: { provider: 'opencode', model: 'big-pickle' },
         user: { provider: 'opencode' },
       }],
       update: async () => assert.fail('unsupported or overridden settings must not be written'),
+      replace: async () => assert.fail('unsupported or overridden settings must not be written'),
     },
     llm: {
       listProviders: () => [{ id: 'opencode', name: 'OpenCode Zen' }],
       listModels: async () => [],
-    },
-    agentDefaultModel: {
-      currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }),
-      saveSelection: async () => assert.fail('overridden models must not be written'),
     },
   });
 
