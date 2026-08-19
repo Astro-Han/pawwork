@@ -147,13 +147,12 @@ describe("PawWork DSH client product layer", () => {
     ;(button.props.onClick as () => void)()
     expect(toggleSidebar).toHaveBeenCalledTimes(1)
     expect(styles[0].textContent).toContain("border-radius: 50%")
+    expect(styles[0].textContent).toContain("position: fixed")
     expect(styles[0].textContent).toContain("top: 9px")
     expect(styles[0].textContent).toContain(
       'html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle {\n  left: 76px;\n}',
     )
-    expect(styles[0].textContent).toContain(
-      'html[data-pawwork-platform="macos"] [data-sidebar-collapsed] .pawwork-sidebar-toggle {\n  left: 132px;\n}',
-    )
+    expect(styles[0].textContent).not.toMatch(/\[data-sidebar-collapsed\] \.pawwork-sidebar-toggle/)
     expect(styles[0].textContent).toContain(
       ".pawwork-sidebar-toggle:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}",
     )

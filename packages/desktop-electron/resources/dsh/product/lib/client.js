@@ -42,7 +42,7 @@ span:has(> svg[viewBox="0 0 23.16 17.04"]) + span + span {
   left: 12px;
   padding: 0;
   pointer-events: auto;
-  position: absolute;
+  position: fixed;
   top: 9px;
   width: 28px;
 }
@@ -59,12 +59,6 @@ html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle {
 [data-sidebar-collapsed] > :first-child {
   border-right: 0 !important;
   visibility: hidden;
-}
-[data-sidebar-collapsed] .pawwork-sidebar-toggle {
-  left: 68px;
-}
-html[data-pawwork-platform="macos"] [data-sidebar-collapsed] .pawwork-sidebar-toggle {
-  left: 132px;
 }
 [data-sidebar-collapsed] > :nth-child(2) header:first-of-type > :first-child {
   padding-left: 52px;
