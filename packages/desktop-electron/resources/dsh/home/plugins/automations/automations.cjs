@@ -591,16 +591,12 @@ function rpcPayload(payload) {
   return payload;
 }
 
-function createAutomationRpcHandler({ store, scheduler, defaults, now = () => Date.now() }) {
+function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }) {
   if (!(store instanceof AutomationStore)) throw new Error('automation RPC requires AutomationStore');
   return async (endpoint, payload, signal) => {
     try {
       signal?.throwIfAborted();
       const args = rpcPayload(payload);
-      if (endpoint === 'defaults') {
-        if (typeof defaults !== 'function') return rpcFailure('unavailable', 'automation defaults are unavailable');
-        return rpcSuccess(defaults());
-      }
       if (endpoint === 'list') {
         const definitions = store.listDefinitions();
         return rpcSuccess({
@@ -609,11 +605,6 @@ function createAutomationRpcHandler({ store, scheduler, defaults, now = () => Da
             recentRuns: store.listRuns(definition.id).slice(0, 5),
           })),
         });
-      }
-      if (endpoint === 'create') {
-        const definition = store.createDefinition(args, now());
-        scheduler.refresh();
-        return rpcSuccess(definition);
       }
       if (endpoint === 'update') {
         if (typeof args.id !== 'string') return rpcFailure('bad-request', 'id is required', { issues: [] });

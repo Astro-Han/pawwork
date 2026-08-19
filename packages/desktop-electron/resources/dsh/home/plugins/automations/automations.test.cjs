@@ -277,29 +277,34 @@ test('automation RPC validates mutations and returns immediately when running no
   assert.equal(refreshCalls, 1);
 });
 
-test('automation RPC creates and updates definitions through the authoritative store', async () => {
-  const { file } = fixture();
+test('automation RPC updates definitions and rejects retired form-creation endpoints', async () => {
+  const { file, cwd } = fixture();
   const store = new AutomationStore(file);
+  const definition = interval(store, cwd, 300_000);
   let refreshCalls = 0;
   const rpc = createAutomationRpcHandler({
     store,
     scheduler: { refresh: () => { refreshCalls += 1; } },
     now: () => Date.parse('2026-08-18T00:00:00.000Z'),
   });
-  const created = await rpc('create', {
+  const retiredCreate = await rpc('create', {
     title: 'Daily brief', prompt: 'Summarize the workspace.', cwd: '/tmp/work',
     model: { provider: 'opencode', model: 'free-model' }, timezone: 'Asia/Shanghai',
     context: 'fresh', kind: 'recurring', rhythm: { kind: 'cron', expression: '0 9 * * *' },
     stop: { kind: 'count', count: 1 },
   });
-  assert.equal(created.ok, true);
+  assert.equal(retiredCreate.ok, false);
+  assert.equal(retiredCreate.error.code, 'bad-request');
+  const retiredDefaults = await rpc('defaults', {});
+  assert.equal(retiredDefaults.ok, false);
+  assert.equal(retiredDefaults.error.code, 'bad-request');
 
   const updated = await rpc('update', {
-    id: created.value.id, title: 'Morning brief', prompt: 'Summarize important changes.',
+    id: definition.id, title: 'Morning brief', prompt: 'Summarize important changes.',
   });
   assert.equal(updated.ok, true);
   assert.equal(updated.value.title, 'Morning brief');
-  assert.equal(refreshCalls, 2);
+  assert.equal(refreshCalls, 1);
 });
 
 test('conversation tools manage only the current workspace and keep model choice with the definition', async () => {

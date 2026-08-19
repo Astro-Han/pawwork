@@ -352,7 +352,6 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
     }
     function scheduleForm(definition) {
       const base = { time: "09:00", weekday: "1", intervalMinutes: "60", cron: "0 9 * * *", at: localDateTime(Date.now() + 3_600_000) }
-      if (!definition) return { ...base, frequency: "daily" }
       if (definition.kind === "oneshot") return { ...base, frequency: "once", at: localDateTime(definition.fireAt) }
       if (definition.rhythm.kind === "interval") return { ...base, frequency: "interval", intervalMinutes: String(definition.rhythm.everyMs / 60_000) }
       const [minute, hour, day, month, weekday] = definition.rhythm.expression.split(/\s+/)
@@ -362,15 +361,12 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
       if (day === "*" && month === "*" && /^[0-6]$/.test(weekday)) return { ...base, frequency: "weekly", time: timeValue, weekday, cron: definition.rhythm.expression }
       return { ...base, frequency: "cron", cron: definition.rhythm.expression }
     }
-    function formState(definition, defaults, workspaces) {
-      const workspace = definition?.cwd || workspaces.find((item) => item.workspaceId === defaults?.workspaceId)?.path || workspaces[0]?.path || ""
+    function formState(definition) {
       return {
-        ...scheduleForm(definition), title: definition?.title || "", prompt: definition?.prompt || "", cwd: workspace,
-        provider: definition?.model.provider || defaults?.model.provider || "",
-        model: definition?.model.model || defaults?.model.model || "",
-        timezone: definition?.timezone || defaults?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-        context: definition?.context || "fresh",
-        runCount: definition?.stop?.kind === "count" ? String(definition.stop.count) : "",
+        ...scheduleForm(definition), title: definition.title, prompt: definition.prompt, cwd: definition.cwd,
+        provider: definition.model.provider, model: definition.model.model, timezone: definition.timezone,
+        context: definition.context,
+        runCount: definition.stop?.kind === "count" ? String(definition.stop.count) : "",
       }
     }
     function schedulePayload(form) {
@@ -410,8 +406,8 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
       })
     }
 
-    function AutomationEditor({ connection, defaults, definition, onClose, onDeleted, onSaved, sessions, workspaces }) {
-      const baseline = useRef(formState(definition, defaults, workspaces))
+    function AutomationEditor({ connection, definition, onClose, onDeleted, onSaved, sessions, workspaces }) {
+      const baseline = useRef(formState(definition))
       const [form, setForm] = useState(baseline.current)
       const [busy, setBusy] = useState("")
       const [error, setError] = useState("")
@@ -436,9 +432,7 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
             model: { provider: form.provider, model: form.model }, timezone: form.timezone,
             ...(schedule.kind === "recurring" ? { stop: form.runCount ? { kind: "count", count: Number(form.runCount) } : { kind: "never" } } : {}),
           }
-          const result = definition
-            ? await automationCall(connection, "update", { id: definition.id, ...common, ...(schedule.kind === "oneshot" ? { fireAt: schedule.fireAt } : { rhythm: schedule.rhythm }) })
-            : await automationCall(connection, "create", { ...common, ...schedule, cwd: form.cwd, context: "fresh" })
+          const result = await automationCall(connection, "update", { id: definition.id, ...common, ...(schedule.kind === "oneshot" ? { fireAt: schedule.fireAt } : { rhythm: schedule.rhythm }) })
           onSaved(result)
         } catch (saveError) {
           setError(saveError instanceof Error ? saveError.message : String(saveError))
@@ -466,23 +460,23 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
         finally { setBusy("") }
       }
 
-      const scheduleOptions = definition?.kind === "oneshot"
+      const scheduleOptions = definition.kind === "oneshot"
         ? [["once", text("单次", "Once")]]
         : [["daily", text("每天", "Daily")], ["weekdays", text("工作日", "Weekdays")], ["weekly", text("每周", "Weekly")], ["interval", text("固定间隔", "Interval")], ["cron", "Cron"]]
       const workspaceOptions = workspaces.map((workspace) => [workspace.path, workspace.title])
       const weekdayOptions = [["1", text("周一", "Monday")], ["2", text("周二", "Tuesday")], ["3", text("周三", "Wednesday")], ["4", text("周四", "Thursday")], ["5", text("周五", "Friday")], ["6", text("周六", "Saturday")], ["0", text("周日", "Sunday")]]
       return h("section", { className: "pawwork-automation-panel" }, h("div", { className: "pawwork-automation-panel-inner" },
         h("div", { className: "pawwork-automation-panel-head" },
-          h("h2", null, definition ? definition.title : text("新建自动化", "New automation")),
+          h("h2", null, definition.title),
           h("div", { className: "pawwork-automation-actions" },
-            definition ? h(Button, { disabled: busy !== "", icon: h(definition.paused ? IconPlayOutline16 : IconPauseOutline16, { size: 16 }), onClick: () => mutate("set-paused", { id: definition.id, paused: !definition.paused }), size: "sm", variant: "outline" }, definition.paused ? text("启用", "Resume") : text("暂停", "Pause")) : null,
-            definition ? h(Button, { disabled: busy !== "", icon: h(IconPlayOutline16, { size: 16 }), onClick: () => mutate("run-now", { id: definition.id }), size: "sm", variant: "outline" }, text("立即运行", "Run now")) : null,
-            definition ? h(Button, { "aria-label": deleting ? text("确认删除", "Confirm delete") : text("删除", "Delete"), disabled: busy !== "", icon: h(IconTrashOutline16, { size: 16 }), onClick: remove, size: "sm", title: deleting ? text("再次点击确认删除", "Click again to confirm deletion") : text("删除", "Delete"), type: "button", variant: "ghost" }) : null,
+            h(Button, { disabled: busy !== "", icon: h(definition.paused ? IconPlayOutline16 : IconPauseOutline16, { size: 16 }), onClick: () => mutate("set-paused", { id: definition.id, paused: !definition.paused }), size: "sm", variant: "outline" }, definition.paused ? text("启用", "Resume") : text("暂停", "Pause")),
+            h(Button, { disabled: busy !== "", icon: h(IconPlayOutline16, { size: 16 }), onClick: () => mutate("run-now", { id: definition.id }), size: "sm", variant: "outline" }, text("立即运行", "Run now")),
+            h(Button, { "aria-label": deleting ? text("确认删除", "Confirm delete") : text("删除", "Delete"), disabled: busy !== "", icon: h(IconTrashOutline16, { size: 16 }), onClick: remove, size: "sm", title: deleting ? text("再次点击确认删除", "Click again to confirm deletion") : text("删除", "Delete"), type: "button", variant: "ghost" }),
             h(Button, { "aria-label": text("关闭", "Close"), icon: h(IconCloseOutline16, { size: 16 }), onClick: requestClose, size: "sm", title: text("关闭", "Close"), type: "button", variant: "ghost" }))),
         h("form", { className: "pawwork-automation-form", onSubmit: save },
           h(Field, { label: text("标题", "Title") }, h(Input, { "aria-label": text("标题", "Title"), className: "pawwork-automation-input", onChange: update("title"), value: form.title })),
           h(Field, { label: text("任务内容", "Instructions"), multiline: true }, h("textarea", { "aria-label": text("任务内容", "Instructions"), className: "pawwork-automation-textarea", onChange: update("prompt"), value: form.prompt })),
-          h(Field, { label: text("工作区", "Workspace") }, h(SelectControl, { disabled: Boolean(definition), label: text("工作区", "Workspace"), onChange: choose("cwd"), options: workspaceOptions, value: form.cwd })),
+          h(Field, { label: text("工作区", "Workspace") }, h(SelectControl, { disabled: true, label: text("工作区", "Workspace"), onChange: choose("cwd"), options: workspaceOptions, value: form.cwd })),
           h("div", { className: "pawwork-automation-grid" },
             h(Field, { label: text("重复", "Repeat") }, h(SelectControl, { label: text("重复", "Repeat"), onChange: choose("frequency"), options: scheduleOptions, value: form.frequency })),
             form.frequency === "once" ? h(Field, { label: text("运行时间", "Run time") }, h(Input, { "aria-label": text("运行时间", "Run time"), className: "pawwork-automation-input", onChange: update("at"), type: "datetime-local", value: form.at })) : null,
@@ -503,17 +497,16 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
             discarding ? h("span", { className: "pawwork-automation-discard" }, text("放弃未保存的更改？", "Discard unsaved changes?")) : null,
             discarding ? h(Button, { onClick: () => setDiscarding(false), size: "sm", type: "button", variant: "outline" }, text("继续编辑", "Keep editing")) : null,
             discarding ? h(Button, { onClick: onClose, size: "sm", type: "button", variant: "outline" }, text("放弃", "Discard")) : null,
-            !discarding ? h(Button, { disabled: busy !== "" || (definition && !dirty), size: "sm", type: "submit", variant: "primary" }, definition ? text("保存", "Save") : text("创建", "Create")) : null)),
-        definition ? h("div", { className: "pawwork-automation-history" },
+            !discarding ? h(Button, { disabled: busy !== "" || !dirty, size: "sm", type: "submit", variant: "primary" }, text("保存", "Save")) : null)),
+        h("div", { className: "pawwork-automation-history" },
           h("h3", null, text("最近运行", "Recent runs")),
-          definition.recentRuns?.length ? definition.recentRuns.map((run) => h(RunRow, { close: onClose, key: run.id, run, sessions })) : h("div", { className: "pawwork-automations-empty" }, text("还没有运行记录", "No run history yet"))) : null))
+          definition.recentRuns?.length ? definition.recentRuns.map((run) => h(RunRow, { close: onClose, key: run.id, run, sessions })) : h("div", { className: "pawwork-automations-empty" }, text("还没有运行记录", "No run history yet")))))
     }
 
     function AutomationSurface({ connection, createViaChat, sessions, useWorkspaces }) {
       const workspaceState = useWorkspaces((state) => state)
       const workspaces = workspaceState.items || []
       const [data, setData] = useState(null)
-      const [defaults, setDefaults] = useState(null)
       const [selectedId, setSelectedId] = useState(null)
       const [query, setQuery] = useState("")
       const [filter, setFilter] = useState("all")
@@ -524,9 +517,8 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
         setLoading(true)
         setError("")
         try {
-          const [list, nextDefaults] = await Promise.all([automationCall(connection, "list", {}, signal), automationCall(connection, "defaults", {}, signal)])
+          const list = await automationCall(connection, "list", {}, signal)
           setData(list)
-          setDefaults({ ...nextDefaults, workspaceId: workspaceState.recentWorkspaceId })
           setSelectedId((current) => list.definitions.some((item) => item.id === current) ? current : null)
         } catch (loadError) {
           if (!signal?.aborted) setError(loadError instanceof Error ? loadError.message : String(loadError))
@@ -573,7 +565,7 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
             h("span", { className: "pawwork-automation-row-icon" }, h(definition.paused ? IconPauseOutline16 : IconPlayOutline16, { size: 16 })),
             h("span", null, h("span", { className: "pawwork-automation-row-title" }, definition.title), h("span", { className: "pawwork-automation-row-meta" }, `${formatSchedule(definition)}  ${definition.paused ? text("已暂停", "Paused") : `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}`}`)))),
           visible.length === 0 && !loading ? h("div", { className: "pawwork-automations-empty" }, query ? text("没有匹配的自动化", "No matching automations") : text("还没有自动化", "No automations yet")) : null)),
-        split ? h(AutomationEditor, { connection, defaults, definition: selected, key: `${selected.id}:${selected.revision}`, onClose: closePanel, onDeleted: async () => { closePanel(); await load() }, onSaved: reloadAfter, sessions, workspaces }) : null)
+        split ? h(AutomationEditor, { connection, definition: selected, key: `${selected.id}:${selected.revision}`, onClose: closePanel, onDeleted: async () => { closePanel(); await load() }, onSaved: reloadAfter, sessions, workspaces }) : null)
     }
 
     const inject = ["slots", "layout", "connection", "conversation", "sessions", "workspaces"]

@@ -116,10 +116,6 @@ export function apply(ctx) {
   const rpc = createAutomationRpcHandler({
     store,
     scheduler,
-    defaults: () => ({
-      model: ctx.agentDefaultModel.currentSelection(),
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-    }),
   });
   ctx.provide('pawworkAutomations', { store, scheduler });
   ctx.effect(() => {
