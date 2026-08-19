@@ -86,11 +86,6 @@ const getBase = (channel: Channel): Configuration => ({
       to: "THIRD_PARTY_NOTICES.md",
     },
     {
-      from: "native/",
-      to: "native/",
-      filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
-    },
-    {
       from: "resources/tools/",
       to: "tools/",
       filter: ["**/*"],

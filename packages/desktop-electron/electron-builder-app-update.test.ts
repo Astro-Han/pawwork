@@ -56,6 +56,12 @@ describe("electron builder app-update config", () => {
     const config = createConfig("prod")
 
     expect(config.files).toEqual(["out/main/**/*", "resources/**/*", "!resources/dsh/**/*"])
+    expect(config.extraResources).toEqual([
+      expect.objectContaining({ to: "dsh/" }),
+      expect.objectContaining({ to: "skills" }),
+      expect.objectContaining({ to: "THIRD_PARTY_NOTICES.md" }),
+      expect.objectContaining({ to: "tools/" }),
+    ])
     expect(config.extraResources).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ to: expect.stringContaining("@parcel/watcher") }),
