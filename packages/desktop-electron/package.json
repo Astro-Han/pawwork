@@ -11,7 +11,7 @@
   "scripts": {
     "typecheck": "tsgo -b",
     "test": "vitest run && pnpm run test:node",
-    "test:node": "node --test resources/dsh/home/plugins/automations/automation-cron.test.cjs resources/dsh/home/plugins/automations/automations.test.cjs resources/dsh/home/plugins/import-v1/import-v1-automations.node-test.cjs resources/dsh/home/plugins/import-v1/import-v1-settings.test.cjs resources/dsh/home/plugins/import-v1/import-v1.node-test.cjs resources/dsh/zen-identity.test.cjs",
+    "test:node": "node --test resources/dsh/automations/lib/automation-cron.test.cjs resources/dsh/automations/lib/automations.test.cjs resources/dsh/home/plugins/import-v1/import-v1-automations.node-test.cjs resources/dsh/home/plugins/import-v1/import-v1-settings.test.cjs resources/dsh/home/plugins/import-v1/import-v1.node-test.cjs resources/dsh/zen-identity.test.cjs",
     "smoke:ci": "tsx ./scripts/ci-smoke.ts",
     "predev": "tsx ./scripts/generate-icons.ts",
     "dev": "electron-vite dev",

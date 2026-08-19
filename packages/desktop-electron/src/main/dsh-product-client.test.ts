@@ -132,7 +132,7 @@ describe("PawWork DSH client product layer", () => {
 
     plugin.apply(ctx)
     expect(document.title).toBe("DeepSeek Harness")
-    expect(plugin.inject).toEqual(["slots", "layout", "connection", "conversation", "sessions", "workspaces"])
+    expect(plugin.inject).toEqual(["slots", "layout", "connection", "sessions"])
     const welcome = registrations.find((entry) => entry.options.id === "welcome-notice")
     expect(welcome).toBeDefined()
     expect(welcome!.options.priority).toBe(-1)
@@ -202,106 +202,6 @@ describe("PawWork DSH client product layer", () => {
     expect(toggleSidebar).toHaveBeenCalledTimes(1)
   })
 
-  test("surfaces automations directly below New Session through the public sidebar action slot", () => {
-    const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
-    let definition: {
-      factory: (require: (name: string) => unknown) => {
-        apply(ctx: unknown): void
-      }
-    } | null = null
-    const document = {
-      title: "DeepSeek Harness",
-      documentElement: { lang: "zh-CN", dataset: {} },
-      querySelector: () => null,
-      createElement: () => ({ dataset: {}, textContent: "" }),
-      head: { appendChild: () => {} },
-    }
-    const window = {
-      __ModuleLoader__: {
-        load: (value: typeof definition) => {
-          definition = value
-        },
-      },
-    }
-
-    vm.runInNewContext(source, { document, window })
-    const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
-      type,
-      props: { ...props, children },
-    })
-    const plugin = definition!.factory((name) => {
-      if (name === "react") {
-        return {
-          createElement,
-          useEffect: (effect: () => void) => effect(),
-          useRef: <T>(value: T) => ({ current: value }),
-          useState: <T>(initial: T) => [initial, vi.fn(() => {})],
-        }
-      }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") {
-        return {
-          Button: "Button",
-          IconCloseOutline16: "IconCloseOutline16",
-          IconPanelLeftOutline16: () => null,
-          IconPauseOutline16: "IconPauseOutline16",
-          IconPlayOutline16: "IconPlayOutline16",
-          IconRefreshOutline16: "IconRefreshOutline16",
-          IconTrashOutline16: "IconTrashOutline16",
-        }
-      }
-      throw new Error(`unexpected product client dependency: ${name}`)
-    })
-    const registrations: Array<{
-      options: { id?: string; name?: string; priority?: number }
-      component: (props: { wide: boolean }) => { props: Record<string, unknown> }
-      dispose: ReturnType<typeof vi.fn>
-    }> = []
-    let conversationDeclaration: (() => void) | undefined
-    let conversationCleanup: (() => void) | undefined
-    const call = vi.fn(async () => ({ ok: true, value: { definitions: [] } }))
-    const ctx = {
-      connection: { rpc: { call } },
-      layout: { closeDetails: () => {}, toggleSidebar: () => {} },
-      sessions: { open: () => {} },
-      slots: {
-        inject: (name: string, register: () => void) => {
-          if (name === "conversation") conversationDeclaration = register
-          const cleanup = register()
-          if (name === "conversation") conversationCleanup = cleanup
-          return cleanup
-        },
-        register: (
-          options: { id?: string; name?: string; priority?: number },
-          component: (props: { wide: boolean }) => { props: Record<string, unknown> },
-        ) => {
-          const dispose = vi.fn(() => {})
-          registrations.push({ options, component, dispose })
-          return dispose
-        },
-      },
-    }
-
-    plugin.apply(ctx)
-
-    const registration = registrations.find((entry) => entry.options.id === "pawwork-automations")
-    expect(registration?.options.name).toBe("sidebar.footer.action")
-    const button = registration!.component({ wide: true })
-    expect(button.type).toBe("button")
-    expect(button.props["aria-label"]).toBe("自动化")
-    expect(button.props.className).toBe("pawwork-automation-entry")
-    expect(button.props.children[1].props.children).toEqual(["自动化"])
-    expect(typeof button.props.onClick).toBe("function")
-    ;(button.props.onClick as () => void)()
-    const surfaceRegistration = registrations.find((entry) => entry.options.name === "conversation")
-    expect(surfaceRegistration?.options.priority).toBe(-100)
-    expect(registrations.some((entry) => entry.options.id === "pawwork-automations-overlay")).toBe(false)
-    expect(plugin.inject).toEqual(["slots", "layout", "connection", "conversation", "sessions", "workspaces"])
-
-    conversationCleanup?.()
-    expect(surfaceRegistration?.dispose).toHaveBeenCalledTimes(1)
-    conversationDeclaration?.()
-    expect(registrations.filter((entry) => entry.options.name === "conversation")).toHaveLength(2)
-  })
 
   test("adds selected file paths through the public composer input slot", async () => {
     const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")

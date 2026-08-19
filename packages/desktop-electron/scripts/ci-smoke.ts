@@ -31,17 +31,13 @@ type CdpTarget = {
 
 export type CiSmokeProductSnapshot = {
   sidebarBrandVisible: boolean
-  automationEntryVisible: boolean
+  automationSettingsEntryVisible: boolean
+  automationSidebarEntryAbsent: boolean
   automationSurfaceVisible: boolean
+  automationCreateViaChatWorked: boolean
   automationEditorVisible: boolean
   automationMetadataPlain: boolean
-  automationBelowNewSession: boolean
-  collapsedAutomationBelowNewSession: boolean
-  collapsedAutomationChromeMatchesNewSession: boolean
-  collapsedAutomationIconMatchesRail: boolean
   collapsedSidebarDividerHiddenOnMac: boolean
-  sidebarAutomationCollapseAnimated: boolean
-  sidebarAutomationExpandAnimated: boolean
   sidebarToggleCount: number
   sidebarToggleAlignedWithWindowControls: boolean
   sidebarToggleChromeSubtle: boolean
@@ -50,7 +46,6 @@ export type CiSmokeProductSnapshot = {
   sidebarExpandToggleUsable: boolean
   sidebarToggleShift: number
   sidebarExpandedAgain: boolean
-  retiredBrandVisible: boolean
   platform: string
   freeProviderActive: boolean
   freeModelAvailable: boolean
@@ -228,6 +223,10 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
         || Array.from(element.querySelectorAll("svg, img")).some((child) => visible(child))
       return Boolean(hasVisibleContent) && (hit === element || element.contains(hit))
     }
+    const visibleButton = (pattern) => Array.from(document.querySelectorAll("button")).find((button) => {
+      const label = (button.getAttribute("aria-label") || button.textContent || "").trim()
+      return visible(button) && pattern.test(label)
+    })
     const call = async (method, payload) => {
       const request = { type: "client-request", rpcId: crypto.randomUUID(), method, payload }
       const response = await fetch("/api/" + method, {
@@ -240,30 +239,46 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       if (!envelope?.result?.ok) throw new Error(method + ": " + (envelope?.result?.error?.message || "unknown failure"))
       return envelope.result.value
     }
-    const currentAutomationEntry = () => document.querySelector(".pawwork-automation-entry")
-    const automationEntry = currentAutomationEntry()
+    await call("workspace.create", { path: ${workspace} })
+    await new Promise((resolve) => setTimeout(resolve, 100))
     const pawworkBrandName = document.querySelector(".pawwork-brand-name")
-    const currentNewSession = () => Array.from(document.querySelectorAll("button")).find((button) => {
-      const label = button.getAttribute("aria-label") || button.textContent || ""
-      return label.includes("New Session") || label.includes("New session") || label.includes("新会话") || label.includes("新建会话")
-    })
-    const newSession = currentNewSession()
     const sidebarToggles = () => Array.from(document.querySelectorAll("button")).filter((button) => {
       const label = button.getAttribute("aria-label") || button.getAttribute("title") || ""
       return visible(button) && /^(收起侧边栏|打开侧边栏|切换侧边栏|Collapse sidebar|Open sidebar|Toggle sidebar)$/i.test(label)
     })
-    const automationRect = automationEntry?.getBoundingClientRect()
-    const newSessionRect = newSession?.getBoundingClientRect()
     const sidebarBrandVisible = visible(pawworkBrandName)
-    const automationEntryVisible = visible(automationEntry)
-
-    automationEntry?.click()
+    const automationSidebarEntryAbsent = !Array.from(document.querySelectorAll("button")).some((button) => {
+      const label = (button.getAttribute("aria-label") || button.textContent || "").trim()
+      return visible(button) && /^(自动化|Automations)$/i.test(label)
+    })
+    const settingsTrigger = visibleButton(/^(设置|Settings)$/i)
+    settingsTrigger?.click()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const automationSettingsEntry = visibleButton(/^(自动化|Automations)$/i)
+    const automationSettingsEntryVisible = visible(automationSettingsEntry)
+    automationSettingsEntry?.click()
+    for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-automations-surface")); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    const automationSurfaceVisible = visible(document.querySelector(".pawwork-automations-surface"))
+    visibleButton(/^(在对话中创建|Create in chat)$/i)?.click()
+    let automationCreateViaChatWorked = false
+    for (let attempt = 0; attempt < 40 && !automationCreateViaChatWorked; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      const draft = Array.from(document.querySelectorAll('textarea, input, [contenteditable="true"]')).find((element) => {
+        const content = "value" in element ? element.value : element.textContent || ""
+        return visible(element) && /创建一个自动化|create an automation/i.test(content)
+      })
+      automationCreateViaChatWorked = !visible(document.querySelector(".pawwork-automations-surface")) && Boolean(draft)
+    }
+    visibleButton(/^(设置|Settings)$/i)?.click()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    visibleButton(/^(自动化|Automations)$/i)?.click()
     let automationRow
     for (let attempt = 0; attempt < 20 && !automationRow; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 50))
       automationRow = document.querySelector(".pawwork-automation-row")
     }
-    const automationSurfaceVisible = visible(document.querySelector(".pawwork-automations-surface"))
     automationRow?.click()
     await new Promise((resolve) => setTimeout(resolve, 50))
     Array.from(document.querySelectorAll('button, [role="button"]')).find((element) => {
@@ -275,40 +290,25 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const automationEditorVisible = visible(document.querySelector(".pawwork-automation-panel"))
     const automationMetadataPlain = readonlyMetadata.length === 2
       && document.querySelector(".pawwork-automation-select-trigger[disabled]") === null
-    const retiredBrandVisible = Array.from(document.querySelectorAll('svg[viewBox="0 0 182 24"], svg[viewBox="0 0 23.16 17.04"]')).some(visible)
+    const settingsClose = Array.from(document.querySelectorAll("button")).find((button) => {
+      const label = (button.getAttribute("aria-label") || button.textContent || "").trim()
+      return visible(button) && /^(关闭|Close)$/i.test(label) && !button.closest(".pawwork-automation-panel")
+    })
+    settingsClose?.click()
+    await new Promise((resolve) => setTimeout(resolve, 50))
     const collapseToggles = sidebarToggles()
     const collapseRect = collapseToggles[0]?.getBoundingClientRect()
     const collapseStyle = collapseToggles[0] ? getComputedStyle(collapseToggles[0]) : null
     collapseToggles[0]?.click()
-    let sidebarAutomationCollapseAnimated = false
-    for (let frame = 0; frame < 24; frame += 1) {
+    let sidebarColumn = null
+    for (let frame = 0; frame < 40; frame += 1) {
+      sidebarColumn = document.querySelector("[data-sidebar-collapsed] > :first-child")
+      if (sidebarColumn && getComputedStyle(sidebarColumn).borderRightWidth === "0px") break
       await new Promise((resolve) => setTimeout(resolve, 16))
-      const collapsedEntry = currentAutomationEntry()
-      if (collapsedEntry?.getAttribute("data-wide") !== "false") continue
-      const style = getComputedStyle(collapsedEntry)
-      sidebarAutomationCollapseAnimated = Number(style.opacity) < 1 || style.transform !== "none"
-      break
     }
-    await new Promise((resolve) => setTimeout(resolve, 100))
     const sidebarCollapsed = Boolean(document.querySelector("[data-sidebar-collapsed]"))
-    const sidebarColumn = document.querySelector("[data-sidebar-collapsed] > :first-child")
-    const collapsedAutomationEntry = currentAutomationEntry()
-    const collapsedNewSession = currentNewSession()
-    const collapsedAutomationRect = collapsedAutomationEntry?.getBoundingClientRect()
-    const collapsedNewSessionRect = collapsedNewSession?.getBoundingClientRect()
-    const iconVisualSize = (button) => {
-      const svg = button?.querySelector("svg")
-      if (!svg) return null
-      const rect = svg.getBoundingClientRect()
-      const box = svg.getBBox()
-      const viewBox = svg.viewBox.baseVal
-      if (viewBox.width === 0 || viewBox.height === 0) return null
-      return { width: box.width * rect.width / viewBox.width, height: box.height * rect.height / viewBox.height }
-    }
-    const collapsedAutomationIcon = iconVisualSize(collapsedAutomationEntry)
-    const collapsedNewSessionIcon = iconVisualSize(collapsedNewSession)
-    const collapsedAutomationStyle = collapsedAutomationEntry ? getComputedStyle(collapsedAutomationEntry) : null
-    const collapsedNewSessionStyle = collapsedNewSession ? getComputedStyle(collapsedNewSession) : null
+    const collapsedSidebarDividerHiddenOnMac = document.documentElement.dataset.pawworkPlatform !== "macos"
+      || Boolean(sidebarColumn && getComputedStyle(sidebarColumn).borderRightWidth === "0px")
     const expandToggles = sidebarToggles()
     const expandRect = expandToggles[0]?.getBoundingClientRect()
     const sidebarExpandToggleUsable = usable(expandToggles[0])
@@ -319,11 +319,6 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
         )
       : 9_999
     expandToggles[0]?.click()
-    await new Promise((resolve) => setTimeout(resolve, 32))
-    const expandedAutomationEntry = currentAutomationEntry()
-    const sidebarAutomationExpandAnimated = Boolean(
-      expandedAutomationEntry && Number(getComputedStyle(expandedAutomationEntry).opacity) < 1,
-    )
     await new Promise((resolve) => setTimeout(resolve, 200))
 
     const providers = (await call("llm.providers", {})).providers
@@ -334,32 +329,13 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const freeModels = models.find((group) => group.id === "opencode")?.models || []
     return JSON.stringify({
       sidebarBrandVisible,
-      automationEntryVisible,
+      automationSettingsEntryVisible,
+      automationSidebarEntryAbsent,
       automationSurfaceVisible,
+      automationCreateViaChatWorked,
       automationEditorVisible,
       automationMetadataPlain,
-      automationBelowNewSession: Boolean(automationRect && newSessionRect && automationRect.top >= newSessionRect.bottom),
-      collapsedAutomationBelowNewSession: Boolean(
-        collapsedAutomationRect && collapsedNewSessionRect
-        && collapsedAutomationRect.top >= collapsedNewSessionRect.bottom,
-      ),
-      collapsedAutomationChromeMatchesNewSession: Boolean(
-        collapsedAutomationRect && collapsedNewSessionRect
-        && collapsedAutomationStyle && collapsedNewSessionStyle
-        && collapsedAutomationRect.width === collapsedNewSessionRect.width
-        && collapsedAutomationRect.height === collapsedNewSessionRect.height
-        && collapsedAutomationRect.left + collapsedAutomationRect.width / 2
-          === collapsedNewSessionRect.left + collapsedNewSessionRect.width / 2
-        && collapsedAutomationStyle.borderRadius === collapsedNewSessionStyle.borderRadius,
-      ),
-      collapsedAutomationIconMatchesRail: Boolean(
-        collapsedAutomationIcon && collapsedNewSessionIcon
-        && Math.abs(collapsedAutomationIcon.width - collapsedNewSessionIcon.width) <= 1
-        && Math.abs(collapsedAutomationIcon.height - collapsedNewSessionIcon.height) <= 1,
-      ),
-      collapsedSidebarDividerHiddenOnMac: document.documentElement.dataset.pawworkPlatform !== "macos"
-        || Boolean(sidebarColumn && getComputedStyle(sidebarColumn).borderRightWidth === "0px"),
-      sidebarAutomationCollapseAnimated,
+      collapsedSidebarDividerHiddenOnMac,
       sidebarToggleCount: collapseToggles.length,
       sidebarToggleAlignedWithWindowControls: document.documentElement.dataset.pawworkPlatform !== "macos"
         || Boolean(collapseRect && collapseRect.left === 76 && collapseRect.top === 9),
@@ -368,10 +344,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       sidebarCollapsed,
       sidebarExpandToggleCount: expandToggles.length,
       sidebarExpandToggleUsable,
-      sidebarAutomationExpandAnimated,
       sidebarToggleShift,
       sidebarExpandedAgain: !document.querySelector("[data-sidebar-collapsed]"),
-      retiredBrandVisible,
       platform: document.documentElement.dataset.pawworkPlatform || "",
       freeProviderActive: freeProvider?.active === true && freeProvider?.displayName === "OpenCode Free",
       freeModelAvailable: freeModels.some((model) => model.id === "deepseek-v4-flash-free" && model.name === "DeepSeek V4 Flash Free"),
@@ -443,26 +417,21 @@ export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: st
 export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
   const failures = [
     !snapshot.sidebarBrandVisible ? null : "sidebar brand should stay out of the macOS titlebar",
-    snapshot.automationEntryVisible ? null : "Automation entry is not visible",
+    snapshot.automationSettingsEntryVisible ? null : "Automation Settings entry is not visible",
+    snapshot.automationSidebarEntryAbsent ? null : "Automation should not occupy the sidebar",
     snapshot.automationSurfaceVisible ? null : "Automation surface did not open",
+    snapshot.automationCreateViaChatWorked ? null : "Automation did not create through the visible chat path",
     snapshot.automationEditorVisible ? null : "Automation editor did not open",
     snapshot.automationMetadataPlain ? null : "Automation immutable metadata is not plain read-only text",
-    snapshot.automationBelowNewSession ? null : "Automation is not below New Session",
-    snapshot.collapsedAutomationBelowNewSession ? null : "collapsed Automation is not below New Session",
-    snapshot.collapsedAutomationChromeMatchesNewSession ? null : "collapsed Automation hover shape does not match New Session",
-    snapshot.collapsedAutomationIconMatchesRail ? null : "collapsed Automation icon visual weight does not match the sidebar rail",
     snapshot.collapsedSidebarDividerHiddenOnMac ? null : "collapsed macOS sidebar divider crosses the window controls",
-    snapshot.sidebarAutomationCollapseAnimated ? null : "Automation does not animate into the collapsed rail",
     snapshot.sidebarToggleCount === 1 ? null : `expected one DSH collapse control, found ${snapshot.sidebarToggleCount}`,
     snapshot.sidebarToggleAlignedWithWindowControls ? null : "sidebar toggle is not aligned with the macOS window controls",
     snapshot.sidebarToggleChromeSubtle ? null : "sidebar toggle chrome does not blend into the titlebar",
     snapshot.sidebarCollapsed ? null : "DSH collapse control did not collapse the sidebar",
     snapshot.sidebarExpandToggleCount === 1 ? null : `expected one DSH expand control, found ${snapshot.sidebarExpandToggleCount}`,
     snapshot.sidebarExpandToggleUsable ? null : "DSH expand control is not visibly clickable",
-    snapshot.sidebarAutomationExpandAnimated ? null : "Automation does not animate into the expanded sidebar",
     snapshot.platform !== "macos" || snapshot.sidebarToggleShift <= 1 ? null : `DSH sidebar control moved ${snapshot.sidebarToggleShift.toFixed(1)}px while collapsing`,
     snapshot.sidebarExpandedAgain ? null : "DSH expand control did not reopen the sidebar",
-    !snapshot.retiredBrandVisible ? null : "retired DSH branding is visible",
     snapshot.freeProviderActive ? null : "OpenCode Free provider is not active",
     snapshot.freeModelAvailable ? null : "DeepSeek V4 Flash Free is unavailable",
     ["office-docx", "office-pdf", "office-pptx", "office-xlsx"].every((name) => snapshot.skillNames.includes(name))

@@ -60,7 +60,7 @@ function fakeClock(initial) {
 
 test('registers and disposes the loopback management RPC with the scheduler lifecycle', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-automations-plugin-'));
-  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?lifecycle=${Date.now()}`;
+  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.js')).href}?lifecycle=${Date.now()}`;
   const { apply } = await import(pluginUrl);
   const previousHome = process.env.DSH_HOME;
   let registration;
@@ -334,7 +334,7 @@ test('rejects a second trigger while the previous run is active', async () => {
 });
 
 test('the DSH executor cancels an already attached continue agent', async () => {
-  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?executor=${Date.now()}`;
+  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.js')).href}?executor=${Date.now()}`;
   const { createDshExecutor } = await import(pluginUrl);
   let releaseIdle;
   const idle = new Promise((resolve) => { releaseIdle = resolve; });
@@ -382,7 +382,7 @@ test('the DSH executor cancels an already attached continue agent', async () => 
 });
 
 test('the DSH executor retries when maintenance admission races with new user work', async () => {
-  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?maintenance-race=${Date.now()}`;
+  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.js')).href}?maintenance-race=${Date.now()}`;
   const { createDshExecutor } = await import(pluginUrl);
   const events = [
     { type: 'turn/start', data: { turn: 4 } },
@@ -429,7 +429,7 @@ test('the DSH executor retries when maintenance admission races with new user wo
 });
 
 test('the DSH executor keeps a continue result inside its single turn', async () => {
-  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?single-turn=${Date.now()}`;
+  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.js')).href}?single-turn=${Date.now()}`;
   const { createDshExecutor } = await import(pluginUrl);
   const events = [
     { type: 'turn/start', data: { turn: 4 } },
@@ -482,7 +482,7 @@ test('the DSH executor keeps a continue result inside its single turn', async ()
 
 test('the DSH executor does not follow up when agent creation or resume aborts after await', async () => {
   for (const method of ['create', 'resume']) {
-    const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?abort-after-${method}=${Date.now()}`;
+    const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.js')).href}?abort-after-${method}=${Date.now()}`;
     const { createDshExecutor } = await import(pluginUrl);
     let resolveAgent;
     let followups = 0;

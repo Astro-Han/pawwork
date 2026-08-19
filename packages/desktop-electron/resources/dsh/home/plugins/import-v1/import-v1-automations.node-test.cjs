@@ -11,7 +11,7 @@ const {
   readV1Automations,
   runV1AutomationImport,
 } = require('./import-v1-automations.cjs');
-const { AutomationStore } = require('../automations/automations.cjs');
+const { AutomationStore } = require('../../../automations/lib/automations.cjs');
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-v1-automations-'));

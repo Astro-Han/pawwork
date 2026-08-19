@@ -204,17 +204,13 @@ describe("ci smoke helpers", () => {
   test("assertCiSmokeProduct accepts the shipped DSH product contract", () => {
     expect(() => assertCiSmokeProduct({
       sidebarBrandVisible: false,
-      automationEntryVisible: true,
+      automationSettingsEntryVisible: true,
+      automationSidebarEntryAbsent: true,
       automationSurfaceVisible: true,
+      automationCreateViaChatWorked: true,
       automationEditorVisible: true,
       automationMetadataPlain: true,
-      automationBelowNewSession: true,
-      collapsedAutomationBelowNewSession: true,
-      collapsedAutomationChromeMatchesNewSession: true,
-      collapsedAutomationIconMatchesRail: true,
       collapsedSidebarDividerHiddenOnMac: true,
-      sidebarAutomationCollapseAnimated: true,
-      sidebarAutomationExpandAnimated: true,
       sidebarToggleCount: 1,
       sidebarToggleAlignedWithWindowControls: true,
       sidebarToggleChromeSubtle: true,
@@ -223,7 +219,6 @@ describe("ci smoke helpers", () => {
       sidebarExpandToggleUsable: true,
       sidebarToggleShift: 0,
       sidebarExpandedAgain: true,
-      retiredBrandVisible: false,
       platform: "macos",
       freeProviderActive: true,
       freeModelAvailable: true,
@@ -235,17 +230,13 @@ describe("ci smoke helpers", () => {
   test("assertCiSmokeProduct reports every missing product capability", () => {
     expect(() => assertCiSmokeProduct({
       sidebarBrandVisible: true,
-      automationEntryVisible: false,
+      automationSettingsEntryVisible: false,
+      automationSidebarEntryAbsent: false,
       automationSurfaceVisible: false,
+      automationCreateViaChatWorked: false,
       automationEditorVisible: false,
       automationMetadataPlain: false,
-      automationBelowNewSession: false,
-      collapsedAutomationBelowNewSession: false,
-      collapsedAutomationChromeMatchesNewSession: false,
-      collapsedAutomationIconMatchesRail: false,
       collapsedSidebarDividerHiddenOnMac: false,
-      sidebarAutomationCollapseAnimated: false,
-      sidebarAutomationExpandAnimated: false,
       sidebarToggleCount: 2,
       sidebarToggleAlignedWithWindowControls: false,
       sidebarToggleChromeSubtle: false,
@@ -254,13 +245,12 @@ describe("ci smoke helpers", () => {
       sidebarExpandToggleUsable: false,
       sidebarToggleShift: 218,
       sidebarExpandedAgain: false,
-      retiredBrandVisible: true,
       platform: "macos",
       freeProviderActive: false,
       freeModelAvailable: false,
       skillNames: [],
       sessionId: "",
-    })).toThrow(/sidebar brand.*Automation entry.*Automation surface.*Automation editor.*immutable metadata.*below New Session.*collapsed Automation.*hover shape.*visual weight.*divider.*collapsed rail.*one DSH collapse control.*aligned.*blend.*collapse.*one DSH expand control.*visibly clickable.*expanded sidebar.*moved.*reopen.*branding.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
+    })).toThrow(/sidebar brand.*Automation Settings entry.*Automation should not occupy the sidebar.*Automation surface.*visible chat path.*Automation editor.*immutable metadata.*divider.*one DSH collapse control.*aligned.*blend.*collapse.*one DSH expand control.*visibly clickable.*moved.*reopen.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
   })
 
   test("parseSmokeArgs defaults to raw dev mode", () => {

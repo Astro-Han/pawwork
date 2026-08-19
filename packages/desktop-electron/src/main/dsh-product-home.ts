@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { isAbsolute, join } from "node:path"
 
 const PUBLIC_CREDENTIAL = 'OPENCODE_API_KEY: "public"\n'
@@ -54,9 +54,14 @@ export function prepareDshProductHome(options: PrepareDshProductHomeOptions) {
 
   mkdirSync(options.productHome, { recursive: true })
   cpSync(join(options.resources, "home"), options.productHome, { force: true, recursive: true })
+  rmSync(join(options.productHome, "plugins", "automations"), { force: true, recursive: true })
   const productPackageParent = join(options.productHome, "node_modules", "@pawwork")
   mkdirSync(productPackageParent, { recursive: true })
   cpSync(join(options.resources, "product"), join(productPackageParent, "dsh-product"), {
+    force: true,
+    recursive: true,
+  })
+  cpSync(join(options.resources, "automations"), join(productPackageParent, "dsh-automations"), {
     force: true,
     recursive: true,
   })
