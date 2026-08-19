@@ -31,6 +31,14 @@ describe("PawWork DSH client product layer", () => {
     expect(source).toContain("clearInterval(timer)")
   })
 
+  test("keeps refreshing a visible automation until its active run finishes", () => {
+    const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
+
+    expect(source).toContain("definition.recentRuns?.some((run) => run.state === \"running\" || run.state === \"scheduled\")")
+    expect(source).toContain("const timer = setTimeout(() => void load(), 1_000)")
+    expect(source).toContain("return () => clearTimeout(timer)")
+  })
+
   test("replaces the DSH welcome notice without adding sidebar branding", () => {
     const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
     const styles: Array<{ dataset: Record<string, string>; textContent: string }> = []

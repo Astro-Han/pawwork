@@ -537,6 +537,14 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
         void load(abort.signal)
         return () => abort.abort()
       }, [])
+      useEffect(() => {
+        const active = data?.definitions.some((definition) => (
+          definition.recentRuns?.some((run) => run.state === "running" || run.state === "scheduled")
+        ))
+        if (!active) return
+        const timer = setTimeout(() => void load(), 1_000)
+        return () => clearTimeout(timer)
+      }, [data])
 
       const definitions = data?.definitions || []
       const selected = definitions.find((definition) => definition.id === selectedId) || null
