@@ -111,7 +111,6 @@ test('preserves v1 automation facts without deriving its next fire', () => {
   const mapped = mapV1AutomationDefinition(source, {
     model: { provider: 'opencode', model: 'big-pickle' },
     modelWarning: 'model_not_available',
-    now: Date.parse('2026-08-18T00:30:00.000Z'),
   });
 
   assert.equal(mapped.id, 'pawwork-v1-automation_source');

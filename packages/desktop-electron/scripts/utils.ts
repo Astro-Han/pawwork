@@ -1,4 +1,6 @@
-export type Channel = "dev" | "beta" | "prod"
+import type { PawWorkChannel } from "../src/main/app-identity.ts"
+
+export type Channel = PawWorkChannel
 
 export function resolveChannel(): Channel {
   const raw = process.env.OPENCODE_CHANNEL

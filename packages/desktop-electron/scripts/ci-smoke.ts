@@ -7,10 +7,11 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import process from "node:process"
 import readline from "node:readline"
+import { PAWWORK_APP, type PawWorkChannel } from "../src/main/app-identity.ts"
 const require = createRequire(import.meta.url)
 const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
-export type SmokeChannel = "dev" | "beta" | "prod"
+export type SmokeChannel = PawWorkChannel
 export type SmokeMode = "raw" | "packaged"
 
 export type SmokeTarget =
@@ -61,12 +62,6 @@ type LaunchAppOptions = {
   cdpPort?: number
 }
 
-const APP_ID_BY_CHANNEL: Record<SmokeChannel, string> = {
-  dev: "ai.pawwork.desktop.dev",
-  beta: "ai.pawwork.desktop.beta",
-  prod: "ai.pawwork.desktop",
-}
-
 function parseChannel(raw: string | undefined): SmokeChannel {
   if (raw === undefined || raw === "") return "dev"
   if (raw === "dev" || raw === "beta" || raw === "prod") return raw
@@ -74,8 +69,7 @@ function parseChannel(raw: string | undefined): SmokeChannel {
 }
 
 export function appIdForSmoke(channel: SmokeChannel, mode: SmokeMode) {
-  if (mode === "raw") return APP_ID_BY_CHANNEL.dev
-  return APP_ID_BY_CHANNEL[channel]
+  return PAWWORK_APP[mode === "raw" ? "dev" : channel].id
 }
 
 export function parseSmokeArgs(argv: string[]): SmokeTarget {

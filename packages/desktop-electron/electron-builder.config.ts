@@ -5,12 +5,12 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
+import { PAWWORK_APP, type PawWorkChannel } from "./src/main/app-identity"
 import { UPDATER_CACHE_DIR_NAME } from "./src/main/updater-cache"
 
 const execFileAsync = promisify(execFile)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const signScript = path.join(rootDir, "script", "sign-windows.ps1")
-type Channel = "dev" | "beta" | "prod"
 type GitHubPublishConfig = {
   provider: "github"
   owner: string
@@ -34,19 +34,19 @@ async function signWindows(configuration: { path: string }) {
   )
 }
 
-function currentChannel(): Channel {
+function currentChannel(): PawWorkChannel {
   const raw = process.env.OPENCODE_CHANNEL
   if (raw === "dev" || raw === "beta" || raw === "prod") return raw
   return "dev"
 }
 
-export function getPublishConfig(channel: Channel): GitHubPublishConfig | undefined {
+export function getPublishConfig(channel: PawWorkChannel): GitHubPublishConfig | undefined {
   if (channel === "beta") return { provider: "github", owner: "Astro-Han", repo: "pawwork-beta", channel: "latest" }
   if (channel === "prod") return { provider: "github", owner: "Astro-Han", repo: "pawwork", channel: "latest" }
   return undefined
 }
 
-async function writeLocalizedMacDisplayName(resourcesDir: string, channel: Channel) {
+async function writeLocalizedMacDisplayName(resourcesDir: string, channel: PawWorkChannel) {
   const name = localizedMacDisplayNameByChannel[channel]
   const content = [`CFBundleDisplayName = "${name}";`, `CFBundleName = "${name}";`, ""].join("\n")
 
@@ -70,9 +70,9 @@ async function writeAppUpdateConfig(resourcesDir: string, publish: GitHubPublish
   await writeFile(path.join(resourcesDir, "app-update.yml"), content)
 }
 
-const repositoryUrl = (channel: Channel) => `https://github.com/Astro-Han/${getPublishConfig(channel)?.repo ?? "pawwork"}`
+const repositoryUrl = (channel: PawWorkChannel) => `https://github.com/Astro-Han/${getPublishConfig(channel)?.repo ?? "pawwork"}`
 
-const getBase = (channel: Channel): Configuration => ({
+const getBase = (channel: PawWorkChannel): Configuration => ({
   artifactName: "pawwork-${os}-${arch}-${version}.${ext}",
   // DSH maintains real symlinks from its user profile to the installed
   // dependency closure. Keep dependencies outside the virtual ASAR filesystem
@@ -154,7 +154,7 @@ const getBase = (channel: Channel): Configuration => ({
   },
 })
 
-export function createConfig(channel: Channel = currentChannel(), baseOverrides: Partial<Configuration> = {}) {
+export function createConfig(channel: PawWorkChannel = currentChannel(), baseOverrides: Partial<Configuration> = {}) {
   const base = { ...getBase(channel), ...baseOverrides }
   const publish = getPublishConfig(channel)
 
@@ -173,31 +173,13 @@ export function createConfig(channel: Channel = currentChannel(), baseOverrides:
     },
   })
 
-  switch (channel) {
-    case "dev": {
-      return withAppUpdateConfig({
-        ...base,
-        appId: "ai.pawwork.desktop.dev",
-        productName: "PawWork Dev",
-      })
-    }
-    case "beta": {
-      return withAppUpdateConfig({
-        ...base,
-        appId: "ai.pawwork.desktop.beta",
-        productName: "PawWork Beta",
-        protocols: { name: "PawWork Beta", schemes: ["pawwork"] },
-      })
-    }
-    case "prod": {
-      return withAppUpdateConfig({
-        ...base,
-        appId: "ai.pawwork.desktop",
-        productName: "PawWork",
-        protocols: { name: "PawWork", schemes: ["pawwork"] },
-      })
-    }
-  }
+  const identity = PAWWORK_APP[channel]
+  return withAppUpdateConfig({
+    ...base,
+    appId: identity.id,
+    productName: identity.name,
+    ...(channel === "beta" ? { protocols: { name: identity.name, schemes: ["pawwork"] } } : {}),
+  })
 }
 
 export default createConfig()

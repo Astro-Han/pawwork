@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { app, BrowserWindow, dialog, ipcMain, shell, type Event } from "electron"
 import contextMenu from "electron-context-menu"
 import pkg from "electron-updater"
+import { PAWWORK_APP } from "./app-identity"
 import {
   CHANNEL,
   DEV_UPDATER,
@@ -44,16 +45,6 @@ if (process.platform === "darwin") {
   } catch {}
 }
 
-const APP_NAMES = {
-  dev: "PawWork Dev",
-  beta: "PawWork Beta",
-  prod: "PawWork",
-} as const
-const APP_IDS = {
-  dev: "ai.pawwork.desktop.dev",
-  beta: "ai.pawwork.desktop.beta",
-  prod: "ai.pawwork.desktop",
-} as const
 const CI_SMOKE_HOME = process.env.PAWWORK_CI_SMOKE_HOME
 const CI_SMOKE_ENABLED = process.env.PAWWORK_CI_SMOKE === "true"
 const UPDATE_FEED_TIMEOUT_MS = 10_000
@@ -61,9 +52,10 @@ const UPDATE_CHANNEL_FILE = process.platform === "win32" ? "latest.yml" : "lates
 const LATEST_RELEASE_URL = "https://github.com/Astro-Han/pawwork/releases/latest"
 
 const userDataRoot = CI_SMOKE_HOME ?? app.getPath("appData")
-app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : APP_NAMES.dev)
+const appIdentity = PAWWORK_APP[app.isPackaged ? CHANNEL : "dev"]
+app.setName(appIdentity.name)
 if (CI_SMOKE_HOME) app.setPath("appData", CI_SMOKE_HOME)
-app.setPath("userData", join(userDataRoot, app.isPackaged ? APP_IDS[CHANNEL] : APP_IDS.dev))
+app.setPath("userData", join(userDataRoot, appIdentity.id))
 if (CI_SMOKE_HOME) app.setPath("logs", join(app.getPath("userData"), "logs"))
 
 const CI_SMOKE_READY_FILE = join(app.getPath("userData"), "ci-smoke-ready.json")
