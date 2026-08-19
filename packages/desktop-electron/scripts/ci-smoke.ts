@@ -36,11 +36,13 @@ export type CiSmokeProductSnapshot = {
   automationEditorVisible: boolean
   automationMetadataPlain: boolean
   automationBelowNewSession: boolean
-  sidebarToggleVisible: boolean
+  sidebarToggleCount: number
   sidebarCollapsed: boolean
+  sidebarExpandToggleCount: number
+  sidebarToggleShift: number
+  sidebarExpandedAgain: boolean
   retiredBrandVisible: boolean
   platform: string
-  sidebarToggleLeft: number
   freeProviderActive: boolean
   freeModelAvailable: boolean
   skillNames: string[]
@@ -224,7 +226,10 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       const label = button.getAttribute("aria-label") || button.textContent || ""
       return label.includes("New Session") || label.includes("New session") || label.includes("新会话") || label.includes("新建会话")
     })
-    const sidebarToggle = document.querySelector(".pawwork-sidebar-toggle")
+    const sidebarToggles = () => Array.from(document.querySelectorAll("button")).filter((button) => {
+      const label = button.getAttribute("aria-label") || button.getAttribute("title") || ""
+      return visible(button) && /^(收起侧边栏|打开侧边栏|切换侧边栏|Collapse sidebar|Open sidebar|Toggle sidebar)$/i.test(label)
+    })
     const automationRect = automationEntry?.getBoundingClientRect()
     const newSessionRect = newSession?.getBoundingClientRect()
     const automationEntryVisible = visible(automationEntry)
@@ -248,7 +253,20 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const automationMetadataPlain = readonlyMetadata.length === 2
       && document.querySelector(".pawwork-automation-select-trigger[disabled]") === null
     const retiredBrandVisible = Array.from(document.querySelectorAll('svg[viewBox="0 0 182 24"], svg[viewBox="0 0 23.16 17.04"]')).some(visible)
-    sidebarToggle?.click()
+    const collapseToggles = sidebarToggles()
+    const collapseRect = collapseToggles[0]?.getBoundingClientRect()
+    collapseToggles[0]?.click()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    const sidebarCollapsed = Boolean(document.querySelector("[data-sidebar-collapsed]"))
+    const expandToggles = sidebarToggles()
+    const expandRect = expandToggles[0]?.getBoundingClientRect()
+    const sidebarToggleShift = collapseRect && expandRect
+      ? Math.hypot(
+          collapseRect.left + collapseRect.width / 2 - expandRect.left - expandRect.width / 2,
+          collapseRect.top + collapseRect.height / 2 - expandRect.top - expandRect.height / 2,
+        )
+      : 9_999
+    expandToggles[0]?.click()
     await new Promise((resolve) => setTimeout(resolve, 100))
 
     const providers = (await call("llm.providers", {})).providers
@@ -257,8 +275,6 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const skills = (await call("skill.list", { sessionId: session.sessionId })).skills
     const freeProvider = providers.find((provider) => provider.provider === "opencode")
     const freeModels = models.find((group) => group.id === "opencode")?.models || []
-    const toggleRect = sidebarToggle?.getBoundingClientRect()
-
     return JSON.stringify({
       pawworkBrandNameMounted: pawworkBrandName?.textContent?.trim() === "PawWork" || pawworkBrandName?.textContent?.trim() === "爪印",
       automationEntryVisible,
@@ -266,11 +282,13 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       automationEditorVisible,
       automationMetadataPlain,
       automationBelowNewSession: Boolean(automationRect && newSessionRect && automationRect.top >= newSessionRect.bottom),
-      sidebarToggleVisible: visible(sidebarToggle),
-      sidebarCollapsed: Boolean(document.querySelector("[data-sidebar-collapsed]")),
+      sidebarToggleCount: collapseToggles.length,
+      sidebarCollapsed,
+      sidebarExpandToggleCount: expandToggles.length,
+      sidebarToggleShift,
+      sidebarExpandedAgain: !document.querySelector("[data-sidebar-collapsed]"),
       retiredBrandVisible,
       platform: document.documentElement.dataset.pawworkPlatform || "",
-      sidebarToggleLeft: toggleRect?.left ?? -1,
       freeProviderActive: freeProvider?.active === true && freeProvider?.displayName === "OpenCode Free",
       freeModelAvailable: freeModels.some((model) => model.id === "deepseek-v4-flash-free" && model.name === "DeepSeek V4 Flash Free"),
       skillNames: skills.map((skill) => skill.name).sort(),
@@ -346,10 +364,12 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
     snapshot.automationEditorVisible ? null : "Automation editor did not open",
     snapshot.automationMetadataPlain ? null : "Automation immutable metadata is not plain read-only text",
     snapshot.automationBelowNewSession ? null : "Automation is not below New Session",
-    snapshot.sidebarToggleVisible ? null : "sidebar toggle is not visible",
-    snapshot.sidebarCollapsed ? null : "sidebar toggle did not collapse the sidebar",
+    snapshot.sidebarToggleCount === 1 ? null : `expected one DSH collapse control, found ${snapshot.sidebarToggleCount}`,
+    snapshot.sidebarCollapsed ? null : "DSH collapse control did not collapse the sidebar",
+    snapshot.sidebarExpandToggleCount === 1 ? null : `expected one DSH expand control, found ${snapshot.sidebarExpandToggleCount}`,
+    snapshot.platform !== "macos" || snapshot.sidebarToggleShift <= 1 ? null : `DSH sidebar control moved ${snapshot.sidebarToggleShift.toFixed(1)}px while collapsing`,
+    snapshot.sidebarExpandedAgain ? null : "DSH expand control did not reopen the sidebar",
     !snapshot.retiredBrandVisible ? null : "retired DSH branding is visible",
-    snapshot.platform !== "macos" || snapshot.sidebarToggleLeft >= 70 ? null : "macOS sidebar toggle overlaps window controls",
     snapshot.freeProviderActive ? null : "OpenCode Free provider is not active",
     snapshot.freeModelAvailable ? null : "DeepSeek V4 Flash Free is unavailable",
     ["office-docx", "office-pdf", "office-pptx", "office-xlsx"].every((name) => snapshot.skillNames.includes(name))

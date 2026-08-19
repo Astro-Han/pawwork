@@ -209,11 +209,13 @@ describe("ci smoke helpers", () => {
       automationEditorVisible: true,
       automationMetadataPlain: true,
       automationBelowNewSession: true,
-      sidebarToggleVisible: true,
+      sidebarToggleCount: 1,
       sidebarCollapsed: true,
+      sidebarExpandToggleCount: 1,
+      sidebarToggleShift: 0,
+      sidebarExpandedAgain: true,
       retiredBrandVisible: false,
       platform: "macos",
-      sidebarToggleLeft: 76,
       freeProviderActive: true,
       freeModelAvailable: true,
       skillNames: ["office-docx", "office-pdf", "office-pptx", "office-xlsx"],
@@ -229,16 +231,18 @@ describe("ci smoke helpers", () => {
       automationEditorVisible: false,
       automationMetadataPlain: false,
       automationBelowNewSession: false,
-      sidebarToggleVisible: false,
+      sidebarToggleCount: 2,
       sidebarCollapsed: false,
+      sidebarExpandToggleCount: 0,
+      sidebarToggleShift: 218,
+      sidebarExpandedAgain: false,
       retiredBrandVisible: true,
       platform: "macos",
-      sidebarToggleLeft: 12,
       freeProviderActive: false,
       freeModelAvailable: false,
       skillNames: [],
       sessionId: "",
-    })).toThrow(/brand name.*Automation entry.*Automation surface.*Automation editor.*immutable metadata.*below New Session.*sidebar toggle.*collapse.*branding.*window controls.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
+    })).toThrow(/brand name.*Automation entry.*Automation surface.*Automation editor.*immutable metadata.*below New Session.*one DSH collapse control.*collapse.*one DSH expand control.*moved.*reopen.*branding.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
   })
 
   test("parseSmokeArgs defaults to raw dev mode", () => {
