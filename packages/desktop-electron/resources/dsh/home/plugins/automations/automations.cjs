@@ -67,7 +67,7 @@ function writeJsonAtomically(file, value) {
 }
 
 class AutomationStore {
-  constructor(file, now = Date.now()) {
+  constructor(file) {
     if (!path.isAbsolute(file)) throw new Error('automation store path must be absolute');
     this.file = file;
     this.document = fs.existsSync(file)
@@ -79,24 +79,6 @@ class AutomationStore {
     if (!Array.isArray(this.document.definitions) || !Array.isArray(this.document.runs)) {
       throw new Error('invalid automation store document');
     }
-    const normalizedAt = assertTimestamp(now, 'now');
-    let changed = false;
-    for (const definition of this.document.definitions) {
-      if (!Object.hasOwn(definition.migration || {}, 'takeover')) continue;
-      const takeover = definition.migration.takeover;
-      delete definition.migration.takeover;
-      changed = true;
-      if (takeover !== 'pending') continue;
-      definition.paused = false;
-      definition.revision += 1;
-      definition.updatedAt = normalizedAt;
-      definition.nextFireAt = definitionNext(
-        definition,
-        normalizedAt,
-        this.completedRunCount(definition.id),
-      );
-    }
-    if (changed) this.save();
   }
 
   save() {

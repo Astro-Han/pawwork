@@ -202,19 +202,6 @@ function emptyResult(sourceDatabase, status) {
   };
 }
 
-function completedResult(ledger) {
-  const result = emptyResult(ledger.sourceDatabase, 'complete');
-  for (const record of Object.values(ledger.automationDefinitions)) {
-    if (record.status === 'complete') result.definitions.skipped += 1;
-  }
-  for (const record of Object.values(ledger.automationRuns)) {
-    if (record.status !== 'complete') continue;
-    result.runs.skipped += 1;
-    if (record.orphanedDefinition) result.orphanRuns += 1;
-  }
-  return result;
-}
-
 async function runV1AutomationImport({
   home,
   sourceDatabase = discoverV1Database(),
@@ -234,21 +221,18 @@ async function runV1AutomationImport({
   const ledger = readJson(ledgerPath, {
     schema: 1,
     sourceDatabase,
-    stage4DataComplete: false,
     automationDefinitions: {},
     automationRuns: {},
   });
   if (ledger.schema !== 1) throw new Error(`unsupported v1 migration ledger schema: ${ledger.schema}`);
   ledger.automationDefinitions ||= {};
   ledger.automationRuns ||= {};
-  if (ledger.stage4DataComplete) return completedResult(ledger);
   if (ledger.sourceDatabase && sourceDatabase && ledger.sourceDatabase !== sourceDatabase) {
     throw new Error(`v1 migration source changed from ${ledger.sourceDatabase} to ${sourceDatabase}`);
   }
   if (!sourceDatabase) {
     const result = emptyResult(null, 'not-found');
     ledger.sourceDatabase = null;
-    ledger.stage4DataComplete = true;
     writeJsonAtomically(ledgerPath, ledger);
     return result;
   }
@@ -321,7 +305,6 @@ async function runV1AutomationImport({
       writeJsonAtomically(ledgerPath, ledger);
     }
     if (result.definitions.failed > 0 || result.runs.failed > 0) result.status = 'partial';
-    ledger.stage4DataComplete = result.status === 'complete';
     writeJsonAtomically(ledgerPath, ledger);
     return result;
   } finally {

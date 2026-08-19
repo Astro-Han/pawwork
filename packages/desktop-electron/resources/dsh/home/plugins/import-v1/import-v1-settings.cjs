@@ -152,19 +152,6 @@ function countCompleted(result, record) {
   else result.settings.skipped += 1;
 }
 
-function completedResult(ledger) {
-  const result = emptyResult(ledger.sourceAppData, 'complete');
-  for (const record of Object.values(ledger.settings)) {
-    if (record.status === 'complete') countCompleted(result, record);
-  }
-  for (const record of Object.values(ledger.credentials)) {
-    if (record.status !== 'complete') continue;
-    if (record.outcome === 'unsupported') result.credentials.unsupported += 1;
-    else result.credentials.skipped += 1;
-  }
-  return result;
-}
-
 function owns(object, field) {
   return isRecord(object) && Object.prototype.hasOwnProperty.call(object, field);
 }
@@ -225,21 +212,18 @@ async function runV1SettingsImport({
   const ledger = readJson(ledgerPath, {
     schema: 1,
     sourceAppData,
-    stage2Complete: false,
     settings: {},
     credentials: {},
   });
   if (ledger.schema !== 1) throw new Error(`unsupported v1 migration ledger schema: ${ledger.schema}`);
   ledger.settings ||= {};
   ledger.credentials ||= {};
-  if (ledger.stage2Complete) return completedResult(ledger);
   if (ledger.sourceAppData && sourceAppData && ledger.sourceAppData !== sourceAppData) {
     throw new Error(`v1 settings source changed from ${ledger.sourceAppData} to ${sourceAppData}`);
   }
   if (!sourceAppData) {
     const result = emptyResult(null, 'not-found');
     ledger.sourceAppData = null;
-    ledger.stage2Complete = true;
     writeJsonAtomically(ledgerPath, ledger);
     return result;
   }
@@ -287,7 +271,6 @@ async function runV1SettingsImport({
   }
 
   if (result.settings.failed > 0 || result.credentials.failed > 0) result.status = 'partial';
-  ledger.stage2Complete = result.status === 'complete';
   writeJsonAtomically(ledgerPath, ledger);
   return result;
 }

@@ -679,7 +679,7 @@ test('records an idempotent ledger and does no work after a complete session imp
 
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.schema, 1);
-  assert.equal(ledger.stage1Complete, true);
+  assert.equal(Object.hasOwn(ledger, 'stage1Complete'), false);
   assert.equal(ledger.sessions.ses_parent.targetId, 'pawwork-v1-ses_parent');
   assert.equal(ledger.sessions.ses_parent.status, 'complete');
   assert.equal(ledger.sessions.ses_child.status, 'complete');
@@ -697,7 +697,7 @@ test('records an idempotent ledger and does no work after a complete session imp
   assert.equal(fs.existsSync(path.join(home, 'import-v1', 'result.json')), false);
 });
 
-test('finishes both migration stages when no v1 database exists', async () => {
+test('records the missing source without duplicating stage state', async () => {
   const home = path.join(temporaryDirectory(), 'v2-home');
   const result = await runV1SessionImport({
     home,
@@ -707,8 +707,8 @@ test('finishes both migration stages when no v1 database exists', async () => {
 
   assert.equal(result.status, 'not-found');
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
-  assert.equal(ledger.stage1Complete, true);
-  assert.equal(ledger.workspaceStageComplete, true);
+  assert.equal(Object.hasOwn(ledger, 'stage1Complete'), false);
+  assert.equal(Object.hasOwn(ledger, 'workspaceStageComplete'), false);
 });
 
 test('resumes after a per-session failure without duplicating completed sessions', async () => {
@@ -747,7 +747,7 @@ test('resumes after a per-session failure without duplicating completed sessions
   assert.equal(complete.parts.unsupported, 1);
 });
 
-test('can resume Stage 1 from a ledger first written by the settings stage', async () => {
+test('can import sessions from a ledger first written by settings migration', async () => {
   const root = temporaryDirectory();
   const source = path.join(root, 'pawwork.db');
   const home = path.join(root, 'v2-home');
@@ -756,7 +756,6 @@ test('can resume Stage 1 from a ledger first written by the settings stage', asy
   fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({
     schema: 1,
     sourceAppData: '/tmp/v1-app-data',
-    stage2Complete: true,
     settings: {},
     credentials: {},
   }));
@@ -771,7 +770,7 @@ test('can resume Stage 1 from a ledger first written by the settings stage', asy
   assert.deepEqual(imported.sessions, { imported: 2, skipped: 0, failed: 0 });
 });
 
-test('repairs workspace ownership recorded by a pre-workspace migration ledger', async () => {
+test('repairs workspace ownership when session records lack an outcome', async () => {
   const root = temporaryDirectory();
   const source = path.join(root, 'pawwork.db');
   const home = path.join(root, 'v2-home');
@@ -780,7 +779,6 @@ test('repairs workspace ownership recorded by a pre-workspace migration ledger',
   fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({
     schema: 1,
     sourceDatabase: source,
-    stage1Complete: true,
     sessions: {
       ses_parent: { status: 'complete', targetId: 'pawwork-v1-ses_parent' },
       ses_child: { status: 'complete', targetId: 'pawwork-v1-ses_child' },
@@ -805,7 +803,7 @@ test('repairs workspace ownership recorded by a pre-workspace migration ledger',
   assert.deepEqual(result.sessions, { imported: 0, skipped: 2, failed: 0 });
   assert.deepEqual(result.workspaces, { attached: 1, unavailable: 1, failed: 0 });
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
-  assert.equal(ledger.workspaceStageComplete, true);
+  assert.equal(Object.hasOwn(ledger, 'workspaceStageComplete'), false);
   assert.equal(ledger.sessions.ses_parent.workspaceAttached, true);
   assert.equal(ledger.sessions.ses_child.workspaceAttached, false);
   assert.equal(ledger.sessions.ses_child.workspaceUnavailable, true);

@@ -397,20 +397,6 @@ function emptyResult(sourceDatabase, status) {
   };
 }
 
-function completedResult(ledger) {
-  const result = emptyResult(ledger.sourceDatabase, 'complete');
-  for (const record of Object.values(ledger.sessions)) {
-    if (record.status !== 'complete') continue;
-    result.sessions.skipped += 1;
-    if (record.workspaceAttached) result.workspaces.attached += 1;
-    if (record.workspaceUnavailable) result.workspaces.unavailable += 1;
-    result.parts.total += record.stats?.parts || 0;
-    result.parts.skipped += record.stats?.skippedParts || 0;
-    result.parts.unsupported += record.stats?.unsupportedParts || 0;
-  }
-  return result;
-}
-
 async function runV1SessionImport({
   home,
   sourceDatabase = discoverV1Database(),
@@ -425,22 +411,16 @@ async function runV1SessionImport({
   const ledger = readJson(ledgerPath, {
     schema: 1,
     sourceDatabase,
-    stage1Complete: false,
     sessions: {},
   });
   if (ledger.schema !== 1) throw new Error(`unsupported v1 migration ledger schema: ${ledger.schema}`);
   ledger.sessions ||= {};
-  if (ledger.stage1Complete && ledger.workspaceStageComplete) {
-    return completedResult(ledger);
-  }
   if (ledger.sourceDatabase && sourceDatabase && ledger.sourceDatabase !== sourceDatabase) {
     throw new Error(`v1 migration source changed from ${ledger.sourceDatabase} to ${sourceDatabase}`);
   }
   if (!sourceDatabase) {
     const result = emptyResult(null, 'not-found');
     ledger.sourceDatabase = null;
-    ledger.stage1Complete = true;
-    ledger.workspaceStageComplete = true;
     writeJsonAtomically(ledgerPath, ledger);
     return result;
   }
@@ -495,8 +475,6 @@ async function runV1SessionImport({
       writeJsonAtomically(ledgerPath, ledger);
     }
     if (result.sessions.failed > 0) result.status = 'partial';
-    ledger.stage1Complete = ledger.stage1Complete === true || result.status === 'complete';
-    ledger.workspaceStageComplete = result.status === 'complete';
     writeJsonAtomically(ledgerPath, ledger);
     return result;
   } finally {
