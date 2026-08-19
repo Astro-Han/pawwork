@@ -60,7 +60,7 @@ test('discovers the official v1 app-data root on macOS and Windows', () => {
   }), ['C:\\Users\\alice\\AppData\\Roaming\\ai.pawwork.desktop']);
 });
 
-test('reads only settings with exact DSH equivalents and redacts credential values', () => {
+test('reads only settings with exact DSH equivalents and ignores credentials', () => {
   const root = temporaryDirectory();
   createPreferenceFixture(root);
 
@@ -78,10 +78,7 @@ test('reads only settings with exact DSH equivalents and redacts credential valu
       ],
     },
   ]);
-  assert.deepEqual(preferences.credentials, [
-    { id: 'kimi-for-coding', type: 'api' },
-    { id: 'openai', type: 'oauth' },
-  ]);
+  assert.equal(Object.hasOwn(preferences, 'credentials'), false);
   assert.ok(preferences.unsupportedSettings.includes('appearance.fontSize'));
   assert.ok(preferences.unsupportedSettings.includes('general.autoSave'));
   assert.ok(preferences.unsupportedSettings.includes('model.variant'));
@@ -89,7 +86,7 @@ test('reads only settings with exact DSH equivalents and redacts credential valu
   assert.equal(JSON.stringify(preferences).includes('secret'), false);
 });
 
-test('records idempotent Stage 2 results and resumes only failed settings', async () => {
+test('records idempotent setting results and resumes only failed settings', async () => {
   const root = temporaryDirectory();
   const appData = path.join(root, 'v1');
   const home = path.join(root, 'v2');
@@ -113,7 +110,7 @@ test('records idempotent Stage 2 results and resumes only failed settings', asyn
   });
   assert.equal(partial.status, 'partial');
   assert.deepEqual(partial.settings, { imported: 1, skipped: 0, unsupported: 10, failed: 1 });
-  assert.deepEqual(partial.credentials, { imported: 0, skipped: 0, unsupported: 2, failed: 0 });
+  assert.equal(Object.hasOwn(partial, 'credentials'), false);
 
   const resumedCalls = [];
   const complete = await runV1SettingsImport({

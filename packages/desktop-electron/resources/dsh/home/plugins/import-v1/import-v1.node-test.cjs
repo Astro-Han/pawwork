@@ -757,7 +757,6 @@ test('can import sessions from a ledger first written by settings migration', as
     schema: 1,
     sourceAppData: '/tmp/v1-app-data',
     settings: {},
-    credentials: {},
   }));
 
   const imported = await runV1SessionImport({

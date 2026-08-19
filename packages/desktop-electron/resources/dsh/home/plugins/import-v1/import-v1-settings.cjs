@@ -110,18 +110,9 @@ function readV1Preferences(appData) {
   }
   if (permission !== undefined) unsupportedSettings.push('permission');
 
-  const auth = readJson(path.join(appData, 'data', 'pawwork', 'auth.json'), {});
-  const credentials = Object.entries(isRecord(auth) ? auth : {})
-    .map(([id, credential]) => ({
-      id,
-      type: typeof credential?.type === 'string' ? credential.type : 'unknown',
-    }))
-    .sort((left, right) => left.id.localeCompare(right.id));
-
   return {
     settings,
     unsupportedSettings: [...new Set(unsupportedSettings)].sort(),
-    credentials,
   };
 }
 
@@ -142,7 +133,6 @@ function emptyResult(sourceAppData, status) {
     sourceAppData,
     status,
     settings: emptyCounts(),
-    credentials: emptyCounts(),
     errors: [],
   };
 }
@@ -213,11 +203,9 @@ async function runV1SettingsImport({
     schema: 1,
     sourceAppData,
     settings: {},
-    credentials: {},
   });
   if (ledger.schema !== 1) throw new Error(`unsupported v1 migration ledger schema: ${ledger.schema}`);
   ledger.settings ||= {};
-  ledger.credentials ||= {};
   if (ledger.sourceAppData && sourceAppData && ledger.sourceAppData !== sourceAppData) {
     throw new Error(`v1 settings source changed from ${ledger.sourceAppData} to ${sourceAppData}`);
   }
@@ -236,14 +224,6 @@ async function runV1SettingsImport({
     const id = `unsupported:${unsupported}`;
     ledger.settings[id] = { status: 'complete', outcome: 'unsupported', source: unsupported };
     result.settings.unsupported += 1;
-  }
-  for (const credential of preferences.credentials) {
-    ledger.credentials[credential.id] = {
-      status: 'complete',
-      outcome: 'unsupported',
-      type: credential.type,
-    };
-    result.credentials.unsupported += 1;
   }
   writeJsonAtomically(ledgerPath, ledger);
 
@@ -270,7 +250,7 @@ async function runV1SettingsImport({
     writeJsonAtomically(ledgerPath, ledger);
   }
 
-  if (result.settings.failed > 0 || result.credentials.failed > 0) result.status = 'partial';
+  if (result.settings.failed > 0) result.status = 'partial';
   writeJsonAtomically(ledgerPath, ledger);
   return result;
 }
