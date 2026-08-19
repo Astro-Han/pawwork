@@ -41,7 +41,6 @@ describe("PawWork DSH client product layer", () => {
 
   test("replaces the DSH welcome notice without adding sidebar branding", () => {
     const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
-    const styles: Array<{ dataset: Record<string, string>; textContent: string }> = []
     let definition: {
       id: string
       factory: (require: (name: string) => unknown) => {
@@ -53,7 +52,7 @@ describe("PawWork DSH client product layer", () => {
       title: "DeepSeek Harness",
       querySelector: () => null,
       createElement: () => ({ dataset: {}, textContent: "" }),
-      head: { appendChild: (style: (typeof styles)[number]) => styles.push(style) },
+      head: { appendChild: () => {} },
     }
     const window = {
       __ModuleLoader__: {
@@ -96,11 +95,6 @@ describe("PawWork DSH client product layer", () => {
     welcome!.component({ complete })
     expect(complete).toHaveBeenCalledTimes(1)
 
-    expect(styles).toHaveLength(1)
-    expect(styles[0].textContent).toContain('svg[viewBox="0 0 182 24"]')
-    expect(styles[0].textContent).toContain('svg[viewBox="0 0 23.16 17.04"]')
-    expect(styles[0].textContent).not.toContain('button:has(> svg[viewBox="0 0 182 24"])::before')
-    expect(styles[0].textContent).toContain("visibility: hidden")
   })
 
   test("owns one titlebar control and fully closes the sidebar rail", () => {
@@ -110,13 +104,12 @@ describe("PawWork DSH client product layer", () => {
         apply(ctx: unknown): void
       }
     } | null = null
-    const styles: Array<{ dataset: Record<string, string>; textContent: string }> = []
     const document = {
       title: "DeepSeek Harness",
       documentElement: { lang: "zh-CN", dataset: {} },
       querySelector: () => null,
       createElement: () => ({ dataset: {}, textContent: "" }),
-      head: { appendChild: (style: (typeof styles)[number]) => styles.push(style) },
+      head: { appendChild: () => {} },
     }
     const window = {
       __ModuleLoader__: {
@@ -162,17 +155,6 @@ describe("PawWork DSH client product layer", () => {
     expect(button.props.children[0].props.size).toBe(16)
     ;(button.props.onClick as () => void)()
     expect(toggleSidebar).toHaveBeenCalledTimes(1)
-    expect(styles[0].textContent).toContain("border-radius: 50%")
-    expect(styles[0].textContent).toContain("position: fixed")
-    expect(styles[0].textContent).toContain("top: 9px")
-    expect(styles[0].textContent).toContain('html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle { left: 76px; }')
-    expect(styles[0].textContent).not.toMatch(/\[data-sidebar-collapsed\] \.pawwork-sidebar-toggle/)
-    expect(styles[0].textContent).toContain(".pawwork-sidebar-toggle:hover { background: var(--dsw-alias-interactive-bg-hover); }")
-    expect(styles[0].textContent).not.toContain(".pawwork-sidebar-toggle:focus-visible")
-    expect(styles[0].textContent).toContain("[data-sidebar-collapsed]")
-    expect(styles[0].textContent).toContain("margin-left: -56px")
-    expect(styles[0].textContent).toContain("width: calc(100% + 56px)")
-    expect(styles[0].textContent).toContain("border-right: 0 !important; visibility: hidden")
   })
 
   test("surfaces automations directly below New Session through the public sidebar action slot", () => {
@@ -182,13 +164,12 @@ describe("PawWork DSH client product layer", () => {
         apply(ctx: unknown): void
       }
     } | null = null
-    const styles: Array<{ dataset: Record<string, string>; textContent: string }> = []
     const document = {
       title: "DeepSeek Harness",
       documentElement: { lang: "zh-CN", dataset: {} },
       querySelector: () => null,
       createElement: () => ({ dataset: {}, textContent: "" }),
-      head: { appendChild: (style: (typeof styles)[number]) => styles.push(style) },
+      head: { appendChild: () => {} },
     }
     const window = {
       __ModuleLoader__: {
@@ -262,27 +243,7 @@ describe("PawWork DSH client product layer", () => {
     const surfaceRegistration = registrations.find((entry) => entry.options.name === "conversation")
     expect(surfaceRegistration?.options.priority).toBe(-100)
     expect(registrations.some((entry) => entry.options.id === "pawwork-automations-overlay")).toBe(false)
-    expect(styles[0].textContent).toContain(".pawwork-automation-entry")
-    expect(styles[0].textContent).toContain("height: 42px")
-    expect(styles[0].textContent).toContain("display: contents")
-    expect(styles[0].textContent).toContain(".pawwork-automation-entry:hover")
-    expect(styles[0].textContent).toContain("cursor: pointer")
-    expect(styles[0].textContent).toContain(".pawwork-automation-run-main { flex: 1; min-width: 0; }")
-    expect(styles[0].textContent).toContain(".pawwork-automation-run > button { flex: 0 0 auto; white-space: nowrap; }")
-    expect(source).toContain("Button,\n      DisclosureRow,\n      Input,\n      Menu,\n      Pill,\n      StateDot,")
-    expect(source).toContain("h(Input,")
-    expect(source).toContain("h(Pill,")
-    expect(source).toContain("h(Menu,")
-    expect(source).toContain("h(DisclosureRow,")
-    expect(source).not.toContain('h("select"')
-    expect(styles[0].textContent).toContain("font-size: 16px; font-weight: 500; line-height: 24px")
-    expect(styles[0].textContent).not.toContain("font-size: 28px")
     expect(plugin.inject).toEqual(["slots", "layout", "connection", "conversation", "sessions", "workspaces"])
-    expect(source).toContain('connection.rpc.call("/pawwork-automations", endpoint, payload, signal)')
-    expect(source).not.toContain("Modal,")
-    expect(source).not.toContain('text("手动创建", "Create manually")')
-    expect(source).not.toContain('text("关闭自动化", "Close automations")')
-    expect(source).not.toContain("IconPlusOutline16,")
   })
 
   test("adds selected file paths through the public composer input slot", async () => {

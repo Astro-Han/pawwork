@@ -33,6 +33,8 @@ export type CiSmokeProductSnapshot = {
   automationSurfaceVisible: boolean
   automationBelowNewSession: boolean
   sidebarToggleVisible: boolean
+  sidebarCollapsed: boolean
+  retiredBrandVisible: boolean
   platform: string
   sidebarToggleLeft: number
   freeProviderActive: boolean
@@ -222,8 +224,13 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const sidebarToggle = document.querySelector(".pawwork-sidebar-toggle")
     const automationRect = automationEntry?.getBoundingClientRect()
     const newSessionRect = newSession?.getBoundingClientRect()
+    const automationEntryVisible = visible(automationEntry)
 
     automationEntry?.click()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    const automationSurfaceVisible = visible(document.querySelector(".pawwork-automations-surface"))
+    const retiredBrandVisible = Array.from(document.querySelectorAll('svg[viewBox="0 0 182 24"], svg[viewBox="0 0 23.16 17.04"]')).some(visible)
+    sidebarToggle?.click()
     await new Promise((resolve) => setTimeout(resolve, 100))
 
     const module = window.__DSH_MODULES__?.loadCache?.get("@deepseek-ai/dsh-client-connection")?.exports
@@ -240,10 +247,12 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
 
     return JSON.stringify({
       title: document.title,
-      automationEntryVisible: visible(automationEntry),
-      automationSurfaceVisible: visible(document.querySelector(".pawwork-automations-surface")),
+      automationEntryVisible,
+      automationSurfaceVisible,
       automationBelowNewSession: Boolean(automationRect && newSessionRect && automationRect.top >= newSessionRect.bottom),
       sidebarToggleVisible: visible(sidebarToggle),
+      sidebarCollapsed: Boolean(document.querySelector("[data-sidebar-collapsed]")),
+      retiredBrandVisible,
       platform: document.documentElement.dataset.pawworkPlatform || "",
       sidebarToggleLeft: toggleRect?.left ?? -1,
       freeProviderActive: freeProvider?.active === true && freeProvider?.displayName === "OpenCode Free",
@@ -289,6 +298,8 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
     snapshot.automationSurfaceVisible ? null : "Automation surface did not open",
     snapshot.automationBelowNewSession ? null : "Automation is not below New Session",
     snapshot.sidebarToggleVisible ? null : "sidebar toggle is not visible",
+    snapshot.sidebarCollapsed ? null : "sidebar toggle did not collapse the sidebar",
+    !snapshot.retiredBrandVisible ? null : "retired DSH branding is visible",
     snapshot.platform !== "macos" || snapshot.sidebarToggleLeft >= 70 ? null : "macOS sidebar toggle overlaps window controls",
     snapshot.freeProviderActive ? null : "OpenCode Free provider is not active",
     snapshot.freeModelAvailable ? null : "DeepSeek V4 Flash Free is unavailable",

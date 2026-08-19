@@ -208,6 +208,8 @@ describe("ci smoke helpers", () => {
       automationSurfaceVisible: true,
       automationBelowNewSession: true,
       sidebarToggleVisible: true,
+      sidebarCollapsed: true,
+      retiredBrandVisible: false,
       platform: "macos",
       sidebarToggleLeft: 76,
       freeProviderActive: true,
@@ -223,12 +225,14 @@ describe("ci smoke helpers", () => {
       automationSurfaceVisible: false,
       automationBelowNewSession: false,
       sidebarToggleVisible: false,
+      sidebarCollapsed: false,
+      retiredBrandVisible: true,
       platform: "macos",
       sidebarToggleLeft: 12,
       freeProviderActive: false,
       freeModelAvailable: false,
       skillNames: [],
-    })).toThrow(/document title.*Automation entry.*Automation surface.*below New Session.*sidebar toggle.*window controls.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
+    })).toThrow(/document title.*Automation entry.*Automation surface.*below New Session.*sidebar toggle.*collapse.*branding.*window controls.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
   })
 
   test("parseSmokeArgs defaults to raw dev mode", () => {
