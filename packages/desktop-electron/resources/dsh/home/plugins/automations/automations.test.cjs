@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const {
   AutomationScheduler,
   AutomationStore,
@@ -198,6 +199,112 @@ test('starts an immediate run without making the caller wait for agent completio
   assert.equal(store.listRuns(created.id)[0].state, 'running');
   finish({ sessionId: 'pawwork-automation-run-1', result: 'done' });
   assert.equal((await started.completion).state, 'succeeded');
+});
+
+test('records executor failures as failed runs', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = oneShot(store, cwd, 2_000);
+  const scheduler = new AutomationScheduler({
+    store,
+    execute: async () => { throw new Error('model unavailable'); },
+    clock: fakeClock(1_500),
+  });
+
+  const completed = await scheduler.runNow(created.id);
+
+  assert.equal(completed.state, 'failed');
+  assert.equal(completed.error, 'model unavailable');
+});
+
+test('stopping aborts an active run and records it as stopped', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = oneShot(store, cwd, 2_000);
+  const scheduler = new AutomationScheduler({
+    store,
+    execute: async (_definition, _run, signal) => await new Promise((resolve) => {
+      signal.addEventListener('abort', () => resolve({ result: 'late success' }), { once: true });
+    }),
+    clock: fakeClock(1_500),
+  });
+
+  scheduler.startNow(created.id);
+  await scheduler.stop();
+
+  const completed = store.listRuns(created.id)[0];
+  assert.equal(completed.state, 'stopped');
+  assert.equal(completed.stopReason, 'cancelled');
+});
+
+test('rejects a second trigger while the previous run is active', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = oneShot(store, cwd, 2_000);
+  let finish;
+  const pending = new Promise((resolve) => { finish = resolve; });
+  let executions = 0;
+  const scheduler = new AutomationScheduler({
+    store,
+    execute: async () => { executions += 1; return await pending; },
+    clock: fakeClock(1_500),
+  });
+
+  const first = scheduler.startNow(created.id);
+  const rejected = scheduler.startNow(created.id);
+
+  assert.equal(executions, 1);
+  assert.equal(rejected.run.state, 'stopped');
+  assert.equal(rejected.run.stopReason, 'previous_run_active');
+  finish({ result: 'done' });
+  await first.completion;
+});
+
+test('the DSH executor cancels an already attached continue agent', async () => {
+  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?executor=${Date.now()}`;
+  const { createDshExecutor } = await import(pluginUrl);
+  let releaseIdle;
+  const idle = new Promise((resolve) => { releaseIdle = resolve; });
+  let cancellations = 0;
+  const agent = {
+    session: {
+      events: [
+        { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'done' }] } } },
+        { type: 'turn/end', data: { reason: { kind: 'completed' } } },
+      ],
+    },
+    followup() {},
+    whenIdle: async () => await idle,
+    cancel() {
+      cancellations += 1;
+      releaseIdle();
+    },
+  };
+  const execute = createDshExecutor({
+    agents: {
+      get: () => agent,
+      create: async () => assert.fail('continue execution must reuse the attached agent'),
+      resume: async () => assert.fail('continue execution must reuse the attached agent'),
+    },
+    sessions: { flush: async () => {} },
+    sessionTitle: { rename: () => {} },
+  });
+  const controller = new AbortController();
+
+  const completion = execute({
+    context: 'continue',
+    sourceSessionId: 'session-existing',
+    model: { provider: 'opencode', model: 'big-pickle' },
+    prompt: 'Continue.',
+  }, { id: 'automation-run-1' }, controller.signal);
+  controller.abort();
+  const outcome = await Promise.race([
+    completion.then(() => 'completed'),
+    new Promise((resolve) => setTimeout(() => resolve('timeout'), 20)),
+  ]);
+
+  assert.equal(outcome, 'completed');
+  assert.equal(cancellations, 1);
 });
 
 test('automation RPC lists only durable definitions and their recent runs', async () => {

@@ -39,7 +39,7 @@ function automationResult(agent) {
   return text || null;
 }
 
-function createDshExecutor(ctx) {
+export function createDshExecutor(ctx) {
   return async (definition, run, signal) => {
     signal.throwIfAborted();
     const sessionId = definition.context === 'continue'
@@ -57,10 +57,8 @@ function createDshExecutor(ctx) {
         : await ctx.agents.create({ sessionId, meta: { cwd: definition.cwd }, agentOptions, signal });
       agent = handle.agent;
     }
-    const cancel = handle
-      ? () => agent.cancel({ kind: 'hook', reason: 'automation scheduler stopped' })
-      : null;
-    if (cancel) signal.addEventListener('abort', cancel, { once: true });
+    const cancel = () => agent.cancel({ kind: 'hook', reason: 'automation scheduler stopped' });
+    signal.addEventListener('abort', cancel, { once: true });
     try {
       if (definition.context === 'fresh') ctx.sessionTitle.rename(agent.session, `Automation: ${definition.title}`);
       agent.followup({
@@ -73,7 +71,7 @@ function createDshExecutor(ctx) {
       await ctx.sessions.flush(agent.session);
       return { sessionId, result: automationResult(agent) };
     } finally {
-      if (cancel) signal.removeEventListener('abort', cancel);
+      signal.removeEventListener('abort', cancel);
       await handle?.dispose();
     }
   };

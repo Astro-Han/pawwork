@@ -537,6 +537,7 @@ class AutomationScheduler {
     running = (async () => {
       try {
         const output = await this.execute(definition, run, controller.signal);
+        controller.signal.throwIfAborted();
         return this.store.completeRun(run.id, {
           state: 'succeeded',
           completedAt: this.clock.now(),
