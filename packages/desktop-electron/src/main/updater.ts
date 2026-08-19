@@ -1,10 +1,8 @@
 import { gt, parse } from "semver"
 
-import { errorMessage } from "./error"
-// re-export the feed selector alongside the controller so the updater seam lives
-// in one place (see update-feed.ts for the R2-first / GitHub-fallback logic).
-export { createUpdateFeed, githubFeed, r2Feed } from "./update-feed"
-export type { FeedTarget } from "./update-feed"
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
 
 export type UpdateResult =
   | { status: "disabled" }

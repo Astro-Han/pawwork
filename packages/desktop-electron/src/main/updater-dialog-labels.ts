@@ -85,6 +85,5 @@ const labels: Record<MenuLocale, Labels> = {
 }
 
 export function updaterDialogLabels(locale: MenuLocale) {
-  // Runtime fallback for unexpected locale values crossing process boundaries.
-  return labels[locale] ?? labels.en
+  return labels[locale]
 }

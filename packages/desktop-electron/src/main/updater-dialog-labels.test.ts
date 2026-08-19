@@ -21,13 +21,6 @@ describe("updater dialog labels", () => {
     expect(labels.ready.message(undefined)).toBe("Update downloaded. Restart now?")
   })
 
-  test("falls back to English for unexpected runtime locale values", () => {
-    const labels = updaterDialogLabels("fr" as never)
-
-    expect(labels.busy.title).toBe("Update Check in Progress")
-    expect(labels.none.message).toBe("You're up to date.")
-  })
-
   test("exposes reason-specific failed copy and recovery buttons in Simplified Chinese", () => {
     const labels = updaterDialogLabels("zh")
 

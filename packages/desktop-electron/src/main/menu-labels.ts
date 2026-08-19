@@ -101,44 +101,6 @@ const roleLabels: Record<MenuLocale, Record<MenuRoleLabelKey, string>> = {
   },
 }
 
-function parseStoredOrRaw(value: unknown): unknown {
-  if (typeof value !== "string") return value
-  try {
-    return JSON.parse(value) as unknown
-  } catch {
-    return value
-  }
-}
-
-export function parseMenuLocale(value: unknown): MenuLocale {
-  const parsed = parseStoredOrRaw(value)
-  if (typeof parsed === "string") {
-    const normalized = parsed.toLowerCase().replaceAll("_", "-")
-    if (normalized.startsWith("zh")) return "zh"
-    if (normalized.startsWith("en")) return "en"
-  }
-  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-    const locale = (parsed as Record<string, unknown>).locale
-    return parseMenuLocale(locale)
-  }
-  return "en"
-}
-
-export function parseStoredMenuLocale(value: unknown): MenuLocale | undefined {
-  if (!value) return undefined
-  const parsed = parseStoredOrRaw(value)
-  if (typeof parsed === "string") {
-    const normalized = parsed.toLowerCase().replaceAll("_", "-")
-    if (normalized.startsWith("zh")) return "zh"
-    if (normalized.startsWith("en")) return "en"
-    return undefined
-  }
-  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-    return parseStoredMenuLocale((parsed as Record<string, unknown>).locale)
-  }
-  return undefined
-}
-
 export function detectSystemMenuLocale(locale: string | null | undefined): MenuLocale {
   if (locale?.toLowerCase().startsWith("zh")) return "zh"
   return "en"
