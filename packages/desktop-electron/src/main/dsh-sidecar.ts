@@ -90,6 +90,7 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshS
   return new Promise<DshSidecar>((resolve, reject) => {
     let stdoutBuffer = ""
     let settled = false
+    let stopping: Promise<void> | undefined
     let timeout: ReturnType<typeof setTimeout> | undefined
     const stopTimeoutMs = options.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS
 
@@ -110,16 +111,27 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshS
       child.off("exit", onEarlyExit)
     }
 
-    const fail = (error: Error, terminate: boolean) => {
+    const stopProcess = () => {
+      stopping ??= (async () => {
+        if (exitedAlready) return
+        child.kill()
+        if (await waitForExit()) return
+        if (!exitedAlready) child.kill("SIGKILL")
+        await waitForExit()
+      })()
+      return stopping
+    }
+
+    const fail = async (error: Error, terminate: boolean) => {
       if (settled) return
       settled = true
       cleanupReadiness()
-      if (terminate && child.pid !== undefined) child.kill()
+      if (terminate && child.pid !== undefined) await stopProcess()
       reject(error)
     }
 
     const onEarlyExit = (code: number) => {
-      fail(new Error(`DSH exited before readiness (code ${code})`), false)
+      void fail(new Error(`DSH exited before readiness (code ${code})`), false)
     }
 
     const onStdout = (data: Buffer | string) => {
@@ -134,19 +146,11 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshS
         if (!match) continue
         settled = true
         cleanupReadiness()
-        let stopping: Promise<void> | undefined
         resolve({
           url: match[1],
           exited,
           stop() {
-            stopping ??= (async () => {
-              if (exitedAlready) return
-              child.kill()
-              if (await waitForExit()) return
-              if (!exitedAlready) child.kill("SIGKILL")
-              await waitForExit()
-            })()
-            return stopping
+            return stopProcess()
           },
         })
         return
@@ -158,7 +162,7 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshS
     child.once("exit", onEarlyExit)
 
     timeout = setTimeout(() => {
-      fail(new Error(`DSH did not announce readiness within ${options.timeoutMs}ms`), true)
+      void fail(new Error(`DSH did not announce readiness within ${options.timeoutMs}ms`), true)
     }, options.timeoutMs)
   })
 }

@@ -107,8 +107,9 @@ describe("DSH sidecar lifecycle", () => {
     await expect(launched).rejects.toThrow("DSH exited before readiness (code 23)")
   })
 
-  test("kills the owned child process when readiness times out", async () => {
+  test("force-terminates the owned child process when readiness times out", async () => {
     const child = new FakeChildProcess()
+    child.gracefulExit = false
     const launched = launchDshSidecar({
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
@@ -118,11 +119,12 @@ describe("DSH sidecar lifecycle", () => {
       toolsDir: "/app/tools",
       env: {},
       timeoutMs: 1,
+      stopTimeoutMs: 1,
       spawn: () => child,
     })
 
     await expect(launched).rejects.toThrow("DSH did not announce readiness within 1ms")
-    expect(child.killCount).toBe(1)
+    expect(child.killSignals).toEqual([undefined, "SIGKILL"])
   })
 
   test("stops the owned child process once across concurrent and repeated calls", async () => {
