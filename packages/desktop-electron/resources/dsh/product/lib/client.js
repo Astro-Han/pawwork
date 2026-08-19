@@ -24,6 +24,8 @@ window.__ModuleLoader__.load({
     // PawWork owns its product identity and shadows the public conversation
     // slot only while its Automation page is open.
     const productCss = `
+@keyframes pawwork-sidebar-rail-in { from { opacity: 0; transform: translateX(49px); } }
+@keyframes pawwork-sidebar-wide-in { from { opacity: 0; } }
 .pawwork-sidebar-toggle { display: none; }
 html[data-pawwork-platform="macos"] button[aria-label="收起侧边栏"]:not(.pawwork-sidebar-toggle),
 html[data-pawwork-platform="macos"] button[aria-label="打开侧边栏"]:not(.pawwork-sidebar-toggle),
@@ -62,6 +64,12 @@ html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle:focus-visible { outl
   border-radius: 12px; gap: 0; height: 36px; justify-content: center;
   margin: 0 0 12px; padding: 0; width: 36px;
 }
+.pawwork-automation-entry[data-wide="true"] {
+  animation: pawwork-sidebar-wide-in .2s var(--ds-ease-in-out);
+}
+[data-sidebar-collapsed] .pawwork-automation-entry[data-wide="false"] {
+  animation: pawwork-sidebar-rail-in .15s var(--ds-ease-in-out) backwards;
+}
 .pawwork-automation-label { overflow: hidden; white-space: nowrap; }
 /* DSH exposes product actions in the footer. Promote that public slot into
  * the sidebar flow, then place its container directly after New Session. */
@@ -70,7 +78,12 @@ div:has(> div > div > [data-slot="sidebar.footer.action"] > .pawwork-automation-
 div:has(> div > div > [data-slot="sidebar.footer.action"] > .pawwork-automation-entry) > :nth-child(3) { order: 3; }
 div:has(> div > [data-slot="sidebar.footer.action"] > .pawwork-automation-entry) { display: contents; }
 div:has(> [data-slot="sidebar.footer.action"] > .pawwork-automation-entry) { order: 2; }
+[data-sidebar-collapsed] div:has(> [data-slot="sidebar.footer.action"] > .pawwork-automation-entry) { width: 36px; }
 div:has(> [data-slot="sidebar.settings"]) { order: 4; }
+html[data-pawwork-platform="macos"] [data-sidebar-collapsed] > :first-child { border-right: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .pawwork-automation-entry[data-wide] { animation: none; }
+}
 .pawwork-automations-surface {
   background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary);
   display: flex; height: 100%; min-height: 0; min-width: 0; width: 100%;
@@ -295,6 +308,7 @@ div:has(> [data-slot="sidebar.settings"]) { order: 4; }
       return h("button", {
         "aria-label": label, className: "pawwork-automation-entry",
         "data-active": active ? "true" : "false", "data-wide": wide ? "true" : "false",
+        key: wide ? "wide" : "rail",
         onClick: () => active ? controller.close() : controller.open(), title: label, type: "button",
       }, h(IconRefreshOutline16, { size: wide ? 16 : 18 }),
       wide ? h("span", { className: "pawwork-automation-label" }, label) : null)

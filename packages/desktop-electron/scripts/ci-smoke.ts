@@ -39,6 +39,9 @@ export type CiSmokeProductSnapshot = {
   collapsedAutomationBelowNewSession: boolean
   collapsedAutomationChromeMatchesNewSession: boolean
   collapsedAutomationIconMatchesRail: boolean
+  collapsedSidebarDividerHiddenOnMac: boolean
+  sidebarAutomationCollapseAnimated: boolean
+  sidebarAutomationExpandAnimated: boolean
   sidebarToggleCount: number
   sidebarToggleAlignedWithWindowControls: boolean
   sidebarToggleChromeSubtle: boolean
@@ -237,12 +240,14 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       if (!envelope?.result?.ok) throw new Error(method + ": " + (envelope?.result?.error?.message || "unknown failure"))
       return envelope.result.value
     }
-    const automationEntry = document.querySelector(".pawwork-automation-entry")
+    const currentAutomationEntry = () => document.querySelector(".pawwork-automation-entry")
+    const automationEntry = currentAutomationEntry()
     const pawworkBrandName = document.querySelector(".pawwork-brand-name")
-    const newSession = Array.from(document.querySelectorAll("button")).find((button) => {
+    const currentNewSession = () => Array.from(document.querySelectorAll("button")).find((button) => {
       const label = button.getAttribute("aria-label") || button.textContent || ""
       return label.includes("New Session") || label.includes("New session") || label.includes("新会话") || label.includes("新建会话")
     })
+    const newSession = currentNewSession()
     const sidebarToggles = () => Array.from(document.querySelectorAll("button")).filter((button) => {
       const label = button.getAttribute("aria-label") || button.getAttribute("title") || ""
       return visible(button) && /^(收起侧边栏|打开侧边栏|切换侧边栏|Collapse sidebar|Open sidebar|Toggle sidebar)$/i.test(label)
@@ -275,10 +280,22 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const collapseRect = collapseToggles[0]?.getBoundingClientRect()
     const collapseStyle = collapseToggles[0] ? getComputedStyle(collapseToggles[0]) : null
     collapseToggles[0]?.click()
-    await new Promise((resolve) => setTimeout(resolve, 300))
+    let sidebarAutomationCollapseAnimated = false
+    for (let frame = 0; frame < 24; frame += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 16))
+      const collapsedEntry = currentAutomationEntry()
+      if (collapsedEntry?.getAttribute("data-wide") !== "false") continue
+      const style = getComputedStyle(collapsedEntry)
+      sidebarAutomationCollapseAnimated = Number(style.opacity) < 1 || style.transform !== "none"
+      break
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
     const sidebarCollapsed = Boolean(document.querySelector("[data-sidebar-collapsed]"))
-    const collapsedAutomationRect = automationEntry?.getBoundingClientRect()
-    const collapsedNewSessionRect = newSession?.getBoundingClientRect()
+    const sidebarColumn = document.querySelector("[data-sidebar-collapsed] > :first-child")
+    const collapsedAutomationEntry = currentAutomationEntry()
+    const collapsedNewSession = currentNewSession()
+    const collapsedAutomationRect = collapsedAutomationEntry?.getBoundingClientRect()
+    const collapsedNewSessionRect = collapsedNewSession?.getBoundingClientRect()
     const iconVisualSize = (button) => {
       const svg = button?.querySelector("svg")
       if (!svg) return null
@@ -288,10 +305,10 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       if (viewBox.width === 0 || viewBox.height === 0) return null
       return { width: box.width * rect.width / viewBox.width, height: box.height * rect.height / viewBox.height }
     }
-    const collapsedAutomationIcon = iconVisualSize(automationEntry)
-    const collapsedNewSessionIcon = iconVisualSize(newSession)
-    const collapsedAutomationStyle = automationEntry ? getComputedStyle(automationEntry) : null
-    const collapsedNewSessionStyle = newSession ? getComputedStyle(newSession) : null
+    const collapsedAutomationIcon = iconVisualSize(collapsedAutomationEntry)
+    const collapsedNewSessionIcon = iconVisualSize(collapsedNewSession)
+    const collapsedAutomationStyle = collapsedAutomationEntry ? getComputedStyle(collapsedAutomationEntry) : null
+    const collapsedNewSessionStyle = collapsedNewSession ? getComputedStyle(collapsedNewSession) : null
     const expandToggles = sidebarToggles()
     const expandRect = expandToggles[0]?.getBoundingClientRect()
     const sidebarExpandToggleUsable = usable(expandToggles[0])
@@ -302,7 +319,12 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
         )
       : 9_999
     expandToggles[0]?.click()
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await new Promise((resolve) => setTimeout(resolve, 32))
+    const expandedAutomationEntry = currentAutomationEntry()
+    const sidebarAutomationExpandAnimated = Boolean(
+      expandedAutomationEntry && Number(getComputedStyle(expandedAutomationEntry).opacity) < 1,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 200))
 
     const providers = (await call("llm.providers", {})).providers
     const models = (await call("llm.models", {})).groups
@@ -326,6 +348,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
         && collapsedAutomationStyle && collapsedNewSessionStyle
         && collapsedAutomationRect.width === collapsedNewSessionRect.width
         && collapsedAutomationRect.height === collapsedNewSessionRect.height
+        && collapsedAutomationRect.left + collapsedAutomationRect.width / 2
+          === collapsedNewSessionRect.left + collapsedNewSessionRect.width / 2
         && collapsedAutomationStyle.borderRadius === collapsedNewSessionStyle.borderRadius,
       ),
       collapsedAutomationIconMatchesRail: Boolean(
@@ -333,6 +357,9 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
         && Math.abs(collapsedAutomationIcon.width - collapsedNewSessionIcon.width) <= 1
         && Math.abs(collapsedAutomationIcon.height - collapsedNewSessionIcon.height) <= 1,
       ),
+      collapsedSidebarDividerHiddenOnMac: document.documentElement.dataset.pawworkPlatform !== "macos"
+        || Boolean(sidebarColumn && getComputedStyle(sidebarColumn).borderRightWidth === "0px"),
+      sidebarAutomationCollapseAnimated,
       sidebarToggleCount: collapseToggles.length,
       sidebarToggleAlignedWithWindowControls: document.documentElement.dataset.pawworkPlatform !== "macos"
         || Boolean(collapseRect && collapseRect.left === 76 && collapseRect.top === 9),
@@ -341,6 +368,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       sidebarCollapsed,
       sidebarExpandToggleCount: expandToggles.length,
       sidebarExpandToggleUsable,
+      sidebarAutomationExpandAnimated,
       sidebarToggleShift,
       sidebarExpandedAgain: !document.querySelector("[data-sidebar-collapsed]"),
       retiredBrandVisible,
@@ -423,12 +451,15 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
     snapshot.collapsedAutomationBelowNewSession ? null : "collapsed Automation is not below New Session",
     snapshot.collapsedAutomationChromeMatchesNewSession ? null : "collapsed Automation hover shape does not match New Session",
     snapshot.collapsedAutomationIconMatchesRail ? null : "collapsed Automation icon visual weight does not match the sidebar rail",
+    snapshot.collapsedSidebarDividerHiddenOnMac ? null : "collapsed macOS sidebar divider crosses the window controls",
+    snapshot.sidebarAutomationCollapseAnimated ? null : "Automation does not animate into the collapsed rail",
     snapshot.sidebarToggleCount === 1 ? null : `expected one DSH collapse control, found ${snapshot.sidebarToggleCount}`,
     snapshot.sidebarToggleAlignedWithWindowControls ? null : "sidebar toggle is not aligned with the macOS window controls",
     snapshot.sidebarToggleChromeSubtle ? null : "sidebar toggle chrome does not blend into the titlebar",
     snapshot.sidebarCollapsed ? null : "DSH collapse control did not collapse the sidebar",
     snapshot.sidebarExpandToggleCount === 1 ? null : `expected one DSH expand control, found ${snapshot.sidebarExpandToggleCount}`,
     snapshot.sidebarExpandToggleUsable ? null : "DSH expand control is not visibly clickable",
+    snapshot.sidebarAutomationExpandAnimated ? null : "Automation does not animate into the expanded sidebar",
     snapshot.platform !== "macos" || snapshot.sidebarToggleShift <= 1 ? null : `DSH sidebar control moved ${snapshot.sidebarToggleShift.toFixed(1)}px while collapsing`,
     snapshot.sidebarExpandedAgain ? null : "DSH expand control did not reopen the sidebar",
     !snapshot.retiredBrandVisible ? null : "retired DSH branding is visible",
