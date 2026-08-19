@@ -58,9 +58,45 @@ function fakeClock(initial) {
   };
 }
 
-test('registers the management RPC on a valid single-segment DSH channel', () => {
-  const plugin = fs.readFileSync(path.join(__dirname, 'index.mjs'), 'utf8');
-  assert.match(plugin, /rpc\.handle\('\/pawwork-automations', rpc, \{ authority: 'loopback' \}\)/);
+test('registers and disposes the loopback management RPC with the scheduler lifecycle', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-automations-plugin-'));
+  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?lifecycle=${Date.now()}`;
+  const { apply } = await import(pluginUrl);
+  const previousHome = process.env.DSH_HOME;
+  let registration;
+  let rpcStopped = false;
+  let listenerStopped = false;
+  let dispose;
+  process.env.DSH_HOME = home;
+  try {
+    apply({
+      agents: { roots: () => [] },
+      connection: {
+        rpc: {
+          handle: (channel, _handler, options) => {
+            registration = { channel, options };
+            return async () => { rpcStopped = true; };
+          },
+        },
+      },
+      effect: (setup) => { dispose = setup(); },
+      logger: { warn: () => {} },
+      on: () => () => { listenerStopped = true; },
+      provide: () => {},
+    });
+
+    assert.deepEqual(registration, {
+      channel: '/pawwork-automations',
+      options: { authority: 'loopback' },
+    });
+    await dispose();
+    assert.equal(rpcStopped, true);
+    assert.equal(listenerStopped, true);
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    fs.rmSync(home, { force: true, recursive: true });
+  }
 });
 
 test('persists definitions and run history with monotonic ids', () => {

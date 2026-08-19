@@ -37,13 +37,6 @@ test('publishes only the final cold-session workspace state to the UI', () => {
   assert.equal(source.includes('ctx.sessions.announce(session)'), false);
 });
 
-test('exposes only migration completion through the public DSH RPC seam', () => {
-  const source = fs.readFileSync(path.join(__dirname, 'index.mjs'), 'utf8');
-  assert.match(source, /'connection'/);
-  assert.match(source, /ctx\.connection\.rpc\.handle\('\/pawwork-import-v1'/);
-  assert.match(source, /sessionsComplete/);
-});
-
 test('keeps the public migration status incomplete after a partial session import', async () => {
   const importerModule = require('./import-v1.cjs');
   const settingsModule = require('./import-v1-settings.cjs');
@@ -53,6 +46,7 @@ test('keeps the public migration status incomplete after a partial session impor
   const originalSettingsRun = settingsModule.runV1SettingsImport;
   const originalAutomationsRun = automationsModule.runV1AutomationImport;
   let statusRpc;
+  let rpcRegistration;
   let stopPlugin;
   let importStarted;
   const started = new Promise((resolve) => { importStarted = resolve; });
@@ -75,7 +69,8 @@ test('keeps the public migration status incomplete after a partial session impor
     apply({
       connection: {
         rpc: {
-          handle: (_channel, handler) => {
+          handle: (channel, handler, options) => {
+            rpcRegistration = { channel, options };
             statusRpc = handler;
             return async () => {};
           },
@@ -93,6 +88,10 @@ test('keeps the public migration status incomplete after a partial session impor
     await started;
     await finished;
 
+    assert.deepEqual(rpcRegistration, {
+      channel: '/pawwork-import-v1',
+      options: { authority: 'loopback' },
+    });
     assert.deepEqual(await statusRpc('status'), {
       ok: true,
       value: { sessionsComplete: false },
