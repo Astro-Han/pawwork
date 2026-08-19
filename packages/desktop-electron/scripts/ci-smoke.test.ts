@@ -215,6 +215,7 @@ describe("ci smoke helpers", () => {
       freeProviderActive: true,
       freeModelAvailable: true,
       skillNames: ["office-docx", "office-pdf", "office-pptx", "office-xlsx"],
+      sessionId: "session-smoke",
     })).not.toThrow()
   })
 
@@ -232,6 +233,7 @@ describe("ci smoke helpers", () => {
       freeProviderActive: false,
       freeModelAvailable: false,
       skillNames: [],
+      sessionId: "",
     })).toThrow(/document title.*Automation entry.*Automation surface.*below New Session.*sidebar toggle.*collapse.*branding.*window controls.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
   })
 

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { once } from "node:events"
-import { existsSync, mkdtempSync } from "node:fs"
+import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { createRequire } from "node:module"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
@@ -40,6 +40,7 @@ export type CiSmokeProductSnapshot = {
   freeProviderActive: boolean
   freeModelAvailable: boolean
   skillNames: string[]
+  sessionId: string
 }
 
 type ProbeOptions = {
@@ -200,10 +201,6 @@ export async function probeCiSmokeCdpTarget(port: number, options: ProbeOptions 
 }
 
 export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: string) {
-  if (typeof target.webSocketDebuggerUrl !== "string") {
-    throw new Error("DSH CDP target does not expose a WebSocket debugger URL")
-  }
-
   const workspace = JSON.stringify(workspacePath)
   const expression = `(async () => {
     const visible = (element) => {
@@ -258,8 +255,17 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       freeProviderActive: freeProvider?.active === true && freeProvider?.displayName === "OpenCode Free",
       freeModelAvailable: freeModels.some((model) => model.id === "deepseek-v4-flash-free" && model.name === "DeepSeek V4 Flash Free"),
       skillNames: skills.map((skill) => skill.name).sort(),
+      sessionId: session.sessionId,
     })
   })()`
+
+  return await evaluateCiSmokeJson(target, expression) as CiSmokeProductSnapshot
+}
+
+async function evaluateCiSmokeJson(target: CdpTarget, expression: string) {
+  if (typeof target.webSocketDebuggerUrl !== "string") {
+    throw new Error("DSH CDP target does not expose a WebSocket debugger URL")
+  }
 
   const socket = new WebSocket(target.webSocketDebuggerUrl)
   const response = await new Promise<Record<string, unknown>>((resolve, reject) => {
@@ -288,7 +294,24 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     throw new Error(`DSH product CDP evaluation failed: ${result.result?.description ?? result.exceptionDetails.text ?? "unknown error"}`)
   }
   if (typeof result?.result?.value !== "string") throw new Error("DSH product CDP evaluation returned no snapshot")
-  return JSON.parse(result.result.value) as CiSmokeProductSnapshot
+  return JSON.parse(result.result.value) as unknown
+}
+
+export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: string) {
+  const expectedSessionId = JSON.stringify(sessionId)
+  const expression = `(async () => {
+    const unwrap = (response) => {
+      if (!response?.result?.ok) throw new Error(response?.result?.error?.message || "list sessions failed")
+      return response.result.value
+    }
+    const module = window.__DSH_MODULES__?.loadCache?.get("@deepseek-ai/dsh-client-connection")?.exports
+    if (!module?.AbstractApiClient) throw new Error("DSH client connection module is unavailable")
+    class Client extends module.AbstractApiClient { doFetch(input, init) { return fetch(input, init) } }
+    const sessions = unwrap(await new Client().sessions.list({})).items
+    return JSON.stringify(sessions.some((session) => session.sessionId === ${expectedSessionId}))
+  })()`
+  const persisted = await evaluateCiSmokeJson(target, expression)
+  if (persisted !== true) throw new Error(`DSH session ${sessionId} did not survive desktop restart`)
 }
 
 export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
@@ -416,18 +439,35 @@ async function main() {
   const cdpPort = await resolveCiSmokeCdpPort(process.env)
   const { child, spawnError } = launchApp(homeDir, target, { cdpPort })
   const logs = watchChildLogs(child)
+  let product: CiSmokeProductSnapshot | undefined
 
   try {
     await waitForCiSmokeReady(homeDir, target, child, spawnError, logs.recent)
     if (cdpPort !== undefined) {
       const cdpTarget = await probeCiSmokeCdpTarget(cdpPort)
-      const product = await inspectCiSmokeProduct(cdpTarget, homeDir)
+      product = await inspectCiSmokeProduct(cdpTarget, homeDir)
       assertCiSmokeProduct(product)
       console.log("CI smoke verified DSH product UI, free model, and bundled skills")
     }
   } finally {
     logs.close()
     await stopChild(child)
+  }
+
+  if (product !== undefined) {
+    rmSync(resolveCiSmokeReadyFile(homeDir, { channel: target.channel, mode: target.mode }), { force: true })
+    const restartPort = await allocateCiSmokeCdpPort()
+    const restarted = launchApp(homeDir, target, { cdpPort: restartPort })
+    const restartLogs = watchChildLogs(restarted.child)
+    try {
+      await waitForCiSmokeReady(homeDir, target, restarted.child, restarted.spawnError, restartLogs.recent)
+      const restartTarget = await probeCiSmokeCdpTarget(restartPort)
+      await inspectCiSmokePersistence(restartTarget, product.sessionId)
+      console.log("CI smoke verified DSH session persistence after restart")
+    } finally {
+      restartLogs.close()
+      await stopChild(restarted.child)
+    }
   }
 }
 
