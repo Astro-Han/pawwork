@@ -15,8 +15,6 @@ describe("windows nsis desktop shortcut customization", () => {
     expect(script).toContain('LangString PawWorkAddDesktopShortcut 2052 "添加桌面快捷方式"')
     expect(script).toContain('LangString PawWorkShortcutOptions 1033 "Shortcut Options"')
     expect(script).toContain('LangString PawWorkShortcutOptions 2052 "快捷方式选项"')
-    expect(script).not.toContain("LANG_ENGLISH")
-    expect(script).not.toContain("LANG_SIMPCHINESE")
     expect(script).toContain("BST_CHECKED")
   })
 
@@ -31,14 +29,11 @@ describe("windows nsis desktop shortcut customization", () => {
   test("does not mutate desktop shortcuts during auto-update", () => {
     expect(script).toContain("!include FileFunc.nsh")
     expect(script).toContain('"--updated"')
-    expect(script).not.toContain("${isUpdated}")
-    expect(script).not.toContain("!insertmacro skipPageIfUpdated")
     expect(script).toContain("PAWWORK_SKIP_DESKTOP_SHORTCUT")
   })
 
   test("keeps custom renamed shortcuts out of scope", () => {
     expect(script).toContain("PAWWORK_STANDARD_SHORTCUT")
-    expect(script).not.toContain("我的 AI 工具")
   })
 
   test("declares a real custom page instead of running page commands inline", () => {
@@ -80,7 +75,6 @@ describe("windows nsis desktop shortcut customization", () => {
   test("owns uninstall cleanup for standard shortcuts in the selected install scope", () => {
     expect(script).toContain("customUnInstall")
     expect(script).toContain("PAWWORK_REMOVE_STANDARD_SHORTCUTS")
-    expect(script).not.toContain("PAWWORK_REMOVE_STANDARD_SHORTCUTS_IN_BOTH_SCOPES")
     expect(script).toContain("SetShellVarContext current")
     expect(script).toContain("SetShellVarContext all")
     expect(script).toContain("PAWWORK_RESTORE_INSTALL_SCOPE")

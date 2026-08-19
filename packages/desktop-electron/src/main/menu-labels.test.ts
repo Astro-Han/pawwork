@@ -16,6 +16,5 @@ describe("menu labels", () => {
     expect(menuLabel("zh", "file")).toBe("文件")
     expect(menuLabel("zh", "reloadWindow")).toBe("重新加载窗口")
     expect(menuLabel("zh", "pawworkOnGithub")).toBe("在 GitHub 上查看爪印")
-    expect(menuLabel("fr" as never, "file")).toBe("File")
   })
 })

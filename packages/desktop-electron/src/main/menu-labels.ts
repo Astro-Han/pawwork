@@ -107,17 +107,9 @@ export function detectSystemMenuLocale(locale: string | null | undefined): MenuL
 }
 
 export function menuLabel(locale: MenuLocale, key: MenuLabelKey) {
-  const value = labels[locale]?.[key] ?? labels.en[key]
-  if (value !== undefined) return value
-  if (import.meta.env.DEV) console.warn("[menu] missing desktop label", { locale, key })
-  return key
+  return labels[locale][key]
 }
 
 export function menuRoleLabel(locale: MenuLocale, key: MenuRoleLabelKey, appName: string) {
-  if (import.meta.env.DEV && locale !== "en" && roleLabels[locale]?.[key] === undefined) {
-    console.warn("[menu] missing locale role label, falling back to en", { locale, key })
-  }
-  const template = roleLabels[locale]?.[key] ?? roleLabels.en[key] ?? key
-  if (template === key && import.meta.env.DEV) console.warn("[menu] missing desktop role label", { locale, key })
-  return template.replaceAll("{appName}", appName)
+  return roleLabels[locale][key].replaceAll("{appName}", appName)
 }
