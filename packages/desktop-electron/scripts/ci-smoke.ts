@@ -24,6 +24,20 @@ type LaunchedApp = {
 type CdpTarget = {
   type?: unknown
   url?: unknown
+  webSocketDebuggerUrl?: unknown
+}
+
+export type CiSmokeProductSnapshot = {
+  title: string
+  automationEntryVisible: boolean
+  automationSurfaceVisible: boolean
+  automationBelowNewSession: boolean
+  sidebarToggleVisible: boolean
+  platform: string
+  sidebarToggleLeft: number
+  freeProviderActive: boolean
+  freeModelAvailable: boolean
+  skillNames: string[]
 }
 
 type ProbeOptions = {
@@ -163,9 +177,10 @@ export async function probeCiSmokeCdpTarget(port: number, options: ProbeOptions 
         await response.arrayBuffer().catch(() => undefined)
       } else {
         const targets = (await response.json()) as unknown
-        if (Array.isArray(targets) && targets.some(isCiSmokeDshTarget)) {
+        const target = Array.isArray(targets) ? targets.find(isCiSmokeDshTarget) : undefined
+        if (target) {
           console.log(`CI smoke DSH target discovered on port ${port}`)
-          return
+          return target as CdpTarget
         }
         lastConnectionError = undefined
       }
@@ -180,6 +195,109 @@ export async function probeCiSmokeCdpTarget(port: number, options: ProbeOptions 
     throw new Error(`CDP endpoint never came up on port ${port}: ${lastConnectionError}`)
   }
   throw new Error(`CDP endpoint on port ${port} did not expose a DSH page target`)
+}
+
+export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: string) {
+  if (typeof target.webSocketDebuggerUrl !== "string") {
+    throw new Error("DSH CDP target does not expose a WebSocket debugger URL")
+  }
+
+  const workspace = JSON.stringify(workspacePath)
+  const expression = `(async () => {
+    const visible = (element) => {
+      if (!element) return false
+      const style = getComputedStyle(element)
+      const rect = element.getBoundingClientRect()
+      return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0
+    }
+    const unwrap = (response, operation) => {
+      if (!response?.result?.ok) throw new Error(operation + ": " + (response?.result?.error?.message || "unknown failure"))
+      return response.result.value
+    }
+    const automationEntry = document.querySelector(".pawwork-automation-entry")
+    const newSession = Array.from(document.querySelectorAll("button")).find((button) => {
+      const label = button.getAttribute("aria-label") || button.textContent || ""
+      return label.includes("New Session") || label.includes("New session") || label.includes("新会话") || label.includes("新建会话")
+    })
+    const sidebarToggle = document.querySelector(".pawwork-sidebar-toggle")
+    const automationRect = automationEntry?.getBoundingClientRect()
+    const newSessionRect = newSession?.getBoundingClientRect()
+
+    automationEntry?.click()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    const module = window.__DSH_MODULES__?.loadCache?.get("@deepseek-ai/dsh-client-connection")?.exports
+    if (!module?.AbstractApiClient) throw new Error("DSH client connection module is unavailable")
+    class Client extends module.AbstractApiClient { doFetch(input, init) { return fetch(input, init) } }
+    const client = new Client()
+    const providers = unwrap(await client.llm.providers({}), "list providers").providers
+    const models = unwrap(await client.llm.models({}), "list models").groups
+    const session = unwrap(await client.sessions.create({ cwd: ${workspace} }), "create session")
+    const skills = unwrap(await client.skills.list({ sessionId: session.sessionId }), "list skills").skills
+    const freeProvider = providers.find((provider) => provider.provider === "opencode")
+    const freeModels = models.find((group) => group.id === "opencode")?.models || []
+    const toggleRect = sidebarToggle?.getBoundingClientRect()
+
+    return JSON.stringify({
+      title: document.title,
+      automationEntryVisible: visible(automationEntry),
+      automationSurfaceVisible: visible(document.querySelector(".pawwork-automations-surface")),
+      automationBelowNewSession: Boolean(automationRect && newSessionRect && automationRect.top >= newSessionRect.bottom),
+      sidebarToggleVisible: visible(sidebarToggle),
+      platform: document.documentElement.dataset.pawworkPlatform || "",
+      sidebarToggleLeft: toggleRect?.left ?? -1,
+      freeProviderActive: freeProvider?.active === true && freeProvider?.displayName === "OpenCode Free",
+      freeModelAvailable: freeModels.some((model) => model.id === "deepseek-v4-flash-free" && model.name === "DeepSeek V4 Flash Free"),
+      skillNames: skills.map((skill) => skill.name).sort(),
+    })
+  })()`
+
+  const socket = new WebSocket(target.webSocketDebuggerUrl)
+  const response = await new Promise<Record<string, unknown>>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Timed out waiting for the DSH product CDP evaluation")), 20_000)
+    socket.addEventListener("error", () => {
+      clearTimeout(timeout)
+      reject(new Error("Failed to connect to the DSH product CDP target"))
+    }, { once: true })
+    socket.addEventListener("open", () => {
+      socket.send(JSON.stringify({
+        id: 1,
+        method: "Runtime.evaluate",
+        params: { expression, awaitPromise: true, returnByValue: true },
+      }))
+    }, { once: true })
+    socket.addEventListener("message", (event) => {
+      const message = JSON.parse(String(event.data)) as Record<string, unknown>
+      if (message.id !== 1) return
+      clearTimeout(timeout)
+      resolve(message)
+    })
+  }).finally(() => socket.close())
+
+  const result = response.result as { exceptionDetails?: { text?: string }; result?: { value?: unknown; description?: string } } | undefined
+  if (result?.exceptionDetails) {
+    throw new Error(`DSH product CDP evaluation failed: ${result.result?.description ?? result.exceptionDetails.text ?? "unknown error"}`)
+  }
+  if (typeof result?.result?.value !== "string") throw new Error("DSH product CDP evaluation returned no snapshot")
+  return JSON.parse(result.result.value) as CiSmokeProductSnapshot
+}
+
+export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
+  const failures = [
+    snapshot.title === "PawWork" ? null : `document title is ${JSON.stringify(snapshot.title)}`,
+    snapshot.automationEntryVisible ? null : "Automation entry is not visible",
+    snapshot.automationSurfaceVisible ? null : "Automation surface did not open",
+    snapshot.automationBelowNewSession ? null : "Automation is not below New Session",
+    snapshot.sidebarToggleVisible ? null : "sidebar toggle is not visible",
+    snapshot.platform !== "macos" || snapshot.sidebarToggleLeft >= 70 ? null : "macOS sidebar toggle overlaps window controls",
+    snapshot.freeProviderActive ? null : "OpenCode Free provider is not active",
+    snapshot.freeModelAvailable ? null : "DeepSeek V4 Flash Free is unavailable",
+    ["office-docx", "office-pdf", "office-pptx", "office-xlsx"].every((name) => snapshot.skillNames.includes(name))
+      ? null
+      : `bundled Office skills are incomplete: ${snapshot.skillNames.join(", ")}`,
+  ].filter((failure): failure is string => failure !== null)
+
+  if (failures.length) throw new Error(`DSH product smoke failed:\n- ${failures.join("\n- ")}`)
 }
 
 export function resolveCiSmokeReadyFile(homeDir: string, options: { channel?: SmokeChannel; mode?: SmokeMode } = {}) {
@@ -290,7 +408,12 @@ async function main() {
 
   try {
     await waitForCiSmokeReady(homeDir, target, child, spawnError, logs.recent)
-    if (cdpPort !== undefined) await probeCiSmokeCdpTarget(cdpPort)
+    if (cdpPort !== undefined) {
+      const cdpTarget = await probeCiSmokeCdpTarget(cdpPort)
+      const product = await inspectCiSmokeProduct(cdpTarget, homeDir)
+      assertCiSmokeProduct(product)
+      console.log("CI smoke verified DSH product UI, free model, and bundled skills")
+    }
   } finally {
     logs.close()
     await stopChild(child)

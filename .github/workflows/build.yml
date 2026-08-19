@@ -409,6 +409,7 @@ jobs:
         timeout-minutes: 2
         env:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
+          PAWWORK_CI_SMOKE_CDP: "true"
 
       - name: Prepare signed app artifact
         if: ${{ runner.os == 'macOS' && inputs.phase == 'submit' }}

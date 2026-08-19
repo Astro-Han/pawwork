@@ -6,6 +6,7 @@ import path from "node:path"
 import {
   allocateCiSmokeCdpPort,
   appIdForSmoke,
+  assertCiSmokeProduct,
   buildSmokeEnv,
   isCiSmokeDshTarget,
   parseSmokeArgs,
@@ -198,6 +199,36 @@ describe("ci smoke helpers", () => {
         sleep: () => Promise.resolve(),
       }),
     ).rejects.toThrow("CDP endpoint never came up on port 48291")
+  })
+
+  test("assertCiSmokeProduct accepts the shipped DSH product contract", () => {
+    expect(() => assertCiSmokeProduct({
+      title: "PawWork",
+      automationEntryVisible: true,
+      automationSurfaceVisible: true,
+      automationBelowNewSession: true,
+      sidebarToggleVisible: true,
+      platform: "macos",
+      sidebarToggleLeft: 76,
+      freeProviderActive: true,
+      freeModelAvailable: true,
+      skillNames: ["office-docx", "office-pdf", "office-pptx", "office-xlsx"],
+    })).not.toThrow()
+  })
+
+  test("assertCiSmokeProduct reports every missing product capability", () => {
+    expect(() => assertCiSmokeProduct({
+      title: "DeepSeek Harness",
+      automationEntryVisible: false,
+      automationSurfaceVisible: false,
+      automationBelowNewSession: false,
+      sidebarToggleVisible: false,
+      platform: "macos",
+      sidebarToggleLeft: 12,
+      freeProviderActive: false,
+      freeModelAvailable: false,
+      skillNames: [],
+    })).toThrow(/document title.*Automation entry.*Automation surface.*below New Session.*sidebar toggle.*window controls.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
   })
 
   test("parseSmokeArgs defaults to raw dev mode", () => {
