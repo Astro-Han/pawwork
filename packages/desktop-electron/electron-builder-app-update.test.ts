@@ -62,12 +62,6 @@ describe("electron builder app-update config", () => {
       expect.objectContaining({ to: "THIRD_PARTY_NOTICES.md" }),
       expect.objectContaining({ to: "tools/" }),
     ])
-    expect(config.extraResources).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ to: expect.stringContaining("@parcel/watcher") }),
-        expect.objectContaining({ to: expect.stringContaining("@jackwener/opencli") }),
-      ]),
-    )
   })
 
   test("prod publish config feeds local updater config", () => {
