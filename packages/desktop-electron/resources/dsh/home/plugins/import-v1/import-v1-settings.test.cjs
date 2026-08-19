@@ -127,6 +127,7 @@ test('records idempotent Stage 2 results and resumes only failed settings', asyn
   assert.deepEqual(resumedCalls, ['busy-enter']);
   assert.equal(complete.status, 'complete');
   assert.deepEqual(complete.settings, { imported: 0, skipped: 2, unsupported: 10, failed: 0 });
+  fs.writeFileSync(path.join(home, 'import-v1', 'settings-result.json'), '{}');
 
   const third = await runV1SettingsImport({
     home,
@@ -136,6 +137,7 @@ test('records idempotent Stage 2 results and resumes only failed settings', asyn
     },
   });
   assert.deepEqual(third, complete);
+  assert.equal(fs.existsSync(path.join(home, 'import-v1', 'settings-result.json')), false);
   assert.deepEqual(sourceFiles.map((file) => fs.readFileSync(file)), sourceBefore);
 });
 

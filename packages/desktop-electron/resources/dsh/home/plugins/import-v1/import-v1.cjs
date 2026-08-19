@@ -397,6 +397,20 @@ function emptyResult(sourceDatabase, status) {
   };
 }
 
+function completedResult(ledger) {
+  const result = emptyResult(ledger.sourceDatabase, 'complete');
+  for (const record of Object.values(ledger.sessions)) {
+    if (record.status !== 'complete') continue;
+    result.sessions.skipped += 1;
+    if (record.workspaceAttached) result.workspaces.attached += 1;
+    if (record.workspaceUnavailable) result.workspaces.unavailable += 1;
+    result.parts.total += record.stats?.parts || 0;
+    result.parts.skipped += record.stats?.skippedParts || 0;
+    result.parts.unsupported += record.stats?.unsupportedParts || 0;
+  }
+  return result;
+}
+
 async function runV1SessionImport({
   home,
   sourceDatabase = discoverV1Database(),
@@ -407,7 +421,7 @@ async function runV1SessionImport({
   if (typeof importSession !== 'function') throw new Error('v1 importSession adapter is required');
   const directory = path.join(home, 'import-v1');
   const ledgerPath = path.join(directory, 'ledger.json');
-  const resultPath = path.join(directory, 'result.json');
+  fs.rmSync(path.join(directory, 'result.json'), { force: true });
   const ledger = readJson(ledgerPath, {
     schema: 1,
     sourceDatabase,
@@ -417,14 +431,13 @@ async function runV1SessionImport({
   if (ledger.schema !== 1) throw new Error(`unsupported v1 migration ledger schema: ${ledger.schema}`);
   ledger.sessions ||= {};
   if (ledger.stage1Complete && ledger.workspaceStageComplete) {
-    return readJson(resultPath, emptyResult(ledger.sourceDatabase, 'complete'));
+    return completedResult(ledger);
   }
   if (ledger.sourceDatabase && sourceDatabase && ledger.sourceDatabase !== sourceDatabase) {
     throw new Error(`v1 migration source changed from ${ledger.sourceDatabase} to ${sourceDatabase}`);
   }
   if (!sourceDatabase) {
     const result = emptyResult(null, 'not-found');
-    writeJsonAtomically(resultPath, result);
     ledger.sourceDatabase = null;
     ledger.stage1Complete = true;
     ledger.workspaceStageComplete = true;
@@ -482,7 +495,6 @@ async function runV1SessionImport({
       writeJsonAtomically(ledgerPath, ledger);
     }
     if (result.sessions.failed > 0) result.status = 'partial';
-    writeJsonAtomically(resultPath, result);
     ledger.stage1Complete = ledger.stage1Complete === true || result.status === 'complete';
     ledger.workspaceStageComplete = result.status === 'complete';
     writeJsonAtomically(ledgerPath, ledger);

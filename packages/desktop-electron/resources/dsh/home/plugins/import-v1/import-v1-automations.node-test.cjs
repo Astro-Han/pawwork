@@ -167,6 +167,7 @@ test('imports definitions and runs idempotently with a resumable shared ledger',
   };
 
   const first = await runV1AutomationImport(options);
+  fs.writeFileSync(path.join(home, 'import-v1', 'automation-result.json'), '{}');
   const second = await runV1AutomationImport(options);
 
   assert.equal(first.status, 'complete');
@@ -176,6 +177,10 @@ test('imports definitions and runs idempotently with a resumable shared ledger',
   assert.equal('takeover' in first, false);
   assert.equal(definitions.length, 1);
   assert.equal(runs.length, 3);
-  assert.deepEqual(second, first);
+  assert.equal(second.status, 'complete');
+  assert.deepEqual(second.definitions, { imported: 0, skipped: 1, failed: 0 });
+  assert.deepEqual(second.runs, { imported: 0, skipped: 3, failed: 0 });
+  assert.equal(second.orphanRuns, 1);
   assert.equal(fs.existsSync(path.join(home, 'import-v1', 'automation-snapshot.db')), false);
+  assert.equal(fs.existsSync(path.join(home, 'import-v1', 'automation-result.json')), false);
 });

@@ -152,6 +152,19 @@ function countCompleted(result, record) {
   else result.settings.skipped += 1;
 }
 
+function completedResult(ledger) {
+  const result = emptyResult(ledger.sourceAppData, 'complete');
+  for (const record of Object.values(ledger.settings)) {
+    if (record.status === 'complete') countCompleted(result, record);
+  }
+  for (const record of Object.values(ledger.credentials)) {
+    if (record.status !== 'complete') continue;
+    if (record.outcome === 'unsupported') result.credentials.unsupported += 1;
+    else result.credentials.skipped += 1;
+  }
+  return result;
+}
+
 function owns(object, field) {
   return isRecord(object) && Object.prototype.hasOwnProperty.call(object, field);
 }
@@ -208,7 +221,7 @@ async function runV1SettingsImport({
   if (typeof importSetting !== 'function') throw new Error('v1 importSetting adapter is required');
   const directory = path.join(home, 'import-v1');
   const ledgerPath = path.join(directory, 'ledger.json');
-  const resultPath = path.join(directory, 'settings-result.json');
+  fs.rmSync(path.join(directory, 'settings-result.json'), { force: true });
   const ledger = readJson(ledgerPath, {
     schema: 1,
     sourceAppData,
@@ -219,13 +232,12 @@ async function runV1SettingsImport({
   if (ledger.schema !== 1) throw new Error(`unsupported v1 migration ledger schema: ${ledger.schema}`);
   ledger.settings ||= {};
   ledger.credentials ||= {};
-  if (ledger.stage2Complete) return readJson(resultPath, emptyResult(ledger.sourceAppData, 'complete'));
+  if (ledger.stage2Complete) return completedResult(ledger);
   if (ledger.sourceAppData && sourceAppData && ledger.sourceAppData !== sourceAppData) {
     throw new Error(`v1 settings source changed from ${ledger.sourceAppData} to ${sourceAppData}`);
   }
   if (!sourceAppData) {
     const result = emptyResult(null, 'not-found');
-    writeJsonAtomically(resultPath, result);
     ledger.sourceAppData = null;
     ledger.stage2Complete = true;
     writeJsonAtomically(ledgerPath, ledger);
@@ -275,7 +287,6 @@ async function runV1SettingsImport({
   }
 
   if (result.settings.failed > 0 || result.credentials.failed > 0) result.status = 'partial';
-  writeJsonAtomically(resultPath, result);
   ledger.stage2Complete = result.status === 'complete';
   writeJsonAtomically(ledgerPath, ledger);
   return result;

@@ -683,6 +683,7 @@ test('records an idempotent ledger and does no work after a complete session imp
   assert.equal(ledger.sessions.ses_parent.targetId, 'pawwork-v1-ses_parent');
   assert.equal(ledger.sessions.ses_parent.status, 'complete');
   assert.equal(ledger.sessions.ses_child.status, 'complete');
+  fs.writeFileSync(path.join(home, 'import-v1', 'result.json'), '{}');
 
   const second = await runV1SessionImport({
     home,
@@ -691,7 +692,9 @@ test('records an idempotent ledger and does no work after a complete session imp
       throw new Error('completed import must not run again');
     },
   });
-  assert.deepEqual(second, first);
+  assert.equal(second.status, 'complete');
+  assert.deepEqual(second.sessions, { imported: 0, skipped: 2, failed: 0 });
+  assert.equal(fs.existsSync(path.join(home, 'import-v1', 'result.json')), false);
 });
 
 test('finishes both migration stages when no v1 database exists', async () => {
