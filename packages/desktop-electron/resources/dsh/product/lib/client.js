@@ -329,13 +329,13 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
     }
     function runState(run) {
       const labels = isChinese()
-        ? { failed: "失败", running: "运行中", scheduled: "等待中", stopped: "已停止", succeeded: "已完成" }
-        : { failed: "Failed", running: "Running", scheduled: "Scheduled", stopped: "Stopped", succeeded: "Completed" }
+        ? { failed: "失败", running: "运行中", stopped: "已停止", succeeded: "已完成" }
+        : { failed: "Failed", running: "Running", stopped: "Stopped", succeeded: "Completed" }
       return labels[run.state] || run.state
     }
     function runDotState(run) {
       if (run.state === "failed") return "error"
-      if (run.state === "running" || run.state === "scheduled") return "ongoing"
+      if (run.state === "running") return "ongoing"
       if (run.state === "stopped") return "warning"
       return "done"
     }

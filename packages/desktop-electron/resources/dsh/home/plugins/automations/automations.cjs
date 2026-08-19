@@ -338,7 +338,7 @@ class AutomationStore {
 
   hasActiveRun(automationId) {
     return this.document.runs.some((run) => (
-      run.automationId === automationId && (run.state === 'scheduled' || run.state === 'running')
+      run.automationId === automationId && run.state === 'running'
     ));
   }
 
@@ -415,7 +415,7 @@ class AutomationStore {
   interruptActiveRuns(now = Date.now()) {
     let changed = false;
     for (const run of this.document.runs) {
-      if (run.state !== 'scheduled' && run.state !== 'running') continue;
+      if (run.state !== 'running') continue;
       run.state = 'stopped';
       run.completedAt = assertTimestamp(now, 'now');
       run.result = null;
@@ -605,8 +605,8 @@ function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }
             const runs = store.listRuns(definition.id);
             return {
               ...definition,
-              activeRun: runs.find((run) => run.state === 'scheduled' || run.state === 'running') || null,
-              recentRuns: runs.filter((run) => run.state !== 'scheduled' && run.state !== 'running').slice(0, 5),
+              activeRun: runs.find((run) => run.state === 'running') || null,
+              recentRuns: runs.filter((run) => run.state !== 'running').slice(0, 5),
             };
           }),
         });
