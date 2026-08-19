@@ -14,6 +14,7 @@ window.__ModuleLoader__.load({
       IconPanelLeftOutline16,
       IconPauseOutline16,
       IconPlayOutline16,
+      IconRefreshOutline16,
       IconSearchOutline16,
       IconSettingsOutline16,
       IconTrashOutline16,
@@ -58,7 +59,7 @@ html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle:focus-visible { outl
 .pawwork-automation-entry:focus-visible { outline: 2px solid #f36b2b; outline-offset: -2px; }
 .pawwork-automation-entry[data-active="true"] { background: var(--dsw-alias-interactive-bg-active); font-weight: 500; }
 .pawwork-automation-entry[data-wide="false"] {
-  border-radius: 50%; gap: 0; height: 36px; justify-content: center;
+  border-radius: 12px; gap: 0; height: 36px; justify-content: center;
   margin: 0 0 12px; padding: 0; width: 36px;
 }
 .pawwork-automation-label { overflow: hidden; white-space: nowrap; }
@@ -295,7 +296,7 @@ div:has(> [data-slot="sidebar.settings"]) { order: 4; }
         "aria-label": label, className: "pawwork-automation-entry",
         "data-active": active ? "true" : "false", "data-wide": wide ? "true" : "false",
         onClick: () => active ? controller.close() : controller.open(), title: label, type: "button",
-      }, icon(["M12 7v5l3 2m5.2-5A9 9 0 1 0 21 12", "M17 5h3.2v3.2"], wide ? 16 : 18),
+      }, h(IconRefreshOutline16, { size: wide ? 16 : 18 }),
       wide ? h("span", { className: "pawwork-automation-label" }, label) : null)
     }
 

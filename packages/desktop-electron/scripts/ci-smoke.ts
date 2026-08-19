@@ -37,6 +37,7 @@ export type CiSmokeProductSnapshot = {
   automationMetadataPlain: boolean
   automationBelowNewSession: boolean
   collapsedAutomationBelowNewSession: boolean
+  collapsedAutomationChromeMatchesNewSession: boolean
   collapsedAutomationIconMatchesRail: boolean
   sidebarToggleCount: number
   sidebarToggleAlignedWithWindowControls: boolean
@@ -278,8 +279,19 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const sidebarCollapsed = Boolean(document.querySelector("[data-sidebar-collapsed]"))
     const collapsedAutomationRect = automationEntry?.getBoundingClientRect()
     const collapsedNewSessionRect = newSession?.getBoundingClientRect()
-    const collapsedAutomationIconRect = automationEntry?.querySelector("svg")?.getBoundingClientRect()
-    const collapsedNewSessionIconRect = newSession?.querySelector("svg")?.getBoundingClientRect()
+    const iconVisualSize = (button) => {
+      const svg = button?.querySelector("svg")
+      if (!svg) return null
+      const rect = svg.getBoundingClientRect()
+      const box = svg.getBBox()
+      const viewBox = svg.viewBox.baseVal
+      if (viewBox.width === 0 || viewBox.height === 0) return null
+      return { width: box.width * rect.width / viewBox.width, height: box.height * rect.height / viewBox.height }
+    }
+    const collapsedAutomationIcon = iconVisualSize(automationEntry)
+    const collapsedNewSessionIcon = iconVisualSize(newSession)
+    const collapsedAutomationStyle = automationEntry ? getComputedStyle(automationEntry) : null
+    const collapsedNewSessionStyle = newSession ? getComputedStyle(newSession) : null
     const expandToggles = sidebarToggles()
     const expandRect = expandToggles[0]?.getBoundingClientRect()
     const sidebarExpandToggleUsable = usable(expandToggles[0])
@@ -309,12 +321,17 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
         collapsedAutomationRect && collapsedNewSessionRect
         && collapsedAutomationRect.top >= collapsedNewSessionRect.bottom,
       ),
+      collapsedAutomationChromeMatchesNewSession: Boolean(
+        collapsedAutomationRect && collapsedNewSessionRect
+        && collapsedAutomationStyle && collapsedNewSessionStyle
+        && collapsedAutomationRect.width === collapsedNewSessionRect.width
+        && collapsedAutomationRect.height === collapsedNewSessionRect.height
+        && collapsedAutomationStyle.borderRadius === collapsedNewSessionStyle.borderRadius,
+      ),
       collapsedAutomationIconMatchesRail: Boolean(
-        collapsedAutomationIconRect && collapsedNewSessionIconRect
-        && collapsedAutomationIconRect.width === 18
-        && collapsedAutomationIconRect.height === 18
-        && collapsedAutomationIconRect.width === collapsedNewSessionIconRect.width
-        && collapsedAutomationIconRect.height === collapsedNewSessionIconRect.height,
+        collapsedAutomationIcon && collapsedNewSessionIcon
+        && Math.abs(collapsedAutomationIcon.width - collapsedNewSessionIcon.width) <= 1
+        && Math.abs(collapsedAutomationIcon.height - collapsedNewSessionIcon.height) <= 1,
       ),
       sidebarToggleCount: collapseToggles.length,
       sidebarToggleAlignedWithWindowControls: document.documentElement.dataset.pawworkPlatform !== "macos"
@@ -404,7 +421,8 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
     snapshot.automationMetadataPlain ? null : "Automation immutable metadata is not plain read-only text",
     snapshot.automationBelowNewSession ? null : "Automation is not below New Session",
     snapshot.collapsedAutomationBelowNewSession ? null : "collapsed Automation is not below New Session",
-    snapshot.collapsedAutomationIconMatchesRail ? null : "collapsed Automation icon does not match the sidebar rail",
+    snapshot.collapsedAutomationChromeMatchesNewSession ? null : "collapsed Automation hover shape does not match New Session",
+    snapshot.collapsedAutomationIconMatchesRail ? null : "collapsed Automation icon visual weight does not match the sidebar rail",
     snapshot.sidebarToggleCount === 1 ? null : `expected one DSH collapse control, found ${snapshot.sidebarToggleCount}`,
     snapshot.sidebarToggleAlignedWithWindowControls ? null : "sidebar toggle is not aligned with the macOS window controls",
     snapshot.sidebarToggleChromeSubtle ? null : "sidebar toggle chrome does not blend into the titlebar",
