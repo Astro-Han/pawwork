@@ -115,12 +115,12 @@ export function apply(ctx) {
     }
 
     try {
-      const availableSessions = new Set((await ctx.sessionPersistence.list()).map((header) => header.id));
+      const completedSessions = importer.completedV1SessionTargetIds(process.env.DSH_HOME);
       await automationImporter.runV1AutomationImport({
         home: process.env.DSH_HOME,
         resolveModel: createAutomationModelResolver(ctx),
         importDefinition: async (definition) => {
-          if (definition.context === 'continue' && !availableSessions.has(definition.sourceSessionId)) {
+          if (definition.context === 'continue' && !completedSessions.has(definition.sourceSessionId)) {
             throw new Error(`v1 automation source session is unavailable: ${definition.sourceSessionId}`);
           }
           return ctx.pawworkAutomations.store.importDefinition(definition);

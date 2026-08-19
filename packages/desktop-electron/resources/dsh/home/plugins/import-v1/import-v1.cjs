@@ -390,9 +390,21 @@ async function runV1SessionImport({
   }
 }
 
+function completedV1SessionTargetIds(home) {
+  if (!home || !path.isAbsolute(home)) return new Set();
+  const ledger = readMigrationLedger(path.join(home, 'import-v1', 'ledger.json'), {
+    schema: 1,
+    sessions: {},
+  });
+  return new Set(Object.values(ledger.sessions || {})
+    .filter((entry) => entry?.status === 'complete' && typeof entry.targetId === 'string')
+    .map((entry) => entry.targetId));
+}
+
 module.exports = {
   attachDshWorkspace,
   buildDshSession,
+  completedV1SessionTargetIds,
   materializeLegacyImages,
   readV1Sessions,
   runV1SessionImport,

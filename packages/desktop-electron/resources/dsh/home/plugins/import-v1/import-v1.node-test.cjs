@@ -11,6 +11,7 @@ const { DatabaseSync } = require('node:sqlite');
 const {
   attachDshWorkspace,
   buildDshSession,
+  completedV1SessionTargetIds,
   materializeLegacyImages,
   readV1Sessions,
   runV1SessionImport,
@@ -34,6 +35,7 @@ test('publishes cold sessions once and keeps the public status incomplete after 
   const settingsModule = require('./import-v1-settings.cjs');
   const automationsModule = require('./import-v1-automations.cjs');
   const originalRun = importerModule.runV1SessionImport;
+  const originalCompletedSessionTargetIds = importerModule.completedV1SessionTargetIds;
   const originalAttach = importerModule.attachDshWorkspace;
   const originalCreateSettingImporter = settingsModule.createDshSettingImporter;
   const originalSettingsRun = settingsModule.runV1SettingsImport;
@@ -46,6 +48,7 @@ test('publishes cold sessions once and keeps the public status incomplete after 
   let backgroundFinished;
   let automationsActivated = false;
   let missingContinueSessionRejected = false;
+  let incompleteContinueSessionRejected = false;
   let unavailableAutomationCatalogRejected = false;
   const sessionLifecycle = [];
   const finished = new Promise((resolve) => { backgroundFinished = resolve; });
@@ -54,6 +57,7 @@ test('publishes cold sessions once and keeps the public status incomplete after 
     importStarted();
     return { status: 'partial' };
   };
+  importerModule.completedV1SessionTargetIds = () => new Set(['pawwork-v1-session']);
   importerModule.attachDshWorkspace = async () => {
     sessionLifecycle.push('attach-workspace');
     return 'workspace';
@@ -72,6 +76,11 @@ test('publishes cold sessions once and keeps the public status incomplete after 
         /source session is unavailable/,
       );
       missingContinueSessionRejected = true;
+      await assert.rejects(
+        importDefinition({ id: 'automation-2', context: 'continue', sourceSessionId: 'pawwork-v1-incomplete' }),
+        /source session is unavailable/,
+      );
+      incompleteContinueSessionRejected = true;
       return { status: 'partial' };
     } finally {
       backgroundFinished();
@@ -100,7 +109,7 @@ test('publishes cold sessions once and keeps the public status incomplete after 
         scheduler: { refresh: () => {} },
         store: { activateImportedDefinitions: () => { automationsActivated = true; } },
       },
-      sessionPersistence: { list: async () => [] },
+      sessionPersistence: { list: async () => [{ id: 'pawwork-v1-incomplete' }] },
       sessionTitle: { rename: () => { sessionLifecycle.push('rename'); } },
       sessions: {
         announce: () => { sessionLifecycle.push('announce'); },
@@ -127,16 +136,33 @@ test('publishes cold sessions once and keeps the public status incomplete after 
     });
     assert.equal(automationsActivated, true);
     assert.equal(missingContinueSessionRejected, true);
+    assert.equal(incompleteContinueSessionRejected, true);
     assert.equal(unavailableAutomationCatalogRejected, true);
     assert.deepEqual(sessionLifecycle, ['enter', 'rename', 'flush', 'detach', 'attach-workspace']);
     await stopPlugin();
   } finally {
     importerModule.runV1SessionImport = originalRun;
+    importerModule.completedV1SessionTargetIds = originalCompletedSessionTargetIds;
     importerModule.attachDshWorkspace = originalAttach;
     settingsModule.createDshSettingImporter = originalCreateSettingImporter;
     settingsModule.runV1SettingsImport = originalSettingsRun;
     automationsModule.runV1AutomationImport = originalAutomationsRun;
   }
+});
+
+test('derives completed session targets from the migration ledger', () => {
+  const home = temporaryDirectory();
+  const directory = path.join(home, 'import-v1');
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, 'ledger.json'), JSON.stringify({
+    schema: 1,
+    sessions: {
+      complete: { status: 'complete', targetId: 'pawwork-v1-complete' },
+      failed: { status: 'failed', targetId: 'pawwork-v1-failed' },
+    },
+  }));
+
+  assert.deepEqual([...completedV1SessionTargetIds(home)], ['pawwork-v1-complete']);
 });
 
 function createV1Fixture(file) {
