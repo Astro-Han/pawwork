@@ -135,7 +135,8 @@ describe("desktop smoke workflow", () => {
       PAWWORK_CI_SMOKE_CDP: "true",
     })
     expect(packagedSmokeStep?.["working-directory"]).toBe("packages/desktop-electron")
-    expect(reportSmokeStep?.env).not.toHaveProperty("PAWWORK_CI_SMOKE_CDP_PORT")
+    expect(reportSmokeStep).toBeUndefined()
+    expect(workflow).not.toContain("smoke:report")
     expect(buildStep).toBeDefined()
     expect(smokeSteps.indexOf(repairElectronStep!)).toBeGreaterThan(smokeSteps.indexOf(installStep!))
     expect(smokeSteps.indexOf(repairElectronStep!)).toBeLessThan(smokeSteps.indexOf(prepareUvStep!))
