@@ -50,7 +50,7 @@ span:has(> svg[viewBox="0 0 23.16 17.04"]) + span + span {
   background: var(--dsw-alias-interactive-bg-hover);
 }
 html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle {
-  left: 72px;
+  left: 76px;
 }
 [data-sidebar-collapsed] {
   margin-left: -56px;
@@ -64,7 +64,7 @@ html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle {
   left: 68px;
 }
 html[data-pawwork-platform="macos"] [data-sidebar-collapsed] .pawwork-sidebar-toggle {
-  left: 128px;
+  left: 132px;
 }
 [data-sidebar-collapsed] > :nth-child(2) header:first-of-type > :first-child {
   padding-left: 52px;

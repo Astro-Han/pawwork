@@ -149,6 +149,12 @@ describe("PawWork DSH client product layer", () => {
     expect(styles[0].textContent).toContain("border-radius: 50%")
     expect(styles[0].textContent).toContain("top: 9px")
     expect(styles[0].textContent).toContain(
+      'html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle {\n  left: 76px;\n}',
+    )
+    expect(styles[0].textContent).toContain(
+      'html[data-pawwork-platform="macos"] [data-sidebar-collapsed] .pawwork-sidebar-toggle {\n  left: 132px;\n}',
+    )
+    expect(styles[0].textContent).toContain(
       ".pawwork-sidebar-toggle:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}",
     )
     expect(styles[0].textContent).not.toContain(".pawwork-sidebar-toggle:focus-visible")
