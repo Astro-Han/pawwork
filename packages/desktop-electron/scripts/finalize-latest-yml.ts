@@ -175,27 +175,17 @@ const output: Record<string, string> = {}
 const tag = `v${version}`
 const tmp = process.env.RUNNER_TEMP ?? "/tmp"
 
-// Windows: merge arm64 + x64 into single file
+// Windows x64
 const winX64 = await read("latest-yml-x86_64-pc-windows-msvc", "latest.yml")
-const winArm64 = await read("latest-yml-aarch64-pc-windows-msvc", "latest.yml")
-if (winX64 || winArm64) {
-  const base = winArm64 ?? winX64!
+if (winX64) {
   output["latest.yml"] = serialize(
     mergeLatest(await downloadExisting(tag, "latest.yml"), {
-      version: base.version,
-      files: [...(winArm64?.files ?? []), ...(winX64?.files ?? [])],
-      releaseDate: base.releaseDate,
+      version: winX64.version,
+      files: winX64.files,
+      releaseDate: winX64.releaseDate,
     })!,
   )
 }
-
-// Linux x64: pass through
-const linuxX64 = await read("latest-yml-x86_64-unknown-linux-gnu", "latest-linux.yml")
-if (linuxX64) output["latest-linux.yml"] = serialize(linuxX64)
-
-// Linux arm64: pass through
-const linuxArm64 = await read("latest-yml-aarch64-unknown-linux-gnu", "latest-linux-arm64.yml")
-if (linuxArm64) output["latest-linux-arm64.yml"] = serialize(linuxArm64)
 
 // macOS: merge arm64 + x64 into single file
 const macX64 = await read("latest-yml-x86_64-apple-darwin", "latest-mac.yml")

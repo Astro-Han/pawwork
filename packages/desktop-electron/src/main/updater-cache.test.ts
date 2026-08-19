@@ -59,21 +59,4 @@ describe("updater cache path", () => {
     ).toBe("D:\\Cache\\pawwork-updater\\pending")
   })
 
-  test("resolves Linux pending cache from XDG_CACHE_HOME when present", () => {
-    expect(
-      pendingUpdateCacheDir({ platform: "linux", homedir: "/home/demo", env: { XDG_CACHE_HOME: "/tmp/cache" } }),
-    ).toBe("/tmp/cache/pawwork-updater/pending")
-  })
-
-  test("falls back to ~/.cache on Linux when XDG_CACHE_HOME is missing", () => {
-    expect(pendingUpdateCacheDir({ platform: "linux", homedir: "/home/demo", env: {} })).toBe(
-      "/home/demo/.cache/pawwork-updater/pending",
-    )
-  })
-
-  test("ignores relative Linux cache roots from env", () => {
-    expect(
-      pendingUpdateCacheDir({ platform: "linux", homedir: "/home/demo", env: { XDG_CACHE_HOME: "relative-cache" } }),
-    ).toBe("/home/demo/.cache/pawwork-updater/pending")
-  })
 })

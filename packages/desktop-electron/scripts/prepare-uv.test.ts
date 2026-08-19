@@ -20,7 +20,6 @@ describe("prepare-uv manifest helpers", () => {
     expect(assetForTarget("darwin", "arm64")).toBe("uv-aarch64-apple-darwin.tar.gz")
     expect(assetForTarget("darwin", "x64")).toBe("uv-x86_64-apple-darwin.tar.gz")
     expect(assetForTarget("win32", "x64")).toBe("uv-x86_64-pc-windows-msvc.zip")
-    expect(assetForTarget("win32", "arm64")).toBe("uv-aarch64-pc-windows-msvc.zip")
   })
 
   test("rejects unsupported targets", () => {
@@ -40,7 +39,6 @@ describe("prepare-uv manifest helpers", () => {
       ["darwin", "arm64"],
       ["darwin", "x64"],
       ["win32", "x64"],
-      ["win32", "arm64"],
     ] as const) {
       const pinned = pinnedSha256ForTarget(platform, arch)
       expect(pinned).toMatch(/^[a-f0-9]{64}$/)
@@ -49,7 +47,7 @@ describe("prepare-uv manifest helpers", () => {
   })
 
   test("pins distinct hashes per asset (no copy-paste placeholder)", () => {
-    const hashes = (["darwin-arm64", "darwin-x64", "win32-x64", "win32-arm64"] as const).map(
+    const hashes = (["darwin-arm64", "darwin-x64", "win32-x64"] as const).map(
       (key) => manifest.uv.assets[key].sha256,
     )
     expect(new Set(hashes).size).toBe(hashes.length)

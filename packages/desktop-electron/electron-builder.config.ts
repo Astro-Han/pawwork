@@ -128,11 +128,6 @@ const getBase = (channel: Channel): Configuration => ({
     installerIcon: `resources/icons/icon.ico`,
     installerHeaderIcon: `resources/icons/icon.ico`,
   },
-  linux: {
-    icon: `resources/icons`,
-    category: "Development",
-    target: ["AppImage", "deb", "rpm"],
-  },
 })
 
 export function createConfig(channel: Channel = currentChannel(), baseOverrides: Partial<Configuration> = {}) {

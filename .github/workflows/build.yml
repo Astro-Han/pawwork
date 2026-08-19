@@ -943,8 +943,6 @@ jobs:
             packages/desktop-electron/dist/*.dmg
             packages/desktop-electron/dist/*.zip
             packages/desktop-electron/dist/*.exe
-            packages/desktop-electron/dist/*.AppImage
-            packages/desktop-electron/dist/*.deb
 
   cleanup-snapshot-tag:
     needs:

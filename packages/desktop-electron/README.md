@@ -32,5 +32,4 @@ For platform-specific packages:
 ```bash
 bun run --cwd packages/desktop-electron package:mac
 bun run --cwd packages/desktop-electron package:win
-bun run --cwd packages/desktop-electron package:linux
 ```

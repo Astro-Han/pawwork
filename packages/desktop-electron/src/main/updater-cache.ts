@@ -34,8 +34,7 @@ export function getAppCacheDir(input: CacheInput = {}) {
       env.LOCALAPPDATA,
       env.localappdata,
     )
-  if (platform === "darwin") return platformPath.join(homedir, "Library", "Caches")
-  return firstAbsolutePath(platformPath, platformPath.join(homedir, ".cache"), env.XDG_CACHE_HOME)
+  return platformPath.join(homedir, "Library", "Caches")
 }
 
 export function pendingUpdateCacheDir(input: CacheInput = {}) {
