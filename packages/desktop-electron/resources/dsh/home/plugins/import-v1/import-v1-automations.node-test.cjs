@@ -11,6 +11,7 @@ const {
   readV1Automations,
   runV1AutomationImport,
 } = require('./import-v1-automations.cjs');
+const { AutomationStore } = require('../automations/automations.cjs');
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-v1-automations-'));
@@ -181,23 +182,24 @@ test('imports definitions and runs idempotently with a resumable shared ledger',
 test('records malformed automation rows and continues importing valid rows', async () => {
   const source = fixture();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-v1-automation-malformed-'));
+  const store = new AutomationStore(path.join(home, 'automations.json'));
   const database = new DatabaseSync(source);
   database.prepare('UPDATE automation_definition SET data = ? WHERE id = ?').run('{', 'automation_source');
   database.close();
-  const importedRuns = [];
 
   const result = await runV1AutomationImport({
     home,
     sourceDatabase: source,
     resolveModel: async () => ({ model: { provider: 'opencode', model: 'big-pickle' } }),
     importDefinition: async () => 'imported',
-    importRun: async (run) => { importedRuns.push(run.id); return 'imported'; },
+    importRun: async (run) => { store.importRun(run); return 'imported'; },
     now: () => 8_000,
   });
 
   assert.equal(result.status, 'partial');
-  assert.equal(importedRuns.length, 3);
+  assert.equal(store.listRuns().length, 3);
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.automationDefinitions.automation_source.status, 'failed');
   assert.equal(ledger.automationRuns.automation_run_done.status, 'complete');
+  assert.equal(ledger.automationRuns.automation_run_done.orphanedDefinition, true);
 });

@@ -55,7 +55,7 @@ function readV1Automations(snapshot) {
         failures.push({ kind: 'run', id: row.id, message: error instanceof Error ? error.message : String(error) });
       }
     }
-    return { definitions, runs, failures, definitionIds: definitionRows.map((row) => row.id) };
+    return { definitions, runs, failures, definitionIds: definitions.map((definition) => definition.id) };
   } finally {
     database.close();
   }
