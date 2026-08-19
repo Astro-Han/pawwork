@@ -3,7 +3,7 @@ import { app, BrowserWindow, nativeImage, shell } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { macTrafficLightPosition } from "./window-chrome"
-import { decideDshNavigation } from "./window-navigation"
+import { decideDshNavigation, guardDshNavigation } from "./window-navigation"
 import { dshWebPreferences } from "./window-options"
 
 const root = dirname(fileURLToPath(import.meta.url))
@@ -50,6 +50,16 @@ export function createMainWindow(url: string, preload: string) {
     if (decision === "same-window") void win.loadURL(target)
     if (decision === "external") void shell.openExternal(target)
     return { action: "deny" }
+  })
+  win.webContents.on("will-frame-navigate", (event) => {
+    if (event.isMainFrame) {
+      guardDshNavigation(url, event.url, event, (externalUrl) => shell.openExternal(externalUrl))
+      return
+    }
+    if (decideDshNavigation(url, event.url) !== "same-window") event.preventDefault()
+  })
+  win.webContents.on("will-redirect", (event, target) => {
+    guardDshNavigation(url, target, event, (externalUrl) => shell.openExternal(externalUrl))
   })
   win.webContents.setZoomFactor(1)
   win.webContents.on("zoom-changed", () => win.webContents.setZoomFactor(1))

@@ -122,8 +122,9 @@ function setupApp() {
   }
 
   ipcMain.handle("pawwork:pick-conversation-files", (event) => {
+    if (!dshUrl) throw new Error("Cannot pick files before DSH is ready")
     const owner = BrowserWindow.fromWebContents(event.sender)
-    return pickConversationFiles((options) =>
+    return pickConversationFiles(dshUrl, event.senderFrame?.url ?? "", (options) =>
       owner ? dialog.showOpenDialog(owner, options) : dialog.showOpenDialog(options),
     )
   })

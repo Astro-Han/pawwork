@@ -11,3 +11,19 @@ export function decideDshNavigation(dshUrl: string, target: string): DshNavigati
     return "deny"
   }
 }
+
+type NavigationEvent = { preventDefault: () => void }
+type OpenExternal = (target: string) => Promise<unknown>
+
+export function guardDshNavigation(
+  dshUrl: string,
+  target: string,
+  event: NavigationEvent,
+  openExternal: OpenExternal,
+) {
+  const decision = decideDshNavigation(dshUrl, target)
+  if (decision === "same-window") return
+
+  event.preventDefault()
+  if (decision === "external") void openExternal(target)
+}
