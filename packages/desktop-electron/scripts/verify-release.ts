@@ -91,6 +91,14 @@ export function parseUpdaterFileUrls(source: string) {
   return urls
 }
 
+export function parseUpdaterVersion(source: string) {
+  for (const line of source.split(/\r?\n/)) {
+    const match = line.match(/^version:\s*(.+?)\s*$/)
+    if (match) return parseYamlScalar(match[1])
+  }
+  return undefined
+}
+
 // Pair each updater file entry with its content sha512, keyed by asset basename.
 // Used by the auto-publisher's single-source guard: a marker records the sha512
 // the target produced, and publishing requires it to still match the metadata —
@@ -166,6 +174,13 @@ function verifyReferencedAssets(sourceName: string, urls: string[], assetNames: 
     const asset = assetNameFromUrl(url)
     if (!assetNames.has(asset)) failures.push(`${sourceName} references missing release asset: ${asset}`)
   }
+}
+
+function verifyUpdaterVersion(sourceName: string, source: string | undefined, expected: string, failures: string[]) {
+  if (source === undefined) return
+  const actual = parseUpdaterVersion(source)
+  if (actual === undefined) failures.push(`${sourceName} does not declare version ${expected}`)
+  else if (actual !== expected) failures.push(`${sourceName} version ${actual} does not match release ${expected}`)
 }
 
 function latestStartupAttempt(source: string) {
@@ -251,6 +266,8 @@ export function verifyReleasePayload(input: VerificationInput, options?: { allow
   verifyReferencedAssets("latest-mac.yml", latestMacUrls, assetNames, failures)
 
   if (version) {
+    verifyUpdaterVersion("latest.yml", input.latestYml, version, failures)
+    verifyUpdaterVersion("latest-mac.yml", input.latestMacYml, version, failures)
     for (const asset of releaseAssetNames(version)) {
       if (!assetNames.has(asset)) failures.push(`Missing release asset: ${asset}`)
     }
