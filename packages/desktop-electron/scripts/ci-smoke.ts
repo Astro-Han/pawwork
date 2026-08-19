@@ -36,6 +36,13 @@ export type CiSmokeProductSnapshot = {
   automationSurfaceVisible: boolean
   automationCreateViaChatWorked: boolean
   automationEditorVisible: boolean
+  automationEditorUsesFullWidth: boolean
+  automationAdvancedVisible: boolean
+  automationBackNavigationWorks: boolean
+  automationEditorHeaderFits: boolean
+  automationSaveWorks: boolean
+  automationDeleteDialogWorks: boolean
+  automationDirtyPauseBlocked: boolean
   automationMetadataPlain: boolean
   collapsedSidebarDividerHiddenOnMac: boolean
   sidebarToggleCount: number
@@ -281,15 +288,59 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     }
     automationRow?.click()
     await new Promise((resolve) => setTimeout(resolve, 50))
-    Array.from(document.querySelectorAll('button, [role="button"]')).find((element) => {
+    const advancedButton = Array.from(document.querySelectorAll('button, [role="button"]')).find((element) => {
       const label = element.getAttribute("aria-label") || element.textContent || ""
       return label.includes("Advanced settings") || label.includes("高级设置")
-    })?.click()
+    })
+    advancedButton?.click()
     await new Promise((resolve) => setTimeout(resolve, 50))
+    const automationAdvancedVisible = visible(document.querySelector(".pawwork-automation-advanced-content"))
     const readonlyMetadata = Array.from(document.querySelectorAll(".pawwork-automation-readonly"))
-    const automationEditorVisible = visible(document.querySelector(".pawwork-automation-panel"))
+    const automationSurface = document.querySelector(".pawwork-automations-surface")
+    const automationEditor = document.querySelector(".pawwork-automation-panel")
+    const automationHeader = document.querySelector(".pawwork-automation-panel-head")
+    const automationTextarea = document.querySelector(".pawwork-automation-textarea")
+    const automationEditorVisible = visible(automationEditor)
+    const automationEditorHeaderFits = Boolean(automationHeader && automationHeader.scrollWidth <= automationHeader.clientWidth)
+    const surfaceRect = automationSurface?.getBoundingClientRect()
+    const editorRect = automationEditor?.getBoundingClientRect()
+    const textareaRect = automationTextarea?.getBoundingClientRect()
+    const automationEditorUsesFullWidth = Boolean(
+      surfaceRect && editorRect && textareaRect
+      && editorRect.width >= surfaceRect.width - 1
+      && visible(automationTextarea)
+      && textareaRect.width >= surfaceRect.width - 64,
+    )
     const automationMetadataPlain = readonlyMetadata.length === 2
       && document.querySelector(".pawwork-automation-select-trigger[disabled]") === null
+    const titleInput = document.querySelector('.pawwork-automation-input input')
+    if (titleInput) {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      valueSetter?.call(titleInput, 'Smoke automation updated')
+      titleInput.dispatchEvent(new Event('input', { bubbles: true }))
+      titleInput.dispatchEvent(new Event('change', { bubbles: true }))
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const pauseButton = visibleButton(/^(暂停|启用|Pause|Resume)$/i)
+    const automationDirtyPauseBlocked = pauseButton?.disabled === true
+    visibleButton(/^(保存|Save)$/i)?.click()
+    let automationSaveWorks = false
+    for (let attempt = 0; attempt < 20 && !automationSaveWorks; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      automationSaveWorks = document.querySelector('.pawwork-automation-panel-head h2')?.textContent === 'Smoke automation updated'
+    }
+    visibleButton(/^(删除|Delete)$/i)?.click()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const deleteDialog = document.querySelector('[role="dialog"][aria-label="删除自动化？"], [role="dialog"][aria-label="Delete automation?"]')
+    const deleteDialogVisible = visible(deleteDialog)
+    const cancelDelete = Array.from(deleteDialog?.querySelectorAll('button') || []).find((button) => /^(取消|Cancel)$/i.test((button.textContent || '').trim()))
+    cancelDelete?.click()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const automationDeleteDialogWorks = deleteDialogVisible && !visible(deleteDialog)
+    visibleButton(/^(返回自动化|Back to Automations)$/i)?.click()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const automationBackNavigationWorks = !visible(document.querySelector(".pawwork-automation-panel"))
+      && visible(document.querySelector(".pawwork-automation-row"))
     const settingsClose = Array.from(document.querySelectorAll("button")).find((button) => {
       const label = (button.getAttribute("aria-label") || button.textContent || "").trim()
       return visible(button) && /^(关闭|Close)$/i.test(label) && !button.closest(".pawwork-automation-panel")
@@ -334,6 +385,13 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       automationSurfaceVisible,
       automationCreateViaChatWorked,
       automationEditorVisible,
+      automationEditorUsesFullWidth,
+      automationAdvancedVisible,
+      automationBackNavigationWorks,
+      automationEditorHeaderFits,
+      automationSaveWorks,
+      automationDeleteDialogWorks,
+      automationDirtyPauseBlocked,
       automationMetadataPlain,
       collapsedSidebarDividerHiddenOnMac,
       sidebarToggleCount: collapseToggles.length,
@@ -422,6 +480,13 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
     snapshot.automationSurfaceVisible ? null : "Automation surface did not open",
     snapshot.automationCreateViaChatWorked ? null : "Automation did not create through the visible chat path",
     snapshot.automationEditorVisible ? null : "Automation editor did not open",
+    snapshot.automationEditorUsesFullWidth ? null : "Automation editor is compressed instead of using the Settings column",
+    snapshot.automationAdvancedVisible ? null : "Automation advanced settings did not expand",
+    snapshot.automationBackNavigationWorks ? null : "Automation Back navigation did not restore the list",
+    snapshot.automationEditorHeaderFits ? null : "Automation editor header overflows the Settings column",
+    snapshot.automationSaveWorks ? null : "Automation editor did not save through the visible form",
+    snapshot.automationDeleteDialogWorks ? null : "Automation delete confirmation is not a cancellable dialog",
+    snapshot.automationDirtyPauseBlocked ? null : "Automation pause can discard unsaved edits",
     snapshot.automationMetadataPlain ? null : "Automation immutable metadata is not plain read-only text",
     snapshot.collapsedSidebarDividerHiddenOnMac ? null : "collapsed macOS sidebar divider crosses the window controls",
     snapshot.sidebarToggleCount === 1 ? null : `expected one DSH collapse control, found ${snapshot.sidebarToggleCount}`,
@@ -552,12 +617,12 @@ async function main() {
     nextRun: 1,
     definitions: [{
       id: "automation-smoke",
-      title: "Smoke automation",
+      title: "AutomationTitleWithoutBreaksAutomationTitleWithoutBreaksAutomationTitleWithoutBreaksAutomationTitleWithoutBreaks",
       prompt: "Verify the Automation editor.",
       revision: 1,
       paused: true,
       context: "fresh",
-      cwd: homeDir,
+      cwd: join(homeDir, "WorkspaceWithoutBreaksWorkspaceWithoutBreaksWorkspaceWithoutBreaksWorkspaceWithoutBreaks"),
       model: { provider: "opencode", model: "deepseek-v4-flash-free" },
       timezone: "UTC",
       createdAt: 1,

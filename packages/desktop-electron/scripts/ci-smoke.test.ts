@@ -209,6 +209,13 @@ describe("ci smoke helpers", () => {
       automationSurfaceVisible: true,
       automationCreateViaChatWorked: true,
       automationEditorVisible: true,
+      automationEditorUsesFullWidth: true,
+      automationAdvancedVisible: true,
+      automationBackNavigationWorks: true,
+      automationEditorHeaderFits: true,
+      automationSaveWorks: true,
+      automationDeleteDialogWorks: true,
+      automationDirtyPauseBlocked: true,
       automationMetadataPlain: true,
       collapsedSidebarDividerHiddenOnMac: true,
       sidebarToggleCount: 1,
@@ -235,6 +242,13 @@ describe("ci smoke helpers", () => {
       automationSurfaceVisible: false,
       automationCreateViaChatWorked: false,
       automationEditorVisible: false,
+      automationEditorUsesFullWidth: false,
+      automationAdvancedVisible: false,
+      automationBackNavigationWorks: false,
+      automationEditorHeaderFits: false,
+      automationSaveWorks: false,
+      automationDeleteDialogWorks: false,
+      automationDirtyPauseBlocked: false,
       automationMetadataPlain: false,
       collapsedSidebarDividerHiddenOnMac: false,
       sidebarToggleCount: 2,
@@ -250,7 +264,7 @@ describe("ci smoke helpers", () => {
       freeModelAvailable: false,
       skillNames: [],
       sessionId: "",
-    })).toThrow(/sidebar brand.*Automation Settings entry.*Automation should not occupy the sidebar.*Automation surface.*visible chat path.*Automation editor.*immutable metadata.*divider.*one DSH collapse control.*aligned.*blend.*collapse.*one DSH expand control.*visibly clickable.*moved.*reopen.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
+    })).toThrow(/sidebar brand.*Automation Settings entry.*Automation should not occupy the sidebar.*Automation surface.*visible chat path.*Automation editor.*compressed.*advanced settings.*Back navigation.*header overflows.*visible form.*cancellable dialog.*discard unsaved edits.*immutable metadata.*divider.*one DSH collapse control.*aligned.*blend.*collapse.*one DSH expand control.*visibly clickable.*moved.*reopen.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
   })
 
   test("parseSmokeArgs defaults to raw dev mode", () => {

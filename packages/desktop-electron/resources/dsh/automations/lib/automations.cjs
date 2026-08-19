@@ -253,6 +253,16 @@ class AutomationStore {
     const index = this.document.definitions.findIndex((entry) => entry.id === id);
     if (index < 0) throw new Error(`automation not found: ${id}`);
     const previous = this.document.definitions[index];
+    if (patch.expectedRevision !== undefined) {
+      if (!Number.isSafeInteger(patch.expectedRevision) || patch.expectedRevision < 1) {
+        throw new Error('expectedRevision must be a positive integer');
+      }
+      if (patch.expectedRevision !== previous.revision) {
+        const conflict = new Error(`automation changed since it was opened (expected revision ${patch.expectedRevision}, current ${previous.revision})`);
+        conflict.code = 'conflict';
+        throw conflict;
+      }
+    }
     const next = structuredClone(previous);
     const updatedAt = assertTimestamp(now, 'now');
     let scheduleChanged = false;
@@ -648,6 +658,7 @@ function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }
       return rpcFailure('bad-request', `unknown automation endpoint: ${endpoint}`, { issues: [] });
     } catch (error) {
       if (signal?.aborted) return rpcFailure('cancelled', 'automation request cancelled');
+      if (error?.code === 'conflict') return rpcFailure('conflict', error.message);
       return rpcFailure('internal', error instanceof Error ? error.message : String(error));
     }
   };

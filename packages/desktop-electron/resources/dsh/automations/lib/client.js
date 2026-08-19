@@ -7,10 +7,11 @@ window.__ModuleLoader__.load({
       DisclosureRow,
       Input,
       Menu,
+      Modal,
       Pill,
       StateDot,
+      IconChevronLeftOutline14,
       IconChevronDownOutline14,
-      IconCloseOutline16,
       IconPauseOutline16,
       IconPlayOutline16,
       IconSearchOutline16,
@@ -21,19 +22,9 @@ window.__ModuleLoader__.load({
 
     const automationCss = `
 .pawwork-automations-surface {
-  background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary);
-  display: flex; height: 100%; min-height: 0; min-width: 0; width: 100%;
+  color: var(--dsw-alias-label-primary); display: flex; flex-direction: column;
+  gap: 12px; max-width: 720px; min-width: 0; width: 100%;
 }
-.pawwork-automations-main {
-  display: flex; flex: 1; justify-content: center; min-width: 0; overflow: auto;
-  padding: 56px 32px 48px;
-}
-.pawwork-automations-surface[data-split="true"] .pawwork-automations-main {
-  border-right: 1px solid var(--dsw-alias-divider-border);
-  flex: 0 0 320px; justify-content: stretch; padding: 32px 20px;
-}
-.pawwork-automations-overview { max-width: 720px; width: 100%; }
-.pawwork-automations-surface[data-split="true"] .pawwork-automations-overview { max-width: none; }
 .pawwork-automations-titlebar {
   align-items: flex-start; display: flex; gap: 20px; justify-content: space-between; margin-bottom: 20px;
 }
@@ -41,77 +32,86 @@ window.__ModuleLoader__.load({
   font-size: 16px; font-weight: 500; line-height: 24px; margin: 0;
 }
 .pawwork-automations-titlebar p {
-  color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; margin: 2px 0 0;
+  color: var(--dsw-alias-label-tertiary); font-size: 14px; line-height: 22px; margin: 0;
 }
-.pawwork-automations-surface[data-split="true"] .pawwork-automations-titlebar p { display: none; }
 .pawwork-automations-title-actions { align-items: center; display: flex; flex: none; gap: 8px; }
 .pawwork-automations-search, .pawwork-automations-search input { width: 100%; }
-.pawwork-automations-tabs { display: flex; gap: 6px; margin: 16px 0 10px; }
+.pawwork-automations-tabs { display: flex; gap: 6px; }
+.pawwork-automations-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
 .pawwork-automation-row {
-  align-items: center; background: transparent; border: 0; border-radius: 10px;
+  align-items: center; background: transparent; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
   color: inherit; cursor: pointer; display: grid; font: inherit; gap: 10px;
-  grid-template-columns: 20px minmax(0, 1fr); min-height: 58px;
-  padding: 8px 12px; text-align: left; width: 100%;
+  grid-template-columns: 20px minmax(0, 1fr); min-height: 62px;
+  padding: 10px 14px; text-align: left; width: 100%;
 }
-.pawwork-automation-row:hover, .pawwork-automation-row[data-selected="true"] { background: var(--dsw-alias-interactive-bg-hover); }
+.pawwork-automation-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .pawwork-automation-row:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 1px; }
 .pawwork-automation-row-icon { color: var(--dsw-alias-label-secondary); display: inline-flex; }
 .pawwork-automation-row-title, .pawwork-automation-row-meta {
   display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.pawwork-automation-row-title { font-size: 14px; line-height: 22px; }
-.pawwork-automation-row-meta { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
+.pawwork-automation-row-title { font-size: 14px; font-weight: 500; line-height: 22px; }
+.pawwork-automation-row-meta { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; }
 .pawwork-automations-empty, .pawwork-automations-loading {
-  color: var(--dsw-alias-label-secondary); font-size: 13px; padding: 36px 12px; text-align: center;
+  border: 1px dashed var(--dsw-alias-border-l3); border-radius: 8px;
+  color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 20px; padding: 20px; text-align: center;
 }
 .pawwork-automations-error { color: var(--dsw-alias-state-error-primary); font-size: 12px; line-height: 18px; margin: 12px 0; }
-.pawwork-automation-panel { flex: 1; min-width: 0; overflow: auto; padding: 32px 40px 48px; }
-.pawwork-automation-panel-inner { margin: 0 auto; max-width: 720px; }
+.pawwork-automation-panel { min-width: 0; width: 100%; }
+.pawwork-automation-panel-inner { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+.pawwork-automation-back { align-self: flex-start; margin-left: -8px; }
 .pawwork-automation-panel-head {
-  align-items: center; display: flex; gap: 12px; justify-content: space-between; margin-bottom: 20px;
+  align-items: flex-start; display: flex; flex-wrap: wrap; gap: 12px 16px; justify-content: space-between;
 }
+.pawwork-automation-panel-head > div:first-child { flex: 1 1 240px; min-width: 0; }
 .pawwork-automation-panel-head h2 { font-size: 16px; font-weight: 500; line-height: 24px; margin: 0; }
-.pawwork-automation-actions { align-items: center; display: flex; gap: 6px; }
-.pawwork-automation-form { border-top: 1px solid var(--dsw-alias-divider-border); }
+.pawwork-automation-panel-head h2 { overflow-wrap: anywhere; }
+.pawwork-automation-panel-summary { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; margin: 2px 0 0; overflow-wrap: anywhere; }
+.pawwork-automation-actions { align-items: center; display: flex; flex: none; gap: 6px; }
+.pawwork-automation-delete-confirm { color: var(--dsw-alias-state-error-primary); }
+.pawwork-automation-form {
+  background: var(--dsw-alias-bg-module-platform); border-radius: 12px;
+  display: flex; flex-direction: column; gap: 14px; padding: 14px 16px;
+}
 .pawwork-automation-group {
-  align-items: center; border-bottom: 1px solid var(--dsw-alias-divider-border); display: grid;
-  gap: 24px; grid-template-columns: 148px minmax(0, 1fr); min-height: 64px; padding: 12px 0;
+  display: flex; flex-direction: column; gap: 6px; min-width: 0;
 }
-.pawwork-automation-group[data-multiline="true"] { align-items: start; }
-.pawwork-automation-group-label { font-size: 14px; line-height: 22px; }
+.pawwork-automation-group-label { color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 500; line-height: 18px; }
 .pawwork-automation-input, .pawwork-automation-input input { width: 100%; }
-.pawwork-automation-readonly { color: var(--dsh-color-text-secondary, #6f6a61); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pawwork-automation-readonly { color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
 .pawwork-automation-textarea {
-  background: var(--dsw-alias-bg-subtle); border: 1px solid var(--dsw-alias-divider-border);
-  border-radius: 8px; box-sizing: border-box; color: var(--dsw-alias-label-primary);
-  font: inherit; line-height: 22px; min-height: 116px; padding: 10px 12px; resize: vertical; width: 100%;
+  background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px; box-sizing: border-box; color: var(--dsw-alias-label-primary); font: inherit;
+  font-size: 14px; line-height: 22px; min-height: 116px; padding: 9px 10px; resize: vertical; width: 100%;
 }
+.pawwork-automation-textarea:focus { border-color: var(--dsw-alias-brand-primary); outline: none; }
+.pawwork-automation-textarea::placeholder { color: var(--dsw-alias-label-dimmed); }
 .pawwork-automation-select-trigger { justify-content: space-between; max-width: 100%; min-width: 148px; }
 .pawwork-automation-select-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pawwork-automation-grid { display: contents; }
-.pawwork-automation-advanced { border-bottom: 1px solid var(--dsw-alias-divider-border); padding: 12px 0; }
-.pawwork-automation-advanced-content { border-top: 1px solid var(--dsw-alias-divider-border); margin-top: 12px; }
+.pawwork-automation-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.pawwork-automation-advanced { border-top: 1px solid var(--dsw-alias-border-l2); padding-top: 4px; }
+.pawwork-automation-advanced-content { border-top: 1px solid var(--dsw-alias-border-l2); display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top: 10px; padding-top: 12px; }
 .pawwork-automation-form-footer {
-  align-items: center; display: flex; gap: 8px; justify-content: flex-end; padding-top: 16px;
+  align-items: center; display: flex; gap: 8px; justify-content: flex-end;
 }
 .pawwork-automation-discard { color: var(--dsw-alias-label-secondary); font-size: 12px; margin-right: auto; }
 .pawwork-automation-history {
-  border-top: 1px solid var(--dsw-alias-divider-border); margin-top: 28px; padding-top: 18px;
+  border-top: 1px solid var(--dsw-alias-border-l2); margin-top: 4px; padding-top: 14px;
 }
 .pawwork-automation-history h3 { font-size: 14px; font-weight: 500; line-height: 22px; margin: 0 0 8px; }
-.pawwork-automation-run { align-items: center; display: flex; gap: 10px; justify-content: space-between; min-height: 44px; }
+.pawwork-automation-run { align-items: center; display: flex; gap: 10px; justify-content: space-between; min-height: 44px; padding: 4px 0; }
 .pawwork-automation-run-main { flex: 1; min-width: 0; }
 .pawwork-automation-run > button { flex: 0 0 auto; white-space: nowrap; }
 .pawwork-automation-run-state { font-size: 12px; font-weight: 500; margin-left: 8px; }
-.pawwork-automation-run-time, .pawwork-automation-run-summary { color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.pawwork-automation-run-time, .pawwork-automation-run-summary { color: var(--dsw-alias-label-tertiary); font-size: 12px; }
 .pawwork-automation-run-time { margin-left: 8px; }
 .pawwork-automation-run-summary {
   display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-@media (max-width: 900px) {
-  .pawwork-automations-surface[data-split="true"] .pawwork-automations-main { display: none; }
-  .pawwork-automation-panel { padding-inline: 20px; }
-  .pawwork-automation-group { grid-template-columns: 1fr; gap: 8px; }
+@media (max-width: 680px) {
+  .pawwork-automations-titlebar, .pawwork-automation-panel-head { flex-direction: column; }
+  .pawwork-automation-actions { flex-wrap: wrap; }
+  .pawwork-automation-grid, .pawwork-automation-advanced-content { grid-template-columns: 1fr; }
 }
 `
 
@@ -223,8 +223,8 @@ window.__ModuleLoader__.load({
       }
       return { kind: "recurring", rhythm: { kind: "cron", expression } }
     }
-    function Field({ label, multiline = false, children }) {
-      return h("div", { className: "pawwork-automation-group", "data-multiline": multiline ? "true" : "false" }, h("span", { className: "pawwork-automation-group-label" }, label), children)
+    function Field({ label, children }) {
+      return h("div", { className: "pawwork-automation-group" }, h("span", { className: "pawwork-automation-group-label" }, label), children)
     }
     function SelectControl({ label, onChange, options, value }) {
       const [open, setOpen] = useState(false)
@@ -266,7 +266,7 @@ window.__ModuleLoader__.load({
             model: { provider: form.provider, model: form.model }, timezone: form.timezone,
             ...(schedule.kind === "recurring" ? { stop: form.runCount ? { kind: "count", count: Number(form.runCount) } : { kind: "never" } } : {}),
           }
-          const result = await automationCall(connection, "update", { id: definition.id, ...common, ...(schedule.kind === "oneshot" ? { fireAt: schedule.fireAt } : { rhythm: schedule.rhythm }) })
+          const result = await automationCall(connection, "update", { id: definition.id, expectedRevision: definition.revision, ...common, ...(schedule.kind === "oneshot" ? { fireAt: schedule.fireAt } : { rhythm: schedule.rhythm }) })
           onSaved(result)
         } catch (saveError) {
           setError(saveError instanceof Error ? saveError.message : String(saveError))
@@ -287,10 +287,12 @@ window.__ModuleLoader__.load({
         finally { setBusy("") }
       }
       async function remove() {
-        if (!deleting) return setDeleting(true)
         setBusy("delete")
         try { await automationCall(connection, "delete", { id: definition.id }); onDeleted() }
-        catch (deleteError) { setError(deleteError instanceof Error ? deleteError.message : String(deleteError)) }
+        catch (deleteError) {
+          setDeleting(false)
+          setError(deleteError instanceof Error ? deleteError.message : String(deleteError))
+        }
         finally { setBusy("") }
       }
 
@@ -299,16 +301,18 @@ window.__ModuleLoader__.load({
         : [["daily", text("每天", "Daily")], ["weekdays", text("工作日", "Weekdays")], ["weekly", text("每周", "Weekly")], ["interval", text("固定间隔", "Interval")], ["cron", "Cron"]]
       const weekdayOptions = [["1", text("周一", "Monday")], ["2", text("周二", "Tuesday")], ["3", text("周三", "Wednesday")], ["4", text("周四", "Thursday")], ["5", text("周五", "Friday")], ["6", text("周六", "Saturday")], ["0", text("周日", "Sunday")]]
       return h("section", { className: "pawwork-automation-panel" }, h("div", { className: "pawwork-automation-panel-inner" },
+        h(Button, { className: "pawwork-automation-back", icon: h(IconChevronLeftOutline14, { size: 14 }), onClick: requestClose, size: "sm", type: "button", variant: "ghost" }, text("返回自动化", "Back to Automations")),
         h("div", { className: "pawwork-automation-panel-head" },
-          h("h2", null, definition.title),
+          h("div", null,
+            h("h2", null, definition.title),
+            h("p", { className: "pawwork-automation-panel-summary" }, `${formatSchedule(definition)}  ${workspaceName(definition.cwd)}`)),
           h("div", { className: "pawwork-automation-actions" },
-            h(Button, { disabled: busy !== "", icon: h(definition.paused ? IconPlayOutline16 : IconPauseOutline16, { size: 16 }), onClick: () => mutate("set-paused", { id: definition.id, paused: !definition.paused }), size: "sm", variant: "outline" }, definition.paused ? text("启用", "Resume") : text("暂停", "Pause")),
-            h(Button, { disabled: busy !== "", icon: h(IconPlayOutline16, { size: 16 }), onClick: () => mutate("run-now", { id: definition.id }), size: "sm", variant: "outline" }, text("立即运行", "Run now")),
-            h(Button, { "aria-label": deleting ? text("确认删除", "Confirm delete") : text("删除", "Delete"), disabled: busy !== "", icon: h(IconTrashOutline16, { size: 16 }), onClick: remove, size: "sm", title: deleting ? text("再次点击确认删除", "Click again to confirm deletion") : text("删除", "Delete"), type: "button", variant: "ghost" }),
-            h(Button, { "aria-label": text("关闭", "Close"), icon: h(IconCloseOutline16, { size: 16 }), onClick: requestClose, size: "sm", title: text("关闭", "Close"), type: "button", variant: "ghost" }))),
+            h(Button, { disabled: busy !== "" || dirty, icon: h(definition.paused ? IconPlayOutline16 : IconPauseOutline16, { size: 16 }), onClick: () => mutate("set-paused", { id: definition.id, paused: !definition.paused }), size: "sm", title: dirty ? text("请先保存更改", "Save changes first") : undefined, variant: "outline" }, definition.paused ? text("启用", "Resume") : text("暂停", "Pause")),
+            h(Button, { disabled: busy !== "", icon: h(IconPlayOutline16, { size: 16 }), onClick: () => mutate("run-now", { id: definition.id }), size: "sm", variant: "primary" }, text("立即运行", "Run now")),
+            h(Button, { "aria-label": text("删除", "Delete"), disabled: busy !== "", icon: h(IconTrashOutline16, { size: 16 }), onClick: () => setDeleting(true), size: "sm", title: text("删除", "Delete"), type: "button", variant: "ghost" }))),
         h("form", { className: "pawwork-automation-form", onSubmit: save },
           h(Field, { label: text("标题", "Title") }, h(Input, { "aria-label": text("标题", "Title"), className: "pawwork-automation-input", onChange: update("title"), value: form.title })),
-          h(Field, { label: text("任务内容", "Instructions"), multiline: true }, h("textarea", { "aria-label": text("任务内容", "Instructions"), className: "pawwork-automation-textarea", onChange: update("prompt"), value: form.prompt })),
+          h(Field, { label: text("任务内容", "Instructions") }, h("textarea", { "aria-label": text("任务内容", "Instructions"), className: "pawwork-automation-textarea", onChange: update("prompt"), value: form.prompt })),
           h(Field, { label: text("工作区", "Workspace") }, h("span", { className: "pawwork-automation-readonly", title: definition.cwd }, workspaceName(definition.cwd))),
           h("div", { className: "pawwork-automation-grid" },
             h(Field, { label: text("重复", "Repeat") }, h(SelectControl, { label: text("重复", "Repeat"), onChange: choose("frequency"), options: scheduleOptions, value: form.frequency })),
@@ -335,7 +339,17 @@ window.__ModuleLoader__.load({
           h("h3", null, text("最近运行", "Recent runs")),
           [definition.activeRun, ...(definition.recentRuns || [])].filter(Boolean).length
             ? [definition.activeRun, ...(definition.recentRuns || [])].filter(Boolean).map((run) => h(RunRow, { close: onClose, key: run.id, run, sessions }))
-            : h("div", { className: "pawwork-automations-empty" }, text("还没有运行记录", "No run history yet")))))
+            : h("div", { className: "pawwork-automations-empty" }, text("还没有运行记录", "No run history yet")))),
+        h(Modal, {
+          closeLabel: text("关闭", "Close"),
+          description: text("此操作无法撤销。既有运行记录会保留。", "This cannot be undone. Existing run history is retained."),
+          footer: h("div", { className: "pawwork-automation-actions" },
+            h(Button, { autoFocus: true, disabled: busy === "delete", onClick: () => setDeleting(false), size: "sm", variant: "outline" }, text("取消", "Cancel")),
+            h(Button, { className: "pawwork-automation-delete-confirm", disabled: busy === "delete", onClick: remove, size: "sm", variant: "outline" }, busy === "delete" ? text("正在删除…", "Deleting…") : text("删除", "Delete"))),
+          onClose: () => { if (busy !== "delete") setDeleting(false) },
+          open: deleting,
+          title: text("删除自动化？", "Delete automation?"),
+        }))
     }
 
     function AutomationSurface({ connection, createViaChat, sessions, useWorkspaces }) {
@@ -381,7 +395,6 @@ window.__ModuleLoader__.load({
         const needle = query.trim().toLocaleLowerCase()
         return !needle || definition.title.toLocaleLowerCase().includes(needle) || workspaceName(definition.cwd).toLocaleLowerCase().includes(needle)
       })
-      const split = selected !== null
       const preferredWorkspace = workspaces.find((item) => item.workspaceId === workspaceState.recentWorkspaceId) || workspaces[0]
       function closePanel() { setSelectedId(null) }
       async function reloadAfter(result) { await load(); setSelectedId(result.id) }
@@ -392,8 +405,10 @@ window.__ModuleLoader__.load({
         catch (createError) { setError(createError instanceof Error ? createError.message : String(createError)) }
       }
 
-      return h("main", { className: "pawwork-automations-surface", "data-split": split ? "true" : "false" },
-        h("section", { className: "pawwork-automations-main" }, h("div", { className: "pawwork-automations-overview" },
+      if (selected) return h("main", { className: "pawwork-automations-surface" },
+        h(AutomationEditor, { connection, definition: selected, key: `${selected.id}:${selected.revision}`, onClose: closePanel, onDeleted: async () => { closePanel(); await load() }, onSaved: reloadAfter, sessions }))
+
+      return h("main", { className: "pawwork-automations-surface" },
           h("div", { className: "pawwork-automations-titlebar" },
             h("div", null, h("h1", null, text("自动化", "Automations")), h("p", null, text("让 PawWork 按计划处理重复工作", "Let PawWork handle recurring work on a schedule"))),
             h("div", { className: "pawwork-automations-title-actions" },
@@ -402,11 +417,11 @@ window.__ModuleLoader__.load({
           h("div", { className: "pawwork-automations-tabs", role: "tablist" }, [["all", text("全部", "All")], ["active", text("启用", "Active")], ["paused", text("暂停", "Paused")]].map(([value, label]) => h(Pill, { active: filter === value, key: value, onClick: () => setFilter(value), role: "tab" }, label))),
           error ? h("div", { className: "pawwork-automations-error", role: "alert" }, error) : null,
           loading && data === null ? h("div", { className: "pawwork-automations-loading" }, text("正在加载…", "Loading…")) : null,
-          visible.map((definition) => h("button", { className: "pawwork-automation-row", "data-selected": definition.id === selectedId ? "true" : "false", key: definition.id, onClick: () => setSelectedId(definition.id), type: "button" },
-            h("span", { className: "pawwork-automation-row-icon" }, h(definition.paused ? IconPauseOutline16 : IconPlayOutline16, { size: 16 })),
-            h("span", null, h("span", { className: "pawwork-automation-row-title" }, definition.title), h("span", { className: "pawwork-automation-row-meta" }, `${formatSchedule(definition)}  ${definition.paused ? text("已暂停", "Paused") : `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}`}`)))),
-          visible.length === 0 && !loading ? h("div", { className: "pawwork-automations-empty" }, query ? text("没有匹配的自动化", "No matching automations") : text("还没有自动化", "No automations yet")) : null)),
-        split ? h(AutomationEditor, { connection, definition: selected, key: `${selected.id}:${selected.revision}`, onClose: closePanel, onDeleted: async () => { closePanel(); await load() }, onSaved: reloadAfter, sessions }) : null)
+          h("div", { className: "pawwork-automations-list" },
+            visible.map((definition) => h("button", { className: "pawwork-automation-row", key: definition.id, onClick: () => setSelectedId(definition.id), type: "button" },
+              h("span", { className: "pawwork-automation-row-icon" }, h(definition.paused ? IconPauseOutline16 : IconPlayOutline16, { size: 16 })),
+              h("span", null, h("span", { className: "pawwork-automation-row-title" }, definition.title), h("span", { className: "pawwork-automation-row-meta" }, `${formatSchedule(definition)}  ${definition.paused ? text("已暂停", "Paused") : `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}`}`)))),
+            visible.length === 0 && !loading ? h("div", { className: "pawwork-automations-empty" }, query ? text("没有匹配的自动化", "No matching automations") : text("还没有自动化。在对话中描述任务和运行时间即可创建。", "No automations yet. Describe a task and schedule in chat to create one.")) : null))
     }
 
     const inject = ["slots", "connection", "conversation", "sessions", "workspaces"]

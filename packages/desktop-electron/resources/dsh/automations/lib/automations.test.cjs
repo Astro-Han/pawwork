@@ -627,10 +627,19 @@ test('automation RPC updates definitions', async () => {
     now: () => Date.parse('2026-08-18T00:00:00.000Z'),
   });
   const updated = await rpc('update', {
-    id: definition.id, title: 'Morning brief', prompt: 'Summarize important changes.',
+    id: definition.id, expectedRevision: definition.revision,
+    title: 'Morning brief', prompt: 'Summarize important changes.',
   });
   assert.equal(updated.ok, true);
   assert.equal(updated.value.title, 'Morning brief');
+  assert.equal(refreshCalls, 1);
+
+  const stale = await rpc('update', {
+    id: definition.id, expectedRevision: definition.revision, title: 'Stale title',
+  });
+  assert.equal(stale.ok, false);
+  assert.equal(stale.error.code, 'conflict');
+  assert.equal(store.getDefinition(definition.id).title, 'Morning brief');
   assert.equal(refreshCalls, 1);
 });
 
