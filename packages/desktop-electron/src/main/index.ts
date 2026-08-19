@@ -29,7 +29,7 @@ import {
 } from "./dsh-product-home"
 import { launchDshSidecar, type DshSidecar } from "./dsh-sidecar"
 import { initLogging } from "./logging"
-import { readStoredMenuLocale } from "./menu-i18n"
+import { detectSystemMenuLocale } from "./menu-labels"
 import { createUpdaterController, createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./updater"
 import { pendingUpdateCacheDir } from "./updater-cache"
 import { updaterDialogLabels } from "./updater-dialog-labels"
@@ -69,7 +69,7 @@ if (CI_SMOKE_HOME) app.setPath("logs", join(app.getPath("userData"), "logs"))
 const CI_SMOKE_READY_FILE = join(app.getPath("userData"), "ci-smoke-ready.json")
 const { autoUpdater } = pkg
 const logger = initLogging()
-const menuLocale = readStoredMenuLocale(app.getLocale())
+const menuLocale = detectSystemMenuLocale(app.getLocale())
 
 let dshUrl: string | undefined
 let fileInputPreload: string | undefined
