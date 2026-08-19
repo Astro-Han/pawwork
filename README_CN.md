@@ -1,8 +1,8 @@
 # 爪印 PawWork
 
-**爪印是一个免费、开源的桌面 AI 智能体，支持 macOS 和 Windows，能处理文档、表格、研究、写作、代码等日常桌面工作，接入 75+ AI 模型。**
+**爪印是一个免费、开源的桌面 AI 智能体，支持 macOS 和 Windows，能处理文档、表格、研究、写作、代码等日常桌面工作。**
 
-Codex App 和 Claude Cowork 的开源替代方案。自带免费额度，也支持自带 API Key，兼容所有主流模型，包括 ChatGPT OAuth 登录。
+Codex App 和 Claude Cowork 的开源替代方案，内置免费模型，打开就能用。
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![macOS](https://img.shields.io/badge/macOS-signed_and_notarized-black.svg)](https://github.com/Astro-Han/pawwork/releases/latest)
@@ -23,20 +23,17 @@ Codex App 和 Claude Cowork 的开源替代方案。自带免费额度，也支�
 - **少配置：** 下载应用，选择工作文件夹，就可以先用 OpenCode Zen 提供的免费额度开始。
 - **处理真实桌面工作：** 面向本地文件、文档、表格、笔记、网页资料、代码和最终产物。
 - **任务卡片：** 不从空白输入框开始，而是用具体任务帮你更快上手。
-- **模型选择更多：** 支持 OpenAI、Claude、DeepSeek、Gemini、Kimi、GLM、OpenAI 兼容提供商，以及可用的 Coding Plan。
-- **开源和可控：** 你可以查看它怎么工作，选择自己的工作文件夹，连接自己信任的账号，并在关键步骤继续前进行检查。
+- **内置免费模型：** 不用 API Key，也不用购买模型订阅。
+- **开源和可控：** 你可以查看它怎么工作，选择自己的工作文件夹，并在关键步骤继续前进行检查。
 
 ## 产品对比
 
 | | 爪印 PawWork | Codex App | Claude Desktop (Cowork) |
 |---|---|---|---|
 | 开源 | 是（Apache-2.0） | 否 | 否 |
-| 自带 API Key | 支持 75+ 提供商 | 仅 OpenAI | 仅 Anthropic（可通过网关接其他） |
-| ChatGPT OAuth | 支持 | 不支持 | 不支持 |
 | 免费无需订阅 | 有（OpenCode Zen） | 有限（ChatGPT Free） | 无（需 Pro $20/月） |
 | 桌面应用 | macOS + Windows | macOS + Windows | macOS + Windows |
 | 本地文件访问 | 完整工作区 | 默认沙箱 | 用户选择的文件夹 |
-| 本地模型 | 支持（Ollama、LM Studio 等） | 仅 CLI 支持（Ollama） | 通过网关（Requesty） |
 | Office 文件处理 | 支持（Word/Excel/PPT） | 不支持 | 不支持 |
 | 面向非技术用户 | 是（任务卡片，无需终端） | 面向开发者 | 知识工作 + 编程 |
 
@@ -70,11 +67,9 @@ Codex App 和 Claude Cowork 的开源替代方案。自带免费额度，也支�
 3. 爪印 PawWork 根据任务调用文件、工具、模型和搜索。
 4. 你检查执行步骤、输出内容和生成文件，再决定如何使用结果。
 
-## 模型、账号和搜索
+## 模型和搜索
 
-爪印 PawWork 内置来自 OpenCode Zen 的免费额度，也内置带免费额度的网页搜索。你不需要先准备自己的 API 密钥才能开始。
-
-如果你需要更多模型选择或更强控制权，可以连接自己的模型账号。爪印 PawWork 支持 API 密钥，也支持可用提供商的 OAuth 登录、OpenAI 兼容提供商和可用的 Coding Plan，包括 OpenAI、Claude、DeepSeek、Gemini、Kimi、GLM 等。
+爪印 PawWork 内置一组 OpenCode Free 免费模型和网页搜索。你不需要 API Key，也不用购买模型订阅。
 
 ## 下载
 
@@ -105,10 +100,10 @@ pnpm dev:desktop
 ## 常见问题
 
 **爪印 PawWork 免费吗？**
-免费。爪印内置 OpenCode Zen 免费额度和网页搜索，下载打开就能用，不需要先准备 API Key。如果想用更多模型，可以接入自己的账号。
+免费。爪印内置免费模型和网页搜索，下载打开就能用，不需要 API Key。
 
 **支持哪些模型？**
-OpenAI（包括 ChatGPT Plus/Pro OAuth 登录）、Claude、DeepSeek、Gemini、Kimi、GLM，以及任何 OpenAI 兼容的提供商，共 75+ 提供商，也支持 Ollama、LM Studio 等本地模型。
+爪印内置一组 OpenCode Free 免费模型。具体列表以应用内显示为准，并可能随版本更新。
 
 **能处理本地文件吗？**
 可以。爪印是桌面原生应用，对你选择的工作文件夹有完整的读写权限，可以处理文档、表格、PDF、代码项目和生成文件。

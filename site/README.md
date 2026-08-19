@@ -15,10 +15,11 @@ pnpm preview  # serve the production build locally
 
 ```text
 src/
-  pages/index.astro     page markup; English first paint + client-side CN/EN switch
-  layouts/Base.astro    <head>, SEO tags, anti-flash theme script
-  styles/global.css     all styling; light/dark via [data-theme], CN/EN via [data-lang]
-  i18n.ts               EN/CN copy dictionary (single source of truth)
+  pages/index.astro     English page
+  pages/zh-CN/          Chinese page
+  layouts/Base.astro    <head>, SEO tags, theme script
+  styles/global.css     all styling; light/dark via [data-theme]
+  i18n.ts               EN/CN copy dictionary
   config.ts             download links and repo URLs
 public/
   app-icon.svg          favicon + brand mark
@@ -26,6 +27,6 @@ public/
 
 ## Notes
 
-- **Language**: first paint renders English for basic SEO; the client switches to Chinese based on browser language or the EN/中 toggle. Choice persists in `localStorage`. Per-language routes for SEO are deferred.
-- **Download links**: `config.ts` currently points every button at the GitHub Releases page. Swap in China-hosted direct links (R2 / COS) once the updater fallback (issue #219) lands.
+- **Language**: English is served at `/`; Chinese is served at `/zh-CN/`.
+- **Download links**: `config.ts` resolves release downloads from the published R2 manifest and falls back to GitHub Releases.
 - **OG image**: `Base.astro` uses the app icon as a placeholder; replace with a dedicated 1200×630 share image.

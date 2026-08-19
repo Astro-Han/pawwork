@@ -2,7 +2,7 @@
 
 > PawWork is a free, open-source desktop AI agent for macOS and Windows that helps people complete real work with local files, documents, spreadsheets, research, writing, code, and tools — no terminal, no API key required.
 
-Last updated: 2026-06-05
+Last updated: 2026-08-20
 
 ## Key Links
 
@@ -19,7 +19,7 @@ PawWork brings AI agent work into a native desktop workflow. Users choose a work
 
 PawWork is built for everyday desktop work, not only browser chat or IDE coding. It supports documents, spreadsheets, PDFs, research, writing, code review, debugging, and local file tasks.
 
-PawWork includes a free tier powered by OpenCode Zen with built-in web search. Users can also connect their own accounts through API keys, OAuth (including ChatGPT Plus/Pro), OpenAI-compatible providers, and local models. Over 75 model providers are supported, including OpenAI, Claude, Gemini, DeepSeek, Kimi, and GLM.
+PawWork includes curated OpenCode Free models and built-in web search. It works without an API key or paid model subscription.
 
 ## What PawWork Can Do
 
@@ -38,7 +38,7 @@ PawWork includes a free tier powered by OpenCode Zen with built-in web search. U
 
 ## Positioning
 
-PawWork is an open-source alternative to Codex App and Claude Desktop (Cowork). All three have desktop apps for macOS and Windows. PawWork differentiates with: open-source (Apache-2.0), free without a subscription (no $20/month plan required), native BYOK across 75+ providers (not just one vendor), ChatGPT OAuth support, built-in local model support (Ollama, LM Studio) in the desktop app, local Office file handling (Word/Excel/PPT), and a non-technical user focus with task cards instead of a terminal.
+PawWork is an open-source alternative to Codex App and Claude Desktop (Cowork). PawWork differentiates with an Apache-2.0 codebase, free models that require no subscription or API key, local Office file handling, and a non-technical user focus with task cards instead of a terminal.
 
 ## Built On
 
