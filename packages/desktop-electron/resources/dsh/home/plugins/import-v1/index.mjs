@@ -59,7 +59,6 @@ function importedPrefixIsComplete(events, imported) {
 async function createDshSessionImporter(ctx) {
   const persisted = new Set((await ctx.sessionPersistence.list()).map((header) => header.id));
   return async (imported) => {
-    await importer.materializeLegacyImages(imported, (image) => ctx.attachments.saveImage(image));
     let outcome = 'imported';
     if (persisted.has(imported.id)) {
       const inspection = await ctx.sessionPersistence.inspect(imported.id);
@@ -67,6 +66,7 @@ async function createDshSessionImporter(ctx) {
     }
 
     if (outcome === 'imported') {
+      await importer.materializeLegacyImages(imported, (image) => ctx.attachments.saveImage(image));
       const session = ctx.sessions.prepare(imported.id, {
         seed: imported.seed,
         meta: imported.meta,
@@ -119,10 +119,16 @@ export function apply(ctx) {
     }
 
     try {
+      const availableSessions = new Set((await ctx.sessionPersistence.list()).map((header) => header.id));
       await automationImporter.runV1AutomationImport({
         home: process.env.DSH_HOME,
         resolveModel: createAutomationModelResolver(ctx),
-        importDefinition: async (definition) => ctx.pawworkAutomations.store.importDefinition(definition),
+        importDefinition: async (definition) => {
+          if (definition.context === 'continue' && !availableSessions.has(definition.sourceSessionId)) {
+            throw new Error(`v1 automation source session is unavailable: ${definition.sourceSessionId}`);
+          }
+          return ctx.pawworkAutomations.store.importDefinition(definition);
+        },
         importRun: async (run) => ctx.pawworkAutomations.store.importRun(run),
         signal: controller.signal,
       });

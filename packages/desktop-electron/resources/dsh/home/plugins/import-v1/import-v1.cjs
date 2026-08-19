@@ -8,7 +8,6 @@ const {
   parseJson,
   readMigrationLedger,
   requireColumns,
-  v1DatabaseCandidates,
   writeJsonAtomically,
 } = require('./migration-io.cjs');
 
@@ -28,42 +27,49 @@ async function* readV1Sessions(snapshot) {
     );
 
     for (const session of sessions) {
-      const partsByMessage = new Map();
-      for (const part of partsForSession.all(session.id)) {
-        const normalized = {
-          id: part.id,
-          createdAt: part.time_created,
-          updatedAt: part.time_updated,
-          data: parseJson(part.data, `part ${part.id}`),
-        };
-        const messageParts = partsByMessage.get(part.message_id);
-        if (messageParts) messageParts.push(normalized);
-        else partsByMessage.set(part.message_id, [normalized]);
-      }
+      try {
+        const partsByMessage = new Map();
+        for (const part of partsForSession.all(session.id)) {
+          const normalized = {
+            id: part.id,
+            createdAt: part.time_created,
+            updatedAt: part.time_updated,
+            data: parseJson(part.data, `part ${part.id}`),
+          };
+          const messageParts = partsByMessage.get(part.message_id);
+          if (messageParts) messageParts.push(normalized);
+          else partsByMessage.set(part.message_id, [normalized]);
+        }
 
-      const messages = messagesForSession.all(session.id).map((message) => ({
-        id: message.id,
-        createdAt: message.time_created,
-        updatedAt: message.time_updated,
-        data: parseJson(message.data, `message ${message.id}`),
-        parts: partsByMessage.get(message.id) || [],
-      }));
-      const executionContext = session.execution_context == null
-        ? null
-        : parseJson(session.execution_context, `session ${session.id} execution_context`);
-      yield {
-        id: session.id,
-        parentId: session.parent_id ?? null,
-        cwd: typeof executionContext?.activeDirectory === 'string' && executionContext.activeDirectory
-          ? executionContext.activeDirectory
-          : session.directory,
-        title: session.title,
-        version: session.version,
-        createdAt: session.time_created,
-        updatedAt: session.time_updated,
-        archivedAt: session.time_archived ?? null,
-        messages,
-      };
+        const messages = messagesForSession.all(session.id).map((message) => ({
+          id: message.id,
+          createdAt: message.time_created,
+          updatedAt: message.time_updated,
+          data: parseJson(message.data, `message ${message.id}`),
+          parts: partsByMessage.get(message.id) || [],
+        }));
+        const executionContext = session.execution_context == null
+          ? null
+          : parseJson(session.execution_context, `session ${session.id} execution_context`);
+        yield {
+          id: session.id,
+          parentId: session.parent_id ?? null,
+          cwd: typeof executionContext?.activeDirectory === 'string' && executionContext.activeDirectory
+            ? executionContext.activeDirectory
+            : session.directory,
+          title: session.title,
+          version: session.version,
+          createdAt: session.time_created,
+          updatedAt: session.time_updated,
+          archivedAt: session.time_archived ?? null,
+          messages,
+        };
+      } catch (error) {
+        yield {
+          id: session.id,
+          readError: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
   } finally {
     database.close();
@@ -353,6 +359,14 @@ async function runV1SessionImport({
     await createDatabaseSnapshot(sourceDatabase, snapshot);
     for await (const sourceSession of readV1Sessions(snapshot)) {
       signal?.throwIfAborted();
+      if (sourceSession.readError) {
+        result.sessions.failed += 1;
+        result.workspaces.failed += 1;
+        result.errors.push({ sourceSessionId: sourceSession.id, message: sourceSession.readError });
+        ledger.sessions[sourceSession.id] = { status: 'failed', message: sourceSession.readError };
+        writeJsonAtomically(ledgerPath, ledger);
+        continue;
+      }
       const imported = buildDshSession(sourceSession);
       const previous = ledger.sessions[sourceSession.id];
       const alreadyImported = previous?.status === 'complete';
@@ -367,8 +381,10 @@ async function runV1SessionImport({
       }
       try {
         const outcome = await importSession(imported);
-        const sessionOutcome = typeof outcome === 'string' ? outcome : outcome.session;
-        const workspaceOutcome = typeof outcome === 'string' ? 'attached' : outcome.workspace;
+        const sessionOutcome = outcome?.session;
+        const workspaceOutcome = outcome?.workspace;
+        if (!['imported', 'skipped'].includes(sessionOutcome)) throw new Error(`invalid session outcome: ${sessionOutcome}`);
+        if (!['attached', 'unavailable'].includes(workspaceOutcome)) throw new Error(`invalid workspace outcome: ${workspaceOutcome}`);
         result.sessions[alreadyImported || sessionOutcome === 'skipped' ? 'skipped' : 'imported'] += 1;
         result.workspaces[workspaceOutcome] += 1;
         ledger.sessions[sourceSession.id] = {
@@ -406,10 +422,7 @@ async function runV1SessionImport({
 module.exports = {
   attachDshWorkspace,
   buildDshSession,
-  createDatabaseSnapshot,
-  discoverV1Database,
   materializeLegacyImages,
   readV1Sessions,
   runV1SessionImport,
-  v1DatabaseCandidates,
 };

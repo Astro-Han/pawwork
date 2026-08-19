@@ -20,25 +20,42 @@ function readV1Automations(snapshot) {
     requireColumns(database, 'automation_run', [
       'id', 'automation_id', 'owner_directory', 'triggered_at', 'data',
     ]);
-    const definitions = database.prepare(
+    const definitionRows = database.prepare(
       'SELECT * FROM automation_definition ORDER BY time_created, id',
-    ).all().map((row) => ({
-      id: row.id,
-      ownerDirectory: row.owner_directory,
-      createdAt: row.time_created,
-      updatedAt: row.time_updated,
-      data: parseJson(row.data, `automation definition ${row.id}`),
-    }));
-    const runs = database.prepare(
+    ).all();
+    const runRows = database.prepare(
       'SELECT * FROM automation_run ORDER BY triggered_at, id',
-    ).all().map((row) => ({
-      id: row.id,
-      automationId: row.automation_id,
-      ownerDirectory: row.owner_directory,
-      triggeredAt: row.triggered_at,
-      data: parseJson(row.data, `automation run ${row.id}`),
-    }));
-    return { definitions, runs };
+    ).all();
+    const definitions = [];
+    const runs = [];
+    const failures = [];
+    for (const row of definitionRows) {
+      try {
+        definitions.push({
+          id: row.id,
+          ownerDirectory: row.owner_directory,
+          createdAt: row.time_created,
+          updatedAt: row.time_updated,
+          data: parseJson(row.data, `automation definition ${row.id}`),
+        });
+      } catch (error) {
+        failures.push({ kind: 'definition', id: row.id, message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    for (const row of runRows) {
+      try {
+        runs.push({
+          id: row.id,
+          automationId: row.automation_id,
+          ownerDirectory: row.owner_directory,
+          triggeredAt: row.triggered_at,
+          data: parseJson(row.data, `automation run ${row.id}`),
+        });
+      } catch (error) {
+        failures.push({ kind: 'run', id: row.id, message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    return { definitions, runs, failures, definitionIds: definitionRows.map((row) => row.id) };
   } finally {
     database.close();
   }
@@ -202,7 +219,21 @@ async function runV1AutomationImport({
     signal?.throwIfAborted();
     await createDatabaseSnapshot(sourceDatabase, snapshot);
     const source = readV1Automations(snapshot);
-    const definitionIds = new Set(source.definitions.map((definition) => definition.id));
+    const definitionIds = new Set(source.definitionIds);
+    for (const failure of source.failures) {
+      const records = failure.kind === 'definition' ? ledger.automationDefinitions : ledger.automationRuns;
+      const counts = failure.kind === 'definition' ? result.definitions : result.runs;
+      const prior = records[failure.id];
+      if (prior?.status === 'complete') counts.skipped += 1;
+      else {
+        counts.failed += 1;
+        result.errors.push(failure.kind === 'definition'
+          ? { sourceDefinitionId: failure.id, message: failure.message }
+          : { sourceRunId: failure.id, message: failure.message });
+        records[failure.id] = { status: 'failed', message: failure.message };
+      }
+    }
+    if (source.failures.length > 0) writeJsonAtomically(ledgerPath, ledger);
     for (const definition of source.definitions) {
       signal?.throwIfAborted();
       const prior = ledger.automationDefinitions[definition.id];
@@ -276,5 +307,4 @@ module.exports = {
   mapV1AutomationRun,
   readV1Automations,
   runV1AutomationImport,
-  v2AutomationId,
 };

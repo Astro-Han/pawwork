@@ -42,6 +42,7 @@ async function createDatabaseSnapshot(source, destination) {
   } finally {
     database.close();
   }
+  fs.chmodSync(destination, 0o600);
   return destination;
 }
 

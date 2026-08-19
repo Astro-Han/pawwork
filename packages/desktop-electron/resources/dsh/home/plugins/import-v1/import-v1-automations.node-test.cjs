@@ -181,3 +181,28 @@ test('imports definitions and runs idempotently with a resumable shared ledger',
   assert.equal(second.orphanRuns, 1);
   assert.equal(fs.existsSync(path.join(home, 'import-v1', 'automation-snapshot.db')), false);
 });
+
+test('records malformed automation rows and continues importing valid rows', async () => {
+  const source = fixture();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-v1-automation-malformed-'));
+  const database = new DatabaseSync(source);
+  database.prepare('UPDATE automation_definition SET data = ? WHERE id = ?').run('{', 'automation_source');
+  database.close();
+  const importedRuns = [];
+
+  const result = await runV1AutomationImport({
+    home,
+    sourceDatabase: source,
+    resolveModel: async () => ({ model: { provider: 'opencode', model: 'big-pickle' } }),
+    importDefinition: async () => 'imported',
+    importRun: async (run) => { importedRuns.push(run.id); return 'imported'; },
+    now: () => 8_000,
+  });
+
+  assert.equal(result.status, 'partial');
+  assert.equal(result.definitions.failed, 1);
+  assert.equal(importedRuns.length, 3);
+  const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+  assert.equal(ledger.automationDefinitions.automation_source.status, 'failed');
+  assert.equal(ledger.automationRuns.automation_run_done.status, 'complete');
+});
