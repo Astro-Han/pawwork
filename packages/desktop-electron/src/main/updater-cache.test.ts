@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { getAppCacheDir, pendingUpdateCacheDir, UPDATER_CACHE_DIR_NAME } from "./updater-cache"
+import { pendingUpdateCacheDir, UPDATER_CACHE_DIR_NAME } from "./updater-cache"
 
 describe("updater cache path", () => {
   test("uses the same updater cache dir name as app-update.yml", () => {
@@ -7,7 +7,6 @@ describe("updater cache path", () => {
   })
 
   test("resolves macOS pending cache from the user library cache root", () => {
-    expect(getAppCacheDir({ platform: "darwin", homedir: "/Users/demo", env: {} })).toBe("/Users/demo/Library/Caches")
     expect(pendingUpdateCacheDir({ platform: "darwin", homedir: "/Users/demo", env: {} })).toBe(
       "/Users/demo/Library/Caches/pawwork-updater/pending",
     )

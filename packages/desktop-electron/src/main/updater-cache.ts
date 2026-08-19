@@ -21,23 +21,19 @@ function firstAbsolutePath(
   return values.find((value) => value && platformPath.isAbsolute(value)) ?? fallback
 }
 
-export function getAppCacheDir(input: CacheInput = {}) {
+export function pendingUpdateCacheDir(input: CacheInput = {}) {
   const platform = input.platform ?? process.platform
   const homedir = input.homedir ?? currentHomedir()
   const env = input.env ?? process.env
   const platformPath = pathForPlatform(platform)
 
-  if (platform === "win32")
-    return firstAbsolutePath(
+  const cacheRoot = platform === "win32"
+    ? firstAbsolutePath(
       platformPath,
       platformPath.join(homedir, "AppData", "Local"),
       env.LOCALAPPDATA,
       env.localappdata,
     )
-  return platformPath.join(homedir, "Library", "Caches")
-}
-
-export function pendingUpdateCacheDir(input: CacheInput = {}) {
-  const platform = input.platform ?? process.platform
-  return pathForPlatform(platform).join(getAppCacheDir(input), UPDATER_CACHE_DIR_NAME, "pending")
+    : platformPath.join(homedir, "Library", "Caches")
+  return platformPath.join(cacheRoot, UPDATER_CACHE_DIR_NAME, "pending")
 }
