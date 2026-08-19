@@ -30,16 +30,15 @@ function readV1Automations(snapshot) {
   const database = new DatabaseSync(snapshot, { readOnly: true, timeout: 5_000 });
   try {
     requireColumns(database, 'automation_definition', [
-      'id', 'project_id', 'owner_directory', 'time_created', 'time_updated', 'data',
+      'id', 'owner_directory', 'time_created', 'time_updated', 'data',
     ]);
     requireColumns(database, 'automation_run', [
-      'id', 'automation_id', 'project_id', 'owner_directory', 'triggered_at', 'data',
+      'id', 'automation_id', 'owner_directory', 'triggered_at', 'data',
     ]);
     const definitions = database.prepare(
       'SELECT * FROM automation_definition ORDER BY time_created, id',
     ).all().map((row) => ({
       id: row.id,
-      projectId: row.project_id,
       ownerDirectory: row.owner_directory,
       createdAt: row.time_created,
       updatedAt: row.time_updated,
@@ -50,7 +49,6 @@ function readV1Automations(snapshot) {
     ).all().map((row) => ({
       id: row.id,
       automationId: row.automation_id,
-      projectId: row.project_id,
       ownerDirectory: row.owner_directory,
       triggeredAt: row.triggered_at,
       data: parseJson(row.data, `automation run ${row.id}`),

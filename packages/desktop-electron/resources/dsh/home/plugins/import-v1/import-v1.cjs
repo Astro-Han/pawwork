@@ -69,7 +69,7 @@ function requireColumns(database, table, required) {
 async function* readV1Sessions(snapshot) {
   const database = new DatabaseSync(snapshot, { readOnly: true, timeout: 5_000 });
   try {
-    requireColumns(database, 'session', ['id', 'project_id', 'directory', 'title', 'version', 'time_created', 'time_updated']);
+    requireColumns(database, 'session', ['id', 'directory', 'title', 'version', 'time_created', 'time_updated']);
     requireColumns(database, 'message', ['id', 'session_id', 'time_created', 'time_updated', 'data']);
     requireColumns(database, 'part', ['id', 'message_id', 'session_id', 'time_created', 'time_updated', 'data']);
 
@@ -102,15 +102,15 @@ async function* readV1Sessions(snapshot) {
         data: parseJson(message.data, `message ${message.id}`),
         parts: partsByMessage.get(message.id) || [],
       }));
+      const executionContext = session.execution_context == null
+        ? null
+        : parseJson(session.execution_context, `session ${session.id} execution_context`);
       yield {
         id: session.id,
-        projectId: session.project_id,
-        workspaceId: session.workspace_id ?? null,
         parentId: session.parent_id ?? null,
-        directory: session.directory,
-        executionContext: session.execution_context == null
-          ? null
-          : parseJson(session.execution_context, `session ${session.id} execution_context`),
+        cwd: typeof executionContext?.activeDirectory === 'string' && executionContext.activeDirectory
+          ? executionContext.activeDirectory
+          : session.directory,
         title: session.title,
         version: session.version,
         createdAt: session.time_created,
@@ -137,11 +137,6 @@ const IMAGE_ADMISSION_ERRORS = new Set([
 
 function dshSessionId(sourceSessionId) {
   return `pawwork-v1-${sourceSessionId}`;
-}
-
-function sessionWorkingDirectory(session) {
-  const active = session.executionContext?.activeDirectory;
-  return typeof active === 'string' && active ? active : session.directory;
 }
 
 function legacyAttachment(part) {
@@ -218,15 +213,7 @@ function buildDshSession(session) {
   append('pawwork-v1/session', session.createdAt, {
     schema: 1,
     sourceSessionId: session.id,
-    projectId: session.projectId,
-    workspaceId: session.workspaceId,
-    parentId: session.parentId,
-    directory: session.directory,
-    executionContext: session.executionContext,
-    title: session.title,
     version: session.version,
-    createdAt: session.createdAt,
-    updatedAt: session.updatedAt,
     archivedAt: session.archivedAt,
   }, { ignorable: true });
 
@@ -318,7 +305,7 @@ function buildDshSession(session) {
   closeTurn();
 
   const meta = {
-    cwd: sessionWorkingDirectory(session),
+    cwd: session.cwd,
     createdAt: session.createdAt,
     seedLength: seed.length,
     ...(session.parentId ? { parentSession: dshSessionId(session.parentId) } : {}),

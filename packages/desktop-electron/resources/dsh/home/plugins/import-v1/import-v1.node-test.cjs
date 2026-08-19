@@ -365,7 +365,7 @@ test('creates a consistent SQLite snapshot without changing source data or its W
   database.close();
 });
 
-test('reads v1 sessions one at a time with hierarchy, workspace, messages, and parts intact', async () => {
+test('reads v1 sessions one at a time with hierarchy, working path, messages, and parts intact', async () => {
   const root = temporaryDirectory();
   const source = path.join(root, 'pawwork.db');
   createV1Fixture(source);
@@ -376,11 +376,8 @@ test('reads v1 sessions one at a time with hierarchy, workspace, messages, and p
   assert.equal(sessions.length, 2);
   assert.deepEqual(sessions[0], {
     id: 'ses_parent',
-    projectId: 'project_1',
-    workspaceId: 'workspace_1',
     parentId: null,
-    directory: '/Users/alice/work',
-    executionContext: { ownerDirectory: '/Users/alice/work', activeDirectory: '/Users/alice/worktree' },
+    cwd: '/Users/alice/worktree',
     title: 'Original title',
     version: '1.2.3',
     createdAt: 1_000,
@@ -502,15 +499,7 @@ test('builds a valid DSH seed with an explicit legacy boundary and no native too
   assert.deepEqual(legacySession.data, {
     schema: 1,
     sourceSessionId: 'ses_parent',
-    projectId: 'project_1',
-    workspaceId: 'workspace_1',
-    parentId: null,
-    directory: '/Users/alice/work',
-    executionContext: { ownerDirectory: '/Users/alice/work', activeDirectory: '/Users/alice/worktree' },
-    title: 'Original title',
     version: '1.2.3',
-    createdAt: 1_000,
-    updatedAt: 4_000,
     archivedAt: null,
   });
 
