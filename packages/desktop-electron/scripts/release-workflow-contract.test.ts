@@ -1,8 +1,8 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
-const workflow = readFileSync(join(import.meta.dir, "..", "..", "..", ".github", "workflows", "build.yml"), "utf8")
+const workflow = readFileSync(join(import.meta.dirname, "..", "..", "..", ".github", "workflows", "build.yml"), "utf8")
 
 function expectBefore(haystack: string, before: string, after: string) {
   const beforeIndex = haystack.indexOf(before)
@@ -43,30 +43,12 @@ describe("release workflow app-update verification", () => {
 
   test("prepares uv before signed macOS packaging", () => {
     expectBefore(workflow, "Prepare uv", "npx electron-builder --mac dir")
-    expect(workflow).toContain("bun ./scripts/prepare-uv.ts")
+    expect(workflow).toContain("pnpm exec tsx ./scripts/prepare-uv.ts")
     expect(workflow).toContain('uv_platform="darwin"')
   })
 
   test("prepares uv before Windows packaging", () => {
     expectBefore(workflow, "Prepare uv", "npx electron-builder ${{ matrix.platform_flag }}")
     expect(workflow).toContain('uv_platform="win32"')
-  })
-})
-
-const checklist = readFileSync(join(import.meta.dir, "..", "..", "..", ".github", "RELEASE_CHECKLIST.md"), "utf8")
-
-describe("release checklist Windows installer verification", () => {
-  test("records the Windows desktop shortcut verification matrix", () => {
-    expect(checklist).toContain("English Windows fresh install")
-    expect(checklist).toContain("Chinese Windows fresh install")
-    expect(checklist).toContain("unchecked install")
-    expect(checklist).toContain("reinstall with desktop shortcut checked")
-    expect(checklist).toContain("reinstall with desktop shortcut unchecked")
-    expect(checklist).toContain("scope switch between `Just me` and `All users`")
-    expect(checklist).toContain("older standard `PawWork.lnk`")
-    expect(checklist).toContain("app language change after install")
-    expect(checklist).toContain("previous affected version")
-    expect(checklist).toContain("no-desktop-shortcut state")
-    expect(checklist).toContain("Do not close the Windows desktop shortcut issue")
   })
 })

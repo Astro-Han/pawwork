@@ -52,7 +52,7 @@ const cnUrl = new URL("/zh-CN/", Astro.site).href;
 
     <link rel="alternate" type="text/markdown" href="/llms.txt" />
 
-    <script type="application/ld+json" set:html={JSON.stringify({
+    <script is:inline type="application/ld+json" set:html={JSON.stringify({
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
       "name": "PawWork",

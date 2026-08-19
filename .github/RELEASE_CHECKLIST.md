@@ -156,7 +156,7 @@ Run the verification helper:
 
 ```bash
 export GH_TOKEN="$(gh auth token)"
-bun packages/desktop-electron/scripts/verify-release.ts vX.Y.Z
+pnpm --filter @pawwork/desktop exec tsx scripts/verify-release.ts vX.Y.Z
 ```
 
 `GH_TOKEN` is recommended so GitHub API requests use the authenticated rate limit.

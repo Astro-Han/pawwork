@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test"
+import { expect, test } from "vitest"
 import desktopBuild from "./electron.vite.config"
 
 test("production build has a single DSH desktop entry", () => {

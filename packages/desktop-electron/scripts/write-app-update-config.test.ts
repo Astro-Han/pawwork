@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "vitest"
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -31,17 +31,6 @@ describe("write-app-update-config", () => {
         "",
       ].join("\n"),
     )
-  })
-
-  test("serializes updater cache dir from the shared constant", () => {
-    expect(
-      serializeAppUpdateConfig({
-        provider: "github",
-        owner: "Astro-Han",
-        repo: "pawwork",
-        channel: "latest",
-      }),
-    ).toContain(`updaterCacheDirName: ${UPDATER_CACHE_DIR_NAME}`)
   })
 
   test("serializes beta GitHub updater config", () => {

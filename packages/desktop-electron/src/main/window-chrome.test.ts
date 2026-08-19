@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test"
+import { expect, test } from "vitest"
 import { macTrafficLightPosition } from "./window-chrome"
 
 test("macOS traffic lights use the DSH shell position", () => {

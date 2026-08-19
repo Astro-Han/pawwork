@@ -85,13 +85,13 @@ PawWork is early and moving fast. Release notes describe what changed in each bu
 
 ## Build From Source
 
-Requires [Bun](https://bun.sh) v1.2+.
+Requires Node.js 24 and pnpm 11.7.
 
 ```bash
 git clone https://github.com/Astro-Han/pawwork.git
 cd pawwork
-bun install
-bun run dev:desktop
+pnpm install
+pnpm dev:desktop
 ```
 
 ## Runtime and acknowledgements

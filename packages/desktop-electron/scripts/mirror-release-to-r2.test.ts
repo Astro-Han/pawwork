@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
@@ -99,7 +99,7 @@ describe("pointer reference alignment", () => {
 
 describe("mirror workflow shell-injection guard", () => {
   const workflow = readFileSync(
-    join(import.meta.dir, "..", "..", "..", ".github", "workflows", "mirror-release-to-r2.yml"),
+    join(import.meta.dirname, "..", "..", "..", ".github", "workflows", "mirror-release-to-r2.yml"),
     "utf8",
   )
 

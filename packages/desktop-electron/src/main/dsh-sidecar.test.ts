@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 import { EventEmitter } from "node:events"
 import { PassThrough } from "node:stream"
 import { launchDshSidecar, type DshChildProcess, withBundledToolsPath } from "./dsh-sidecar"

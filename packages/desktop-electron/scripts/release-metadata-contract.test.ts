@@ -1,8 +1,10 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "vitest"
+import { spawn } from "node:child_process"
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { delimiter, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { Readable } from "node:stream"
 
 const roots: string[] = []
 const scriptDir = dirname(fileURLToPath(import.meta.url))
@@ -13,8 +15,7 @@ afterEach(() => {
 })
 
 function spawnFinalizer(binDir: string, latestDir: string, runnerTemp: string, env: Record<string, string> = {}) {
-  return Bun.spawn({
-    cmd: ["bun", "./scripts/finalize-latest-yml.ts"],
+  const child = spawn(process.execPath, ["--import", "tsx", "./scripts/finalize-latest-yml.ts"], {
     cwd: packageDir,
     env: {
       ...process.env,
@@ -25,9 +26,16 @@ function spawnFinalizer(binDir: string, latestDir: string, runnerTemp: string, e
       RUNNER_TEMP: runnerTemp,
       ...env,
     },
-    stderr: "pipe",
-    stdout: "pipe",
+    stdio: ["ignore", "pipe", "pipe"],
   })
+  return {
+    stdout: Readable.toWeb(child.stdout),
+    stderr: Readable.toWeb(child.stderr),
+    exited: new Promise<number | null>((resolve, reject) => {
+      child.once("error", reject)
+      child.once("exit", resolve)
+    }),
+  }
 }
 
 describe("release metadata finalizer", () => {

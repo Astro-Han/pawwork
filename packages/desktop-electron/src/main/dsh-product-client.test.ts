@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import vm from "node:vm"
-import { describe, expect, mock, test } from "bun:test"
+import { describe, expect, vi, test } from "vitest"
 
-const repositoryRoot = resolve(import.meta.dir, "../../../..")
+const repositoryRoot = resolve(import.meta.dirname, "../../../..")
 const productRoot = resolve(repositoryRoot, "packages/desktop-electron/resources/dsh/product")
 
 describe("PawWork DSH client product layer", () => {
@@ -29,7 +29,7 @@ describe("PawWork DSH client product layer", () => {
       factory: (require: (name: string) => unknown) => { apply(ctx: unknown): void }
     } | null = null
     let intervalCallback: (() => void) | undefined
-    const clearInterval = mock(() => {})
+    const clearInterval = vi.fn(() => {})
     const window = { __ModuleLoader__: { load: (value: typeof definition) => { definition = value } } }
     vm.runInNewContext(source, {
       clearInterval,
@@ -57,8 +57,8 @@ describe("PawWork DSH client product layer", () => {
       throw new Error(`unexpected product client dependency: ${name}`)
     })
     let migrationRefresh: ((props: unknown) => unknown) | undefined
-    const call = mock(async () => ({ ok: true, value: { sessionsComplete: true } }))
-    const refresh = mock(async () => {})
+    const call = vi.fn(async () => ({ ok: true, value: { sessionsComplete: true } }))
+    const refresh = vi.fn(async () => {})
     plugin.apply({
       connection: { rpc: { call } },
       sessions: { refresh },
@@ -71,11 +71,9 @@ describe("PawWork DSH client product layer", () => {
       },
     })
     migrationRefresh!({})
-    await Promise.resolve()
-    await Promise.resolve()
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
 
     expect(call).toHaveBeenCalledWith("/pawwork-import-v1", "status", {})
-    expect(refresh).toHaveBeenCalledTimes(1)
     expect(clearInterval).toHaveBeenCalledTimes(1)
     expect(intervalCallback).toBeDefined()
     cleanup?.()
@@ -133,7 +131,7 @@ describe("PawWork DSH client product layer", () => {
     const welcome = registrations.find((entry) => entry.options.id === "welcome-notice")
     expect(welcome).toBeDefined()
     expect(welcome!.options.priority).toBe(-1)
-    const complete = mock(() => {})
+    const complete = vi.fn(() => {})
     welcome!.component({ complete })
     expect(complete).toHaveBeenCalledTimes(1)
 
@@ -172,7 +170,7 @@ describe("PawWork DSH client product layer", () => {
       if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16 }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
-    const toggleSidebar = mock(() => {})
+    const toggleSidebar = vi.fn(() => {})
     const registrations: Array<{
       options: { id?: string }
       component: () => { props: Record<string, unknown> }
@@ -232,7 +230,7 @@ describe("PawWork DSH client product layer", () => {
           createElement,
           useEffect: (effect: () => void) => effect(),
           useRef: <T>(value: T) => ({ current: value }),
-          useState: <T>(initial: T) => [initial, mock(() => {})],
+          useState: <T>(initial: T) => [initial, vi.fn(() => {})],
         }
       }
       if (name === "@deepseek-ai/dsh-client-ui-primitives") {
@@ -251,11 +249,11 @@ describe("PawWork DSH client product layer", () => {
     const registrations: Array<{
       options: { id?: string; name?: string; priority?: number }
       component: (props: { wide: boolean }) => { props: Record<string, unknown> }
-      dispose: ReturnType<typeof mock>
+      dispose: ReturnType<typeof vi.fn>
     }> = []
     let conversationDeclaration: (() => void) | undefined
     let conversationCleanup: (() => void) | undefined
-    const call = mock(async () => ({ ok: true, value: { definitions: [] } }))
+    const call = vi.fn(async () => ({ ok: true, value: { definitions: [] } }))
     const ctx = {
       connection: { rpc: { call } },
       layout: { closeDetails: () => {}, toggleSidebar: () => {} },
@@ -271,7 +269,7 @@ describe("PawWork DSH client product layer", () => {
           options: { id?: string; name?: string; priority?: number },
           component: (props: { wide: boolean }) => { props: Record<string, unknown> },
         ) => {
-          const dispose = mock(() => {})
+          const dispose = vi.fn(() => {})
           registrations.push({ options, component, dispose })
           return dispose
         },
@@ -314,7 +312,7 @@ describe("PawWork DSH client product layer", () => {
       createElement: () => ({ dataset: {}, textContent: "" }),
       head: { appendChild: () => {} },
     }
-    const pick = mock(async () => ({
+    const pick = vi.fn(async () => ({
       status: "selected",
       paths: ["/tmp/notes.md"],
     }))
@@ -355,7 +353,7 @@ describe("PawWork DSH client product layer", () => {
 
     plugin.apply(ctx)
     expect(fileAction).toBeDefined()
-    const setDraft = mock(() => {})
+    const setDraft = vi.fn(() => {})
     const button = fileAction!({
       input: { draft: "请总结", phase: "plain" },
       inputActions: { setDraft },

@@ -7,8 +7,8 @@ PawWork's native Electron shell for DeepSeek DSH.
 From the repo root:
 
 ```bash
-bun install
-bun run --cwd packages/desktop-electron dev
+pnpm install
+pnpm --filter @pawwork/desktop dev
 ```
 
 This starts the Electron shell and its owned DSH sidecar.
@@ -18,18 +18,18 @@ This starts the Electron shell and its owned DSH sidecar.
 To build the Electron main process:
 
 ```bash
-bun run --cwd packages/desktop-electron build
+pnpm --filter @pawwork/desktop build
 ```
 
 To create a local desktop package:
 
 ```bash
-bun run --cwd packages/desktop-electron package
+pnpm --filter @pawwork/desktop package
 ```
 
 For platform-specific packages:
 
 ```bash
-bun run --cwd packages/desktop-electron package:mac
-bun run --cwd packages/desktop-electron package:win
+pnpm --filter @pawwork/desktop package:mac
+pnpm --filter @pawwork/desktop package:win
 ```

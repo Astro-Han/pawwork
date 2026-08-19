@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 import { spawnSync } from "node:child_process"
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -314,7 +314,7 @@ describe("ci smoke helpers", () => {
 
         const result = spawnSync(
           process.execPath,
-          [path.join(import.meta.dir, "ci-smoke.ts"), "packaged", "dev", executablePath],
+          [path.join(import.meta.dirname, "ci-smoke.ts"), "packaged", "dev", executablePath],
           {
             encoding: "utf8",
             timeout: 5_000,

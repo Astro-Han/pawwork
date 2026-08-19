@@ -328,8 +328,12 @@ async function publishRelease(repo: string, release: ApiRelease, buildSha: strin
 }
 
 async function gh(args: string[]) {
-  const proc = Bun.spawn(["gh", ...args], { stdout: "inherit", stderr: "inherit" })
-  const code = await proc.exited
+  const { spawn } = await import("node:child_process")
+  const code = await new Promise<number | null>((resolve, reject) => {
+    const child = spawn("gh", args, { stdio: "inherit" })
+    child.once("error", reject)
+    child.once("exit", resolve)
+  })
   if (code !== 0) throw new Error(`gh ${args.join(" ")} exited ${code}`)
 }
 

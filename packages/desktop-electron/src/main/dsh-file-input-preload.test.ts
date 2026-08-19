@@ -1,14 +1,14 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import vm from "node:vm"
-import { describe, expect, mock, test } from "bun:test"
+import { describe, expect, vi, test } from "vitest"
 
-const preloadPath = resolve(import.meta.dir, "../../resources/dsh/product/preload.cjs")
+const preloadPath = resolve(import.meta.dirname, "../../resources/dsh/product/preload.cjs")
 
 describe("PawWork DSH file input preload", () => {
   test("exposes only a no-argument native file picker", async () => {
     const pickerResult = { status: "selected", paths: ["/outside/report.txt"] }
-    const invoke = mock(async () => pickerResult)
+    const invoke = vi.fn(async () => pickerResult)
     let exposed: { name: string; api: Record<string, () => Promise<unknown>> } | undefined
     const contextBridge = {
       exposeInMainWorld: (name: string, api: Record<string, () => Promise<unknown>>) => {
@@ -31,7 +31,7 @@ describe("PawWork DSH file input preload", () => {
 
   test("does not swallow native picker failures", async () => {
     const failure = new Error("picker unavailable")
-    const invoke = mock(async () => {
+    const invoke = vi.fn(async () => {
       throw failure
     })
     let exposed: { api: Record<string, () => Promise<unknown>> } | undefined

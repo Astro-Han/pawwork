@@ -5,10 +5,10 @@ Download landing page for PawWork. Built with [Astro](https://astro.build/) (pla
 ## Develop
 
 ```sh
-bun install
-bun run dev      # http://localhost:4321
-bun run build    # outputs to dist/
-bun run preview  # serve the production build locally
+pnpm install
+pnpm dev      # http://localhost:4321
+pnpm build    # outputs to dist/
+pnpm preview  # serve the production build locally
 ```
 
 ## Structure

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 import { dshTitleBarOptions, dshWebPreferences } from "./window-options"
 
 describe("desktop windows security", () => {

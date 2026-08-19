@@ -52,10 +52,6 @@ export function companionBinaryNameForPlatform(platform: SupportedPlatform) {
   return platform === "win32" ? "uvx.exe" : "uvx"
 }
 
-export function runtimeBinaryPath(baseToolsDir: string, platform: SupportedPlatform) {
-  return path.join(baseToolsDir, binaryNameForPlatform(platform))
-}
-
 export function uvDownloadUrl(version: string, asset: string) {
   return `https://github.com/${uv.repo}/releases/download/${version}/${asset}`
 }

@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"

@@ -5,7 +5,7 @@
 Run this from `packages/desktop-electron` to generate the files consumed by electron-builder:
 
 ```bash
-bun ./scripts/generate-icons.ts prod
+pnpm exec tsx ./scripts/generate-icons.ts prod
 ```
 
 The script writes the macOS and Windows assets consumed by electron-builder to `resources/icons/`, including `icon.icns`, `icon.ico`, shared PNGs, and Windows tile PNGs. It generates both `.icns` and `.ico` directly from PNG buffers, so the icon pipeline does not depend on native icon conversion tools. `resources/icons/` is a build artifact and is ignored by git.

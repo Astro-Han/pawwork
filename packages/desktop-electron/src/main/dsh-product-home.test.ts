@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "vitest"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { load } from "js-yaml"
 import {
   buildDshEnvironment,
   prepareDshProductHome,
@@ -27,8 +28,8 @@ function installedOpenCodeFreeModels() {
   const dshPackage = require.resolve("@deepseek-ai/dsh/package.json")
   const webAppPackage = createRequire(dshPackage).resolve("@deepseek-ai/dsh-web-app/package.json")
   const adapterPackage = createRequire(webAppPackage).resolve("@deepseek-ai/dsh-llm-pi-ai/package.json")
-  const piAiPackage = createRequire(adapterPackage).resolve("@earendil-works/pi-ai/package.json")
-  const catalog = JSON.parse(readFileSync(join(dirname(piAiPackage), "dist/providers/data/opencode.json"), "utf8"))
+  const piAiRoot = join(dirname(adapterPackage), "..", "..", "@earendil-works", "pi-ai")
+  const catalog = JSON.parse(readFileSync(join(piAiRoot, "dist/providers/data/opencode.json"), "utf8"))
 
   return Object.values(catalog)
     .flatMap((models) => Object.values(models as Record<string, { id: string; cost?: { input?: number } }>))
@@ -80,7 +81,7 @@ describe("DSH product home", () => {
 
   test("installs the product overlay without replacing an existing credential", () => {
     const productHome = temporaryDirectory()
-    const resources = join(import.meta.dir, "../../resources/dsh")
+    const resources = join(import.meta.dirname, "../../resources/dsh")
     const credentials = join(productHome, ".credentials.yaml")
     writeFileSync(credentials, 'DEEPSEEK_API_KEY: "user-key"\n')
 
@@ -97,7 +98,7 @@ describe("DSH product home", () => {
 
   test("creates the public free-model credential for a fresh product home", () => {
     const productHome = join(temporaryDirectory(), "fresh")
-    const resources = join(import.meta.dir, "../../resources/dsh")
+    const resources = join(import.meta.dirname, "../../resources/dsh")
 
     prepareDshProductHome({ productHome, resources })
 
@@ -105,8 +106,8 @@ describe("DSH product home", () => {
   })
 
   test("publishes the installed zero-cost OpenCode catalog as OpenCode Free", () => {
-    const resources = join(import.meta.dir, "../../resources/dsh")
-    const patch = Bun.YAML.parse(readFileSync(join(resources, "home/product.cordis.patch.yml"), "utf8")) as Array<{
+    const resources = join(import.meta.dirname, "../../resources/dsh")
+    const patch = load(readFileSync(join(resources, "home/product.cordis.patch.yml"), "utf8")) as Array<{
       id?: string
       config?: Record<string, unknown>
     }>
@@ -126,8 +127,8 @@ describe("DSH product home", () => {
   })
 
   test("does not publish the bundled paid DeepSeek route", () => {
-    const resources = join(import.meta.dir, "../../resources/dsh")
-    const patch = Bun.YAML.parse(readFileSync(join(resources, "home/product.cordis.patch.yml"), "utf8")) as Array<{
+    const resources = join(import.meta.dirname, "../../resources/dsh")
+    const patch = load(readFileSync(join(resources, "home/product.cordis.patch.yml"), "utf8")) as Array<{
       id?: string
       disabled?: boolean
     }>

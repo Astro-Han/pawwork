@@ -1,5 +1,4 @@
-import { describe, expect, test } from "bun:test"
-import path from "node:path"
+import { describe, expect, test } from "vitest"
 
 import manifest from "../bundled-tools.json"
 import {
@@ -8,7 +7,6 @@ import {
   companionBinaryNameForPlatform,
   pinnedSha256ForTarget,
   powershellExpandArchiveArgs,
-  runtimeBinaryPath,
   sha256,
   uvDownloadUrl,
   uvVersionMatches,
@@ -68,12 +66,6 @@ describe("prepare-uv manifest helpers", () => {
   test("matches the exact uv version token", () => {
     expect(uvVersionMatches("uv 0.11.28 (ebf0f43d7 2026-07-07)\n", "0.11.28")).toBe(true)
     expect(uvVersionMatches("uv 0.11.280 (ebf0f43d7 2026-07-07)\n", "0.11.28")).toBe(false)
-  })
-
-  test("resolves runtime binary paths under the tools directory", () => {
-    expect(runtimeBinaryPath("/repo/packages/desktop-electron/resources/tools", "win32")).toBe(
-      path.join("/repo/packages/desktop-electron/resources/tools", "uv.exe"),
-    )
   })
 
   test("escapes apostrophes in Windows paths used as PowerShell literals", () => {

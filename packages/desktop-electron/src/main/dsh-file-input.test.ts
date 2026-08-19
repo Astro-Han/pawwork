@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 import { pickConversationFiles } from "./dsh-file-input"
 
 describe("PawWork DSH file input", () => {

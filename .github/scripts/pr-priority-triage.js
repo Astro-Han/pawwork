@@ -17,7 +17,7 @@ const USER_PATH_GLOBS = [
   "packages/desktop-electron/src/**",
   "packages/desktop-electron/resources/dsh/**",
 ]
-const RELEASE_BUMP_GLOBS = ["packages/desktop-electron/package.json", "bun.lock"]
+const RELEASE_BUMP_GLOBS = ["packages/desktop-electron/package.json", "pnpm-lock.yaml"]
 const RELEASE_BUMP_REQUIRED_PATH = "packages/desktop-electron/package.json"
 
 function escapeRegex(value) {

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 import { pendingUpdateCacheDir, UPDATER_CACHE_DIR_NAME } from "./updater-cache"
 
 describe("updater cache path", () => {

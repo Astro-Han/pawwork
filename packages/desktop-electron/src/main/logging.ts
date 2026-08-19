@@ -3,7 +3,6 @@ import { readdirSync, statSync, unlinkSync } from "node:fs"
 import { dirname, join } from "node:path"
 
 const MAX_LOG_AGE_DAYS = 7
-const CONSOLE_TRANSPORT_INITIALIZED = Symbol.for("pawwork.consoleTransportInitialized")
 
 export function initLogging() {
   log.transports.file.maxSize = 5 * 1024 * 1024
@@ -12,12 +11,8 @@ export function initLogging() {
   return log
 }
 
-export function filePath() {
-  return log.transports.file.getFile().path
-}
-
 function cleanup() {
-  const path = filePath()
+  const path = log.transports.file.getFile().path
   const dir = dirname(path)
   const cutoff = Date.now() - MAX_LOG_AGE_DAYS * 24 * 60 * 60 * 1000
 
@@ -34,12 +29,7 @@ function cleanup() {
 }
 
 function initConsoleTransport() {
-  const transport = log.transports.console as typeof log.transports.console & {
-    [CONSOLE_TRANSPORT_INITIALIZED]?: boolean
-  }
-  if (transport[CONSOLE_TRANSPORT_INITIALIZED]) return
-  transport[CONSOLE_TRANSPORT_INITIALIZED] = true
-
+  const transport = log.transports.console
   const write = transport.writeFn.bind(transport)
   transport.writeFn = (options) => {
     try {

@@ -172,7 +172,6 @@ export function createUpdateFeed(deps: Deps) {
   return {
     check,
     download,
-    activeFeed: () => activeLabel,
   }
 }
 

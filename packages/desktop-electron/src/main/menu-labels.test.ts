@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 import { detectSystemMenuLocale, menuLabel } from "./menu-labels"
 
 describe("menu labels", () => {

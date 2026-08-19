@@ -87,13 +87,13 @@ Codex App 和 Claude Cowork 的开源替代方案。自带免费额度，也支�
 
 ## 从源码运行
 
-需要 [Bun](https://bun.sh) v1.2+。
+需要 Node.js 24 和 pnpm 11.7。
 
 ```bash
 git clone https://github.com/Astro-Han/pawwork.git
 cd pawwork
-bun install
-bun run dev:desktop
+pnpm install
+pnpm dev:desktop
 ```
 
 ## 运行时与致谢

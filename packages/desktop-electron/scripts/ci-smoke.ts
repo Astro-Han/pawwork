@@ -8,6 +8,7 @@ import { join, resolve } from "node:path"
 import process from "node:process"
 import readline from "node:readline"
 const require = createRequire(import.meta.url)
+const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
 export type SmokeChannel = "dev" | "beta" | "prod"
 export type SmokeMode = "raw" | "packaged"
@@ -91,7 +92,7 @@ export function parseSmokeArgs(argv: string[]): SmokeTarget {
 }
 
 export function resolveMainEntry() {
-  return resolve(import.meta.dir, "../out/main/index.js")
+  return resolve(import.meta.dirname, "../out/main/index.js")
 }
 
 export function buildSmokeEnv(
@@ -170,7 +171,7 @@ export async function probeCiSmokeCdpTarget(port: number, options: ProbeOptions 
   const attempts = options.attempts ?? 50
   const delayMs = options.delayMs ?? 200
   const fetcher = options.fetch ?? fetch
-  const sleep = options.sleep ?? Bun.sleep
+  const sleep = options.sleep ?? sleep
   const url = `http://127.0.0.1:${port}/json/list`
   let lastConnectionError: string | undefined
 
@@ -417,7 +418,7 @@ async function waitForCiSmokeReady(
       throw new Error(`Electron exited before reporting CI smoke readiness${tail}`)
     }
 
-    await Bun.sleep(250)
+    await sleep(250)
   }
 
   const tail = recent.length ? `\nRecent app output:\n${recent.join("\n")}` : ""
@@ -438,7 +439,7 @@ function launchApp(homeDir: string, target: SmokeTarget, options: LaunchAppOptio
     return { child, spawnError }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`Failed to launch desktop app: ${message}`)
+    throw new Error(`Failed to launch desktop app: ${launch.command}: ${message}`)
   }
 }
 
@@ -446,7 +447,7 @@ async function stopChild(child: ChildProcessWithoutNullStreams) {
   if (child.exitCode !== null || child.signalCode !== null) return
 
   child.kill("SIGTERM")
-  const result = await Promise.race([once(child, "exit").then(() => "exit"), Bun.sleep(5_000).then(() => "timeout")])
+  const result = await Promise.race([once(child, "exit").then(() => "exit"), sleep(5_000).then(() => "timeout")])
 
   if (result === "timeout" && child.exitCode === null && child.signalCode === null) {
     child.kill("SIGKILL")
@@ -455,7 +456,7 @@ async function stopChild(child: ChildProcessWithoutNullStreams) {
 }
 
 async function main() {
-  const target = parseSmokeArgs(Bun.argv.slice(2))
+  const target = parseSmokeArgs(process.argv.slice(2))
   const homeDir = mkdtempSync(join(tmpdir(), "pawwork-ci-smoke-"))
   const dshHome = join(homeDir, appIdForSmoke(target.channel, target.mode), "dsh")
   mkdirSync(dshHome, { recursive: true })

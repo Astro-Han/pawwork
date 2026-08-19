@@ -42,13 +42,13 @@ AI coding agents should use the same public contribution contract as human contr
 PawWork uses Bun and requires Node 24 in CI.
 
 ```bash
-bun install --frozen-lockfile
+pnpm install --frozen-lockfile
 ```
 
 For local development:
 
 ```bash
-bun run dev:desktop
+pnpm dev:desktop
 ```
 
 ## Branches and Commits
@@ -62,9 +62,9 @@ bun run dev:desktop
 Run the checks relevant to your change before opening a pull request:
 
 ```bash
-bun run typecheck
-bun run lint
-bun run --cwd packages/desktop-electron test
+pnpm typecheck
+pnpm lint
+pnpm --filter @pawwork/desktop test
 ```
 
 If your change affects the desktop app or UI, also do a quick manual check in the app and include screenshots or a short recording in the pull request.

@@ -4,26 +4,14 @@
   "description": "Desktop AI workstation for knowledge workers",
   "private": true,
   "type": "module",
-  "packageManager": "bun@1.3.14",
+  "packageManager": "pnpm@11.7.0",
   "scripts": {
-    "dev": "bun run dev:desktop",
-    "dev:desktop": "bun --cwd packages/desktop-electron dev",
-    "typecheck": "bun --cwd packages/desktop-electron typecheck",
+    "dev": "pnpm run dev:desktop",
+    "dev:desktop": "pnpm --filter @pawwork/desktop dev",
+    "typecheck": "pnpm --filter @pawwork/desktop typecheck",
     "lint": "eslint \"packages/desktop-electron/src/**/*.ts\"",
-    "lint:ci": "bun run lint",
-    "test": "echo 'do not run tests from root' && exit 1"
-  },
-  "workspaces": {
-    "packages": [
-      "packages/desktop-electron"
-    ],
-    "catalog": {
-      "@types/bun": "1.3.13",
-      "@types/node": "22.13.9",
-      "@types/semver": "7.7.1",
-      "@typescript/native-preview": "7.0.0-dev.20251207.1",
-      "vite": "7.3.5"
-    }
+    "lint:ci": "pnpm run lint",
+    "test": "pnpm --filter @pawwork/desktop test && node --test .github/scripts/label-policy-check.test.js"
   },
   "devDependencies": {
     "eslint": "^9.39.4",
@@ -33,29 +21,5 @@
     "type": "git",
     "url": "https://github.com/Astro-Han/pawwork"
   },
-  "license": "Apache-2.0",
-  "trustedDependencies": [
-    "esbuild",
-    "electron"
-  ],
-  "overrides": {
-    "@types/bun": "catalog:",
-    "@types/node": "catalog:",
-    "brace-expansion": "5.0.9",
-    "@xmldom/xmldom": "0.8.13",
-    "fast-uri": "3.1.5",
-    "form-data": "4.0.6",
-    "esbuild": "0.28.1",
-    "lodash": "4.18.1",
-    "ip-address": "10.3.1",
-    "js-yaml": "4.3.1",
-    "nanoid": "3.3.18",
-    "postcss": "8.5.23",
-    "tar": "7.5.21",
-    "ws": "8.21.0",
-    "tmp": "0.2.7"
-  },
-  "patchedDependencies": {
-    "brace-expansion@5.0.9": "patches/brace-expansion@5.0.9.patch"
-  }
+  "license": "Apache-2.0"
 }

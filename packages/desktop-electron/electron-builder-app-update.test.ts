@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "vitest"
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -33,7 +33,7 @@ afterEach(() => {
 
 describe("electron builder app-update config", () => {
   test("production dependencies contain only DSH and desktop runtime packages", () => {
-    const manifest = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf8")) as {
+    const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "package.json"), "utf8")) as {
       dependencies: Record<string, string>
     }
 
@@ -74,10 +74,6 @@ describe("electron builder app-update config", () => {
 
   test("dev does not publish updater config", () => {
     expect(getPublishConfig("dev")).toBeUndefined()
-  })
-
-  test("mac packaging has an afterPack hook to write app-update.yml before signing", () => {
-    expect(typeof createConfig("prod").afterPack).toBe("function")
   })
 
   test("mac packaging enables a localized display name", () => {

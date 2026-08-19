@@ -1,8 +1,8 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
-const script = readFileSync(join(import.meta.dir, "resources", "installer.nsh"), "utf8")
+const script = readFileSync(join(import.meta.dirname, "resources", "installer.nsh"), "utf8")
 
 describe("windows nsis desktop shortcut customization", () => {
   test("adds an assisted installer checkbox with English and Chinese labels", () => {

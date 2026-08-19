@@ -293,7 +293,7 @@ async function main() {
     const tag = process.argv[2]
     if (!tag) {
       console.error(
-        "Usage: bun packages/desktop-electron/scripts/verify-release.ts <tag> [owner/repo]",
+        "Usage: pnpm --filter @pawwork/desktop exec tsx scripts/verify-release.ts <tag> [owner/repo]",
       )
       process.exit(2)
     }

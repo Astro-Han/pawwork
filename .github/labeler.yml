@@ -4,7 +4,7 @@ ci:
           - ".github/workflows/**"
           - ".github/**"
           - "package.json"
-          - "bun.lock"
+          - "pnpm-lock.yaml"
 
 platform:
   - changed-files:

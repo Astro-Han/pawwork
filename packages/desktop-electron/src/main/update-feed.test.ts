@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 import { createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./update-feed"
 
 const R2 = r2Feed("https://dl.pawwork.ai", "latest", "latest-mac.yml")
@@ -49,7 +49,6 @@ describe("update feed selection", () => {
     expect(setup.calls.probe).toEqual(["https://dl.pawwork.ai/latest-mac.yml"])
     expect(setup.calls.setFeedURL).toEqual(["r2"])
     expect(setup.calls.check).toBe(1)
-    expect(setup.feed.activeFeed()).toBe("r2")
   })
 
   test("falls back to GitHub when the R2 probe reports unreachable", async () => {
@@ -57,7 +56,6 @@ describe("update feed selection", () => {
     await expect(setup.feed.check()).resolves.toEqual(available("0.2.5"))
     expect(setup.calls.setFeedURL).toEqual(["github"])
     expect(setup.calls.check).toBe(1)
-    expect(setup.feed.activeFeed()).toBe("github")
   })
 
   test("falls back to GitHub when the R2 probe throws", async () => {
@@ -68,7 +66,6 @@ describe("update feed selection", () => {
     })
     await expect(setup.feed.check()).resolves.toEqual(available("0.2.5"))
     expect(setup.calls.setFeedURL).toEqual(["github"])
-    expect(setup.feed.activeFeed()).toBe("github")
   })
 
   test("aborts a hanging R2 probe on timeout, then falls back to GitHub with a single check", async () => {
@@ -90,7 +87,6 @@ describe("update feed selection", () => {
     // The load-bearing assertion (#219 P1): only one real electron-updater check
     // ever runs, bound to the fallback feed — no abandoned R2 check can rebind it.
     expect(setup.calls.check).toBe(1)
-    expect(setup.feed.activeFeed()).toBe("github")
   })
 
   test("beta (single GitHub feed) selects GitHub without probing", async () => {
@@ -98,7 +94,6 @@ describe("update feed selection", () => {
     await expect(setup.feed.check()).resolves.toEqual(available("0.2.5"))
     expect(setup.calls.probe).toEqual([])
     expect(setup.calls.setFeedURL).toEqual(["github"])
-    expect(setup.feed.activeFeed()).toBe("github")
   })
 
   test("falls back to GitHub when R2 probe succeeds but R2 check rejects", async () => {
@@ -113,7 +108,6 @@ describe("update feed selection", () => {
     await expect(setup.feed.check()).resolves.toEqual(available("0.2.5"))
     expect(setup.calls.setFeedURL).toEqual(["r2", "github"])
     expect(checkCount).toBe(2)
-    expect(setup.feed.activeFeed()).toBe("github")
   })
 
   test("throws when R2 probe succeeds, R2 check rejects, and GitHub check also rejects", async () => {
@@ -132,7 +126,6 @@ describe("update feed download", () => {
     await setup.feed.check()
     await setup.feed.download()
     expect(setup.calls.download).toBe(1)
-    expect(setup.feed.activeFeed()).toBe("r2")
   })
 
   test("retries the download on GitHub when the R2 download fails and versions match", async () => {
@@ -146,7 +139,6 @@ describe("update feed download", () => {
     await setup.feed.download()
     expect(setup.calls.download).toBe(2)
     expect(setup.calls.setFeedURL).toEqual(["r2", "github"]) // re-point before retry
-    expect(setup.feed.activeFeed()).toBe("github")
   })
 
   test("fails closed when the GitHub fallback offers a different version", async () => {

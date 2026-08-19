@@ -25,21 +25,20 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.3.14"
+      - name: Enable pnpm
+        run: corepack enable
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
       - name: Prepare bundled uv
-        run: bun ./scripts/prepare-uv.ts --platform darwin --arch arm64
+        run: pnpm exec tsx ./scripts/prepare-uv.ts --platform darwin --arch arm64
         working-directory: packages/desktop-electron
       - name: Build desktop
-        run: bun run build
+        run: pnpm run build
         working-directory: packages/desktop-electron
         env:
           OPENCODE_CHANNEL: dev
       - name: Smoke development desktop through CDP
-        run: bun run smoke:ci
+        run: pnpm run smoke:ci
         working-directory: packages/desktop-electron
         env:
           PAWWORK_CI_SMOKE_CDP: "true"
@@ -50,7 +49,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
           OPENCODE_CHANNEL: dev
       - name: Smoke packaged macOS app through CDP
-        run: bun ./scripts/ci-smoke.ts packaged dev "dist/mac-arm64/PawWork Dev.app/Contents/MacOS/PawWork Dev"
+        run: pnpm exec tsx ./scripts/ci-smoke.ts packaged dev "dist/mac-arm64/PawWork Dev.app/Contents/MacOS/PawWork Dev"
         working-directory: packages/desktop-electron
         env:
           PAWWORK_CI_SMOKE_CDP: "true"
@@ -68,16 +67,15 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.3.14"
+      - name: Enable pnpm
+        run: corepack enable
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
       - name: Prepare bundled uv
-        run: bun ./scripts/prepare-uv.ts --platform win32 --arch x64
+        run: pnpm exec tsx ./scripts/prepare-uv.ts --platform win32 --arch x64
         working-directory: packages/desktop-electron
       - name: Build desktop
-        run: bun run build
+        run: pnpm run build
         working-directory: packages/desktop-electron
         env:
           OPENCODE_CHANNEL: dev
@@ -88,7 +86,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
           OPENCODE_CHANNEL: dev
       - name: Smoke packaged Windows app through CDP
-        run: bun ./scripts/ci-smoke.ts packaged dev "dist/win-unpacked/PawWork Dev.exe"
+        run: pnpm exec tsx ./scripts/ci-smoke.ts packaged dev "dist/win-unpacked/PawWork Dev.exe"
         working-directory: packages/desktop-electron
         env:
           PAWWORK_CI_SMOKE_CDP: "true"

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 
 import { decidePublishAction, type ProvenanceMarker } from "./publish-when-complete"
 import { releaseProvenanceAssetNames, type GithubRelease } from "./verify-release"

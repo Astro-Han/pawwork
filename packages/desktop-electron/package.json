@@ -11,17 +11,17 @@
   "scripts": {
     "typecheck": "tsgo -b",
     "typecheck:release": "tsgo -p tsconfig.release.json",
-    "test": "bun test && bun run test:node",
-    "test:node": "node --test resources/dsh/home/plugins/import-v1/import-v1.node-test.cjs resources/dsh/home/plugins/import-v1/import-v1-automations.node-test.cjs",
-    "smoke:ci": "bun ./scripts/ci-smoke.ts",
-    "predev": "bun ./scripts/predev.ts",
+    "test": "vitest run && pnpm run test:node",
+    "test:node": "node --test resources/dsh/home/plugins/automations/automation-cron.test.cjs resources/dsh/home/plugins/automations/automations.test.cjs resources/dsh/home/plugins/import-v1/import-v1-automations.node-test.cjs resources/dsh/home/plugins/import-v1/import-v1-settings.test.cjs resources/dsh/home/plugins/import-v1/import-v1.node-test.cjs resources/dsh/zen-identity.test.cjs",
+    "smoke:ci": "tsx ./scripts/ci-smoke.ts",
+    "predev": "tsx ./scripts/generate-icons.ts",
     "dev": "electron-vite dev",
-    "prebuild": "bun ./scripts/prebuild.ts",
+    "prebuild": "tsx ./scripts/generate-icons.ts",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "package": "bun ./scripts/prepare-uv.ts && bun run build && electron-builder --config electron-builder.config.ts",
-    "package:mac": "bun ./scripts/prepare-uv.ts --platform darwin && bun run build && electron-builder --mac --config.mac.notarize=false --config electron-builder.config.ts",
-    "package:win": "bun ./scripts/prepare-uv.ts --platform win32 --arch x64 && bun run build && electron-builder --win --config electron-builder.config.ts"
+    "package": "tsx ./scripts/prepare-uv.ts && pnpm run build && electron-builder --config electron-builder.config.ts",
+    "package:mac": "tsx ./scripts/prepare-uv.ts --platform darwin && pnpm run build && electron-builder --mac --config.mac.notarize=false --config electron-builder.config.ts",
+    "package:win": "tsx ./scripts/prepare-uv.ts --platform win32 --arch x64 && pnpm run build && electron-builder --win --config electron-builder.config.ts"
   },
   "main": "./out/main/index.js",
   "dependencies": {
@@ -52,15 +52,18 @@
     "semver": "^7.6.0"
   },
   "devDependencies": {
-    "@types/bun": "catalog:",
-    "@types/node": "catalog:",
-    "@types/semver": "catalog:",
-    "@typescript/native-preview": "catalog:",
+    "@types/js-yaml": "4.0.9",
+    "@types/node": "22.13.9",
+    "@types/semver": "7.7.1",
+    "@typescript/native-preview": "7.0.0-dev.20251207.1",
     "electron": "41.10.3",
     "electron-builder": "26.15.3",
     "electron-vite": "^5",
+    "js-yaml": "5.3.0",
     "sharp": "0.35.3",
+    "tsx": "4.23.12",
     "typescript": "~5.6.2",
-    "vite": "catalog:"
+    "vite": "7.3.5",
+    "vitest": "4.1.11"
   }
 }

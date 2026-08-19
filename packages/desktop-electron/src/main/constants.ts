@@ -4,13 +4,11 @@ type Channel = "dev" | "beta" | "prod"
 const raw = import.meta.env.OPENCODE_CHANNEL
 export const CHANNEL: Channel = raw === "dev" || raw === "beta" || raw === "prod" ? raw : "dev"
 
-export const UPDATER_ENABLED = app.isPackaged && CHANNEL !== "dev"
-
 // Opt-in dev switch to exercise the real updater feed (R2 + GitHub fallback)
-// against dl.pawwork.ai under `bun run dev:desktop`. Off unless explicitly set,
+// against dl.pawwork.ai under `pnpm dev:desktop`. Off unless explicitly set,
 // so normal dev runs never hit the network or forceDevUpdateConfig.
 export const DEV_UPDATER = !app.isPackaged && process.env.PAWWORK_DEV_UPDATER === "1"
-export const UPDATER_ACTIVE = UPDATER_ENABLED || DEV_UPDATER
+export const UPDATER_ACTIVE = (app.isPackaged && CHANNEL !== "dev") || DEV_UPDATER
 
 // In-app update feed (#219). Prod releases are mirrored to Cloudflare R2 for
 // mainland China reach; GitHub is the global fallback. Beta has no R2 mirror.

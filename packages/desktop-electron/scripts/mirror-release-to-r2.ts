@@ -8,7 +8,7 @@
 // than a half-mirrored one. Run AFTER verify-release.ts has confirmed the
 // release is complete.
 //
-// Usage: bun packages/desktop-electron/scripts/mirror-release-to-r2.ts <tag> [owner/repo]
+// Usage: pnpm --filter @pawwork/desktop exec tsx scripts/mirror-release-to-r2.ts <tag> [owner/repo]
 // Env:
 //   R2_ACCOUNT_ID            Cloudflare account id (S3 endpoint host)
 //   R2_BUCKET                target bucket, e.g. pawwork-downloads
@@ -17,9 +17,11 @@
 //   AWS_SECRET_ACCESS_KEY    R2 token secret
 //   GH_TOKEN                 GitHub token for `gh release download`
 
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { promisify } from "node:util"
 import { parseUpdaterFileUrls, releaseAssetNames } from "./verify-release.ts"
 
 const POINTER_YMLS = ["latest.yml", "latest-mac.yml"] as const
@@ -28,6 +30,7 @@ const MUTABLE_POINTERS = new Set(["latest.yml", "latest-mac.yml"])
 const IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
 const POINTER_CACHE = "no-cache, must-revalidate"
 const MANIFEST_NAME = "latest.json"
+const execFileAsync = promisify(execFile)
 
 export type UploadStep = { name: string; cacheControl: string; manifest?: boolean }
 
@@ -89,20 +92,14 @@ function requireEnv(key: string): string {
 }
 
 async function run(cmd: string[]): Promise<string> {
-  const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" })
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ])
-  if (code !== 0) throw new Error(`Command failed (${code}): ${cmd.join(" ")}\n${stderr}`)
+  const { stdout } = await execFileAsync(cmd[0], cmd.slice(1))
   return stdout
 }
 
 async function main() {
   const tag = process.argv[2]
   if (!tag) {
-    console.error("Usage: bun packages/desktop-electron/scripts/mirror-release-to-r2.ts <tag> [owner/repo]")
+    console.error("Usage: pnpm --filter @pawwork/desktop exec tsx scripts/mirror-release-to-r2.ts <tag> [owner/repo]")
     process.exit(1)
   }
   const repo = process.argv[3] ?? "Astro-Han/pawwork"
@@ -149,7 +146,7 @@ async function mirror({ assets, tag, repo, dir, bucket, endpoint, publicBase, ve
   // the generic R2 feed must be able to resolve every file the yml lists.
   const mirrored = new Set(assets)
   for (const pointer of POINTER_YMLS) {
-    const referenced = pointerReferencedAssets(await Bun.file(join(dir, pointer)).text())
+    const referenced = pointerReferencedAssets(await readFile(join(dir, pointer), "utf8"))
     const missingRefs = missingPointerReferences(referenced, mirrored)
     if (missingRefs.length) {
       throw new Error(`${pointer} references assets not mirrored to R2: ${missingRefs.join(", ")}`)
@@ -179,7 +176,7 @@ async function mirror({ assets, tag, repo, dir, bucket, endpoint, publicBase, ve
   // last). The manifest is generated just before its upload.
   for (const step of uploadPlan(assets)) {
     if (step.manifest) {
-      await Bun.write(join(dir, step.name), JSON.stringify(buildManifest(version, publicBase), null, 2))
+      await writeFile(join(dir, step.name), JSON.stringify(buildManifest(version, publicBase), null, 2))
     }
     await upload(step.name, step.cacheControl)
   }

@@ -215,7 +215,7 @@ const LICENSE_URL = `${REPO_URL}/blob/dev/LICENSE`;
   </div>
 </footer>
 
-<script define:vars={{ DOWNLOAD_MANIFEST_URL }}>
+<script is:inline define:vars={{ DOWNLOAD_MANIFEST_URL }}>
   const root = document.documentElement;
 
   document.getElementById("tg")?.addEventListener("click", () => {

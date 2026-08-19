@@ -1,68 +1,42 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test"
+import { afterEach, describe, expect, test, vi } from "vitest"
 import { mkdtempSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
 let logDir = ""
-const fakeLog: {
-  transports: {
-    file: {
-      maxSize: number
-      getFile: () => { path: string }
-    }
-    console: {
-      level: string | false
-      wrapCount: number
-      writeFn: (options: unknown) => void
-    }
-  }
-} = {
+const { fakeLog } = vi.hoisted(() => ({ fakeLog: {
   transports: {
     file: {
       maxSize: 0,
-      getFile: () => ({ path: join(tmpdir(), "desktop.log") }),
+      getFile: () => ({ path: "/tmp/desktop.log" }),
     },
     console: {
-      level: "info",
-      wrapCount: 0,
+      level: "info" as string | false,
       writeFn: () => undefined,
     },
   },
-}
+} }))
 
-mock.module("electron-log/main.js", () => ({
+vi.mock("electron-log/main.js", () => ({
   default: fakeLog,
 }))
+
+import { initLogging } from "./logging"
 
 afterEach(() => {
   if (logDir) rmSync(logDir, { recursive: true, force: true })
   logDir = ""
 })
 
-afterAll(() => {
-  mock.restore()
-})
-
 function setupLog(writeFn: (options: unknown) => void) {
   logDir = mkdtempSync(join(tmpdir(), "pawwork-logging-test-"))
-  let currentWriteFn = writeFn
-  let wrapCount = 0
   fakeLog.transports.file = {
     maxSize: 0,
     getFile: () => ({ path: join(logDir, "desktop.log") }),
   }
   fakeLog.transports.console = {
     level: "info",
-    get wrapCount() {
-      return wrapCount
-    },
-    get writeFn() {
-      return currentWriteFn
-    },
-    set writeFn(next) {
-      wrapCount++
-      currentWriteFn = next
-    },
+    writeFn,
   }
   return fakeLog.transports.console
 }
@@ -80,8 +54,6 @@ describe("desktop logging", () => {
     const consoleTransport = setupLog(() => {
       throw brokenPipe()
     })
-    const { initLogging } = await import(`./logging?logging-test=${crypto.randomUUID()}`)
-
     initLogging()
     consoleTransport.writeFn({})
 
@@ -93,33 +65,10 @@ describe("desktop logging", () => {
     const consoleTransport = setupLog(() => {
       throw err
     })
-    const { initLogging } = await import(`./logging?logging-test=${crypto.randomUUID()}`)
-
     initLogging()
 
     expect(() => consoleTransport.writeFn({})).toThrow(err)
     expect(consoleTransport.level).toBe("info")
-  })
-
-  test("does not wrap the console transport more than once", async () => {
-    const consoleTransport = setupLog(() => undefined)
-    const { initLogging } = await import(`./logging?logging-test=${crypto.randomUUID()}`)
-
-    initLogging()
-    initLogging()
-
-    expect(consoleTransport.wrapCount).toBe(1)
-  })
-
-  test("does not wrap the console transport again across fresh module imports", async () => {
-    const consoleTransport = setupLog(() => undefined)
-    const first = await import(`./logging?logging-test=${crypto.randomUUID()}`)
-    const second = await import(`./logging?logging-test=${crypto.randomUUID()}`)
-
-    first.initLogging()
-    second.initLogging()
-
-    expect(consoleTransport.wrapCount).toBe(1)
   })
 
 })

@@ -1,8 +1,9 @@
-#!/usr/bin/env bun
-
-import { $ } from "bun"
-import { mkdtemp } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { access, mkdtemp, readFile as readTextFile, writeFile } from "node:fs/promises"
 import path from "path"
+import { promisify } from "node:util"
+
+const execFileAsync = promisify(execFile)
 
 const dir = process.env.LATEST_YML_DIR!
 if (!dir) throw new Error("LATEST_YML_DIR is required")
@@ -72,15 +73,20 @@ function serialize(data: LatestYml) {
 }
 
 async function read(subdir: string, filename: string): Promise<LatestYml | undefined> {
-  const file = Bun.file(path.join(dir, subdir, filename))
-  if (!(await file.exists())) return undefined
-  return parse(await file.text())
+  return await readFile(path.join(dir, subdir, filename))
 }
 
 async function readFile(filepath: string): Promise<LatestYml | undefined> {
-  const file = Bun.file(filepath)
-  if (!(await file.exists())) return undefined
-  return parse(await file.text())
+  try {
+    await access(filepath)
+  } catch {
+    return undefined
+  }
+  return parse(await readTextFile(filepath, "utf8"))
+}
+
+async function gh(args: string[]) {
+  return await execFileAsync("gh", args)
 }
 
 function mergeLatest(...items: Array<LatestYml | undefined>): LatestYml | undefined {
@@ -137,7 +143,7 @@ async function downloadExisting(tag: string, filename: string) {
 
   const liveDir = await mkdtemp(path.join(tmp, "live-latest-yml-"))
   try {
-    await $`gh release download ${tag} --pattern ${filename} --dir ${liveDir} --repo ${repo} --clobber`.quiet()
+    await gh(["release", "download", tag, "--pattern", filename, "--dir", liveDir, "--repo", repo, "--clobber"])
   } catch (error) {
     const message = shellErrorText(error)
     if (isMissingAssetError(message)) return cached
@@ -157,8 +163,8 @@ async function downloadExisting(tag: string, filename: string) {
 async function assertReleaseIsDraft(releaseTag: string) {
   let isDraft: boolean
   try {
-    const out = await $`gh release view ${releaseTag} --json isDraft --jq .isDraft --repo ${repo}`.quiet().text()
-    isDraft = out.trim() === "true"
+    const { stdout } = await gh(["release", "view", releaseTag, "--json", "isDraft", "--jq", ".isDraft", "--repo", repo])
+    isDraft = stdout.trim() === "true"
   } catch (error) {
     const message = shellErrorText(error)
     if (/release not found|not found/i.test(message)) return
@@ -206,8 +212,8 @@ if (macX64 || macArm64) {
 await assertReleaseIsDraft(tag)
 for (const [filename, content] of Object.entries(output)) {
   const filepath = path.join(tmp, filename)
-  await Bun.write(filepath, content)
-  await $`gh release upload ${tag} ${filepath} --clobber --repo ${repo}`
+  await writeFile(filepath, content)
+  await gh(["release", "upload", tag, filepath, "--clobber", "--repo", repo])
   console.log(`uploaded ${filename}`)
 }
 
