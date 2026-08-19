@@ -16,6 +16,7 @@ export const inject = [
   'sessionPersistence',
   'sessionTitle',
   'settings',
+  'workspaceRegistry',
 ];
 
 function createAutomationModelResolver(ctx) {
@@ -58,25 +59,29 @@ async function createDshSessionImporter(ctx) {
   const persisted = new Set((await ctx.sessionPersistence.list()).map((header) => header.id));
   return async (imported) => {
     await importer.materializeLegacyImages(imported, (image) => ctx.attachments.saveImage(image));
+    let outcome = 'imported';
     if (persisted.has(imported.id)) {
       const inspection = await ctx.sessionPersistence.inspect(imported.id);
-      if (importedPrefixIsComplete(inspection.events, imported)) return 'skipped';
+      if (importedPrefixIsComplete(inspection.events, imported)) outcome = 'skipped';
     }
 
-    const session = ctx.sessions.prepare(imported.id, {
-      seed: imported.seed,
-      meta: imported.meta,
-    });
-    const detach = ctx.sessions.enter(session);
-    try {
-      ctx.sessions.announce(session);
-      ctx.sessionTitle.rename(session, imported.title);
-      await ctx.sessions.flush(session);
-      persisted.add(imported.id);
-      return 'imported';
-    } finally {
-      detach();
+    if (outcome === 'imported') {
+      const session = ctx.sessions.prepare(imported.id, {
+        seed: imported.seed,
+        meta: imported.meta,
+      });
+      const detach = ctx.sessions.enter(session);
+      try {
+        ctx.sessions.announce(session);
+        ctx.sessionTitle.rename(session, imported.title);
+        await ctx.sessions.flush(session);
+        persisted.add(imported.id);
+      } finally {
+        detach();
+      }
     }
+    const workspace = await importer.attachDshWorkspace(imported, ctx.workspaceRegistry);
+    return { session: outcome, workspace };
   };
 }
 

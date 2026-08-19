@@ -9,6 +9,7 @@ const { createRequire } = require('node:module');
 const { pathToFileURL } = require('node:url');
 const { DatabaseSync } = require('node:sqlite');
 const {
+  attachDshWorkspace,
   buildDshSession,
   createDatabaseSnapshot,
   discoverV1Database,
@@ -537,6 +538,41 @@ test('materializes v1 data images through the official DSH attachment store', as
   assert.equal(imported.seed[0].data.content[1].type, 'pawwork-v1-attachment');
 });
 
+test('attaches an imported session through the official DSH workspace registry', async () => {
+  const attached = [];
+  const created = [];
+  const workspaceRegistry = {
+    create: async (directory) => {
+      created.push(directory);
+      return {
+        attachSession: async (sessionId) => attached.push(sessionId),
+      };
+    },
+  };
+
+  await attachDshWorkspace({
+    id: 'pawwork-v1-ses_parent',
+    meta: { cwd: '/Users/alice/worktree' },
+  }, workspaceRegistry);
+
+  assert.deepEqual(created, ['/Users/alice/worktree']);
+  assert.deepEqual(attached, ['pawwork-v1-ses_parent']);
+});
+
+test('records a removed v1 directory as unavailable instead of retrying forever', async () => {
+  const missing = Object.assign(new Error('directory no longer exists'), { code: 'ENOENT' });
+  const workspaceRegistry = {
+    create: async () => { throw missing; },
+  };
+
+  const result = await attachDshWorkspace({
+    id: 'pawwork-v1-ses_removed',
+    meta: { cwd: '/Users/alice/removed-worktree' },
+  }, workspaceRegistry);
+
+  assert.equal(result, 'unavailable');
+});
+
 test('records an idempotent ledger and does no work after a complete session import', async () => {
   const root = temporaryDirectory();
   const source = path.join(root, 'pawwork.db');
@@ -575,6 +611,60 @@ test('records an idempotent ledger and does no work after a complete session imp
     },
   });
   assert.deepEqual(second, first);
+});
+
+test('finishes both migration stages when no v1 database exists', async () => {
+  const home = path.join(temporaryDirectory(), 'v2-home');
+  const result = await runV1SessionImport({
+    home,
+    sourceDatabase: null,
+    importSession: async () => { throw new Error('no session should be imported'); },
+  });
+
+  assert.equal(result.status, 'not-found');
+  const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+  assert.equal(ledger.stage1Complete, true);
+  assert.equal(ledger.workspaceStageComplete, true);
+});
+
+test('repairs workspace ownership recorded by a pre-workspace migration ledger', async () => {
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  createV1Fixture(source);
+  fs.mkdirSync(path.join(home, 'import-v1'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({
+    schema: 1,
+    sourceDatabase: source,
+    stage1Complete: true,
+    sessions: {
+      ses_parent: { status: 'complete', targetId: 'pawwork-v1-ses_parent' },
+      ses_child: { status: 'complete', targetId: 'pawwork-v1-ses_child' },
+    },
+  }));
+
+  const repaired = [];
+  const result = await runV1SessionImport({
+    home,
+    sourceDatabase: source,
+    importSession: async (session) => {
+      repaired.push(session.id);
+      return {
+        session: 'skipped',
+        workspace: session.id === 'pawwork-v1-ses_child' ? 'unavailable' : 'attached',
+      };
+    },
+  });
+
+  assert.deepEqual(repaired, ['pawwork-v1-ses_parent', 'pawwork-v1-ses_child']);
+  assert.equal(result.status, 'complete');
+  assert.deepEqual(result.sessions, { imported: 0, skipped: 2, failed: 0 });
+  assert.deepEqual(result.workspaces, { attached: 1, unavailable: 1, failed: 0 });
+  const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+  assert.equal(ledger.workspaceStageComplete, true);
+  assert.equal(ledger.sessions.ses_parent.workspaceAttached, true);
+  assert.equal(ledger.sessions.ses_child.workspaceAttached, false);
+  assert.equal(ledger.sessions.ses_child.workspaceUnavailable, true);
 });
 
 test('resumes after a per-session failure without duplicating completed sessions', async () => {

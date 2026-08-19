@@ -332,6 +332,17 @@ function buildDshSession(session) {
   };
 }
 
+async function attachDshWorkspace(imported, workspaceRegistry) {
+  try {
+    const workspace = await workspaceRegistry.create(imported.meta.cwd);
+    await workspace.attachSession(imported.id);
+    return 'attached';
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return 'unavailable';
+    throw error;
+  }
+}
+
 async function materializeLegacyImages(imported, saveImage) {
   for (const event of imported.seed) {
     const content = event.type === 'user/message'
@@ -380,6 +391,7 @@ function emptyResult(sourceDatabase, status) {
     sourceDatabase,
     status,
     sessions: { imported: 0, skipped: 0, failed: 0 },
+    workspaces: { attached: 0, unavailable: 0, failed: 0 },
     parts: { total: 0, skipped: 0, unsupported: 0 },
     errors: [],
   };
@@ -404,7 +416,9 @@ async function runV1SessionImport({
   });
   if (ledger.schema !== 1) throw new Error(`unsupported v1 migration ledger schema: ${ledger.schema}`);
   ledger.sessions ||= {};
-  if (ledger.stage1Complete) return readJson(resultPath, emptyResult(ledger.sourceDatabase, 'complete'));
+  if (ledger.stage1Complete && ledger.workspaceStageComplete) {
+    return readJson(resultPath, emptyResult(ledger.sourceDatabase, 'complete'));
+  }
   if (ledger.sourceDatabase && sourceDatabase && ledger.sourceDatabase !== sourceDatabase) {
     throw new Error(`v1 migration source changed from ${ledger.sourceDatabase} to ${sourceDatabase}`);
   }
@@ -413,6 +427,7 @@ async function runV1SessionImport({
     writeJsonAtomically(resultPath, result);
     ledger.sourceDatabase = null;
     ledger.stage1Complete = true;
+    ledger.workspaceStageComplete = true;
     writeJsonAtomically(ledgerPath, ledger);
     return result;
   }
@@ -427,8 +442,11 @@ async function runV1SessionImport({
     for await (const sourceSession of readV1Sessions(snapshot)) {
       signal?.throwIfAborted();
       const imported = buildDshSession(sourceSession);
-      if (ledger.sessions[sourceSession.id]?.status === 'complete') {
-        const stats = ledger.sessions[sourceSession.id].stats || imported.stats;
+      const previous = ledger.sessions[sourceSession.id];
+      const alreadyImported = previous?.status === 'complete';
+      if (alreadyImported && (previous.workspaceAttached === true || previous.workspaceUnavailable === true)) {
+        const stats = previous.stats || imported.stats;
+        result.workspaces[previous.workspaceAttached ? 'attached' : 'unavailable'] += 1;
         result.parts.total += stats.parts;
         result.parts.skipped += stats.skippedParts;
         result.parts.unsupported += stats.unsupportedParts;
@@ -437,21 +455,26 @@ async function runV1SessionImport({
       }
       try {
         const outcome = await importSession(imported);
-        result.sessions[outcome === 'skipped' ? 'skipped' : 'imported'] += 1;
+        const sessionOutcome = typeof outcome === 'string' ? outcome : outcome.session;
+        const workspaceOutcome = typeof outcome === 'string' ? 'attached' : outcome.workspace;
+        result.sessions[alreadyImported || sessionOutcome === 'skipped' ? 'skipped' : 'imported'] += 1;
+        result.workspaces[workspaceOutcome] += 1;
         ledger.sessions[sourceSession.id] = {
+          ...previous,
           status: 'complete',
           targetId: imported.id,
           stats: imported.stats,
+          workspaceAttached: workspaceOutcome === 'attached',
+          workspaceUnavailable: workspaceOutcome === 'unavailable',
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         result.sessions.failed += 1;
+        result.workspaces.failed += 1;
         result.errors.push({ sourceSessionId: sourceSession.id, message });
-        ledger.sessions[sourceSession.id] = {
-          status: 'failed',
-          targetId: imported.id,
-          message,
-        };
+        ledger.sessions[sourceSession.id] = alreadyImported
+          ? { ...previous, workspaceAttached: false, workspaceMessage: message }
+          : { status: 'failed', targetId: imported.id, message };
       }
       result.parts.total += imported.stats.parts;
       result.parts.skipped += imported.stats.skippedParts;
@@ -460,7 +483,8 @@ async function runV1SessionImport({
     }
     if (result.sessions.failed > 0) result.status = 'partial';
     writeJsonAtomically(resultPath, result);
-    ledger.stage1Complete = result.status === 'complete';
+    ledger.stage1Complete = ledger.stage1Complete === true || result.status === 'complete';
+    ledger.workspaceStageComplete = result.status === 'complete';
     writeJsonAtomically(ledgerPath, ledger);
     return result;
   } finally {
@@ -471,6 +495,7 @@ async function runV1SessionImport({
 }
 
 module.exports = {
+  attachDshWorkspace,
   buildDshSession,
   createDatabaseSnapshot,
   discoverV1Database,
