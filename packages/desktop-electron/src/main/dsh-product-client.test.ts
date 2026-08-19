@@ -79,7 +79,7 @@ describe("PawWork DSH client product layer", () => {
     cleanup?.()
   })
 
-  test("replaces the DSH welcome notice without adding sidebar branding", () => {
+  test("owns the public brand slots and replaces the DSH welcome notice", () => {
     const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
     let definition: {
       id: string
@@ -90,6 +90,7 @@ describe("PawWork DSH client product layer", () => {
     } | null = null
     const document = {
       title: "DeepSeek Harness",
+      documentElement: { lang: "zh-CN" },
       querySelector: () => null,
       createElement: () => ({ dataset: {}, textContent: "" }),
       head: { appendChild: () => {} },
@@ -105,28 +106,32 @@ describe("PawWork DSH client product layer", () => {
     vm.runInNewContext(source, { document, window })
     expect(definition?.id).toBe("@pawwork/dsh-product")
 
+    const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
+      type,
+      props: { ...props, children },
+    })
     const useEffect = (effect: () => void) => effect()
     const useRef = <T>(value: T) => ({ current: value })
     const plugin = definition!.factory((name) => {
-      if (name === "react") return { useEffect, useRef }
+      if (name === "react") return { createElement, useEffect, useRef }
       if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
     const registrations: Array<{
-      options: { id?: string; priority?: number }
+      options: { id?: string; name?: string; priority?: number }
       component: (props: unknown) => unknown
     }> = []
     const ctx = {
       slots: {
         inject: (_name: string, register: () => void) => register(),
-        register: (options: { id?: string; priority?: number }, component: (props: unknown) => unknown) => {
+        register: (options: { id?: string; name?: string; priority?: number }, component: (props: unknown) => unknown) => {
           registrations.push({ options, component })
         },
       },
     }
 
     plugin.apply(ctx)
-    expect(document.title).toBe("PawWork")
+    expect(document.title).toBe("DeepSeek Harness")
     expect(plugin.inject).toEqual(["slots", "layout", "connection", "conversation", "sessions", "workspaces"])
     const welcome = registrations.find((entry) => entry.options.id === "welcome-notice")
     expect(welcome).toBeDefined()
@@ -135,6 +140,16 @@ describe("PawWork DSH client product layer", () => {
     welcome!.component({ complete })
     expect(complete).toHaveBeenCalledTimes(1)
 
+    const brandEntries = registrations.filter((entry) => entry.options.name?.includes("brand"))
+    expect(brandEntries.map((entry) => entry.options.name)).toEqual([
+      "sidebar.brand.mark",
+      "sidebar.brand.name",
+      "conversation.hero.brand.mark",
+    ])
+    expect(brandEntries.every((entry) => entry.options.priority === -100)).toBe(true)
+    expect(brandEntries[0].component({})).toBeNull()
+    expect(brandEntries[2].component({})).toBeNull()
+    expect(brandEntries[1].component({}).props.children).toEqual(["爪印"])
   })
 
   test("owns one titlebar control and fully closes the sidebar rail", () => {

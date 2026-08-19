@@ -203,7 +203,7 @@ describe("ci smoke helpers", () => {
 
   test("assertCiSmokeProduct accepts the shipped DSH product contract", () => {
     expect(() => assertCiSmokeProduct({
-      title: "PawWork",
+      pawworkBrandNameMounted: true,
       automationEntryVisible: true,
       automationSurfaceVisible: true,
       automationEditorVisible: true,
@@ -223,7 +223,7 @@ describe("ci smoke helpers", () => {
 
   test("assertCiSmokeProduct reports every missing product capability", () => {
     expect(() => assertCiSmokeProduct({
-      title: "DeepSeek Harness",
+      pawworkBrandNameMounted: false,
       automationEntryVisible: false,
       automationSurfaceVisible: false,
       automationEditorVisible: false,
@@ -238,7 +238,7 @@ describe("ci smoke helpers", () => {
       freeModelAvailable: false,
       skillNames: [],
       sessionId: "",
-    })).toThrow(/document title.*Automation entry.*Automation surface.*Automation editor.*immutable metadata.*below New Session.*sidebar toggle.*collapse.*branding.*window controls.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
+    })).toThrow(/brand name.*Automation entry.*Automation surface.*Automation editor.*immutable metadata.*below New Session.*sidebar toggle.*collapse.*branding.*window controls.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
   })
 
   test("parseSmokeArgs defaults to raw dev mode", () => {

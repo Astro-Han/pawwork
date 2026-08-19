@@ -29,7 +29,7 @@ type CdpTarget = {
 }
 
 export type CiSmokeProductSnapshot = {
-  title: string
+  pawworkBrandNameMounted: boolean
   automationEntryVisible: boolean
   automationSurfaceVisible: boolean
   automationEditorVisible: boolean
@@ -212,11 +212,20 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       const rect = element.getBoundingClientRect()
       return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0
     }
-    const unwrap = (response, operation) => {
-      if (!response?.result?.ok) throw new Error(operation + ": " + (response?.result?.error?.message || "unknown failure"))
-      return response.result.value
+    const call = async (method, payload) => {
+      const request = { type: "client-request", rpcId: crypto.randomUUID(), method, payload }
+      const response = await fetch("/api/" + method, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(request),
+      })
+      if (!response.ok) throw new Error(method + ": HTTP " + response.status)
+      const envelope = await response.json()
+      if (!envelope?.result?.ok) throw new Error(method + ": " + (envelope?.result?.error?.message || "unknown failure"))
+      return envelope.result.value
     }
     const automationEntry = document.querySelector(".pawwork-automation-entry")
+    const pawworkBrandName = document.querySelector(".pawwork-brand-name")
     const newSession = Array.from(document.querySelectorAll("button")).find((button) => {
       const label = button.getAttribute("aria-label") || button.textContent || ""
       return label.includes("New Session") || label.includes("New session") || label.includes("新会话") || label.includes("新建会话")
@@ -248,20 +257,16 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     sidebarToggle?.click()
     await new Promise((resolve) => setTimeout(resolve, 100))
 
-    const module = window.__DSH_MODULES__?.loadCache?.get("@deepseek-ai/dsh-client-connection")?.exports
-    if (!module?.AbstractApiClient) throw new Error("DSH client connection module is unavailable")
-    class Client extends module.AbstractApiClient { doFetch(input, init) { return fetch(input, init) } }
-    const client = new Client()
-    const providers = unwrap(await client.llm.providers({}), "list providers").providers
-    const models = unwrap(await client.llm.models({}), "list models").groups
-    const session = unwrap(await client.sessions.create({ cwd: ${workspace} }), "create session")
-    const skills = unwrap(await client.skills.list({ sessionId: session.sessionId }), "list skills").skills
+    const providers = (await call("llm.providers", {})).providers
+    const models = (await call("llm.models", {})).groups
+    const session = await call("session.create", { cwd: ${workspace} })
+    const skills = (await call("skill.list", { sessionId: session.sessionId })).skills
     const freeProvider = providers.find((provider) => provider.provider === "opencode")
     const freeModels = models.find((group) => group.id === "opencode")?.models || []
     const toggleRect = sidebarToggle?.getBoundingClientRect()
 
     return JSON.stringify({
-      title: document.title,
+      pawworkBrandNameMounted: pawworkBrandName?.textContent?.trim() === "PawWork" || pawworkBrandName?.textContent?.trim() === "爪印",
       automationEntryVisible,
       automationSurfaceVisible,
       automationEditorVisible,
@@ -320,14 +325,19 @@ async function evaluateCiSmokeJson(target: CdpTarget, expression: string) {
 export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: string) {
   const expectedSessionId = JSON.stringify(sessionId)
   const expression = `(async () => {
-    const unwrap = (response) => {
-      if (!response?.result?.ok) throw new Error(response?.result?.error?.message || "list sessions failed")
-      return response.result.value
+    const call = async (method, payload) => {
+      const request = { type: "client-request", rpcId: crypto.randomUUID(), method, payload }
+      const response = await fetch("/api/" + method, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(request),
+      })
+      if (!response.ok) throw new Error(method + ": HTTP " + response.status)
+      const envelope = await response.json()
+      if (!envelope?.result?.ok) throw new Error(envelope?.result?.error?.message || method + " failed")
+      return envelope.result.value
     }
-    const module = window.__DSH_MODULES__?.loadCache?.get("@deepseek-ai/dsh-client-connection")?.exports
-    if (!module?.AbstractApiClient) throw new Error("DSH client connection module is unavailable")
-    class Client extends module.AbstractApiClient { doFetch(input, init) { return fetch(input, init) } }
-    const sessions = unwrap(await new Client().sessions.list({})).items
+    const sessions = (await call("session.list", {})).items
     return JSON.stringify(sessions.some((session) => session.sessionId === ${expectedSessionId}))
   })()`
   const persisted = await evaluateCiSmokeJson(target, expression)
@@ -336,7 +346,7 @@ export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: st
 
 export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
   const failures = [
-    snapshot.title === "PawWork" ? null : `document title is ${JSON.stringify(snapshot.title)}`,
+    snapshot.pawworkBrandNameMounted ? null : "PawWork brand name did not mount",
     snapshot.automationEntryVisible ? null : "Automation entry is not visible",
     snapshot.automationSurfaceVisible ? null : "Automation surface did not open",
     snapshot.automationEditorVisible ? null : "Automation editor did not open",

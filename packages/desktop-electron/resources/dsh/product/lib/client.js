@@ -20,17 +20,9 @@ window.__ModuleLoader__.load({
     } = require("@deepseek-ai/dsh-client-ui-primitives")
     const h = createElement
 
-    // DSH exposes public product slots, but not product identity or a page router.
-    // PawWork keeps those two product deltas here and shadows the public
-    // conversation slot only while its Automation page is open.
+    // PawWork owns its product identity and shadows the public conversation
+    // slot only while its Automation page is open.
     const productCss = `
-div:has(> button > svg[viewBox="0 0 182 24"]) > button,
-button:has(> svg[viewBox="0 0 23.16 17.04"]) { visibility: hidden; }
-span:has(> svg[viewBox="0 0 23.16 17.04"]) { display: none; }
-span:has(> svg[viewBox="0 0 23.16 17.04"]) + span { font-size: 0; }
-span:has(> svg[viewBox="0 0 23.16 17.04"]) + span::before { content: "PawWork"; font-size: 26px; }
-html[lang^="zh"] span:has(> svg[viewBox="0 0 23.16 17.04"]) + span::before { content: "爪印"; }
-span:has(> svg[viewBox="0 0 23.16 17.04"]) + span + span { display: none; }
 .pawwork-sidebar-toggle {
   align-items: center; background: transparent; border: 0; border-radius: 50%;
   color: var(--dsw-alias-label-secondary); cursor: pointer; display: inline-flex;
@@ -583,9 +575,14 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
     }
 
     const inject = ["slots", "layout", "connection", "conversation", "sessions", "workspaces"]
+    function PawWorkBrandMark() { return null }
+    function PawWorkBrandName() { return h("span", { className: "pawwork-brand-name" }, text("爪印", "PawWork")) }
+
     function apply(ctx) {
-      document.title = "PawWork"
       const automationSurface = createAutomationSurfaceController()
+      ctx.slots.inject("sidebar.brand.mark", () => ctx.slots.register({ name: "sidebar.brand.mark", priority: -100 }, PawWorkBrandMark))
+      ctx.slots.inject("sidebar.brand.name", () => ctx.slots.register({ name: "sidebar.brand.name", priority: -100 }, PawWorkBrandName))
+      ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawWorkBrandMark))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))
       ctx.slots.inject("conversation.input.left", () => ctx.slots.register({ name: "conversation.input.left", id: "pawwork-files", order: -100 }, FileAction))
       ctx.slots.inject("shell.overlay", () => ctx.slots.register({ name: "shell.overlay", id: "pawwork-sidebar-toggle", order: -100 }, () => SidebarToggle({ toggleSidebar: () => ctx.layout.toggleSidebar() })))

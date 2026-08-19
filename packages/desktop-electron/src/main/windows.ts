@@ -3,7 +3,7 @@ import log from "electron-log/main.js"
 import { app, BrowserWindow, nativeImage, shell } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { macTrafficLightPosition } from "./window-chrome"
+import { macTrafficLightPosition, pawworkWindowTitle } from "./window-chrome"
 import { decideDshNavigation, guardDshNavigation } from "./window-navigation"
 import { dshTitleBarOptions, dshWebPreferences } from "./window-options"
 
@@ -60,6 +60,10 @@ export function createMainWindow(url: string, preload: string) {
   })
   win.webContents.setZoomFactor(1)
   win.webContents.on("zoom-changed", () => win.webContents.setZoomFactor(1))
+  win.webContents.on("page-title-updated", (event, title) => {
+    event.preventDefault()
+    win.setTitle(pawworkWindowTitle(title))
+  })
   void win.loadURL(url)
   win.once("ready-to-show", () => win.show())
 
