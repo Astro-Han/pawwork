@@ -203,14 +203,15 @@ describe("ci smoke helpers", () => {
 
   test("assertCiSmokeProduct accepts the shipped DSH product contract", () => {
     expect(() => assertCiSmokeProduct({
-      pawworkBrandNameMounted: true,
+      sidebarBrandVisible: false,
       automationEntryVisible: true,
       automationSurfaceVisible: true,
       automationEditorVisible: true,
       automationMetadataPlain: true,
       automationBelowNewSession: true,
-      brandClearsWindowControls: true,
       sidebarToggleCount: 1,
+      sidebarToggleAlignedWithWindowControls: true,
+      sidebarToggleChromeSubtle: true,
       sidebarCollapsed: true,
       sidebarExpandToggleCount: 1,
       sidebarExpandToggleUsable: true,
@@ -227,14 +228,15 @@ describe("ci smoke helpers", () => {
 
   test("assertCiSmokeProduct reports every missing product capability", () => {
     expect(() => assertCiSmokeProduct({
-      pawworkBrandNameMounted: false,
+      sidebarBrandVisible: true,
       automationEntryVisible: false,
       automationSurfaceVisible: false,
       automationEditorVisible: false,
       automationMetadataPlain: false,
       automationBelowNewSession: false,
-      brandClearsWindowControls: false,
       sidebarToggleCount: 2,
+      sidebarToggleAlignedWithWindowControls: false,
+      sidebarToggleChromeSubtle: false,
       sidebarCollapsed: false,
       sidebarExpandToggleCount: 0,
       sidebarExpandToggleUsable: false,
@@ -246,7 +248,7 @@ describe("ci smoke helpers", () => {
       freeModelAvailable: false,
       skillNames: [],
       sessionId: "",
-    })).toThrow(/brand name.*Automation entry.*Automation surface.*Automation editor.*immutable metadata.*below New Session.*window controls.*one DSH collapse control.*collapse.*one DSH expand control.*visibly clickable.*moved.*reopen.*branding.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
+    })).toThrow(/sidebar brand.*Automation entry.*Automation surface.*Automation editor.*immutable metadata.*below New Session.*one DSH collapse control.*aligned.*blend.*collapse.*one DSH expand control.*visibly clickable.*moved.*reopen.*branding.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
   })
 
   test("parseSmokeArgs defaults to raw dev mode", () => {

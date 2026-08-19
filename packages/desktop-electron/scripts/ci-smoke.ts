@@ -30,14 +30,15 @@ type CdpTarget = {
 }
 
 export type CiSmokeProductSnapshot = {
-  pawworkBrandNameMounted: boolean
+  sidebarBrandVisible: boolean
   automationEntryVisible: boolean
   automationSurfaceVisible: boolean
   automationEditorVisible: boolean
   automationMetadataPlain: boolean
   automationBelowNewSession: boolean
-  brandClearsWindowControls: boolean
   sidebarToggleCount: number
+  sidebarToggleAlignedWithWindowControls: boolean
+  sidebarToggleChromeSubtle: boolean
   sidebarCollapsed: boolean
   sidebarExpandToggleCount: number
   sidebarExpandToggleUsable: boolean
@@ -245,7 +246,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     })
     const automationRect = automationEntry?.getBoundingClientRect()
     const newSessionRect = newSession?.getBoundingClientRect()
-    const brandRect = pawworkBrandName?.getBoundingClientRect()
+    const sidebarBrandVisible = visible(pawworkBrandName)
     const automationEntryVisible = visible(automationEntry)
 
     automationEntry?.click()
@@ -269,6 +270,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const retiredBrandVisible = Array.from(document.querySelectorAll('svg[viewBox="0 0 182 24"], svg[viewBox="0 0 23.16 17.04"]')).some(visible)
     const collapseToggles = sidebarToggles()
     const collapseRect = collapseToggles[0]?.getBoundingClientRect()
+    const collapseStyle = collapseToggles[0] ? getComputedStyle(collapseToggles[0]) : null
     collapseToggles[0]?.click()
     await new Promise((resolve) => setTimeout(resolve, 300))
     const sidebarCollapsed = Boolean(document.querySelector("[data-sidebar-collapsed]"))
@@ -291,14 +293,17 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const freeProvider = providers.find((provider) => provider.provider === "opencode")
     const freeModels = models.find((group) => group.id === "opencode")?.models || []
     return JSON.stringify({
-      pawworkBrandNameMounted: pawworkBrandName?.textContent?.trim() === "PawWork" || pawworkBrandName?.textContent?.trim() === "爪印",
+      sidebarBrandVisible,
       automationEntryVisible,
       automationSurfaceVisible,
       automationEditorVisible,
       automationMetadataPlain,
       automationBelowNewSession: Boolean(automationRect && newSessionRect && automationRect.top >= newSessionRect.bottom),
-      brandClearsWindowControls: document.documentElement.dataset.pawworkPlatform !== "macos" || Boolean(brandRect && brandRect.left >= 76),
       sidebarToggleCount: collapseToggles.length,
+      sidebarToggleAlignedWithWindowControls: document.documentElement.dataset.pawworkPlatform !== "macos"
+        || Boolean(collapseRect && collapseRect.left === 76 && collapseRect.top === 9),
+      sidebarToggleChromeSubtle: document.documentElement.dataset.pawworkPlatform !== "macos"
+        || Boolean(collapseStyle && collapseStyle.backgroundColor === "rgba(0, 0, 0, 0)" && collapseStyle.borderRadius === "6px"),
       sidebarCollapsed,
       sidebarExpandToggleCount: expandToggles.length,
       sidebarExpandToggleUsable,
@@ -375,14 +380,15 @@ export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: st
 
 export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
   const failures = [
-    snapshot.pawworkBrandNameMounted ? null : "PawWork brand name did not mount",
+    !snapshot.sidebarBrandVisible ? null : "sidebar brand should stay out of the macOS titlebar",
     snapshot.automationEntryVisible ? null : "Automation entry is not visible",
     snapshot.automationSurfaceVisible ? null : "Automation surface did not open",
     snapshot.automationEditorVisible ? null : "Automation editor did not open",
     snapshot.automationMetadataPlain ? null : "Automation immutable metadata is not plain read-only text",
     snapshot.automationBelowNewSession ? null : "Automation is not below New Session",
-    snapshot.brandClearsWindowControls ? null : "PawWork brand overlaps the macOS window controls",
     snapshot.sidebarToggleCount === 1 ? null : `expected one DSH collapse control, found ${snapshot.sidebarToggleCount}`,
+    snapshot.sidebarToggleAlignedWithWindowControls ? null : "sidebar toggle is not aligned with the macOS window controls",
+    snapshot.sidebarToggleChromeSubtle ? null : "sidebar toggle chrome does not blend into the titlebar",
     snapshot.sidebarCollapsed ? null : "DSH collapse control did not collapse the sidebar",
     snapshot.sidebarExpandToggleCount === 1 ? null : `expected one DSH expand control, found ${snapshot.sidebarExpandToggleCount}`,
     snapshot.sidebarExpandToggleUsable ? null : "DSH expand control is not visibly clickable",

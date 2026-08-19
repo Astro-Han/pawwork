@@ -149,7 +149,7 @@ describe("PawWork DSH client product layer", () => {
     expect(brandEntries.every((entry) => entry.options.priority === -100)).toBe(true)
     expect(brandEntries[0].component({})).toBeNull()
     expect(brandEntries[2].component({})).toBeNull()
-    expect(brandEntries[1].component({}).props.children).toEqual(["爪印"])
+    expect(brandEntries[1].component({})).toBeNull()
   })
 
   test("exposes one titlebar sidebar toggle through the public overlay slot", () => {

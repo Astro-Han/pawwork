@@ -23,7 +23,6 @@ window.__ModuleLoader__.load({
     // PawWork owns its product identity and shadows the public conversation
     // slot only while its Automation page is open.
     const productCss = `
-html[data-pawwork-platform="macos"] .pawwork-brand-name { margin-left: 52px; }
 .pawwork-sidebar-toggle { display: none; }
 html[data-pawwork-platform="macos"] button[aria-label="收起侧边栏"]:not(.pawwork-sidebar-toggle),
 html[data-pawwork-platform="macos"] button[aria-label="打开侧边栏"]:not(.pawwork-sidebar-toggle),
@@ -31,12 +30,13 @@ html[data-pawwork-platform="macos"] button[aria-label="Collapse sidebar"]:not(.p
 html[data-pawwork-platform="macos"] button[aria-label="Open sidebar"]:not(.pawwork-sidebar-toggle) { display: none; }
 html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle {
   -webkit-app-region: no-drag;
-  align-items: center; background: transparent; border: 0; border-radius: 50%;
+  align-items: center; background: transparent; border: 0; border-radius: 6px;
   color: var(--dsw-alias-label-secondary); cursor: pointer; display: inline-flex;
-  height: 28px; justify-content: center; left: 240px; padding: 0; position: fixed;
-  top: 22px; width: 28px;
+  height: 28px; justify-content: center; left: 76px; padding: 0; position: fixed;
+  top: 9px; width: 28px;
 }
 html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle:hover { background: var(--dsw-alias-interactive-bg-hover); }
+html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle:active { background: var(--dsw-alias-interactive-bg-active); }
 html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle:focus-visible { outline: 2px solid #f36b2b; outline-offset: 1px; }
 .pawwork-file-action {
   align-items: center; background: transparent; border: 0; border-radius: 6px;
@@ -578,14 +578,13 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
     }
 
     const inject = ["slots", "layout", "connection", "conversation", "sessions", "workspaces"]
-    function PawWorkBrandMark() { return null }
-    function PawWorkBrandName() { return h("span", { className: "pawwork-brand-name" }, text("爪印", "PawWork")) }
+    function EmptyBrand() { return null }
 
     function apply(ctx) {
       const automationSurface = createAutomationSurfaceController()
-      ctx.slots.inject("sidebar.brand.mark", () => ctx.slots.register({ name: "sidebar.brand.mark", priority: -100 }, PawWorkBrandMark))
-      ctx.slots.inject("sidebar.brand.name", () => ctx.slots.register({ name: "sidebar.brand.name", priority: -100 }, PawWorkBrandName))
-      ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawWorkBrandMark))
+      ctx.slots.inject("sidebar.brand.mark", () => ctx.slots.register({ name: "sidebar.brand.mark", priority: -100 }, EmptyBrand))
+      ctx.slots.inject("sidebar.brand.name", () => ctx.slots.register({ name: "sidebar.brand.name", priority: -100 }, EmptyBrand))
+      ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, EmptyBrand))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))
       ctx.slots.inject("conversation.input.left", () => ctx.slots.register({ name: "conversation.input.left", id: "pawwork-files", order: -100 }, FileAction))
       ctx.slots.inject("shell.overlay", () => ctx.slots.register({ name: "shell.overlay", id: "pawwork-sidebar-toggle", order: -100 }, () => h(SidebarToggle, { toggleSidebar: () => ctx.layout.toggleSidebar() })))
