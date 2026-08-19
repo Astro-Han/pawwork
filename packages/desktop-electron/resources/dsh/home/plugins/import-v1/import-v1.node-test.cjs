@@ -27,21 +27,12 @@ function fileDigest(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-test('publishes only the final cold-session workspace state to the UI', () => {
-  const source = fs.readFileSync(path.join(__dirname, 'index.mjs'), 'utf8');
-  const flushAt = source.indexOf('await ctx.sessions.flush(session)');
-  const detachAt = source.indexOf('detach();');
-  const attachAt = source.indexOf('await importer.attachDshWorkspace(imported, ctx.workspaceRegistry)');
-  assert.ok(flushAt >= 0 && flushAt < detachAt);
-  assert.ok(detachAt < attachAt);
-  assert.equal(source.includes('ctx.sessions.announce(session)'), false);
-});
-
-test('keeps the public migration status incomplete after a partial session import', async () => {
+test('publishes cold sessions once and keeps the public status incomplete after a partial import', async () => {
   const importerModule = require('./import-v1.cjs');
   const settingsModule = require('./import-v1-settings.cjs');
   const automationsModule = require('./import-v1-automations.cjs');
   const originalRun = importerModule.runV1SessionImport;
+  const originalAttach = importerModule.attachDshWorkspace;
   const originalCreateSettingImporter = settingsModule.createDshSettingImporter;
   const originalSettingsRun = settingsModule.runV1SettingsImport;
   const originalAutomationsRun = automationsModule.runV1AutomationImport;
@@ -52,10 +43,16 @@ test('keeps the public migration status incomplete after a partial session impor
   const started = new Promise((resolve) => { importStarted = resolve; });
   let backgroundFinished;
   let automationsActivated = false;
+  const sessionLifecycle = [];
   const finished = new Promise((resolve) => { backgroundFinished = resolve; });
-  importerModule.runV1SessionImport = async () => {
+  importerModule.runV1SessionImport = async ({ importSession }) => {
+    await importSession({ id: 'pawwork-v1-session', images: [], meta: {}, seed: [], title: 'Imported session' });
     importStarted();
     return { status: 'partial' };
+  };
+  importerModule.attachDshWorkspace = async () => {
+    sessionLifecycle.push('attach-workspace');
+    return 'workspace';
   };
   settingsModule.createDshSettingImporter = () => async () => 'skipped';
   settingsModule.runV1SettingsImport = async () => ({ status: 'complete' });
@@ -84,6 +81,18 @@ test('keeps the public migration status incomplete after a partial session impor
         store: { activateImportedDefinitions: () => { automationsActivated = true; } },
       },
       sessionPersistence: { list: async () => [] },
+      sessionTitle: { rename: () => { sessionLifecycle.push('rename'); } },
+      sessions: {
+        announce: () => { sessionLifecycle.push('announce'); },
+        enter: () => {
+          sessionLifecycle.push('enter');
+          return () => { sessionLifecycle.push('detach'); };
+        },
+        flush: async () => { sessionLifecycle.push('flush'); },
+        prepare: () => ({ id: 'pawwork-v1-session' }),
+      },
+      attachments: { saveImage: async () => {} },
+      workspaceRegistry: {},
     });
     await started;
     await finished;
@@ -97,9 +106,11 @@ test('keeps the public migration status incomplete after a partial session impor
       value: { sessionsComplete: false },
     });
     assert.equal(automationsActivated, true);
+    assert.deepEqual(sessionLifecycle, ['enter', 'rename', 'flush', 'detach', 'attach-workspace']);
     await stopPlugin();
   } finally {
     importerModule.runV1SessionImport = originalRun;
+    importerModule.attachDshWorkspace = originalAttach;
     settingsModule.createDshSettingImporter = originalCreateSettingImporter;
     settingsModule.runV1SettingsImport = originalSettingsRun;
     automationsModule.runV1AutomationImport = originalAutomationsRun;
