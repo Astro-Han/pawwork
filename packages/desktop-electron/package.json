@@ -11,8 +11,9 @@
   "scripts": {
     "typecheck": "tsgo -b",
     "typecheck:release": "tsgo -p tsconfig.release.json",
-    "test": "bun test",
-    "test:ci": "mkdir -p .artifacts/unit && bun test --reporter=junit --reporter-outfile=.artifacts/unit/junit.xml && bun ./scripts/smoke-cdp-bridge-ws.ts",
+    "test": "bun test && bun run test:node",
+    "test:node": "node --test resources/dsh/home/plugins/import-v1/import-v1.node-test.cjs resources/dsh/home/plugins/import-v1/import-v1-automations.node-test.cjs",
+    "test:ci": "mkdir -p .artifacts/unit && bun test --reporter=junit --reporter-outfile=.artifacts/unit/junit.xml && bun run test:node && bun ./scripts/smoke-cdp-bridge-ws.ts",
     "smoke:ci": "bun ./scripts/ci-smoke.ts",
     "smoke:cdp-bridge-ws": "bun ./scripts/smoke-cdp-bridge-ws.ts",
     "smoke:report": "node ./scripts/report-problem-smoke.mjs",
