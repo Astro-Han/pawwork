@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { dshWebPreferences } from "./window-options"
+import { dshTitleBarOptions, dshWebPreferences } from "./window-options"
 
 describe("desktop windows security", () => {
   test("DSH windows receive only the scoped PawWork file picker bridge", () => {
@@ -11,5 +11,13 @@ describe("desktop windows security", () => {
       nodeIntegration: false,
       preload: "/resources/dsh/product/preload.cjs",
     })
+  })
+
+  test("Windows uses system caption buttons over the frameless DSH shell", () => {
+    expect(dshTitleBarOptions("win32")).toEqual({
+      titleBarOverlay: true,
+      titleBarStyle: "hidden",
+    })
+    expect(dshTitleBarOptions("darwin")).toEqual({ titleBarStyle: "hidden" })
   })
 })

@@ -1,10 +1,11 @@
 import windowState from "electron-window-state"
+import log from "electron-log/main.js"
 import { app, BrowserWindow, nativeImage, shell } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { macTrafficLightPosition } from "./window-chrome"
 import { decideDshNavigation, guardDshNavigation } from "./window-navigation"
-import { dshWebPreferences } from "./window-options"
+import { dshTitleBarOptions, dshWebPreferences } from "./window-options"
 
 const root = dirname(fileURLToPath(import.meta.url))
 
@@ -35,12 +36,8 @@ export function createMainWindow(url: string, preload: string) {
     show: false,
     title: "PawWork",
     icon: iconPath(),
-    ...(process.platform === "darwin"
-      ? {
-          titleBarStyle: "hidden" as const,
-          trafficLightPosition: macTrafficLightPosition(),
-        }
-      : {}),
+    ...dshTitleBarOptions(process.platform),
+    ...(process.platform === "darwin" ? { trafficLightPosition: macTrafficLightPosition() } : {}),
     webPreferences: dshWebPreferences(preload),
   })
 
@@ -48,18 +45,18 @@ export function createMainWindow(url: string, preload: string) {
   win.webContents.setWindowOpenHandler(({ url: target }) => {
     const decision = decideDshNavigation(url, target)
     if (decision === "same-window") void win.loadURL(target)
-    if (decision === "external") void shell.openExternal(target)
+    if (decision === "external") void openExternal(target)
     return { action: "deny" }
   })
   win.webContents.on("will-frame-navigate", (event) => {
     if (event.isMainFrame) {
-      guardDshNavigation(url, event.url, event, (externalUrl) => shell.openExternal(externalUrl))
+      guardDshNavigation(url, event.url, event, openExternal)
       return
     }
     if (decideDshNavigation(url, event.url) !== "same-window") event.preventDefault()
   })
   win.webContents.on("will-redirect", (event, target) => {
-    guardDshNavigation(url, target, event, (externalUrl) => shell.openExternal(externalUrl))
+    guardDshNavigation(url, target, event, openExternal)
   })
   win.webContents.setZoomFactor(1)
   win.webContents.on("zoom-changed", () => win.webContents.setZoomFactor(1))
@@ -67,4 +64,10 @@ export function createMainWindow(url: string, preload: string) {
   win.once("ready-to-show", () => win.show())
 
   return win
+}
+
+function openExternal(target: string) {
+  return shell.openExternal(target).catch((error) => {
+    log.error("failed to open external URL", { target, error })
+  })
 }
