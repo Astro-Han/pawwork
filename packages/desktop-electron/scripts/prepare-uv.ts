@@ -94,18 +94,26 @@ export async function verifyUvVersion(binaryPath: string, expectedVersion: strin
   }
 }
 
+function powershellLiteral(value: string) {
+  return `'${value.replaceAll("'", "''")}'`
+}
+
+export function powershellExpandArchiveArgs(archivePath: string, destDir: string) {
+  return [
+    "-NoLogo",
+    "-NoProfile",
+    "-Command",
+    `Expand-Archive -LiteralPath ${powershellLiteral(archivePath)} -DestinationPath ${powershellLiteral(destDir)} -Force`,
+  ]
+}
+
 async function extractArchive(archivePath: string, asset: string, destDir: string) {
   if (asset.endsWith(".zip")) {
     if (process.platform === "win32") {
       // On Windows CI this script runs under bash, where PATH-resolved `tar`
       // is GNU tar (no zip support) and `unzip` is not guaranteed;
       // PowerShell's Expand-Archive is always present on windows-* images.
-      await execFileAsync("powershell.exe", [
-        "-NoLogo",
-        "-NoProfile",
-        "-Command",
-        `Expand-Archive -LiteralPath '${archivePath}' -DestinationPath '${destDir}' -Force`,
-      ])
+      await execFileAsync("powershell.exe", powershellExpandArchiveArgs(archivePath, destDir))
     } else {
       // unzip ships on both macos-* and ubuntu-* GitHub runner images.
       await execFileAsync("unzip", ["-o", archivePath, "-d", destDir])

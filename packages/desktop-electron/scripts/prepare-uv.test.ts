@@ -7,6 +7,7 @@ import {
   binaryNameForPlatform,
   companionBinaryNameForPlatform,
   pinnedSha256ForTarget,
+  powershellExpandArchiveArgs,
   runtimeBinaryPath,
   sha256,
   uvDownloadUrl,
@@ -82,5 +83,18 @@ describe("prepare-uv manifest helpers", () => {
     expect(runtimeBinaryPath("/repo/packages/desktop-electron/resources/tools", "win32")).toBe(
       path.join("/repo/packages/desktop-electron/resources/tools", "uv.exe"),
     )
+  })
+
+  test("escapes apostrophes in Windows paths used as PowerShell literals", () => {
+    const archive = "C:\\Users\\O'Brien\\uv.zip"
+    const destination = "C:\\Users\\O'Brien\\extract"
+    const args = powershellExpandArchiveArgs(archive, destination)
+
+    expect(args).toEqual([
+      "-NoLogo",
+      "-NoProfile",
+      "-Command",
+      "Expand-Archive -LiteralPath 'C:\\Users\\O''Brien\\uv.zip' -DestinationPath 'C:\\Users\\O''Brien\\extract' -Force",
+    ])
   })
 })
