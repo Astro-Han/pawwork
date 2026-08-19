@@ -11,7 +11,6 @@ import {
   runtimeBinaryPath,
   sha256,
   uvDownloadUrl,
-  uvTargetFor,
   uvVersionMatches,
 } from "./prepare-uv"
 
@@ -24,12 +23,6 @@ describe("prepare-uv manifest helpers", () => {
 
   test("rejects unsupported targets", () => {
     expect(() => assetForTarget("linux" as any, "x64")).toThrow("Unsupported uv target: linux-x64")
-  })
-
-  test("returns supported targets with narrowed platform and arch", () => {
-    expect(uvTargetFor("darwin", "arm64")).toEqual({ platform: "darwin", arch: "arm64" })
-    expect(uvTargetFor("win32", "x64")).toEqual({ platform: "win32", arch: "x64" })
-    expect(uvTargetFor("linux", "x64")).toBeNull()
   })
 
   test("pins a lowercase 64-hex sha256 in the repo manifest for every supported target", () => {

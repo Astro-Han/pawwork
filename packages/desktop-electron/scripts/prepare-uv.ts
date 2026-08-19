@@ -25,19 +25,10 @@ import manifest from "../bundled-tools.json"
 
 export type SupportedPlatform = "darwin" | "win32"
 export type SupportedArch = "arm64" | "x64"
-export interface UvTarget {
-  platform: SupportedPlatform
-  arch: SupportedArch
-}
 
 const execFileAsync = promisify(execFile)
 const toolsDir = path.resolve(import.meta.dirname, "../resources/tools")
 const uv = manifest.uv
-
-export function uvTargetFor(platform: string, arch: string): UvTarget | null {
-  if (!(`${platform}-${arch}` in uv.assets)) return null
-  return { platform: platform as SupportedPlatform, arch: arch as SupportedArch }
-}
 
 function assetEntryForTarget(platform: SupportedPlatform, arch: SupportedArch) {
   const entry = uv.assets[`${platform}-${arch}` as keyof typeof uv.assets]

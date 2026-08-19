@@ -20,9 +20,9 @@
     "prebuild": "bun ./scripts/prebuild.ts",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "package": "bun run build && electron-builder --config electron-builder.config.ts",
-    "package:mac": "bun run build && electron-builder --mac --config electron-builder.config.ts",
-    "package:win": "bun run build && electron-builder --win --config electron-builder.config.ts"
+    "package": "bun ./scripts/prepare-uv.ts && bun run build && electron-builder --config electron-builder.config.ts",
+    "package:mac": "bun ./scripts/prepare-uv.ts --platform darwin && bun run build && electron-builder --mac --config.mac.notarize=false --config electron-builder.config.ts",
+    "package:win": "bun ./scripts/prepare-uv.ts --platform win32 --arch x64 && bun run build && electron-builder --win --config electron-builder.config.ts"
   },
   "main": "./out/main/index.js",
   "dependencies": {
