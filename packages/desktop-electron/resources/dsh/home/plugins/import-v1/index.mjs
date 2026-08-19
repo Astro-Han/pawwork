@@ -10,6 +10,7 @@ export const name = 'pawwork-import-v1';
 export const inject = [
   'agentDefaultModel',
   'attachments',
+  'connection',
   'llm',
   'pawworkAutomations',
   'sessions',
@@ -72,13 +73,14 @@ async function createDshSessionImporter(ctx) {
       });
       const detach = ctx.sessions.enter(session);
       try {
-        ctx.sessions.announce(session);
         ctx.sessionTitle.rename(session, imported.title);
         await ctx.sessions.flush(session);
         persisted.add(imported.id);
       } finally {
         detach();
       }
+      const workspace = await importer.attachDshWorkspace(imported, ctx.workspaceRegistry);
+      return { session: outcome, workspace };
     }
     const workspace = await importer.attachDshWorkspace(imported, ctx.workspaceRegistry);
     return { session: outcome, workspace };
@@ -87,6 +89,11 @@ async function createDshSessionImporter(ctx) {
 
 export function apply(ctx) {
   const controller = new AbortController();
+  let sessionsComplete = false;
+  const stopRpc = ctx.connection.rpc.handle('/pawwork-import-v1', async (endpoint) => {
+    if (endpoint === 'status') return { ok: true, value: { sessionsComplete } };
+    return { ok: false, error: { code: 'bad-request', message: `unknown v1 import endpoint: ${endpoint}`, details: {} } };
+  }, { authority: 'loopback' });
   void (async () => {
     try {
       const importSession = await createDshSessionImporter(ctx);
@@ -97,6 +104,8 @@ export function apply(ctx) {
       });
     } catch (error) {
       ctx.logger.warn(`v1 session import failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      sessionsComplete = true;
     }
 
     try {
@@ -123,5 +132,8 @@ export function apply(ctx) {
       ctx.logger.warn(`v1 automation import failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   })();
-  ctx.effect(() => () => controller.abort(new Error('PawWork v1 importer stopped')));
+  ctx.effect(() => async () => {
+    controller.abort(new Error('PawWork v1 importer stopped'));
+    await stopRpc();
+  });
 }

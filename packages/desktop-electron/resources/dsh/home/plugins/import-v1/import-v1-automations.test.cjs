@@ -105,24 +105,24 @@ test('reads v1 automation definitions and runs from their authoritative tables',
   ]);
 });
 
-test('maps v1 definitions into paused v2-owned records pending one takeover', () => {
+test('preserves v1 automation status and schedules only the next future run', () => {
   const source = readV1Automations(fixture()).definitions[0];
   const mapped = mapV1AutomationDefinition(source, {
     model: { provider: 'opencode', model: 'big-pickle' },
     modelWarning: 'model_not_available',
+    now: Date.parse('2026-08-18T00:30:00.000Z'),
   });
 
   assert.equal(mapped.id, 'pawwork-v1-automation_source');
-  assert.equal(mapped.paused, true);
+  assert.equal(mapped.paused, false);
   assert.equal(mapped.context, 'continue');
   assert.equal(mapped.sourceSessionId, 'pawwork-v1-ses_source');
   assert.deepEqual(mapped.rhythm, { kind: 'cron', expression: '0 9 * * 1-5' });
   assert.deepEqual(mapped.stop, { kind: 'count', count: 4 });
-  assert.equal(mapped.nextFireAt, null);
+  assert.equal(mapped.nextFireAt, Date.parse('2026-08-18T01:00:00.000Z'));
   assert.deepEqual(mapped.migration, {
     source: 'pawwork-v1',
     sourceId: 'automation_source',
-    takeover: 'pending',
     warnings: ['model_not_available', 'worktree_placement_not_preserved', 'reasoning_effort_not_preserved'],
   });
 });
@@ -173,7 +173,7 @@ test('imports definitions and runs idempotently with a resumable shared ledger',
   assert.deepEqual(first.definitions, { imported: 1, skipped: 0, failed: 0 });
   assert.deepEqual(first.runs, { imported: 3, skipped: 0, failed: 0 });
   assert.equal(first.orphanRuns, 1);
-  assert.deepEqual(first.takeover, { required: 1 });
+  assert.equal('takeover' in first, false);
   assert.equal(definitions.length, 1);
   assert.equal(runs.length, 3);
   assert.deepEqual(second, first);

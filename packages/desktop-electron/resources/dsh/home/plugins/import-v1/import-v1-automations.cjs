@@ -4,6 +4,7 @@ const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const importerCore = fs.existsSync(path.join(__dirname, 'import-v1.cjs')) ? './import-v1.cjs' : './import-v1';
 const { createDatabaseSnapshot, discoverV1Database } = require(importerCore);
+const { nextCronFireAfter } = require('../automations/automation-cron.cjs');
 
 function parseJson(value, label) {
   try {
@@ -68,7 +69,17 @@ function v2SessionId(sourceId) {
   return `pawwork-v1-${sourceId}`;
 }
 
-function mapV1AutomationDefinition(source, { model, modelWarning } = {}) {
+function nextDefinitionFire(definition, createdAt, now) {
+  if (definition.paused) return null;
+  if (definition.kind === 'oneshot') return definition.fireAt > now ? definition.fireAt : null;
+  if (definition.rhythm.kind === 'cron') {
+    return nextCronFireAfter(definition.rhythm.expression, definition.timezone || 'UTC', now);
+  }
+  const everyMs = definition.rhythm.everyMs;
+  return createdAt + (Math.floor(Math.max(0, now - createdAt) / everyMs) + 1) * everyMs;
+}
+
+function mapV1AutomationDefinition(source, { model, modelWarning, now = Date.now() } = {}) {
   const definition = source.data;
   if (!definition || definition.id !== source.id) throw new Error(`invalid v1 automation definition: ${source.id}`);
   if (!model?.provider || !model?.model) throw new Error('resolved v2 automation model is required');
@@ -85,7 +96,7 @@ function mapV1AutomationDefinition(source, { model, modelWarning } = {}) {
     title: definition.title,
     prompt: definition.prompt,
     revision: Math.max(1, definition.revision || 1),
-    paused: true,
+    paused: Boolean(definition.paused),
     context,
     cwd: source.ownerDirectory,
     model: { provider: model.provider, model: model.model },
@@ -96,12 +107,12 @@ function mapV1AutomationDefinition(source, { model, modelWarning } = {}) {
     migration: {
       source: 'pawwork-v1',
       sourceId: source.id,
-      takeover: definition.paused ? 'not_required' : 'pending',
       warnings,
     },
   };
   if (definition.kind === 'oneshot') {
-    return { ...common, kind: 'oneshot', fireAt: definition.fireAt, nextFireAt: null };
+    const mapped = { ...common, kind: 'oneshot', fireAt: definition.fireAt };
+    return { ...mapped, nextFireAt: nextDefinitionFire(mapped, source.createdAt, now) };
   }
   if (definition.kind !== 'recurring') throw new Error(`unsupported v1 automation kind: ${definition.kind}`);
   if (!['interval', 'cron'].includes(definition.rhythm?.kind)) {
@@ -110,13 +121,13 @@ function mapV1AutomationDefinition(source, { model, modelWarning } = {}) {
   if (!['never', 'count'].includes(definition.stop?.kind)) {
     throw new Error(`unsupported v1 automation stop: ${definition.stop?.kind}`);
   }
-  return {
+  const mapped = {
     ...common,
     kind: 'recurring',
     rhythm: structuredClone(definition.rhythm),
     stop: structuredClone(definition.stop),
-    nextFireAt: null,
   };
+  return { ...mapped, nextFireAt: nextDefinitionFire(mapped, source.createdAt, now) };
 }
 
 function runError(error) {
@@ -187,7 +198,6 @@ function emptyResult(sourceDatabase, status) {
     definitions: recordCounts(),
     runs: recordCounts(),
     orphanRuns: 0,
-    takeover: { required: 0 },
     errors: [],
   };
 }
@@ -245,22 +255,18 @@ async function runV1AutomationImport({
       const prior = ledger.automationDefinitions[definition.id];
       if (prior?.status === 'complete') {
         result.definitions.skipped += 1;
-        if (prior.takeoverPending) result.takeover.required += 1;
         continue;
       }
       try {
         const resolved = await resolveModel(definition);
-        const mapped = mapV1AutomationDefinition(definition, resolved);
+        const mapped = mapV1AutomationDefinition(definition, { ...resolved, now: now() });
         const outcome = await importDefinition(mapped);
         if (!['imported', 'skipped'].includes(outcome)) throw new Error(`invalid definition outcome: ${outcome}`);
         result.definitions[outcome] += 1;
-        const takeoverPending = mapped.migration.takeover === 'pending';
-        if (takeoverPending) result.takeover.required += 1;
         ledger.automationDefinitions[definition.id] = {
           status: 'complete',
           outcome,
           targetId: mapped.id,
-          takeoverPending,
           warnings: mapped.migration.warnings,
         };
       } catch (error) {

@@ -67,7 +67,7 @@ function writeJsonAtomically(file, value) {
 }
 
 class AutomationStore {
-  constructor(file) {
+  constructor(file, now = Date.now()) {
     if (!path.isAbsolute(file)) throw new Error('automation store path must be absolute');
     this.file = file;
     this.document = fs.existsSync(file)
@@ -79,6 +79,24 @@ class AutomationStore {
     if (!Array.isArray(this.document.definitions) || !Array.isArray(this.document.runs)) {
       throw new Error('invalid automation store document');
     }
+    const normalizedAt = assertTimestamp(now, 'now');
+    let changed = false;
+    for (const definition of this.document.definitions) {
+      if (!Object.hasOwn(definition.migration || {}, 'takeover')) continue;
+      const takeover = definition.migration.takeover;
+      delete definition.migration.takeover;
+      changed = true;
+      if (takeover !== 'pending') continue;
+      definition.paused = false;
+      definition.revision += 1;
+      definition.updatedAt = normalizedAt;
+      definition.nextFireAt = definitionNext(
+        definition,
+        normalizedAt,
+        this.completedRunCount(definition.id),
+      );
+    }
+    if (changed) this.save();
   }
 
   save() {
@@ -172,9 +190,6 @@ class AutomationStore {
     if (input.migration?.source !== 'pawwork-v1' || !input.migration.sourceId) {
       throw new Error('imported automation requires v1 migration identity');
     }
-    if (input.migration.takeover === 'pending' && (!input.paused || input.nextFireAt !== null)) {
-      throw new Error('pending v1 automation must be paused without a next fire');
-    }
     if (input.kind === 'oneshot') assertTimestamp(input.fireAt, 'fireAt');
     else if (input.kind === 'recurring') {
       if (input.rhythm?.kind === 'interval') {
@@ -213,36 +228,14 @@ class AutomationStore {
     assertTimestamp(input.completedAt, 'completedAt');
     if (input.startedAt !== null) assertTimestamp(input.startedAt, 'startedAt');
     this.document.runs.push(structuredClone(input));
+    const definition = this.document.definitions.find((entry) => entry.id === input.automationId);
+    if (definition?.kind === 'recurring'
+      && definition.stop?.kind === 'count'
+      && this.completedRunCount(definition.id) >= definition.stop.count) {
+      definition.nextFireAt = null;
+    }
     this.save();
     return 'imported';
-  }
-
-  pendingV1Takeover(cwd) {
-    return this.document.definitions.filter((definition) => (
-      definition.migration?.source === 'pawwork-v1'
-      && definition.migration.takeover === 'pending'
-      && (cwd === undefined || definition.cwd === cwd)
-    )).map((definition) => structuredClone(definition));
-  }
-
-  confirmV1Takeover(now = Date.now()) {
-    const confirmedAt = assertTimestamp(now, 'now');
-    const confirmed = [];
-    for (const definition of this.document.definitions) {
-      if (definition.migration?.source !== 'pawwork-v1' || definition.migration.takeover !== 'pending') continue;
-      definition.migration.takeover = 'confirmed';
-      definition.paused = false;
-      definition.revision += 1;
-      definition.updatedAt = confirmedAt;
-      definition.nextFireAt = definitionNext(
-        definition,
-        confirmedAt,
-        this.completedRunCount(definition.id),
-      );
-      confirmed.push(structuredClone(definition));
-    }
-    if (confirmed.length > 0) this.save();
-    return confirmed;
   }
 
   listDefinitions(cwd) {
@@ -598,25 +591,36 @@ function rpcPayload(payload) {
   return payload;
 }
 
-function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }) {
+function createAutomationRpcHandler({ store, scheduler, defaults, now = () => Date.now() }) {
   if (!(store instanceof AutomationStore)) throw new Error('automation RPC requires AutomationStore');
   return async (endpoint, payload, signal) => {
     try {
       signal?.throwIfAborted();
       const args = rpcPayload(payload);
+      if (endpoint === 'defaults') {
+        if (typeof defaults !== 'function') return rpcFailure('unavailable', 'automation defaults are unavailable');
+        return rpcSuccess(defaults());
+      }
       if (endpoint === 'list') {
         const definitions = store.listDefinitions();
-        const definitionIds = new Set(definitions.map((definition) => definition.id));
         return rpcSuccess({
           definitions: definitions.map((definition) => ({
             ...definition,
             recentRuns: store.listRuns(definition.id).slice(0, 5),
           })),
-          pendingTakeover: store.pendingV1Takeover(),
-          orphanedRuns: store.listRuns()
-            .filter((run) => !definitionIds.has(run.automationId))
-            .slice(0, 50),
         });
+      }
+      if (endpoint === 'create') {
+        const definition = store.createDefinition(args, now());
+        scheduler.refresh();
+        return rpcSuccess(definition);
+      }
+      if (endpoint === 'update') {
+        if (typeof args.id !== 'string') return rpcFailure('bad-request', 'id is required', { issues: [] });
+        const { id, ...patch } = args;
+        const definition = store.updateDefinition(id, patch, now());
+        scheduler.refresh();
+        return rpcSuccess(definition);
       }
       if (endpoint === 'set-paused') {
         if (typeof args.id !== 'string' || typeof args.paused !== 'boolean') {
@@ -637,14 +641,6 @@ function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }
         const deleted = store.deleteDefinition(args.id);
         scheduler.refresh();
         return rpcSuccess({ id: args.id, deleted });
-      }
-      if (endpoint === 'confirm-takeover') {
-        if (args.confirmed !== true) {
-          return rpcFailure('bad-request', 'confirmed must be true', { issues: [] });
-        }
-        const definitions = store.confirmV1Takeover(now());
-        scheduler.refresh();
-        return rpcSuccess({ activated: definitions.length, definitions });
       }
       return rpcFailure('bad-request', `unknown automation endpoint: ${endpoint}`, { issues: [] });
     } catch (error) {
@@ -769,33 +765,11 @@ function createAutomationToolDefinitions({
       'List durable PawWork automations for the current workspace, including their recent run history.',
       objectParameters({}),
       async () => ({
-        takeoverPending: store.pendingV1Takeover(cwd()).length,
         items: store.listDefinitions(cwd()).map((definition) => ({
           ...definition,
           recentRuns: store.listRuns(definition.id).slice(0, 5),
         })),
       }),
-    ),
-    tool(
-      'automation_takeover_v1',
-      'Finish migration of all active v1 automations. First call with confirmed false to show what is pending. Call with confirmed true only after the user explicitly confirms that PawWork v2 should take over all pending v1 automations. Confirmation is global, happens once, never replays missed work, and schedules only future occurrences.',
-      objectParameters({ confirmed: { type: 'boolean' } }, ['confirmed']),
-      async (args) => {
-        const pending = store.pendingV1Takeover();
-        if (args.confirmed !== true) {
-          return {
-            confirmed: false,
-            pending: pending.map((definition) => ({
-              id: definition.id,
-              title: definition.title,
-              cwd: definition.cwd,
-            })),
-          };
-        }
-        const definitions = store.confirmV1Takeover(now());
-        scheduler.refresh();
-        return { confirmed: true, activated: definitions.length, definitions };
-      },
     ),
     tool(
       'automation_update',

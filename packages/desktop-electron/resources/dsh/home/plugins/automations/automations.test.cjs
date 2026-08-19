@@ -160,7 +160,7 @@ test('starts an immediate run without making the caller wait for agent completio
   assert.equal((await started.completion).state, 'succeeded');
 });
 
-test('automation RPC lists durable definitions, pending takeover, and orphaned v1 history', async () => {
+test('automation RPC lists only durable definitions and their recent runs', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
   const definition = oneShot(store, cwd, 2_000);
@@ -201,8 +201,7 @@ test('automation RPC lists durable definitions, pending takeover, and orphaned v
   assert.equal(result.ok, true);
   assert.equal(result.value.definitions[0].id, definition.id);
   assert.equal(result.value.definitions[0].recentRuns[0].sessionId, 'session-current');
-  assert.equal(result.value.pendingTakeover.length, 0);
-  assert.equal(result.value.orphanedRuns[0].sessionId, 'pawwork-v1-session-orphan');
+  assert.deepEqual(Object.keys(result.value), ['definitions']);
 });
 
 test('automation RPC validates mutations and returns immediately when running now', async () => {
@@ -236,6 +235,31 @@ test('automation RPC validates mutations and returns immediately when running no
   assert.equal(running.value.state, 'running');
   assert.equal(started, definition.id);
   assert.equal(refreshCalls, 1);
+});
+
+test('automation RPC creates and updates definitions through the authoritative store', async () => {
+  const { file } = fixture();
+  const store = new AutomationStore(file);
+  let refreshCalls = 0;
+  const rpc = createAutomationRpcHandler({
+    store,
+    scheduler: { refresh: () => { refreshCalls += 1; } },
+    now: () => Date.parse('2026-08-18T00:00:00.000Z'),
+  });
+  const created = await rpc('create', {
+    title: 'Daily brief', prompt: 'Summarize the workspace.', cwd: '/tmp/work',
+    model: { provider: 'opencode', model: 'free-model' }, timezone: 'Asia/Shanghai',
+    context: 'fresh', kind: 'recurring', rhythm: { kind: 'cron', expression: '0 9 * * *' },
+    stop: { kind: 'count', count: 1 },
+  });
+  assert.equal(created.ok, true);
+
+  const updated = await rpc('update', {
+    id: created.value.id, title: 'Morning brief', prompt: 'Summarize important changes.',
+  });
+  assert.equal(updated.ok, true);
+  assert.equal(updated.value.title, 'Morning brief');
+  assert.equal(refreshCalls, 2);
 });
 
 test('conversation tools manage only the current workspace and keep model choice with the definition', async () => {
@@ -392,7 +416,7 @@ test('continue automations bind immutably to the creating DSH session', async ()
   assert.equal(Object.hasOwn(definition, 'automationSessionId'), false);
 });
 
-test('imports v1 history idempotently and activates all pending definitions in one takeover', () => {
+test('imports v1 definitions and history idempotently without a takeover state', () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
   const definition = {
@@ -400,7 +424,7 @@ test('imports v1 history idempotently and activates all pending definitions in o
     title: 'Imported brief',
     prompt: 'Write the brief.',
     revision: 3,
-    paused: true,
+    paused: false,
     context: 'fresh',
     cwd,
     model: { provider: 'opencode', model: 'big-pickle' },
@@ -409,9 +433,9 @@ test('imports v1 history idempotently and activates all pending definitions in o
     updatedAt: 2_000,
     kind: 'recurring',
     rhythm: { kind: 'cron', expression: '0 9 * * *' },
-    stop: { kind: 'never' },
-    nextFireAt: null,
-    migration: { source: 'pawwork-v1', sourceId: 'automation_source', takeover: 'pending', warnings: [] },
+    stop: { kind: 'count', count: 1 },
+    nextFireAt: Date.parse('2026-08-18T01:00:00.000Z'),
+    migration: { source: 'pawwork-v1', sourceId: 'automation_source', warnings: [] },
   };
   const run = {
     id: 'pawwork-v1-automation_run_source',
@@ -432,15 +456,74 @@ test('imports v1 history idempotently and activates all pending definitions in o
   assert.equal(store.importDefinition(definition), 'skipped');
   assert.equal(store.importRun(run), 'imported');
   assert.equal(store.importRun(run), 'skipped');
-  assert.equal(store.pendingV1Takeover().length, 1);
-
-  const confirmed = store.confirmV1Takeover(Date.parse('2026-08-18T00:30:00.000Z'));
-  assert.equal(confirmed.length, 1);
-  assert.equal(confirmed[0].paused, false);
-  assert.equal(confirmed[0].migration.takeover, 'confirmed');
-  assert.equal(confirmed[0].nextFireAt, Date.parse('2026-08-18T01:00:00.000Z'));
-  assert.equal(store.confirmV1Takeover(Date.parse('2026-08-18T00:31:00.000Z')).length, 0);
+  assert.equal(store.getDefinition(definition.id).paused, false);
+  assert.equal(Object.hasOwn(store.getDefinition(definition.id).migration, 'takeover'), false);
+  assert.equal(store.getDefinition(definition.id).nextFireAt, null);
   assert.equal(store.listRuns(definition.id).length, 1);
+});
+
+test('removes legacy takeover state and activates previously pending imports', () => {
+  const { file, cwd } = fixture();
+  const now = Date.parse('2026-08-18T00:00:00.000Z');
+  fs.writeFileSync(file, JSON.stringify({
+    schema: 1,
+    nextDefinition: 3,
+    nextRun: 1,
+    definitions: [
+      {
+        id: 'pawwork-v1-active',
+        title: 'Active import',
+        prompt: 'Run actively.',
+        revision: 1,
+        paused: true,
+        context: 'fresh',
+        cwd,
+        model: { provider: 'opencode', model: 'big-pickle' },
+        timezone: 'UTC',
+        createdAt: 1_000,
+        updatedAt: 2_000,
+        kind: 'recurring',
+        rhythm: { kind: 'cron', expression: '0 9 * * *' },
+        stop: { kind: 'never' },
+        nextFireAt: null,
+        migration: { source: 'pawwork-v1', sourceId: 'active', takeover: 'pending', warnings: [] },
+      },
+      {
+        id: 'pawwork-v1-paused',
+        title: 'Paused import',
+        prompt: 'Remain paused.',
+        revision: 1,
+        paused: true,
+        context: 'fresh',
+        cwd,
+        model: { provider: 'opencode', model: 'big-pickle' },
+        timezone: 'UTC',
+        createdAt: 1_000,
+        updatedAt: 2_000,
+        kind: 'recurring',
+        rhythm: { kind: 'cron', expression: '0 10 * * *' },
+        stop: { kind: 'never' },
+        nextFireAt: null,
+        migration: { source: 'pawwork-v1', sourceId: 'paused', takeover: 'not_required', warnings: [] },
+      },
+    ],
+    runs: [],
+  }));
+
+  const store = new AutomationStore(file, now);
+  const active = store.getDefinition('pawwork-v1-active');
+  const paused = store.getDefinition('pawwork-v1-paused');
+
+  assert.equal(active.paused, false);
+  assert.equal(active.nextFireAt, Date.parse('2026-08-18T09:00:00.000Z'));
+  assert.equal(active.revision, 2);
+  assert.equal(active.updatedAt, now);
+  assert.equal(paused.paused, true);
+  assert.equal(paused.nextFireAt, null);
+  assert.equal(Object.hasOwn(active.migration, 'takeover'), false);
+  assert.equal(Object.hasOwn(paused.migration, 'takeover'), false);
+  assert.doesNotThrow(() => new AutomationStore(file, now + 1));
+  assert.equal(new AutomationStore(file, now + 1).getDefinition('pawwork-v1-active').revision, 2);
 });
 
 test('imports orphaned v1 history without creating a schedulable definition', () => {

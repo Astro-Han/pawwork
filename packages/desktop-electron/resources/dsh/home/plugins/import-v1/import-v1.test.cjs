@@ -27,6 +27,23 @@ function fileDigest(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
+test('publishes only the final cold-session workspace state to the UI', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'index.mjs'), 'utf8');
+  const flushAt = source.indexOf('await ctx.sessions.flush(session)');
+  const detachAt = source.indexOf('detach();');
+  const attachAt = source.indexOf('await importer.attachDshWorkspace(imported, ctx.workspaceRegistry)');
+  assert.ok(flushAt >= 0 && flushAt < detachAt);
+  assert.ok(detachAt < attachAt);
+  assert.equal(source.includes('ctx.sessions.announce(session)'), false);
+});
+
+test('exposes only migration completion through the public DSH RPC seam', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'index.mjs'), 'utf8');
+  assert.match(source, /'connection'/);
+  assert.match(source, /ctx\.connection\.rpc\.handle\('\/pawwork-import-v1'/);
+  assert.match(source, /sessionsComplete/);
+});
+
 function createV1Fixture(file) {
   const database = new DatabaseSync(file);
   database.exec(`

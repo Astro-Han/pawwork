@@ -113,7 +113,14 @@ export function apply(ctx) {
   if (!home || !path.isAbsolute(home)) throw new Error('PawWork automations require an absolute DSH_HOME');
   const store = new AutomationStore(path.join(home, 'automations.json'));
   const scheduler = new AutomationScheduler({ store, execute: createDshExecutor(ctx) });
-  const rpc = createAutomationRpcHandler({ store, scheduler });
+  const rpc = createAutomationRpcHandler({
+    store,
+    scheduler,
+    defaults: () => ({
+      model: ctx.agentDefaultModel.currentSelection(),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    }),
+  });
   ctx.provide('pawworkAutomations', { store, scheduler });
   ctx.effect(() => {
     const stopRpc = ctx.connection.rpc.handle('/pawwork-automations', rpc, { authority: 'loopback' });
