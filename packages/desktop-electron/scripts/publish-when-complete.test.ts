@@ -26,8 +26,9 @@ const completeRelease: GithubRelease = {
   ].map((name) => ({ name, browser_download_url: `https://example.com/${name}` })),
 }
 
-const latestYml = "files:\n  - url: pawwork-win-x64-2026.6.1.exe\n"
-const latestMacYml = "files:\n  - url: pawwork-mac-arm64-2026.6.1.zip\n  - url: pawwork-mac-x64-2026.6.1.zip\n"
+const latestYml = "version: 2026.6.1\nfiles:\n  - url: pawwork-win-x64-2026.6.1.exe\n"
+const latestMacYml =
+  "version: 2026.6.1\nfiles:\n  - url: pawwork-mac-arm64-2026.6.1.zip\n  - url: pawwork-mac-x64-2026.6.1.zip\n"
 
 const expectedProvenance = releaseProvenanceAssetNames("2026.6.1")
 
