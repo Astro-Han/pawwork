@@ -40,26 +40,6 @@ export function PawworkSidebarTop(props: {
             <span class="text-h3 text-fg-base min-w-0 flex-1 truncate">{language.t("command.session.new")}</span>
           </button>
         </TooltipKeybind>
-        <TooltipKeybind placement="right" title={props.automationsLabel()} keybind="">
-          <button
-            type="button"
-            data-action="pawwork-automations-open"
-            aria-pressed={props.automationsActive()}
-            onClick={props.onOpenAutomations}
-            class="w-full h-[30px] flex items-center gap-3 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
-            classList={{ "bg-row-active-overlay hover:bg-row-active-overlay": props.automationsActive() }}
-          >
-            <span class="shrink-0 w-4 h-4 flex items-center">
-              <Icon name="automation" class="text-icon-base" />
-            </span>
-            <span
-              class="text-h3 text-fg-base min-w-0 flex-1 truncate"
-              classList={{ "text-fg-strong font-emphasis": props.automationsActive() }}
-            >
-              {props.automationsLabel()}
-            </span>
-          </button>
-        </TooltipKeybind>
         <TooltipKeybind
           placement="right"
           title={language.t("sidebar.pawwork.search")}
@@ -95,6 +75,26 @@ export function PawworkSidebarTop(props: {
               classList={{ "text-fg-strong font-emphasis": props.skillsActive() }}
             >
               {props.skillsLabel()}
+            </span>
+          </button>
+        </TooltipKeybind>
+        <TooltipKeybind placement="right" title={props.automationsLabel()} keybind="">
+          <button
+            type="button"
+            data-action="pawwork-automations-open"
+            aria-pressed={props.automationsActive()}
+            onClick={props.onOpenAutomations}
+            class="w-full h-[30px] flex items-center gap-3 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+            classList={{ "bg-row-active-overlay hover:bg-row-active-overlay": props.automationsActive() }}
+          >
+            <span class="shrink-0 w-4 h-4 flex items-center">
+              <Icon name="automation" class="text-icon-base" />
+            </span>
+            <span
+              class="text-h3 text-fg-base min-w-0 flex-1 truncate"
+              classList={{ "text-fg-strong font-emphasis": props.automationsActive() }}
+            >
+              {props.automationsLabel()}
             </span>
           </button>
         </TooltipKeybind>

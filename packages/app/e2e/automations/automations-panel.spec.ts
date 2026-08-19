@@ -54,23 +54,6 @@ const oneshot = (projectID: string, title: string, prompt: string, fireAt: numbe
   },
 })
 
-test("sidebar places Automations directly below New session at the settings row height", async ({ page, project }) => {
-  await project.open()
-  await openSidebar(page)
-
-  const topActions = page.locator('[data-component="pawwork-side-top"] button')
-  await expect(topActions.nth(0)).toHaveAttribute("data-action", "pawwork-session-new")
-  await expect(topActions.nth(1)).toHaveAttribute("data-action", "pawwork-automations-open")
-
-  const automation = page.locator('[data-action="pawwork-automations-open"]')
-  const settings = page.locator('[data-action="pawwork-open-settings"]')
-  await expect(automation).toBeVisible()
-  await expect(settings).toBeVisible()
-  expect(Math.round((await automation.boundingBox())?.height ?? 0)).toBe(
-    Math.round((await settings.boundingBox())?.height ?? 0),
-  )
-})
-
 test("@smoke automations panel: list, detail, pause, delete", async ({ page, project }) => {
   test.setTimeout(120_000)
 
