@@ -140,6 +140,46 @@ test('executes a due definition once, records its result, and advances recurring
   assert.equal(store.listRuns(created.id)[0].result, 'checked');
 });
 
+test('rearms future work without waiting for a due run to finish', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const first = oneShot(store, cwd, 2_000);
+  const second = oneShot(store, cwd, 3_000);
+  const clock = fakeClock(1_000);
+  let finishFirst;
+  const firstCompletion = new Promise((resolve) => { finishFirst = resolve; });
+  const started = [];
+  const scheduler = new AutomationScheduler({
+    store,
+    execute: async (definition) => {
+      started.push(definition.id);
+      return definition.id === first.id
+        ? firstCompletion
+        : { sessionId: 'pawwork-automation-run-2', result: 'done' };
+    },
+    clock,
+  });
+
+  await scheduler.start();
+  const firstTimer = clock.armed();
+  clock.setNow(2_000);
+  firstTimer.callback();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.notEqual(clock.armed(), firstTimer);
+  assert.equal(clock.armed().delay, 1_000);
+  const secondTimer = clock.armed();
+  clock.setNow(3_000);
+  secondTimer.callback();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(started, [first.id, second.id]);
+
+  finishFirst({ sessionId: 'pawwork-automation-run-1', result: 'done' });
+  await scheduler.stop();
+});
+
 test('starts an immediate run without making the caller wait for agent completion', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);

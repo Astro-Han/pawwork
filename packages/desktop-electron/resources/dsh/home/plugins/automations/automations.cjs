@@ -513,7 +513,7 @@ class AutomationScheduler {
       const run = this.store.beginRun(definition.id, target);
       executions.push(this.executeRun(definition, run));
     }
-    await Promise.all(executions);
+    void Promise.allSettled(executions);
     this.refresh();
   }
 
