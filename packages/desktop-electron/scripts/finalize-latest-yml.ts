@@ -2,6 +2,7 @@ import { execFile } from "node:child_process"
 import { access, mkdtemp, readFile as readTextFile, writeFile } from "node:fs/promises"
 import path from "path"
 import { promisify } from "node:util"
+import { parseUpdaterMetadata } from "./updater-metadata"
 
 const execFileAsync = promisify(execFile)
 
@@ -28,36 +29,13 @@ type LatestYml = {
 }
 
 function parse(content: string): LatestYml {
-  const lines = content.split("\n")
-  let version = ""
-  let releaseDate = ""
-  const files: FileEntry[] = []
-  let current: Partial<FileEntry> | undefined
-
-  const flush = () => {
-    if (current?.url && current.sha512 && current.size) files.push(current as FileEntry)
-    current = undefined
-  }
-
-  for (const line of lines) {
-    const indented = line.startsWith("    ") || line.startsWith("  -")
-    if (line.startsWith("version:")) version = line.slice("version:".length).trim()
-    else if (line.startsWith("releaseDate:"))
-      releaseDate = line.slice("releaseDate:".length).trim().replace(/^'|'$/g, "")
-    else if (line.trim().startsWith("- url:")) {
-      flush()
-      current = { url: line.trim().slice("- url:".length).trim() }
-    } else if (indented && current && line.trim().startsWith("sha512:"))
-      current.sha512 = line.trim().slice("sha512:".length).trim()
-    else if (indented && current && line.trim().startsWith("size:"))
-      current.size = Number(line.trim().slice("size:".length).trim())
-    else if (indented && current && line.trim().startsWith("blockMapSize:"))
-      current.blockMapSize = Number(line.trim().slice("blockMapSize:".length).trim())
-    else if (!indented && current) flush()
-  }
-  flush()
-
-  return { version, files, releaseDate }
+  const metadata = parseUpdaterMetadata(content)
+  const files = metadata.files.flatMap((file) =>
+    file.sha512 !== undefined && file.size !== undefined
+      ? [{ url: file.url, sha512: file.sha512, size: file.size, ...(file.blockMapSize === undefined ? {} : { blockMapSize: file.blockMapSize }) }]
+      : [],
+  )
+  return { version: metadata.version ?? "", files, releaseDate: metadata.releaseDate ?? "" }
 }
 
 function serialize(data: LatestYml) {

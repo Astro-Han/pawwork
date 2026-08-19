@@ -71,31 +71,12 @@ export function releaseUpdaterAssetNames(version: string): Record<MetadataFile, 
 }
 
 export function parseUpdaterFileUrls(source: string) {
-  const urls: string[] = []
-
-  // This intentionally parses only the electron-builder metadata fields we verify.
-  // It is not a general YAML parser and ignores block scalars, multiline values,
-  // and other YAML forms that electron-builder does not emit for these fields.
-  for (const line of source.split(/\r?\n/)) {
-    const fileMatch = line.match(/^\s*-\s+url:\s*(.+?)\s*$/)
-    if (fileMatch) {
-      urls.push(parseYamlScalar(fileMatch[1]))
-      continue
-    }
-
-    const pathMatch = line.match(/^\s*path:\s*(.+?)\s*$/)
-    if (pathMatch) urls.push(parseYamlScalar(pathMatch[1]))
-  }
-
-  return urls
+  const metadata = parseUpdaterMetadata(source)
+  return [...metadata.files.map((file) => file.url), ...(metadata.path === undefined ? [] : [metadata.path])]
 }
 
 export function parseUpdaterVersion(source: string) {
-  for (const line of source.split(/\r?\n/)) {
-    const match = line.match(/^version:\s*(.+?)\s*$/)
-    if (match) return parseYamlScalar(match[1])
-  }
-  return undefined
+  return parseUpdaterMetadata(source).version
 }
 
 // Pair each updater file entry with its content sha512, keyed by asset basename.
@@ -105,58 +86,9 @@ export function parseUpdaterVersion(source: string) {
 // deliberately-narrow scanner as parseUpdaterFileUrls; ignores the top-level
 // `sha512:` (the `path:` digest), which has no preceding `- url:` entry.
 export function parseUpdaterShaByUrl(source: string): Array<{ name: string; sha512: string }> {
-  const entries: Array<{ name: string; sha512: string }> = []
-  let currentName: string | undefined
-
-  for (const line of source.split(/\r?\n/)) {
-    const fileMatch = line.match(/^\s*-\s+url:\s*(.+?)\s*$/)
-    if (fileMatch) {
-      currentName = assetNameFromUrl(parseYamlScalar(fileMatch[1]))
-      continue
-    }
-
-    const shaMatch = line.match(/^\s*sha512:\s*(.+?)\s*$/)
-    if (shaMatch && currentName) {
-      entries.push({ name: currentName, sha512: parseYamlScalar(shaMatch[1]) })
-      currentName = undefined
-    }
-  }
-
-  return entries
-}
-
-function parseYamlScalar(value: string) {
-  const trimmed = stripInlineComment(value).trim()
-  const quote = trimmed[0]
-  if ((quote === `"` || quote === `'`) && trimmed.at(-1) === quote) return trimmed.slice(1, -1)
-  return trimmed
-}
-
-function stripInlineComment(value: string) {
-  let quote: string | undefined
-
-  for (let index = 0; index < value.length; index += 1) {
-    const char = value[index]
-    if ((char === `"` || char === `'`) && !isEscaped(value, index)) {
-      quote = quote === char ? undefined : (quote ?? char)
-      continue
-    }
-
-    // The fallback space makes a leading # behave as a comment marker.
-    if (!quote && char === "#" && /\s/.test(value[index - 1] ?? " ")) {
-      return value.slice(0, index)
-    }
-  }
-
-  return value
-}
-
-function isEscaped(value: string, index: number) {
-  let slashCount = 0
-  for (let slashIndex = index - 1; slashIndex >= 0 && value[slashIndex] === "\\"; slashIndex -= 1) {
-    slashCount += 1
-  }
-  return slashCount % 2 === 1
+  return parseUpdaterMetadata(source).files.flatMap((file) =>
+    file.sha512 === undefined ? [] : [{ name: assetNameFromUrl(file.url), sha512: file.sha512 }],
+  )
 }
 
 function hasUpdaterEntry(urls: string[], expected: string) {
@@ -327,3 +259,4 @@ async function main() {
 if (import.meta.main) {
   await main()
 }
+import { parseUpdaterMetadata } from "./updater-metadata"

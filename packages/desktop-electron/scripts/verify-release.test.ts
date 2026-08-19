@@ -119,7 +119,7 @@ path: pawwork-mac-arm64-2026.4.28.zip
   - url: "pawwork-mac-arm64-2026.4.28.zip"
   - url: 'pawwork-mac-x64-2026.4.28.zip' # Intel macOS updater asset
   - url: "pawwork-mac#arm64.zip"
-    path: "pawwork-win-x64-2026.4.28.exe" # Windows updater asset
+path: "pawwork-win-x64-2026.4.28.exe" # Windows updater asset
 `),
     ).toEqual([
       "pawwork-mac-arm64-2026.4.28.zip",
@@ -136,7 +136,7 @@ path: pawwork-mac-arm64-2026.4.28.zip
   - url: "pawwork-mac\\"
 path: pawwork-win-x64-2026.4.28.exe
 `),
-    ).toEqual([String.raw`pawwork-mac\"arm64.zip`, String.raw`pawwork-mac\\`, "pawwork-win-x64-2026.4.28.exe"])
+    ).toEqual(['pawwork-mac"arm64.zip', "pawwork-mac\\", "pawwork-win-x64-2026.4.28.exe"])
   })
 
   test("accepts a stable release with expected assets and updater metadata", () => {
