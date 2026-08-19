@@ -36,9 +36,11 @@ export type CiSmokeProductSnapshot = {
   automationEditorVisible: boolean
   automationMetadataPlain: boolean
   automationBelowNewSession: boolean
+  brandClearsWindowControls: boolean
   sidebarToggleCount: number
   sidebarCollapsed: boolean
   sidebarExpandToggleCount: number
+  sidebarExpandToggleUsable: boolean
   sidebarToggleShift: number
   sidebarExpandedAgain: boolean
   retiredBrandVisible: boolean
@@ -204,9 +206,20 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
   const expression = `(async () => {
     const visible = (element) => {
       if (!element) return false
-      const style = getComputedStyle(element)
+      for (let current = element; current; current = current.parentElement) {
+        const style = getComputedStyle(current)
+        if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false
+      }
       const rect = element.getBoundingClientRect()
-      return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0
+      return rect.width > 0 && rect.height > 0
+    }
+    const usable = (element) => {
+      if (!visible(element)) return false
+      const rect = element.getBoundingClientRect()
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+      const hasVisibleContent = element.textContent?.trim()
+        || Array.from(element.querySelectorAll("svg, img")).some((child) => visible(child))
+      return Boolean(hasVisibleContent) && (hit === element || element.contains(hit))
     }
     const call = async (method, payload) => {
       const request = { type: "client-request", rpcId: crypto.randomUUID(), method, payload }
@@ -232,6 +245,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     })
     const automationRect = automationEntry?.getBoundingClientRect()
     const newSessionRect = newSession?.getBoundingClientRect()
+    const brandRect = pawworkBrandName?.getBoundingClientRect()
     const automationEntryVisible = visible(automationEntry)
 
     automationEntry?.click()
@@ -256,10 +270,11 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const collapseToggles = sidebarToggles()
     const collapseRect = collapseToggles[0]?.getBoundingClientRect()
     collapseToggles[0]?.click()
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await new Promise((resolve) => setTimeout(resolve, 300))
     const sidebarCollapsed = Boolean(document.querySelector("[data-sidebar-collapsed]"))
     const expandToggles = sidebarToggles()
     const expandRect = expandToggles[0]?.getBoundingClientRect()
+    const sidebarExpandToggleUsable = usable(expandToggles[0])
     const sidebarToggleShift = collapseRect && expandRect
       ? Math.hypot(
           collapseRect.left + collapseRect.width / 2 - expandRect.left - expandRect.width / 2,
@@ -282,9 +297,11 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       automationEditorVisible,
       automationMetadataPlain,
       automationBelowNewSession: Boolean(automationRect && newSessionRect && automationRect.top >= newSessionRect.bottom),
+      brandClearsWindowControls: document.documentElement.dataset.pawworkPlatform !== "macos" || Boolean(brandRect && brandRect.left >= 76),
       sidebarToggleCount: collapseToggles.length,
       sidebarCollapsed,
       sidebarExpandToggleCount: expandToggles.length,
+      sidebarExpandToggleUsable,
       sidebarToggleShift,
       sidebarExpandedAgain: !document.querySelector("[data-sidebar-collapsed]"),
       retiredBrandVisible,
@@ -364,9 +381,11 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
     snapshot.automationEditorVisible ? null : "Automation editor did not open",
     snapshot.automationMetadataPlain ? null : "Automation immutable metadata is not plain read-only text",
     snapshot.automationBelowNewSession ? null : "Automation is not below New Session",
+    snapshot.brandClearsWindowControls ? null : "PawWork brand overlaps the macOS window controls",
     snapshot.sidebarToggleCount === 1 ? null : `expected one DSH collapse control, found ${snapshot.sidebarToggleCount}`,
     snapshot.sidebarCollapsed ? null : "DSH collapse control did not collapse the sidebar",
     snapshot.sidebarExpandToggleCount === 1 ? null : `expected one DSH expand control, found ${snapshot.sidebarExpandToggleCount}`,
+    snapshot.sidebarExpandToggleUsable ? null : "DSH expand control is not visibly clickable",
     snapshot.platform !== "macos" || snapshot.sidebarToggleShift <= 1 ? null : `DSH sidebar control moved ${snapshot.sidebarToggleShift.toFixed(1)}px while collapsing`,
     snapshot.sidebarExpandedAgain ? null : "DSH expand control did not reopen the sidebar",
     !snapshot.retiredBrandVisible ? null : "retired DSH branding is visible",

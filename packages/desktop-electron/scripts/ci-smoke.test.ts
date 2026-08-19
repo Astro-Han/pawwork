@@ -209,9 +209,11 @@ describe("ci smoke helpers", () => {
       automationEditorVisible: true,
       automationMetadataPlain: true,
       automationBelowNewSession: true,
+      brandClearsWindowControls: true,
       sidebarToggleCount: 1,
       sidebarCollapsed: true,
       sidebarExpandToggleCount: 1,
+      sidebarExpandToggleUsable: true,
       sidebarToggleShift: 0,
       sidebarExpandedAgain: true,
       retiredBrandVisible: false,
@@ -231,9 +233,11 @@ describe("ci smoke helpers", () => {
       automationEditorVisible: false,
       automationMetadataPlain: false,
       automationBelowNewSession: false,
+      brandClearsWindowControls: false,
       sidebarToggleCount: 2,
       sidebarCollapsed: false,
       sidebarExpandToggleCount: 0,
+      sidebarExpandToggleUsable: false,
       sidebarToggleShift: 218,
       sidebarExpandedAgain: false,
       retiredBrandVisible: true,
@@ -242,7 +246,7 @@ describe("ci smoke helpers", () => {
       freeModelAvailable: false,
       skillNames: [],
       sessionId: "",
-    })).toThrow(/brand name.*Automation entry.*Automation surface.*Automation editor.*immutable metadata.*below New Session.*one DSH collapse control.*collapse.*one DSH expand control.*moved.*reopen.*branding.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
+    })).toThrow(/brand name.*Automation entry.*Automation surface.*Automation editor.*immutable metadata.*below New Session.*window controls.*one DSH collapse control.*collapse.*one DSH expand control.*visibly clickable.*moved.*reopen.*branding.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
   })
 
   test("parseSmokeArgs defaults to raw dev mode", () => {

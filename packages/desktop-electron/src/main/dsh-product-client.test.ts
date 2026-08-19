@@ -152,6 +152,56 @@ describe("PawWork DSH client product layer", () => {
     expect(brandEntries[1].component({}).props.children).toEqual(["爪印"])
   })
 
+  test("exposes one titlebar sidebar toggle through the public overlay slot", () => {
+    const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
+    let definition: {
+      factory: (require: (name: string) => unknown) => { apply(ctx: unknown): void }
+    } | null = null
+    const document = {
+      title: "DeepSeek Harness",
+      documentElement: { lang: "zh-CN", dataset: {} },
+      querySelector: () => null,
+      createElement: () => ({ dataset: {}, textContent: "" }),
+      head: { appendChild: () => {} },
+    }
+    const window = { __ModuleLoader__: { load: (value: typeof definition) => { definition = value } } }
+
+    vm.runInNewContext(source, { document, navigator: { platform: "MacIntel" }, window })
+    const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
+      type,
+      props: { ...props, children },
+    })
+    const IconPanelLeftOutline16 = Symbol("IconPanelLeftOutline16")
+    const plugin = definition!.factory((name) => {
+      if (name === "react") return { createElement, useEffect: () => {}, useRef: <T>(value: T) => ({ current: value }) }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16 }
+      throw new Error(`unexpected product client dependency: ${name}`)
+    })
+    const toggleSidebar = vi.fn(() => {})
+    const registrations: Array<{
+      options: { id?: string }
+      component: () => { props: Record<string, unknown> }
+    }> = []
+    plugin.apply({
+      layout: { toggleSidebar },
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (options: { id?: string }, component: () => { props: Record<string, unknown> }) => {
+          registrations.push({ options, component })
+        },
+      },
+    })
+
+    const registration = registrations.find((entry) => entry.options.id === "pawwork-sidebar-toggle")
+    expect(registration).toBeDefined()
+    const overlay = registration!.component()
+    const button = (overlay.type as (props: Record<string, unknown>) => { props: Record<string, unknown> })(overlay.props)
+    expect(button.props["aria-label"]).toBe("切换侧边栏")
+    expect(button.props.children[0].type).toBe(IconPanelLeftOutline16)
+    ;(button.props.onClick as () => void)()
+    expect(toggleSidebar).toHaveBeenCalledTimes(1)
+  })
+
   test("surfaces automations directly below New Session through the public sidebar action slot", () => {
     const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
     let definition: {

@@ -11,6 +11,7 @@ window.__ModuleLoader__.load({
       StateDot,
       IconChevronDownOutline14,
       IconCloseOutline16,
+      IconPanelLeftOutline16,
       IconPauseOutline16,
       IconPlayOutline16,
       IconSearchOutline16,
@@ -22,10 +23,21 @@ window.__ModuleLoader__.load({
     // PawWork owns its product identity and shadows the public conversation
     // slot only while its Automation page is open.
     const productCss = `
-html[data-pawwork-platform="macos"] [data-sidebar-collapsed] button[aria-label="打开侧边栏"],
-html[data-pawwork-platform="macos"] [data-sidebar-collapsed] button[aria-label="Open sidebar"] {
-  height: 28px; left: 240px; position: fixed; top: 22px; width: 28px; z-index: 1;
+html[data-pawwork-platform="macos"] .pawwork-brand-name { margin-left: 52px; }
+.pawwork-sidebar-toggle { display: none; }
+html[data-pawwork-platform="macos"] button[aria-label="收起侧边栏"]:not(.pawwork-sidebar-toggle),
+html[data-pawwork-platform="macos"] button[aria-label="打开侧边栏"]:not(.pawwork-sidebar-toggle),
+html[data-pawwork-platform="macos"] button[aria-label="Collapse sidebar"]:not(.pawwork-sidebar-toggle),
+html[data-pawwork-platform="macos"] button[aria-label="Open sidebar"]:not(.pawwork-sidebar-toggle) { display: none; }
+html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle {
+  -webkit-app-region: no-drag;
+  align-items: center; background: transparent; border: 0; border-radius: 50%;
+  color: var(--dsw-alias-label-secondary); cursor: pointer; display: inline-flex;
+  height: 28px; justify-content: center; left: 240px; padding: 0; position: fixed;
+  top: 22px; width: 28px;
 }
+html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle:hover { background: var(--dsw-alias-interactive-bg-hover); }
+html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle:focus-visible { outline: 2px solid #f36b2b; outline-offset: 1px; }
 .pawwork-file-action {
   align-items: center; background: transparent; border: 0; border-radius: 6px;
   color: var(--dsw-alias-label-secondary); cursor: pointer; display: inline-flex;
@@ -225,6 +237,11 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
       const label = text("添加文件", "Add files")
       return h("button", { "aria-label": label, className: "pawwork-file-action", disabled: input.phase !== "plain", onClick: chooseFiles, title: label, type: "button" },
         icon(["M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"]))
+    }
+
+    function SidebarToggle({ toggleSidebar }) {
+      const label = text("切换侧边栏", "Toggle sidebar")
+      return h("button", { "aria-label": label, className: "pawwork-sidebar-toggle", onClick: toggleSidebar, title: label, type: "button" }, h(IconPanelLeftOutline16, { size: 16 }))
     }
 
     function createAutomationSurfaceController() {
@@ -571,6 +588,7 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
       ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawWorkBrandMark))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))
       ctx.slots.inject("conversation.input.left", () => ctx.slots.register({ name: "conversation.input.left", id: "pawwork-files", order: -100 }, FileAction))
+      ctx.slots.inject("shell.overlay", () => ctx.slots.register({ name: "shell.overlay", id: "pawwork-sidebar-toggle", order: -100 }, () => h(SidebarToggle, { toggleSidebar: () => ctx.layout.toggleSidebar() })))
       ctx.slots.inject("shell.overlay", () => ctx.slots.register({ name: "shell.overlay", id: "pawwork-v1-migration-refresh", order: -99 }, () => h(CompleteV1MigrationRefresh, { connection: ctx.connection, sessions: ctx.sessions })))
       ctx.slots.inject("conversation", () => automationSurface.attach(() => {
         ctx.layout.closeDetails()
