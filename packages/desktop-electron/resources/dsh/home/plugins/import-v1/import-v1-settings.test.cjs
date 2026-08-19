@@ -219,3 +219,30 @@ test('skips an overridden model and rejects settings without a live equivalent',
     id: 'unknown', kind: 'field', namespace: 'missing', field: 'value', value: true,
   }), 'unsupported');
 });
+
+test('keeps model migration retryable when the matching provider catalog is unavailable', async () => {
+  const importSetting = createDshSettingImporter({
+    settings: {
+      describe: () => [{
+        ns: 'agent-default-model',
+        revision: 3,
+        value: { provider: 'opencode', model: 'big-pickle' },
+      }],
+      update: async () => assert.fail('unavailable models must not update settings'),
+      replace: async () => assert.fail('unavailable models must not replace settings'),
+    },
+    llm: {
+      listProviders: () => [{ id: 'opencode', name: 'OpenCode Zen' }],
+      listModels: async () => { throw new Error('temporary catalog failure'); },
+    },
+  });
+
+  await assert.rejects(
+    importSetting({
+      id: 'default-model',
+      kind: 'model',
+      candidates: [{ provider: 'opencode', model: 'deepseek-v4-flash-free' }],
+    }),
+    /temporary catalog failure/,
+  );
+});

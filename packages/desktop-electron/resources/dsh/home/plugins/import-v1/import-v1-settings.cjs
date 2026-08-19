@@ -158,12 +158,7 @@ function createDshSettingImporter({ settings, llm }) {
     let selected;
     for (const candidate of setting.candidates) {
       if (!providers.has(candidate.provider)) continue;
-      let models;
-      try {
-        models = await llm.listModels(candidate.provider);
-      } catch {
-        continue;
-      }
+      const models = await llm.listModels(candidate.provider);
       if (models.some((model) => model.id === candidate.model)) {
         selected = candidate;
         break;
