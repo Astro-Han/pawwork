@@ -25,6 +25,7 @@ type LaunchDshSidecarOptions = {
   zenIdentityPreload: string
   productHome: string
   productPatch: string
+  toolsDir: string
   env: NodeJS.ProcessEnv
   timeoutMs: number
   spawn: SpawnDshProcess
@@ -39,6 +40,16 @@ export type DshSidecar = {
 }
 
 const READY_LINE = /^dsh web: (http:\/\/127\.0\.0\.1:\d+)(?: \(|$)/
+
+export function withBundledToolsPath(env: NodeJS.ProcessEnv, toolsDir: string, separator = delimiter) {
+  const result = { ...env }
+  const pathKeys = Object.keys(result).filter((key) => key.toLowerCase() === "path")
+  const pathKey = pathKeys[0] ?? "PATH"
+  const current = result[pathKey]
+  for (const duplicate of pathKeys.slice(1)) delete result[duplicate]
+  result[pathKey] = current ? `${toolsDir}${separator}${current}` : toolsDir
+  return result
+}
 
 export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshSidecar> {
   const child = options.spawn(
@@ -57,7 +68,11 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshS
       "0",
     ],
     {
-      env: { ...options.env, DSH_HOME: options.productHome, ELECTRON_RUN_AS_NODE: "1" },
+      env: {
+        ...withBundledToolsPath(options.env, options.toolsDir),
+        DSH_HOME: options.productHome,
+        ELECTRON_RUN_AS_NODE: "1",
+      },
       stdio: ["ignore", "pipe", "pipe"],
     },
   )
@@ -129,3 +144,4 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshS
     }, options.timeoutMs)
   })
 }
+import { delimiter } from "node:path"

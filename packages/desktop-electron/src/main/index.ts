@@ -208,6 +208,7 @@ async function startDsh() {
     zenIdentityPreload: pathToFileURL(product.zenIdentityPreload).href,
     productHome: product.home,
     productPatch: product.patch,
+    toolsDir: join(dirname(resources), "tools"),
     env: buildDshEnvironment(product.home),
     timeoutMs: 30_000,
     spawn: (executable, args, options) => spawn(executable, args, options),

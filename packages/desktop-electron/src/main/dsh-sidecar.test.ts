@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { EventEmitter } from "node:events"
 import { PassThrough } from "node:stream"
-import { launchDshSidecar, type DshChildProcess } from "./dsh-sidecar"
+import { launchDshSidecar, type DshChildProcess, withBundledToolsPath } from "./dsh-sidecar"
 
 class FakeChildProcess extends EventEmitter implements DshChildProcess {
   readonly stdout = new PassThrough()
@@ -18,6 +18,15 @@ class FakeChildProcess extends EventEmitter implements DshChildProcess {
 }
 
 describe("DSH sidecar lifecycle", () => {
+  test("prepends bundled tools to the existing PATH spelling", () => {
+    expect(withBundledToolsPath({ PATH: "/usr/bin" }, "/app/tools", ":")).toEqual({
+      PATH: "/app/tools:/usr/bin",
+    })
+    expect(withBundledToolsPath({ Path: "C:\\Windows" }, "C:\\PawWork\\tools", ";")).toEqual({
+      Path: "C:\\PawWork\\tools;C:\\Windows",
+    })
+  })
+
   test("loads the URL announced by the owned child process", async () => {
     const child = new FakeChildProcess()
     let invocation:
@@ -33,6 +42,7 @@ describe("DSH sidecar lifecycle", () => {
       zenIdentityPreload: "file:///app/dsh/zen-identity-preload.mjs",
       productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
+      toolsDir: "/app/tools",
       env: { PATH: "/usr/bin" },
       timeoutMs: 100,
       spawn: (executable, args, options) => {
@@ -61,7 +71,7 @@ describe("DSH sidecar lifecycle", () => {
         "0",
       ],
       options: {
-        env: { PATH: "/usr/bin", DSH_HOME: "/data/dsh", ELECTRON_RUN_AS_NODE: "1" },
+        env: { PATH: "/app/tools:/usr/bin", DSH_HOME: "/data/dsh", ELECTRON_RUN_AS_NODE: "1" },
         stdio: ["ignore", "pipe", "pipe"],
       },
     })
@@ -78,6 +88,7 @@ describe("DSH sidecar lifecycle", () => {
       zenIdentityPreload: "file:///app/dsh/zen-identity-preload.mjs",
       productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
+      toolsDir: "/app/tools",
       env: {},
       timeoutMs: 100,
       spawn: () => child,
