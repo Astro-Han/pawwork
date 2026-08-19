@@ -44,6 +44,64 @@ test('exposes only migration completion through the public DSH RPC seam', () => 
   assert.match(source, /sessionsComplete/);
 });
 
+test('keeps the public migration status incomplete after a partial session import', async () => {
+  const importerModule = require('./import-v1.cjs');
+  const settingsModule = require('./import-v1-settings.cjs');
+  const automationsModule = require('./import-v1-automations.cjs');
+  const originalRun = importerModule.runV1SessionImport;
+  const originalCreateSettingImporter = settingsModule.createDshSettingImporter;
+  const originalSettingsRun = settingsModule.runV1SettingsImport;
+  const originalAutomationsRun = automationsModule.runV1AutomationImport;
+  let statusRpc;
+  let stopPlugin;
+  let importStarted;
+  const started = new Promise((resolve) => { importStarted = resolve; });
+  let backgroundFinished;
+  const finished = new Promise((resolve) => { backgroundFinished = resolve; });
+  importerModule.runV1SessionImport = async () => {
+    importStarted();
+    return { status: 'partial' };
+  };
+  settingsModule.createDshSettingImporter = () => async () => 'skipped';
+  settingsModule.runV1SettingsImport = async () => ({ status: 'complete' });
+  automationsModule.runV1AutomationImport = async () => {
+    backgroundFinished();
+    return { status: 'complete' };
+  };
+  try {
+    const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?status=${Date.now()}`;
+    const { apply } = await import(pluginUrl);
+    apply({
+      connection: {
+        rpc: {
+          handle: (_channel, handler) => {
+            statusRpc = handler;
+            return async () => {};
+          },
+        },
+      },
+      effect: (setup) => { stopPlugin = setup(); },
+      llm: { listProviders: () => [] },
+      logger: { warn: () => {} },
+      pawworkAutomations: { scheduler: { refresh: () => {} } },
+      sessionPersistence: { list: async () => [] },
+    });
+    await started;
+    await finished;
+
+    assert.deepEqual(await statusRpc('status'), {
+      ok: true,
+      value: { sessionsComplete: false },
+    });
+    await stopPlugin();
+  } finally {
+    importerModule.runV1SessionImport = originalRun;
+    settingsModule.createDshSettingImporter = originalCreateSettingImporter;
+    settingsModule.runV1SettingsImport = originalSettingsRun;
+    automationsModule.runV1AutomationImport = originalAutomationsRun;
+  }
+});
+
 function createV1Fixture(file) {
   const database = new DatabaseSync(file);
   database.exec(`

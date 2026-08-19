@@ -97,15 +97,14 @@ export function apply(ctx) {
   void (async () => {
     try {
       const importSession = await createDshSessionImporter(ctx);
-      await importer.runV1SessionImport({
+      const result = await importer.runV1SessionImport({
         home: process.env.DSH_HOME,
         importSession,
         signal: controller.signal,
       });
+      sessionsComplete = result.status === 'complete' || result.status === 'not-found';
     } catch (error) {
       ctx.logger.warn(`v1 session import failed: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      sessionsComplete = true;
     }
 
     try {
