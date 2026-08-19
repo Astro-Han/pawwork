@@ -90,31 +90,38 @@ export function apply(ctx) {
     if (endpoint === 'status') return { ok: true, value: { sessionsComplete } };
     return { ok: false, error: { code: 'bad-request', message: `unknown v1 import endpoint: ${endpoint}`, details: {} } };
   }, { authority: 'loopback' });
-  void (async () => {
+  const importTask = (async () => {
     try {
       const importSession = await createDshSessionImporter(ctx);
+      controller.signal.throwIfAborted();
       const result = await importer.runV1SessionImport({
         home: process.env.DSH_HOME,
         importSession,
         signal: controller.signal,
       });
+      controller.signal.throwIfAborted();
       sessionsComplete = result.status === 'complete' || result.status === 'not-found';
     } catch (error) {
+      if (controller.signal.aborted) return;
       ctx.logger.warn(`v1 session import failed: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     try {
+      controller.signal.throwIfAborted();
       const importSetting = settingsImporter.createDshSettingImporter(ctx);
       await settingsImporter.runV1SettingsImport({
         home: process.env.DSH_HOME,
         importSetting,
         signal: controller.signal,
       });
+      controller.signal.throwIfAborted();
     } catch (error) {
+      if (controller.signal.aborted) return;
       ctx.logger.warn(`v1 settings import failed: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     try {
+      controller.signal.throwIfAborted();
       const completedSessions = importer.completedV1SessionTargetIds(process.env.DSH_HOME);
       await automationImporter.runV1AutomationImport({
         home: process.env.DSH_HOME,
@@ -128,14 +135,17 @@ export function apply(ctx) {
         importRun: async (run) => ctx.pawworkAutomations.store.importRun(run),
         signal: controller.signal,
       });
+      controller.signal.throwIfAborted();
       ctx.pawworkAutomations.store.activateImportedDefinitions();
       ctx.pawworkAutomations.scheduler.refresh();
     } catch (error) {
+      if (controller.signal.aborted) return;
       ctx.logger.warn(`v1 automation import failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   })();
   ctx.effect(() => async () => {
     controller.abort(new Error('PawWork v1 importer stopped'));
+    await importTask;
     await stopRpc();
   });
 }

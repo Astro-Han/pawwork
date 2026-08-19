@@ -134,6 +134,29 @@ test('records idempotent setting results and resumes only failed settings', asyn
   assert.deepEqual(sourceFiles.map((file) => fs.readFileSync(file)), sourceBefore);
 });
 
+test('does not commit a setting after cancellation during import', async () => {
+  const root = temporaryDirectory();
+  const appData = path.join(root, 'v1');
+  const home = path.join(root, 'v2');
+  createPreferenceFixture(appData);
+  const controller = new AbortController();
+  let abortedSetting;
+
+  await assert.rejects(runV1SettingsImport({
+    home,
+    sourceAppData: appData,
+    signal: controller.signal,
+    importSetting: async (setting) => {
+      abortedSetting = setting.id;
+      controller.abort(new Error('settings import stopped'));
+      return 'imported';
+    },
+  }), /settings import stopped/);
+
+  const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+  assert.equal(ledger.settings[abortedSetting], undefined);
+});
+
 test('preserves v2 overrides and imports the first model currently advertised by DSH', async () => {
   const updates = [];
   const selections = [];

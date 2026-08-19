@@ -179,6 +179,33 @@ test('imports definitions and runs idempotently with a resumable shared ledger',
   assert.equal(fs.existsSync(path.join(home, 'import-v1', 'automation-snapshot.db')), false);
 });
 
+test('does not commit an Automation definition after cancellation during import', async () => {
+  const source = fixture();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-v1-automation-abort-'));
+  fs.mkdirSync(path.join(home, 'import-v1'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({
+    schema: 1,
+    automationDefinitions: {},
+    automationRuns: {},
+  }));
+  const controller = new AbortController();
+
+  await assert.rejects(runV1AutomationImport({
+    home,
+    sourceDatabase: source,
+    resolveModel: async () => ({ model: { provider: 'opencode', model: 'big-pickle' } }),
+    importDefinition: async () => {
+      controller.abort(new Error('automation import stopped'));
+      return 'imported';
+    },
+    importRun: async () => 'imported',
+    signal: controller.signal,
+  }), /automation import stopped/);
+
+  const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+  assert.equal(ledger.automationDefinitions.automation_source, undefined);
+});
+
 test('records malformed automation rows and continues importing valid rows', async () => {
   const source = fixture();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-v1-automation-malformed-'));

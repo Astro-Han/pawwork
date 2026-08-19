@@ -165,6 +165,51 @@ test('derives completed session targets from the migration ledger', () => {
   assert.deepEqual([...completedV1SessionTargetIds(home)], ['pawwork-v1-complete']);
 });
 
+test('plugin disposal aborts and awaits the background migration before unregistering RPC', async () => {
+  const importerModule = require('./import-v1.cjs');
+  const settingsModule = require('./import-v1-settings.cjs');
+  const automationsModule = require('./import-v1-automations.cjs');
+  const originalRun = importerModule.runV1SessionImport;
+  const originalSettingsRun = settingsModule.runV1SettingsImport;
+  const originalAutomationsRun = automationsModule.runV1AutomationImport;
+  let started;
+  const importStarted = new Promise((resolve) => { started = resolve; });
+  let stopPlugin;
+  let rpcStopped = false;
+  let settingsCalls = 0;
+  let automationCalls = 0;
+  importerModule.runV1SessionImport = async ({ signal }) => {
+    started();
+    await new Promise((resolve) => signal.addEventListener('abort', () => setImmediate(resolve), { once: true }));
+    signal.throwIfAborted();
+  };
+  settingsModule.runV1SettingsImport = async () => { settingsCalls += 1; };
+  automationsModule.runV1AutomationImport = async () => { automationCalls += 1; };
+  try {
+    const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?dispose=${Date.now()}`;
+    const { apply } = await import(pluginUrl);
+    apply({
+      connection: { rpc: { handle: () => async () => { rpcStopped = true; } } },
+      effect: (setup) => { stopPlugin = setup(); },
+      logger: { warn: () => {} },
+      sessionPersistence: { list: async () => [] },
+    });
+    await importStarted;
+
+    const stopped = stopPlugin();
+    assert.equal(rpcStopped, false);
+    await stopped;
+
+    assert.equal(rpcStopped, true);
+    assert.equal(settingsCalls, 0);
+    assert.equal(automationCalls, 0);
+  } finally {
+    importerModule.runV1SessionImport = originalRun;
+    settingsModule.runV1SettingsImport = originalSettingsRun;
+    automationsModule.runV1AutomationImport = originalAutomationsRun;
+  }
+});
+
 function createV1Fixture(file) {
   const database = new DatabaseSync(file);
   database.exec(`
@@ -789,6 +834,29 @@ test('resumes after a per-session failure without duplicating completed sessions
   assert.equal(complete.status, 'complete');
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.sessions.ses_parent.stats.unsupportedParts, 1);
+});
+
+test('does not commit a session after cancellation during its import', async () => {
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  createV1Fixture(source);
+  fs.mkdirSync(path.join(home, 'import-v1'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({ schema: 1, sessions: {} }));
+  const controller = new AbortController();
+
+  await assert.rejects(runV1SessionImport({
+    home,
+    sourceDatabase: source,
+    signal: controller.signal,
+    importSession: async () => {
+      controller.abort(new Error('session import stopped'));
+      return { session: 'imported', workspace: 'attached' };
+    },
+  }), /session import stopped/);
+
+  const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+  assert.equal(ledger.sessions.ses_parent, undefined);
 });
 
 test('records a malformed session and continues importing later sessions', async () => {

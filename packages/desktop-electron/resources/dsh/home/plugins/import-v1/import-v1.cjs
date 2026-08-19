@@ -344,6 +344,7 @@ async function runV1SessionImport({
   try {
     signal?.throwIfAborted();
     await createDatabaseSnapshot(sourceDatabase, snapshot);
+    signal?.throwIfAborted();
     for await (const sourceSession of readV1Sessions(snapshot)) {
       signal?.throwIfAborted();
       if (sourceSession.readError) {
@@ -360,6 +361,7 @@ async function runV1SessionImport({
       }
       try {
         const outcome = await importSession(imported);
+        signal?.throwIfAborted();
         const sessionOutcome = outcome?.session;
         const workspaceOutcome = outcome?.workspace;
         if (!['imported', 'skipped'].includes(sessionOutcome)) throw new Error(`invalid session outcome: ${sessionOutcome}`);
@@ -373,6 +375,7 @@ async function runV1SessionImport({
           workspaceUnavailable: workspaceOutcome === 'unavailable',
         };
       } catch (error) {
+        signal?.throwIfAborted();
         const message = error instanceof Error ? error.message : String(error);
         failed = true;
         ledger.sessions[sourceSession.id] = alreadyImported

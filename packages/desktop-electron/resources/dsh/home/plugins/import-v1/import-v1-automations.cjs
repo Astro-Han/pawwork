@@ -201,6 +201,7 @@ async function runV1AutomationImport({
   try {
     signal?.throwIfAborted();
     await createDatabaseSnapshot(sourceDatabase, snapshot);
+    signal?.throwIfAborted();
     const source = readV1Automations(snapshot);
     const definitionIds = new Set(source.definitionIds);
     for (const failure of source.failures) {
@@ -218,8 +219,10 @@ async function runV1AutomationImport({
       if (prior?.status === 'complete') continue;
       try {
         const resolved = await resolveModel(definition);
+        signal?.throwIfAborted();
         const mapped = mapV1AutomationDefinition(definition, resolved);
         const outcome = await importDefinition(mapped);
+        signal?.throwIfAborted();
         if (!['imported', 'skipped'].includes(outcome)) throw new Error(`invalid definition outcome: ${outcome}`);
         ledger.automationDefinitions[definition.id] = {
           status: 'complete',
@@ -228,6 +231,7 @@ async function runV1AutomationImport({
           warnings: mapped.migration.warnings,
         };
       } catch (error) {
+        signal?.throwIfAborted();
         const message = error instanceof Error ? error.message : String(error);
         failed = true;
         ledger.automationDefinitions[definition.id] = { status: 'failed', message };
@@ -244,6 +248,7 @@ async function runV1AutomationImport({
         const orphanedDefinition = !definitionIds.has(run.automationId);
         const mapped = mapV1AutomationRun(run, { completedAt, orphanedDefinition });
         const outcome = await importRun(mapped);
+        signal?.throwIfAborted();
         if (!['imported', 'skipped'].includes(outcome)) throw new Error(`invalid run outcome: ${outcome}`);
         ledger.automationRuns[run.id] = {
           status: 'complete',
@@ -252,6 +257,7 @@ async function runV1AutomationImport({
           orphanedDefinition,
         };
       } catch (error) {
+        signal?.throwIfAborted();
         const message = error instanceof Error ? error.message : String(error);
         failed = true;
         ledger.automationRuns[run.id] = { status: 'failed', message };

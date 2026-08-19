@@ -117,7 +117,7 @@ function owns(object, field) {
 }
 
 function createDshSettingImporter({ settings, llm }) {
-  return async (setting) => {
+  return async (setting, signal) => {
     const descriptors = settings.describe();
     if (setting.kind === 'field') {
       const descriptor = descriptors.find((entry) => entry.ns === setting.namespace);
@@ -140,6 +140,7 @@ function createDshSettingImporter({ settings, llm }) {
     for (const candidate of setting.candidates) {
       if (!providers.has(candidate.provider)) continue;
       const models = await llm.listModels(candidate.provider);
+      signal?.throwIfAborted();
       if (models.some((model) => model.id === candidate.model)) {
         selected = candidate;
         break;
@@ -149,6 +150,7 @@ function createDshSettingImporter({ settings, llm }) {
     const current = descriptor.value;
     if (current.provider === selected.provider && current.model === selected.model) return 'skipped';
     await settings.replace('agent-default-model', selected, descriptor.revision);
+    signal?.throwIfAborted();
     return 'imported';
   };
 }
@@ -193,12 +195,14 @@ async function runV1SettingsImport({
     const prior = ledger.settings[setting.id];
     if (prior?.status === 'complete') continue;
     try {
-      const outcome = await importSetting(setting);
+      const outcome = await importSetting(setting, signal);
+      signal?.throwIfAborted();
       if (!['imported', 'skipped', 'unsupported'].includes(outcome)) {
         throw new Error(`invalid v1 setting import outcome: ${outcome}`);
       }
       ledger.settings[setting.id] = { status: 'complete', outcome };
     } catch (error) {
+      signal?.throwIfAborted();
       const message = error instanceof Error ? error.message : String(error);
       failed = true;
       ledger.settings[setting.id] = { status: 'failed', message };
