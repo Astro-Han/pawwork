@@ -2,6 +2,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { readJson, writeJsonAtomically } = require('./migration-io.cjs');
 
 const V1_APP_ID = 'ai.pawwork.desktop';
 
@@ -26,11 +27,6 @@ function discoverV1AppData(options = {}) {
   const explicit = env.PAWWORK_V1_APP_DATA;
   if (explicit && fs.existsSync(explicit)) return explicit;
   return v1AppDataCandidates(options).find((candidate) => fs.existsSync(candidate)) || null;
-}
-
-function readJson(file, fallback) {
-  if (!fs.existsSync(file)) return fallback;
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
 function storedJson(value, label, fallback) {
@@ -114,13 +110,6 @@ function readV1Preferences(appData) {
     settings,
     unsupportedSettings: [...new Set(unsupportedSettings)].sort(),
   };
-}
-
-function writeJsonAtomically(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temporary = `${file}.next`;
-  fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(temporary, file);
 }
 
 function emptyCounts() {

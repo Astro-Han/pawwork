@@ -2,28 +2,14 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
-const importerCore = fs.existsSync(path.join(__dirname, 'import-v1.cjs')) ? './import-v1.cjs' : './import-v1';
-const { createDatabaseSnapshot, discoverV1Database } = require(importerCore);
-
-function parseJson(value, label) {
-  try {
-    return JSON.parse(value);
-  } catch (error) {
-    throw new Error(`invalid JSON in ${label}: ${error.message}`);
-  }
-}
-
-function tableColumns(database, table) {
-  return new Set(database.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name));
-}
-
-function requireColumns(database, table, required) {
-  const columns = tableColumns(database, table);
-  const missing = required.filter((column) => !columns.has(column));
-  if (missing.length > 0) {
-    throw new Error(`unsupported v1 database: ${table} is missing ${missing.join(', ')}`);
-  }
-}
+const {
+  createDatabaseSnapshot,
+  discoverV1Database,
+  parseJson,
+  readJson,
+  requireColumns,
+  writeJsonAtomically,
+} = require('./migration-io.cjs');
 
 function readV1Automations(snapshot) {
   const database = new DatabaseSync(snapshot, { readOnly: true, timeout: 5_000 });
@@ -157,18 +143,6 @@ function mapV1AutomationRun(source, { completedAt = Date.now(), orphanedDefiniti
     return { ...common, state: 'stopped', completedAt, stopReason: 'interrupted' };
   }
   throw new Error(`unsupported v1 automation run state: ${run.state}`);
-}
-
-function readJson(file, fallback) {
-  if (!fs.existsSync(file)) return fallback;
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
-}
-
-function writeJsonAtomically(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temporary = `${file}.next`;
-  fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(temporary, file);
 }
 
 function recordCounts() {
