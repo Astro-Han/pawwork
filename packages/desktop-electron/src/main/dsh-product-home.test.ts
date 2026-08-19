@@ -136,8 +136,9 @@ describe("DSH product home", () => {
   })
 
   test("isolates DSH from ambient model credentials", () => {
-    const environment = buildDshEnvironment("/data/dsh", "/app/skills", {
+    const environment = buildDshEnvironment("/app/skills", {
       PATH: "/usr/bin",
+      DSH_HOME: "/ambient/dsh",
       OPENCODE_API_KEY: "ambient",
       OPENCODE_GO_API_KEY: "ambient-go",
       DEEPSEEK_API_KEY: "ambient-deepseek",
@@ -146,7 +147,6 @@ describe("DSH product home", () => {
 
     expect(environment).toEqual({
       PATH: "/usr/bin",
-      DSH_HOME: "/data/dsh",
       DSH_BUNDLED_SKILL_DIR: "/app/skills",
     })
   })

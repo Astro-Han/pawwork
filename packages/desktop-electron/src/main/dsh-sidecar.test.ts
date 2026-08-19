@@ -9,12 +9,18 @@ class FakeChildProcess extends EventEmitter implements DshChildProcess {
   pid: number | undefined = 42
   killed = false
   killCount = 0
+  killSignals: Array<NodeJS.Signals | number | undefined> = []
+  gracefulExit = true
+  forceExit = true
 
-  kill() {
+  kill(signal?: NodeJS.Signals | number) {
     this.killed = true
     this.killCount += 1
-    this.pid = undefined
-    queueMicrotask(() => this.emit("exit", 0))
+    this.killSignals.push(signal)
+    if ((signal === "SIGKILL" && this.forceExit) || (signal !== "SIGKILL" && this.gracefulExit)) {
+      this.pid = undefined
+      queueMicrotask(() => this.emit("exit", 0))
+    }
     return true
   }
 }
@@ -142,5 +148,29 @@ describe("DSH sidecar lifecycle", () => {
     await sidecar.stop()
 
     expect(child.killCount).toBe(1)
+  })
+
+  test("escalates a non-exiting graceful stop to force termination within a bound", async () => {
+    const child = new FakeChildProcess()
+    child.gracefulExit = false
+    child.forceExit = false
+    const launched = launchDshSidecar({
+      executable: "/app/PawWork",
+      dshBin: "/app/dsh.js",
+      zenIdentityPreload: "file:///app/dsh/zen-identity-preload.mjs",
+      productHome: "/data/dsh",
+      productPatch: "/data/dsh/product.cordis.patch.yml",
+      toolsDir: "/app/tools",
+      env: {},
+      timeoutMs: 100,
+      stopTimeoutMs: 1,
+      spawn: () => child,
+    })
+    child.stdout.write("dsh web: http://127.0.0.1:43123\n")
+    const sidecar = await launched
+
+    await sidecar.stop()
+
+    expect(child.killSignals).toEqual([undefined, "SIGKILL"])
   })
 })

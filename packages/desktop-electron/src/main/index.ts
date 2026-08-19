@@ -162,9 +162,6 @@ function setupApp() {
         finish()
       })
   })
-  app.on("will-quit", () => {
-    void shutdownSidecar()
-  })
   for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => app.quit())
 
   void app
@@ -211,7 +208,7 @@ async function startDsh() {
     productHome: product.home,
     productPatch: product.patch,
     toolsDir: join(dirname(resources.dsh), "tools"),
-    env: buildDshEnvironment(product.home, resources.skills),
+    env: buildDshEnvironment(resources.skills),
     timeoutMs: 30_000,
     spawn: (executable, args, options) => spawn(executable, args, options),
     onStdout: (chunk) => logger.log("DSH stdout", { chunk: chunk.trimEnd() }),

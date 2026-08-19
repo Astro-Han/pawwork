@@ -7,7 +7,7 @@ export interface DshChildProcess {
   readonly stdout: DshReadableStream | null
   readonly stderr: DshReadableStream | null
   readonly pid?: number
-  kill(): boolean
+  kill(signal?: NodeJS.Signals | number): boolean
   on(event: "exit", listener: (code: number) => void): this
   once(event: "exit", listener: (code: number) => void): this
   off(event: "exit", listener: (code: number) => void): this
@@ -28,6 +28,7 @@ type LaunchDshSidecarOptions = {
   toolsDir: string
   env: NodeJS.ProcessEnv
   timeoutMs: number
+  stopTimeoutMs?: number
   spawn: SpawnDshProcess
   onStdout?: (chunk: string) => void
   onStderr?: (chunk: string) => void
@@ -40,6 +41,7 @@ export type DshSidecar = {
 }
 
 const READY_LINE = /^dsh web: (http:\/\/127\.0\.0\.1:\d+)(?: \(|$)/
+const DEFAULT_STOP_TIMEOUT_MS = 5_000
 
 export function withBundledToolsPath(env: NodeJS.ProcessEnv, toolsDir: string, separator = delimiter) {
   const result = { ...env }
@@ -77,16 +79,30 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshS
     },
   )
 
-  let resolveExit!: (code: number) => void
+  let exitedAlready = false
   const exited = new Promise<number>((resolve) => {
-    resolveExit = resolve
+    child.once("exit", (code) => {
+      exitedAlready = true
+      resolve(code)
+    })
   })
-  child.once("exit", resolveExit)
 
   return new Promise<DshSidecar>((resolve, reject) => {
     let stdoutBuffer = ""
     let settled = false
     let timeout: ReturnType<typeof setTimeout> | undefined
+    const stopTimeoutMs = options.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS
+
+    const waitForExit = () => {
+      if (exitedAlready) return Promise.resolve(true)
+      return new Promise<boolean>((resolveWait) => {
+        const waitTimeout = setTimeout(() => resolveWait(false), stopTimeoutMs)
+        void exited.then(() => {
+          clearTimeout(waitTimeout)
+          resolveWait(true)
+        })
+      })
+    }
 
     const cleanupReadiness = () => {
       if (timeout !== undefined) clearTimeout(timeout)
@@ -124,9 +140,11 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshS
           exited,
           stop() {
             stopping ??= (async () => {
-              if (child.pid === undefined) return
+              if (exitedAlready) return
               child.kill()
-              await exited
+              if (await waitForExit()) return
+              if (!exitedAlready) child.kill("SIGKILL")
+              await waitForExit()
             })()
             return stopping
           },

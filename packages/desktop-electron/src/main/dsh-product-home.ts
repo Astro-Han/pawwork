@@ -73,15 +73,14 @@ export function prepareDshProductHome(options: PrepareDshProductHomeOptions) {
 }
 
 export function buildDshEnvironment(
-  productHome: string,
   bundledSkillDir: string,
   source: NodeJS.ProcessEnv = process.env,
 ) {
   const environment: NodeJS.ProcessEnv = {
     ...source,
     DSH_BUNDLED_SKILL_DIR: bundledSkillDir,
-    DSH_HOME: productHome,
   }
+  delete environment.DSH_HOME
   for (const name of DROPPED_MODEL_ENVIRONMENT) delete environment[name]
   return environment
 }
