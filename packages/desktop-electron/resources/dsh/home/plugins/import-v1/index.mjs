@@ -28,11 +28,7 @@ function createAutomationModelResolver(ctx) {
     if (providers.has(selected?.providerID)) {
       let available = models.get(selected.providerID);
       if (!available) {
-        try {
-          available = new Set((await ctx.llm.listModels(selected.providerID)).map((model) => model.id));
-        } catch {
-          available = new Set();
-        }
+        available = new Set((await ctx.llm.listModels(selected.providerID)).map((model) => model.id));
         models.set(selected.providerID, available);
       }
       if (available.has(selected.modelID)) {

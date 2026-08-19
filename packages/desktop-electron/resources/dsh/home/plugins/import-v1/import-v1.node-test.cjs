@@ -46,6 +46,7 @@ test('publishes cold sessions once and keeps the public status incomplete after 
   let backgroundFinished;
   let automationsActivated = false;
   let missingContinueSessionRejected = false;
+  let unavailableAutomationCatalogRejected = false;
   const sessionLifecycle = [];
   const finished = new Promise((resolve) => { backgroundFinished = resolve; });
   importerModule.runV1SessionImport = async ({ importSession }) => {
@@ -59,14 +60,22 @@ test('publishes cold sessions once and keeps the public status incomplete after 
   };
   settingsModule.createDshSettingImporter = () => async () => 'skipped';
   settingsModule.runV1SettingsImport = async () => ({ status: 'complete' });
-  automationsModule.runV1AutomationImport = async ({ importDefinition }) => {
-    await assert.rejects(
-      importDefinition({ id: 'automation-1', context: 'continue', sourceSessionId: 'pawwork-v1-missing' }),
-      /source session is unavailable/,
-    );
-    missingContinueSessionRejected = true;
-    backgroundFinished();
-    return { status: 'partial' };
+  automationsModule.runV1AutomationImport = async ({ importDefinition, resolveModel }) => {
+    try {
+      await assert.rejects(
+        resolveModel({ data: { model: { providerID: 'opencode', modelID: 'deepseek-v4-flash-free' } } }),
+        /temporary automation catalog failure/,
+      );
+      unavailableAutomationCatalogRejected = true;
+      await assert.rejects(
+        importDefinition({ id: 'automation-1', context: 'continue', sourceSessionId: 'pawwork-v1-missing' }),
+        /source session is unavailable/,
+      );
+      missingContinueSessionRejected = true;
+      return { status: 'partial' };
+    } finally {
+      backgroundFinished();
+    }
   };
   try {
     const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?status=${Date.now()}`;
@@ -82,7 +91,10 @@ test('publishes cold sessions once and keeps the public status incomplete after 
         },
       },
       effect: (setup) => { stopPlugin = setup(); },
-      llm: { listProviders: () => [] },
+      llm: {
+        listProviders: () => [{ id: 'opencode' }],
+        listModels: async () => { throw new Error('temporary automation catalog failure'); },
+      },
       logger: { warn: () => {} },
       pawworkAutomations: {
         scheduler: { refresh: () => {} },
@@ -115,6 +127,7 @@ test('publishes cold sessions once and keeps the public status incomplete after 
     });
     assert.equal(automationsActivated, true);
     assert.equal(missingContinueSessionRejected, true);
+    assert.equal(unavailableAutomationCatalogRejected, true);
     assert.deepEqual(sessionLifecycle, ['enter', 'rename', 'flush', 'detach', 'attach-workspace']);
     await stopPlugin();
   } finally {
