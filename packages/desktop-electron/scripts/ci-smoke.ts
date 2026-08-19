@@ -8,7 +8,7 @@ import { join, resolve } from "node:path"
 import process from "node:process"
 import readline from "node:readline"
 const require = createRequire(import.meta.url)
-const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
 export type SmokeChannel = "dev" | "beta" | "prod"
 export type SmokeMode = "raw" | "packaged"
@@ -171,7 +171,7 @@ export async function probeCiSmokeCdpTarget(port: number, options: ProbeOptions 
   const attempts = options.attempts ?? 50
   const delayMs = options.delayMs ?? 200
   const fetcher = options.fetch ?? fetch
-  const sleep = options.sleep ?? sleep
+  const sleep = options.sleep ?? delay
   const url = `http://127.0.0.1:${port}/json/list`
   let lastConnectionError: string | undefined
 
@@ -418,7 +418,7 @@ async function waitForCiSmokeReady(
       throw new Error(`Electron exited before reporting CI smoke readiness${tail}`)
     }
 
-    await sleep(250)
+    await delay(250)
   }
 
   const tail = recent.length ? `\nRecent app output:\n${recent.join("\n")}` : ""
@@ -447,7 +447,7 @@ async function stopChild(child: ChildProcessWithoutNullStreams) {
   if (child.exitCode !== null || child.signalCode !== null) return
 
   child.kill("SIGTERM")
-  const result = await Promise.race([once(child, "exit").then(() => "exit"), sleep(5_000).then(() => "timeout")])
+  const result = await Promise.race([once(child, "exit").then(() => "exit"), delay(5_000).then(() => "timeout")])
 
   if (result === "timeout" && child.exitCode === null && child.signalCode === null) {
     child.kill("SIGKILL")
