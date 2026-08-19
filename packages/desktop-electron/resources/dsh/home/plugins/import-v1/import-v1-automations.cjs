@@ -162,22 +162,6 @@ function mapV1AutomationRun(source, { completedAt = Date.now(), orphanedDefiniti
   throw new Error(`unsupported v1 automation run state: ${run.state}`);
 }
 
-function recordCounts() {
-  return { imported: 0, skipped: 0, failed: 0 };
-}
-
-function emptyResult(sourceDatabase, status) {
-  return {
-    schema: 1,
-    sourceDatabase,
-    status,
-    definitions: recordCounts(),
-    runs: recordCounts(),
-    orphanRuns: 0,
-    errors: [],
-  };
-}
-
 async function runV1AutomationImport({
   home,
   sourceDatabase = discoverV1Database(),
@@ -205,15 +189,14 @@ async function runV1AutomationImport({
     throw new Error(`v1 migration source changed from ${ledger.sourceDatabase} to ${sourceDatabase}`);
   }
   if (!sourceDatabase) {
-    const result = emptyResult(null, 'not-found');
     ledger.sourceDatabase = null;
     writeJsonAtomically(ledgerPath, ledger);
-    return result;
+    return { status: 'not-found' };
   }
 
   fs.mkdirSync(directory, { recursive: true });
   const snapshot = path.join(directory, 'automation-snapshot.db');
-  const result = emptyResult(sourceDatabase, 'complete');
+  let failed = false;
   ledger.sourceDatabase = sourceDatabase;
   try {
     signal?.throwIfAborted();
@@ -222,14 +205,9 @@ async function runV1AutomationImport({
     const definitionIds = new Set(source.definitionIds);
     for (const failure of source.failures) {
       const records = failure.kind === 'definition' ? ledger.automationDefinitions : ledger.automationRuns;
-      const counts = failure.kind === 'definition' ? result.definitions : result.runs;
       const prior = records[failure.id];
-      if (prior?.status === 'complete') counts.skipped += 1;
-      else {
-        counts.failed += 1;
-        result.errors.push(failure.kind === 'definition'
-          ? { sourceDefinitionId: failure.id, message: failure.message }
-          : { sourceRunId: failure.id, message: failure.message });
+      if (prior?.status !== 'complete') {
+        failed = true;
         records[failure.id] = { status: 'failed', message: failure.message };
       }
     }
@@ -237,16 +215,12 @@ async function runV1AutomationImport({
     for (const definition of source.definitions) {
       signal?.throwIfAborted();
       const prior = ledger.automationDefinitions[definition.id];
-      if (prior?.status === 'complete') {
-        result.definitions.skipped += 1;
-        continue;
-      }
+      if (prior?.status === 'complete') continue;
       try {
         const resolved = await resolveModel(definition);
         const mapped = mapV1AutomationDefinition(definition, resolved);
         const outcome = await importDefinition(mapped);
         if (!['imported', 'skipped'].includes(outcome)) throw new Error(`invalid definition outcome: ${outcome}`);
-        result.definitions[outcome] += 1;
         ledger.automationDefinitions[definition.id] = {
           status: 'complete',
           outcome,
@@ -255,8 +229,7 @@ async function runV1AutomationImport({
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        result.definitions.failed += 1;
-        result.errors.push({ sourceDefinitionId: definition.id, message });
+        failed = true;
         ledger.automationDefinitions[definition.id] = { status: 'failed', message };
       }
       writeJsonAtomically(ledgerPath, ledger);
@@ -266,18 +239,12 @@ async function runV1AutomationImport({
     for (const run of source.runs) {
       signal?.throwIfAborted();
       const prior = ledger.automationRuns[run.id];
-      if (prior?.status === 'complete') {
-        result.runs.skipped += 1;
-        if (prior.orphanedDefinition) result.orphanRuns += 1;
-        continue;
-      }
+      if (prior?.status === 'complete') continue;
       try {
         const orphanedDefinition = !definitionIds.has(run.automationId);
         const mapped = mapV1AutomationRun(run, { completedAt, orphanedDefinition });
         const outcome = await importRun(mapped);
         if (!['imported', 'skipped'].includes(outcome)) throw new Error(`invalid run outcome: ${outcome}`);
-        result.runs[outcome] += 1;
-        if (orphanedDefinition) result.orphanRuns += 1;
         ledger.automationRuns[run.id] = {
           status: 'complete',
           outcome,
@@ -286,15 +253,13 @@ async function runV1AutomationImport({
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        result.runs.failed += 1;
-        result.errors.push({ sourceRunId: run.id, message });
+        failed = true;
         ledger.automationRuns[run.id] = { status: 'failed', message };
       }
       writeJsonAtomically(ledgerPath, ledger);
     }
-    if (result.definitions.failed > 0 || result.runs.failed > 0) result.status = 'partial';
     writeJsonAtomically(ledgerPath, ledger);
-    return result;
+    return { status: failed ? 'partial' : 'complete' };
   } finally {
     fs.rmSync(snapshot, { force: true });
     fs.rmSync(`${snapshot}-shm`, { force: true });

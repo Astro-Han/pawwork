@@ -109,7 +109,6 @@ test('records idempotent setting results and resumes only failed settings', asyn
     },
   });
   assert.equal(partial.status, 'partial');
-  assert.deepEqual(partial.settings, { imported: 1, skipped: 0, unsupported: 10, failed: 1 });
   assert.equal(Object.hasOwn(partial, 'credentials'), false);
 
   const resumedCalls = [];
@@ -123,7 +122,6 @@ test('records idempotent setting results and resumes only failed settings', asyn
   });
   assert.deepEqual(resumedCalls, ['busy-enter']);
   assert.equal(complete.status, 'complete');
-  assert.deepEqual(complete.settings, { imported: 0, skipped: 2, unsupported: 10, failed: 0 });
 
   const third = await runV1SettingsImport({
     home,

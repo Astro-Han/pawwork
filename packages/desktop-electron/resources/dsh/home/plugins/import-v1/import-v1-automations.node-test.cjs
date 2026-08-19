@@ -170,15 +170,11 @@ test('imports definitions and runs idempotently with a resumable shared ledger',
   const second = await runV1AutomationImport(options);
 
   assert.equal(first.status, 'complete');
-  assert.deepEqual(first.definitions, { imported: 1, skipped: 0, failed: 0 });
-  assert.deepEqual(first.runs, { imported: 3, skipped: 0, failed: 0 });
-  assert.equal(first.orphanRuns, 1);
   assert.equal(definitions.length, 1);
   assert.equal(runs.length, 3);
   assert.equal(second.status, 'complete');
-  assert.deepEqual(second.definitions, { imported: 0, skipped: 1, failed: 0 });
-  assert.deepEqual(second.runs, { imported: 0, skipped: 3, failed: 0 });
-  assert.equal(second.orphanRuns, 1);
+  const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+  assert.equal(ledger.automationRuns.automation_run_orphan.orphanedDefinition, true);
   assert.equal(fs.existsSync(path.join(home, 'import-v1', 'automation-snapshot.db')), false);
 });
 
@@ -200,7 +196,6 @@ test('records malformed automation rows and continues importing valid rows', asy
   });
 
   assert.equal(result.status, 'partial');
-  assert.equal(result.definitions.failed, 1);
   assert.equal(importedRuns.length, 3);
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.automationDefinitions.automation_source.status, 'failed');

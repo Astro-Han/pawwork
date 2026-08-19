@@ -112,25 +112,6 @@ function readV1Preferences(appData) {
   };
 }
 
-function emptyCounts() {
-  return { imported: 0, skipped: 0, unsupported: 0, failed: 0 };
-}
-
-function emptyResult(sourceAppData, status) {
-  return {
-    schema: 1,
-    sourceAppData,
-    status,
-    settings: emptyCounts(),
-    errors: [],
-  };
-}
-
-function countCompleted(result, record) {
-  if (record.outcome === 'unsupported') result.settings.unsupported += 1;
-  else result.settings.skipped += 1;
-}
-
 function owns(object, field) {
   return isRecord(object) && Object.prototype.hasOwnProperty.call(object, field);
 }
@@ -192,49 +173,41 @@ async function runV1SettingsImport({
     throw new Error(`v1 settings source changed from ${ledger.sourceAppData} to ${sourceAppData}`);
   }
   if (!sourceAppData) {
-    const result = emptyResult(null, 'not-found');
     ledger.sourceAppData = null;
     writeJsonAtomically(ledgerPath, ledger);
-    return result;
+    return { status: 'not-found' };
   }
 
   const preferences = readV1Preferences(sourceAppData);
-  const result = emptyResult(sourceAppData, 'complete');
+  let failed = false;
   ledger.sourceAppData = sourceAppData;
 
   for (const unsupported of preferences.unsupportedSettings) {
     const id = `unsupported:${unsupported}`;
     ledger.settings[id] = { status: 'complete', outcome: 'unsupported', source: unsupported };
-    result.settings.unsupported += 1;
   }
   writeJsonAtomically(ledgerPath, ledger);
 
   for (const setting of preferences.settings) {
     signal?.throwIfAborted();
     const prior = ledger.settings[setting.id];
-    if (prior?.status === 'complete') {
-      countCompleted(result, prior);
-      continue;
-    }
+    if (prior?.status === 'complete') continue;
     try {
       const outcome = await importSetting(setting);
       if (!['imported', 'skipped', 'unsupported'].includes(outcome)) {
         throw new Error(`invalid v1 setting import outcome: ${outcome}`);
       }
-      result.settings[outcome] += 1;
       ledger.settings[setting.id] = { status: 'complete', outcome };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      result.settings.failed += 1;
-      result.errors.push({ setting: setting.id, message });
+      failed = true;
       ledger.settings[setting.id] = { status: 'failed', message };
     }
     writeJsonAtomically(ledgerPath, ledger);
   }
 
-  if (result.settings.failed > 0) result.status = 'partial';
   writeJsonAtomically(ledgerPath, ledger);
-  return result;
+  return { status: failed ? 'partial' : 'complete' };
 }
 
 module.exports = {

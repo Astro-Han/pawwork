@@ -312,18 +312,6 @@ async function materializeLegacyImages(imported, saveImage) {
   return imported;
 }
 
-function emptyResult(sourceDatabase, status) {
-  return {
-    schema: 1,
-    sourceDatabase,
-    status,
-    sessions: { imported: 0, skipped: 0, failed: 0 },
-    workspaces: { attached: 0, unavailable: 0, failed: 0 },
-    parts: { total: 0, skipped: 0, unsupported: 0 },
-    errors: [],
-  };
-}
-
 async function runV1SessionImport({
   home,
   sourceDatabase = discoverV1Database(),
@@ -344,15 +332,14 @@ async function runV1SessionImport({
     throw new Error(`v1 migration source changed from ${ledger.sourceDatabase} to ${sourceDatabase}`);
   }
   if (!sourceDatabase) {
-    const result = emptyResult(null, 'not-found');
     ledger.sourceDatabase = null;
     writeJsonAtomically(ledgerPath, ledger);
-    return result;
+    return { status: 'not-found' };
   }
 
   fs.mkdirSync(directory, { recursive: true });
   const snapshot = path.join(directory, 'snapshot.db');
-  const result = emptyResult(sourceDatabase, 'complete');
+  let failed = false;
   ledger.sourceDatabase = sourceDatabase;
   try {
     signal?.throwIfAborted();
@@ -360,9 +347,7 @@ async function runV1SessionImport({
     for await (const sourceSession of readV1Sessions(snapshot)) {
       signal?.throwIfAborted();
       if (sourceSession.readError) {
-        result.sessions.failed += 1;
-        result.workspaces.failed += 1;
-        result.errors.push({ sourceSessionId: sourceSession.id, message: sourceSession.readError });
+        failed = true;
         ledger.sessions[sourceSession.id] = { status: 'failed', message: sourceSession.readError };
         writeJsonAtomically(ledgerPath, ledger);
         continue;
@@ -371,12 +356,6 @@ async function runV1SessionImport({
       const previous = ledger.sessions[sourceSession.id];
       const alreadyImported = previous?.status === 'complete';
       if (alreadyImported && (previous.workspaceAttached === true || previous.workspaceUnavailable === true)) {
-        const stats = previous.stats || imported.stats;
-        result.workspaces[previous.workspaceAttached ? 'attached' : 'unavailable'] += 1;
-        result.parts.total += stats.parts;
-        result.parts.skipped += stats.skippedParts;
-        result.parts.unsupported += stats.unsupportedParts;
-        result.sessions.skipped += 1;
         continue;
       }
       try {
@@ -385,8 +364,6 @@ async function runV1SessionImport({
         const workspaceOutcome = outcome?.workspace;
         if (!['imported', 'skipped'].includes(sessionOutcome)) throw new Error(`invalid session outcome: ${sessionOutcome}`);
         if (!['attached', 'unavailable'].includes(workspaceOutcome)) throw new Error(`invalid workspace outcome: ${workspaceOutcome}`);
-        result.sessions[alreadyImported || sessionOutcome === 'skipped' ? 'skipped' : 'imported'] += 1;
-        result.workspaces[workspaceOutcome] += 1;
         ledger.sessions[sourceSession.id] = {
           ...previous,
           status: 'complete',
@@ -397,21 +374,15 @@ async function runV1SessionImport({
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        result.sessions.failed += 1;
-        result.workspaces.failed += 1;
-        result.errors.push({ sourceSessionId: sourceSession.id, message });
+        failed = true;
         ledger.sessions[sourceSession.id] = alreadyImported
           ? { ...previous, workspaceAttached: false, workspaceMessage: message }
           : { status: 'failed', targetId: imported.id, message };
       }
-      result.parts.total += imported.stats.parts;
-      result.parts.skipped += imported.stats.skippedParts;
-      result.parts.unsupported += imported.stats.unsupportedParts;
       writeJsonAtomically(ledgerPath, ledger);
     }
-    if (result.sessions.failed > 0) result.status = 'partial';
     writeJsonAtomically(ledgerPath, ledger);
-    return result;
+    return { status: failed ? 'partial' : 'complete' };
   } finally {
     fs.rmSync(snapshot, { force: true });
     fs.rmSync(`${snapshot}-shm`, { force: true });

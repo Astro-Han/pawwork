@@ -686,8 +686,6 @@ test('records an idempotent ledger and does no work after a complete session imp
   });
   assert.deepEqual(importedIds, ['pawwork-v1-ses_parent', 'pawwork-v1-ses_child']);
   assert.equal(first.status, 'complete');
-  assert.deepEqual(first.sessions, { imported: 2, skipped: 0, failed: 0 });
-  assert.equal(first.parts.unsupported, 0);
   assert.equal(fs.existsSync(path.join(home, 'import-v1', 'snapshot.db')), false);
   assert.equal(fs.existsSync(path.join(home, 'import-v1', 'snapshot.db-shm')), false);
   assert.equal(fs.existsSync(path.join(home, 'import-v1', 'snapshot.db-wal')), false);
@@ -705,7 +703,6 @@ test('records an idempotent ledger and does no work after a complete session imp
     },
   });
   assert.equal(second.status, 'complete');
-  assert.deepEqual(second.sessions, { imported: 0, skipped: 2, failed: 0 });
 });
 
 test('records the missing source in the migration ledger', async () => {
@@ -739,8 +736,6 @@ test('resumes after a per-session failure without duplicating completed sessions
     },
   });
   assert.equal(partial.status, 'partial');
-  assert.deepEqual(partial.sessions, { imported: 1, skipped: 0, failed: 1 });
-  assert.equal(partial.parts.unsupported, 1);
 
   const resumed = [];
   const complete = await runV1SessionImport({
@@ -753,8 +748,8 @@ test('resumes after a per-session failure without duplicating completed sessions
   });
   assert.deepEqual(resumed, ['pawwork-v1-ses_child']);
   assert.equal(complete.status, 'complete');
-  assert.deepEqual(complete.sessions, { imported: 1, skipped: 1, failed: 0 });
-  assert.equal(complete.parts.unsupported, 1);
+  const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+  assert.equal(ledger.sessions.ses_parent.stats.unsupportedParts, 1);
 });
 
 test('records a malformed session and continues importing later sessions', async () => {
@@ -803,7 +798,6 @@ test('can import sessions from a ledger first written by settings migration', as
   });
 
   assert.equal(imported.status, 'complete');
-  assert.deepEqual(imported.sessions, { imported: 2, skipped: 0, failed: 0 });
 });
 
 test('repairs workspace ownership when session records lack an outcome', async () => {
@@ -836,8 +830,6 @@ test('repairs workspace ownership when session records lack an outcome', async (
 
   assert.deepEqual(repaired, ['pawwork-v1-ses_parent', 'pawwork-v1-ses_child']);
   assert.equal(result.status, 'complete');
-  assert.deepEqual(result.sessions, { imported: 0, skipped: 2, failed: 0 });
-  assert.deepEqual(result.workspaces, { attached: 1, unavailable: 1, failed: 0 });
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.sessions.ses_parent.workspaceAttached, true);
   assert.equal(ledger.sessions.ses_child.workspaceAttached, false);
