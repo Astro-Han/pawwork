@@ -478,8 +478,7 @@ test('imports v1 definitions and history idempotently without a takeover state',
     updatedAt: 2_000,
     kind: 'recurring',
     rhythm: { kind: 'cron', expression: '0 9 * * *' },
-    stop: { kind: 'count', count: 1 },
-    nextFireAt: Date.parse('2026-08-18T01:00:00.000Z'),
+    stop: { kind: 'count', count: 2 },
     migration: { source: 'pawwork-v1', sourceId: 'automation_source', warnings: [] },
   };
   const run = {
@@ -501,9 +500,12 @@ test('imports v1 definitions and history idempotently without a takeover state',
   assert.equal(store.importDefinition(definition), 'skipped');
   assert.equal(store.importRun(run), 'imported');
   assert.equal(store.importRun(run), 'skipped');
+  assert.equal(store.getDefinition(definition.id).nextFireAt, null);
+  store.activateImportedDefinitions(Date.parse('2026-08-18T00:00:00.000Z'));
+  store.activateImportedDefinitions(Date.parse('2026-08-18T00:30:00.000Z'));
   assert.equal(store.getDefinition(definition.id).paused, false);
   assert.equal(Object.hasOwn(store.getDefinition(definition.id).migration, 'takeover'), false);
-  assert.equal(store.getDefinition(definition.id).nextFireAt, null);
+  assert.equal(store.getDefinition(definition.id).nextFireAt, Date.parse('2026-08-18T01:00:00.000Z'));
   assert.equal(store.listRuns(definition.id).length, 1);
 });
 

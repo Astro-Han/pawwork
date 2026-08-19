@@ -57,6 +57,7 @@ test('keeps the public migration status incomplete after a partial session impor
   let importStarted;
   const started = new Promise((resolve) => { importStarted = resolve; });
   let backgroundFinished;
+  let automationsActivated = false;
   const finished = new Promise((resolve) => { backgroundFinished = resolve; });
   importerModule.runV1SessionImport = async () => {
     importStarted();
@@ -83,7 +84,10 @@ test('keeps the public migration status incomplete after a partial session impor
       effect: (setup) => { stopPlugin = setup(); },
       llm: { listProviders: () => [] },
       logger: { warn: () => {} },
-      pawworkAutomations: { scheduler: { refresh: () => {} } },
+      pawworkAutomations: {
+        scheduler: { refresh: () => {} },
+        store: { activateImportedDefinitions: () => { automationsActivated = true; } },
+      },
       sessionPersistence: { list: async () => [] },
     });
     await started;
@@ -93,6 +97,7 @@ test('keeps the public migration status incomplete after a partial session impor
       ok: true,
       value: { sessionsComplete: false },
     });
+    assert.equal(automationsActivated, true);
     await stopPlugin();
   } finally {
     importerModule.runV1SessionImport = originalRun;

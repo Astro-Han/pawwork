@@ -185,9 +185,26 @@ class AutomationStore {
       } else throw new Error('recurring rhythm must be interval or cron');
       recurringStop(input.stop);
     } else throw new Error(`unsupported automation kind: ${input.kind}`);
-    this.document.definitions.push(structuredClone(input));
+    this.document.definitions.push({ ...structuredClone(input), nextFireAt: null });
     this.save();
     return 'imported';
+  }
+
+  activateImportedDefinitions(now = Date.now()) {
+    const activatedAt = assertTimestamp(now, 'now');
+    let changed = false;
+    for (const definition of this.document.definitions) {
+      if (definition.migration?.source !== 'pawwork-v1' || definition.nextFireAt !== null) continue;
+      const nextFireAt = definitionNext(
+        definition,
+        activatedAt,
+        this.completedRunCount(definition.id),
+      );
+      if (nextFireAt === null) continue;
+      definition.nextFireAt = nextFireAt;
+      changed = true;
+    }
+    if (changed) this.save();
   }
 
   importRun(input) {

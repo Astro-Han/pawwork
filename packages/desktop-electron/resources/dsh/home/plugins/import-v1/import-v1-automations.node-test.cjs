@@ -105,7 +105,7 @@ test('reads v1 automation definitions and runs from their authoritative tables',
   ]);
 });
 
-test('preserves v1 automation status and schedules only the next future run', () => {
+test('preserves v1 automation facts without deriving its next fire', () => {
   const source = readV1Automations(fixture()).definitions[0];
   const mapped = mapV1AutomationDefinition(source, {
     model: { provider: 'opencode', model: 'big-pickle' },
@@ -119,7 +119,7 @@ test('preserves v1 automation status and schedules only the next future run', ()
   assert.equal(mapped.sourceSessionId, 'pawwork-v1-ses_source');
   assert.deepEqual(mapped.rhythm, { kind: 'cron', expression: '0 9 * * 1-5' });
   assert.deepEqual(mapped.stop, { kind: 'count', count: 4 });
-  assert.equal(mapped.nextFireAt, Date.parse('2026-08-18T01:00:00.000Z'));
+  assert.equal(Object.hasOwn(mapped, 'nextFireAt'), false);
   assert.deepEqual(mapped.migration, {
     source: 'pawwork-v1',
     sourceId: 'automation_source',
