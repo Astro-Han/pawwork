@@ -163,6 +163,74 @@ describe("PawWork DSH client product layer", () => {
     expect(styles[0].textContent).toContain("border-right: 0 !important;\n  visibility: hidden")
   })
 
+  test("surfaces automations directly below New Session through the public sidebar action slot", () => {
+    const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
+    let definition: {
+      factory: (require: (name: string) => unknown) => {
+        apply(ctx: unknown): void
+      }
+    } | null = null
+    const styles: Array<{ dataset: Record<string, string>; textContent: string }> = []
+    const document = {
+      title: "DeepSeek Harness",
+      documentElement: { lang: "zh-CN", dataset: {} },
+      querySelector: () => null,
+      createElement: () => ({ dataset: {}, textContent: "" }),
+      head: { appendChild: (style: (typeof styles)[number]) => styles.push(style) },
+    }
+    const window = {
+      __ModuleLoader__: {
+        load: (value: typeof definition) => {
+          definition = value
+        },
+      },
+    }
+
+    vm.runInNewContext(source, { document, window })
+    const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
+      type,
+      props: { ...props, children },
+    })
+    const plugin = definition!.factory((name) => {
+      if (name === "react") {
+        return {
+          createElement,
+          useEffect: () => {},
+          useRef: <T>(value: T) => ({ current: value }),
+        }
+      }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
+      throw new Error(`unexpected product client dependency: ${name}`)
+    })
+    const registrations: Array<{
+      options: { id?: string; name?: string }
+      component: (props: { wide: boolean }) => { props: Record<string, unknown> }
+    }> = []
+    const ctx = {
+      layout: { toggleSidebar: () => {} },
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (
+          options: { id?: string; name?: string },
+          component: (props: { wide: boolean }) => { props: Record<string, unknown> },
+        ) => registrations.push({ options, component }),
+      },
+    }
+
+    plugin.apply(ctx)
+
+    const registration = registrations.find((entry) => entry.options.id === "pawwork-automations")
+    expect(registration?.options.name).toBe("sidebar.footer.action")
+    const button = registration!.component({ wide: true })
+    expect(button.type).toBe("button")
+    expect(button.props["aria-label"]).toBe("自动化")
+    expect(button.props.className).toBe("pawwork-automation-entry")
+    expect(button.props.children[1].props.children).toEqual(["自动化"])
+    expect(styles[0].textContent).toContain(".pawwork-automation-entry")
+    expect(styles[0].textContent).toContain("height: 42px")
+    expect(styles[0].textContent).toContain("display: contents")
+  })
+
   test("adds selected file paths through the public composer input slot", async () => {
     const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
     let definition: {

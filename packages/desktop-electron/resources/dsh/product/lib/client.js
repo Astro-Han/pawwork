@@ -91,6 +91,60 @@ html[data-pawwork-platform="macos"] [data-sidebar-collapsed] > :nth-child(2) hea
   cursor: default;
   opacity: 0.45;
 }
+.pawwork-automation-entry {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 12px;
+  box-sizing: border-box;
+  color: var(--dsw-alias-label-primary);
+  display: flex;
+  flex: none;
+  font-family: inherit;
+  font-size: 14px;
+  gap: 8px;
+  height: 42px;
+  line-height: 22px;
+  margin: 4px -2px;
+  overflow: hidden;
+  padding: 0 10px 0 8px;
+  width: calc(100% + 4px);
+}
+.pawwork-automation-entry[data-wide="false"] {
+  border-radius: 50%;
+  gap: 0;
+  height: 36px;
+  justify-content: center;
+  margin: 0 0 12px;
+  padding: 0;
+  width: 36px;
+}
+.pawwork-automation-label {
+  overflow: hidden;
+  white-space: nowrap;
+}
+/* DSH exposes Automation only as a footer action. Keep that public contract,
+ * then place the PawWork row after New Session without patching DSH itself. */
+div:has(> div > div > div > .pawwork-automation-entry) > :nth-child(1) {
+  order: 0;
+}
+div:has(> div > div > div > .pawwork-automation-entry) > :nth-child(2) {
+  order: 1;
+}
+div:has(> div > div > div > .pawwork-automation-entry) > :nth-child(3) {
+  order: 3;
+}
+div:has(> div > div > .pawwork-automation-entry),
+div:has(> div > .pawwork-automation-entry),
+div:has(> .pawwork-automation-entry) {
+  display: contents;
+}
+.pawwork-automation-entry {
+  order: 2;
+}
+div:has(> div > div > .pawwork-automation-entry) > :last-child {
+  order: 4;
+}
 `
     const styleId = "@pawwork/dsh-product/identity"
     if (document.querySelector(`style[data-plugin-css="${styleId}"]`) === null) {
@@ -174,6 +228,45 @@ html[data-pawwork-platform="macos"] [data-sidebar-collapsed] > :nth-child(2) hea
       )
     }
 
+    function AutomationAction({ wide }) {
+      const label = document.documentElement.lang.startsWith("zh") ? "自动化" : "Automations"
+      return createElement(
+        "button",
+        {
+          "aria-label": label,
+          className: "pawwork-automation-entry",
+          "data-wide": wide ? "true" : "false",
+          title: label,
+          type: "button",
+        },
+        createElement(
+          "svg",
+          {
+            "aria-hidden": "true",
+            fill: "none",
+            height: 16,
+            viewBox: "0 0 24 24",
+            width: 16,
+          },
+          createElement("path", {
+            d: "M12 7v5l3 2m5.2-5A9 9 0 1 0 21 12",
+            stroke: "currentColor",
+            strokeLinecap: "round",
+            strokeLinejoin: "round",
+            strokeWidth: 1.8,
+          }),
+          createElement("path", {
+            d: "M17 5h3.2v3.2",
+            stroke: "currentColor",
+            strokeLinecap: "round",
+            strokeLinejoin: "round",
+            strokeWidth: 1.8,
+          }),
+        ),
+        wide ? createElement("span", { className: "pawwork-automation-label" }, label) : null,
+      )
+    }
+
     const inject = ["slots", "layout"]
 
     function apply(ctx) {
@@ -208,6 +301,16 @@ html[data-pawwork-platform="macos"] [data-sidebar-collapsed] > :nth-child(2) hea
             order: -100,
           },
           () => SidebarToggle({ toggleSidebar: () => ctx.layout.toggleSidebar() }),
+        ),
+      )
+      ctx.slots.inject("sidebar.footer.action", () =>
+        ctx.slots.register(
+          {
+            name: "sidebar.footer.action",
+            id: "pawwork-automations",
+            order: -100,
+          },
+          AutomationAction,
         ),
       )
     }
