@@ -4,6 +4,7 @@ window.__ModuleLoader__.load({
     const module = { exports: {} }
     const exports = module.exports
     const { createElement, useEffect, useRef } = require("react")
+    const { IconPanelLeftOutline16 } = require("@deepseek-ai/dsh-client-ui-primitives")
 
     // DSH exposes onboarding as a slot, but not its shipped wordmark or shell chrome.
     // Keep that product delta here and verify it against every pinned DSH RC.
@@ -32,7 +33,7 @@ span:has(> svg[viewBox="0 0 23.16 17.04"]) + span + span {
   align-items: center;
   background: transparent;
   border: 0;
-  border-radius: 6px;
+  border-radius: 50%;
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
   display: inline-flex;
@@ -42,16 +43,11 @@ span:has(> svg[viewBox="0 0 23.16 17.04"]) + span + span {
   padding: 0;
   pointer-events: auto;
   position: absolute;
-  top: 8px;
+  top: 9px;
   width: 28px;
 }
 .pawwork-sidebar-toggle:hover {
   background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
-}
-.pawwork-sidebar-toggle:focus-visible {
-  outline: 2px solid #f36b2b;
-  outline-offset: 1px;
 }
 html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle {
   left: 72px;
@@ -180,30 +176,7 @@ html[data-pawwork-platform="macos"] [data-sidebar-collapsed] > :nth-child(2) hea
           title: label,
           type: "button",
         },
-        createElement(
-          "svg",
-          {
-            "aria-hidden": "true",
-            fill: "none",
-            height: 16,
-            viewBox: "0 0 24 24",
-            width: 16,
-          },
-          createElement("rect", {
-            height: 16,
-            rx: 2,
-            stroke: "currentColor",
-            strokeWidth: 1.8,
-            width: 18,
-            x: 3,
-            y: 4,
-          }),
-          createElement("path", {
-            d: "M9 4v16",
-            stroke: "currentColor",
-            strokeWidth: 1.8,
-          }),
-        ),
+        createElement(IconPanelLeftOutline16, { size: 16 }),
       )
     }
 

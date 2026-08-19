@@ -54,6 +54,7 @@ describe("PawWork DSH client product layer", () => {
     const useRef = <T>(value: T) => ({ current: value })
     const plugin = definition!.factory((name) => {
       if (name === "react") return { useEffect, useRef }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
     const registrations: Array<{
@@ -114,8 +115,10 @@ describe("PawWork DSH client product layer", () => {
       type,
       props: { ...props, children },
     })
+    const IconPanelLeftOutline16 = Symbol("IconPanelLeftOutline16")
     const plugin = definition!.factory((name) => {
       if (name === "react") return { createElement, useEffect: () => {}, useRef: <T>(value: T) => ({ current: value }) }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16 }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
     const toggleSidebar = mock(() => {})
@@ -139,8 +142,16 @@ describe("PawWork DSH client product layer", () => {
     expect(registration).toBeDefined()
     const button = registration!.component()
     expect(button.props["aria-label"]).toBe("切换侧边栏")
+    expect(button.props.children[0].type).toBe(IconPanelLeftOutline16)
+    expect(button.props.children[0].props.size).toBe(16)
     ;(button.props.onClick as () => void)()
     expect(toggleSidebar).toHaveBeenCalledTimes(1)
+    expect(styles[0].textContent).toContain("border-radius: 50%")
+    expect(styles[0].textContent).toContain("top: 9px")
+    expect(styles[0].textContent).toContain(
+      ".pawwork-sidebar-toggle:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}",
+    )
+    expect(styles[0].textContent).not.toContain(".pawwork-sidebar-toggle:focus-visible")
     expect(styles[0].textContent).toContain("[data-sidebar-collapsed]")
     expect(styles[0].textContent).toContain("margin-left: -56px")
     expect(styles[0].textContent).toContain("width: calc(100% + 56px)")
@@ -187,6 +198,7 @@ describe("PawWork DSH client product layer", () => {
           useRef: <T>(value: T) => ({ current: value }),
         }
       }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
     let fileAction: ((props: unknown) => { props: Record<string, unknown> }) | undefined
