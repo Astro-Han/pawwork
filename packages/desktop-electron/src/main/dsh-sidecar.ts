@@ -68,6 +68,7 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshS
       "127.0.0.1",
       "--port",
       "0",
+      "--no-open",
     ],
     {
       env: {

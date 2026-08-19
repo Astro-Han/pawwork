@@ -77,6 +77,7 @@ describe("DSH sidecar lifecycle", () => {
         "127.0.0.1",
         "--port",
         "0",
+        "--no-open",
       ],
       options: {
         env: { PATH: "/app/tools:/usr/bin", DSH_HOME: "/data/dsh", ELECTRON_RUN_AS_NODE: "1" },
