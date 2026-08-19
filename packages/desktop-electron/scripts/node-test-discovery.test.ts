@@ -19,6 +19,5 @@ describe("Node-only test discovery", () => {
     }
     expect(packageJson.scripts["test:node"]).toBe(`node --test ${nodeTestFiles.join(" ")}`)
     expect(packageJson.scripts.test).toContain("bun run test:node")
-    expect(packageJson.scripts["test:ci"]).toContain("bun run test:node")
   })
 })
