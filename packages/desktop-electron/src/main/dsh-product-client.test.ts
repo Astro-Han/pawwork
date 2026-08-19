@@ -272,6 +272,9 @@ describe("PawWork DSH client product layer", () => {
     expect(plugin.inject).toEqual(["slots", "layout", "connection", "conversation", "sessions", "workspaces"])
     expect(source).toContain('connection.rpc.call("/pawwork-automations", endpoint, payload, signal)')
     expect(source).not.toContain("Modal,")
+    expect(source).not.toContain('text("手动创建", "Create manually")')
+    expect(source).not.toContain('text("关闭自动化", "Close automations")')
+    expect(source).not.toContain("IconPlusOutline16,")
   })
 
   test("adds selected file paths through the public composer input slot", async () => {

@@ -14,7 +14,6 @@ window.__ModuleLoader__.load({
       IconPanelLeftOutline16,
       IconPauseOutline16,
       IconPlayOutline16,
-      IconPlusOutline16,
       IconSearchOutline16,
       IconSettingsOutline16,
       IconTrashOutline16,
@@ -103,7 +102,6 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
 }
 .pawwork-automations-surface[data-split="true"] .pawwork-automations-titlebar p { display: none; }
 .pawwork-automations-title-actions { align-items: center; display: flex; flex: none; gap: 8px; }
-.pawwork-automation-new { align-items: center; display: flex; gap: 4px; }
 .pawwork-automations-search, .pawwork-automations-search input { width: 100%; }
 .pawwork-automations-tabs { display: flex; gap: 6px; margin: 16px 0 10px; }
 .pawwork-automation-row {
@@ -511,13 +509,12 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
           definition.recentRuns?.length ? definition.recentRuns.map((run) => h(RunRow, { close: onClose, key: run.id, run, sessions })) : h("div", { className: "pawwork-automations-empty" }, text("还没有运行记录", "No run history yet"))) : null))
     }
 
-    function AutomationSurface({ connection, controller, createViaChat, sessions, useWorkspaces }) {
+    function AutomationSurface({ connection, createViaChat, sessions, useWorkspaces }) {
       const workspaceState = useWorkspaces((state) => state)
       const workspaces = workspaceState.items || []
       const [data, setData] = useState(null)
       const [defaults, setDefaults] = useState(null)
       const [selectedId, setSelectedId] = useState(null)
-      const [creating, setCreating] = useState(false)
       const [query, setQuery] = useState("")
       const [filter, setFilter] = useState("all")
       const [loading, setLoading] = useState(true)
@@ -549,30 +546,26 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
         const needle = query.trim().toLocaleLowerCase()
         return !needle || definition.title.toLocaleLowerCase().includes(needle) || workspaceName(definition.cwd).toLocaleLowerCase().includes(needle)
       })
-      const split = creating || selected !== null
+      const split = selected !== null
       const preferredWorkspace = workspaces.find((item) => item.workspaceId === workspaceState.recentWorkspaceId) || workspaces[0]
-      function closePanel() { setCreating(false); setSelectedId(null) }
-      async function reloadAfter(result) { setCreating(false); await load(); setSelectedId(result.id) }
-      const closeLabel = text("关闭自动化", "Close automations")
+      function closePanel() { setSelectedId(null) }
+      async function reloadAfter(result) { await load(); setSelectedId(result.id) }
 
       return h("main", { className: "pawwork-automations-surface", "data-split": split ? "true" : "false" },
         h("section", { className: "pawwork-automations-main" }, h("div", { className: "pawwork-automations-overview" },
           h("div", { className: "pawwork-automations-titlebar" },
             h("div", null, h("h1", null, text("自动化", "Automations")), h("p", null, text("让 PawWork 按计划处理重复工作", "Let PawWork handle recurring work on a schedule"))),
             h("div", { className: "pawwork-automations-title-actions" },
-              h("div", { className: "pawwork-automation-new" },
-                h(Button, { disabled: !preferredWorkspace, onClick: () => preferredWorkspace && createViaChat(preferredWorkspace.workspaceId), size: "sm", title: text("在对话中创建", "Create in chat"), variant: "primary" }, text("新建", "New")),
-                h(Button, { "aria-label": text("手动创建", "Create manually"), disabled: workspaces.length === 0 || defaults === null, icon: h(IconPlusOutline16, { size: 16 }), onClick: () => { setSelectedId(null); setCreating(true) }, size: "sm", title: text("手动创建", "Create manually"), variant: "ghost" })),
-              h(Button, { "aria-label": closeLabel, icon: h(IconCloseOutline16, { size: 16 }), onClick: controller.close, size: "sm", title: closeLabel, variant: "ghost" }))),
+              h(Button, { disabled: !preferredWorkspace, onClick: () => preferredWorkspace && createViaChat(preferredWorkspace.workspaceId), size: "sm", title: text("在对话中创建", "Create in chat"), variant: "primary" }, text("新建", "New")))),
           h(Input, { "aria-label": text("搜索自动化", "Search automations"), className: "pawwork-automations-search", icon: h(IconSearchOutline16, { size: 16 }), onChange: (event) => setQuery(event.target.value), placeholder: text("搜索自动化", "Search automations"), value: query }),
           h("div", { className: "pawwork-automations-tabs", role: "tablist" }, [["all", text("全部", "All")], ["active", text("启用", "Active")], ["paused", text("暂停", "Paused")]].map(([value, label]) => h(Pill, { active: filter === value, key: value, onClick: () => setFilter(value), role: "tab" }, label))),
           error ? h("div", { className: "pawwork-automations-error", role: "alert" }, error) : null,
           loading && data === null ? h("div", { className: "pawwork-automations-loading" }, text("正在加载…", "Loading…")) : null,
-          visible.map((definition) => h("button", { className: "pawwork-automation-row", "data-selected": definition.id === selectedId ? "true" : "false", key: definition.id, onClick: () => { setCreating(false); setSelectedId(definition.id) }, type: "button" },
+          visible.map((definition) => h("button", { className: "pawwork-automation-row", "data-selected": definition.id === selectedId ? "true" : "false", key: definition.id, onClick: () => setSelectedId(definition.id), type: "button" },
             h("span", { className: "pawwork-automation-row-icon" }, h(definition.paused ? IconPauseOutline16 : IconPlayOutline16, { size: 16 })),
             h("span", null, h("span", { className: "pawwork-automation-row-title" }, definition.title), h("span", { className: "pawwork-automation-row-meta" }, `${formatSchedule(definition)}  ${definition.paused ? text("已暂停", "Paused") : `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}`}`)))),
           visible.length === 0 && !loading ? h("div", { className: "pawwork-automations-empty" }, query ? text("没有匹配的自动化", "No matching automations") : text("还没有自动化", "No automations yet")) : null)),
-        split ? h(AutomationEditor, { connection, defaults, definition: creating ? null : selected, key: creating ? "create" : `${selected.id}:${selected.revision}`, onClose: closePanel, onDeleted: async () => { closePanel(); await load() }, onSaved: reloadAfter, sessions, workspaces }) : null)
+        split ? h(AutomationEditor, { connection, defaults, definition: selected, key: `${selected.id}:${selected.revision}`, onClose: closePanel, onDeleted: async () => { closePanel(); await load() }, onSaved: reloadAfter, sessions, workspaces }) : null)
     }
 
     const inject = ["slots", "layout", "connection", "conversation", "sessions", "workspaces"]
@@ -586,7 +579,7 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
       ctx.slots.inject("conversation", () => automationSurface.attach(() => {
         ctx.layout.closeDetails()
         return ctx.slots.register({ name: "conversation", priority: -100 }, (props) => h(AutomationSurface, {
-          ...props, connection: ctx.connection, controller: automationSurface,
+          ...props, connection: ctx.connection,
           createViaChat: async (workspaceId) => {
             const sessionId = await ctx.workspaces.connectWorkspace(workspaceId)
             const binding = ctx.sessions.binding(sessionId)
