@@ -40,13 +40,12 @@ function newerThanCurrent(version: string, currentVersion: string) {
 
 export function createUpdaterController(deps: Deps) {
   let inflight: Promise<UpdateResult> | undefined
-  let updateReady = false
   let readyVersion: string | undefined
 
   const run = async (): Promise<UpdateResult> => {
     if (!deps.enabled) return { status: "disabled" }
     const currentVersion = deps.currentVersion()
-    if (updateReady && readyVersion !== undefined) {
+    if (readyVersion !== undefined) {
       const comparison = newerThanCurrent(readyVersion, currentVersion)
       if (comparison === "invalid") {
         return { status: "failed", reason: "metadata", message: "Update version is invalid" }
@@ -61,7 +60,6 @@ export function createUpdaterController(deps: Deps) {
         deps.error("stale update cache cleanup failed", error)
         return { status: "failed", reason: "cache", message: errorMessage(error) }
       }
-      updateReady = false
       readyVersion = undefined
     }
     let clearedStalePendingMetadata = false
@@ -116,7 +114,6 @@ export function createUpdaterController(deps: Deps) {
         return { status: "failed", reason: "download", message: errorMessage(error) }
       }
 
-      updateReady = true
       readyVersion = info.version
       return { status: "ready", version: info.version }
     }
@@ -131,7 +128,7 @@ export function createUpdaterController(deps: Deps) {
       return inflight
     },
     install() {
-      if (!updateReady || readyVersion === undefined) return false
+      if (readyVersion === undefined) return false
       const currentVersion = deps.currentVersion()
       const comparison = newerThanCurrent(readyVersion, currentVersion)
       if (comparison !== true) {
@@ -140,13 +137,11 @@ export function createUpdaterController(deps: Deps) {
       }
       // Keep the ready latch if quitAndInstall throws before Electron starts installing.
       deps.quitAndInstall()
-      updateReady = false
       readyVersion = undefined
       return true
     },
     dismissReady() {
-      if (!updateReady) return false
-      updateReady = false
+      if (readyVersion === undefined) return false
       readyVersion = undefined
       deps.log("dismissed ready update")
       return true
