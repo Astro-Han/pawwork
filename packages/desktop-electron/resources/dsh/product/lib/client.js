@@ -62,16 +62,14 @@ html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle:focus-visible { outl
   margin: 0 0 12px; padding: 0; width: 36px;
 }
 .pawwork-automation-label { overflow: hidden; white-space: nowrap; }
-/* DSH currently exposes this product action in the footer. Reordering the
- * public row places it after New Session without patching DSH internals. */
-div:has(> div > div > div > .pawwork-automation-entry) > :nth-child(1) { order: 0; }
-div:has(> div > div > div > .pawwork-automation-entry) > :nth-child(2) { order: 1; }
-div:has(> div > div > div > .pawwork-automation-entry) > :nth-child(3) { order: 3; }
-div:has(> div > div > .pawwork-automation-entry),
-div:has(> div > .pawwork-automation-entry),
-div:has(> .pawwork-automation-entry) { display: contents; }
-.pawwork-automation-entry { order: 2; }
-div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
+/* DSH exposes product actions in the footer. Promote that public slot into
+ * the sidebar flow, then place its container directly after New Session. */
+div:has(> div > div > [data-slot="sidebar.footer.action"] > .pawwork-automation-entry) > :nth-child(1) { order: 0; }
+div:has(> div > div > [data-slot="sidebar.footer.action"] > .pawwork-automation-entry) > :nth-child(2) { order: 1; }
+div:has(> div > div > [data-slot="sidebar.footer.action"] > .pawwork-automation-entry) > :nth-child(3) { order: 3; }
+div:has(> div > [data-slot="sidebar.footer.action"] > .pawwork-automation-entry) { display: contents; }
+div:has(> [data-slot="sidebar.footer.action"] > .pawwork-automation-entry) { order: 2; }
+div:has(> [data-slot="sidebar.settings"]) { order: 4; }
 .pawwork-automations-surface {
   background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary);
   display: flex; height: 100%; min-height: 0; min-width: 0; width: 100%;
@@ -297,7 +295,7 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
         "aria-label": label, className: "pawwork-automation-entry",
         "data-active": active ? "true" : "false", "data-wide": wide ? "true" : "false",
         onClick: () => active ? controller.close() : controller.open(), title: label, type: "button",
-      }, icon(["M12 7v5l3 2m5.2-5A9 9 0 1 0 21 12", "M17 5h3.2v3.2"]),
+      }, icon(["M12 7v5l3 2m5.2-5A9 9 0 1 0 21 12", "M17 5h3.2v3.2"], wide ? 16 : 18),
       wide ? h("span", { className: "pawwork-automation-label" }, label) : null)
     }
 

@@ -36,6 +36,8 @@ export type CiSmokeProductSnapshot = {
   automationEditorVisible: boolean
   automationMetadataPlain: boolean
   automationBelowNewSession: boolean
+  collapsedAutomationBelowNewSession: boolean
+  collapsedAutomationIconMatchesRail: boolean
   sidebarToggleCount: number
   sidebarToggleAlignedWithWindowControls: boolean
   sidebarToggleChromeSubtle: boolean
@@ -274,6 +276,10 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     collapseToggles[0]?.click()
     await new Promise((resolve) => setTimeout(resolve, 300))
     const sidebarCollapsed = Boolean(document.querySelector("[data-sidebar-collapsed]"))
+    const collapsedAutomationRect = automationEntry?.getBoundingClientRect()
+    const collapsedNewSessionRect = newSession?.getBoundingClientRect()
+    const collapsedAutomationIconRect = automationEntry?.querySelector("svg")?.getBoundingClientRect()
+    const collapsedNewSessionIconRect = newSession?.querySelector("svg")?.getBoundingClientRect()
     const expandToggles = sidebarToggles()
     const expandRect = expandToggles[0]?.getBoundingClientRect()
     const sidebarExpandToggleUsable = usable(expandToggles[0])
@@ -299,6 +305,17 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       automationEditorVisible,
       automationMetadataPlain,
       automationBelowNewSession: Boolean(automationRect && newSessionRect && automationRect.top >= newSessionRect.bottom),
+      collapsedAutomationBelowNewSession: Boolean(
+        collapsedAutomationRect && collapsedNewSessionRect
+        && collapsedAutomationRect.top >= collapsedNewSessionRect.bottom,
+      ),
+      collapsedAutomationIconMatchesRail: Boolean(
+        collapsedAutomationIconRect && collapsedNewSessionIconRect
+        && collapsedAutomationIconRect.width === 18
+        && collapsedAutomationIconRect.height === 18
+        && collapsedAutomationIconRect.width === collapsedNewSessionIconRect.width
+        && collapsedAutomationIconRect.height === collapsedNewSessionIconRect.height,
+      ),
       sidebarToggleCount: collapseToggles.length,
       sidebarToggleAlignedWithWindowControls: document.documentElement.dataset.pawworkPlatform !== "macos"
         || Boolean(collapseRect && collapseRect.left === 76 && collapseRect.top === 9),
@@ -386,6 +403,8 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
     snapshot.automationEditorVisible ? null : "Automation editor did not open",
     snapshot.automationMetadataPlain ? null : "Automation immutable metadata is not plain read-only text",
     snapshot.automationBelowNewSession ? null : "Automation is not below New Session",
+    snapshot.collapsedAutomationBelowNewSession ? null : "collapsed Automation is not below New Session",
+    snapshot.collapsedAutomationIconMatchesRail ? null : "collapsed Automation icon does not match the sidebar rail",
     snapshot.sidebarToggleCount === 1 ? null : `expected one DSH collapse control, found ${snapshot.sidebarToggleCount}`,
     snapshot.sidebarToggleAlignedWithWindowControls ? null : "sidebar toggle is not aligned with the macOS window controls",
     snapshot.sidebarToggleChromeSubtle ? null : "sidebar toggle chrome does not blend into the titlebar",
