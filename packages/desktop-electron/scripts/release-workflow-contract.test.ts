@@ -13,9 +13,6 @@ function expectBefore(haystack: string, before: string, after: string) {
 }
 
 describe("release workflow app-update verification", () => {
-  test("does not mutate app-update.yml after signing", () => {
-  })
-
   test("verifies app-update.yml in extracted zip artifact", () => {
     expect(workflow).toContain('verify_app_update_config "$verify_dir/$APP_NAME.app/Contents/Resources/app-update.yml"')
   })
