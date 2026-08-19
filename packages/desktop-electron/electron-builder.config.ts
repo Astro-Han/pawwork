@@ -155,7 +155,6 @@ export function createConfig(channel: Channel = currentChannel(), baseOverrides:
         ...base,
         appId: "ai.pawwork.desktop.dev",
         productName: "PawWork Dev",
-        rpm: { packageName: "pawwork-dev" },
       })
     }
     case "beta": {
@@ -164,7 +163,6 @@ export function createConfig(channel: Channel = currentChannel(), baseOverrides:
         appId: "ai.pawwork.desktop.beta",
         productName: "PawWork Beta",
         protocols: { name: "PawWork Beta", schemes: ["pawwork"] },
-        rpm: { packageName: "pawwork-beta" },
       })
     }
     case "prod": {
@@ -173,7 +171,6 @@ export function createConfig(channel: Channel = currentChannel(), baseOverrides:
         appId: "ai.pawwork.desktop",
         productName: "PawWork",
         protocols: { name: "PawWork", schemes: ["pawwork"] },
-        rpm: { packageName: "pawwork" },
       })
     }
   }
