@@ -8,9 +8,11 @@ class FakeChildProcess extends EventEmitter implements DshChildProcess {
   readonly stderr = new PassThrough()
   pid: number | undefined = 42
   killed = false
+  killCount = 0
 
   kill() {
     this.killed = true
+    this.killCount += 1
     this.pid = undefined
     queueMicrotask(() => this.emit("exit", 0))
     return true
@@ -97,5 +99,48 @@ describe("DSH sidecar lifecycle", () => {
     child.emit("exit", 23)
 
     await expect(launched).rejects.toThrow("DSH exited before readiness (code 23)")
+  })
+
+  test("kills the owned child process when readiness times out", async () => {
+    const child = new FakeChildProcess()
+    const launched = launchDshSidecar({
+      executable: "/app/PawWork",
+      dshBin: "/app/dsh.js",
+      zenIdentityPreload: "file:///app/dsh/zen-identity-preload.mjs",
+      productHome: "/data/dsh",
+      productPatch: "/data/dsh/product.cordis.patch.yml",
+      toolsDir: "/app/tools",
+      env: {},
+      timeoutMs: 1,
+      spawn: () => child,
+    })
+
+    await expect(launched).rejects.toThrow("DSH did not announce readiness within 1ms")
+    expect(child.killCount).toBe(1)
+  })
+
+  test("stops the owned child process once across concurrent and repeated calls", async () => {
+    const child = new FakeChildProcess()
+    const launched = launchDshSidecar({
+      executable: "/app/PawWork",
+      dshBin: "/app/dsh.js",
+      zenIdentityPreload: "file:///app/dsh/zen-identity-preload.mjs",
+      productHome: "/data/dsh",
+      productPatch: "/data/dsh/product.cordis.patch.yml",
+      toolsDir: "/app/tools",
+      env: {},
+      timeoutMs: 100,
+      spawn: () => child,
+    })
+    child.stdout.write("dsh web: http://127.0.0.1:43123\n")
+    const sidecar = await launched
+
+    const firstStop = sidecar.stop()
+    const concurrentStop = sidecar.stop()
+    expect(concurrentStop).toBe(firstStop)
+    await Promise.all([firstStop, concurrentStop])
+    await sidecar.stop()
+
+    expect(child.killCount).toBe(1)
   })
 })
