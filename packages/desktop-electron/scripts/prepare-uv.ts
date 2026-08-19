@@ -9,8 +9,8 @@ import manifest from "../bundled-tools.json"
 
 // Bundled-tool supply pattern: version-pinned manifest entry, download from a
 // pinned GitHub release tag, verify, then land the binary in resources/tools/
-// (packaged as extraResources → PATH via bundledToolsDir() in
-// packages/opencode/src/util/env.ts — no special-casing per tool). Two notable
+// (packaged as extraResources and prepended to the DSH sidecar PATH by
+// src/main/dsh-sidecar.ts). Two notable
 // properties:
 //
 // 1. The expected sha256 for every asset is pinned IN THE REPO (bundled-tools

@@ -32,21 +32,24 @@ afterEach(() => {
 })
 
 describe("electron builder app-update config", () => {
-  test("production dependencies exclude the retired v1 runtime", () => {
+  test("production dependencies contain only DSH and desktop runtime packages", () => {
     const manifest = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf8")) as {
       dependencies: Record<string, string>
     }
 
-    expect(Object.keys(manifest.dependencies)).not.toEqual(
-      expect.arrayContaining([
-        "@opencode-ai/remote-bridge",
-        "@opencode-ai/util",
-        "marked",
-        "qrcode",
-        "undici",
-        "ws",
-      ]),
-    )
+    const desktopRuntimePackages = new Set([
+      "electron-context-menu",
+      "electron-log",
+      "electron-updater",
+      "electron-window-state",
+      "semver",
+    ])
+
+    expect(
+      Object.keys(manifest.dependencies).filter(
+        (dependency) => !dependency.startsWith("@deepseek-ai/") && !desktopRuntimePackages.has(dependency),
+      ),
+    ).toEqual([])
   })
 
   test("packages only the DSH production entry", () => {

@@ -62,8 +62,9 @@ bun run dev:desktop
 Run the checks relevant to your change before opening a pull request:
 
 ```bash
-bun turbo typecheck
-bun turbo test:ci
+bun run typecheck
+bun run lint
+bun run --cwd packages/desktop-electron test
 ```
 
 If your change affects the desktop app or UI, also do a quick manual check in the app and include screenshots or a short recording in the pull request.

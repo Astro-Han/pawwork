@@ -42,4 +42,4 @@ PawWork is an open-source alternative to Codex App and Claude Desktop (Cowork). 
 
 ## Built On
 
-PawWork is built on a fork of OpenCode (open-source AI coding agent) and handles Word, Excel, and PowerPoint files locally.
+PawWork uses DeepSeek DSH as its agent runtime and handles Word, Excel, and PowerPoint files locally.

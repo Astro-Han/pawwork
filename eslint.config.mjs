@@ -13,7 +13,6 @@ export default tseslint.config([
     name: "pawwork/global-ignores",
     ignores: [
       "**/node_modules/**",
-      "**/.turbo/**",
       "**/dist/**",
       "**/out/**",
       "**/.artifacts/**",

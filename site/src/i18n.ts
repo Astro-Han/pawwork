@@ -88,7 +88,7 @@ export const I18N: Record<Lang, Dict> = {
     "g.privacy":
       "<b>Your files stay on your machine.</b> You choose the workspace, review every action before it runs, and the code is open-source and auditable.",
     "f.readme": "README",
-    foot: "Apache-2.0, built on OpenCode",
+    foot: "Apache-2.0, powered by DeepSeek DSH",
   },
   cn: {
     title: "爪印 — 真能干活，跑在你电脑上",
@@ -168,6 +168,6 @@ export const I18N: Record<Lang, Dict> = {
     "g.win": "<b>Windows</b>，x64，当前为未签名安装包，首次打开可能弹出 SmartScreen。",
     "g.privacy": "<b>文件留在你电脑上。</b>工作目录你选，每个动作执行前你都能审，代码开源、可审计。",
     "f.readme": "说明文档",
-    foot: "Apache-2.0，基于 OpenCode",
+    foot: "Apache-2.0，由 DeepSeek DSH 驱动",
   },
 };

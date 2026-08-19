@@ -12,7 +12,6 @@ playground
 tmp
 dist
 ts-dist
-.turbo
 **/.serena
 .serena/
 /result

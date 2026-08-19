@@ -104,9 +104,9 @@ bun install
 bun run dev:desktop
 ```
 
-## 基于 OpenCode
+## 运行时与致谢
 
-爪印 PawWork 基于 [OpenCode](https://github.com/anomalyco/opencode) fork 构建。我们保留智能体底座，重建桌面产品体验，并加入爪印 PawWork 的任务入口、模型默认值和日常工作场景。
+爪印 PawWork 使用 DeepSeek DSH 作为智能体运行时，外层只有 Electron 原生桌面壳与精简的 PawWork 产品层，负责日常工作流、迁移和 Automation。
 
 感谢 OpenCode 项目和社区。
 

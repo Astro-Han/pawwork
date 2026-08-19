@@ -1,9 +1,3 @@
-# This workflow is a required merge check on `dev`. The exact ruleset
-# entry to register is `analyze-js-ts`. PawWork runs user-
-# authored skills and accesses the OS keychain; solo-dev code review is
-# not a substitute for a JS/TS security scanner. Keep it in its own file
-# (not folded into ci.yml) so security failures are legible in isolation.
-# Decision recorded in issue #54 (D1).
 name: codeql
 
 on:
@@ -16,118 +10,23 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
   security-events: write
 
 concurrency:
-  group: ${{ github.ref == 'refs/heads/dev' && format('codeql-{0}', github.run_id) || format('codeql-{0}', github.event.pull_request.number || github.ref) }}
+  group: codeql-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/dev' }}
 
 jobs:
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      docs_only: ${{ steps.filter.outputs.docs_only }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # actions/checkout@v7.0.0
-        if: github.event_name == 'push'
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - id: docs-paths
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
-        continue-on-error: true
-        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # dorny/paths-filter@v4.0.2
-        with:
-          filters: |
-            docs:
-              - 'README.md'
-              - 'README_CN.md'
-              - 'AGENTS.md'
-              - 'CONTRIBUTING.md'
-              - 'SECURITY.md'
-              - 'LICENSE'
-              - 'docs/**'
-              - 'assets/readme/**'
-              - '.github/ISSUE_TEMPLATE/**'
-              - '.github/pull_request_template.md'
-              - 'packages/**/README.md'
-              - 'packages/opencode/specs/**'
-
-      - id: code-paths
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
-        continue-on-error: true
-        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # dorny/paths-filter@v4.0.2
-        with:
-          predicate-quantifier: every
-          filters: |
-            code:
-              - '**'
-              - '!README.md'
-              - '!README_CN.md'
-              - '!AGENTS.md'
-              - '!CONTRIBUTING.md'
-              - '!SECURITY.md'
-              - '!LICENSE'
-              - '!docs/**'
-              - '!assets/readme/**'
-              - '!.github/ISSUE_TEMPLATE/**'
-              - '!.github/pull_request_template.md'
-              - '!packages/**/README.md'
-              - '!packages/opencode/specs/**'
-
-      - id: filter
-        if: always()
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          BEFORE_SHA: ${{ github.event.before }}
-          DOCS_OUTCOME: ${{ steps.docs-paths.outcome }}
-          CODE_OUTCOME: ${{ steps.code-paths.outcome }}
-          DOCS_CHANGED: ${{ steps.docs-paths.outputs.docs }}
-          CODE_CHANGED: ${{ steps.code-paths.outputs.code }}
-        run: |
-          set -euo pipefail
-
-          docs_only=false
-
-          if [ "$EVENT_NAME" != "pull_request" ] && [ "$EVENT_NAME" != "push" ]; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "$EVENT_NAME" = "push" ] && { [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; }; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "$DOCS_OUTCOME" != "success" ] || [ "$CODE_OUTCOME" != "success" ]; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "$DOCS_CHANGED" = "true" ] && [ "$CODE_CHANGED" != "true" ]; then
-            docs_only=true
-          fi
-
-          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
-
   analyze-js-ts:
-    needs: changes
-    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # actions/checkout@v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # github/codeql-action@v4.37.0
+        uses: github/codeql-action/init@9fdb3e49720b9745f5c76d52caac67efefe7fd20 # v4.33.0
         with:
           languages: javascript-typescript
-
       - name: Analyze with CodeQL
-        uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # github/codeql-action@v4.37.0
-        with:
-          category: "/language:javascript-typescript"
+        uses: github/codeql-action/analyze@9fdb3e49720b9745f5c76d52caac67efefe7fd20 # v4.33.0

@@ -102,9 +102,9 @@ bun install
 bun run dev:desktop
 ```
 
-## Built on OpenCode
+## Runtime and acknowledgements
 
-PawWork is built on a fork of [OpenCode](https://github.com/anomalyco/opencode). We keep the agent engine, rebuild the desktop product experience, and add PawWork-specific workflows, model defaults, and everyday-work entry points.
+PawWork uses DeepSeek DSH as its agent runtime, wrapped by a native Electron desktop shell and a small PawWork product layer for everyday workflows, migration, and Automation.
 
 Thanks to the OpenCode project and community.
 

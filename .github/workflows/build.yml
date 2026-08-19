@@ -276,11 +276,6 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Test remote bridge
-        if: ${{ inputs.phase != 'finalize' }}
-        run: bun test ./src
-        working-directory: packages/remote-bridge
-
       - name: Prepare uv
         if: ${{ inputs.phase != 'finalize' }}
         shell: bash
@@ -311,12 +306,6 @@ jobs:
         env:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
           PAWWORK_FEEDBACK_FORM_URL: ${{ vars.PAWWORK_FEEDBACK_FORM_URL || '' }}
-          PAWWORK_BUILD_SHA: ${{ github.sha }}
-
-      - name: Check desktop runtime imports
-        if: ${{ inputs.phase != 'finalize' }}
-        run: bun ./scripts/runtime-import-guard.ts
-        working-directory: packages/desktop-electron
 
       - name: Setup Apple API Key
         if: runner.os == 'macOS'

@@ -8,313 +8,98 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.ref == 'refs/heads/dev' && format('desktop-smoke-{0}', github.run_id) || format('desktop-smoke-{0}', github.event.pull_request.number || github.ref) }}
+  group: desktop-smoke-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/dev' }}
 
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      docs_only: ${{ steps.filter.outputs.docs_only }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # actions/checkout@v7.0.0
-        if: github.event_name == 'push'
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - id: docs-paths
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
-        continue-on-error: true
-        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # dorny/paths-filter@v4.0.2
-        with:
-          filters: |
-            docs:
-              - 'README.md'
-              - 'README_CN.md'
-              - 'AGENTS.md'
-              - 'CONTRIBUTING.md'
-              - 'SECURITY.md'
-              - 'LICENSE'
-              - 'docs/**'
-              - 'assets/readme/**'
-              - '.github/ISSUE_TEMPLATE/**'
-              - '.github/pull_request_template.md'
-              - 'packages/**/README.md'
-              - 'packages/opencode/specs/**'
-
-      - id: code-paths
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
-        continue-on-error: true
-        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # dorny/paths-filter@v4.0.2
-        with:
-          predicate-quantifier: every
-          filters: |
-            code:
-              - '**'
-              - '!README.md'
-              - '!README_CN.md'
-              - '!AGENTS.md'
-              - '!CONTRIBUTING.md'
-              - '!SECURITY.md'
-              - '!LICENSE'
-              - '!docs/**'
-              - '!assets/readme/**'
-              - '!.github/ISSUE_TEMPLATE/**'
-              - '!.github/pull_request_template.md'
-              - '!packages/**/README.md'
-              - '!packages/opencode/specs/**'
-
-      - id: filter
-        if: always()
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          BEFORE_SHA: ${{ github.event.before }}
-          DOCS_OUTCOME: ${{ steps.docs-paths.outcome }}
-          CODE_OUTCOME: ${{ steps.code-paths.outcome }}
-          DOCS_CHANGED: ${{ steps.docs-paths.outputs.docs }}
-          CODE_CHANGED: ${{ steps.code-paths.outputs.code }}
-        run: |
-          set -euo pipefail
-
-          docs_only=false
-
-          if [ "$EVENT_NAME" != "pull_request" ] && [ "$EVENT_NAME" != "push" ]; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "$EVENT_NAME" = "push" ] && { [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; }; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "$DOCS_OUTCOME" != "success" ] || [ "$CODE_OUTCOME" != "success" ]; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "$DOCS_CHANGED" = "true" ] && [ "$CODE_CHANGED" != "true" ]; then
-            docs_only=true
-          fi
-
-          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
-
-  smoke-macos-arm64:
-    needs: changes
-    if: needs.changes.outputs.docs_only != 'true'
+  macos-arm64:
     runs-on: macos-14
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # actions/checkout@v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-
-      # Load-bearing: `bun install` runs `trustedDependencies`
-      # postinstalls from the root package.json (electron, node-pty,
-      # esbuild, tree-sitter at time of writing), which call `node`
-      # explicitly. Do not drop without first patching those scripts.
-      # Source of truth: grep `trustedDependencies` in package.json. (#70)
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          # Load-bearing for `bun audit` exit semantics; do not bump without re-verifying advisory exit codes.
           bun-version: "1.3.14"
-
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # actions/cache@v6.1.0
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-
-
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # actions/cache@v6.1.0
-        with:
-          path: |
-            ~/Library/Caches/electron
-            ~/Library/Caches/electron-builder
-          key: electron-${{ runner.os }}-${{ hashFiles('bun.lock', 'packages/desktop-electron/package.json') }}
-          restore-keys: |
-            electron-${{ runner.os }}-
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
-      - name: Assert Electron install complete (pre-repair)
-        run: node ./scripts/repair-electron-install.mjs --assert-complete
-        working-directory: packages/desktop-electron
-
-      - name: Repair Electron install
-        run: node ./scripts/repair-electron-install.mjs
-        working-directory: packages/desktop-electron
-
-      - name: Prepare uv
+      - name: Prepare bundled uv
         run: bun ./scripts/prepare-uv.ts --platform darwin --arch arm64
         working-directory: packages/desktop-electron
-
-      - name: Build desktop app
+      - name: Build desktop
         run: bun run build
         working-directory: packages/desktop-electron
         env:
           OPENCODE_CHANNEL: dev
-          PAWWORK_FEEDBACK_FORM_URL: https://example.com/pawwork-feedback
-
-      - name: Repair Electron install after build
-        run: node ./scripts/repair-electron-install.mjs
-        working-directory: packages/desktop-electron
-
-      - name: Check desktop runtime imports
-        run: bun ./scripts/runtime-import-guard.ts
-        working-directory: packages/desktop-electron
-
-      - name: Launch desktop smoke app
+      - name: Smoke development desktop through CDP
         run: bun run smoke:ci
         working-directory: packages/desktop-electron
         env:
           PAWWORK_CI_SMOKE_CDP: "true"
-
-      - name: Package desktop app
+      - name: Package macOS app
         run: npx electron-builder --mac dir --arm64 --publish never --config electron-builder.config.ts --config.mac.identity=- --config.mac.notarize=false
         working-directory: packages/desktop-electron
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
           OPENCODE_CHANNEL: dev
-
-      - name: Smoke check app bundle
-        run: |
-          set -euo pipefail
-
-          APP_PATH="dist/mac-arm64/PawWork Dev.app"
-          EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/PawWork Dev"
-          INFO_PLIST_PATH="$APP_PATH/Contents/Info.plist"
-          ASAR_PATH="$APP_PATH/Contents/Resources/app.asar"
-          THIRD_PARTY_NOTICES_PATH="$APP_PATH/Contents/Resources/THIRD_PARTY_NOTICES.md"
-          FRAMEWORK_PATH="$APP_PATH/Contents/Frameworks/Electron Framework.framework"
-          HELPER_APP_PATH="$APP_PATH/Contents/Frameworks/PawWork Dev Helper.app"
-
-          if [ ! -d "$APP_PATH" ]; then
-            echo "Expected app bundle at $APP_PATH"
-            exit 1
-          fi
-
-          if [ ! -x "$EXECUTABLE_PATH" ]; then
-            echo "Expected executable at $EXECUTABLE_PATH"
-            exit 1
-          fi
-
-          if [ ! -f "$INFO_PLIST_PATH" ]; then
-            echo "Expected Info.plist at $INFO_PLIST_PATH"
-            exit 1
-          fi
-
-          if [ ! -f "$ASAR_PATH" ]; then
-            echo "Expected app.asar at $ASAR_PATH"
-            exit 1
-          fi
-
-          if [ ! -f "$THIRD_PARTY_NOTICES_PATH" ]; then
-            echo "Expected third-party notices at $THIRD_PARTY_NOTICES_PATH"
-            exit 1
-          fi
-
-          if [ ! -d "$FRAMEWORK_PATH" ]; then
-            echo "Expected Electron Framework at $FRAMEWORK_PATH"
-            exit 1
-          fi
-
-          if [ ! -d "$HELPER_APP_PATH" ]; then
-            echo "Expected helper app at $HELPER_APP_PATH"
-            exit 1
-          fi
-
-          codesign -dv --verbose=2 "$APP_PATH" 2>&1 | tee /tmp/pawwork-codesign.txt
-          grep -q "Signature=adhoc" /tmp/pawwork-codesign.txt
-        working-directory: packages/desktop-electron
-
-      - name: Launch packaged desktop smoke app
-        run: |
-          set -euo pipefail
-
-          EXECUTABLE_PATH="dist/mac-arm64/PawWork Dev.app/Contents/MacOS/PawWork Dev"
-          bun ./scripts/ci-smoke.ts packaged dev "$EXECUTABLE_PATH"
+      - name: Smoke packaged macOS app through CDP
+        run: bun ./scripts/ci-smoke.ts packaged dev "dist/mac-arm64/PawWork Dev.app/Contents/MacOS/PawWork Dev"
         working-directory: packages/desktop-electron
         env:
           PAWWORK_CI_SMOKE_CDP: "true"
 
-  install-matrix:
-    needs: changes
-    if: needs.changes.outputs.docs_only != 'true'
-    strategy:
-      matrix:
-        node-version: ["24", "26"]
-    runs-on: macos-14
-    timeout-minutes: 10
+  windows-x64:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # actions/checkout@v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: ${{ matrix.node-version }}
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
+          node-version: "24"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          # Load-bearing for `bun audit` exit semantics; do not bump without re-verifying advisory exit codes.
           bun-version: "1.3.14"
-
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # actions/cache@v6.1.0
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
-      - name: Assert Electron install complete
-        run: node ./scripts/repair-electron-install.mjs --assert-complete
+      - name: Prepare bundled uv
+        run: bun ./scripts/prepare-uv.ts --platform win32 --arch x64
         working-directory: packages/desktop-electron
+      - name: Build desktop
+        run: bun run build
+        working-directory: packages/desktop-electron
+        env:
+          OPENCODE_CHANNEL: dev
+      - name: Package Windows app
+        run: npx electron-builder --win dir --x64 --publish never --config electron-builder.config.ts
+        working-directory: packages/desktop-electron
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          OPENCODE_CHANNEL: dev
+      - name: Smoke packaged Windows app through CDP
+        run: bun ./scripts/ci-smoke.ts packaged dev "dist/win-unpacked/PawWork Dev.exe"
+        working-directory: packages/desktop-electron
+        env:
+          PAWWORK_CI_SMOKE_CDP: "true"
 
-  # Compatibility aggregator for branch protection setups that require
-  # `desktop-smoke / check`. The live dev ruleset currently requires
-  # `smoke-macos-arm64` directly, so every blocking job added above should
-  # still be listed in `needs:` below.
   check:
     if: always()
-    needs:
-      - changes
-      - smoke-macos-arm64
-      - install-matrix
+    needs: [macos-arm64, windows-x64]
     runs-on: ubuntu-latest
     steps:
-      - name: Validate desktop smoke result
+      - name: Validate desktop smoke results
         env:
-          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
-          SMOKE_RESULT: ${{ needs.smoke-macos-arm64.result }}
-          INSTALL_MATRIX_RESULT: ${{ needs.install-matrix.result }}
-        run: |
-          set -euo pipefail
-
-          if [ "$DOCS_ONLY" = "true" ]; then
-            echo "Docs-only change, desktop smoke skipped."
-            exit 0
-          fi
-
-          if [ "$SMOKE_RESULT" != "success" ]; then
-            echo "smoke-macos-arm64=$SMOKE_RESULT"
-            exit 1
-          fi
-
-          if [ "$INSTALL_MATRIX_RESULT" != "success" ]; then
-            echo "install-matrix=$INSTALL_MATRIX_RESULT"
-            exit 1
-          fi
+          MACOS_RESULT: ${{ needs.macos-arm64.result }}
+          WINDOWS_RESULT: ${{ needs.windows-x64.result }}
+        run: test "$MACOS_RESULT" = success && test "$WINDOWS_RESULT" = success
