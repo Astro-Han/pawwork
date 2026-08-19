@@ -172,7 +172,9 @@ The helper verifies:
 - `latest.yml` points to `pawwork-win-x64-X.Y.Z.exe`.
 - `latest-mac.yml` includes both `pawwork-mac-arm64-X.Y.Z.zip` and `pawwork-mac-x64-X.Y.Z.zip`.
 
-Fresh packaged startup and product behavior are owned by the `desktop-smoke` Electron/CDP workflow. Do not recreate a second release gate from implementation-specific log markers.\n\nFor Windows installer shortcut verification, record the minimum matrix:
+Fresh packaged startup and product behavior are owned by the `desktop-smoke` Electron/CDP workflow. Do not recreate a second release gate from implementation-specific log markers.
+
+For Windows installer shortcut verification, record the minimum matrix:
 
 - English Windows fresh install, `Just me`, desktop shortcut checked: current user desktop shortcut exists and launches PawWork
 - English Windows fresh install, `All users`, desktop shortcut checked: public desktop shortcut exists and launches PawWork
