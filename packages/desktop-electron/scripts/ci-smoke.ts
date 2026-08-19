@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { once } from "node:events"
-import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
@@ -31,6 +31,8 @@ export type CiSmokeProductSnapshot = {
   title: string
   automationEntryVisible: boolean
   automationSurfaceVisible: boolean
+  automationEditorVisible: boolean
+  automationMetadataPlain: boolean
   automationBelowNewSession: boolean
   sidebarToggleVisible: boolean
   sidebarCollapsed: boolean
@@ -224,8 +226,23 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const automationEntryVisible = visible(automationEntry)
 
     automationEntry?.click()
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    let automationRow
+    for (let attempt = 0; attempt < 20 && !automationRow; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      automationRow = document.querySelector(".pawwork-automation-row")
+    }
     const automationSurfaceVisible = visible(document.querySelector(".pawwork-automations-surface"))
+    automationRow?.click()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    Array.from(document.querySelectorAll('button, [role="button"]')).find((element) => {
+      const label = element.getAttribute("aria-label") || element.textContent || ""
+      return label.includes("Advanced settings") || label.includes("高级设置")
+    })?.click()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const readonlyMetadata = Array.from(document.querySelectorAll(".pawwork-automation-readonly"))
+    const automationEditorVisible = visible(document.querySelector(".pawwork-automation-panel"))
+    const automationMetadataPlain = readonlyMetadata.length === 2
+      && document.querySelector(".pawwork-automation-select-trigger[disabled]") === null
     const retiredBrandVisible = Array.from(document.querySelectorAll('svg[viewBox="0 0 182 24"], svg[viewBox="0 0 23.16 17.04"]')).some(visible)
     sidebarToggle?.click()
     await new Promise((resolve) => setTimeout(resolve, 100))
@@ -246,6 +263,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       title: document.title,
       automationEntryVisible,
       automationSurfaceVisible,
+      automationEditorVisible,
+      automationMetadataPlain,
       automationBelowNewSession: Boolean(automationRect && newSessionRect && automationRect.top >= newSessionRect.bottom),
       sidebarToggleVisible: visible(sidebarToggle),
       sidebarCollapsed: Boolean(document.querySelector("[data-sidebar-collapsed]")),
@@ -319,6 +338,8 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
     snapshot.title === "PawWork" ? null : `document title is ${JSON.stringify(snapshot.title)}`,
     snapshot.automationEntryVisible ? null : "Automation entry is not visible",
     snapshot.automationSurfaceVisible ? null : "Automation surface did not open",
+    snapshot.automationEditorVisible ? null : "Automation editor did not open",
+    snapshot.automationMetadataPlain ? null : "Automation immutable metadata is not plain read-only text",
     snapshot.automationBelowNewSession ? null : "Automation is not below New Session",
     snapshot.sidebarToggleVisible ? null : "sidebar toggle is not visible",
     snapshot.sidebarCollapsed ? null : "sidebar toggle did not collapse the sidebar",
@@ -436,6 +457,31 @@ async function stopChild(child: ChildProcessWithoutNullStreams) {
 async function main() {
   const target = parseSmokeArgs(Bun.argv.slice(2))
   const homeDir = mkdtempSync(join(tmpdir(), "pawwork-ci-smoke-"))
+  const dshHome = join(homeDir, appIdForSmoke(target.channel, target.mode), "dsh")
+  mkdirSync(dshHome, { recursive: true })
+  writeFileSync(join(dshHome, "automations.json"), `${JSON.stringify({
+    schema: 1,
+    nextDefinition: 2,
+    nextRun: 1,
+    definitions: [{
+      id: "automation-smoke",
+      title: "Smoke automation",
+      prompt: "Verify the Automation editor.",
+      revision: 1,
+      paused: true,
+      context: "fresh",
+      cwd: homeDir,
+      model: { provider: "opencode", model: "deepseek-v4-flash-free" },
+      timezone: "UTC",
+      createdAt: 1,
+      updatedAt: 1,
+      kind: "recurring",
+      rhythm: { kind: "interval", everyMs: 60_000 },
+      stop: { kind: "never" },
+      nextFireAt: null,
+    }],
+    runs: [],
+  }, null, 2)}\n`, { mode: 0o600 })
   const cdpPort = await resolveCiSmokeCdpPort(process.env)
   const { child, spawnError } = launchApp(homeDir, target, { cdpPort })
   const logs = watchChildLogs(child)

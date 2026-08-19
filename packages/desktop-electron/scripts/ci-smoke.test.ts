@@ -206,6 +206,8 @@ describe("ci smoke helpers", () => {
       title: "PawWork",
       automationEntryVisible: true,
       automationSurfaceVisible: true,
+      automationEditorVisible: true,
+      automationMetadataPlain: true,
       automationBelowNewSession: true,
       sidebarToggleVisible: true,
       sidebarCollapsed: true,
@@ -224,6 +226,8 @@ describe("ci smoke helpers", () => {
       title: "DeepSeek Harness",
       automationEntryVisible: false,
       automationSurfaceVisible: false,
+      automationEditorVisible: false,
+      automationMetadataPlain: false,
       automationBelowNewSession: false,
       sidebarToggleVisible: false,
       sidebarCollapsed: false,
@@ -234,7 +238,7 @@ describe("ci smoke helpers", () => {
       freeModelAvailable: false,
       skillNames: [],
       sessionId: "",
-    })).toThrow(/document title.*Automation entry.*Automation surface.*below New Session.*sidebar toggle.*collapse.*branding.*window controls.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
+    })).toThrow(/document title.*Automation entry.*Automation surface.*Automation editor.*immutable metadata.*below New Session.*sidebar toggle.*collapse.*branding.*window controls.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
   })
 
   test("parseSmokeArgs defaults to raw dev mode", () => {
