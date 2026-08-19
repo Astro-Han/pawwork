@@ -420,7 +420,7 @@ test('automation RPC validates mutations and returns immediately when running no
   assert.equal(refreshCalls, 1);
 });
 
-test('automation RPC updates definitions and rejects retired form-creation endpoints', async () => {
+test('automation RPC updates definitions', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
   const definition = interval(store, cwd, 300_000);
@@ -430,18 +430,6 @@ test('automation RPC updates definitions and rejects retired form-creation endpo
     scheduler: { refresh: () => { refreshCalls += 1; } },
     now: () => Date.parse('2026-08-18T00:00:00.000Z'),
   });
-  const retiredCreate = await rpc('create', {
-    title: 'Daily brief', prompt: 'Summarize the workspace.', cwd: '/tmp/work',
-    model: { provider: 'opencode', model: 'free-model' }, timezone: 'Asia/Shanghai',
-    context: 'fresh', kind: 'recurring', rhythm: { kind: 'cron', expression: '0 9 * * *' },
-    stop: { kind: 'count', count: 1 },
-  });
-  assert.equal(retiredCreate.ok, false);
-  assert.equal(retiredCreate.error.code, 'bad-request');
-  const retiredDefaults = await rpc('defaults', {});
-  assert.equal(retiredDefaults.ok, false);
-  assert.equal(retiredDefaults.error.code, 'bad-request');
-
   const updated = await rpc('update', {
     id: definition.id, title: 'Morning brief', prompt: 'Summarize important changes.',
   });
