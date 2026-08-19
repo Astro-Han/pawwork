@@ -6,7 +6,7 @@ const {
   createDatabaseSnapshot,
   discoverV1Database,
   parseJson,
-  readJson,
+  readMigrationLedger,
   requireColumns,
   writeJsonAtomically,
 } = require('./migration-io.cjs');
@@ -177,13 +177,12 @@ async function runV1AutomationImport({
   const directory = path.join(home, 'import-v1');
   const ledgerPath = path.join(directory, 'ledger.json');
   fs.rmSync(path.join(directory, 'automation-result.json'), { force: true });
-  const ledger = readJson(ledgerPath, {
+  const ledger = readMigrationLedger(ledgerPath, {
     schema: 1,
     sourceDatabase,
     automationDefinitions: {},
     automationRuns: {},
   });
-  if (ledger.schema !== 1) throw new Error(`unsupported v1 migration ledger schema: ${ledger.schema}`);
   ledger.automationDefinitions ||= {};
   ledger.automationRuns ||= {};
   if (ledger.sourceDatabase && sourceDatabase && ledger.sourceDatabase !== sourceDatabase) {

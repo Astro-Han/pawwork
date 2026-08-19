@@ -6,7 +6,7 @@ const {
   createDatabaseSnapshot,
   discoverV1Database,
   parseJson,
-  readJson,
+  readMigrationLedger,
   requireColumns,
   v1DatabaseCandidates,
   writeJsonAtomically,
@@ -329,12 +329,11 @@ async function runV1SessionImport({
   const directory = path.join(home, 'import-v1');
   const ledgerPath = path.join(directory, 'ledger.json');
   fs.rmSync(path.join(directory, 'result.json'), { force: true });
-  const ledger = readJson(ledgerPath, {
+  const ledger = readMigrationLedger(ledgerPath, {
     schema: 1,
     sourceDatabase,
     sessions: {},
   });
-  if (ledger.schema !== 1) throw new Error(`unsupported v1 migration ledger schema: ${ledger.schema}`);
   ledger.sessions ||= {};
   if (ledger.sourceDatabase && sourceDatabase && ledger.sourceDatabase !== sourceDatabase) {
     throw new Error(`v1 migration source changed from ${ledger.sourceDatabase} to ${sourceDatabase}`);

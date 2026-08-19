@@ -2,7 +2,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { readJson, writeJsonAtomically } = require('./migration-io.cjs');
+const { readJson, readMigrationLedger, writeJsonAtomically } = require('./migration-io.cjs');
 
 const V1_APP_ID = 'ai.pawwork.desktop';
 
@@ -188,12 +188,11 @@ async function runV1SettingsImport({
   const directory = path.join(home, 'import-v1');
   const ledgerPath = path.join(directory, 'ledger.json');
   fs.rmSync(path.join(directory, 'settings-result.json'), { force: true });
-  const ledger = readJson(ledgerPath, {
+  const ledger = readMigrationLedger(ledgerPath, {
     schema: 1,
     sourceAppData,
     settings: {},
   });
-  if (ledger.schema !== 1) throw new Error(`unsupported v1 migration ledger schema: ${ledger.schema}`);
   ledger.settings ||= {};
   if (ledger.sourceAppData && sourceAppData && ledger.sourceAppData !== sourceAppData) {
     throw new Error(`v1 settings source changed from ${ledger.sourceAppData} to ${sourceAppData}`);
