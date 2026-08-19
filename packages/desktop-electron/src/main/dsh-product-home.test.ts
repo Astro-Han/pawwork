@@ -7,7 +7,7 @@ import {
   buildDshEnvironment,
   prepareDshProductHome,
   resolveDshPackagePath,
-  resolveDshResources,
+  resolveProductResources,
 } from "./dsh-product-home"
 
 const temporaryDirectories: string[] = []
@@ -40,19 +40,22 @@ function installedOpenCodeFreeModels() {
 describe("DSH product home", () => {
   test("uses external packaged resources and source resources in development", () => {
     expect(
-      resolveDshResources({
+      resolveProductResources({
         appPath: "/Applications/PawWork.app/Contents/Resources/app.asar",
         isPackaged: true,
         resourcesPath: "/Applications/PawWork.app/Contents/Resources",
       }),
-    ).toBe("/Applications/PawWork.app/Contents/Resources/dsh")
+    ).toEqual({
+      dsh: "/Applications/PawWork.app/Contents/Resources/dsh",
+      skills: "/Applications/PawWork.app/Contents/Resources/skills",
+    })
     expect(
-      resolveDshResources({
+      resolveProductResources({
         appPath: "/repo/packages/desktop-electron",
         isPackaged: false,
         resourcesPath: "/unused",
       }),
-    ).toBe("/repo/packages/desktop-electron/resources/dsh")
+    ).toEqual({ dsh: "/repo/packages/desktop-electron/resources/dsh", skills: "/repo/skills" })
   })
 
   test("runs packaged DSH from the real unpacked dependency tree", () => {
@@ -133,7 +136,7 @@ describe("DSH product home", () => {
   })
 
   test("isolates DSH from ambient model credentials", () => {
-    const environment = buildDshEnvironment("/data/dsh", {
+    const environment = buildDshEnvironment("/data/dsh", "/app/skills", {
       PATH: "/usr/bin",
       OPENCODE_API_KEY: "ambient",
       OPENCODE_GO_API_KEY: "ambient-go",
@@ -141,6 +144,10 @@ describe("DSH product home", () => {
       DEEPSEEK_BASE_URL: "https://example.test",
     })
 
-    expect(environment).toEqual({ PATH: "/usr/bin", DSH_HOME: "/data/dsh" })
+    expect(environment).toEqual({
+      PATH: "/usr/bin",
+      DSH_HOME: "/data/dsh",
+      DSH_BUNDLED_SKILL_DIR: "/app/skills",
+    })
   })
 })

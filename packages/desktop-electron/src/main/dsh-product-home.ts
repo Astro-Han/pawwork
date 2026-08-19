@@ -14,7 +14,7 @@ type PrepareDshProductHomeOptions = {
   resources: string
 }
 
-type ResolveDshResourcesOptions = {
+type ResolveProductResourcesOptions = {
   appPath: string
   isPackaged: boolean
   resourcesPath: string
@@ -26,10 +26,15 @@ type ResolveDshPackagePathOptions = {
   resolveDevelopmentPackage: () => string
 }
 
-export function resolveDshResources(options: ResolveDshResourcesOptions) {
-  return options.isPackaged
-    ? join(options.resourcesPath, "dsh")
-    : join(options.appPath, "resources", "dsh")
+export function resolveProductResources(options: ResolveProductResourcesOptions) {
+  return {
+    dsh: options.isPackaged
+      ? join(options.resourcesPath, "dsh")
+      : join(options.appPath, "resources", "dsh"),
+    skills: options.isPackaged
+      ? join(options.resourcesPath, "skills")
+      : join(options.appPath, "..", "..", "skills"),
+  }
 }
 
 export function resolveDshPackagePath(options: ResolveDshPackagePathOptions) {
@@ -67,8 +72,16 @@ export function prepareDshProductHome(options: PrepareDshProductHomeOptions) {
   }
 }
 
-export function buildDshEnvironment(productHome: string, source: NodeJS.ProcessEnv = process.env) {
-  const environment: NodeJS.ProcessEnv = { ...source, DSH_HOME: productHome }
+export function buildDshEnvironment(
+  productHome: string,
+  bundledSkillDir: string,
+  source: NodeJS.ProcessEnv = process.env,
+) {
+  const environment: NodeJS.ProcessEnv = {
+    ...source,
+    DSH_BUNDLED_SKILL_DIR: bundledSkillDir,
+    DSH_HOME: productHome,
+  }
   for (const name of DROPPED_MODEL_ENVIRONMENT) delete environment[name]
   return environment
 }

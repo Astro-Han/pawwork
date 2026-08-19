@@ -25,7 +25,7 @@ import {
   buildDshEnvironment,
   prepareDshProductHome,
   resolveDshPackagePath,
-  resolveDshResources,
+  resolveProductResources,
 } from "./dsh-product-home"
 import { launchDshSidecar, type DshSidecar } from "./dsh-sidecar"
 import { initLogging } from "./logging"
@@ -185,14 +185,15 @@ function setupApp() {
 }
 
 async function startDsh() {
-  const resources = resolveDshResources({
-    appPath: app.isPackaged ? app.getAppPath() : join(dirname(fileURLToPath(import.meta.url)), "../.."),
+  const appPath = app.isPackaged ? app.getAppPath() : join(dirname(fileURLToPath(import.meta.url)), "../..")
+  const resources = resolveProductResources({
+    appPath,
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
   })
   const product = prepareDshProductHome({
     productHome: join(app.getPath("userData"), "dsh"),
-    resources,
+    resources: resources.dsh,
   })
   fileInputPreload = product.fileInputPreload
   const require = createRequire(import.meta.url)
@@ -209,8 +210,8 @@ async function startDsh() {
     zenIdentityPreload: pathToFileURL(product.zenIdentityPreload).href,
     productHome: product.home,
     productPatch: product.patch,
-    toolsDir: join(dirname(resources), "tools"),
-    env: buildDshEnvironment(product.home),
+    toolsDir: join(dirname(resources.dsh), "tools"),
+    env: buildDshEnvironment(product.home, resources.skills),
     timeoutMs: 30_000,
     spawn: (executable, args, options) => spawn(executable, args, options),
     onStdout: (chunk) => logger.log("DSH stdout", { chunk: chunk.trimEnd() }),
