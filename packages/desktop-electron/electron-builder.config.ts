@@ -5,12 +5,18 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
-import { writeAppUpdateConfig, type GitHubPublishConfig } from "./scripts/write-app-update-config"
+import { UPDATER_CACHE_DIR_NAME } from "./src/main/updater-cache"
 
 const execFileAsync = promisify(execFile)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const signScript = path.join(rootDir, "script", "sign-windows.ps1")
 type Channel = "dev" | "beta" | "prod"
+type GitHubPublishConfig = {
+  provider: "github"
+  owner: string
+  repo: string
+  channel: string
+}
 const localizedMacDisplayNameByChannel: Record<Channel, string> = {
   dev: "爪印 Dev",
   beta: "爪印 Beta",
@@ -49,6 +55,19 @@ async function writeLocalizedMacDisplayName(resourcesDir: string, channel: Chann
     await mkdir(dir, { recursive: true })
     await writeFile(path.join(dir, "InfoPlist.strings"), content, "utf8")
   }
+}
+
+async function writeAppUpdateConfig(resourcesDir: string, publish: GitHubPublishConfig) {
+  await mkdir(resourcesDir, { recursive: true })
+  const content = [
+    "provider: github",
+    `owner: ${publish.owner}`,
+    `repo: ${publish.repo}`,
+    `channel: ${publish.channel}`,
+    `updaterCacheDirName: ${UPDATER_CACHE_DIR_NAME}`,
+    "",
+  ].join("\n")
+  await writeFile(path.join(resourcesDir, "app-update.yml"), content)
 }
 
 const repositoryUrl = (channel: Channel) => `https://github.com/Astro-Han/${getPublishConfig(channel)?.repo ?? "pawwork"}`

@@ -1,11 +1,7 @@
 import { describe, expect, test } from "vitest"
-import { pendingUpdateCacheDir, UPDATER_CACHE_DIR_NAME } from "./updater-cache"
+import { pendingUpdateCacheDir } from "./updater-cache"
 
 describe("updater cache path", () => {
-  test("uses the same updater cache dir name as app-update.yml", () => {
-    expect(UPDATER_CACHE_DIR_NAME).toBe("pawwork-updater")
-  })
-
   test("resolves macOS pending cache from the user library cache root", () => {
     expect(pendingUpdateCacheDir({ platform: "darwin", homedir: "/Users/demo", env: {} })).toBe(
       "/Users/demo/Library/Caches/pawwork-updater/pending",

@@ -121,6 +121,7 @@ describe("electron builder app-update config", () => {
     const configPath = join(root, "PawWork Product Filename.app", "Contents", "Resources", "app-update.yml")
     expect(existsSync(configPath)).toBe(true)
     expect(readFileSync(configPath, "utf8")).toContain("repo: pawwork\n")
+    expect(readFileSync(configPath, "utf8")).toContain("updaterCacheDirName: pawwork-updater\n")
   })
 
   test("afterPack writes localized macOS display names to the final resources path", async () => {
