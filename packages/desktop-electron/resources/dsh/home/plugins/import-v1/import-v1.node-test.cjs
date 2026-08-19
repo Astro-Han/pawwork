@@ -321,6 +321,7 @@ test('creates a consistent SQLite snapshot without changing source data or its W
   const root = temporaryDirectory();
   const source = path.join(root, 'pawwork.db');
   const destination = path.join(root, 'snapshot.db');
+  const secondDestination = path.join(root, 'snapshot-second.db');
   const database = new DatabaseSync(source);
   database.exec('PRAGMA journal_mode = WAL');
   database.exec('PRAGMA wal_autocheckpoint = 0');
@@ -349,6 +350,11 @@ test('creates a consistent SQLite snapshot without changing source data or its W
     ],
   );
   snapshot.close();
+
+  await createDatabaseSnapshot(source, secondDestination);
+  const secondSnapshot = new DatabaseSync(secondDestination, { readOnly: true });
+  assert.equal(secondSnapshot.prepare('SELECT count(*) AS total FROM session').get().total, 2);
+  secondSnapshot.close();
 
   for (const [file, expected] of before) {
     const stat = fs.statSync(file);
@@ -702,46 +708,6 @@ test('finishes both migration stages when no v1 database exists', async () => {
   assert.equal(ledger.workspaceStageComplete, true);
 });
 
-test('repairs workspace ownership recorded by a pre-workspace migration ledger', async () => {
-  const root = temporaryDirectory();
-  const source = path.join(root, 'pawwork.db');
-  const home = path.join(root, 'v2-home');
-  createV1Fixture(source);
-  fs.mkdirSync(path.join(home, 'import-v1'), { recursive: true });
-  fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({
-    schema: 1,
-    sourceDatabase: source,
-    stage1Complete: true,
-    sessions: {
-      ses_parent: { status: 'complete', targetId: 'pawwork-v1-ses_parent' },
-      ses_child: { status: 'complete', targetId: 'pawwork-v1-ses_child' },
-    },
-  }));
-
-  const repaired = [];
-  const result = await runV1SessionImport({
-    home,
-    sourceDatabase: source,
-    importSession: async (session) => {
-      repaired.push(session.id);
-      return {
-        session: 'skipped',
-        workspace: session.id === 'pawwork-v1-ses_child' ? 'unavailable' : 'attached',
-      };
-    },
-  });
-
-  assert.deepEqual(repaired, ['pawwork-v1-ses_parent', 'pawwork-v1-ses_child']);
-  assert.equal(result.status, 'complete');
-  assert.deepEqual(result.sessions, { imported: 0, skipped: 2, failed: 0 });
-  assert.deepEqual(result.workspaces, { attached: 1, unavailable: 1, failed: 0 });
-  const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
-  assert.equal(ledger.workspaceStageComplete, true);
-  assert.equal(ledger.sessions.ses_parent.workspaceAttached, true);
-  assert.equal(ledger.sessions.ses_child.workspaceAttached, false);
-  assert.equal(ledger.sessions.ses_child.workspaceUnavailable, true);
-});
-
 test('resumes after a per-session failure without duplicating completed sessions', async () => {
   const root = temporaryDirectory();
   const source = path.join(root, 'pawwork.db');
@@ -800,4 +766,44 @@ test('can resume Stage 1 from a ledger first written by the settings stage', asy
 
   assert.equal(imported.status, 'complete');
   assert.deepEqual(imported.sessions, { imported: 2, skipped: 0, failed: 0 });
+});
+
+test('repairs workspace ownership recorded by a pre-workspace migration ledger', async () => {
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  createV1Fixture(source);
+  fs.mkdirSync(path.join(home, 'import-v1'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({
+    schema: 1,
+    sourceDatabase: source,
+    stage1Complete: true,
+    sessions: {
+      ses_parent: { status: 'complete', targetId: 'pawwork-v1-ses_parent' },
+      ses_child: { status: 'complete', targetId: 'pawwork-v1-ses_child' },
+    },
+  }));
+
+  const repaired = [];
+  const result = await runV1SessionImport({
+    home,
+    sourceDatabase: source,
+    importSession: async (session) => {
+      repaired.push(session.id);
+      return {
+        session: 'skipped',
+        workspace: session.id === 'pawwork-v1-ses_child' ? 'unavailable' : 'attached',
+      };
+    },
+  });
+
+  assert.deepEqual(repaired, ['pawwork-v1-ses_parent', 'pawwork-v1-ses_child']);
+  assert.equal(result.status, 'complete');
+  assert.deepEqual(result.sessions, { imported: 0, skipped: 2, failed: 0 });
+  assert.deepEqual(result.workspaces, { attached: 1, unavailable: 1, failed: 0 });
+  const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+  assert.equal(ledger.workspaceStageComplete, true);
+  assert.equal(ledger.sessions.ses_parent.workspaceAttached, true);
+  assert.equal(ledger.sessions.ses_child.workspaceAttached, false);
+  assert.equal(ledger.sessions.ses_child.workspaceUnavailable, true);
 });

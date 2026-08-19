@@ -2,7 +2,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { backup, DatabaseSync } = require('node:sqlite');
+const { DatabaseSync } = require('node:sqlite');
 
 const V1_APP_ID = 'ai.pawwork.desktop';
 const V1_DATABASE_SUFFIX = ['data', 'pawwork', 'pawwork.db'];
@@ -39,7 +39,7 @@ async function createDatabaseSnapshot(source, destination) {
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   const database = new DatabaseSync(source, { readOnly: true, timeout: 5_000 });
   try {
-    await backup(database, destination);
+    database.prepare('VACUUM INTO ?').run(destination);
   } finally {
     database.close();
   }
