@@ -10,20 +10,11 @@ const {
 } = require('./automations.cjs');
 
 export const name = 'pawwork-automations';
-export const inject = [
-  'agentDefaultModel',
-  'agents',
-  'connection',
-  'sessions',
-  'sessionPersistence',
-  'sessionTitle',
-  'tools',
-];
+export const inject = ['agentDefaultModel', 'agents', 'connection', 'sessions', 'sessionTitle'];
 
 const AUTOMATION_SESSION_PREFIX = 'pawwork-automation-run-';
 
-function automationResult(agent) {
-  const events = agent.session.events;
+function automationResult(events) {
   const end = [...events].reverse().find((event) => event.type === 'turn/end');
   if (!end || !['completed', 'max-tokens'].includes(end.data.reason.kind)) {
     if (end?.data.reason.kind === 'error') throw new Error(end.data.reason.error.message);
@@ -61,6 +52,7 @@ export function createDshExecutor(ctx) {
     signal.addEventListener('abort', cancel, { once: true });
     try {
       if (definition.context === 'fresh') ctx.sessionTitle.rename(agent.session, `Automation: ${definition.title}`);
+      const previousEventCount = agent.session.events.length;
       agent.followup({
         id: `pawwork-automation-message-${run.id}`,
         role: 'user',
@@ -68,8 +60,9 @@ export function createDshExecutor(ctx) {
         source: { kind: 'user' },
       });
       await agent.whenIdle();
+      signal.throwIfAborted();
       await ctx.sessions.flush(agent.session);
-      return { sessionId, result: automationResult(agent) };
+      return { sessionId, result: automationResult([...agent.session.events].slice(previousEventCount)) };
     } finally {
       signal.removeEventListener('abort', cancel);
       await handle?.dispose();

@@ -81,14 +81,6 @@ describe("PawWork DSH client product layer", () => {
     cleanup?.()
   })
 
-  test("keeps refreshing a visible automation until its active run finishes", () => {
-    const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
-
-    expect(source).toContain("definition.recentRuns?.some((run) => run.state === \"running\" || run.state === \"scheduled\")")
-    expect(source).toContain("const timer = setTimeout(() => void load(), 1_000)")
-    expect(source).toContain("return () => clearTimeout(timer)")
-  })
-
   test("replaces the DSH welcome notice without adding sidebar branding", () => {
     const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
     let definition: {
@@ -261,13 +253,20 @@ describe("PawWork DSH client product layer", () => {
       component: (props: { wide: boolean }) => { props: Record<string, unknown> }
       dispose: ReturnType<typeof mock>
     }> = []
+    let conversationDeclaration: (() => void) | undefined
+    let conversationCleanup: (() => void) | undefined
     const call = mock(async () => ({ ok: true, value: { definitions: [] } }))
     const ctx = {
       connection: { rpc: { call } },
       layout: { closeDetails: () => {}, toggleSidebar: () => {} },
       sessions: { open: () => {} },
       slots: {
-        inject: (_name: string, register: () => void) => register(),
+        inject: (name: string, register: () => void) => {
+          if (name === "conversation") conversationDeclaration = register
+          const cleanup = register()
+          if (name === "conversation") conversationCleanup = cleanup
+          return cleanup
+        },
         register: (
           options: { id?: string; name?: string; priority?: number },
           component: (props: { wide: boolean }) => { props: Record<string, unknown> },
@@ -294,6 +293,11 @@ describe("PawWork DSH client product layer", () => {
     expect(surfaceRegistration?.options.priority).toBe(-100)
     expect(registrations.some((entry) => entry.options.id === "pawwork-automations-overlay")).toBe(false)
     expect(plugin.inject).toEqual(["slots", "layout", "connection", "conversation", "sessions", "workspaces"])
+
+    conversationCleanup?.()
+    expect(surfaceRegistration?.dispose).toHaveBeenCalledTimes(1)
+    conversationDeclaration?.()
+    expect(registrations.filter((entry) => entry.options.name === "conversation")).toHaveLength(2)
   })
 
   test("adds selected file paths through the public composer input slot", async () => {

@@ -258,7 +258,12 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
         attach(nextRegistrar) {
           registrar = nextRegistrar
           if (opened && disposeSurface === null) disposeSurface = registrar()
-          return () => { if (registrar === nextRegistrar) registrar = null }
+          return () => {
+            if (registrar !== nextRegistrar) return
+            disposeSurface?.()
+            disposeSurface = null
+            registrar = null
+          }
         },
         close() {
           disposeSurface?.()
@@ -317,8 +322,9 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
       }
       const [minute, hour, day, month, weekday] = definition.rhythm.expression.split(/\s+/)
       const clock = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
-      if (day === "*" && month === "*" && weekday === "*") return text(`每天 ${clock}`, `Daily ${clock}`)
-      if (day === "*" && month === "*" && weekday === "1-5") return text(`工作日 ${clock}`, `Weekdays ${clock}`)
+      const simpleTime = /^\d+$/.test(hour) && /^\d+$/.test(minute)
+      if (simpleTime && day === "*" && month === "*" && weekday === "*") return text(`每天 ${clock}`, `Daily ${clock}`)
+      if (simpleTime && day === "*" && month === "*" && weekday === "1-5") return text(`工作日 ${clock}`, `Weekdays ${clock}`)
       return `Cron ${definition.rhythm.expression}`
     }
     function runState(run) {
@@ -356,9 +362,10 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
       if (definition.rhythm.kind === "interval") return { ...base, frequency: "interval", intervalMinutes: String(definition.rhythm.everyMs / 60_000) }
       const [minute, hour, day, month, weekday] = definition.rhythm.expression.split(/\s+/)
       const timeValue = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
-      if (day === "*" && month === "*" && weekday === "*") return { ...base, frequency: "daily", time: timeValue, cron: definition.rhythm.expression }
-      if (day === "*" && month === "*" && weekday === "1-5") return { ...base, frequency: "weekdays", time: timeValue, cron: definition.rhythm.expression }
-      if (day === "*" && month === "*" && /^[0-6]$/.test(weekday)) return { ...base, frequency: "weekly", time: timeValue, weekday, cron: definition.rhythm.expression }
+      const simpleTime = /^\d+$/.test(hour) && /^\d+$/.test(minute)
+      if (simpleTime && day === "*" && month === "*" && weekday === "*") return { ...base, frequency: "daily", time: timeValue, cron: definition.rhythm.expression }
+      if (simpleTime && day === "*" && month === "*" && weekday === "1-5") return { ...base, frequency: "weekdays", time: timeValue, cron: definition.rhythm.expression }
+      if (simpleTime && day === "*" && month === "*" && /^[0-6]$/.test(weekday)) return { ...base, frequency: "weekly", time: timeValue, weekday, cron: definition.rhythm.expression }
       return { ...base, frequency: "cron", cron: definition.rhythm.expression }
     }
     function formState(definition) {
@@ -377,7 +384,7 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
       }
       if (form.frequency === "interval") {
         const everyMs = Number(form.intervalMinutes) * 60_000
-        if (!Number.isSafeInteger(everyMs) || everyMs < 30_000) throw new Error(text("间隔至少为 1 分钟", "Interval must be at least one minute"))
+        if (!Number.isSafeInteger(everyMs) || everyMs < 30_000) throw new Error(text("间隔至少为 30 秒", "Interval must be at least 30 seconds"))
         return { kind: "recurring", rhythm: { kind: "interval", everyMs } }
       }
       let expression = form.cron
@@ -482,7 +489,7 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
             form.frequency === "once" ? h(Field, { label: text("运行时间", "Run time") }, h(Input, { "aria-label": text("运行时间", "Run time"), className: "pawwork-automation-input", onChange: update("at"), type: "datetime-local", value: form.at })) : null,
             ["daily", "weekdays", "weekly"].includes(form.frequency) ? h(Field, { label: text("时间", "Time") }, h(Input, { "aria-label": text("时间", "Time"), className: "pawwork-automation-input", onChange: update("time"), type: "time", value: form.time })) : null,
             form.frequency === "weekly" ? h(Field, { label: text("星期", "Weekday") }, h(SelectControl, { label: text("星期", "Weekday"), onChange: choose("weekday"), options: weekdayOptions, value: form.weekday })) : null,
-            form.frequency === "interval" ? h(Field, { label: text("间隔分钟", "Interval minutes") }, h(Input, { "aria-label": text("间隔分钟", "Interval minutes"), className: "pawwork-automation-input", min: "1", onChange: update("intervalMinutes"), type: "number", value: form.intervalMinutes })) : null,
+            form.frequency === "interval" ? h(Field, { label: text("间隔分钟", "Interval minutes") }, h(Input, { "aria-label": text("间隔分钟", "Interval minutes"), className: "pawwork-automation-input", min: "0.5", onChange: update("intervalMinutes"), step: "0.5", type: "number", value: form.intervalMinutes })) : null,
             form.frequency === "cron" ? h(Field, { label: "Cron" }, h(Input, { "aria-label": "Cron", className: "pawwork-automation-input", onChange: update("cron"), value: form.cron })) : null),
           h("div", { className: "pawwork-automation-advanced" },
             h(DisclosureRow, { expandOnRowClick: true, expandable: true, icon: h(IconSettingsOutline16, { size: 16 }), onToggle: () => setAdvanced((current) => !current), open: advanced, title: text("高级设置", "Advanced settings") },
@@ -500,7 +507,9 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
             !discarding ? h(Button, { disabled: busy !== "" || !dirty, size: "sm", type: "submit", variant: "primary" }, text("保存", "Save")) : null)),
         h("div", { className: "pawwork-automation-history" },
           h("h3", null, text("最近运行", "Recent runs")),
-          definition.recentRuns?.length ? definition.recentRuns.map((run) => h(RunRow, { close: onClose, key: run.id, run, sessions })) : h("div", { className: "pawwork-automations-empty" }, text("还没有运行记录", "No run history yet")))))
+          [definition.activeRun, ...(definition.recentRuns || [])].filter(Boolean).length
+            ? [definition.activeRun, ...(definition.recentRuns || [])].filter(Boolean).map((run) => h(RunRow, { close: onClose, key: run.id, run, sessions }))
+            : h("div", { className: "pawwork-automations-empty" }, text("还没有运行记录", "No run history yet")))))
     }
 
     function AutomationSurface({ connection, createViaChat, sessions, useWorkspaces }) {
@@ -526,17 +535,17 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
       }
       useEffect(() => {
         const abort = new AbortController()
-        void load(abort.signal)
-        return () => abort.abort()
+        let timer = null
+        async function poll() {
+          await load(abort.signal)
+          if (!abort.signal.aborted) timer = setTimeout(() => void poll(), 1_000)
+        }
+        void poll()
+        return () => {
+          abort.abort()
+          if (timer !== null) clearTimeout(timer)
+        }
       }, [])
-      useEffect(() => {
-        const active = data?.definitions.some((definition) => (
-          definition.recentRuns?.some((run) => run.state === "running" || run.state === "scheduled")
-        ))
-        if (!active) return
-        const timer = setTimeout(() => void load(), 1_000)
-        return () => clearTimeout(timer)
-      }, [data])
 
       const definitions = data?.definitions || []
       const selected = definitions.find((definition) => definition.id === selectedId) || null
@@ -550,13 +559,19 @@ div:has(> div > div > .pawwork-automation-entry) > :last-child { order: 4; }
       const preferredWorkspace = workspaces.find((item) => item.workspaceId === workspaceState.recentWorkspaceId) || workspaces[0]
       function closePanel() { setSelectedId(null) }
       async function reloadAfter(result) { await load(); setSelectedId(result.id) }
+      async function createAutomation() {
+        if (!preferredWorkspace) return
+        setError("")
+        try { await createViaChat(preferredWorkspace.workspaceId) }
+        catch (createError) { setError(createError instanceof Error ? createError.message : String(createError)) }
+      }
 
       return h("main", { className: "pawwork-automations-surface", "data-split": split ? "true" : "false" },
         h("section", { className: "pawwork-automations-main" }, h("div", { className: "pawwork-automations-overview" },
           h("div", { className: "pawwork-automations-titlebar" },
             h("div", null, h("h1", null, text("自动化", "Automations")), h("p", null, text("让 PawWork 按计划处理重复工作", "Let PawWork handle recurring work on a schedule"))),
             h("div", { className: "pawwork-automations-title-actions" },
-              h(Button, { disabled: !preferredWorkspace, onClick: () => preferredWorkspace && createViaChat(preferredWorkspace.workspaceId), size: "sm", title: text("在对话中创建", "Create in chat"), variant: "primary" }, text("新建", "New")))),
+              h(Button, { disabled: !preferredWorkspace, onClick: createAutomation, size: "sm", title: text("在对话中创建", "Create in chat"), variant: "primary" }, text("新建", "New")))),
           h(Input, { "aria-label": text("搜索自动化", "Search automations"), className: "pawwork-automations-search", icon: h(IconSearchOutline16, { size: 16 }), onChange: (event) => setQuery(event.target.value), placeholder: text("搜索自动化", "Search automations"), value: query }),
           h("div", { className: "pawwork-automations-tabs", role: "tablist" }, [["all", text("全部", "All")], ["active", text("启用", "Active")], ["paused", text("暂停", "Paused")]].map(([value, label]) => h(Pill, { active: filter === value, key: value, onClick: () => setFilter(value), role: "tab" }, label))),
           error ? h("div", { className: "pawwork-automations-error", role: "alert" }, error) : null,

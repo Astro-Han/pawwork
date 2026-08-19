@@ -273,6 +273,21 @@ test('stopping aborts an active run and records it as stopped', async () => {
   assert.equal(completed.stopReason, 'cancelled');
 });
 
+test('a stopped scheduler rejects new immediate runs', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = oneShot(store, cwd, 2_000);
+  const scheduler = new AutomationScheduler({
+    store,
+    execute: async () => ({ result: 'must not run' }),
+    clock: fakeClock(1_500),
+  });
+  await scheduler.stop();
+
+  assert.throws(() => scheduler.startNow(created.id), /scheduler is stopped/);
+  assert.equal(store.listRuns(created.id).length, 0);
+});
+
 test('rejects a second trigger while the previous run is active', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
@@ -335,12 +350,43 @@ test('the DSH executor cancels an already attached continue agent', async () => 
   }, { id: 'automation-run-1' }, controller.signal);
   controller.abort();
   const outcome = await Promise.race([
-    completion.then(() => 'completed'),
+    completion.then(() => 'resolved', () => 'rejected'),
     new Promise((resolve) => setTimeout(() => resolve('timeout'), 20)),
   ]);
 
-  assert.equal(outcome, 'completed');
+  assert.equal(outcome, 'rejected');
   assert.equal(cancellations, 1);
+});
+
+test('the DSH executor does not reuse an assistant message from an earlier turn', async () => {
+  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?turn-boundary=${Date.now()}`;
+  const { createDshExecutor } = await import(pluginUrl);
+  const events = [
+    { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'old result' }] } } },
+    { type: 'turn/end', data: { reason: { kind: 'completed' } } },
+  ];
+  const agent = {
+    session: { events },
+    followup() {},
+    async whenIdle() {
+      events.push({ type: 'turn/end', data: { reason: { kind: 'completed' } } });
+    },
+    cancel() {},
+  };
+  const execute = createDshExecutor({
+    agents: { get: () => agent },
+    sessions: { flush: async () => {} },
+    sessionTitle: { rename: () => {} },
+  });
+
+  const result = await execute({
+    context: 'continue',
+    sourceSessionId: 'session-existing',
+    model: { provider: 'opencode', model: 'big-pickle' },
+    prompt: 'Continue.',
+  }, { id: 'automation-run-1' }, new AbortController().signal);
+
+  assert.equal(result.result, null);
 });
 
 test('automation RPC lists only durable definitions and their recent runs', async () => {
@@ -385,6 +431,24 @@ test('automation RPC lists only durable definitions and their recent runs', asyn
   assert.equal(result.value.definitions[0].id, definition.id);
   assert.equal(result.value.definitions[0].recentRuns[0].sessionId, 'session-current');
   assert.deepEqual(Object.keys(result.value), ['definitions']);
+});
+
+test('automation RPC keeps the active run separate from bounded terminal history', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = interval(store, cwd, 30_000);
+  const active = store.beginRun(created.id, 2_000);
+  for (let index = 0; index < 6; index += 1) {
+    store.recordStoppedRun(created.id, 3_000 + index, 'previous_run_active', 3_000 + index);
+  }
+  const rpc = createAutomationRpcHandler({ store, scheduler: {}, now: () => 10_000 });
+
+  const response = await rpc('list', {});
+
+  assert.equal(response.ok, true);
+  assert.equal(response.value.definitions[0].activeRun.id, active.id);
+  assert.equal(response.value.definitions[0].recentRuns.length, 5);
+  assert.equal(response.value.definitions[0].recentRuns.every((run) => run.state !== 'running'), true);
 });
 
 test('automation RPC validates mutations and returns immediately when running now', async () => {

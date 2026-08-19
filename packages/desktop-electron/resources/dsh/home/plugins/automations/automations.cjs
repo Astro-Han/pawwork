@@ -348,7 +348,7 @@ class AutomationStore {
     )).length;
   }
 
-  beginRun(automationId, triggeredAt, _scheduled = true) {
+  beginRun(automationId, triggeredAt) {
     const definition = this.document.definitions.find((entry) => entry.id === automationId);
     if (!definition) throw new Error(`automation not found: ${automationId}`);
     const startedAt = assertTimestamp(triggeredAt, 'triggeredAt');
@@ -521,6 +521,7 @@ class AutomationScheduler {
   }
 
   startNow(id, now = this.clock.now()) {
+    if (this.stopping) throw new Error('automation scheduler is stopped');
     const definition = this.store.getDefinition(id);
     if (this.store.hasActiveRun(id)) {
       const run = this.store.recordStoppedRun(id, now, 'previous_run_active', now);
@@ -600,10 +601,14 @@ function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }
       if (endpoint === 'list') {
         const definitions = store.listDefinitions();
         return rpcSuccess({
-          definitions: definitions.map((definition) => ({
-            ...definition,
-            recentRuns: store.listRuns(definition.id).slice(0, 5),
-          })),
+          definitions: definitions.map((definition) => {
+            const runs = store.listRuns(definition.id);
+            return {
+              ...definition,
+              activeRun: runs.find((run) => run.state === 'scheduled' || run.state === 'running') || null,
+              recentRuns: runs.filter((run) => run.state !== 'scheduled' && run.state !== 'running').slice(0, 5),
+            };
+          }),
         });
       }
       if (endpoint === 'update') {
@@ -860,9 +865,6 @@ function createAutomationToolDefinitions({
 module.exports = {
   AutomationScheduler,
   AutomationStore,
-  MIN_INTERVAL_MS,
   createAutomationRpcHandler,
   createAutomationToolDefinitions,
-  definitionNext,
-  recurringNext,
 };
