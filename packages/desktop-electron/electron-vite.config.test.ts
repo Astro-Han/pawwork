@@ -19,7 +19,6 @@ afterEach(() => {
 // names and signs the build for the channel that was asked for.
 test.each([
   ["prod", "prod"],
-  ["beta", "beta"],
   ["dev", "dev"],
   ["nightly", "dev"],
   [undefined, "dev"],

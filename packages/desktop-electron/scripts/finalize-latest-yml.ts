@@ -165,7 +165,7 @@ const tag = `v${version}`
 const tmp = process.env.RUNNER_TEMP ?? "/tmp"
 
 // One metadata file per updater feed, merged from every target that writes it —
-// latest-mac.yml carries arm64 and x64 together, latest.yml carries Windows
+// latest-v2-mac.yml carries arm64 and x64 together, latest-v2.yml carries Windows
 // alone. Target order is the release matrix order, so the mac feed keeps arm64
 // first and takes its version and date from that entry.
 for (const metadata of METADATA_FILES) {

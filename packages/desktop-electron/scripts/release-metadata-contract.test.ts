@@ -69,9 +69,9 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
     mkdirSync(binDir, { recursive: true })
     writeFakeGh(binDir)
 
-    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-mac.yml", "PawWork-arm64.zip")
-    writeLatest(join(latestDir, "latest-yml-x86_64-apple-darwin"), "latest-mac.yml", "PawWork-x64.zip")
-    writeLatest(join(latestDir, "latest-yml-x86_64-pc-windows-msvc"), "latest.yml", "PawWork Setup.exe")
+    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-v2-mac.yml", "PawWork-arm64.zip")
+    writeLatest(join(latestDir, "latest-yml-x86_64-apple-darwin"), "latest-v2-mac.yml", "PawWork-x64.zip")
+    writeLatest(join(latestDir, "latest-yml-x86_64-pc-windows-msvc"), "latest-v2.yml", "PawWork Setup.exe")
 
     const proc = spawnFinalizer(binDir, latestDir, runnerTemp)
 
@@ -83,13 +83,13 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
 
     expect(exitCode).toBe(0)
     expect(`${stdout}${stderr}`).toContain("finalized latest yml files")
-    expect(readFileSync(join(runnerTemp, "latest-mac.yml"), "utf8")).toContain("PawWork-arm64.zip")
-    expect(readFileSync(join(runnerTemp, "latest-mac.yml"), "utf8")).toContain("PawWork-x64.zip")
-    expect(readFileSync(join(runnerTemp, "latest.yml"), "utf8")).toContain("PawWork Setup.exe")
+    expect(readFileSync(join(runnerTemp, "latest-v2-mac.yml"), "utf8")).toContain("PawWork-arm64.zip")
+    expect(readFileSync(join(runnerTemp, "latest-v2-mac.yml"), "utf8")).toContain("PawWork-x64.zip")
+    expect(readFileSync(join(runnerTemp, "latest-v2.yml"), "utf8")).toContain("PawWork Setup.exe")
     const uploads = readFileSync(join(root, "gh-uploads.log"), "utf8")
     expect(uploads).toContain("release upload v0.2.4")
-    expect(uploads).toContain("latest-mac.yml")
-    expect(uploads).toContain("latest.yml")
+    expect(uploads).toContain("latest-v2-mac.yml")
+    expect(uploads).toContain("latest-v2.yml")
   })
 
   test("preserves existing macOS metadata when finalizing one architecture", async () => {
@@ -101,17 +101,17 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
     mkdirSync(runnerTemp, { recursive: true })
     mkdirSync(binDir, { recursive: true })
     writeFakeGh(binDir, {
-      "latest-mac.yml": "PawWork-existing-x64.zip",
+      "latest-v2-mac.yml": "PawWork-existing-x64.zip",
     })
 
-    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-mac.yml", "PawWork-new-arm64.zip")
+    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-v2-mac.yml", "PawWork-new-arm64.zip")
 
     const proc = spawnFinalizer(binDir, latestDir, runnerTemp)
 
     const exitCode = await proc.exited
 
     expect(exitCode).toBe(0)
-    const latestMac = readFileSync(join(runnerTemp, "latest-mac.yml"), "utf8")
+    const latestMac = readFileSync(join(runnerTemp, "latest-v2-mac.yml"), "utf8")
     expect(latestMac).toContain("PawWork-new-arm64.zip")
     expect(latestMac).toContain("PawWork-existing-x64.zip")
   })
@@ -127,16 +127,16 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
     mkdirSync(binDir, { recursive: true })
     mkdirSync(snapshotDir, { recursive: true })
     writeFakeGh(binDir, {
-      "latest-mac.yml": "PawWork-live-x64.zip",
+      "latest-v2-mac.yml": "PawWork-live-x64.zip",
     })
-    writeLatest(snapshotDir, "latest-mac.yml", "PawWork-stale-x64.zip")
+    writeLatest(snapshotDir, "latest-v2-mac.yml", "PawWork-stale-x64.zip")
 
-    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-mac.yml", "PawWork-new-arm64.zip")
+    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-v2-mac.yml", "PawWork-new-arm64.zip")
 
     const proc = spawnFinalizer(binDir, latestDir, runnerTemp, { EXISTING_LATEST_YML_DIR: snapshotDir })
 
     expect(await proc.exited).toBe(0)
-    const latestMac = readFileSync(join(runnerTemp, "latest-mac.yml"), "utf8")
+    const latestMac = readFileSync(join(runnerTemp, "latest-v2-mac.yml"), "utf8")
     expect(latestMac).toContain("PawWork-new-arm64.zip")
     expect(latestMac).toContain("PawWork-live-x64.zip")
     expect(latestMac).toContain("PawWork-stale-x64.zip")
@@ -153,16 +153,16 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
     mkdirSync(binDir, { recursive: true })
     mkdirSync(snapshotDir, { recursive: true })
     writeFakeGh(binDir, {
-      "latest-mac.yml": "PawWork-live-x64.zip",
+      "latest-v2-mac.yml": "PawWork-live-x64.zip",
     })
-    writeLatest(snapshotDir, "latest-mac.yml", "PawWork-snapshot-x64.zip")
+    writeLatest(snapshotDir, "latest-v2-mac.yml", "PawWork-snapshot-x64.zip")
 
-    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-mac.yml", "PawWork-new-arm64.zip")
+    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-v2-mac.yml", "PawWork-new-arm64.zip")
 
     const proc = spawnFinalizer(binDir, latestDir, runnerTemp, { EXISTING_LATEST_YML_DIR: snapshotDir })
 
     expect(await proc.exited).toBe(0)
-    const latestMac = readFileSync(join(runnerTemp, "latest-mac.yml"), "utf8")
+    const latestMac = readFileSync(join(runnerTemp, "latest-v2-mac.yml"), "utf8")
     expect(latestMac).toContain("PawWork-new-arm64.zip")
     expect(latestMac).toContain("PawWork-live-x64.zip")
     expect(latestMac).toContain("PawWork-snapshot-x64.zip")
@@ -179,16 +179,16 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
     mkdirSync(binDir, { recursive: true })
     mkdirSync(snapshotDir, { recursive: true })
     writeFakeGh(binDir, {
-      "latest-mac.yml": { url: "PawWork-x64.zip", sha512: "live-sha", size: 222 },
+      "latest-v2-mac.yml": { url: "PawWork-x64.zip", sha512: "live-sha", size: 222 },
     })
-    writeLatest(snapshotDir, "latest-mac.yml", "PawWork-x64.zip", { sha512: "stale-sha", size: 111 })
+    writeLatest(snapshotDir, "latest-v2-mac.yml", "PawWork-x64.zip", { sha512: "stale-sha", size: 111 })
 
-    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-mac.yml", "PawWork-new-arm64.zip")
+    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-v2-mac.yml", "PawWork-new-arm64.zip")
 
     const proc = spawnFinalizer(binDir, latestDir, runnerTemp, { EXISTING_LATEST_YML_DIR: snapshotDir })
 
     expect(await proc.exited).toBe(0)
-    const latestMac = readFileSync(join(runnerTemp, "latest-mac.yml"), "utf8")
+    const latestMac = readFileSync(join(runnerTemp, "latest-v2-mac.yml"), "utf8")
     expect(latestMac).toContain("PawWork-x64.zip")
     expect(latestMac).toContain("live-sha")
     expect(latestMac).toContain("size: 222")
@@ -207,14 +207,14 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
     mkdirSync(binDir, { recursive: true })
     mkdirSync(snapshotDir, { recursive: true })
     writeFakeGh(binDir, {}, "no matches found")
-    writeLatest(snapshotDir, "latest-mac.yml", "PawWork-snapshot-x64.zip")
+    writeLatest(snapshotDir, "latest-v2-mac.yml", "PawWork-snapshot-x64.zip")
 
-    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-mac.yml", "PawWork-new-arm64.zip")
+    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-v2-mac.yml", "PawWork-new-arm64.zip")
 
     const proc = spawnFinalizer(binDir, latestDir, runnerTemp, { EXISTING_LATEST_YML_DIR: snapshotDir })
 
     expect(await proc.exited).toBe(0)
-    const latestMac = readFileSync(join(runnerTemp, "latest-mac.yml"), "utf8")
+    const latestMac = readFileSync(join(runnerTemp, "latest-v2-mac.yml"), "utf8")
     expect(latestMac).toContain("PawWork-new-arm64.zip")
     expect(latestMac).toContain("PawWork-snapshot-x64.zip")
   })
@@ -229,14 +229,14 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
     mkdirSync(binDir, { recursive: true })
     writeFakeGh(binDir, {}, "rate limit exceeded")
 
-    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-mac.yml", "PawWork-new-arm64.zip")
+    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-v2-mac.yml", "PawWork-new-arm64.zip")
 
     const proc = spawnFinalizer(binDir, latestDir, runnerTemp)
 
     const [stderr, exitCode] = await Promise.all([proc.stderr, proc.exited])
 
     expect(exitCode).not.toBe(0)
-    expect(stderr).toContain("Failed to download existing latest-mac.yml")
+    expect(stderr).toContain("Failed to download existing latest-v2-mac.yml")
     expect(stderr).toContain("rate limit exceeded")
   })
 
@@ -251,14 +251,14 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
     mkdirSync(binDir, { recursive: true })
     mkdirSync(snapshotDir, { recursive: true })
     writeFakeGh(binDir, {}, "HTTP 404: Not Found")
-    writeLatest(snapshotDir, "latest-mac.yml", "PawWork-snapshot-x64.zip")
-    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-mac.yml", "PawWork-new-arm64.zip")
+    writeLatest(snapshotDir, "latest-v2-mac.yml", "PawWork-snapshot-x64.zip")
+    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-v2-mac.yml", "PawWork-new-arm64.zip")
 
     const proc = spawnFinalizer(binDir, latestDir, runnerTemp, { EXISTING_LATEST_YML_DIR: snapshotDir })
 
     const [stderr, exitCode] = await Promise.all([proc.stderr, proc.exited])
     expect(exitCode).not.toBe(0)
-    expect(stderr).toContain("Failed to download existing latest-mac.yml")
+    expect(stderr).toContain("Failed to download existing latest-v2-mac.yml")
     expect(stderr).toContain("HTTP 404: Not Found")
   })
 
@@ -274,7 +274,7 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
     // finalizer must refuse rather than clobber the live updater metadata.
     writeFakeGh(binDir, {}, undefined, false)
 
-    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-mac.yml", "PawWork-new-arm64.zip")
+    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-v2-mac.yml", "PawWork-new-arm64.zip")
 
     const proc = spawnFinalizer(binDir, latestDir, runnerTemp)
 
@@ -296,14 +296,14 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
     mkdirSync(binDir, { recursive: true })
     mkdirSync(snapshotDir, { recursive: true })
     writeFakeGh(binDir, {}, "no matches found")
-    writeLatest(snapshotDir, "latest-mac.yml", "PawWork-old-x64.zip", { version: "0.2.3" })
-    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-mac.yml", "PawWork-new-arm64.zip")
+    writeLatest(snapshotDir, "latest-v2-mac.yml", "PawWork-old-x64.zip", { version: "0.2.3" })
+    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-v2-mac.yml", "PawWork-new-arm64.zip")
 
     const proc = spawnFinalizer(binDir, latestDir, runnerTemp, { EXISTING_LATEST_YML_DIR: snapshotDir })
 
     const [stderr, exitCode] = await Promise.all([proc.stderr, proc.exited])
     expect(exitCode).not.toBe(0)
-    expect(stderr).toContain("Existing latest-mac.yml from EXISTING_LATEST_YML_DIR has version 0.2.3")
+    expect(stderr).toContain("Existing latest-v2-mac.yml from EXISTING_LATEST_YML_DIR has version 0.2.3")
   })
 })
 

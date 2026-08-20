@@ -50,16 +50,12 @@ describe("ci smoke helpers", () => {
     expect(appIdForSmoke("dev", "raw")).toBe("ai.pawwork.desktop.dev")
     expect(appIdForSmoke("prod", "raw")).toBe("ai.pawwork.desktop.dev")
     expect(appIdForSmoke("dev", "packaged")).toBe("ai.pawwork.desktop.dev")
-    expect(appIdForSmoke("beta", "packaged")).toBe("ai.pawwork.desktop.beta")
     expect(appIdForSmoke("prod", "packaged")).toBe("ai.pawwork.desktop")
   })
 
   test("resolveCiSmokeReadyFile follows packaged channel app IDs", () => {
     expect(resolveCiSmokeReadyFile("/tmp/pawwork-ci-smoke", { channel: "prod", mode: "packaged" })).toBe(
       path.join("/tmp/pawwork-ci-smoke", "ai.pawwork.desktop", "ci-smoke-ready.json"),
-    )
-    expect(resolveCiSmokeReadyFile("/tmp/pawwork-ci-smoke", { channel: "beta", mode: "packaged" })).toBe(
-      path.join("/tmp/pawwork-ci-smoke", "ai.pawwork.desktop.beta", "ci-smoke-ready.json"),
     )
   })
 

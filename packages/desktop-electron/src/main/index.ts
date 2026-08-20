@@ -11,12 +11,10 @@ import pkg from "electron-updater"
 import { PAWWORK_APP } from "./app-identity"
 import {
   CHANNEL,
-  DEV_UPDATER,
   DOWNLOAD_PUBLIC_BASE,
   UPDATE_CHANNEL,
   UPDATE_GITHUB_OWNER,
   UPDATE_GITHUB_REPO,
-  UPDATE_R2_ENABLED,
   UPDATER_ACTIVE,
 } from "./constants"
 import { ciSmokeCdpSwitches } from "./ci-smoke-cdp"
@@ -48,7 +46,7 @@ if (process.platform === "darwin") {
 const CI_SMOKE_HOME = process.env.PAWWORK_CI_SMOKE_HOME
 const CI_SMOKE_ENABLED = process.env.PAWWORK_CI_SMOKE === "true"
 const UPDATE_FEED_TIMEOUT_MS = 10_000
-const UPDATE_CHANNEL_FILE = process.platform === "win32" ? "latest.yml" : "latest-mac.yml"
+const UPDATE_CHANNEL_FILE = process.platform === "win32" ? `${UPDATE_CHANNEL}.yml` : `${UPDATE_CHANNEL}-mac.yml`
 const LATEST_RELEASE_URL = `https://github.com/${UPDATE_GITHUB_OWNER}/${UPDATE_GITHUB_REPO}/releases/latest`
 
 const userDataRoot = CI_SMOKE_HOME ?? app.getPath("appData")
@@ -73,8 +71,10 @@ let gracefulQuitReady = false
 let currentProgress: number | null = null
 
 function buildUpdateFeeds(): FeedTarget[] {
-  const r2 = UPDATE_R2_ENABLED ? [r2Feed(DOWNLOAD_PUBLIC_BASE, UPDATE_CHANNEL, UPDATE_CHANNEL_FILE)] : []
-  return [...r2, githubFeed(UPDATE_GITHUB_OWNER, UPDATE_GITHUB_REPO, UPDATE_CHANNEL, UPDATE_CHANNEL_FILE)]
+  return [
+    r2Feed(DOWNLOAD_PUBLIC_BASE, UPDATE_CHANNEL, UPDATE_CHANNEL_FILE),
+    githubFeed(UPDATE_GITHUB_OWNER, UPDATE_GITHUB_REPO, UPDATE_CHANNEL, UPDATE_CHANNEL_FILE),
+  ]
 }
 
 const updateFeed = createUpdateFeed({
@@ -263,8 +263,7 @@ function clearProgressBar() {
 function setupAutoUpdater() {
   if (!UPDATER_ACTIVE) return
   autoUpdater.logger = logger
-  if (DEV_UPDATER) autoUpdater.forceDevUpdateConfig = true
-  autoUpdater.channel = "latest"
+  autoUpdater.channel = UPDATE_CHANNEL
   autoUpdater.allowPrerelease = false
   autoUpdater.allowDowngrade = false
   autoUpdater.autoDownload = false

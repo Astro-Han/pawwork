@@ -21,14 +21,14 @@ const completeRelease: GithubRelease = {
     "pawwork-mac-x64-2026.6.1.zip.blockmap",
     "pawwork-win-x64-2026.6.1.exe",
     "pawwork-win-x64-2026.6.1.exe.blockmap",
-    "latest.yml",
-    "latest-mac.yml",
+    "latest-v2.yml",
+    "latest-v2-mac.yml",
   ].map((name) => ({ name, url: `https://api.example.com/assets/${name}`, browser_download_url: `https://example.com/${name}` })),
 }
 
 const metadata = {
-  "latest.yml": "version: 2026.6.1\nfiles:\n  - url: pawwork-win-x64-2026.6.1.exe\n",
-  "latest-mac.yml":
+  "latest-v2.yml": "version: 2026.6.1\nfiles:\n  - url: pawwork-win-x64-2026.6.1.exe\n",
+  "latest-v2-mac.yml":
     "version: 2026.6.1\nfiles:\n  - url: pawwork-mac-arm64-2026.6.1.zip\n  - url: pawwork-mac-x64-2026.6.1.zip\n",
 }
 
@@ -79,7 +79,7 @@ describe("decidePublishAction", () => {
   })
 
   test("waits when the updater metadata asset is not uploaded yet", () => {
-    expect(decide({ metadata: { ...metadata, "latest.yml": undefined } }).kind).toBe("wait")
+    expect(decide({ metadata: { ...metadata, "latest-v2.yml": undefined } }).kind).toBe("wait")
   })
 
   test("waits when a target has not uploaded its provenance marker yet", () => {

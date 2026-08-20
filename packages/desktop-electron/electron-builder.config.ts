@@ -30,7 +30,7 @@ async function signWindows(configuration: { path: string }) {
 export function getPublishConfig(channel: PawWorkChannel): GitHubPublishConfig | undefined {
   const repo = PAWWORK_APP[channel].releaseRepo
   if (!repo) return undefined
-  return { provider: "github", owner: PAWWORK_RELEASE_OWNER, repo, channel: "latest" }
+  return { provider: "github", owner: PAWWORK_RELEASE_OWNER, repo, channel: "latest-v2" }
 }
 
 async function writeLocalizedMacDisplayName(resourcesDir: string, channel: PawWorkChannel) {
@@ -56,7 +56,7 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
     output: "dist",
     buildResources: "resources",
   },
-  files: ["out/main/**/*", "resources/**/*", "!resources/dsh/**/*"],
+  files: ["out/main/**/*"],
   // electron-builder reads .git/config for repository info, which fails on
   // CI runners with persist-credentials: false. Set explicitly via
   // extraMetadata to avoid "Cannot detect repository by .git/config".
@@ -112,8 +112,7 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
   dmg: {
     sign: true,
   },
-  // Every channel registers the same scheme, so the only per-channel part is the
-  // name the OS shows; createConfig used to restate the whole block for beta.
+  // Dev and packaged builds register the same scheme under their displayed name.
   protocols: {
     name: PAWWORK_APP[channel].name,
     schemes: ["pawwork"],

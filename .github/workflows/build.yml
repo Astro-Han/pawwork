@@ -18,7 +18,6 @@ on:
         type: choice
         options:
           - dev
-          - beta
           - prod
         default: dev
       target:

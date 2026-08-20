@@ -60,8 +60,8 @@ describe("release workflow", () => {
 
   // The finalizer merges the other arch's entries into this channel's feed, so
   // the repository it reads from and the one it writes to have to be the same
-  // one — reading prod's latest-mac.yml into a beta feed puts prod's sha512
-  // under a filename beta also uses, and beta's updater fails its hash check.
+  // one — reading metadata from the wrong release into this feed puts an
+  // unrelated sha512 under the live pointer and updater verification fails.
   test("finalizes updater metadata in the repository the build publishes to", () => {
     const finalize = steps.find((step) => /finalize-latest-yml\.ts/.test(step.body))
     const predownload = steps[indexOfStep("Download existing updater metadata")]

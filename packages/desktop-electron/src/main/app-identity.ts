@@ -1,9 +1,5 @@
-// releaseRepo is where a channel publishes, and therefore where its updater
-// reads from and where CI files its draft. dev publishes nowhere; a dev build
-// running with PAWWORK_DEV_UPDATER borrows prod's feed to exercise it.
 export const PAWWORK_APP = {
   dev: { id: "ai.pawwork.desktop.dev", name: "PawWork Dev", releaseRepo: undefined },
-  beta: { id: "ai.pawwork.desktop.beta", name: "PawWork Beta", releaseRepo: "pawwork-beta" },
   prod: { id: "ai.pawwork.desktop", name: "PawWork", releaseRepo: "pawwork" },
 } as const
 

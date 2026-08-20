@@ -66,7 +66,7 @@ describe("electron builder app-update config", () => {
     if (!Array.isArray(extraResources)) throw new Error("extraResources must be a list")
     const dshResources = extraResources.find((resource) => typeof resource === "object" && resource.to === "dsh/")
 
-    expect(config.files).toEqual(["out/main/**/*", "resources/**/*", "!resources/dsh/**/*"])
+    expect(config.files).toEqual(["out/main/**/*"])
     expect(dshResources).toMatchObject({ filter: ["**/*", "!**/*.test.cjs"] })
     expect(config.extraResources).toEqual([
       expect.objectContaining({ to: "dsh/" }),
@@ -77,17 +77,10 @@ describe("electron builder app-update config", () => {
     ])
   })
 
-  // The channel a build is named for and the repository it publishes to come
-  // from one table now, so what is worth asserting is that the three channels
-  // stay distinguishable: beta filing its draft in prod's repository would
-  // overwrite prod's updater metadata under filenames both channels use.
-  test("each publishing channel files its release in a repository of its own", () => {
+  test("only the production build publishes to the PawWork repository", () => {
     expect(getPublishConfig("dev")).toBeUndefined()
-    const beta = getPublishConfig("beta")
     const prod = getPublishConfig("prod")
-    expect(beta).toMatchObject({ provider: "github", owner: "Astro-Han", channel: "latest" })
-    expect(prod).toMatchObject({ provider: "github", owner: "Astro-Han", channel: "latest" })
-    expect(beta!.repo).not.toBe(prod!.repo)
+    expect(prod).toMatchObject({ provider: "github", owner: "Astro-Han", repo: "pawwork", channel: "latest-v2" })
   })
 
   test("mac packaging enables a localized display name", () => {
@@ -105,7 +98,6 @@ describe("electron builder app-update config", () => {
   // installs last owns pawwork:// links, and the OS prompt should say which one.
   test("every channel registers the pawwork scheme under its own name", () => {
     expect(createConfig("dev").protocols).toEqual({ name: "PawWork Dev", schemes: ["pawwork"] })
-    expect(createConfig("beta").protocols).toEqual({ name: "PawWork Beta", schemes: ["pawwork"] })
     expect(createConfig("prod").protocols).toEqual({ name: "PawWork", schemes: ["pawwork"] })
   })
 
@@ -128,9 +120,6 @@ describe("electron builder app-update config", () => {
     })
     expect(createConfig("prod").extraMetadata).toMatchObject({
       repository: { type: "git", url: "https://github.com/Astro-Han/pawwork" },
-    })
-    expect(createConfig("beta").extraMetadata).toMatchObject({
-      repository: { type: "git", url: "https://github.com/Astro-Han/pawwork-beta" },
     })
   })
 

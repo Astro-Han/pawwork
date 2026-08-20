@@ -17,10 +17,9 @@ const macros = new Map(
     .map((match) => [match[1], match[2]]),
 )
 
-// Three copies of the channel table: name the shortcut, delete it, delete it
-// elevated. Comparing the names as one set could not see a channel missing from
-// one of the three, which is exactly how the elevated arm would go quiet: beta's
-// Public Desktop shortcut simply never removed. Each table is checked on its own,
+// Three copies of the build identity table: name the shortcut, delete it, delete
+// it elevated. Comparing the names as one set could not see an identity missing
+// from one of the three. Each table is checked on its own,
 // and each arm has to mention the Chinese name app-identity derives.
 describe.each([
   "PAWWORK_STANDARD_SHORTCUT",

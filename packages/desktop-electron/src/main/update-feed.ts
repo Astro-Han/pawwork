@@ -38,8 +38,7 @@ export type UpdateCheck = {
 } | null
 
 type Deps = {
-  // Ordered by preference: primary first (R2), fallback last (GitHub). Beta has
-  // no R2 mirror, so it gets a single GitHub feed.
+  // Ordered by preference: primary first (R2), fallback last (GitHub).
   feeds: FeedTarget[]
   setFeedURL: (options: FeedOptions) => void
   checkForUpdates: () => Promise<UpdateCheck>

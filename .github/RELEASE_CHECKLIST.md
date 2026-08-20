@@ -1,6 +1,6 @@
 # PawWork Release Checklist
 
-Use this checklist for stable PawWork desktop releases.
+Use this checklist for PawWork desktop releases.
 
 ## 1. Prepare
 
@@ -49,7 +49,7 @@ Create or update the GitHub Release body before publishing the release. Use Engl
 - macOS Apple Silicon submit/finalize completed successfully, including notarization.
 - macOS Intel submit/finalize completed successfully, including notarization.
 - Windows x64 release build completed successfully.
-- vX.Y.Z is published as the latest stable release.
+- vX.Y.Z is published as the latest release.
 
 ## 中文版本
 
@@ -120,14 +120,14 @@ gh release view vX.Y.Z --repo Astro-Han/pawwork --json isDraft,isPrerelease,targ
 - **Still a draft, a target missing** (the step logged `wait`) → finish or re-run the missing target; its own tail step will publish. Do not publish by hand.
 - **The step failed** (mixed-source, updater-metadata drift, or a missing/empty provenance marker) → **do not publish.** The guard is refusing a release built from more than one commit or with mismatched metadata. Rebuild all three targets from a single commit (see the same-commit note in Step 3) and let auto-publish run.
 
-Manual publish is a **last resort** — e.g. a non-prod channel that has no auto-publish, or recovering a release the pipeline genuinely cannot finish. It bypasses every guard (completeness, single-source markers, the updater-metadata hash anchor, seal/re-read), so only after you have confirmed the draft holds all three installers AND they were built from the same commit, publish and pin the tag to that commit:
+Manual publish is a **last resort** for recovering a release the pipeline genuinely cannot finish. It bypasses every guard (completeness, single-source markers, the updater-metadata hash anchor, seal/re-read), so only after you have confirmed the draft holds all three installers AND they were built from the same commit, publish and pin the tag to that commit:
 
 ```bash
 # LAST RESORT — bypasses the auto-publisher's safety checks.
 gh release edit vX.Y.Z --repo Astro-Han/pawwork --draft=false --latest --prerelease=false --target <build-commit-sha>
 ```
 
-Never publish a non-prod (beta/dev) build as `--latest --prerelease=false`, and never hand-publish a partial draft.
+Never publish a dev build as `--latest --prerelease=false`, and never hand-publish a partial draft.
 
 ## 5. Mirror Downloads to Cloudflare R2
 
@@ -169,8 +169,8 @@ The helper verifies:
 - `pawwork-mac-x64-X.Y.Z.dmg` exists.
 - `pawwork-win-x64-X.Y.Z.exe` exists.
 - versioned updater `.zip` and `.blockmap` assets exist.
-- `latest.yml` points to `pawwork-win-x64-X.Y.Z.exe`.
-- `latest-mac.yml` includes both `pawwork-mac-arm64-X.Y.Z.zip` and `pawwork-mac-x64-X.Y.Z.zip`.
+- `latest-v2.yml` points to `pawwork-win-x64-X.Y.Z.exe`.
+- `latest-v2-mac.yml` includes both `pawwork-mac-arm64-X.Y.Z.zip` and `pawwork-mac-x64-X.Y.Z.zip`.
 
 Fresh packaged startup and product behavior are owned by the `desktop-smoke` Electron/CDP workflow. Do not recreate a second release gate from implementation-specific log markers.
 

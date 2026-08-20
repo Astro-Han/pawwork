@@ -56,7 +56,7 @@ describe("uploadPlan", () => {
       names.indexOf("pawwork-win-x64-2026.5.29.exe"),
       names.indexOf("pawwork-mac-arm64-2026.5.29.zip.blockmap"),
     )
-    const firstPointer = Math.min(names.indexOf("latest.yml"), names.indexOf("latest-mac.yml"))
+    const firstPointer = Math.min(names.indexOf("latest-v2.yml"), names.indexOf("latest-v2-mac.yml"))
     expect(lastVersioned).toBeLessThan(firstPointer)
     expect(firstPointer).toBeLessThan(names.indexOf("latest.json"))
   })
@@ -64,8 +64,8 @@ describe("uploadPlan", () => {
   test("marks versioned artifacts immutable and pointers no-cache", () => {
     const cacheOf = (name: string) => plan.find((step) => step.name === name)?.cacheControl
     expect(cacheOf("pawwork-mac-arm64-2026.5.29.dmg")).toBe("public, max-age=31536000, immutable")
-    expect(cacheOf("latest.yml")).toBe("no-cache, must-revalidate")
-    expect(cacheOf("latest-mac.yml")).toBe("no-cache, must-revalidate")
+    expect(cacheOf("latest-v2.yml")).toBe("no-cache, must-revalidate")
+    expect(cacheOf("latest-v2-mac.yml")).toBe("no-cache, must-revalidate")
   })
 
   test("uploads every released asset exactly once plus the manifest", () => {

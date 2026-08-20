@@ -1,7 +1,7 @@
 import { expect, test } from "vitest"
 import { PAWWORK_APP, isPawWorkChannel } from "./app-identity"
 
-test.each(["dev", "beta", "prod"] as const)("accepts the %s channel", (channel) => {
+test.each(["dev", "prod"] as const)("accepts the %s channel", (channel) => {
   expect(isPawWorkChannel(channel)).toBe(true)
   expect(PAWWORK_APP[channel].id.startsWith("ai.pawwork.desktop")).toBe(true)
 })

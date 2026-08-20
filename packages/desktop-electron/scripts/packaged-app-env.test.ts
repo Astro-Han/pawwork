@@ -21,11 +21,11 @@ describe("packaged app locations", () => {
       EXECUTABLE_PATH: "dist/mac/PawWork Dev.app/Contents/MacOS/PawWork Dev",
     })
     // Windows has no per-arch directory and the executable is the app itself.
-    expect(packagedAppEnv("beta", "win32", "x64")).toEqual({
-      APP_NAME: "PawWork Beta",
+    expect(packagedAppEnv("prod", "win32", "x64")).toEqual({
+      APP_NAME: "PawWork",
       APP_OUT_DIR: "dist/win-unpacked",
-      APP_PATH: "dist/win-unpacked/PawWork Beta.exe",
-      EXECUTABLE_PATH: "dist/win-unpacked/PawWork Beta.exe",
+      APP_PATH: "dist/win-unpacked/PawWork.exe",
+      EXECUTABLE_PATH: "dist/win-unpacked/PawWork.exe",
     })
   })
 
