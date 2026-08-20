@@ -8,17 +8,17 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import process from "node:process"
 import readline from "node:readline"
-import { PAWWORK_APP, type PawWorkChannel } from "../src/main/app-identity.ts"
+import { PAWWORK_APP, type PawWorkChannel, isPawWorkChannel } from "../src/main/app-identity.ts"
+import { parseCdpPort } from "../src/main/ci-smoke-cdp.ts"
 import { dshTitleBarOptions } from "../src/main/window-options.ts"
 const require = createRequire(import.meta.url)
 const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
-export type SmokeChannel = PawWorkChannel
 export type SmokeMode = "raw" | "packaged"
 
 export type SmokeTarget =
-  | { mode: "raw"; channel: SmokeChannel }
-  | { mode: "packaged"; channel: SmokeChannel; executablePath: string }
+  | { mode: "raw"; channel: PawWorkChannel }
+  | { mode: "packaged"; channel: PawWorkChannel; executablePath: string }
 
 // stdio is ["ignore", "pipe", "pipe"], so stdin really is null at runtime.
 type SmokeChild = ChildProcessByStdio<null, Readable, Readable>
@@ -88,13 +88,13 @@ type LaunchAppOptions = {
   cdpPort?: number
 }
 
-function parseChannel(raw: string | undefined): SmokeChannel {
+function parseChannel(raw: string | undefined): PawWorkChannel {
   if (raw === undefined || raw === "") return "dev"
-  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
-  throw new Error(`Unsupported smoke channel: ${raw}`)
+  if (!isPawWorkChannel(raw)) throw new Error(`Unsupported smoke channel: ${raw}`)
+  return raw
 }
 
-export function appIdForSmoke(channel: SmokeChannel, mode: SmokeMode) {
+export function appIdForSmoke(channel: PawWorkChannel, mode: SmokeMode) {
   return PAWWORK_APP[mode === "raw" ? "dev" : channel].id
 }
 
@@ -117,7 +117,7 @@ export function resolveMainEntry() {
 
 export function buildSmokeEnv(
   homeDir: string,
-  channel: SmokeChannel = "dev",
+  channel: PawWorkChannel = "dev",
   env: NodeJS.ProcessEnv = process.env,
   options: BuildSmokeEnvOptions = {},
 ) {
@@ -138,12 +138,8 @@ export function buildSmokeEnv(
 
 export function parseSmokeCdpPort(raw: string | undefined) {
   if (raw === undefined || raw === "") return undefined
-  if (!/^\d+$/.test(raw)) throw new Error(`Invalid CI smoke CDP port: ${raw}`)
-
-  const port = Number(raw)
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new Error(`Invalid CI smoke CDP port: ${raw}`)
-  }
+  const port = parseCdpPort(raw)
+  if (port === undefined) throw new Error(`Invalid CI smoke CDP port: ${raw}`)
   return port
 }
 
@@ -620,7 +616,7 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
   if (failures.length) throw new Error(`DSH product smoke failed:\n- ${failures.join("\n- ")}`)
 }
 
-export function resolveCiSmokeReadyFile(homeDir: string, options: { channel?: SmokeChannel; mode?: SmokeMode } = {}) {
+export function resolveCiSmokeReadyFile(homeDir: string, options: { channel?: PawWorkChannel; mode?: SmokeMode } = {}) {
   const channel = options.channel ?? "dev"
   const mode = options.mode ?? "raw"
   return join(homeDir, appIdForSmoke(channel, mode), "ci-smoke-ready.json")

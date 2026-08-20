@@ -5,8 +5,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
-import { PAWWORK_APP, type PawWorkChannel } from "./src/main/app-identity"
-import { UPDATER_CACHE_DIR_NAME } from "./src/main/updater-cache"
+import { PAWWORK_APP, PAWWORK_PACKAGE_NAME, type PawWorkChannel, isPawWorkChannel } from "./src/main/app-identity"
 
 const execFileAsync = promisify(execFile)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
@@ -36,8 +35,7 @@ async function signWindows(configuration: { path: string }) {
 
 function currentChannel(): PawWorkChannel {
   const raw = process.env.OPENCODE_CHANNEL
-  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
-  return "dev"
+  return isPawWorkChannel(raw) ? raw : "dev"
 }
 
 export function getPublishConfig(channel: PawWorkChannel): GitHubPublishConfig | undefined {
@@ -57,19 +55,6 @@ async function writeLocalizedMacDisplayName(resourcesDir: string, channel: PawWo
   }
 }
 
-async function writeAppUpdateConfig(resourcesDir: string, publish: GitHubPublishConfig) {
-  await mkdir(resourcesDir, { recursive: true })
-  const content = [
-    "provider: github",
-    `owner: ${publish.owner}`,
-    `repo: ${publish.repo}`,
-    `channel: ${publish.channel}`,
-    `updaterCacheDirName: ${UPDATER_CACHE_DIR_NAME}`,
-    "",
-  ].join("\n")
-  await writeFile(path.join(resourcesDir, "app-update.yml"), content)
-}
-
 const repositoryUrl = (channel: PawWorkChannel) => `https://github.com/Astro-Han/${getPublishConfig(channel)?.repo ?? "pawwork"}`
 
 const getBase = (channel: PawWorkChannel): Configuration => ({
@@ -87,6 +72,10 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
   // CI runners with persist-credentials: false. Set explicitly via
   // extraMetadata to avoid "Cannot detect repository by .git/config".
   extraMetadata: {
+    // The packaged package name is what electron-builder turns into the updater
+    // cache directory (see PAWWORK_PACKAGE_NAME); userData and the app name are
+    // set explicitly at startup, so nothing else reads it.
+    name: PAWWORK_PACKAGE_NAME,
     repository: { type: "git", url: repositoryUrl(channel) },
   },
   extraResources: [
@@ -166,10 +155,7 @@ export function createConfig(channel: PawWorkChannel = currentChannel(), baseOve
         await configuration.afterPack(context)
       }
       if (context.electronPlatformName !== "darwin") return
-      const resourcesDir = context.packager.getMacOsResourcesDir(context.appOutDir)
-      await writeLocalizedMacDisplayName(resourcesDir, channel)
-      if (publish === undefined) return
-      await writeAppUpdateConfig(resourcesDir, publish)
+      await writeLocalizedMacDisplayName(context.packager.getMacOsResourcesDir(context.appOutDir), channel)
     },
   })
 

@@ -1,8 +1,8 @@
 import { app } from "electron"
-import type { PawWorkChannel } from "./app-identity"
+import { type PawWorkChannel, isPawWorkChannel } from "./app-identity"
 
 const raw = import.meta.env.OPENCODE_CHANNEL
-export const CHANNEL: PawWorkChannel = raw === "dev" || raw === "beta" || raw === "prod" ? raw : "dev"
+export const CHANNEL: PawWorkChannel = isPawWorkChannel(raw) ? raw : "dev"
 
 // Opt-in dev switch to exercise the real updater feed (R2 + GitHub fallback)
 // against dl.pawwork.ai under `pnpm dev:desktop`. Off unless explicitly set,

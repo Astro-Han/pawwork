@@ -8,6 +8,7 @@ import {
   createConfig,
   getPublishConfig,
 } from "./electron-builder.config"
+import { PAWWORK_PACKAGE_NAME, UPDATER_CACHE_DIR_NAME } from "./src/main/app-identity"
 
 const roots: string[] = []
 type AfterPackContext = Parameters<Extract<NonNullable<Configuration["afterPack"]>, (...args: any[]) => unknown>>[0]
@@ -112,18 +113,6 @@ describe("electron builder app-update config", () => {
     })
   })
 
-  test("afterPack writes app-update.yml to the packager-reported macOS resources path", async () => {
-    const root = mkdtempSync(join(tmpdir(), "pawwork-builder-config-"))
-    roots.push(root)
-    const config = createConfig("prod")
-
-    await config.afterPack!(macAfterPackContext(root, "PawWork Product Filename"))
-
-    const configPath = join(root, "PawWork Product Filename.app", "Contents", "Resources", "app-update.yml")
-    expect(existsSync(configPath)).toBe(true)
-    expect(readFileSync(configPath, "utf8")).toContain("repo: pawwork\n")
-    expect(readFileSync(configPath, "utf8")).toContain("updaterCacheDirName: pawwork-updater\n")
-  })
 
   test("afterPack writes localized macOS display names to the final resources path", async () => {
     const root = mkdtempSync(join(tmpdir(), "pawwork-builder-config-"))
@@ -143,19 +132,8 @@ describe("electron builder app-update config", () => {
     expect(readFileSync(zhCn, "utf8")).toContain('CFBundleName = "爪印";')
   })
 
-  test("afterPack writes beta app-update.yml to the beta app resources path", async () => {
-    const root = mkdtempSync(join(tmpdir(), "pawwork-builder-config-"))
-    roots.push(root)
-    const config = createConfig("beta")
 
-    await config.afterPack!(macAfterPackContext(root, "PawWork Beta"))
-
-    const configPath = join(root, "PawWork Beta.app", "Contents", "Resources", "app-update.yml")
-    expect(existsSync(configPath)).toBe(true)
-    expect(readFileSync(configPath, "utf8")).toContain("repo: pawwork-beta\n")
-  })
-
-  test("afterPack preserves an existing hook before writing updater config", async () => {
+  test("afterPack preserves an existing hook before writing its own files", async () => {
     const root = mkdtempSync(join(tmpdir(), "pawwork-builder-config-"))
     roots.push(root)
     const calls: string[] = []
@@ -167,19 +145,23 @@ describe("electron builder app-update config", () => {
 
     await config.afterPack!(macAfterPackContext(root, "PawWork"))
 
-    const configPath = join(root, "PawWork.app", "Contents", "Resources", "app-update.yml")
     expect(calls).toEqual(["existing"])
-    expect(existsSync(configPath)).toBe(true)
+    expect(existsSync(join(root, "PawWork.app", "Contents", "Resources", "zh-Hans.lproj", "InfoPlist.strings"))).toBe(true)
   })
 
-  test("afterPack skips updater config when publish is not configured", async () => {
-    const root = mkdtempSync(join(tmpdir(), "pawwork-builder-config-"))
-    roots.push(root)
-    const config = createConfig("dev")
-
-    await config.afterPack!(macAfterPackContext(root, "PawWork Dev"))
-
-    const configPath = join(root, "PawWork Dev.app", "Contents", "Resources", "app-update.yml")
-    expect(existsSync(configPath)).toBe(false)
+  // electron-builder writes app-update.yml itself on every packaged platform and
+  // fills updaterCacheDirName with sanitizeFileName(name).toLowerCase() +
+  // "-updater". We cannot call that function from here, so instead of restating
+  // its output we pin a package name it cannot change: already lowercase and
+  // free of anything sanitize-filename strips, so it passes through unchanged.
+  // Drop the extraMetadata name and the app cleans a directory the updater never
+  // writes to — which is what "@pawwork/desktop" silently did.
+  test("the packaged package name is a fixed point of the updater cache derivation", () => {
+    expect(PAWWORK_PACKAGE_NAME).toMatch(/^[a-z0-9][a-z0-9-]*$/)
+    expect(UPDATER_CACHE_DIR_NAME).toBe(`${PAWWORK_PACKAGE_NAME}-updater`)
+    for (const channel of ["dev", "beta", "prod"] as const) {
+      expect(createConfig(channel).extraMetadata).toMatchObject({ name: PAWWORK_PACKAGE_NAME })
+    }
   })
+
 })

@@ -1,7 +1,6 @@
 import { homedir as currentHomedir } from "node:os"
 import path from "node:path"
-
-export const UPDATER_CACHE_DIR_NAME = "pawwork-updater"
+import { UPDATER_CACHE_DIR_NAME } from "./app-identity"
 
 type CacheInput = {
   platform?: NodeJS.Platform
