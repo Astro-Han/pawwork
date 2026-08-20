@@ -8,6 +8,7 @@ const { pathToFileURL } = require('node:url');
 const {
   AutomationScheduler,
   AutomationStore,
+  MIN_INTERVAL_MS,
   createAutomationRpcHandler,
   createAutomationToolDefinitions,
 } = require('./automations.cjs');
@@ -794,6 +795,17 @@ test('conversation create accepts cron and finite schedules', async () => {
   assert.deepEqual(definition.rhythm, { kind: 'cron', expression: '0 9 * * 1-5' });
   assert.deepEqual(definition.stop, { kind: 'count', count: 3 });
   assert.equal(definition.timezone, 'Asia/Shanghai');
+});
+
+// The Settings editor validates the interval before sending it, so the user gets
+// a localized message instead of the backend's English one. It runs in the
+// renderer and cannot require this module, so the two numbers are pinned
+// together here — the one place that can see both.
+test('the Settings editor rejects the same interval floor the store does', () => {
+  const client = fs.readFileSync(path.join(__dirname, 'client.js'), 'utf8');
+  const floors = [...client.matchAll(/everyMs < ([\d_]+)/g)].map((match) => Number(match[1].replaceAll('_', '')));
+
+  assert.deepEqual(floors, [MIN_INTERVAL_MS]);
 });
 
 // claimDue is what makes two schedulers, or a runDue racing a startNow, unable

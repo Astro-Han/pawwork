@@ -220,6 +220,9 @@ window.__ModuleLoader__.load({
       }
       if (form.frequency === "interval") {
         const everyMs = Number(form.intervalMinutes) * 60_000
+        // Mirrors MIN_INTERVAL_MS in automations.cjs. The renderer cannot require
+        // the backend module, so a test pins the two together; without this the
+        // user would meet the backend's untranslated error instead.
         if (!Number.isSafeInteger(everyMs) || everyMs < 30_000) throw new Error(text("间隔至少为 30 秒", "Interval must be at least 30 seconds"))
         return { kind: "recurring", rhythm: { kind: "interval", everyMs } }
       }

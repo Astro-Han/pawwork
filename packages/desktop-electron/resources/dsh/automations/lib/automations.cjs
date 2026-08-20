@@ -879,6 +879,7 @@ function createAutomationToolDefinitions({
 
 module.exports = {
   AutomationScheduler,
+  MIN_INTERVAL_MS,
   AutomationStore,
   automationRunSessionId,
   createAutomationRpcHandler,
