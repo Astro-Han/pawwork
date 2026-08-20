@@ -373,7 +373,7 @@ jobs:
 
       - name: Package signed app
         if: ${{ runner.os == 'macOS' && (inputs.phase == 'submit' || inputs.phase == 'full') }}
-        run: pnpm exec electron-builder --mac dir --${{ matrix.arch_label }} --publish never --config electron-builder.config.ts
+        run: pnpm exec electron-builder --mac zip --${{ matrix.arch_label }} --publish never --config electron-builder.config.ts
         working-directory: packages/desktop-electron
         timeout-minutes: 30
         env:
