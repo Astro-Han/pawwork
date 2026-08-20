@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest"
 import { readFileSync } from "node:fs"
+import { load } from "js-yaml"
 import { join } from "node:path"
 
 import { releaseAssetNames } from "./verify-release.ts"
@@ -111,23 +112,30 @@ describe("pointer reference alignment", () => {
 })
 
 describe("mirror workflow shell-injection guard", () => {
-  const workflow = readFileSync(
+  const source = readFileSync(
     join(import.meta.dirname, "..", "..", "..", ".github", "workflows", "mirror-release-to-r2.yml"),
     "utf8",
   )
+  const workflow = load(source) as {
+    jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>
+  }
 
-  test("never interpolates a GitHub expression into a run: command", () => {
+  test("never interpolates a GitHub expression into a run: script", () => {
     // An attacker-controlled tag must reach the secrets-bearing steps as data
-    // ($TAG), never as shell text — ${{ }} in a run: line allows injection.
-    const offending = workflow
-      .split("\n")
-      .filter((line) => !line.trim().startsWith("#"))
-      .filter((line) => line.includes("run:") && line.includes("${{"))
-    expect(offending).toEqual([])
+    // ($TAG), never as shell text — ${{ }} inside a run: body allows injection.
+    // Parsed rather than grepped: the previous line-based check only saw the
+    // single-line form, so the ordinary `run: |` block scalar — where a real
+    // multi-line script lives — was never looked at.
+    const offending = Object.entries(workflow.jobs).flatMap(([job, definition]) =>
+      (definition.steps ?? [])
+        .map((step, index) => ({ label: `${job} step ${index}: ${step.name ?? "(unnamed)"}`, run: step.run }))
+        .filter((step) => typeof step.run === "string" && step.run.includes("${{")),
+    )
+    expect(offending.map((step) => step.label)).toEqual([])
   })
 
   test("passes the tag to scripts via the quoted env var", () => {
-    expect(workflow).toContain('verify-release.ts "$TAG"')
-    expect(workflow).toContain('mirror-release-to-r2.ts "$TAG"')
+    expect(source).toContain('verify-release.ts "$TAG"')
+    expect(source).toContain('mirror-release-to-r2.ts "$TAG"')
   })
 })
