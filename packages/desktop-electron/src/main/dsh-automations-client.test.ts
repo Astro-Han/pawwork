@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
+import { loadDshClientModule } from "./dsh-client-module.testing"
 import { resolve } from "node:path"
-import vm from "node:vm"
 import { describe, expect, test, vi } from "vitest"
 
 const repositoryRoot = resolve(import.meta.dirname, "../../../..")
@@ -16,38 +16,17 @@ describe("PawWork DSH Automations client", () => {
   })
 
   test("registers one Settings section as its management surface", () => {
-    const source = readFileSync(resolve(automationsRoot, "lib/client.js"), "utf8")
-    let definition: {
-      id: string
-      factory: (require: (name: string) => unknown) => {
-        apply(ctx: unknown): void
-        inject: string[]
-      }
-    } | null = null
     const document = {
       documentElement: { lang: "zh-CN" },
       querySelector: () => null,
       createElement: () => ({ dataset: {}, textContent: "" }),
       head: { appendChild: () => {} },
     }
-    const window = {
-      __ModuleLoader__: {
-        load: (value: {
-      id: string
-      factory: (require: (name: string) => unknown) => {
-        apply(ctx: unknown): void
-        inject: string[]
-      }
-    }) => {
-          definition = value
-        },
-      },
-    }
 
-    vm.runInNewContext(source, { document, window })
-    expect(definition!.id).toBe("@pawwork/dsh-automations")
+    const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
+    expect(definition.id).toBe("@pawwork/dsh-automations")
 
-    const plugin = definition!.factory((name) => {
+    const plugin = definition.factory((name) => {
       if (name === "react") return { createElement: () => null }
       if (name === "@deepseek-ai/dsh-client-ui-primitives") return {}
       throw new Error(`unexpected Automations client dependency: ${name}`)
@@ -76,27 +55,20 @@ describe("PawWork DSH Automations client", () => {
   })
 
   test("creates through chat and closes Settings", async () => {
-    const source = readFileSync(resolve(automationsRoot, "lib/client.js"), "utf8")
-    let definition: {
-      factory: (require: (name: string) => unknown) => { apply(ctx: unknown): void }
-    } | null = null
     const document = {
       documentElement: { lang: "zh-CN" },
       querySelector: () => null,
       createElement: () => ({ dataset: {}, textContent: "" }),
       head: { appendChild: () => {} },
     }
-    const window = { __ModuleLoader__: { load: (value: {
-      factory: (require: (name: string) => unknown) => { apply(ctx: unknown): void }
-    }) => { definition = value } } }
-    vm.runInNewContext(source, { document, window })
+    const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
 
     const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]): unknown => {
       const nextProps = { ...props, children }
       return typeof type === "function" ? type(nextProps) : { type, props: nextProps }
     }
     const primitive = (type: string) => (props: Record<string, unknown>) => ({ type, props })
-    const plugin = definition!.factory((name) => {
+    const plugin = definition.factory((name) => {
       if (name === "react") {
         return {
           createElement,
@@ -160,20 +132,13 @@ describe("PawWork DSH Automations client", () => {
   })
 
   test("opens a completed run session and closes Settings", async () => {
-    const source = readFileSync(resolve(automationsRoot, "lib/client.js"), "utf8")
-    let definition: {
-      factory: (require: (name: string) => unknown) => { apply(ctx: unknown): void }
-    } | null = null
     const document = {
       documentElement: { lang: "en" },
       querySelector: () => null,
       createElement: () => ({ dataset: {}, textContent: "" }),
       head: { appendChild: () => {} },
     }
-    const window = { __ModuleLoader__: { load: (value: {
-      factory: (require: (name: string) => unknown) => { apply(ctx: unknown): void }
-    }) => { definition = value } } }
-    vm.runInNewContext(source, { document, window })
+    const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
 
     const definitionData = {
       id: "automation-1",
@@ -204,7 +169,7 @@ describe("PawWork DSH Automations client", () => {
       return typeof type === "function" ? type(nextProps) : { type, props: nextProps }
     }
     const primitive = (type: string) => (props: Record<string, unknown>) => ({ type, props })
-    const plugin = definition!.factory((name) => {
+    const plugin = definition.factory((name) => {
       if (name === "react") {
         return {
           createElement,

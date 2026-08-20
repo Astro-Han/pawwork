@@ -21,5 +21,7 @@ export const UPDATER_CACHE_DIR_NAME = `${PAWWORK_PACKAGE_NAME}-updater`
 // than re-spelled as a literal union at each parse site. Callers pick the policy
 // for a miss: the app and the packager fall back to dev, the smoke CLI rejects.
 export function isPawWorkChannel(raw: string | undefined): raw is PawWorkChannel {
-  return raw !== undefined && raw in PAWWORK_APP
+  // hasOwn, not `in`: `in` walks the prototype chain, so "toString" and
+  // "__proto__" would answer yes and produce a build with no appId.
+  return raw !== undefined && Object.hasOwn(PAWWORK_APP, raw)
 }

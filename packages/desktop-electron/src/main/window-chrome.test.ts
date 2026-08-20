@@ -1,6 +1,5 @@
 import { expect, test } from "vitest"
 import { TITLEBAR_HEIGHT, macTrafficLightPosition, pawworkWindowTitle, titlebarInsetCss } from "./window-chrome"
-import { dshTitleBarOptions } from "./window-options"
 
 test("macOS traffic lights use the DSH shell position", () => {
   expect(macTrafficLightPosition()).toEqual({
@@ -20,13 +19,10 @@ test.each([
   expect(titlebarInsetCss(platform, { fullscreen })).toBe(expected)
 })
 
-// A frameless window has to reserve the band; a framed one must not. Losing
-// either half leaves the sidebar under the native controls or a dead strip.
-test.each(["darwin", "win32", "linux"] as const)("%s reserves a titlebar band exactly when it is frameless", (platform) => {
-  const frameless = "titleBarStyle" in dshTitleBarOptions(platform)
-  const reserved = platform === "win32" || titlebarInsetCss(platform, { fullscreen: false }) !== ""
-  expect(reserved).toBe(frameless)
-})
+// The band-exists-exactly-when-frameless relationship is asserted where it can
+// actually be observed: scripts/ci-smoke.ts measures the rendered strip against
+// dshTitleBarOptions on both platforms in CI. Restating it here could only be a
+// tautology, since both sides would come from the same two pure functions.
 
 test.each([
   ["DeepSeek Harness", "PawWork"],

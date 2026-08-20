@@ -26,6 +26,7 @@
     "electron-builder.config.ts",
     "electron.vite.config.ts",
     "vitest.config.ts",
+    "*.test.ts",
     "package.json"
   ]
 }

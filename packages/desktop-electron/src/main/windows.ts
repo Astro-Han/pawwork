@@ -55,20 +55,27 @@ export function createMainWindow(url: string, preload: string) {
     guardDshNavigation(url, target, event, openExternal)
   })
   // insertCSS is scoped to one navigation and returns a key we have to hand back,
-  // or a reload just stacks another copy of the same sheet.
+  // or a reload just stacks another copy of the same sheet. Publishes are chained
+  // rather than run concurrently: two overlapping calls would both observe no key,
+  // both insert, and the untracked sheet would survive the next removal as a dead
+  // 32px strip that still swallows clicks.
   let insetKey: string | undefined
-  const publishTitlebarInset = async () => {
-    if (insetKey !== undefined) {
-      await win.webContents.removeInsertedCSS(insetKey).catch(() => undefined)
-      insetKey = undefined
-    }
-    const css = titlebarInsetCss(process.platform, { fullscreen: win.isFullScreen() })
-    if (css) insetKey = await win.webContents.insertCSS(css)
+  let publishing = Promise.resolve()
+  const publishTitlebarInset = (navigated = false) => {
+    publishing = publishing.then(async () => {
+      // A navigation drops every sheet insertCSS gave us, so the key is stale
+      // rather than removable — reset it inside the chain, not beside it.
+      if (navigated) insetKey = undefined
+      if (insetKey !== undefined) {
+        await win.webContents.removeInsertedCSS(insetKey).catch(() => undefined)
+        insetKey = undefined
+      }
+      const css = titlebarInsetCss(process.platform, { fullscreen: win.isFullScreen() })
+      if (css) insetKey = await win.webContents.insertCSS(css)
+    }).catch(() => undefined)
+    return publishing
   }
-  win.webContents.on("dom-ready", () => {
-    insetKey = undefined
-    void publishTitlebarInset()
-  })
+  win.webContents.on("dom-ready", () => void publishTitlebarInset(true))
   win.on("enter-full-screen", () => void publishTitlebarInset())
   win.on("leave-full-screen", () => void publishTitlebarInset())
   win.webContents.setZoomFactor(1)

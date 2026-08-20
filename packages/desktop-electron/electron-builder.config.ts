@@ -73,8 +73,11 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
   // extraMetadata to avoid "Cannot detect repository by .git/config".
   extraMetadata: {
     // The packaged package name is what electron-builder turns into the updater
-    // cache directory (see PAWWORK_PACKAGE_NAME); userData and the app name are
-    // set explicitly at startup, so nothing else reads it.
+    // cache directory (see PAWWORK_PACKAGE_NAME). userData and the app name are
+    // set explicitly at startup, so the app itself never reads it — but NSIS
+    // does: APP_PACKAGE_NAME comes from here and the uninstaller's
+    // `--delete-app-data` does RMDir /r "$APPDATA\<name>". Keep nothing of ours
+    // under %APPDATA%\pawwork.
     name: PAWWORK_PACKAGE_NAME,
     repository: { type: "git", url: repositoryUrl(channel) },
   },

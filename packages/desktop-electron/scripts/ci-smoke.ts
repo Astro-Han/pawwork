@@ -541,15 +541,17 @@ async function waitForSessionOnDisk(dshHome: string, sessionId: string, timeoutM
 }
 
 // DSH creates the session directory before it writes the log into it, so the
-// directory existing proves nothing — wait for actual bytes.
+// directory existing proves nothing — wait for actual bytes. This polls while
+// the app is running, and DSH publishes through `<file>.<hex>.tmp` siblings it
+// links and then unlinks, so a name read here can be gone by the time we stat
+// it: ask for the stat without the throw.
 function sessionBytesOnDisk(sessions: string, sessionId: string) {
   if (!existsSync(sessions)) return 0
   return readdirSync(sessions)
     .map((workspace) => join(sessions, workspace, sessionId))
-    .filter((dir) => existsSync(dir))
-    .flatMap((dir) => readdirSync(dir).map((name) => join(dir, name)))
-    .filter((file) => statSync(file).isFile())
-    .reduce((total, file) => total + statSync(file).size, 0)
+    .flatMap((dir) => (existsSync(dir) ? readdirSync(dir).map((name) => join(dir, name)) : []))
+    .map((file) => statSync(file, { throwIfNoEntry: false }))
+    .reduce((total, stats) => total + (stats?.isFile() ? stats.size : 0), 0)
 }
 
 function describeDirectory(dir: string, prefix = "  "): string {

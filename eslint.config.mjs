@@ -9,7 +9,7 @@ const rootDir = path.dirname(fileURLToPath(import.meta.url))
 const productTs = [
   "packages/desktop-electron/src/**/*.ts",
   "packages/desktop-electron/scripts/**/*.ts",
-  "packages/desktop-electron/*.config.ts",
+  "packages/desktop-electron/*.ts",
 ]
 
 export default tseslint.config([

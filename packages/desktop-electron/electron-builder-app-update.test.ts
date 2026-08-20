@@ -11,7 +11,15 @@ import {
 import { PAWWORK_PACKAGE_NAME, UPDATER_CACHE_DIR_NAME } from "./src/main/app-identity"
 
 const roots: string[] = []
-type AfterPackContext = Parameters<Extract<NonNullable<Configuration["afterPack"]>, (...args: any[]) => unknown>>[0]
+type AfterPackHook = Extract<NonNullable<Configuration["afterPack"]>, (...args: never[]) => unknown>
+type AfterPackContext = Parameters<AfterPackHook>[0]
+
+// electron-builder types afterPack as `string | Hook`; ours is always the hook.
+function afterPackHook(config: Configuration): AfterPackHook {
+  const hook = config.afterPack
+  if (typeof hook !== "function") throw new Error(`afterPack is ${typeof hook}, not a hook`)
+  return hook
+}
 
 function macAfterPackContext(
   appOutDir: string,
@@ -54,7 +62,9 @@ describe("electron builder app-update config", () => {
 
   test("packages only the DSH production entry", () => {
     const config = createConfig("prod")
-    const dshResources = config.extraResources?.find((resource) => typeof resource === "object" && resource.to === "dsh/")
+    const extraResources = config.extraResources
+    if (!Array.isArray(extraResources)) throw new Error("extraResources must be a list")
+    const dshResources = extraResources.find((resource) => typeof resource === "object" && resource.to === "dsh/")
 
     expect(config.files).toEqual(["out/main/**/*", "resources/**/*", "!resources/dsh/**/*"])
     expect(dshResources).toMatchObject({ filter: ["**/*", "!**/*.test.cjs"] })
@@ -119,7 +129,7 @@ describe("electron builder app-update config", () => {
     roots.push(root)
     const config = createConfig("prod")
 
-    await config.afterPack!(macAfterPackContext(root, "PawWork"))
+    await afterPackHook(config)(macAfterPackContext(root, "PawWork"))
 
     const zhHans = join(root, "PawWork.app", "Contents", "Resources", "zh-Hans.lproj", "InfoPlist.strings")
     const zhCn = join(root, "PawWork.app", "Contents", "Resources", "zh_CN.lproj", "InfoPlist.strings")
@@ -143,7 +153,7 @@ describe("electron builder app-update config", () => {
       },
     })
 
-    await config.afterPack!(macAfterPackContext(root, "PawWork"))
+    await afterPackHook(config)(macAfterPackContext(root, "PawWork"))
 
     expect(calls).toEqual(["existing"])
     expect(existsSync(join(root, "PawWork.app", "Contents", "Resources", "zh-Hans.lproj", "InfoPlist.strings"))).toBe(true)

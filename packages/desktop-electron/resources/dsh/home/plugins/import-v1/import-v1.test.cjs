@@ -231,6 +231,78 @@ test('opens one v1 database snapshot for the whole import run', { timeout: 20_00
   }
 });
 
+// Every stage is caught individually, so the snapshot cleanup in the finally is
+// the one statement that can reject importTask — and nothing awaits it until the
+// plugin is disposed, so a rejection there reaches DSH's fail-loud handler and
+// takes the backend down over a temp file.
+test('survives a snapshot it cannot delete', { timeout: 20_000 }, async () => {
+  const importerModule = require('./import-v1.cjs');
+  const settingsModule = require('./import-v1-settings.cjs');
+  const automationsModule = require('./import-v1-automations.cjs');
+  const originalRun = importerModule.runV1SessionImport;
+  const originalSettingsRun = settingsModule.runV1SettingsImport;
+  const originalCreateSettingImporter = settingsModule.createDshSettingImporter;
+  const originalAutomationsRun = automationsModule.runV1AutomationImport;
+  const originalHome = process.env.DSH_HOME;
+  const originalSource = process.env.PAWWORK_V1_DATABASE;
+
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  createV1Fixture(source);
+  process.env.DSH_HOME = home;
+  process.env.PAWWORK_V1_DATABASE = source;
+
+  const warnings = [];
+  let stopPlugin;
+  let finishedResolve;
+  const finished = new Promise((resolve) => { finishedResolve = resolve; });
+  const migrationDir = path.join(home, 'import-v1');
+  importerModule.runV1SessionImport = async () => ({ status: 'complete' });
+  settingsModule.createDshSettingImporter = () => async () => 'skipped';
+  settingsModule.runV1SettingsImport = async () => ({ status: 'complete' });
+  automationsModule.runV1AutomationImport = async () => {
+    // Deny unlink in the directory holding the snapshot, the way a file held open
+    // by an indexer would on Windows.
+    fs.chmodSync(migrationDir, 0o500);
+    finishedResolve();
+    return { status: 'complete' };
+  };
+
+  try {
+    const { apply } = await import(`${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?locked=${Date.now()}`);
+    apply({
+      connection: { rpc: { handle: () => async () => {} } },
+      effect: (setup) => { stopPlugin = setup(); },
+      llm: { listProviders: () => [], listModels: async () => [] },
+      logger: { warn: (message) => warnings.push(message) },
+      agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }) },
+      pawworkAutomations: { scheduler: { refresh: () => {} }, store: { activateImportedDefinitions: () => {} } },
+      sessionPersistence: { list: async () => [] },
+      sessionTitle: { rename: () => {} },
+      sessions: { enter: () => () => {}, flush: async () => {}, prepare: () => ({}) },
+      attachments: { saveImage: async () => {} },
+      workspaceRegistry: {},
+    });
+    await finished;
+    // Rejects if the cleanup failure escaped the task.
+    await stopPlugin();
+
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /snapshot cleanup failed/);
+  } finally {
+    fs.chmodSync(migrationDir, 0o700);
+    importerModule.runV1SessionImport = originalRun;
+    settingsModule.createDshSettingImporter = originalCreateSettingImporter;
+    settingsModule.runV1SettingsImport = originalSettingsRun;
+    automationsModule.runV1AutomationImport = originalAutomationsRun;
+    if (originalHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = originalHome;
+    if (originalSource === undefined) delete process.env.PAWWORK_V1_DATABASE;
+    else process.env.PAWWORK_V1_DATABASE = originalSource;
+  }
+});
+
 test('derives completed session targets from the migration ledger', () => {
   const home = temporaryDirectory();
   const directory = path.join(home, 'import-v1');

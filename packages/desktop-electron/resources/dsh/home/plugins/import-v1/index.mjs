@@ -163,7 +163,16 @@ export function apply(ctx) {
         ctx.logger.warn(`v1 automation import failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     } finally {
-      snapshot?.close();
+      // Everything else in this task is caught per stage, so this is the one
+      // statement that can reject it — and nothing awaits importTask until the
+      // plugin is disposed, so a rejection here reaches DSH's fail-loud handler
+      // and exits the backend. rmSync's `force` only swallows ENOENT; a handle
+      // held on the snapshot (an indexer, an AV scanner) raises EBUSY.
+      try {
+        snapshot?.close();
+      } catch (error) {
+        ctx.logger.warn(`v1 database snapshot cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   })();
   ctx.effect(() => async () => {

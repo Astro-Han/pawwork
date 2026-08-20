@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
+import { loadDshClientModule } from "./dsh-client-module.testing"
 import { resolve } from "node:path"
-import vm from "node:vm"
 import { describe, expect, vi, test } from "vitest"
 
 const repositoryRoot = resolve(import.meta.dirname, "../../../..")
@@ -24,16 +24,9 @@ describe("PawWork DSH client product layer", () => {
   })
 
   test("refreshes the DSH session baseline once after v1 migration completes", async () => {
-    const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
-    let definition: {
-      factory: (require: (name: string) => unknown) => { apply(ctx: unknown): void }
-    } | null = null
     let intervalCallback: (() => void) | undefined
     const clearInterval = vi.fn(() => {})
-    const window = { __ModuleLoader__: { load: (value: {
-      factory: (require: (name: string) => unknown) => { apply(ctx: unknown): void }
-    }) => { definition = value } } }
-    vm.runInNewContext(source, {
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
       clearInterval,
       document: {
         documentElement: { dataset: {} },
@@ -43,10 +36,10 @@ describe("PawWork DSH client product layer", () => {
       },
       navigator: { platform: "MacIntel" },
       setInterval: (callback: () => void) => { intervalCallback = callback; return 1 },
-      window,
+
     })
     let cleanup: (() => void) | undefined
-    const plugin = definition!.factory((name) => {
+    const plugin = definition.factory((name) => {
       if (name === "react") {
         return {
           createElement: (type: unknown, props: unknown) => typeof type === "function" ? type(props) : null,
@@ -82,14 +75,6 @@ describe("PawWork DSH client product layer", () => {
   })
 
   test("owns the public brand slots and replaces the DSH welcome notice", () => {
-    const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
-    let definition: {
-      id: string
-      factory: (require: (name: string) => unknown) => {
-        apply(ctx: unknown): void
-        inject: string[]
-      }
-    } | null = null
     const document = {
       title: "DeepSeek Harness",
       documentElement: { lang: "zh-CN" },
@@ -97,22 +82,9 @@ describe("PawWork DSH client product layer", () => {
       createElement: () => ({ dataset: {}, textContent: "" }),
       head: { appendChild: () => {} },
     }
-    const window = {
-      __ModuleLoader__: {
-        load: (value: {
-      id: string
-      factory: (require: (name: string) => unknown) => {
-        apply(ctx: unknown): void
-        inject: string[]
-      }
-    }) => {
-          definition = value
-        },
-      },
-    }
 
-    vm.runInNewContext(source, { document, window })
-    expect(definition!.id).toBe("@pawwork/dsh-product")
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), { document })
+    expect(definition.id).toBe("@pawwork/dsh-product")
 
     const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
       type,
@@ -120,7 +92,7 @@ describe("PawWork DSH client product layer", () => {
     })
     const useEffect = (effect: () => void) => effect()
     const useRef = <T>(value: T) => ({ current: value })
-    const plugin = definition!.factory((name) => {
+    const plugin = definition.factory((name) => {
       if (name === "react") return { createElement, useEffect, useRef }
       if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
       throw new Error(`unexpected product client dependency: ${name}`)
@@ -167,7 +139,6 @@ describe("PawWork DSH client product layer", () => {
   })
 
   test("mounts the drag strip that reserves the native window chrome", () => {
-    const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
     const appended: Array<{ className: string }> = []
     const style = { dataset: {} as Record<string, string>, textContent: "" }
     const document = {
@@ -179,11 +150,9 @@ describe("PawWork DSH client product layer", () => {
       head: { appendChild: () => {} },
       body: { appendChild: (node: { className: string }) => appended.push(node) },
     }
-    let definition: { factory: (require: (name: string) => unknown) => unknown } | null = null
-    const window = { __ModuleLoader__: { load: (value: { factory: (require: (name: string) => unknown) => unknown }) => { definition = value } } }
 
-    vm.runInNewContext(source, { document, navigator: { platform: "MacIntel" }, window })
-    definition!.factory((name) => {
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), { document, navigator: { platform: "MacIntel" } })
+    definition.factory((name) => {
       if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
@@ -201,12 +170,6 @@ describe("PawWork DSH client product layer", () => {
 
 
   test("adds selected file paths through the public composer input slot", async () => {
-    const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
-    let definition: {
-      factory: (require: (name: string) => unknown) => {
-        apply(ctx: unknown): void
-      }
-    } | null = null
     const document = {
       title: "DeepSeek Harness",
       documentElement: { lang: "zh-CN" },
@@ -218,25 +181,16 @@ describe("PawWork DSH client product layer", () => {
       status: "selected",
       paths: ["/tmp/notes.md"],
     }))
-    const window = {
-      pawworkFiles: { pick },
-      __ModuleLoader__: {
-        load: (value: {
-      factory: (require: (name: string) => unknown) => {
-        apply(ctx: unknown): void
-      }
-    }) => {
-          definition = value
-        },
-      },
-    }
 
-    vm.runInNewContext(source, { document, window })
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
+      document,
+      window: { pawworkFiles: { pick } },
+    })
     const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
       type,
       props: { ...props, children },
     })
-    const plugin = definition!.factory((name) => {
+    const plugin = definition.factory((name) => {
       if (name === "react") {
         return {
           createElement,
