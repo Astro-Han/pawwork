@@ -8,7 +8,6 @@ const {
   createDshSettingImporter,
   readV1Preferences,
   runV1SettingsImport,
-  v1AppDataCandidates,
 } = require('./import-v1-settings.cjs');
 
 function temporaryDirectory() {
@@ -45,20 +44,6 @@ function createPreferenceFixture(root) {
     'kimi-for-coding': { type: 'api', key: 'secret' },
   }));
 }
-
-test('discovers the official v1 app-data root on macOS and Windows', () => {
-  assert.deepEqual(v1AppDataCandidates({
-    platform: 'darwin',
-    home: '/Users/alice',
-    env: {},
-  }), [path.join('/Users/alice', 'Library', 'Application Support', 'ai.pawwork.desktop')]);
-  assert.deepEqual(v1AppDataCandidates({
-    platform: 'win32',
-    home: 'C:\\Users\\alice',
-    env: { APPDATA: 'C:\\Users\\alice\\AppData\\Roaming' },
-    pathApi: path.win32,
-  }), ['C:\\Users\\alice\\AppData\\Roaming\\ai.pawwork.desktop']);
-});
 
 test('reads only settings with exact DSH equivalents and ignores credentials', () => {
   const root = temporaryDirectory();

@@ -18,9 +18,10 @@ const {
 } = require('./import-v1.cjs');
 const {
   createDatabaseSnapshot,
+  discoverV1AppData,
   discoverV1Database,
   openV1Snapshot,
-  v1DatabaseCandidates,
+  v1DataPath,
 } = require('./migration-io.cjs');
 
 // The snapshot belongs to the whole import run, so these stage tests open one the
@@ -523,37 +524,40 @@ function createV1Fixture(file) {
   database.close();
 }
 
-test('discovers only the official v1 production database on macOS and Windows', () => {
-  assert.deepEqual(
-    v1DatabaseCandidates({
-      platform: 'darwin',
-      home: '/Users/alice',
-      env: {},
-    }),
-    [
-      path.join(
-        '/Users/alice',
-        'Library',
-        'Application Support',
-        'ai.pawwork.desktop',
-        'data',
-        'pawwork',
-        'pawwork.db',
-      ),
-    ],
+// Both import stages locate v1 through this one function, so the platform layout
+// is pinned here for the app-data root and the database alike.
+test('locates the official v1 data root and database on macOS and Windows', () => {
+  const darwin = { platform: 'darwin', home: '/Users/alice', env: {} };
+  assert.equal(
+    v1DataPath(darwin),
+    path.join('/Users/alice', 'Library', 'Application Support', 'ai.pawwork.desktop'),
+  );
+  assert.equal(
+    v1DataPath(darwin, 'data', 'pawwork', 'pawwork.db'),
+    path.join(
+      '/Users/alice',
+      'Library',
+      'Application Support',
+      'ai.pawwork.desktop',
+      'data',
+      'pawwork',
+      'pawwork.db',
+    ),
   );
 
-  assert.deepEqual(
-    v1DatabaseCandidates({
-      platform: 'win32',
-      home: 'C:\\Users\\alice',
-      env: { APPDATA: 'C:\\Users\\alice\\AppData\\Roaming' },
-      pathApi: path.win32,
-    }),
-    [
-      'C:\\Users\\alice\\AppData\\Roaming\\ai.pawwork.desktop\\data\\pawwork\\pawwork.db',
-    ],
+  const windows = {
+    platform: 'win32',
+    home: 'C:\\Users\\alice',
+    env: { APPDATA: 'C:\\Users\\alice\\AppData\\Roaming' },
+    pathApi: path.win32,
+  };
+  assert.equal(v1DataPath(windows), 'C:\\Users\\alice\\AppData\\Roaming\\ai.pawwork.desktop');
+  assert.equal(
+    v1DataPath(windows, 'data', 'pawwork', 'pawwork.db'),
+    'C:\\Users\\alice\\AppData\\Roaming\\ai.pawwork.desktop\\data\\pawwork\\pawwork.db',
   );
+
+  assert.equal(v1DataPath({ platform: 'linux', home: '/home/alice', env: {} }), null);
 });
 
 test('prefers an explicit source and otherwise returns the first existing official database', () => {
@@ -581,6 +585,19 @@ test('prefers an explicit source and otherwise returns the first existing offici
     explicit,
   );
   assert.equal(discoverV1Database({ platform: 'darwin', home: root, env: {} }), official);
+
+  // The settings stage reads the same root through the same rule, so its own
+  // override name is pinned here rather than only where it is consumed.
+  const appData = path.join(root, 'Library', 'Application Support', 'ai.pawwork.desktop');
+  const movedProfile = path.join(root, 'moved-profile');
+  fs.mkdirSync(movedProfile, { recursive: true });
+
+  assert.equal(discoverV1AppData({ platform: 'darwin', home: root, env: {} }), appData);
+  assert.equal(
+    discoverV1AppData({ platform: 'darwin', home: root, env: { PAWWORK_V1_APP_DATA: movedProfile } }),
+    movedProfile,
+  );
+  assert.equal(discoverV1AppData({ platform: 'linux', home: root, env: {} }), null);
 });
 
 test('creates a consistent SQLite snapshot without changing source data or its WAL', async () => {

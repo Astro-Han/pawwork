@@ -1,33 +1,6 @@
 'use strict';
-const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
-const { openMigrationLedger, readJson } = require('./migration-io.cjs');
-
-const V1_APP_ID = 'ai.pawwork.desktop';
-
-function v1AppDataCandidates({
-  platform = process.platform,
-  home = os.homedir(),
-  env = process.env,
-  pathApi = platform === 'win32' ? path.win32 : path,
-} = {}) {
-  if (platform === 'darwin') {
-    return [pathApi.join(home, 'Library', 'Application Support', V1_APP_ID)];
-  }
-  if (platform === 'win32') {
-    const appData = env.APPDATA || pathApi.join(home, 'AppData', 'Roaming');
-    return [pathApi.join(appData, V1_APP_ID)];
-  }
-  return [];
-}
-
-function discoverV1AppData(options = {}) {
-  const env = options.env || process.env;
-  const explicit = env.PAWWORK_V1_APP_DATA;
-  if (explicit && fs.existsSync(explicit)) return explicit;
-  return v1AppDataCandidates(options).find((candidate) => fs.existsSync(candidate)) || null;
-}
+const { discoverV1AppData, openMigrationLedger, readJson } = require('./migration-io.cjs');
 
 function storedJson(value, label, fallback) {
   if (value === undefined) return fallback;
@@ -206,8 +179,6 @@ async function runV1SettingsImport({
 
 module.exports = {
   createDshSettingImporter,
-  discoverV1AppData,
   readV1Preferences,
   runV1SettingsImport,
-  v1AppDataCandidates,
 };

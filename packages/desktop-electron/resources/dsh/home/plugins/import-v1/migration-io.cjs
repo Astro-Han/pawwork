@@ -4,26 +4,40 @@ const os = require('node:os');
 const path = require('node:path');
 
 const V1_APP_ID = 'ai.pawwork.desktop';
-const V1_DATABASE_SUFFIX = ['data', 'pawwork', 'pawwork.db'];
 
-function v1DatabaseCandidates({
+// One fact, stated once: where v1 kept this user's data. The database stage and
+// the settings stage differ only by what they append to it — before, each owned
+// a copy of the platform branch and returned a list that never held more than
+// one entry.
+function v1DataPath({
   platform = process.platform,
   home = os.homedir(),
   env = process.env,
   pathApi = platform === 'win32' ? path.win32 : path,
-} = {}) {
-  let appData;
-  if (platform === 'darwin') appData = pathApi.join(home, 'Library', 'Application Support');
-  else if (platform === 'win32') appData = env.APPDATA || pathApi.join(home, 'AppData', 'Roaming');
-  else return [];
-  return [pathApi.join(appData, V1_APP_ID, ...V1_DATABASE_SUFFIX)];
+} = {}, ...segments) {
+  if (platform === 'darwin') {
+    return pathApi.join(home, 'Library', 'Application Support', V1_APP_ID, ...segments);
+  }
+  if (platform === 'win32') {
+    const roaming = env.APPDATA || pathApi.join(home, 'AppData', 'Roaming');
+    return pathApi.join(roaming, V1_APP_ID, ...segments);
+  }
+  return null;
+}
+
+function discoverExisting(explicit, official) {
+  if (explicit && fs.existsSync(explicit)) return explicit;
+  return official && fs.existsSync(official) ? official : null;
 }
 
 function discoverV1Database(options = {}) {
   const env = options.env || process.env;
-  const explicit = env.PAWWORK_V1_DATABASE;
-  if (explicit && fs.existsSync(explicit)) return explicit;
-  return v1DatabaseCandidates(options).find((candidate) => fs.existsSync(candidate)) || null;
+  return discoverExisting(env.PAWWORK_V1_DATABASE, v1DataPath(options, 'data', 'pawwork', 'pawwork.db'));
+}
+
+function discoverV1AppData(options = {}) {
+  const env = options.env || process.env;
+  return discoverExisting(env.PAWWORK_V1_APP_DATA, v1DataPath(options));
 }
 
 async function createDatabaseSnapshot(source, destination) {
@@ -127,6 +141,7 @@ function writeJsonAtomically(file, value) {
 
 module.exports = {
   createDatabaseSnapshot,
+  discoverV1AppData,
   discoverV1Database,
   guardV1DatabaseIdentity,
   openMigrationLedger,
@@ -134,5 +149,5 @@ module.exports = {
   parseJson,
   readJson,
   requireColumns,
-  v1DatabaseCandidates,
+  v1DataPath,
 };
