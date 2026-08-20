@@ -2,56 +2,66 @@ import { describe, expect, test } from "vitest"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
+// A unit test cannot prove what a shell workflow does — only that a step whose
+// absence would ship an unverified or incomplete build is still there, and still
+// ordered correctly. These read the workflow as steps rather than as text, so a
+// reformat inside a step does not fail them and a deleted step does.
 const workflow = readFileSync(join(import.meta.dirname, "..", "..", "..", ".github", "workflows", "build.yml"), "utf8")
 
-function expectBefore(haystack: string, before: string, after: string) {
-  const beforeIndex = haystack.indexOf(before)
-  const afterIndex = haystack.indexOf(after)
-  expect(beforeIndex).toBeGreaterThanOrEqual(0)
-  expect(afterIndex).toBeGreaterThanOrEqual(0)
-  expect(beforeIndex).toBeLessThan(afterIndex)
+const steps = workflow
+  .split(/\n {6}- name: /)
+  .slice(1)
+  .map((block) => ({ name: block.split("\n")[0].trim(), body: block }))
+
+function stepsRunning(pattern: RegExp) {
+  return steps.filter((step) => pattern.test(step.body))
 }
 
-describe("release workflow app-update verification", () => {
-  test("verifies app-update.yml in extracted zip artifact", () => {
-    expect(workflow).toContain('verify_app_update_config "$verify_dir/$APP_NAME.app/Contents/Resources/app-update.yml"')
+function indexOfStep(name: string) {
+  return steps.findIndex((step) => step.name === name)
+}
+
+describe("release workflow", () => {
+  test("bundles uv before anything packages the app", () => {
+    const packaging = stepsRunning(/electron-builder .*(--mac|\$\{\{ matrix\.platform_flag \}\})/)
+    // submit packs the signed directory, finalize repacks it into dmg/zip, and
+    // Windows packs in one go.
+    expect(packaging.map((step) => step.name)).toEqual([
+      "Package signed app",
+      "Package notarized artifacts",
+      "Package app",
+    ])
+
+    const prepare = indexOfStep("Prepare uv")
+    expect(prepare).toBeGreaterThanOrEqual(0)
+    for (const step of packaging) expect(steps.indexOf(step)).toBeGreaterThan(prepare)
+    expect(steps[prepare].body).toMatch(/prepare-uv\.ts/)
+    expect(steps[prepare].body).toMatch(/uv_platform="darwin"/)
+    expect(steps[prepare].body).toMatch(/uv_platform="win32"/)
   })
 
-  test("verifies codesign for extracted zip app", () => {
-    expect(workflow).toContain('codesign --verify --deep --strict --verbose=2 "$verify_dir/$APP_NAME.app"')
+  test("keeps the two-phase notarization split intact", () => {
+    // Packing a fresh bundle in the finalize phase would discard the notarized
+    // one; --prepackaged is what makes the shipped dmg the stapled build.
+    const submit = steps[indexOfStep("Package signed app")]
+    const finalize = steps[indexOfStep("Package notarized artifacts")]
+    expect(submit.body).toMatch(/electron-builder --mac dir .*--publish never/)
+    expect(finalize.body).toMatch(/electron-builder --mac dmg zip .*--prepackaged "\$APP_PATH"/)
   })
 
-  test("verifies app-update.yml in mounted dmg artifact", () => {
-    expect(workflow).toContain('verify_app_update_config "$mounted_app/Contents/Resources/app-update.yml"')
+  test("verifies the notarized bundle's signature and updater target in both artifacts", () => {
+    const verify = steps[indexOfStep("Verify notarized artifacts")]
+    expect(verify.body).toMatch(/codesign --verify --deep --strict/)
+    // The zip and the dmg are packed separately, so both copies are checked.
+    expect(verify.body).toMatch(/verify_app_update_config "\$verify_dir\//)
+    expect(verify.body).toMatch(/verify_app_update_config "\$mounted_app\//)
+    expect(verify.body).toMatch(/grep -qx "repo: \$PUBLISH_REPO"/)
   })
 
-  test("matches updater repo by exact line", () => {
-    expect(workflow).toContain('grep -qx "repo: $PUBLISH_REPO" "$config_path"')
-  })
-
-  test("keeps submit phase packaging as a signed app directory", () => {
-    expect(workflow).toContain("pnpm exec electron-builder --mac dir --${{ matrix.arch_label }} --publish never")
-  })
-
-  test("keeps finalize phase packaging from the prepackaged signed app", () => {
-    expect(workflow).toContain('pnpm exec electron-builder --mac dmg zip --${{ matrix.arch_label }} --prepackaged "$APP_PATH"')
-  })
-
-  test("prepares uv before signed macOS packaging", () => {
-    expectBefore(workflow, "Prepare uv", "pnpm exec electron-builder --mac dir")
-    expect(workflow).toContain("pnpm exec tsx ./scripts/prepare-uv.ts")
-    expect(workflow).toContain('uv_platform="darwin"')
-  })
-
-  test("prepares uv before Windows packaging", () => {
-    expectBefore(workflow, "Prepare uv", "pnpm exec electron-builder ${{ matrix.platform_flag }}")
-    expect(workflow).toContain('uv_platform="win32"')
-  })
-
-  test("finalizes updater metadata only for channels with a release repository", () => {
-    expect(workflow).toContain("inputs.channel != 'dev' &&")
-    expect(workflow).toContain(
-      "GH_REPO: ${{ inputs.channel == 'beta' && 'Astro-Han/pawwork-beta' || github.repository }}",
-    )
+  test("finalizes updater metadata only for channels that publish", () => {
+    const finalize = steps.find((step) => /finalize-latest-yml\.ts/.test(step.body))
+    expect(finalize).toBeDefined()
+    expect(finalize!.body).toMatch(/inputs\.channel != 'dev'/)
+    expect(finalize!.body).toMatch(/inputs\.channel == 'beta' && 'Astro-Han\/pawwork-beta' \|\| github\.repository/)
   })
 })
