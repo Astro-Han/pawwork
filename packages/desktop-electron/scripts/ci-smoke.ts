@@ -5,7 +5,6 @@ import { createRequire } from "node:module"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
 import process from "node:process"
 import readline from "node:readline"
 import { PAWWORK_APP, type PawWorkChannel } from "../src/main/app-identity.ts"
@@ -800,9 +799,6 @@ async function main() {
   }
 }
 
-// tsx wraps the entry module, and there `import.meta.main` is undefined — the
-// smoke would exit 0 having verified nothing. Every caller (package script and
-// both packaged CI jobs) runs through tsx, so compare the entry path instead.
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (import.meta.main) {
   await main()
 }
