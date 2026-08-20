@@ -38,7 +38,19 @@ function spawnFinalizer(binDir: string, latestDir: string, runnerTemp: string, e
   }
 }
 
-describe("release metadata finalizer", () => {
+// The finalizer reaches GitHub through `execFile("gh", ...)` with no shell, and
+// these tests substitute it with a stub on PATH. That substitution has no
+// Windows equivalent: a PATH shim there must be a .cmd, and execFile refuses to
+// spawn .cmd without a shell, while making the finalizer use a shell would push
+// release-note and path arguments through cmd quoting. Adding a GH_BIN override
+// does not help either, since the stub still has to be directly spawnable.
+//
+// What that leaves uncovered on Windows is only the stub boundary. The merge,
+// upload, and published-release-guard logic under test is plain Node file and
+// YAML work with no platform branch, and it is covered by the Linux and macOS
+// runs. Against a real Windows release the finalizer calls gh.exe, which
+// execFile spawns normally, and build.yml runs this step on windows-latest.
+describe.skipIf(process.platform === "win32")("release metadata finalizer", () => {
   test("merges macOS and Windows updater metadata", async () => {
     const root = mkdtempSync(join(tmpdir(), "pawwork-release-metadata-"))
     roots.push(root)
