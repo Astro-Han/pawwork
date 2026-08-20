@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { AutomationStore, automationRunSessionId } = require('./automations.cjs');
 
 // The automation tools are registered per agent by an agent/created listener, and
 // two of that listener's guards have no other expression anywhere: an automation's
@@ -70,7 +71,21 @@ test('gives a root agent the automation tools', async () => {
 });
 
 test('withholds the automation tools from an automation run session', async () => {
-  const agent = fakeAgent('pawwork-automation-run-42');
+  // Named from a real run record rather than a literal: the executor and this
+  // exclusion derive the session id from the same rule, so a change to the
+  // run-id format has to break here instead of silently re-arming the tools.
+  const store = new AutomationStore(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-run-id-')), 'automations.json'));
+  const definition = store.createDefinition({
+    title: 'Brief',
+    prompt: 'Write the brief.',
+    cwd: '/workspace',
+    model: { provider: 'opencode', model: 'big-pickle' },
+    timezone: 'UTC',
+    kind: 'recurring',
+    rhythm: { kind: 'interval', everyMs: 60_000 },
+  }, 1_000);
+  const run = store.createRunRecord(definition.id, 2_000);
+  const agent = fakeAgent(automationRunSessionId(run.id));
   const { emit } = await applyPlugin({ roots: [agent] });
 
   emit('agent/created', { agent });

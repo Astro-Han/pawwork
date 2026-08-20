@@ -5,14 +5,14 @@ const require = createRequire(import.meta.url);
 const {
   AutomationScheduler,
   AutomationStore,
+  automationRunSessionId,
   createAutomationRpcHandler,
   createAutomationToolDefinitions,
+  isAutomationRunSession,
 } = require('./automations.cjs');
 
 export const name = 'pawwork-automations';
 export const inject = ['agentDefaultModel', 'agents', 'connection', 'sessions', 'sessionTitle'];
-
-const AUTOMATION_SESSION_PREFIX = 'pawwork-automation-run-';
 
 function eventTurn(event) {
   return Number.isSafeInteger(event?.data?.turn) ? event.data.turn : null;
@@ -41,7 +41,7 @@ export function createDshExecutor(ctx) {
     signal.throwIfAborted();
     const sessionId = definition.context === 'continue'
       ? definition.sourceSessionId
-      : `pawwork-${run.id}`;
+      : automationRunSessionId(run.id);
     let handle;
     let agent = definition.context === 'continue' ? ctx.agents.get(sessionId) : undefined;
     if (!agent) {
@@ -106,7 +106,7 @@ export function createDshExecutor(ctx) {
 }
 
 function registerAgentTools(ctx, agent, store, scheduler) {
-  if (agent.id.startsWith(AUTOMATION_SESSION_PREFIX)) return;
+  if (isAutomationRunSession(agent.id)) return;
   agent.ctx.effect(() => {
     const definitions = createAutomationToolDefinitions({
       store,

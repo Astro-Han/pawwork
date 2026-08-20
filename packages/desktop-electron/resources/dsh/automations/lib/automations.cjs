@@ -9,6 +9,19 @@ const {
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const MIN_INTERVAL_MS = 30_000;
+const AUTOMATION_RUN_ID_PREFIX = 'automation-run-';
+
+// The executor names a run's DSH session after the run id, and tool registration
+// excludes exactly those sessions so an automation cannot schedule automations.
+// Both derive from the run-id prefix here: stated separately, a change to the
+// run-id format silently re-armed the tools inside automation runs.
+function automationRunSessionId(runId) {
+  return `pawwork-${runId}`;
+}
+
+function isAutomationRunSession(sessionId) {
+  return sessionId.startsWith(automationRunSessionId(AUTOMATION_RUN_ID_PREFIX));
+}
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -349,7 +362,7 @@ class AutomationStore {
     const definition = this.document.definitions.find((entry) => entry.id === automationId);
     if (!definition) throw new Error(`automation not found: ${automationId}`);
     const run = {
-      id: `automation-run-${this.document.nextRun++}`,
+      id: `${AUTOMATION_RUN_ID_PREFIX}${this.document.nextRun++}`,
       automationId,
       definitionRevision: definition.revision,
       triggeredAt: assertTimestamp(triggeredAt, 'triggeredAt'),
@@ -869,6 +882,8 @@ function createAutomationToolDefinitions({
 module.exports = {
   AutomationScheduler,
   AutomationStore,
+  automationRunSessionId,
   createAutomationRpcHandler,
   createAutomationToolDefinitions,
+  isAutomationRunSession,
 };
