@@ -12,14 +12,6 @@ function pathForPlatform(platform: NodeJS.Platform) {
   return platform === "win32" ? path.win32 : path.posix
 }
 
-function firstAbsolutePath(
-  platformPath: typeof path.posix | typeof path.win32,
-  fallback: string,
-  ...values: Array<string | undefined>
-) {
-  return values.find((value) => value && platformPath.isAbsolute(value)) ?? fallback
-}
-
 export function pendingUpdateCacheDir(input: CacheInput = {}) {
   const platform = input.platform ?? process.platform
   const homedir = input.homedir ?? currentHomedir()
@@ -27,12 +19,7 @@ export function pendingUpdateCacheDir(input: CacheInput = {}) {
   const platformPath = pathForPlatform(platform)
 
   const cacheRoot = platform === "win32"
-    ? firstAbsolutePath(
-      platformPath,
-      platformPath.join(homedir, "AppData", "Local"),
-      env.LOCALAPPDATA,
-      env.localappdata,
-    )
+    ? env.LOCALAPPDATA || platformPath.join(homedir, "AppData", "Local")
     : platformPath.join(homedir, "Library", "Caches")
   return platformPath.join(cacheRoot, UPDATER_CACHE_DIR_NAME, "pending")
 }

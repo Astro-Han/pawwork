@@ -120,7 +120,6 @@ export function resolveMainEntry() {
 
 export function buildSmokeEnv(
   homeDir: string,
-  channel: PawWorkChannel = "dev",
   env: NodeJS.ProcessEnv = process.env,
   options: BuildSmokeEnvOptions = {},
 ) {
@@ -690,7 +689,7 @@ function launchApp(homeDir: string, target: SmokeTarget, options: LaunchAppOptio
   const spawnError = { current: undefined as Error | undefined }
   try {
     const child = spawn(launch.command, launch.args, {
-      env: buildSmokeEnv(homeDir, target.channel, process.env, { cdpPort: options.cdpPort }),
+      env: buildSmokeEnv(homeDir, process.env, { cdpPort: options.cdpPort }),
       stdio: ["ignore", "pipe", "pipe"],
     })
     child.on("error", (error) => {

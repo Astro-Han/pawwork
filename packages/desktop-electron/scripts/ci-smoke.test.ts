@@ -62,21 +62,14 @@ describe("ci smoke helpers", () => {
     )
   })
 
-  test("buildSmokeEnv carries the requested channel into the child process", () => {
-    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", "prod")
-
-    expect(env.PAWWORK_CI_SMOKE).toBe("true")
-    expect(env.PAWWORK_CI_SMOKE_HOME).toBe("/tmp/pawwork-ci-smoke")
-  })
-
   test("buildSmokeEnv carries the workflow-scoped CDP port into the child process", () => {
-    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", "dev", { PAWWORK_CI_SMOKE_CDP_PORT: "48291" })
+    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", { PAWWORK_CI_SMOKE_CDP_PORT: "48291" })
 
     expect(env.PAWWORK_CI_SMOKE_CDP_PORT).toBe("48291")
   })
 
   test("buildSmokeEnv injects the harness-allocated CDP port into the child process", () => {
-    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", "dev", {}, { cdpPort: 48291 })
+    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", {}, { cdpPort: 48291 })
 
     expect(env.PAWWORK_CI_SMOKE_CDP_PORT).toBe("48291")
   })

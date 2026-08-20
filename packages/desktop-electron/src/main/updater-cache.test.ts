@@ -13,17 +13,7 @@ describe("updater cache path", () => {
       pendingUpdateCacheDir({
         platform: "win32",
         homedir: "C:\\Users\\demo",
-        env: { LOCALAPPDATA: "C:\\Users\\demo\\AppData\\Local" },
-      }),
-    ).toBe("C:\\Users\\demo\\AppData\\Local\\pawwork-updater\\pending")
-  })
-
-  test("resolves Windows pending cache from localappdata casing when present", () => {
-    expect(
-      pendingUpdateCacheDir({
-        platform: "win32",
-        homedir: "C:\\Users\\demo",
-        env: { localappdata: "D:\\Cache" },
+        env: { LOCALAPPDATA: "D:\\Cache" },
       }),
     ).toBe("D:\\Cache\\pawwork-updater\\pending")
   })
@@ -32,26 +22,6 @@ describe("updater cache path", () => {
     expect(pendingUpdateCacheDir({ platform: "win32", homedir: "C:\\Users\\demo", env: {} })).toBe(
       "C:\\Users\\demo\\AppData\\Local\\pawwork-updater\\pending",
     )
-  })
-
-  test("ignores relative Windows cache roots from env", () => {
-    expect(
-      pendingUpdateCacheDir({
-        platform: "win32",
-        homedir: "C:\\Users\\demo",
-        env: { LOCALAPPDATA: "relative-cache" },
-      }),
-    ).toBe("C:\\Users\\demo\\AppData\\Local\\pawwork-updater\\pending")
-  })
-
-  test("uses lowercase Windows cache root when uppercase env is relative", () => {
-    expect(
-      pendingUpdateCacheDir({
-        platform: "win32",
-        homedir: "C:\\Users\\demo",
-        env: { LOCALAPPDATA: "relative-cache", localappdata: "D:\\Cache" },
-      }),
-    ).toBe("D:\\Cache\\pawwork-updater\\pending")
   })
 
 })
