@@ -1,10 +1,12 @@
 import type { MenuLocale } from "./menu-labels"
+import type { UpdateFailureReason } from "./updater"
 
 type FailedLabels = {
   title: string
-  fallbackMessage: string
   installFailedMessage: string
-  reasonCopy: Partial<Record<"check" | "download" | "metadata" | "cache", string>>
+  // Total, not partial: a reason with no copy would silently show a generic
+  // message instead, and the locale that still has it would look correct.
+  reasonCopy: Record<UpdateFailureReason, string>
   currentVersionUnaffected: string
   buttons: { retry: string; openDownloadPage: string; later: string }
 }
@@ -29,7 +31,6 @@ const labels: Record<MenuLocale, Labels> = {
     },
     failed: {
       title: "Update Failed",
-      fallbackMessage: "Failed to check for updates.",
       installFailedMessage: "Installation failed.",
       reasonCopy: {
         check: "Could not reach GitHub. The network may be slow or blocked.",
@@ -61,7 +62,6 @@ const labels: Record<MenuLocale, Labels> = {
     },
     failed: {
       title: "更新失败",
-      fallbackMessage: "检查更新失败。",
       installFailedMessage: "安装失败。",
       reasonCopy: {
         check: "无法连接 GitHub。网络可能较慢或被阻断。",

@@ -1,49 +1,35 @@
 import { describe, expect, test } from "vitest"
 import { updaterDialogLabels } from "./updater-dialog-labels"
 
+// Every field is required by the Labels type, so pinning the copy here only
+// restated the table. What the type cannot say is that the Chinese table was
+// actually translated: a string left in English typechecks, and so does a table
+// swapped wholesale between the two locales.
+function copyIn(labels: unknown): string[] {
+  if (typeof labels === "string") return [labels]
+  if (typeof labels === "function") return copyIn((labels as (version?: string) => string)("1.2.3"))
+  if (Array.isArray(labels)) return labels.flatMap(copyIn)
+  if (labels && typeof labels === "object") return Object.values(labels).flatMap(copyIn)
+  return []
+}
+
+const hasChinese = (copy: string) => /[一-鿿]/.test(copy)
+
 describe("updater dialog labels", () => {
-  test("localizes simplified Chinese labels", () => {
-    const labels = updaterDialogLabels("zh")
-
-    expect(labels.busy.title).toBe("正在检查更新")
-    expect(labels.busy.message).toBe("正在检查更新。")
-    expect(labels.disabled.message).toBe("此构建不支持更新。")
-    expect(labels.failed.title).toBe("更新失败")
-    expect(labels.none.message).toBe("已是最新版本。")
-    expect(labels.ready.message("0.2.5")).toBe("更新 0.2.5 已下载。现在重启？")
-    expect(labels.ready.buttons).toEqual(["重启", "稍后"])
+  test("translates every label into Simplified Chinese", () => {
+    expect(copyIn(updaterDialogLabels("zh")).filter((copy) => !hasChinese(copy))).toEqual([])
   })
 
-  test("returns English labels", () => {
-    const labels = updaterDialogLabels("en")
-
-    expect(labels.busy.title).toBe("Update Check in Progress")
-    expect(labels.ready.message(undefined)).toBe("Update downloaded. Restart now?")
+  test("leaves no Chinese in the English labels", () => {
+    expect(copyIn(updaterDialogLabels("en")).filter(hasChinese)).toEqual([])
   })
 
-  test("exposes reason-specific failed copy and recovery buttons in Simplified Chinese", () => {
-    const labels = updaterDialogLabels("zh")
-
-    expect(labels.failed.title).toBe("更新失败")
-    expect(labels.failed.installFailedMessage).toBe("安装失败。")
-    expect(labels.failed.reasonCopy.check).toBe("无法连接 GitHub。网络可能较慢或被阻断。")
-    expect(labels.failed.reasonCopy.download).toBe("下载未完成。")
-    expect(labels.failed.reasonCopy.metadata).toBe("更新信息不完整或无效。")
-    expect(labels.failed.reasonCopy.cache).toBe("缓存的更新处于异常状态。")
-    expect(labels.failed.currentVersionUnaffected).toBe("当前版本未受影响，可继续使用。")
-    expect(labels.failed.buttons).toEqual({ retry: "重试", openDownloadPage: "打开下载页", later: "稍后" })
-  })
-
-  test("exposes reason-specific failed copy in English", () => {
-    const labels = updaterDialogLabels("en")
-
-    expect(labels.failed.title).toBe("Update Failed")
-    expect(labels.failed.installFailedMessage).toBe("Installation failed.")
-    expect(labels.failed.reasonCopy.check).toBe("Could not reach GitHub. The network may be slow or blocked.")
-    expect(labels.failed.reasonCopy.download).toBe("The download did not complete.")
-    expect(labels.failed.reasonCopy.metadata).toBe("The update information was incomplete or invalid.")
-    expect(labels.failed.reasonCopy.cache).toBe("The cached update is in an unexpected state.")
-    expect(labels.failed.currentVersionUnaffected).toBe("Your current version is unaffected and continues to work.")
-    expect(labels.failed.buttons).toEqual({ retry: "Retry", openDownloadPage: "Open Download Page", later: "Later" })
+  // The one label that is computed rather than written down.
+  test("names the version in the restart prompt when the updater knows it", () => {
+    for (const locale of ["en", "zh"] as const) {
+      const { message } = updaterDialogLabels(locale).ready
+      expect(message("0.2.5")).toContain("0.2.5")
+      expect(message(undefined)).not.toContain("undefined")
+    }
   })
 })

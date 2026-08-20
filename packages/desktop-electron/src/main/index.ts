@@ -295,7 +295,7 @@ async function checkForUpdates(alertOnFail: boolean) {
     const response = await dialog.showMessageBox({
       type: "error",
       title: labels.failed.title,
-      message: labels.failed.reasonCopy[result.reason] ?? labels.failed.fallbackMessage,
+      message: labels.failed.reasonCopy[result.reason],
       detail: [result.message, labels.failed.currentVersionUnaffected].filter(Boolean).join("\n\n"),
       buttons: [labels.failed.buttons.retry, labels.failed.buttons.openDownloadPage, labels.failed.buttons.later],
       defaultId: 0,

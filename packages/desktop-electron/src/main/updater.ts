@@ -4,12 +4,16 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+// Every reason needs dialog copy in every locale, so the set is stated once and
+// updater-dialog-labels is typed against it.
+export type UpdateFailureReason = "check" | "download" | "metadata" | "cache"
+
 export type UpdateResult =
   | { status: "disabled" }
   | { status: "none" }
   | { status: "busy" }
   | { status: "ready"; version: string }
-  | { status: "failed"; reason: "check" | "download" | "metadata" | "cache"; message: string }
+  | { status: "failed"; reason: UpdateFailureReason; message: string }
 
 type UpdateInfo = {
   version?: string
