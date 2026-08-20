@@ -25,3 +25,12 @@ export function isPawWorkChannel(raw: string | undefined): raw is PawWorkChannel
   // "__proto__" would answer yes and produce a build with no appId.
   return raw !== undefined && Object.hasOwn(PAWWORK_APP, raw)
 }
+
+// 爪印 is the product name in Chinese; the channel suffix is not translated. The
+// menu applies this at runtime to app.getName() and the packager writes it into
+// InfoPlist.strings at pack time, so it is stated once rather than as a table
+// per consumer. resources/installer.nsh restates it a third time and cannot
+// import TypeScript — electron-builder-nsis-shortcut.test.ts pins those strings.
+export function localizedPawWorkName(name: string) {
+  return name.replace(/^PawWork\b/, "爪印")
+}

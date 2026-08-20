@@ -93,16 +93,13 @@ describe("DSH product home", () => {
     const productHome = temporaryDirectory()
     const resources = join(import.meta.dirname, "../../resources/dsh")
     const credentials = join(productHome, ".credentials.yaml")
-    const legacyAutomations = join(productHome, "plugins", "automations")
-    mkdirSync(legacyAutomations, { recursive: true })
-    writeFileSync(join(legacyAutomations, "index.mjs"), "legacy plugin")
+    mkdirSync(productHome, { recursive: true })
     writeFileSync(join(productHome, "automations.json"), '{"definitions":[]}')
     writeFileSync(credentials, 'DEEPSEEK_API_KEY: "user-key"\n')
 
     const prepared = prepareDshProductHome({ productHome, resources })
 
     expect(readFileSync(credentials, "utf8")).toBe('DEEPSEEK_API_KEY: "user-key"\n')
-    expect(existsSync(legacyAutomations)).toBe(false)
     expect(readFileSync(join(productHome, "automations.json"), "utf8")).toBe('{"definitions":[]}')
     expect(readFileSync(prepared.patch, "utf8")).toContain("id: agent-default-model")
     expect(

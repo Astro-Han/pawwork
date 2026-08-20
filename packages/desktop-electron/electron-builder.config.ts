@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
-import { PAWWORK_APP, PAWWORK_PACKAGE_NAME, type PawWorkChannel, isPawWorkChannel } from "./src/main/app-identity"
+import { PAWWORK_APP, PAWWORK_PACKAGE_NAME, type PawWorkChannel, isPawWorkChannel, localizedPawWorkName } from "./src/main/app-identity"
 
 const execFileAsync = promisify(execFile)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
@@ -16,12 +16,6 @@ type GitHubPublishConfig = {
   repo: string
   channel: string
 }
-const localizedMacDisplayNameByChannel: Record<PawWorkChannel, string> = {
-  dev: "爪印 Dev",
-  beta: "爪印 Beta",
-  prod: "爪印",
-}
-
 async function signWindows(configuration: { path: string }) {
   if (process.platform !== "win32") return
   if (process.env.GITHUB_ACTIONS !== "true") return
@@ -45,7 +39,7 @@ export function getPublishConfig(channel: PawWorkChannel): GitHubPublishConfig |
 }
 
 async function writeLocalizedMacDisplayName(resourcesDir: string, channel: PawWorkChannel) {
-  const name = localizedMacDisplayNameByChannel[channel]
+  const name = localizedPawWorkName(PAWWORK_APP[channel].name)
   const content = [`CFBundleDisplayName = "${name}";`, `CFBundleName = "${name}";`, ""].join("\n")
 
   for (const locale of ["zh-Hans.lproj", "zh_CN.lproj"]) {

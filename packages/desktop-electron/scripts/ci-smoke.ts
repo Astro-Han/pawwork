@@ -131,7 +131,6 @@ export function buildSmokeEnv(
     XDG_CACHE_HOME: homeDir,
     XDG_CONFIG_HOME: homeDir,
     XDG_STATE_HOME: homeDir,
-    OPENCODE_CHANNEL: channel,
     ...(options.cdpPort !== undefined ? { PAWWORK_CI_SMOKE_CDP_PORT: String(options.cdpPort) } : {}),
   }
 }
@@ -628,15 +627,11 @@ function resolveElectronBinary() {
   return require("electron/index.js") as string
 }
 
-type LaunchCommandOptions = {
-  electronBinary?: () => string
-}
-
-export function resolveLaunchCommand(target: SmokeTarget, options: LaunchCommandOptions = {}) {
+export function resolveLaunchCommand(target: SmokeTarget) {
   if (target.mode === "packaged") {
     return { command: target.executablePath, args: [] as string[] }
   }
-  return { command: (options.electronBinary ?? resolveElectronBinary)(), args: [resolveMainEntry()] }
+  return { command: resolveElectronBinary(), args: [resolveMainEntry()] }
 }
 
 function watchChildLogs(child: SmokeChild) {

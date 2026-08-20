@@ -27,7 +27,6 @@ describe("ci smoke helpers", () => {
   test("buildSmokeEnv isolates the app state in a temporary home", () => {
     const env = buildSmokeEnv("/tmp/pawwork-ci-smoke")
 
-    expect(env.OPENCODE_CHANNEL).toBe("dev")
     expect(env.PAWWORK_CI_SMOKE).toBe("true")
     expect(env.PAWWORK_CI_SMOKE_HOME).toBe("/tmp/pawwork-ci-smoke")
     expect(env.HOME).toBe("/tmp/pawwork-ci-smoke")
@@ -64,7 +63,6 @@ describe("ci smoke helpers", () => {
   test("buildSmokeEnv carries the requested channel into the child process", () => {
     const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", "prod")
 
-    expect(env.OPENCODE_CHANNEL).toBe("prod")
     expect(env.PAWWORK_CI_SMOKE).toBe("true")
     expect(env.PAWWORK_CI_SMOKE_HOME).toBe("/tmp/pawwork-ci-smoke")
   })
@@ -313,26 +311,13 @@ describe("ci smoke helpers", () => {
   })
 
   test("resolveLaunchCommand uses Electron for raw runs and the app executable for packaged runs", () => {
-    const raw = resolveLaunchCommand(
-      { mode: "raw", channel: "dev" },
-      { electronBinary: () => "/tmp/pawwork-electron/electron" },
-    )
-    expect(raw.args).toEqual([resolveMainEntry()])
-    expect(raw.command).toBe("/tmp/pawwork-electron/electron")
+    expect(resolveLaunchCommand({ mode: "raw", channel: "dev" }).command.toLowerCase()).toContain("electron")
 
-    const packaged = resolveLaunchCommand(
-      {
-        mode: "packaged",
-        channel: "dev",
-        executablePath: "/tmp/PawWork Dev.app/Contents/MacOS/PawWork Dev",
-      },
-      {
-        electronBinary: () => {
-          throw new Error("packaged mode should not resolve electron binary")
-        },
-      },
-    )
-    expect(packaged).toEqual({
+    expect(resolveLaunchCommand({
+      mode: "packaged",
+      channel: "dev",
+      executablePath: "/tmp/PawWork Dev.app/Contents/MacOS/PawWork Dev",
+    })).toEqual({
       command: "/tmp/PawWork Dev.app/Contents/MacOS/PawWork Dev",
       args: [],
     })

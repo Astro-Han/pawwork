@@ -146,8 +146,5 @@ export function createUpdaterController(deps: Deps) {
       deps.log("dismissed ready update")
       return true
     },
-    busy() {
-      return Boolean(inflight)
-    },
   }
 }

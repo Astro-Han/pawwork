@@ -1,3 +1,4 @@
+import { localizedPawWorkName } from "./app-identity"
 import { app, BrowserWindow, Menu, shell } from "electron"
 import log from "electron-log/main.js"
 import { detectSystemMenuLocale, menuLabel, menuRoleLabel, type MenuLocale } from "./menu-labels"
@@ -12,7 +13,7 @@ type DshMenuOptions = {
 export function createDshMenu(options: DshMenuOptions, locale: MenuLocale = detectSystemMenuLocale(app.getLocale())) {
   if (process.platform !== "darwin" && process.platform !== "win32") return
 
-  const appName = locale === "zh" ? app.getName().replace(/^PawWork\b/, "爪印") : app.getName()
+  const appName = locale === "zh" ? localizedPawWorkName(app.getName()) : app.getName()
   const label = (key: Parameters<typeof menuLabel>[1]) => menuLabel(locale, key)
   const roleLabel = (key: Parameters<typeof menuRoleLabel>[1]) => menuRoleLabel(locale, key, appName)
   const openExternal = (url: string) => {
