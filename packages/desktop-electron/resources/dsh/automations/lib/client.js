@@ -126,6 +126,29 @@ window.__ModuleLoader__.load({
     function isChinese() { return document.documentElement.lang.startsWith("zh") }
     function text(chinese, english) { return isChinese() ? chinese : english }
 
+    // Editor order: the week starts on Monday in the select, and Sunday is cron 0.
+    const WEEKDAYS = [["1", "周一", "Monday"], ["2", "周二", "Tuesday"], ["3", "周三", "Wednesday"], ["4", "周四", "Thursday"], ["5", "周五", "Friday"], ["6", "周六", "Saturday"], ["0", "周日", "Sunday"]]
+
+    // One statement of which cron expressions the editor's presets round-trip.
+    // The list label read it, the editor form read it, and the save path wrote
+    // it, each with its own copy — and they had drifted: the form recognised a
+    // weekly expression it had written itself while the label showed raw cron.
+    function cronPreset(expression) {
+      const [minute, hour, day, month, weekday] = String(expression).split(/\s+/)
+      if (!/^\d+$/.test(hour) || !/^\d+$/.test(minute) || day !== "*" || month !== "*") return null
+      const time = `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`
+      if (weekday === "*") return { frequency: "daily", time }
+      if (weekday === "1-5") return { frequency: "weekdays", time }
+      if (WEEKDAYS.some(([value]) => value === weekday)) return { frequency: "weekly", time, weekday }
+      return null
+    }
+
+    function presetCron({ frequency, time, weekday }) {
+      const [hour, minute] = String(time).split(":").map(Number)
+      if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null
+      return `${minute} ${hour} * * ${frequency === "daily" ? "*" : frequency === "weekdays" ? "1-5" : weekday}`
+    }
+
     function automationCall(connection, endpoint, payload = {}, signal) {
       return connection.rpc.call("/pawwork-automations", endpoint, payload, signal).then((result) => {
         if (!result.ok) throw new Error(result.error.message)
@@ -148,11 +171,13 @@ window.__ModuleLoader__.load({
         if (Number.isInteger(minutes / 60)) return text(`每 ${minutes / 60} 小时`, `Every ${minutes / 60}h`)
         return text(`每 ${minutes} 分钟`, `Every ${minutes}m`)
       }
-      const [minute, hour, day, month, weekday] = definition.rhythm.expression.split(/\s+/)
-      const clock = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
-      const simpleTime = /^\d+$/.test(hour) && /^\d+$/.test(minute)
-      if (simpleTime && day === "*" && month === "*" && weekday === "*") return text(`每天 ${clock}`, `Daily ${clock}`)
-      if (simpleTime && day === "*" && month === "*" && weekday === "1-5") return text(`工作日 ${clock}`, `Weekdays ${clock}`)
+      const preset = cronPreset(definition.rhythm.expression)
+      if (preset?.frequency === "daily") return text(`每天 ${preset.time}`, `Daily ${preset.time}`)
+      if (preset?.frequency === "weekdays") return text(`工作日 ${preset.time}`, `Weekdays ${preset.time}`)
+      if (preset?.frequency === "weekly") {
+        const [, chinese, english] = WEEKDAYS.find(([value]) => value === preset.weekday)
+        return text(`每${chinese} ${preset.time}`, `${english}s ${preset.time}`)
+      }
       return `Cron ${definition.rhythm.expression}`
     }
     function runState(run) {
@@ -197,12 +222,8 @@ window.__ModuleLoader__.load({
       const base = { time: "09:00", weekday: "1", intervalMinutes: "60", cron: "0 9 * * *", at: localDateTime(Date.now() + 3_600_000) }
       if (definition.kind === "oneshot") return { ...base, frequency: "once", at: localDateTime(definition.fireAt) }
       if (definition.rhythm.kind === "interval") return { ...base, frequency: "interval", intervalMinutes: String(definition.rhythm.everyMs / 60_000) }
-      const [minute, hour, day, month, weekday] = definition.rhythm.expression.split(/\s+/)
-      const timeValue = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
-      const simpleTime = /^\d+$/.test(hour) && /^\d+$/.test(minute)
-      if (simpleTime && day === "*" && month === "*" && weekday === "*") return { ...base, frequency: "daily", time: timeValue, cron: definition.rhythm.expression }
-      if (simpleTime && day === "*" && month === "*" && weekday === "1-5") return { ...base, frequency: "weekdays", time: timeValue, cron: definition.rhythm.expression }
-      if (simpleTime && day === "*" && month === "*" && /^[0-6]$/.test(weekday)) return { ...base, frequency: "weekly", time: timeValue, weekday, cron: definition.rhythm.expression }
+      const preset = cronPreset(definition.rhythm.expression)
+      if (preset) return { ...base, ...preset, cron: definition.rhythm.expression }
       return { ...base, frequency: "cron", cron: definition.rhythm.expression }
     }
     function formState(definition) {
@@ -212,6 +233,16 @@ window.__ModuleLoader__.load({
         runCount: definition.stop?.kind === "count" ? String(definition.stop.count) : "",
       }
     }
+    function stopPayload(runCount) {
+      const trimmed = String(runCount).trim()
+      if (!trimmed) return { kind: "never" }
+      const count = Number(trimmed)
+      // "0" is truthy as a string, so an empty check let it through and the user
+      // met the backend's untranslated "run_count must be a positive integer".
+      if (!Number.isSafeInteger(count) || count < 1) throw new Error(text("运行次数至少为 1", "Run count must be at least 1"))
+      return { kind: "count", count }
+    }
+
     function schedulePayload(form) {
       if (form.frequency === "once") {
         const fireAt = new Date(form.at).getTime()
@@ -228,10 +259,8 @@ window.__ModuleLoader__.load({
       }
       let expression = form.cron
       if (["daily", "weekdays", "weekly"].includes(form.frequency)) {
-        const [hour, minute] = form.time.split(":").map(Number)
-        if (!Number.isInteger(hour) || !Number.isInteger(minute)) throw new Error(text("请选择运行时间", "Choose a run time"))
-        const weekday = form.frequency === "daily" ? "*" : form.frequency === "weekdays" ? "1-5" : form.weekday
-        expression = `${minute} ${hour} * * ${weekday}`
+        expression = presetCron(form)
+        if (!expression) throw new Error(text("请选择运行时间", "Choose a run time"))
       }
       return { kind: "recurring", rhythm: { kind: "cron", expression } }
     }
@@ -276,7 +305,7 @@ window.__ModuleLoader__.load({
           const common = {
             title: form.title, prompt: form.prompt,
             model: { provider: form.provider, model: form.model }, timezone: form.timezone,
-            ...(schedule.kind === "recurring" ? { stop: form.runCount ? { kind: "count", count: Number(form.runCount) } : { kind: "never" } } : {}),
+            ...(schedule.kind === "recurring" ? { stop: stopPayload(form.runCount) } : {}),
           }
           const result = await automationCall(connection, "update", { id: definition.id, expectedRevision: definition.revision, ...common, ...(schedule.kind === "oneshot" ? { fireAt: schedule.fireAt } : { rhythm: schedule.rhythm }) })
           onSaved(result)
@@ -311,7 +340,7 @@ window.__ModuleLoader__.load({
       const scheduleOptions = definition.kind === "oneshot"
         ? [["once", text("单次", "Once")]]
         : [["daily", text("每天", "Daily")], ["weekdays", text("工作日", "Weekdays")], ["weekly", text("每周", "Weekly")], ["interval", text("固定间隔", "Interval")], ["cron", "Cron"]]
-      const weekdayOptions = [["1", text("周一", "Monday")], ["2", text("周二", "Tuesday")], ["3", text("周三", "Wednesday")], ["4", text("周四", "Thursday")], ["5", text("周五", "Friday")], ["6", text("周六", "Saturday")], ["0", text("周日", "Sunday")]]
+      const weekdayOptions = WEEKDAYS.map(([value, chinese, english]) => [value, text(chinese, english)])
       return h("section", { className: "pawwork-automation-panel" }, h("div", { className: "pawwork-automation-panel-inner" },
         h(Button, { className: "pawwork-automation-back", icon: h(IconChevronLeftOutline14, { size: 14 }), onClick: requestClose, size: "sm", type: "button", variant: "ghost" }, text("返回自动化", "Back to Automations")),
         h("div", { className: "pawwork-automation-panel-head" },

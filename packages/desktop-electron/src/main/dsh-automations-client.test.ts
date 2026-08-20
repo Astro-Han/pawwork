@@ -6,6 +6,47 @@ import { describe, expect, test, vi } from "vitest"
 const repositoryRoot = resolve(import.meta.dirname, "../../../..")
 const automationsRoot = resolve(repositoryRoot, "packages/desktop-electron/resources/dsh/automations")
 
+type Element = { type: unknown; props: Record<string, unknown> }
+
+function fakeDocument(lang: string) {
+  return {
+    documentElement: { lang },
+    querySelector: () => null,
+    createElement: () => ({ dataset: {}, textContent: "" }),
+    head: { appendChild: () => {} },
+  }
+}
+
+// The plugin builds its tree with h(), so calling a function component inline
+// renders it eagerly: the result is the whole tree, already flattened.
+const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]): unknown => {
+  const nextProps = { ...props, children }
+  return typeof type === "function" ? type(nextProps) : { type, props: nextProps }
+}
+
+const primitive = (type: string) => (props: Record<string, unknown>) => ({ type, props })
+
+function visit(node: unknown): Element[] {
+  if (Array.isArray(node)) return node.flatMap(visit)
+  if (!node || typeof node !== "object") return []
+  const element = node as Element
+  return [element, ...((element.props?.children as unknown[]) || []).flatMap(visit)]
+}
+
+function textOf(tree: unknown) {
+  return visit(tree).flatMap((element) => (element.props.children as unknown[] | undefined) ?? [])
+    .filter((child): child is string => typeof child === "string")
+}
+
+const primitives = {
+  Button: primitive("button"), DisclosureRow: primitive("div"), Input: primitive("input"),
+  Menu: primitive("div"), Modal: primitive("div"), Pill: primitive("button"), StateDot: primitive("span"),
+  IconChevronLeftOutline14: "IconChevronLeftOutline14", IconChevronDownOutline14: "IconChevronDownOutline14",
+  IconPauseOutline16: "IconPauseOutline16", IconPlayOutline16: "IconPlayOutline16",
+  IconSearchOutline16: "IconSearchOutline16", IconSettingsOutline16: "IconSettingsOutline16",
+  IconTrashOutline16: "IconTrashOutline16",
+}
+
 describe("PawWork DSH Automations client", () => {
   test("declares one packaged DSH plugin", () => {
     const automationsPackage = JSON.parse(readFileSync(resolve(automationsRoot, "package.json"), "utf8"))
@@ -55,19 +96,9 @@ describe("PawWork DSH Automations client", () => {
   })
 
   test("creates through chat and closes Settings", async () => {
-    const document = {
-      documentElement: { lang: "zh-CN" },
-      querySelector: () => null,
-      createElement: () => ({ dataset: {}, textContent: "" }),
-      head: { appendChild: () => {} },
-    }
+    const document = fakeDocument("zh-CN")
     const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
 
-    const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]): unknown => {
-      const nextProps = { ...props, children }
-      return typeof type === "function" ? type(nextProps) : { type, props: nextProps }
-    }
-    const primitive = (type: string) => (props: Record<string, unknown>) => ({ type, props })
     const plugin = definition.factory((name) => {
       if (name === "react") {
         return {
@@ -113,12 +144,6 @@ describe("PawWork DSH Automations client", () => {
         recentWorkspaceId: "workspace-1",
       }),
     })
-    const visit = (node: unknown): Array<{ type: unknown; props: Record<string, unknown> }> => {
-      if (Array.isArray(node)) return node.flatMap(visit)
-      if (!node || typeof node !== "object") return []
-      const element = node as { type: unknown; props: Record<string, unknown> }
-      return [element, ...((element.props?.children as unknown[]) || []).flatMap(visit)]
-    }
     const createButton = visit(tree).find((element) =>
       element.type === "button" && (element.props.children as unknown[] | undefined)?.includes("在对话中创建"),
     )
@@ -131,13 +156,207 @@ describe("PawWork DSH Automations client", () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 
-  test("opens a completed run session and closes Settings", async () => {
-    const document = {
-      documentElement: { lang: "en" },
-      querySelector: () => null,
-      createElement: () => ({ dataset: {}, textContent: "" }),
-      head: { appendChild: () => {} },
+  // The list label, the editor form and the save path each read this mapping.
+  // Stated three times they had already drifted: the form round-tripped a weekly
+  // expression it wrote itself, while the list showed it as "Cron 0 9 * * 3".
+  test.each([
+    ["zh-CN", "0 9 * * *", "每天 09:00"],
+    ["zh-CN", "30 18 * * 1-5", "工作日 18:30"],
+    ["zh-CN", "0 9 * * 3", "每周三 09:00"],
+    ["zh-CN", "0 9 * * 0", "每周日 09:00"],
+    ["en", "0 9 * * 3", "Wednesdays 09:00"],
+    ["en", "0 9 1 * *", "Cron 0 9 1 * *"],
+    ["en", "*/5 * * * *", "Cron */5 * * * *"],
+  ])("labels %s cron %s as %s", (lang, expression, label) => {
+    const document = fakeDocument(lang)
+    const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
+    // The section's first hook holds what it loaded; nothing else is selected,
+    // so the tree is the list and the label under test is in it.
+    let stateCall = 0
+    const plugin = definition.factory((name) => {
+      if (name === "react") {
+        return {
+          createElement,
+          useEffect: () => {},
+          useRef: <T>(value: T) => ({ current: value }),
+          useState: <T>(value: T) => {
+            stateCall += 1
+            if (stateCall === 1) {
+              return [{ definitions: [{
+                id: "automation-1",
+                title: "Weekly digest",
+                prompt: "Summarize the week",
+                revision: 1,
+                paused: false,
+                context: "fresh",
+                cwd: "/tmp/workspace",
+                model: { provider: "opencode", model: "deepseek-v4-flash-free" },
+                timezone: "UTC",
+                kind: "recurring",
+                rhythm: { kind: "cron", expression },
+                stop: { kind: "never" },
+                recentRuns: [],
+              }] }, () => {}]
+            }
+            return [value, () => {}]
+          },
+        }
+      }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
+      throw new Error(`unexpected Automations client dependency: ${name}`)
+    })
+    let settingsSection: ((props: unknown) => unknown) | undefined
+    plugin.apply({
+      connection: {}, conversation: {}, sessions: {}, workspaces: {},
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (_options: unknown, component: typeof settingsSection) => { settingsSection = component },
+      },
+    })
+
+    const tree = settingsSection!({
+      close: () => {},
+      useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
+    })
+
+    // The row renders the schedule and the next fire time as one run of text.
+    expect(textOf(tree).join(" ")).toContain(label)
+  })
+
+  // The other half of the same mapping: the editor writes back what it read.
+  // Only the write path can catch a preset that stops carrying the weekday the
+  // user chose, because the label never sees the form.
+  test.each([
+    ["0 9 * * *", undefined],
+    ["30 18 * * 1-5", undefined],
+    ["0 9 * * 3", undefined],
+    ["0 9 * * 0", undefined],
+    ["0 9 * * 3", { kind: "count", count: 3 }],
+  ] as const)(
+    "saves the schedule it opened with, unchanged, for cron %s",
+    async (expression, stop) => {
+      const document = fakeDocument("en")
+      const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
+      const definitionData = {
+        id: "automation-1",
+        title: "Weekly digest",
+        prompt: "Summarize the week",
+        revision: 4,
+        paused: false,
+        context: "fresh",
+        cwd: "/tmp/workspace",
+        model: { provider: "opencode", model: "deepseek-v4-flash-free" },
+        timezone: "UTC",
+        kind: "recurring",
+        rhythm: { kind: "cron", expression },
+        stop: stop ?? { kind: "never" },
+        recentRuns: [],
+      }
+      let stateCall = 0
+      const plugin = definition.factory((name) => {
+        if (name === "react") {
+          return {
+            createElement,
+            useEffect: () => {},
+            useRef: <T>(value: T) => ({ current: value }),
+            useState: <T>(value: T) => {
+              stateCall += 1
+              if (stateCall === 1) return [{ definitions: [definitionData] }, () => {}]
+              if (stateCall === 2) return [definitionData.id, () => {}]
+              return [value, () => {}]
+            },
+          }
+        }
+        if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
+        throw new Error(`unexpected Automations client dependency: ${name}`)
+      })
+      let settingsSection: ((props: unknown) => unknown) | undefined
+      const call = vi.fn(async () => ({ ok: true, value: definitionData }))
+      plugin.apply({
+        connection: { rpc: { call } }, conversation: {}, sessions: {}, workspaces: {},
+        slots: {
+          inject: (_name: string, register: () => void) => register(),
+          register: (_options: unknown, component: typeof settingsSection) => { settingsSection = component },
+        },
+      })
+
+      const tree = settingsSection!({
+        close: () => {},
+        useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
+      })
+      // The editor opens with the form it derived from the definition, so
+      // submitting it untouched sends that definition's schedule back.
+      const form = visit(tree).find((element) => typeof element.props.onSubmit === "function")
+      expect(form).toBeDefined()
+      await (form!.props.onSubmit as (event: { preventDefault: () => void }) => Promise<void>)({
+        preventDefault: () => {},
+      })
+
+      expect(call).toHaveBeenCalledWith(
+        "/pawwork-automations",
+        "update",
+        expect.objectContaining({ rhythm: { kind: "cron", expression }, stop: stop ?? { kind: "never" } }),
+        undefined,
+      )
+    },
+  )
+
+  // "0" is truthy as a string, so an emptiness check sent stop.count = 0 and the
+  // user met the backend's untranslated rejection instead of the editor's.
+  test("refuses a run limit of zero instead of sending it to the backend", async () => {
+    const document = fakeDocument("en")
+    const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
+    const definitionData = {
+      id: "automation-1", title: "Weekly digest", prompt: "Summarize the week", revision: 4,
+      paused: false, context: "fresh", cwd: "/tmp/workspace",
+      model: { provider: "opencode", model: "deepseek-v4-flash-free" }, timezone: "UTC",
+      kind: "recurring", rhythm: { kind: "cron", expression: "0 9 * * 3" },
+      stop: { kind: "count", count: 0 }, recentRuns: [],
     }
+    let stateCall = 0
+    const stateWrites: unknown[] = []
+    const plugin = definition.factory((name) => {
+      if (name === "react") {
+        return {
+          createElement,
+          useEffect: () => {},
+          useRef: <T>(value: T) => ({ current: value }),
+          useState: <T>(value: T) => {
+            stateCall += 1
+            if (stateCall === 1) return [{ definitions: [definitionData] }, () => {}]
+            if (stateCall === 2) return [definitionData.id, () => {}]
+            return [value, (next: unknown) => stateWrites.push(next)]
+          },
+        }
+      }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
+      throw new Error(`unexpected Automations client dependency: ${name}`)
+    })
+    let settingsSection: ((props: unknown) => unknown) | undefined
+    const call = vi.fn(async () => ({ ok: true, value: definitionData }))
+    plugin.apply({
+      connection: { rpc: { call } }, conversation: {}, sessions: {}, workspaces: {},
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (_options: unknown, component: typeof settingsSection) => { settingsSection = component },
+      },
+    })
+
+    const tree = settingsSection!({
+      close: () => {},
+      useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
+    })
+    const form = visit(tree).find((element) => typeof element.props.onSubmit === "function")
+    await (form!.props.onSubmit as (event: { preventDefault: () => void }) => Promise<void>)({
+      preventDefault: () => {},
+    })
+
+    expect(call).not.toHaveBeenCalled()
+    expect(stateWrites).toContainEqual("Run count must be at least 1")
+  })
+
+  test("opens a completed run session and closes Settings", async () => {
+    const document = fakeDocument("en")
     const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
 
     const definitionData = {
@@ -162,13 +381,12 @@ describe("PawWork DSH Automations client", () => {
         result: "Done",
       }],
     }
+    // Only the first two hooks are keyed by position, and they are the outer
+    // section's own: the loaded data and the selected id. Every other setter
+    // records what it was handed, so the error assertion does not depend on
+    // which hook inside the editor happens to hold it.
     let stateCall = 0
-    const setEditorError = vi.fn(() => {})
-    const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]): unknown => {
-      const nextProps = { ...props, children }
-      return typeof type === "function" ? type(nextProps) : { type, props: nextProps }
-    }
-    const primitive = (type: string) => (props: Record<string, unknown>) => ({ type, props })
+    const stateWrites: unknown[] = []
     const plugin = definition.factory((name) => {
       if (name === "react") {
         return {
@@ -179,21 +397,11 @@ describe("PawWork DSH Automations client", () => {
             stateCall += 1
             if (stateCall === 1) return [{ definitions: [definitionData] }, () => {}]
             if (stateCall === 2) return [definitionData.id, () => {}]
-            if (stateCall === 9) return [value, setEditorError]
-            return [value, () => {}]
+            return [value, (next: unknown) => stateWrites.push(next)]
           },
         }
       }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") {
-        return {
-          Button: primitive("button"), DisclosureRow: primitive("div"), Input: primitive("input"),
-          Menu: primitive("div"), Modal: primitive("div"), Pill: primitive("button"), StateDot: primitive("span"),
-          IconChevronLeftOutline14: "IconChevronLeftOutline14", IconChevronDownOutline14: "IconChevronDownOutline14",
-          IconPauseOutline16: "IconPauseOutline16", IconPlayOutline16: "IconPlayOutline16",
-          IconSearchOutline16: "IconSearchOutline16", IconSettingsOutline16: "IconSettingsOutline16",
-          IconTrashOutline16: "IconTrashOutline16",
-        }
-      }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
       throw new Error(`unexpected Automations client dependency: ${name}`)
     })
     let settingsSection: ((props: unknown) => unknown) | undefined
@@ -214,12 +422,6 @@ describe("PawWork DSH Automations client", () => {
       close,
       useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
     })
-    const visit = (node: unknown): Array<{ type: unknown; props: Record<string, unknown> }> => {
-      if (Array.isArray(node)) return node.flatMap(visit)
-      if (!node || typeof node !== "object") return []
-      const element = node as { type: unknown; props: Record<string, unknown> }
-      return [element, ...((element.props?.children as unknown[]) || []).flatMap(visit)]
-    }
     const openSession = visit(tree).find((element) =>
       element.type === "button" && (element.props.children as unknown[] | undefined)?.includes("Open session"),
     )
@@ -234,6 +436,6 @@ describe("PawWork DSH Automations client", () => {
     close.mockClear()
     await expect((openSession!.props.onClick as () => Promise<void>)()).resolves.toBeUndefined()
     expect(close).not.toHaveBeenCalled()
-    expect(setEditorError).toHaveBeenCalledWith(expect.stringContaining("session registry is stale"))
+    expect(stateWrites).toContainEqual(expect.stringContaining("session registry is stale"))
   })
 })
