@@ -1,4 +1,4 @@
-import { PAWWORK_APP, isPawWorkChannel, type PawWorkChannel } from "../src/main/app-identity.ts"
+import { PAWWORK_APP, PAWWORK_RELEASE_OWNER, isPawWorkChannel, type PawWorkChannel } from "../src/main/app-identity.ts"
 
 // electron-builder's unpacked output layout is not configurable from our config,
 // so it is stated here rather than derived: macOS puts the bundle in a per-arch
@@ -34,15 +34,12 @@ export function packagedAppEnv(
   }
 }
 
-// The publish target is a release fact, not a packaging one, and pulling the
-// builder config into this module would drag electron-builder into the CI smoke
-// harness that imports packagedAppEnv. dev publishes nowhere, so it has no
-// app-update.yml to verify; an empty repo is how the workflow reads "nothing to
-// check".
-async function publishEnv(channel: PawWorkChannel) {
-  const { getPublishConfig } = await import("../electron-builder.config.ts")
-  const publish = getPublishConfig(channel)
-  return { PUBLISH_OWNER: publish?.owner ?? "", PUBLISH_REPO: publish?.repo ?? "" }
+// dev publishes nowhere, so it has no draft to file and no app-update.yml to
+// verify; an empty repo is how the workflow reads "nothing to check", and the
+// steps that would use it are gated on the channel anyway.
+function publishEnv(channel: PawWorkChannel) {
+  const repo = PAWWORK_APP[channel].releaseRepo
+  return { PUBLISH_OWNER: repo ? PAWWORK_RELEASE_OWNER : "", PUBLISH_REPO: repo ?? "" }
 }
 
 // The arch is passed explicitly so CI resolves the directory electron-builder
@@ -50,7 +47,7 @@ async function publishEnv(channel: PawWorkChannel) {
 if (import.meta.main) {
   const [channel, arch = process.arch] = process.argv.slice(2)
   if (!isPawWorkChannel(channel)) throw new Error(`Unsupported channel: ${channel}`)
-  const values = { ...packagedAppEnv(channel, process.platform, arch), ...(await publishEnv(channel)) }
+  const values = { ...packagedAppEnv(channel, process.platform, arch), ...publishEnv(channel) }
   for (const [key, value] of Object.entries(values)) {
     console.log(`${key}=${value}`)
   }

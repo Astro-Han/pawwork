@@ -316,7 +316,7 @@ jobs:
 
       - name: Download existing updater metadata
         # macOS finalize can run after notarization as a separate phase; Windows finalizes during full packaging.
-        if: ${{ (runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label) || (runner.os == 'Windows' && inputs.phase == 'full') }}
+        if: ${{ inputs.channel != 'dev' && ((runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label) || (runner.os == 'Windows' && inputs.phase == 'full')) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -328,7 +328,7 @@ jobs:
           download_or_warn() {
             local pattern="$1"
             local err="$RUNNER_TEMP/${pattern}.err"
-            if gh release download "$tag" --pattern "$pattern" --dir "$existing_dir" --repo "$GITHUB_REPOSITORY" 2>"$err"; then
+            if gh release download "$tag" --pattern "$pattern" --dir "$existing_dir" --repo "$PUBLISH_OWNER/$PUBLISH_REPO" 2>"$err"; then
               return 0
             fi
             if grep -qiE 'no assets to download|no matches found|no assets match|could not find any assets|release not found' "$err"; then
@@ -347,7 +347,6 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Import code signing certificate
         if: runner.os == 'macOS'
@@ -811,7 +810,7 @@ jobs:
         working-directory: packages/desktop-electron
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ inputs.channel == 'beta' && 'Astro-Han/pawwork-beta' || github.repository }}
+          GH_REPO: ${{ env.PUBLISH_OWNER }}/${{ env.PUBLISH_REPO }}
           EXISTING_LATEST_YML_DIR: ${{ runner.temp }}/existing-latest-yml
           LATEST_YML_DIR: ${{ runner.temp }}/latest-yml
           OPENCODE_VERSION: ${{ steps.package_version.outputs.version }}

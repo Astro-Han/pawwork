@@ -49,7 +49,7 @@ const CI_SMOKE_HOME = process.env.PAWWORK_CI_SMOKE_HOME
 const CI_SMOKE_ENABLED = process.env.PAWWORK_CI_SMOKE === "true"
 const UPDATE_FEED_TIMEOUT_MS = 10_000
 const UPDATE_CHANNEL_FILE = process.platform === "win32" ? "latest.yml" : "latest-mac.yml"
-const LATEST_RELEASE_URL = "https://github.com/Astro-Han/pawwork/releases/latest"
+const LATEST_RELEASE_URL = `https://github.com/${UPDATE_GITHUB_OWNER}/${UPDATE_GITHUB_REPO}/releases/latest`
 
 const userDataRoot = CI_SMOKE_HOME ?? app.getPath("appData")
 const appIdentity = PAWWORK_APP[app.isPackaged ? CHANNEL : "dev"]

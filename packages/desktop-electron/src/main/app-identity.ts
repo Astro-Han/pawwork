@@ -1,8 +1,13 @@
+// releaseRepo is where a channel publishes, and therefore where its updater
+// reads from and where CI files its draft. dev publishes nowhere; a dev build
+// running with PAWWORK_DEV_UPDATER borrows prod's feed to exercise it.
 export const PAWWORK_APP = {
-  dev: { id: "ai.pawwork.desktop.dev", name: "PawWork Dev" },
-  beta: { id: "ai.pawwork.desktop.beta", name: "PawWork Beta" },
-  prod: { id: "ai.pawwork.desktop", name: "PawWork" },
+  dev: { id: "ai.pawwork.desktop.dev", name: "PawWork Dev", releaseRepo: undefined },
+  beta: { id: "ai.pawwork.desktop.beta", name: "PawWork Beta", releaseRepo: "pawwork-beta" },
+  prod: { id: "ai.pawwork.desktop", name: "PawWork", releaseRepo: "pawwork" },
 } as const
+
+export const PAWWORK_RELEASE_OWNER = "Astro-Han"
 
 export type PawWorkChannel = keyof typeof PAWWORK_APP
 
@@ -24,6 +29,13 @@ export function isPawWorkChannel(raw: string | undefined): raw is PawWorkChannel
   // hasOwn, not `in`: `in` walks the prototype chain, so "toString" and
   // "__proto__" would answer yes and produce a build with no appId.
   return raw !== undefined && Object.hasOwn(PAWWORK_APP, raw)
+}
+
+// Everything that reads OPENCODE_CHANNEL falls back to dev, so the fallback is
+// stated here too. The one exception is the smoke CLI, which rejects a channel
+// it was handed explicitly rather than quietly smoking a different build.
+export function parsePawWorkChannel(raw: string | undefined): PawWorkChannel {
+  return isPawWorkChannel(raw) ? raw : "dev"
 }
 
 // 爪印 is the product name in Chinese; the channel suffix is not translated. The

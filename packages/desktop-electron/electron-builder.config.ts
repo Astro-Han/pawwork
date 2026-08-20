@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
-import { PAWWORK_APP, PAWWORK_PACKAGE_NAME, type PawWorkChannel, isPawWorkChannel, localizedPawWorkName } from "./src/main/app-identity"
+import { PAWWORK_APP, PAWWORK_PACKAGE_NAME, PAWWORK_RELEASE_OWNER, type PawWorkChannel, localizedPawWorkName, parsePawWorkChannel } from "./src/main/app-identity"
 
 const execFileAsync = promisify(execFile)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
@@ -27,15 +27,10 @@ async function signWindows(configuration: { path: string }) {
   )
 }
 
-function currentChannel(): PawWorkChannel {
-  const raw = process.env.OPENCODE_CHANNEL
-  return isPawWorkChannel(raw) ? raw : "dev"
-}
-
 export function getPublishConfig(channel: PawWorkChannel): GitHubPublishConfig | undefined {
-  if (channel === "beta") return { provider: "github", owner: "Astro-Han", repo: "pawwork-beta", channel: "latest" }
-  if (channel === "prod") return { provider: "github", owner: "Astro-Han", repo: "pawwork", channel: "latest" }
-  return undefined
+  const repo = PAWWORK_APP[channel].releaseRepo
+  if (!repo) return undefined
+  return { provider: "github", owner: PAWWORK_RELEASE_OWNER, repo, channel: "latest" }
 }
 
 async function writeLocalizedMacDisplayName(resourcesDir: string, channel: PawWorkChannel) {
@@ -142,7 +137,7 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
   },
 })
 
-export function createConfig(channel: PawWorkChannel = currentChannel()): Configuration {
+export function createConfig(channel: PawWorkChannel = parsePawWorkChannel(process.env.OPENCODE_CHANNEL)): Configuration {
   const identity = PAWWORK_APP[channel]
   return {
     ...getBase(channel),

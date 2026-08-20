@@ -1,8 +1,7 @@
 import { app } from "electron"
-import { type PawWorkChannel, isPawWorkChannel } from "./app-identity"
+import { PAWWORK_APP, PAWWORK_RELEASE_OWNER, parsePawWorkChannel } from "./app-identity"
 
-const raw = import.meta.env.OPENCODE_CHANNEL
-export const CHANNEL: PawWorkChannel = isPawWorkChannel(raw) ? raw : "dev"
+export const CHANNEL = parsePawWorkChannel(import.meta.env.OPENCODE_CHANNEL)
 
 // Opt-in dev switch to exercise the real updater feed (R2 + GitHub fallback)
 // against dl.pawwork.ai under `pnpm dev:desktop`. Off unless explicitly set,
@@ -10,10 +9,13 @@ export const CHANNEL: PawWorkChannel = isPawWorkChannel(raw) ? raw : "dev"
 export const DEV_UPDATER = !app.isPackaged && process.env.PAWWORK_DEV_UPDATER === "1"
 export const UPDATER_ACTIVE = (app.isPackaged && CHANNEL !== "dev") || DEV_UPDATER
 
-// In-app update feed (#219). Prod releases are mirrored to Cloudflare R2 for
-// mainland China reach; GitHub is the global fallback. Beta has no R2 mirror.
+// In-app update feed (#219). The feed is the channel's own release repository,
+// except for a dev build under PAWWORK_DEV_UPDATER, which has no release of its
+// own and exercises prod's. R2 mirrors the prod releases for mainland China
+// reach and GitHub is the global fallback, so R2 applies exactly when the feed
+// is prod's — beta has no mirror there.
 export const UPDATE_CHANNEL = "latest"
-export const UPDATE_GITHUB_OWNER = "Astro-Han"
-export const UPDATE_GITHUB_REPO = CHANNEL === "beta" ? "pawwork-beta" : "pawwork"
+export const UPDATE_GITHUB_OWNER = PAWWORK_RELEASE_OWNER
+export const UPDATE_GITHUB_REPO = PAWWORK_APP[CHANNEL].releaseRepo ?? PAWWORK_APP.prod.releaseRepo
 export const DOWNLOAD_PUBLIC_BASE = "https://dl.pawwork.ai"
-export const UPDATE_R2_ENABLED = CHANNEL === "prod" || DEV_UPDATER
+export const UPDATE_R2_ENABLED = UPDATE_GITHUB_REPO === PAWWORK_APP.prod.releaseRepo

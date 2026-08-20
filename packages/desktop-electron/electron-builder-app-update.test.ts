@@ -77,8 +77,17 @@ describe("electron builder app-update config", () => {
     ])
   })
 
-  test("dev does not publish updater config", () => {
+  // The channel a build is named for and the repository it publishes to come
+  // from one table now, so what is worth asserting is that the three channels
+  // stay distinguishable: beta filing its draft in prod's repository would
+  // overwrite prod's updater metadata under filenames both channels use.
+  test("each publishing channel files its release in a repository of its own", () => {
     expect(getPublishConfig("dev")).toBeUndefined()
+    const beta = getPublishConfig("beta")
+    const prod = getPublishConfig("prod")
+    expect(beta).toMatchObject({ provider: "github", owner: "Astro-Han", channel: "latest" })
+    expect(prod).toMatchObject({ provider: "github", owner: "Astro-Han", channel: "latest" })
+    expect(beta!.repo).not.toBe(prod!.repo)
   })
 
   test("mac packaging enables a localized display name", () => {

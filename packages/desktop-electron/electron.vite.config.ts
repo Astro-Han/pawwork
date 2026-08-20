@@ -1,10 +1,10 @@
 import { defineConfig } from "electron-vite"
+import { parsePawWorkChannel } from "./src/main/app-identity"
 
-const channel = (() => {
-  const raw = process.env.OPENCODE_CHANNEL
-  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
-  return "dev"
-})()
+// This is what CHANNEL resolves to inside the bundled main process, so a
+// channel this misses ships as dev: dev profile, dev appId, updater off.
+const channel = parsePawWorkChannel(process.env.OPENCODE_CHANNEL)
+
 export default defineConfig({
   main: {
     define: {

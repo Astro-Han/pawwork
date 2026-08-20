@@ -58,10 +58,17 @@ describe("release workflow", () => {
     expect(verify.body).toMatch(/grep -qx "repo: \$PUBLISH_REPO"/)
   })
 
-  test("finalizes updater metadata only for channels that publish", () => {
+  // The finalizer merges the other arch's entries into this channel's feed, so
+  // the repository it reads from and the one it writes to have to be the same
+  // one — reading prod's latest-mac.yml into a beta feed puts prod's sha512
+  // under a filename beta also uses, and beta's updater fails its hash check.
+  test("finalizes updater metadata in the repository the build publishes to", () => {
     const finalize = steps.find((step) => /finalize-latest-yml\.ts/.test(step.body))
+    const predownload = steps[indexOfStep("Download existing updater metadata")]
     expect(finalize).toBeDefined()
     expect(finalize!.body).toMatch(/inputs\.channel != 'dev'/)
-    expect(finalize!.body).toMatch(/inputs\.channel == 'beta' && 'Astro-Han\/pawwork-beta' \|\| github\.repository/)
+    expect(finalize!.body).toMatch(/GH_REPO: \$\{\{ env\.PUBLISH_OWNER \}\}\/\$\{\{ env\.PUBLISH_REPO \}\}/)
+    expect(predownload.body).toMatch(/--repo "\$PUBLISH_OWNER\/\$PUBLISH_REPO"/)
+    expect(predownload.body).toMatch(/inputs\.channel != 'dev'/)
   })
 })
