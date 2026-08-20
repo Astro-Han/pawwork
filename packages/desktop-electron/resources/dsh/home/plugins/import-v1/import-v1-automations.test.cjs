@@ -11,7 +11,14 @@ const {
   readV1Automations,
   runV1AutomationImport,
 } = require('./import-v1-automations.cjs');
+const { openV1Snapshot } = require('./migration-io.cjs');
 const { AutomationStore } = require('../../../automations/lib/automations.cjs');
+
+// The snapshot belongs to the whole import run, so these stage tests open one the
+// same way index.mjs does. Temporary homes are disposable; no cleanup needed here.
+async function snapshotOf(home, sourceDatabase) {
+  return (await openV1Snapshot({ home, sourceDatabase })).path;
+}
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-v1-automations-'));
@@ -160,6 +167,7 @@ test('imports definitions and runs idempotently with a resumable shared ledger',
   const options = {
     home,
     sourceDatabase: source,
+    snapshot: await snapshotOf(home, source),
     resolveModel: async () => ({ model: { provider: 'opencode', model: 'big-pickle' } }),
     importDefinition: async (definition) => { definitions.push(definition); return 'imported'; },
     importRun: async (run) => { runs.push(run); return 'imported'; },
@@ -175,7 +183,6 @@ test('imports definitions and runs idempotently with a resumable shared ledger',
   assert.equal(second.status, 'complete');
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.automationRuns.automation_run_orphan.orphanedDefinition, true);
-  assert.equal(fs.existsSync(path.join(home, 'import-v1', 'automation-snapshot.db')), false);
 });
 
 test('does not commit an Automation definition after cancellation during import', async () => {
@@ -192,6 +199,7 @@ test('does not commit an Automation definition after cancellation during import'
   await assert.rejects(runV1AutomationImport({
     home,
     sourceDatabase: source,
+    snapshot: await snapshotOf(home, source),
     resolveModel: async () => ({ model: { provider: 'opencode', model: 'big-pickle' } }),
     importDefinition: async () => {
       controller.abort(new Error('automation import stopped'));
@@ -216,6 +224,7 @@ test('records malformed automation rows and continues importing valid rows', asy
   const result = await runV1AutomationImport({
     home,
     sourceDatabase: source,
+    snapshot: await snapshotOf(home, source),
     resolveModel: async () => ({ model: { provider: 'opencode', model: 'big-pickle' } }),
     importDefinition: async () => 'imported',
     importRun: async (run) => { store.importRun(run); return 'imported'; },

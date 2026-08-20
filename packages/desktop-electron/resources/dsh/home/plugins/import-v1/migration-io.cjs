@@ -46,6 +46,23 @@ async function createDatabaseSnapshot(source, destination) {
   return destination;
 }
 
+// One import run reads the v1 database in two stages, sessions and automations.
+// Each used to VACUUM the whole database into its own private copy, so the first
+// launch after an upgrade copied everything the user had twice. The snapshot is a
+// property of the run rather than of a stage: open it once here and hand both
+// stages the path.
+async function openV1Snapshot({ home, sourceDatabase }) {
+  if (!home || !path.isAbsolute(home)) throw new Error('v1 import home must be absolute');
+  const file = path.join(home, 'import-v1', 'snapshot.db');
+  await createDatabaseSnapshot(sourceDatabase, file);
+  return {
+    path: file,
+    close() {
+      for (const stale of [file, `${file}-shm`, `${file}-wal`]) fs.rmSync(stale, { force: true });
+    },
+  };
+}
+
 function parseJson(value, label) {
   try {
     return JSON.parse(value);
@@ -85,6 +102,7 @@ function writeJsonAtomically(file, value) {
 module.exports = {
   createDatabaseSnapshot,
   discoverV1Database,
+  openV1Snapshot,
   parseJson,
   readJson,
   readMigrationLedger,

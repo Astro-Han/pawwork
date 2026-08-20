@@ -5,6 +5,7 @@ const require = createRequire(import.meta.url);
 const importer = require('./import-v1.cjs');
 const settingsImporter = require('./import-v1-settings.cjs');
 const automationImporter = require('./import-v1-automations.cjs');
+const migrationIo = require('./migration-io.cjs');
 
 export const name = 'pawwork-import-v1';
 export const inject = [
@@ -91,56 +92,78 @@ export function apply(ctx) {
     return { ok: false, error: { code: 'bad-request', message: `unknown v1 import endpoint: ${endpoint}`, details: {} } };
   }, { authority: 'loopback' });
   const importTask = (async () => {
-    try {
-      const importSession = await createDshSessionImporter(ctx);
-      controller.signal.throwIfAborted();
-      const result = await importer.runV1SessionImport({
-        home: process.env.DSH_HOME,
-        importSession,
-        signal: controller.signal,
-      });
-      controller.signal.throwIfAborted();
-      sessionsComplete = result.status === 'complete' || result.status === 'not-found';
-    } catch (error) {
-      if (controller.signal.aborted) return;
-      ctx.logger.warn(`v1 session import failed: ${error instanceof Error ? error.message : String(error)}`);
+    // The two database-backed stages read one private copy of the v1 database,
+    // opened once for the whole run: before, each of them VACUUMed the user's
+    // entire v1 database into a copy of its own. The settings stage reads JSON
+    // files and needs no snapshot; a snapshot that fails to open lets the two
+    // database stages report it as their own failure.
+    const sourceDatabase = migrationIo.discoverV1Database();
+    let snapshot;
+    if (sourceDatabase) {
+      try {
+        snapshot = await migrationIo.openV1Snapshot({ home: process.env.DSH_HOME, sourceDatabase });
+      } catch (error) {
+        ctx.logger.warn(`v1 database snapshot failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
-
     try {
-      controller.signal.throwIfAborted();
-      const importSetting = settingsImporter.createDshSettingImporter(ctx);
-      await settingsImporter.runV1SettingsImport({
-        home: process.env.DSH_HOME,
-        importSetting,
-        signal: controller.signal,
-      });
-      controller.signal.throwIfAborted();
-    } catch (error) {
-      if (controller.signal.aborted) return;
-      ctx.logger.warn(`v1 settings import failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
+      try {
+        const importSession = await createDshSessionImporter(ctx);
+        controller.signal.throwIfAborted();
+        const result = await importer.runV1SessionImport({
+          home: process.env.DSH_HOME,
+          sourceDatabase,
+          snapshot: snapshot?.path,
+          importSession,
+          signal: controller.signal,
+        });
+        controller.signal.throwIfAborted();
+        sessionsComplete = result.status === 'complete' || result.status === 'not-found';
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        ctx.logger.warn(`v1 session import failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
 
-    try {
-      controller.signal.throwIfAborted();
-      const completedSessions = importer.completedV1SessionTargetIds(process.env.DSH_HOME);
-      await automationImporter.runV1AutomationImport({
-        home: process.env.DSH_HOME,
-        resolveModel: createAutomationModelResolver(ctx),
-        importDefinition: async (definition) => {
-          if (definition.context === 'continue' && !completedSessions.has(definition.sourceSessionId)) {
-            throw new Error(`v1 automation source session is unavailable: ${definition.sourceSessionId}`);
-          }
-          return ctx.pawworkAutomations.store.importDefinition(definition);
-        },
-        importRun: async (run) => ctx.pawworkAutomations.store.importRun(run),
-        signal: controller.signal,
-      });
-      controller.signal.throwIfAborted();
-      ctx.pawworkAutomations.store.activateImportedDefinitions();
-      ctx.pawworkAutomations.scheduler.refresh();
-    } catch (error) {
-      if (controller.signal.aborted) return;
-      ctx.logger.warn(`v1 automation import failed: ${error instanceof Error ? error.message : String(error)}`);
+      try {
+        controller.signal.throwIfAborted();
+        const importSetting = settingsImporter.createDshSettingImporter(ctx);
+        await settingsImporter.runV1SettingsImport({
+          home: process.env.DSH_HOME,
+          importSetting,
+          signal: controller.signal,
+        });
+        controller.signal.throwIfAborted();
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        ctx.logger.warn(`v1 settings import failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      try {
+        controller.signal.throwIfAborted();
+        const completedSessions = importer.completedV1SessionTargetIds(process.env.DSH_HOME);
+        await automationImporter.runV1AutomationImport({
+          home: process.env.DSH_HOME,
+          sourceDatabase,
+          snapshot: snapshot?.path,
+          resolveModel: createAutomationModelResolver(ctx),
+          importDefinition: async (definition) => {
+            if (definition.context === 'continue' && !completedSessions.has(definition.sourceSessionId)) {
+              throw new Error(`v1 automation source session is unavailable: ${definition.sourceSessionId}`);
+            }
+            return ctx.pawworkAutomations.store.importDefinition(definition);
+          },
+          importRun: async (run) => ctx.pawworkAutomations.store.importRun(run),
+          signal: controller.signal,
+        });
+        controller.signal.throwIfAborted();
+        ctx.pawworkAutomations.store.activateImportedDefinitions();
+        ctx.pawworkAutomations.scheduler.refresh();
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        ctx.logger.warn(`v1 automation import failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    } finally {
+      snapshot?.close();
     }
   })();
   ctx.effect(() => async () => {

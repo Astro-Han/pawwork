@@ -19,8 +19,15 @@ const {
 const {
   createDatabaseSnapshot,
   discoverV1Database,
+  openV1Snapshot,
   v1DatabaseCandidates,
 } = require('./migration-io.cjs');
+
+// The snapshot belongs to the whole import run, so these stage tests open one the
+// same way index.mjs does. Temporary homes are disposable; no cleanup needed here.
+async function snapshotOf(home, sourceDatabase) {
+  return (await openV1Snapshot({ home, sourceDatabase })).path;
+}
 
 function temporaryDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-import-v1-'));
@@ -147,6 +154,80 @@ test('publishes cold sessions once and keeps the public status incomplete after 
     settingsModule.createDshSettingImporter = originalCreateSettingImporter;
     settingsModule.runV1SettingsImport = originalSettingsRun;
     automationsModule.runV1AutomationImport = originalAutomationsRun;
+  }
+});
+
+// Both database stages used to VACUUM the user's whole v1 database into a private
+// copy of their own. What binds the fix is not that a snapshot exists but that the
+// two stages are handed the same one, so assert on the file identity they observe.
+test('opens one v1 database snapshot for the whole import run', { timeout: 20_000 }, async () => {
+  const importerModule = require('./import-v1.cjs');
+  const settingsModule = require('./import-v1-settings.cjs');
+  const automationsModule = require('./import-v1-automations.cjs');
+  const originalRun = importerModule.runV1SessionImport;
+  const originalSettingsRun = settingsModule.runV1SettingsImport;
+  const originalCreateSettingImporter = settingsModule.createDshSettingImporter;
+  const originalAutomationsRun = automationsModule.runV1AutomationImport;
+  const originalHome = process.env.DSH_HOME;
+  const originalSource = process.env.PAWWORK_V1_DATABASE;
+
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  createV1Fixture(source);
+  process.env.DSH_HOME = home;
+  process.env.PAWWORK_V1_DATABASE = source;
+
+  const observed = [];
+  const observe = (stage) => ({ snapshot }) => {
+    observed.push({ stage, snapshot, inode: fs.statSync(snapshot).ino });
+    return { status: 'complete' };
+  };
+  let stopPlugin;
+  let finishedResolve;
+  const finished = new Promise((resolve) => { finishedResolve = resolve; });
+  importerModule.runV1SessionImport = async (options) => observe('sessions')(options);
+  settingsModule.createDshSettingImporter = () => async () => 'skipped';
+  settingsModule.runV1SettingsImport = async () => ({ status: 'complete' });
+  automationsModule.runV1AutomationImport = async (options) => {
+    const result = observe('automations')(options);
+    finishedResolve();
+    return result;
+  };
+
+  try {
+    const { apply } = await import(`${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?snapshot=${Date.now()}`);
+    apply({
+      connection: { rpc: { handle: () => async () => {} } },
+      effect: (setup) => { stopPlugin = setup(); },
+      llm: { listProviders: () => [], listModels: async () => [] },
+      logger: { warn: () => { finishedResolve(); } },
+      agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }) },
+      pawworkAutomations: { scheduler: { refresh: () => {} }, store: { activateImportedDefinitions: () => {} } },
+      sessionPersistence: { list: async () => [] },
+      sessionTitle: { rename: () => {} },
+      sessions: { enter: () => () => {}, flush: async () => {}, prepare: () => ({}) },
+      attachments: { saveImage: async () => {} },
+      workspaceRegistry: {},
+    });
+    await finished;
+    await stopPlugin();
+
+    assert.deepEqual(observed.map((entry) => entry.stage), ['sessions', 'automations']);
+    assert.equal(observed[0].snapshot, observed[1].snapshot);
+    assert.equal(observed[0].inode, observed[1].inode);
+    assert.notEqual(observed[0].snapshot, source);
+    assert.equal(fs.existsSync(path.join(home, 'import-v1', 'snapshot.db')), false);
+    assert.equal(fs.existsSync(path.join(home, 'import-v1', 'automation-snapshot.db')), false);
+  } finally {
+    importerModule.runV1SessionImport = originalRun;
+    settingsModule.createDshSettingImporter = originalCreateSettingImporter;
+    settingsModule.runV1SettingsImport = originalSettingsRun;
+    automationsModule.runV1AutomationImport = originalAutomationsRun;
+    if (originalHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = originalHome;
+    if (originalSource === undefined) delete process.env.PAWWORK_V1_DATABASE;
+    else process.env.PAWWORK_V1_DATABASE = originalSource;
   }
 });
 
@@ -763,6 +844,7 @@ test('records an idempotent ledger and does no work after a complete session imp
   const first = await runV1SessionImport({
     home,
     sourceDatabase: source,
+    snapshot: await snapshotOf(home, source),
     importSession: async (session) => {
       importedIds.push(session.id);
       return { session: 'imported', workspace: 'attached' };
@@ -770,9 +852,6 @@ test('records an idempotent ledger and does no work after a complete session imp
   });
   assert.deepEqual(importedIds, ['pawwork-v1-ses_parent', 'pawwork-v1-ses_child']);
   assert.equal(first.status, 'complete');
-  assert.equal(fs.existsSync(path.join(home, 'import-v1', 'snapshot.db')), false);
-  assert.equal(fs.existsSync(path.join(home, 'import-v1', 'snapshot.db-shm')), false);
-  assert.equal(fs.existsSync(path.join(home, 'import-v1', 'snapshot.db-wal')), false);
 
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.schema, 1);
@@ -782,6 +861,7 @@ test('records an idempotent ledger and does no work after a complete session imp
   const second = await runV1SessionImport({
     home,
     sourceDatabase: source,
+    snapshot: await snapshotOf(home, source),
     importSession: async () => {
       throw new Error('completed import must not run again');
     },
@@ -812,6 +892,7 @@ test('resumes after a per-session failure without duplicating completed sessions
   const partial = await runV1SessionImport({
     home,
     sourceDatabase: source,
+    snapshot: await snapshotOf(home, source),
     importSession: async (session) => {
       firstAttempt.push(session.id);
       if (session.id === 'pawwork-v1-ses_parent') session.stats.unsupportedParts += 1;
@@ -825,6 +906,7 @@ test('resumes after a per-session failure without duplicating completed sessions
   const complete = await runV1SessionImport({
     home,
     sourceDatabase: source,
+    snapshot: await snapshotOf(home, source),
     importSession: async (session) => {
       resumed.push(session.id);
       return { session: 'imported', workspace: 'attached' };
@@ -848,6 +930,7 @@ test('does not commit a session after cancellation during its import', async () 
   await assert.rejects(runV1SessionImport({
     home,
     sourceDatabase: source,
+    snapshot: await snapshotOf(home, source),
     signal: controller.signal,
     importSession: async () => {
       controller.abort(new Error('session import stopped'));
@@ -872,6 +955,7 @@ test('records a malformed session and continues importing later sessions', async
   const result = await runV1SessionImport({
     home,
     sourceDatabase: source,
+    snapshot: await snapshotOf(home, source),
     importSession: async (session) => {
       imported.push(session.id);
       return { session: 'imported', workspace: 'attached' };
@@ -901,6 +985,7 @@ test('can import sessions from a ledger first written by settings migration', as
   const imported = await runV1SessionImport({
     home,
     sourceDatabase: source,
+    snapshot: await snapshotOf(home, source),
     importSession: async () => ({ session: 'imported', workspace: 'attached' }),
   });
 
@@ -916,6 +1001,7 @@ test('repairs workspace ownership when session records lack an outcome', async (
   fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({
     schema: 1,
     sourceDatabase: source,
+    snapshot: await snapshotOf(home, source),
     sessions: {
       ses_parent: { status: 'complete', targetId: 'pawwork-v1-ses_parent' },
       ses_child: { status: 'complete', targetId: 'pawwork-v1-ses_child' },
@@ -926,6 +1012,7 @@ test('repairs workspace ownership when session records lack an outcome', async (
   const result = await runV1SessionImport({
     home,
     sourceDatabase: source,
+    snapshot: await snapshotOf(home, source),
     importSession: async (session) => {
       repaired.push(session.id);
       return {

@@ -3,7 +3,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const {
-  createDatabaseSnapshot,
   discoverV1Database,
   parseJson,
   readMigrationLedger,
@@ -165,6 +164,7 @@ function mapV1AutomationRun(source, { completedAt = Date.now(), orphanedDefiniti
 async function runV1AutomationImport({
   home,
   sourceDatabase = discoverV1Database(),
+  snapshot,
   resolveModel,
   importDefinition,
   importRun,
@@ -194,83 +194,75 @@ async function runV1AutomationImport({
     return { status: 'not-found' };
   }
 
+  if (!snapshot) throw new Error('v1 automation import requires a database snapshot');
   fs.mkdirSync(directory, { recursive: true });
-  const snapshot = path.join(directory, 'automation-snapshot.db');
   let failed = false;
   ledger.sourceDatabase = sourceDatabase;
-  try {
-    signal?.throwIfAborted();
-    await createDatabaseSnapshot(sourceDatabase, snapshot);
-    signal?.throwIfAborted();
-    const source = readV1Automations(snapshot);
-    const definitionIds = new Set(source.definitionIds);
-    for (const failure of source.failures) {
-      const records = failure.kind === 'definition' ? ledger.automationDefinitions : ledger.automationRuns;
-      const prior = records[failure.id];
-      if (prior?.status !== 'complete') {
-        failed = true;
-        records[failure.id] = { status: 'failed', message: failure.message };
-      }
+  signal?.throwIfAborted();
+  const source = readV1Automations(snapshot);
+  const definitionIds = new Set(source.definitionIds);
+  for (const failure of source.failures) {
+    const records = failure.kind === 'definition' ? ledger.automationDefinitions : ledger.automationRuns;
+    const prior = records[failure.id];
+    if (prior?.status !== 'complete') {
+      failed = true;
+      records[failure.id] = { status: 'failed', message: failure.message };
     }
-    if (source.failures.length > 0) writeJsonAtomically(ledgerPath, ledger);
-    for (const definition of source.definitions) {
+  }
+  if (source.failures.length > 0) writeJsonAtomically(ledgerPath, ledger);
+  for (const definition of source.definitions) {
+    signal?.throwIfAborted();
+    const prior = ledger.automationDefinitions[definition.id];
+    if (prior?.status === 'complete') continue;
+    try {
+      const resolved = await resolveModel(definition);
       signal?.throwIfAborted();
-      const prior = ledger.automationDefinitions[definition.id];
-      if (prior?.status === 'complete') continue;
-      try {
-        const resolved = await resolveModel(definition);
-        signal?.throwIfAborted();
-        const mapped = mapV1AutomationDefinition(definition, resolved);
-        const outcome = await importDefinition(mapped);
-        signal?.throwIfAborted();
-        if (!['imported', 'skipped'].includes(outcome)) throw new Error(`invalid definition outcome: ${outcome}`);
-        ledger.automationDefinitions[definition.id] = {
-          status: 'complete',
-          outcome,
-          targetId: mapped.id,
-          warnings: mapped.migration.warnings,
-        };
-      } catch (error) {
-        signal?.throwIfAborted();
-        const message = error instanceof Error ? error.message : String(error);
-        failed = true;
-        ledger.automationDefinitions[definition.id] = { status: 'failed', message };
-      }
-      writeJsonAtomically(ledgerPath, ledger);
-    }
-
-    const completedAt = now();
-    for (const run of source.runs) {
+      const mapped = mapV1AutomationDefinition(definition, resolved);
+      const outcome = await importDefinition(mapped);
       signal?.throwIfAborted();
-      const prior = ledger.automationRuns[run.id];
-      if (prior?.status === 'complete') continue;
-      try {
-        const orphanedDefinition = !definitionIds.has(run.automationId);
-        const mapped = mapV1AutomationRun(run, { completedAt, orphanedDefinition });
-        const outcome = await importRun(mapped);
-        signal?.throwIfAborted();
-        if (!['imported', 'skipped'].includes(outcome)) throw new Error(`invalid run outcome: ${outcome}`);
-        ledger.automationRuns[run.id] = {
-          status: 'complete',
-          outcome,
-          targetId: mapped.id,
-          orphanedDefinition,
-        };
-      } catch (error) {
-        signal?.throwIfAborted();
-        const message = error instanceof Error ? error.message : String(error);
-        failed = true;
-        ledger.automationRuns[run.id] = { status: 'failed', message };
-      }
-      writeJsonAtomically(ledgerPath, ledger);
+      if (!['imported', 'skipped'].includes(outcome)) throw new Error(`invalid definition outcome: ${outcome}`);
+      ledger.automationDefinitions[definition.id] = {
+        status: 'complete',
+        outcome,
+        targetId: mapped.id,
+        warnings: mapped.migration.warnings,
+      };
+    } catch (error) {
+      signal?.throwIfAborted();
+      const message = error instanceof Error ? error.message : String(error);
+      failed = true;
+      ledger.automationDefinitions[definition.id] = { status: 'failed', message };
     }
     writeJsonAtomically(ledgerPath, ledger);
-    return { status: failed ? 'partial' : 'complete' };
-  } finally {
-    fs.rmSync(snapshot, { force: true });
-    fs.rmSync(`${snapshot}-shm`, { force: true });
-    fs.rmSync(`${snapshot}-wal`, { force: true });
   }
+
+  const completedAt = now();
+  for (const run of source.runs) {
+    signal?.throwIfAborted();
+    const prior = ledger.automationRuns[run.id];
+    if (prior?.status === 'complete') continue;
+    try {
+      const orphanedDefinition = !definitionIds.has(run.automationId);
+      const mapped = mapV1AutomationRun(run, { completedAt, orphanedDefinition });
+      const outcome = await importRun(mapped);
+      signal?.throwIfAborted();
+      if (!['imported', 'skipped'].includes(outcome)) throw new Error(`invalid run outcome: ${outcome}`);
+      ledger.automationRuns[run.id] = {
+        status: 'complete',
+        outcome,
+        targetId: mapped.id,
+        orphanedDefinition,
+      };
+    } catch (error) {
+      signal?.throwIfAborted();
+      const message = error instanceof Error ? error.message : String(error);
+      failed = true;
+      ledger.automationRuns[run.id] = { status: 'failed', message };
+    }
+    writeJsonAtomically(ledgerPath, ledger);
+  }
+  writeJsonAtomically(ledgerPath, ledger);
+  return { status: failed ? 'partial' : 'complete' };
 }
 
 module.exports = {

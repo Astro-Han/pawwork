@@ -3,7 +3,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const {
-  createDatabaseSnapshot,
   discoverV1Database,
   parseJson,
   readMigrationLedger,
@@ -315,6 +314,7 @@ async function materializeLegacyImages(imported, saveImage) {
 async function runV1SessionImport({
   home,
   sourceDatabase = discoverV1Database(),
+  snapshot,
   importSession,
   signal,
 }) {
@@ -337,60 +337,52 @@ async function runV1SessionImport({
     return { status: 'not-found' };
   }
 
+  if (!snapshot) throw new Error('v1 session import requires a database snapshot');
   fs.mkdirSync(directory, { recursive: true });
-  const snapshot = path.join(directory, 'snapshot.db');
   let failed = false;
   ledger.sourceDatabase = sourceDatabase;
-  try {
+  signal?.throwIfAborted();
+  for await (const sourceSession of readV1Sessions(snapshot)) {
     signal?.throwIfAborted();
-    await createDatabaseSnapshot(sourceDatabase, snapshot);
-    signal?.throwIfAborted();
-    for await (const sourceSession of readV1Sessions(snapshot)) {
-      signal?.throwIfAborted();
-      if (sourceSession.readError) {
-        failed = true;
-        ledger.sessions[sourceSession.id] = { status: 'failed', message: sourceSession.readError };
-        writeJsonAtomically(ledgerPath, ledger);
-        continue;
-      }
-      const imported = buildDshSession(sourceSession);
-      const previous = ledger.sessions[sourceSession.id];
-      const alreadyImported = previous?.status === 'complete';
-      if (alreadyImported && (previous.workspaceAttached === true || previous.workspaceUnavailable === true)) {
-        continue;
-      }
-      try {
-        const outcome = await importSession(imported);
-        signal?.throwIfAborted();
-        const sessionOutcome = outcome?.session;
-        const workspaceOutcome = outcome?.workspace;
-        if (!['imported', 'skipped'].includes(sessionOutcome)) throw new Error(`invalid session outcome: ${sessionOutcome}`);
-        if (!['attached', 'unavailable'].includes(workspaceOutcome)) throw new Error(`invalid workspace outcome: ${workspaceOutcome}`);
-        ledger.sessions[sourceSession.id] = {
-          ...previous,
-          status: 'complete',
-          targetId: imported.id,
-          stats: imported.stats,
-          workspaceAttached: workspaceOutcome === 'attached',
-          workspaceUnavailable: workspaceOutcome === 'unavailable',
-        };
-      } catch (error) {
-        signal?.throwIfAborted();
-        const message = error instanceof Error ? error.message : String(error);
-        failed = true;
-        ledger.sessions[sourceSession.id] = alreadyImported
-          ? { ...previous, workspaceAttached: false, workspaceMessage: message }
-          : { status: 'failed', targetId: imported.id, message };
-      }
+    if (sourceSession.readError) {
+      failed = true;
+      ledger.sessions[sourceSession.id] = { status: 'failed', message: sourceSession.readError };
       writeJsonAtomically(ledgerPath, ledger);
+      continue;
+    }
+    const imported = buildDshSession(sourceSession);
+    const previous = ledger.sessions[sourceSession.id];
+    const alreadyImported = previous?.status === 'complete';
+    if (alreadyImported && (previous.workspaceAttached === true || previous.workspaceUnavailable === true)) {
+      continue;
+    }
+    try {
+      const outcome = await importSession(imported);
+      signal?.throwIfAborted();
+      const sessionOutcome = outcome?.session;
+      const workspaceOutcome = outcome?.workspace;
+      if (!['imported', 'skipped'].includes(sessionOutcome)) throw new Error(`invalid session outcome: ${sessionOutcome}`);
+      if (!['attached', 'unavailable'].includes(workspaceOutcome)) throw new Error(`invalid workspace outcome: ${workspaceOutcome}`);
+      ledger.sessions[sourceSession.id] = {
+        ...previous,
+        status: 'complete',
+        targetId: imported.id,
+        stats: imported.stats,
+        workspaceAttached: workspaceOutcome === 'attached',
+        workspaceUnavailable: workspaceOutcome === 'unavailable',
+      };
+    } catch (error) {
+      signal?.throwIfAborted();
+      const message = error instanceof Error ? error.message : String(error);
+      failed = true;
+      ledger.sessions[sourceSession.id] = alreadyImported
+        ? { ...previous, workspaceAttached: false, workspaceMessage: message }
+        : { status: 'failed', targetId: imported.id, message };
     }
     writeJsonAtomically(ledgerPath, ledger);
-    return { status: failed ? 'partial' : 'complete' };
-  } finally {
-    fs.rmSync(snapshot, { force: true });
-    fs.rmSync(`${snapshot}-shm`, { force: true });
-    fs.rmSync(`${snapshot}-wal`, { force: true });
   }
+  writeJsonAtomically(ledgerPath, ledger);
+  return { status: failed ? 'partial' : 'complete' };
 }
 
 function completedV1SessionTargetIds(home) {
