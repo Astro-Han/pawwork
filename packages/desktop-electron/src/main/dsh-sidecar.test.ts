@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest"
 import { EventEmitter } from "node:events"
+import { delimiter } from "node:path"
 import { PassThrough } from "node:stream"
 import { launchDshSidecar, type DshChildProcess, withBundledToolsPath } from "./dsh-sidecar"
 
@@ -80,7 +81,7 @@ describe("DSH sidecar lifecycle", () => {
         "--no-open",
       ],
       options: {
-        env: { PATH: "/app/tools:/usr/bin", DSH_HOME: "/data/dsh", ELECTRON_RUN_AS_NODE: "1" },
+        env: { PATH: `/app/tools${delimiter}/usr/bin`, DSH_HOME: "/data/dsh", ELECTRON_RUN_AS_NODE: "1" },
         stdio: ["ignore", "pipe", "pipe"],
       },
     })

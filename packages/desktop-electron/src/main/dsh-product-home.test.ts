@@ -47,8 +47,8 @@ describe("DSH product home", () => {
         resourcesPath: "/Applications/PawWork.app/Contents/Resources",
       }),
     ).toEqual({
-      dsh: "/Applications/PawWork.app/Contents/Resources/dsh",
-      skills: "/Applications/PawWork.app/Contents/Resources/skills",
+      dsh: join("/Applications/PawWork.app/Contents/Resources", "dsh"),
+      skills: join("/Applications/PawWork.app/Contents/Resources", "skills"),
     })
     expect(
       resolveProductResources({
@@ -56,7 +56,10 @@ describe("DSH product home", () => {
         isPackaged: false,
         resourcesPath: "/unused",
       }),
-    ).toEqual({ dsh: "/repo/packages/desktop-electron/resources/dsh", skills: "/repo/skills" })
+    ).toEqual({
+      dsh: join("/repo/packages/desktop-electron", "resources", "dsh"),
+      skills: join("/repo/packages/desktop-electron", "..", "..", "skills"),
+    })
   })
 
   test("runs packaged DSH from the real unpacked dependency tree", () => {
@@ -67,7 +70,14 @@ describe("DSH product home", () => {
         resolveDevelopmentPackage: () => "/unused",
       }),
     ).toBe(
-      "/Applications/PawWork.app/Contents/Resources/app.asar.unpacked/node_modules/@deepseek-ai/dsh/package.json",
+      join(
+        "/Applications/PawWork.app/Contents/Resources",
+        "app.asar.unpacked",
+        "node_modules",
+        "@deepseek-ai",
+        "dsh",
+        "package.json",
+      ),
     )
 
     expect(
