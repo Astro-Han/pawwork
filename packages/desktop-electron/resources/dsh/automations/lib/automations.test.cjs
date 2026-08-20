@@ -850,6 +850,30 @@ test('the store keeps one rhythm rule for creates, updates and imports', () => {
 // The three schedule fields reach the store through one arg-shape rule each, and
 // nothing asserted any of them: a create that took a bad value and an update that
 // refused a good one would both have stayed green.
+// The store hands the run record back to the scheduler, which reports it, and
+// writes it to the file the next launch reads. A rejected outcome used to leave
+// those three disagreeing: completed in memory, running on disk, and an error
+// the caller could not act on.
+test('a rejected completion leaves the run untouched in memory and on disk', () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = oneShot(store, cwd, 2_000);
+  const run = store.beginRun(created.id, 1_500);
+
+  assert.throws(
+    () => store.completeRun(run.id, { state: 'failed', completedAt: 2_000, error: '' }),
+    /error must be a non-empty string/,
+  );
+
+  assert.equal(store.listRuns(created.id)[0].state, 'running');
+  assert.equal(new AutomationStore(file).listRuns(created.id)[0].state, 'running');
+
+  // And the same record still completes once the outcome is well formed.
+  const completed = store.completeRun(run.id, { state: 'failed', completedAt: 2_000, error: 'model unavailable' });
+  assert.equal(completed.state, 'failed');
+  assert.equal(new AutomationStore(file).listRuns(created.id)[0].error, 'model unavailable');
+});
+
 test('conversation tools apply one schedule arg rule to create and update alike', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
@@ -886,6 +910,12 @@ test('conversation tools apply one schedule arg rule to create and update alike'
   await assert.rejects(
     () => byName.automation_create.execute({ ...base, at: '2026-08-19T09:00:00Z', run_count: 2 }),
     /run_count is only supported for recurring automations/,
+  );
+  // A model filling an optional numeric field with null is ordinary. Reading it
+  // as absent let create accept what update rejects, for the same argument.
+  await assert.rejects(
+    () => byName.automation_create.execute({ ...base, every_seconds: 60, run_count: null }),
+    /run_count must be a non-negative integer/,
   );
 
   const recurring = await byName.automation_create.execute({ ...base, every_seconds: 30 });

@@ -402,16 +402,21 @@ class AutomationStore {
     if (!['succeeded', 'failed', 'stopped'].includes(outcome.state)) {
       throw new Error(`invalid automation run outcome: ${outcome.state}`);
     }
-    run.state = outcome.state;
-    run.completedAt = assertTimestamp(outcome.completedAt, 'completedAt');
-    run.sessionId = outcome.sessionId ?? run.sessionId;
-    run.result = outcome.state === 'succeeded' ? (outcome.result ?? null) : null;
-    run.error = outcome.state === 'failed' ? assertText(outcome.error, 'error') : null;
-    run.stopReason = outcome.state === 'stopped' ? assertText(outcome.stopReason, 'stopReason') : null;
+    // Validate before touching the record: this used to assign first, so a
+    // rejected outcome left the run completed in memory and running on disk,
+    // and the next unrelated save() wrote that half-record out.
+    const completed = {
+      state: outcome.state,
+      completedAt: assertTimestamp(outcome.completedAt, 'completedAt'),
+      sessionId: outcome.sessionId ?? run.sessionId,
+      result: outcome.state === 'succeeded' ? (outcome.result ?? null) : null,
+      error: outcome.state === 'failed' ? assertText(outcome.error, 'error') : null,
+      stopReason: outcome.state === 'stopped' ? assertText(outcome.stopReason, 'stopReason') : null,
+    };
+    Object.assign(run, completed);
     const definition = this.document.definitions.find((entry) => entry.id === run.automationId);
     if (definition?.kind === 'recurring' && definition.stop?.kind === 'count') {
-      const completed = this.completedRunCount(definition.id);
-      if (completed >= definition.stop.count) definition.nextFireAt = null;
+      if (this.completedRunCount(definition.id) >= definition.stop.count) definition.nextFireAt = null;
     }
     this.save();
     return structuredClone(run);
@@ -778,7 +783,7 @@ function createAutomationToolDefinitions({
           context: args.continue_session ? 'continue' : 'fresh',
           ...(args.continue_session ? { sourceSessionId: sessionId() } : {}),
           ...(schedule.kind === 'recurring'
-            ? { stop: parseRunCount(args.run_count ?? 0) }
+            ? { stop: args.run_count === undefined ? { kind: 'never' } : parseRunCount(args.run_count) }
             : {}),
         }, createdAt);
         scheduler.refresh();
