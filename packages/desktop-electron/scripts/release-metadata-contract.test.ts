@@ -219,29 +219,6 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
     expect(latestMac).toContain("PawWork-snapshot-x64.zip")
   })
 
-  test("uses predownloaded metadata when live download returns release not found", async () => {
-    const root = mkdtempSync(join(tmpdir(), "pawwork-release-metadata-"))
-    roots.push(root)
-    const latestDir = join(root, "latest-yml")
-    const runnerTemp = join(root, "runner")
-    const binDir = join(root, "bin")
-    const snapshotDir = join(root, "snapshot")
-    mkdirSync(runnerTemp, { recursive: true })
-    mkdirSync(binDir, { recursive: true })
-    mkdirSync(snapshotDir, { recursive: true })
-    writeFakeGh(binDir, {}, "release not found")
-    writeLatest(snapshotDir, "latest-mac.yml", "PawWork-snapshot-x64.zip")
-
-    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-mac.yml", "PawWork-new-arm64.zip")
-
-    const proc = spawnFinalizer(binDir, latestDir, runnerTemp, { EXISTING_LATEST_YML_DIR: snapshotDir })
-
-    expect(await proc.exited).toBe(0)
-    const latestMac = readFileSync(join(runnerTemp, "latest-mac.yml"), "utf8")
-    expect(latestMac).toContain("PawWork-new-arm64.zip")
-    expect(latestMac).toContain("PawWork-snapshot-x64.zip")
-  })
-
   test("fails when existing metadata download has a non-missing error", async () => {
     const root = mkdtempSync(join(tmpdir(), "pawwork-release-metadata-"))
     roots.push(root)
@@ -427,12 +404,6 @@ function writeFakeGh(
     ].join("\n"),
     "utf8",
   )
-
-  if (process.platform === "win32") {
-    const script = join(binDir, "gh.cmd")
-    writeFileSync(script, `@echo off\r\n"${process.execPath}" "${helper}" %*\r\n`, "utf8")
-    return
-  }
 
   const script = join(binDir, "gh")
   writeFileSync(

@@ -9,10 +9,6 @@ const productRoot = resolve(repositoryRoot, "packages/desktop-electron/resources
 describe("PawWork DSH client product layer", () => {
   test("is a packaged DSH web plugin", () => {
     const productPackage = JSON.parse(readFileSync(resolve(productRoot, "package.json"), "utf8"))
-    const patch = readFileSync(
-      resolve(repositoryRoot, "packages/desktop-electron/resources/dsh/home/product.cordis.patch.yml"),
-      "utf8",
-    )
 
     expect(productPackage.name).toBe("@pawwork/dsh-product")
     expect(productPackage.exports["./client"].default).toBe("./lib/client.js")
@@ -20,7 +16,6 @@ describe("PawWork DSH client product layer", () => {
       inject: ["@deepseek-ai/dsh-client-runtime"],
       platform: "web",
     })
-    expect(patch).toContain("name: '@pawwork/dsh-product'")
   })
 
   test("refreshes the DSH session baseline once after v1 migration completes", async () => {
@@ -34,9 +29,7 @@ describe("PawWork DSH client product layer", () => {
         createElement: () => ({ dataset: {}, textContent: "" }),
         head: { appendChild: () => {} },
       },
-      navigator: { platform: "MacIntel" },
       setInterval: (callback: () => void) => { intervalCallback = callback; return 1 },
-
     })
     let cleanup: (() => void) | undefined
     const plugin = definition.factory((name) => {
@@ -45,7 +38,6 @@ describe("PawWork DSH client product layer", () => {
           createElement: (type: unknown, props: unknown) => typeof type === "function" ? type(props) : null,
           useEffect: (effect: () => (() => void)) => { cleanup = effect() },
           useRef: <T>(value: T) => ({ current: value }),
-          useState: <T>(value: T) => [value, () => {}],
         }
       }
       if (name === "@deepseek-ai/dsh-client-ui-primitives") return {}

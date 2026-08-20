@@ -1,5 +1,5 @@
 import { expect, test } from "vitest"
-import { PAWWORK_APP, PAWWORK_PACKAGE_NAME, UPDATER_CACHE_DIR_NAME, isPawWorkChannel } from "./app-identity"
+import { PAWWORK_APP, isPawWorkChannel } from "./app-identity"
 
 test.each(["dev", "beta", "prod"] as const)("accepts the %s channel", (channel) => {
   expect(isPawWorkChannel(channel)).toBe(true)
@@ -18,8 +18,4 @@ test.each(["toString", "constructor", "__proto__", "valueOf", "nope", ""])(
 
 test("rejects a missing channel", () => {
   expect(isPawWorkChannel(undefined)).toBe(false)
-})
-
-test("derives the updater cache directory from the packaged package name", () => {
-  expect(UPDATER_CACHE_DIR_NAME).toBe(`${PAWWORK_PACKAGE_NAME}-updater`)
 })

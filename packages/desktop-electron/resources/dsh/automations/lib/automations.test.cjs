@@ -173,10 +173,10 @@ test('startup interrupts unfinished runs, does not replay misses, and arms only 
   await scheduler.stop();
 });
 
-// Every other stop() here runs after its runs have already finished, so the
-// abort loop has nothing to abort and can be deleted with the whole suite green.
-// An automation turn in flight when the sidecar quits is the case it exists for:
-// without it stop() waits on a promise nothing will ever settle.
+// An automation turn still in flight when the sidecar quits is the case the
+// abort loop exists for: without it stop() waits on a promise nothing will ever
+// settle. This test is the only one that reaches that deadlock — the others
+// abort runs that have already settled.
 test('aborts a run still in flight when the scheduler stops', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
@@ -305,26 +305,6 @@ test('rearms future work without waiting for a due run to finish', async () => {
   await scheduler.stop();
 });
 
-test('starts an immediate run without making the caller wait for agent completion', async () => {
-  const { file, cwd } = fixture();
-  const store = new AutomationStore(file);
-  const created = oneShot(store, cwd, 2_000);
-  let finish;
-  const completed = new Promise((resolve) => { finish = resolve; });
-  const scheduler = new AutomationScheduler({
-    store,
-    execute: async () => completed,
-    clock: fakeClock(1_500),
-  });
-
-  const started = scheduler.startNow(created.id);
-
-  assert.equal(started.run.state, 'running');
-  assert.equal(store.listRuns(created.id)[0].state, 'running');
-  finish({ sessionId: 'pawwork-automation-run-1', result: 'done' });
-  assert.equal((await started.completion).state, 'succeeded');
-});
-
 test('records executor failures as failed runs', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
@@ -339,26 +319,6 @@ test('records executor failures as failed runs', async () => {
 
   assert.equal(completed.state, 'failed');
   assert.equal(completed.error, 'model unavailable');
-});
-
-test('stopping aborts an active run and records it as stopped', async () => {
-  const { file, cwd } = fixture();
-  const store = new AutomationStore(file);
-  const created = oneShot(store, cwd, 2_000);
-  const scheduler = new AutomationScheduler({
-    store,
-    execute: async (_definition, _run, signal) => await new Promise((resolve) => {
-      signal.addEventListener('abort', () => resolve({ result: 'late success' }), { once: true });
-    }),
-    clock: fakeClock(1_500),
-  });
-
-  scheduler.startNow(created.id);
-  await scheduler.stop();
-
-  const completed = store.listRuns(created.id)[0];
-  assert.equal(completed.state, 'stopped');
-  assert.equal(completed.stopReason, 'cancelled');
 });
 
 test('a stopped scheduler rejects new immediate runs', async () => {

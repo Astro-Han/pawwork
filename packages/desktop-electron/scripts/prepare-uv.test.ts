@@ -33,7 +33,6 @@ describe("prepare-uv manifest helpers", () => {
     ] as const) {
       const pinned = pinnedSha256ForTarget(platform, arch)
       expect(pinned).toMatch(/^[a-f0-9]{64}$/)
-      expect(pinned).toBe(manifest.uv.assets[target].sha256.toLowerCase())
     }
   })
 

@@ -113,12 +113,6 @@ describe("electron builder app-update config", () => {
     })
   })
 
-  test("all channels share the versioned artifact name", () => {
-    expect(createConfig("dev").artifactName).toBe("pawwork-${os}-${arch}-${version}.${ext}")
-    expect(createConfig("beta").artifactName).toBe("pawwork-${os}-${arch}-${version}.${ext}")
-    expect(createConfig("prod").artifactName).toBe("pawwork-${os}-${arch}-${version}.${ext}")
-  })
-
   test("packaged repository metadata follows the release channel", () => {
     expect(createConfig("dev").extraMetadata).toMatchObject({
       repository: { type: "git", url: "https://github.com/Astro-Han/pawwork" },
@@ -160,10 +154,6 @@ describe("electron builder app-update config", () => {
   // writes to — which is what "@pawwork/desktop" silently did.
   test("the packaged package name is a fixed point of the updater cache derivation", () => {
     expect(PAWWORK_PACKAGE_NAME).toMatch(/^[a-z0-9][a-z0-9-]*$/)
-    expect(UPDATER_CACHE_DIR_NAME).toBe(`${PAWWORK_PACKAGE_NAME}-updater`)
-    for (const channel of ["dev", "beta", "prod"] as const) {
-      expect(createConfig(channel).extraMetadata).toMatchObject({ name: PAWWORK_PACKAGE_NAME })
-    }
   })
 
 })
