@@ -121,6 +121,15 @@ test('preserves v1 automation facts without deriving its next fire', () => {
   });
 
   assert.equal(mapped.id, 'pawwork-v1-automation_source');
+  // The content the user wrote, and the fields the scheduler runs it with.
+  // Nothing asserted them, so dropping any one of them from the mapper — the
+  // prompt included, which is the whole automation — stayed green.
+  assert.equal(mapped.title, 'Daily brief');
+  assert.equal(mapped.prompt, 'Write the brief.');
+  assert.equal(mapped.revision, 3);
+  assert.equal(mapped.timezone, 'Asia/Shanghai');
+  assert.deepEqual(mapped.model, { provider: 'opencode', model: 'big-pickle' });
+  assert.equal(mapped.createdAt, 1_000);
   assert.equal(mapped.paused, false);
   assert.equal(mapped.context, 'continue');
   assert.equal(mapped.sourceSessionId, 'pawwork-v1-ses_source');

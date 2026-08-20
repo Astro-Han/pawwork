@@ -1046,7 +1046,12 @@ test('records an idempotent ledger and does no work after a complete session imp
   });
   assert.deepEqual(importedIds, ['pawwork-v1-ses_parent', 'pawwork-v1-ses_child']);
 
-  const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+  const ledgerFile = path.join(home, 'import-v1', 'ledger.json');
+  // Same writer as the automations store: replaced by rename, owner-only. It
+  // holds the paths of everything the user had in v1.
+  if (process.platform !== 'win32') assert.equal(fs.statSync(ledgerFile).mode & 0o777, 0o600);
+  assert.equal(fs.existsSync(`${ledgerFile}.next`), false);
+  const ledger = JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
   assert.equal(ledger.schema, 1);
   assert.equal(ledger.sessions.ses_parent.targetId, 'pawwork-v1-ses_parent');
   assert.equal(ledger.sessions.ses_parent.status, 'complete');

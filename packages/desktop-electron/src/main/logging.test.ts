@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest"
-import { mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
@@ -60,6 +60,32 @@ describe("desktop logging", () => {
     consoleTransport.writeFn({})
 
     expect(consoleTransport.level).toBe(false)
+  })
+
+  // This runs on every launch and deletes files. Nothing asserted which side of
+  // the cutoff it deletes, so inverting the comparison — dropping every log
+  // written in the last week and keeping the rest forever — stayed green.
+  test("deletes only log files older than the retention window", () => {
+    setupLog(() => {})
+    const day = 24 * 60 * 60 * 1000
+    const age = (file: string, days: number) => {
+      const seconds = (Date.now() - days * day) / 1000
+      utimesSync(join(logDir, file), seconds, seconds)
+    }
+    for (const name of ["desktop.log", "desktop.old.log", "renderer.log"]) {
+      writeFileSync(join(logDir, name), "entry\n", "utf8")
+    }
+    mkdirSync(join(logDir, "crashes"))
+    age("desktop.log", 0)
+    age("desktop.old.log", 8)
+    age("renderer.log", 6)
+
+    initLogging()
+
+    expect(existsSync(join(logDir, "desktop.log"))).toBe(true)
+    expect(existsSync(join(logDir, "renderer.log"))).toBe(true)
+    expect(existsSync(join(logDir, "desktop.old.log"))).toBe(false)
+    expect(existsSync(join(logDir, "crashes"))).toBe(true)
   })
 
   test("rethrows non-broken-pipe console transport errors", async () => {

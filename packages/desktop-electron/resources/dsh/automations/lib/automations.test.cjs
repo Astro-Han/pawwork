@@ -879,6 +879,27 @@ test('a rejected completion leaves the run untouched in memory and on disk', () 
 // user — so the run, not the session, is what has to be excluded. Without this
 // a scheduled turn could bind another automation to the same session, on every
 // firing, unattended.
+// Every mutation lands through one writer, and the file holds the user's
+// prompts. Nothing asserted either property: replacing the write with an
+// in-place fs.writeFileSync at the default mode kept the whole suite green.
+test('persists through a temporary file the reader never sees, owner-readable only', () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  oneShot(store, cwd, 2_000);
+
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  assert.equal(fs.existsSync(`${file}.next`), false);
+
+  // A crash between two saves leaves the previous document intact, never a
+  // partial one: the reader's path is only ever replaced by rename.
+  const before = fs.readFileSync(file, 'utf8');
+  assert.deepEqual(JSON.parse(before).definitions.length, 1);
+  oneShot(store, cwd, 3_000);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  assert.equal(fs.existsSync(`${file}.next`), false);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).definitions.length, 2);
+});
+
 test('conversation tools refuse to run inside a continue-mode automation turn', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
