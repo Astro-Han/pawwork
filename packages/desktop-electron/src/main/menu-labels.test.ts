@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { detectSystemMenuLocale, menuLabel } from "./menu-labels"
+import { detectSystemMenuLocale, menuRoleLabel } from "./menu-labels"
 
 describe("menu labels", () => {
   test("detects supported system locale prefixes", () => {
@@ -12,9 +12,17 @@ describe("menu labels", () => {
     expect(detectSystemMenuLocale(undefined)).toBe("en")
   })
 
-  test("returns custom labels for simplified Chinese", () => {
-    expect(menuLabel("zh", "file")).toBe("文件")
-    expect(menuLabel("zh", "reloadWindow")).toBe("重新加载窗口")
-    expect(menuLabel("zh", "pawworkOnGithub")).toBe("在 GitHub 上查看爪印")
+  // The role labels are the only ones carrying a placeholder, and dsh-menu is
+  // the only caller that fills it. Left unsubstituted, the macOS app menu reads
+  // "About {appName}" — TypeScript cannot see it, because the labels are typed
+  // as plain strings either way.
+  test("substitutes the app name into every role label that asks for one", () => {
+    for (const locale of ["en", "zh"] as const) {
+      for (const key of ["about", "hide", "quit"] as const) {
+        const label = menuRoleLabel(locale, key, "PawWork Dev")
+        expect(label).toContain("PawWork Dev")
+        expect(label).not.toContain("{appName}")
+      }
+    }
   })
 })

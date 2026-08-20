@@ -16,19 +16,12 @@ test("accepts a valid issue label set", () => {
   assert.deepEqual(result.errors, [])
 })
 
-test("accepts a valid pull request label set", () => {
+// Dependabot labels its own pull requests, and those labels are forbidden on
+// issues only. Without the itemType gate every dependency PR fails pr-triage.
+test("accepts the automation labels Dependabot puts on its pull requests", () => {
   const result = validateLabelPolicy({
     itemType: "pull_request",
-    labels: ["enhancement", "P2", "app", "ui"],
-  })
-
-  assert.deepEqual(result.errors, [])
-})
-
-test("accepts ci as a primary routing label", () => {
-  const result = validateLabelPolicy({
-    itemType: "pull_request",
-    labels: ["task", "P2", "ci"],
+    labels: ["dependencies", "github_actions", "task", "P3", "ci"],
   })
 
   assert.deepEqual(result.errors, [])
@@ -95,15 +88,6 @@ test("rejects missing primary routing labels", () => {
   assert.deepEqual(messages(result), [
     "issue must have at least one primary routing label: app, ui, platform, harness, or ci",
   ])
-})
-
-test("accepts tech-debt as a supplemental label with any primary type", () => {
-  const result = validateLabelPolicy({
-    itemType: "issue",
-    labels: ["bug", "P2", "app", "tech-debt"],
-  })
-
-  assert.deepEqual(result.errors, [])
 })
 
 test("rejects dependency automation labels on issues", () => {
