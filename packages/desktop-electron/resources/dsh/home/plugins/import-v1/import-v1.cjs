@@ -1,6 +1,5 @@
 'use strict';
 const { DatabaseSync } = require('node:sqlite');
-const { isDeepStrictEqual } = require('node:util');
 const {
   discoverV1Database,
   guardV1DatabaseIdentity,
@@ -341,11 +340,8 @@ async function runV1SessionImport({
       continue;
     }
     try {
-      const outcome = await importSession(imported);
+      const workspaceOutcome = await importSession(imported, { contentImported: alreadyImported });
       signal?.throwIfAborted();
-      const sessionOutcome = outcome?.session;
-      const workspaceOutcome = outcome?.workspace;
-      if (!['imported', 'skipped'].includes(sessionOutcome)) throw new Error(`invalid session outcome: ${sessionOutcome}`);
       if (!['attached', 'unavailable'].includes(workspaceOutcome)) throw new Error(`invalid workspace outcome: ${workspaceOutcome}`);
       ledger.sessions[sourceSession.id] = {
         ...previous,
@@ -367,19 +363,6 @@ async function runV1SessionImport({
   save();
 }
 
-// Whether a session already in DSH is the one this import would write: the seed
-// events match, the seed is closed, and a title landed after it. Lives with the
-// seed builder because that is what it compares against — a session that only
-// half-persisted must be re-imported, not skipped.
-function importedPrefixIsComplete(events, imported) {
-  if (events.length <= imported.seed.length) return false;
-  for (let index = 0; index < imported.seed.length; index += 1) {
-    if (!isDeepStrictEqual(events[index], imported.seed[index])) return false;
-  }
-  if (events[imported.seed.length]?.type !== 'session/end-seed') return false;
-  return events.slice(imported.seed.length + 1).some((event) => event.type === 'session/title');
-}
-
 function completedV1SessionTargetIds(home) {
   const { ledger } = openMigrationLedger(home);
   return new Set(Object.values(ledger.sessions)
@@ -391,7 +374,6 @@ module.exports = {
   attachDshWorkspace,
   buildDshSession,
   completedV1SessionTargetIds,
-  importedPrefixIsComplete,
   materializeLegacyImages,
   readV1Sessions,
   runV1SessionImport,

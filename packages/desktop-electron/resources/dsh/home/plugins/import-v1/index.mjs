@@ -14,7 +14,6 @@ export const inject = [
   'llm',
   'pawworkAutomations',
   'sessions',
-  'sessionPersistence',
   'sessionTitle',
   'settings',
   'workspaceRegistry',
@@ -43,16 +42,13 @@ function createAutomationModelResolver(ctx) {
   };
 }
 
-async function createDshSessionImporter(ctx) {
-  const persisted = new Set((await ctx.sessionPersistence.list()).map((header) => header.id));
-  return async (imported) => {
-    let outcome = 'imported';
-    if (persisted.has(imported.id)) {
-      const inspection = await ctx.sessionPersistence.inspect(imported.id);
-      if (importer.importedPrefixIsComplete(inspection.events, imported)) outcome = 'skipped';
-    }
-
-    if (outcome === 'imported') {
+// A session whose content already landed is revisited only to finish attaching
+// its workspace, so writing the seed again is work the ledger already knows is
+// unnecessary — and harmful: materializeLegacyImages replaces each legacy
+// attachment with a saved one in place, so a second pass saves every image again.
+function createDshSessionImporter(ctx) {
+  return async (imported, { contentImported }) => {
+    if (!contentImported) {
       await importer.materializeLegacyImages(imported, (image) => ctx.attachments.saveImage(image));
       const session = ctx.sessions.prepare(imported.id, {
         seed: imported.seed,
@@ -62,15 +58,11 @@ async function createDshSessionImporter(ctx) {
       try {
         ctx.sessionTitle.rename(session, imported.title);
         await ctx.sessions.flush(session);
-        persisted.add(imported.id);
       } finally {
         detach();
       }
-      const workspace = await importer.attachDshWorkspace(imported, ctx.workspaceRegistry);
-      return { session: outcome, workspace };
     }
-    const workspace = await importer.attachDshWorkspace(imported, ctx.workspaceRegistry);
-    return { session: outcome, workspace };
+    return await importer.attachDshWorkspace(imported, ctx.workspaceRegistry);
   };
 }
 
@@ -103,7 +95,7 @@ export function apply(ctx) {
       // out of the list for the whole run, and the client polling at 2Hz forever.
       // Which sessions made it is recorded per id in the ledger.
       try {
-        const importSession = await createDshSessionImporter(ctx);
+        const importSession = createDshSessionImporter(ctx);
         controller.signal.throwIfAborted();
         await importer.runV1SessionImport({
           home: process.env.DSH_HOME,

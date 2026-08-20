@@ -129,7 +129,7 @@ function guardV1DatabaseIdentity(ledger, sourceDatabase) {
   if (ledger.sourceDatabase && sourceDatabase && ledger.sourceDatabase !== sourceDatabase) {
     throw new Error(`v1 migration source changed from ${ledger.sourceDatabase} to ${sourceDatabase}`);
   }
-  ledger.sourceDatabase = sourceDatabase || null;
+  if (sourceDatabase) ledger.sourceDatabase = sourceDatabase;
 }
 
 function writeJsonAtomically(file, value) {
