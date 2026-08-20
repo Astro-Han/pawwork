@@ -39,6 +39,20 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span { font-size: 0; li
 span:has(> [data-slot="conversation.hero.brand.mark"]) + span::before { content: "What's first today?"; font-size: 26px; line-height: 32px; }
 html[lang^="zh"] span:has(> [data-slot="conversation.hero.brand.mark"]) + span::before { content: "今天从哪件事开始？"; }
 span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: none; }
+/* Hero mark 的悬停摆动。DSH 的 hero-fish-swim 是按鱼调的小幅度（±1px / -5°~3°），
+   爪印是只手套，挥手的左右幅度要大得多才读得出来。同样锚 data-slot，选择器权重
+   0,3,2 高于 DSH 的 0,3,0，直接覆盖 animation 简写。transform-origin 沿用 DSH 的
+   50% 60%，只改幅度不改性格。 */
+@keyframes pawwork-hero-mark-swim {
+  0%, 100% { transform: translate(0) rotate(0deg); }
+  35% { transform: translate(-3px, -1.5px) rotate(-13deg); }
+  70% { transform: translate(3px, 0) rotate(8deg); }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  span:has(> [data-slot="conversation.hero.brand.mark"]):hover > [data-slot="conversation.hero.brand.mark"] > svg {
+    animation: pawwork-hero-mark-swim var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+  }
+}
 `
 
     const styleId = "@pawwork/dsh-product/identity"
