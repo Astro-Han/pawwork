@@ -23,6 +23,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { parseUpdaterFileUrls, releaseAssetNames } from "./verify-release.ts"
+import { RELEASE_TARGETS, releaseAssetName, type ReleaseTarget } from "./release-targets"
 
 const POINTER_YMLS = ["latest.yml", "latest-mac.yml"] as const
 const MUTABLE_POINTERS = new Set<string>(POINTER_YMLS)
@@ -35,13 +36,19 @@ export type UploadStep = { name: string; cacheControl: string; manifest?: boolea
 
 // Pointer object the landing page reads to swap download buttons to R2 links.
 // Keys match the data-dl attributes on the buttons in site/src/pages/index.astro.
-export function buildManifest(version: string, publicBase: string) {
+export function buildManifest(
+  version: string,
+  publicBase: string,
+): { version: string } & Record<ReleaseTarget["manifestKey"], string> {
   const base = publicBase.replace(/\/$/, "")
   return {
     version,
-    macArm64: `${base}/pawwork-mac-arm64-${version}.dmg`,
-    macX64: `${base}/pawwork-mac-x64-${version}.dmg`,
-    winX64: `${base}/pawwork-win-x64-${version}.exe`,
+    ...(Object.fromEntries(
+      RELEASE_TARGETS.map((target) => [
+        target.manifestKey,
+        `${base}/${releaseAssetName(target, version, target.installerExt)}`,
+      ]),
+    ) as Record<ReleaseTarget["manifestKey"], string>),
   }
 }
 

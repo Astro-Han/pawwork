@@ -26,7 +26,7 @@ describe("release workflow app-update verification", () => {
   })
 
   test("matches updater repo by exact line", () => {
-    expect(workflow).toContain('grep -qx "repo: $expected_repo" "$config_path"')
+    expect(workflow).toContain('grep -qx "repo: $PUBLISH_REPO" "$config_path"')
   })
 
   test("keeps submit phase packaging as a signed app directory", () => {

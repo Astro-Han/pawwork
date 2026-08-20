@@ -3,6 +3,7 @@ import { access, mkdtemp, readFile as readTextFile, writeFile } from "node:fs/pr
 import path from "path"
 import { promisify } from "node:util"
 import { parseUpdaterMetadata } from "./updater-metadata"
+import { METADATA_FILES, RELEASE_TARGETS } from "./release-targets"
 
 const execFileAsync = promisify(execFile)
 
@@ -163,28 +164,20 @@ const output: Record<string, string> = {}
 const tag = `v${version}`
 const tmp = process.env.RUNNER_TEMP ?? "/tmp"
 
-// Windows x64
-const winX64 = await read("latest-yml-x86_64-pc-windows-msvc", "latest.yml")
-if (winX64) {
-  output["latest.yml"] = serialize(
-    mergeLatest(await downloadExisting(tag, "latest.yml"), {
-      version: winX64.version,
-      files: winX64.files,
-      releaseDate: winX64.releaseDate,
-    })!,
-  )
-}
-
-// macOS: merge arm64 + x64 into single file
-const macX64 = await read("latest-yml-x86_64-apple-darwin", "latest-mac.yml")
-const macArm64 = await read("latest-yml-aarch64-apple-darwin", "latest-mac.yml")
-if (macX64 || macArm64) {
-  const base = macArm64 ?? macX64!
-  output["latest-mac.yml"] = serialize(
-    mergeLatest(await downloadExisting(tag, "latest-mac.yml"), {
-      version: base.version,
-      files: [...(macArm64?.files ?? []), ...(macX64?.files ?? [])],
-      releaseDate: base.releaseDate,
+// One metadata file per updater feed, merged from every target that writes it —
+// latest-mac.yml carries arm64 and x64 together, latest.yml carries Windows
+// alone. Target order is the release matrix order, so the mac feed keeps arm64
+// first and takes its version and date from that entry.
+for (const metadata of METADATA_FILES) {
+  const targets = RELEASE_TARGETS.filter((target) => target.metadata === metadata)
+  const built = await Promise.all(targets.map((target) => read(target.metadataArtifact, metadata)))
+  const present = built.filter((entry): entry is LatestYml => Boolean(entry))
+  if (present.length === 0) continue
+  output[metadata] = serialize(
+    mergeLatest(await downloadExisting(tag, metadata), {
+      version: present[0].version,
+      files: present.flatMap((entry) => entry.files),
+      releaseDate: present[0].releaseDate,
     })!,
   )
 }

@@ -284,6 +284,15 @@ jobs:
           pnpm exec tsx ./scripts/prepare-uv.ts --platform "$uv_platform" --arch "${{ matrix.arch_label }}"
         working-directory: packages/desktop-electron
 
+      - name: Resolve packaged app paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec tsx ./scripts/packaged-app-env.ts "$OPENCODE_CHANNEL" "${{ matrix.arch_label }}" >> "$GITHUB_ENV"
+        working-directory: packages/desktop-electron
+        env:
+          OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
+
       - name: Read desktop package version
         id: package_version
         shell: bash
@@ -382,22 +391,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "$OPENCODE_CHANNEL" in
-            dev) APP_NAME="PawWork Dev" ;;
-            beta) APP_NAME="PawWork Beta" ;;
-            prod) APP_NAME="PawWork" ;;
-            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
-          esac
-
-          case "${{ matrix.arch_label }}" in
-            arm64) APP_OUT_DIR="dist/mac-arm64" ;;
-            x64) APP_OUT_DIR="dist/mac" ;;
-            *) echo "Unsupported arch: ${{ matrix.arch_label }}"; exit 1 ;;
-          esac
-
-          APP_PATH="$APP_OUT_DIR/$APP_NAME.app"
-          EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/$APP_NAME"
-          pnpm exec tsx ./scripts/ci-smoke.ts packaged "$OPENCODE_CHANNEL" "$EXECUTABLE_PATH"
+          pnpm exec tsx ./scripts/ci-smoke.ts packaged "$OPENCODE_CHANNEL"
         working-directory: packages/desktop-electron
         timeout-minutes: 2
         env:
@@ -409,20 +403,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "$OPENCODE_CHANNEL" in
-            dev) APP_NAME="PawWork Dev" ;;
-            beta) APP_NAME="PawWork Beta" ;;
-            prod) APP_NAME="PawWork" ;;
-            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
-          esac
-
-          case "${{ matrix.arch_label }}" in
-            arm64) APP_OUT_DIR="dist/mac-arm64" ;;
-            x64) APP_OUT_DIR="dist/mac" ;;
-            *) echo "Unsupported arch: ${{ matrix.arch_label }}"; exit 1 ;;
-          esac
-
-          APP_PATH="$APP_OUT_DIR/$APP_NAME.app"
           ARTIFACT_DIR="$RUNNER_TEMP/notarization-state"
           mkdir -p "$ARTIFACT_DIR"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ARTIFACT_DIR/signed-app.zip"
@@ -459,20 +439,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "$OPENCODE_CHANNEL" in
-            dev) APP_NAME="PawWork Dev" ;;
-            beta) APP_NAME="PawWork Beta" ;;
-            prod) APP_NAME="PawWork" ;;
-            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
-          esac
-
-          case "${{ matrix.arch_label }}" in
-            arm64) APP_OUT_DIR="dist/mac-arm64" ;;
-            x64) APP_OUT_DIR="dist/mac" ;;
-            *) echo "Unsupported arch: ${{ matrix.arch_label }}"; exit 1 ;;
-          esac
-
-          APP_PATH="$APP_OUT_DIR/$APP_NAME.app"
           ZIP_PATH="$RUNNER_TEMP/notarize-${{ matrix.arch_label }}.zip"
           auth_args=(--key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")
 
@@ -570,19 +536,6 @@ jobs:
 
           PY
 
-          case "${{ matrix.arch_label }}" in
-            arm64) APP_OUT_DIR="dist/mac-arm64" ;;
-            x64) APP_OUT_DIR="dist/mac" ;;
-            *) echo "Unsupported arch: ${{ matrix.arch_label }}"; exit 1 ;;
-          esac
-
-          case "$OPENCODE_CHANNEL" in
-            dev) APP_NAME="PawWork Dev" ;;
-            beta) APP_NAME="PawWork Beta" ;;
-            prod) APP_NAME="PawWork" ;;
-            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
-          esac
-
           rm -rf "$APP_OUT_DIR"
           mkdir -p "$APP_OUT_DIR"
           ditto -x -k "$DOWNLOAD_DIR/signed-app.zip" "$APP_OUT_DIR"
@@ -606,20 +559,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "$OPENCODE_CHANNEL" in
-            dev) APP_NAME="PawWork Dev" ;;
-            beta) APP_NAME="PawWork Beta" ;;
-            prod) APP_NAME="PawWork" ;;
-            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
-          esac
-
-          case "${{ matrix.arch_label }}" in
-            arm64) APP_OUT_DIR="dist/mac-arm64" ;;
-            x64) APP_OUT_DIR="dist/mac" ;;
-            *) echo "Unsupported arch: ${{ matrix.arch_label }}"; exit 1 ;;
-          esac
-
-          APP_PATH="$APP_OUT_DIR/$APP_NAME.app"
           if [ -n "${INPUT_SUBMISSION_ID}" ]; then
             submission_id="$INPUT_SUBMISSION_ID"
           else
@@ -698,21 +637,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "$OPENCODE_CHANNEL" in
-            dev) APP_NAME="PawWork Dev" ;;
-            beta) APP_NAME="PawWork Beta" ;;
-            prod) APP_NAME="PawWork" ;;
-            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
-          esac
-
-          case "${{ matrix.arch_label }}" in
-            arm64) APP_OUT_DIR="dist/mac-arm64" ;;
-            x64) APP_OUT_DIR="dist/mac" ;;
-            *) echo "Unsupported arch: ${{ matrix.arch_label }}"; exit 1 ;;
-          esac
-
-          APP_PATH="$APP_OUT_DIR/$APP_NAME.app"
-
           pnpm exec tsx ./scripts/generate-icons.ts
           pnpm exec electron-builder --mac dmg zip --${{ matrix.arch_label }} --prepackaged "$APP_PATH" --publish always --config.mac.sign=./script/skip-mac-sign.cjs --config.mac.notarize=false --config electron-builder.config.ts
         working-directory: packages/desktop-electron
@@ -726,24 +650,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "$OPENCODE_CHANNEL" in
-            dev) APP_NAME="PawWork Dev" ;;
-            beta) APP_NAME="PawWork Beta" ;;
-            prod) APP_NAME="PawWork" ;;
-            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
-          esac
-
-          case "$OPENCODE_CHANNEL" in
-            dev) expected_repo="" ;;
-            beta) expected_repo="pawwork-beta" ;;
-            prod) expected_repo="pawwork" ;;
-            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
-          esac
-
           verify_app_update_config() {
             local config_path="$1"
 
-            if [ -z "$expected_repo" ]; then
+            if [ -z "$PUBLISH_REPO" ]; then
               return 0
             fi
 
@@ -753,8 +663,8 @@ jobs:
             fi
 
             grep -qx "provider: github" "$config_path"
-            grep -qx "owner: Astro-Han" "$config_path"
-            grep -qx "repo: $expected_repo" "$config_path"
+            grep -qx "owner: $PUBLISH_OWNER" "$config_path"
+            grep -qx "repo: $PUBLISH_REPO" "$config_path"
             grep -qx "channel: latest" "$config_path"
           }
 

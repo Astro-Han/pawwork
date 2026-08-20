@@ -23,28 +23,15 @@ type VerificationInput = {
 const DEFAULT_REPO = "Astro-Han/pawwork"
 const FETCH_TIMEOUT_MS = 15_000
 
-const RELEASE_TARGETS = [
-  { os: "mac", arch: "arm64", installerExt: "dmg", updaterExt: "zip", metadata: "latest-mac.yml" },
-  { os: "mac", arch: "x64", installerExt: "dmg", updaterExt: "zip", metadata: "latest-mac.yml" },
-  { os: "win", arch: "x64", installerExt: "exe", updaterExt: "exe", metadata: "latest.yml" },
-] as const
-
-type MetadataFile = (typeof RELEASE_TARGETS)[number]["metadata"]
-
-function releaseTargetAssetName(target: (typeof RELEASE_TARGETS)[number], version: string, ext: string) {
-  return `pawwork-${target.os}-${target.arch}-${version}.${ext}`
-}
-
 export function releaseAssetNames(version: string) {
   return [
     ...new Set([
       ...RELEASE_TARGETS.flatMap((target) => [
-        releaseTargetAssetName(target, version, target.installerExt),
-        releaseTargetAssetName(target, version, target.updaterExt),
-        `${releaseTargetAssetName(target, version, target.updaterExt)}.blockmap`,
+        releaseAssetName(target, version, target.installerExt),
+        releaseAssetName(target, version, target.updaterExt),
+        `${releaseAssetName(target, version, target.updaterExt)}.blockmap`,
       ]),
-      "latest.yml",
-      "latest-mac.yml",
+      ...METADATA_FILES,
     ]),
   ]
 }
@@ -63,14 +50,14 @@ export function releaseProvenanceAssetNames(version: string) {
 }
 
 export function releaseUpdaterAssetNames(version: string): Record<MetadataFile, string[]> {
-  return {
-    "latest.yml": RELEASE_TARGETS.filter((target) => target.metadata === "latest.yml").map((target) =>
-      releaseTargetAssetName(target, version, target.updaterExt),
-    ),
-    "latest-mac.yml": RELEASE_TARGETS.filter((target) => target.metadata === "latest-mac.yml").map((target) =>
-      releaseTargetAssetName(target, version, target.updaterExt),
-    ),
-  }
+  return Object.fromEntries(
+    METADATA_FILES.map((metadata) => [
+      metadata,
+      RELEASE_TARGETS.filter((target) => target.metadata === metadata).map((target) =>
+        releaseAssetName(target, version, target.updaterExt),
+      ),
+    ]),
+  ) as Record<MetadataFile, string[]>
 }
 
 export function parseUpdaterFileUrls(source: string) {
@@ -263,3 +250,9 @@ if (import.meta.main) {
   await main()
 }
 import { parseUpdaterMetadata } from "./updater-metadata"
+import {
+  METADATA_FILES,
+  RELEASE_TARGETS,
+  releaseAssetName,
+  type MetadataFile,
+} from "./release-targets"

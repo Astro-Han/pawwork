@@ -11,6 +11,7 @@ import readline from "node:readline"
 import { PAWWORK_APP, type PawWorkChannel, isPawWorkChannel } from "../src/main/app-identity.ts"
 import { parseCdpPort } from "../src/main/ci-smoke-cdp.ts"
 import { dshTitleBarOptions } from "../src/main/window-options.ts"
+import { packagedAppEnv } from "./packaged-app-env.ts"
 const require = createRequire(import.meta.url)
 const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
@@ -105,10 +106,12 @@ export function parseSmokeArgs(argv: string[]): SmokeTarget {
   }
   if (mode !== "packaged") throw new Error(`Unsupported smoke mode: ${mode}`)
 
-  const executablePath = argv[2]
-  if (!executablePath) throw new Error("Packaged smoke requires an executable path")
+  // Where electron-builder put the app is not the caller's business: the two
+  // smoke workflows used to spell the path out by hand, once per platform.
+  const channel = parseChannel(argv[1])
+  const { EXECUTABLE_PATH: executablePath } = packagedAppEnv(channel)
   if (!existsSync(executablePath)) throw new Error(`Packaged smoke executable not found: ${executablePath}`)
-  return { mode, channel: parseChannel(argv[1]), executablePath }
+  return { mode, channel, executablePath }
 }
 
 export function resolveMainEntry() {

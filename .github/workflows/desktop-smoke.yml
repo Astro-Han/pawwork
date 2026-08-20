@@ -49,7 +49,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
           OPENCODE_CHANNEL: dev
       - name: Smoke packaged macOS app through CDP
-        run: pnpm exec tsx ./scripts/ci-smoke.ts packaged dev "dist/mac-arm64/PawWork Dev.app/Contents/MacOS/PawWork Dev"
+        run: pnpm exec tsx ./scripts/ci-smoke.ts packaged dev
         working-directory: packages/desktop-electron
         env:
           PAWWORK_CI_SMOKE_CDP: "true"
@@ -86,7 +86,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
           OPENCODE_CHANNEL: dev
       - name: Smoke packaged Windows app through CDP
-        run: pnpm exec tsx ./scripts/ci-smoke.ts packaged dev "dist/win-unpacked/PawWork Dev.exe"
+        run: pnpm exec tsx ./scripts/ci-smoke.ts packaged dev
         working-directory: packages/desktop-electron
         env:
           PAWWORK_CI_SMOKE_CDP: "true"

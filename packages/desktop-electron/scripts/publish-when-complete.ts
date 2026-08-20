@@ -60,6 +60,7 @@ import {
   type GithubAsset,
   type GithubRelease,
 } from "./verify-release"
+import { releaseAssetName, releaseTarget } from "./release-targets"
 
 const GITHUB_API = "https://api.github.com"
 const FETCH_TIMEOUT_MS = 30_000
@@ -341,12 +342,6 @@ async function dispatchMirror(repo: string, tag: string, ref: string) {
   await gh(["workflow", "run", "mirror-release-to-r2.yml", "--repo", repo, "--ref", ref, "-f", `tag=${tag}`])
 }
 
-// The updater asset (the file electron-updater downloads) and its metadata file,
-// per OS. Its content hash is what the marker records for the content anchor.
-function targetUpdater(os: string): { ext: string; metadata: "latest.yml" | "latest-mac.yml" } {
-  return os === "win" ? { ext: "exe", metadata: "latest.yml" } : { ext: "zip", metadata: "latest-mac.yml" }
-}
-
 // Read THIS target's installer hash from its updater metadata, re-fetching to
 // absorb read-after-write lag on the asset just finalized. Throws rather than
 // returning empty: a hashless marker would disable the content anchor for this
@@ -393,9 +388,11 @@ async function main() {
   // we cannot read our own installer hash (read-after-write lag, or finalize did
   // not run) we fail loudly instead of vouching for nothing.
   const release = await findRelease(repo, tag)
-  const { ext, metadata } = targetUpdater(os)
-  const myUpdaterAsset = `pawwork-${os}-${arch}-${version}.${ext}`
-  const mySha512 = await readOwnUpdaterSha(repo, tag, metadata, myUpdaterAsset)
+  // The updater asset is the file electron-updater downloads; its content hash
+  // is what the marker records for the content anchor.
+  const target = releaseTarget(os, arch)
+  const myUpdaterAsset = releaseAssetName(target, version, target.updaterExt)
+  const mySha512 = await readOwnUpdaterSha(repo, tag, target.metadata, myUpdaterAsset)
   const marker: ProvenanceMarker = { commit: buildSha, sha512: [mySha512] }
   await putProvenanceMarker(repo, release, thisMarker, JSON.stringify(marker))
 

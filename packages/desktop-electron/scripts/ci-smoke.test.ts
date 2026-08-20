@@ -18,6 +18,8 @@ import {
   resolveLaunchCommand,
   resolveMainEntry,
 } from "./ci-smoke"
+import { packagedAppEnv } from "./packaged-app-env.ts"
+import type { PawWorkChannel } from "../src/main/app-identity.ts"
 
 describe("ci smoke helpers", () => {
   test("resolveMainEntry points at the built Electron main process bundle", () => {
@@ -284,29 +286,47 @@ describe("ci smoke helpers", () => {
     expect(parseSmokeArgs([])).toEqual({ mode: "raw", channel: "dev" })
   })
 
-  test("parseSmokeArgs accepts a packaged executable path", () => {
+  // The path is derived from the channel now, so these run from a temporary
+  // working directory holding the layout electron-builder would have produced.
+  function inPackagedTree(channel: PawWorkChannel, build: (executablePath: string) => void, run: () => void) {
     const dir = mkdtempSync(path.join(tmpdir(), "pawwork-ci-smoke-"))
+    const previous = process.cwd()
     try {
-      const executablePath = path.join(dir, "PawWork")
-      writeFileSync(executablePath, "")
-
-      expect(parseSmokeArgs(["packaged", "prod", executablePath])).toEqual({
-        mode: "packaged",
-        channel: "prod",
-        executablePath,
-      })
+      process.chdir(dir)
+      build(packagedAppEnv(channel).EXECUTABLE_PATH)
+      run()
     } finally {
+      process.chdir(previous)
       rmSync(dir, { recursive: true, force: true })
     }
+  }
+
+  test("parseSmokeArgs derives the packaged executable from the channel", () => {
+    inPackagedTree(
+      "prod",
+      (executablePath) => {
+        mkdirSync(path.dirname(executablePath), { recursive: true })
+        writeFileSync(executablePath, "")
+      },
+      () => {
+        expect(parseSmokeArgs(["packaged", "prod"])).toEqual({
+          mode: "packaged",
+          channel: "prod",
+          executablePath: packagedAppEnv("prod").EXECUTABLE_PATH,
+        })
+      },
+    )
   })
 
-  test("parseSmokeArgs rejects packaged mode without an executable path", () => {
-    expect(() => parseSmokeArgs(["packaged", "dev"])).toThrow("Packaged smoke requires an executable path")
-  })
-
-  test("parseSmokeArgs rejects packaged mode when the executable path is missing", () => {
-    expect(() => parseSmokeArgs(["packaged", "dev", "/tmp/pawwork-missing-executable"])).toThrow(
-      "Packaged smoke executable not found: /tmp/pawwork-missing-executable",
+  test("parseSmokeArgs rejects packaged mode when the derived executable is missing", () => {
+    inPackagedTree(
+      "dev",
+      () => {},
+      () => {
+        expect(() => parseSmokeArgs(["packaged", "dev"])).toThrow(
+          `Packaged smoke executable not found: ${packagedAppEnv("dev").EXECUTABLE_PATH}`,
+        )
+      },
     )
   })
 
@@ -335,13 +355,14 @@ describe("ci smoke helpers", () => {
     () => {
       const dir = mkdtempSync(path.join(tmpdir(), "pawwork-ci-smoke-"))
       try {
-        const executablePath = path.join(dir, "PawWork")
-        mkdirSync(executablePath)
+        const executablePath = packagedAppEnv("dev").EXECUTABLE_PATH
+        mkdirSync(path.join(dir, executablePath), { recursive: true })
 
         const result = spawnSync(
           process.execPath,
-          [path.join(import.meta.dirname, "ci-smoke.ts"), "packaged", "dev", executablePath],
+          [path.join(import.meta.dirname, "ci-smoke.ts"), "packaged", "dev"],
           {
+            cwd: dir,
             encoding: "utf8",
             timeout: 5_000,
           },

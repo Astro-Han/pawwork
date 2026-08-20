@@ -101,8 +101,8 @@ describe("verify-release", () => {
       "pawwork-mac-x64-2026.4.28.zip.blockmap",
       "pawwork-win-x64-2026.4.28.exe",
       "pawwork-win-x64-2026.4.28.exe.blockmap",
-      "latest.yml",
       "latest-mac.yml",
+      "latest.yml",
     ])
     expect(releaseUpdaterAssetNames("2026.4.28")).toEqual({
       "latest.yml": ["pawwork-win-x64-2026.4.28.exe"],
