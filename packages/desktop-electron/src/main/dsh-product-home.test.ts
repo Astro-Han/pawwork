@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -119,6 +119,11 @@ describe("DSH product home", () => {
     prepareDshProductHome({ productHome, resources })
 
     expect(readFileSync(join(productHome, ".credentials.yaml"), "utf8")).toBe('OPENCODE_API_KEY: "public"\n')
+    // The file sits next to every other user in a shared home, and the next key
+    // written into it is the user's own. Windows ignores the mode entirely.
+    if (process.platform !== "win32") {
+      expect(statSync(join(productHome, ".credentials.yaml")).mode & 0o777).toBe(0o600)
+    }
   })
 
   test("publishes the installed zero-cost OpenCode catalog as OpenCode Free", () => {

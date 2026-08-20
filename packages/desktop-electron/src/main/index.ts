@@ -255,6 +255,11 @@ function clearProgressBar() {
   applyProgressBar(-1)
 }
 
+// No feed is configured here: every check runs through updateFeed, which probes
+// the feeds in order and points electron-updater at the one it picked. Setting
+// the first feed at startup only duplicated that choice — with a worse fallback
+// — and the packaged app-update.yml already covers anything that reads a feed
+// before the first check.
 function setupAutoUpdater() {
   if (!UPDATER_ACTIVE) return
   autoUpdater.logger = logger
@@ -265,14 +270,6 @@ function setupAutoUpdater() {
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = process.platform !== "darwin"
 
-  const feeds = buildUpdateFeeds()
-  try {
-    autoUpdater.setFeedURL(feeds[0].options)
-  } catch (error) {
-    logger.error("initial update feed config failed", error)
-    const github = feeds.find((feed) => feed.label === "github")
-    if (github) autoUpdater.setFeedURL(github.options)
-  }
   autoUpdater.on("download-progress", (info) => {
     currentProgress = info.percent / 100
     applyProgressBar(currentProgress)
