@@ -23,10 +23,12 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { parseUpdaterFileUrls, releaseAssetNames } from "./verify-release.ts"
-import { RELEASE_TARGETS, releaseAssetName, type ReleaseTarget } from "./release-targets"
+import { METADATA_FILES, RELEASE_TARGETS, releaseAssetName, type ReleaseTarget } from "./release-targets"
 
-const POINTER_YMLS = ["latest.yml", "latest-mac.yml"] as const
-const MUTABLE_POINTERS = new Set<string>(POINTER_YMLS)
+// The updater pointers are the only mutable objects in the mirror: everything
+// else is versioned and cached for a year. A metadata file this set missed
+// would be uploaded immutable, and the updater would read a year-old pointer.
+const MUTABLE_POINTERS = new Set<string>(METADATA_FILES)
 const IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
 const POINTER_CACHE = "no-cache, must-revalidate"
 const MANIFEST_NAME = "latest.json"
@@ -151,7 +153,7 @@ async function mirror({ assets, tag, repo, dir, bucket, endpoint, publicBase, ve
   // Fail before mirroring if a pointer references an asset we will not upload:
   // the generic R2 feed must be able to resolve every file the yml lists.
   const mirrored = new Set(assets)
-  for (const pointer of POINTER_YMLS) {
+  for (const pointer of METADATA_FILES) {
     const referenced = pointerReferencedAssets(await readFile(join(dir, pointer), "utf8"))
     const missingRefs = missingPointerReferences(referenced, mirrored)
     if (missingRefs.length) {

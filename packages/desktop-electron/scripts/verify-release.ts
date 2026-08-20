@@ -16,11 +16,13 @@ export type GithubRelease = {
 
 type VerificationInput = {
   release: GithubRelease
-  latestYml?: string
-  latestMacYml?: string
+  // Keyed by metadata file, so a fourth target with a new one is verified by
+  // the same loop that already downloads and mirrors it. Absent means the
+  // caller did not fetch it; empty string would mean it is there and empty.
+  metadata?: Partial<Record<MetadataFile, string>>
 }
 
-const DEFAULT_REPO = "Astro-Han/pawwork"
+const DEFAULT_REPO = `${PAWWORK_RELEASE_OWNER}/${PAWWORK_APP.prod.releaseRepo}`
 const FETCH_TIMEOUT_MS = 15_000
 
 export function releaseAssetNames(version: string) {
@@ -121,24 +123,25 @@ export function verifyReleasePayload(input: VerificationInput, options?: { allow
   if (input.release.draft && !options?.allowDraft) failures.push(`Release ${input.release.tag_name} is still a draft`)
   if (input.release.prerelease) failures.push(`Release ${input.release.tag_name} is marked as a prerelease`)
 
-  const latestUrls = input.latestYml === undefined ? [] : parseUpdaterFileUrls(input.latestYml)
-  verifyReferencedAssets("latest.yml", latestUrls, assetNames, failures)
-  const latestMacUrls = input.latestMacYml === undefined ? [] : parseUpdaterFileUrls(input.latestMacYml)
-  verifyReferencedAssets("latest-mac.yml", latestMacUrls, assetNames, failures)
+  const urls = new Map(
+    METADATA_FILES.map((metadata) => {
+      const source = input.metadata?.[metadata]
+      const parsed = source === undefined ? [] : parseUpdaterFileUrls(source)
+      verifyReferencedAssets(metadata, parsed, assetNames, failures)
+      return [metadata, parsed]
+    }),
+  )
 
   if (version) {
-    verifyUpdaterVersion("latest.yml", input.latestYml, version, failures)
-    verifyUpdaterVersion("latest-mac.yml", input.latestMacYml, version, failures)
+    const updaterAssets = releaseUpdaterAssetNames(version)
+    for (const metadata of METADATA_FILES) {
+      verifyUpdaterVersion(metadata, input.metadata?.[metadata], version, failures)
+      for (const asset of updaterAssets[metadata]) {
+        if (!hasUpdaterEntry(urls.get(metadata)!, asset)) failures.push(`${metadata} does not include ${asset}`)
+      }
+    }
     for (const asset of releaseAssetNames(version)) {
       if (!assetNames.has(asset)) failures.push(`Missing release asset: ${asset}`)
-    }
-
-    const updaterAssets = releaseUpdaterAssetNames(version)
-    for (const asset of updaterAssets["latest.yml"]) {
-      if (!hasUpdaterEntry(latestUrls, asset)) failures.push(`latest.yml does not include ${asset}`)
-    }
-    for (const asset of updaterAssets["latest-mac.yml"]) {
-      if (!hasUpdaterEntry(latestMacUrls, asset)) failures.push(`latest-mac.yml does not include ${asset}`)
     }
   }
 
@@ -228,9 +231,10 @@ async function main() {
     const release = await fetchJson<GithubRelease>(
       `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(normalizedTag)}`,
     )
-    const latestYml = await fetchAssetText(release, "latest.yml")
-    const latestMacYml = await fetchAssetText(release, "latest-mac.yml")
-    const failures = verifyReleasePayload({ release, latestYml, latestMacYml })
+    const metadata = Object.fromEntries(
+      await Promise.all(METADATA_FILES.map(async (name) => [name, await fetchAssetText(release, name)] as const)),
+    )
+    const failures = verifyReleasePayload({ release, metadata })
 
     if (failures.length) {
       console.error(`Release verification failed for ${repo} ${normalizedTag}:`)
@@ -256,3 +260,4 @@ import {
   releaseAssetName,
   type MetadataFile,
 } from "./release-targets"
+import { PAWWORK_APP, PAWWORK_RELEASE_OWNER } from "../src/main/app-identity.ts"

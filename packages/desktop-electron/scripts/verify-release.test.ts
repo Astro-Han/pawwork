@@ -153,8 +153,7 @@ path: pawwork-win-x64-2026.4.28.exe
     expect(
       verifyReleasePayload({
         release: baseRelease,
-        latestYml: validLatestYml,
-        latestMacYml: validLatestMacYml,
+        metadata: { "latest.yml": validLatestYml, "latest-mac.yml": validLatestMacYml },
       }),
     ).toEqual([])
   })
@@ -162,8 +161,7 @@ path: pawwork-win-x64-2026.4.28.exe
   test("rejects updater metadata without a top-level version", () => {
     const failures = verifyReleasePayload({
       release: baseRelease,
-      latestYml: "files:\n  - url: pawwork-win-x64-2026.4.28.exe\n",
-      latestMacYml: validLatestMacYml,
+      metadata: { "latest.yml": "files:\n  - url: pawwork-win-x64-2026.4.28.exe\n", "latest-mac.yml": validLatestMacYml },
     })
 
     expect(failures).toContain("latest.yml does not declare version 2026.4.28")
@@ -172,8 +170,7 @@ path: pawwork-win-x64-2026.4.28.exe
   test("rejects updater metadata for a different release version", () => {
     const failures = verifyReleasePayload({
       release: baseRelease,
-      latestYml: "version: 2026.4.27\nfiles:\n  - url: pawwork-win-x64-2026.4.28.exe\n",
-      latestMacYml: validLatestMacYml,
+      metadata: { "latest.yml": "version: 2026.4.27\nfiles:\n  - url: pawwork-win-x64-2026.4.28.exe\n", "latest-mac.yml": validLatestMacYml },
     })
 
     expect(failures).toContain("latest.yml version 2026.4.27 does not match release 2026.4.28")
@@ -183,10 +180,7 @@ path: pawwork-win-x64-2026.4.28.exe
     expect(
       verifyReleasePayload({
         release: baseRelease,
-        latestYml:
-          "version: 2026.4.28\nfiles:\n  - url: https://github.com/Astro-Han/pawwork/releases/download/v2026.4.28/pawwork-win-x64-2026.4.28.exe\n",
-        latestMacYml:
-          "version: 2026.4.28\nfiles:\n  - url: https://github.com/Astro-Han/pawwork/releases/download/v2026.4.28/pawwork-mac-arm64-2026.4.28.zip\n  - url: https://github.com/Astro-Han/pawwork/releases/download/v2026.4.28/pawwork-mac-x64-2026.4.28.zip\n",
+        metadata: { "latest.yml": "version: 2026.4.28\nfiles:\n  - url: https://github.com/Astro-Han/pawwork/releases/download/v2026.4.28/pawwork-win-x64-2026.4.28.exe\n", "latest-mac.yml": "version: 2026.4.28\nfiles:\n  - url: https://github.com/Astro-Han/pawwork/releases/download/v2026.4.28/pawwork-mac-arm64-2026.4.28.zip\n  - url: https://github.com/Astro-Han/pawwork/releases/download/v2026.4.28/pawwork-mac-x64-2026.4.28.zip\n" },
       }),
     ).toEqual([])
   })
@@ -195,8 +189,7 @@ path: pawwork-win-x64-2026.4.28.exe
     expect(
       verifyReleasePayload({
         release: baseRelease,
-        latestYml: validLatestYml,
-        latestMacYml: "files:\n  - url: pawwork-mac-x64-2026.4.28.zip\n",
+        metadata: { "latest.yml": validLatestYml, "latest-mac.yml": "files:\n  - url: pawwork-mac-x64-2026.4.28.zip\n" },
       }),
     ).toContain("latest-mac.yml does not include pawwork-mac-arm64-2026.4.28.zip")
   })
@@ -208,8 +201,7 @@ path: pawwork-win-x64-2026.4.28.exe
           ...baseRelease,
           assets: baseRelease.assets.filter((asset) => asset.name !== "pawwork-mac-arm64-2026.4.28.zip"),
         },
-        latestYml: validLatestYml,
-        latestMacYml: validLatestMacYml,
+        metadata: { "latest.yml": validLatestYml, "latest-mac.yml": validLatestMacYml },
       }),
     ).toContain("latest-mac.yml references missing release asset: pawwork-mac-arm64-2026.4.28.zip")
   })
@@ -223,8 +215,7 @@ path: pawwork-win-x64-2026.4.28.exe
             asset.name !== "pawwork-mac-arm64-2026.4.28.dmg" && asset.name !== "pawwork-win-x64-2026.4.28.exe.blockmap",
         ),
       },
-      latestYml: validLatestYml,
-      latestMacYml: validLatestMacYml,
+      metadata: { "latest.yml": validLatestYml, "latest-mac.yml": validLatestMacYml },
     })
 
     expect(failures).toContain("Missing release asset: pawwork-mac-arm64-2026.4.28.dmg")
@@ -237,8 +228,7 @@ path: pawwork-win-x64-2026.4.28.exe
         ...baseRelease,
         assets: baseRelease.assets.filter((asset) => asset.name !== "latest.yml" && asset.name !== "latest-mac.yml"),
       },
-      latestYml: "",
-      latestMacYml: "",
+      metadata: { "latest.yml": "", "latest-mac.yml": "" },
     })
 
     expect(failures).toContain("Missing release asset: latest.yml")
@@ -252,19 +242,17 @@ path: pawwork-win-x64-2026.4.28.exe
     expect(
       verifyReleasePayload({
         release: { ...baseRelease, draft: true },
-        latestYml: validLatestYml,
-        latestMacYml: validLatestMacYml,
+        metadata: { "latest.yml": validLatestYml, "latest-mac.yml": validLatestMacYml },
       }),
     ).toContain("Release v2026.4.28 is still a draft")
   })
 
   test("allowDraft suppresses the draft failure but keeps every other check", () => {
-    const latestYml = validLatestYml
-    const latestMacYml = validLatestMacYml
+    const metadata = { "latest.yml": validLatestYml, "latest-mac.yml": validLatestMacYml }
 
     // A complete draft is fully accepted when drafts are allowed.
     expect(
-      verifyReleasePayload({ release: { ...baseRelease, draft: true }, latestYml, latestMacYml }, { allowDraft: true }),
+      verifyReleasePayload({ release: { ...baseRelease, draft: true }, metadata }, { allowDraft: true }),
     ).toEqual([])
 
     // allowDraft does not loosen anything else: missing assets still fail.
@@ -275,8 +263,7 @@ path: pawwork-win-x64-2026.4.28.exe
           draft: true,
           assets: baseRelease.assets.filter((asset) => asset.name !== "pawwork-mac-arm64-2026.4.28.dmg"),
         },
-        latestYml,
-        latestMacYml,
+        metadata,
       },
       { allowDraft: true },
     )
@@ -288,8 +275,7 @@ path: pawwork-win-x64-2026.4.28.exe
     expect(
       verifyReleasePayload({
         release: { ...baseRelease, prerelease: true },
-        latestYml: validLatestYml,
-        latestMacYml: validLatestMacYml,
+        metadata: { "latest.yml": validLatestYml, "latest-mac.yml": validLatestMacYml },
       }),
     ).toContain("Release v2026.4.28 is marked as a prerelease")
   })
@@ -297,8 +283,7 @@ path: pawwork-win-x64-2026.4.28.exe
   test("reports malformed updater metadata as missing required updater entries", () => {
     const failures = verifyReleasePayload({
       release: baseRelease,
-      latestYml: "files:\n  - broken: pawwork-win-x64-2026.4.28.exe\n",
-      latestMacYml: "files:\n  - broken: pawwork-mac-arm64-2026.4.28.zip\n",
+      metadata: { "latest.yml": "files:\n  - broken: pawwork-win-x64-2026.4.28.exe\n", "latest-mac.yml": "files:\n  - broken: pawwork-mac-arm64-2026.4.28.zip\n" },
     })
 
     expect(failures).toContain("latest.yml does not include pawwork-win-x64-2026.4.28.exe")
@@ -310,8 +295,7 @@ path: pawwork-win-x64-2026.4.28.exe
     expect(
       verifyReleasePayload({
         release: { ...baseRelease, tag_name: "v2026.4.28.1" },
-        latestYml: "",
-        latestMacYml: "",
+        metadata: { "latest.yml": "", "latest-mac.yml": "" },
       }),
     ).toEqual(["Invalid release tag: v2026.4.28.1. Expected vYYYY.M.D or YYYY.M.D."])
   })

@@ -60,7 +60,7 @@ import {
   type GithubAsset,
   type GithubRelease,
 } from "./verify-release"
-import { releaseAssetName, releaseTarget } from "./release-targets"
+import { METADATA_FILES, type MetadataFile, releaseAssetName, releaseTarget } from "./release-targets"
 
 const GITHUB_API = "https://api.github.com"
 const FETCH_TIMEOUT_MS = 30_000
@@ -99,14 +99,13 @@ export type PublishDecision =
 // content hash currently in latest*.yml.
 export function decidePublishAction(args: {
   release: GithubRelease
-  latestYml?: string
-  latestMacYml?: string
+  metadata?: Partial<Record<MetadataFile, string>>
   buildSha: string
   provenance: Record<string, ProvenanceMarker>
   expectedProvenance: string[]
   updaterSha512s: string[]
 }): PublishDecision {
-  const { release, latestYml, latestMacYml, buildSha, provenance, expectedProvenance, updaterSha512s } = args
+  const { release, metadata, buildSha, provenance, expectedProvenance, updaterSha512s } = args
 
   // A prerelease is a bad state for this pipeline: fail loudly instead of
   // waiting forever for a "completion" that publishing would never reach.
@@ -130,7 +129,7 @@ export function decidePublishAction(args: {
   // per-target provenance marker must be present. Any gap means a target has not
   // finished yet -> keep waiting (no-op, exit 0). allowDraft so the draft state
   // itself is not counted as a failure here.
-  const failures = verifyReleasePayload({ release, latestYml, latestMacYml }, { allowDraft: true })
+  const failures = verifyReleasePayload({ release, metadata }, { allowDraft: true })
   const missingMarkers = expectedProvenance.filter((name) => !(name in provenance))
   if (failures.length > 0 || missingMarkers.length > 0) {
     const reasons = [...failures, ...missingMarkers.map((name) => `missing provenance marker ${name}`)]
@@ -288,8 +287,8 @@ async function readProvenance(release: ApiRelease, expected: string[]): Promise<
   return entries
 }
 
-function updaterSha512sFrom(latestYml?: string, latestMacYml?: string): string[] {
-  return [latestYml, latestMacYml].filter((yml): yml is string => yml !== undefined).flatMap((yml) =>
+function updaterSha512sFrom(metadata: Partial<Record<MetadataFile, string>>): string[] {
+  return Object.values(metadata).filter((yml) => yml !== undefined).flatMap((yml) =>
     parseUpdaterShaByUrl(yml).map((entry) => entry.sha512),
   )
 }
@@ -363,10 +362,11 @@ async function readOwnUpdaterSha(repo: string, tag: string, metadata: string, as
 
 async function readEvaluationState(repo: string, tag: string, expectedProvenance: string[]) {
   const release = await findRelease(repo, tag)
-  const latestYml = await fetchAssetText(release, "latest.yml")
-  const latestMacYml = await fetchAssetText(release, "latest-mac.yml")
+  const metadata = Object.fromEntries(
+    await Promise.all(METADATA_FILES.map(async (name) => [name, await fetchAssetText(release, name)] as const)),
+  )
   const provenance = await readProvenance(release, expectedProvenance)
-  return { release, latestYml, latestMacYml, provenance }
+  return { release, metadata, provenance }
 }
 
 async function main() {
@@ -400,12 +400,11 @@ async function main() {
     const state = await readEvaluationState(repo, tag, expectedProvenance)
     const decision = decidePublishAction({
       release: state.release,
-      latestYml: state.latestYml,
-      latestMacYml: state.latestMacYml,
+      metadata: state.metadata,
       buildSha,
       provenance: state.provenance,
       expectedProvenance,
-      updaterSha512s: updaterSha512sFrom(state.latestYml, state.latestMacYml),
+      updaterSha512s: updaterSha512sFrom(state.metadata),
     })
     console.log(`publish-when-complete (attempt ${attempt}/${WAIT_POLL_ATTEMPTS}): ${decision.reason}`)
 
@@ -438,12 +437,11 @@ async function main() {
         const reread = await readEvaluationState(repo, tag, expectedProvenance)
         const recheck = decidePublishAction({
           release: reread.release,
-          latestYml: reread.latestYml,
-          latestMacYml: reread.latestMacYml,
+          metadata: reread.metadata,
           buildSha,
           provenance: reread.provenance,
           expectedProvenance,
-          updaterSha512s: updaterSha512sFrom(reread.latestYml, reread.latestMacYml),
+          updaterSha512s: updaterSha512sFrom(reread.metadata),
         })
         if (recheck.kind !== "publish") {
           console.error(`publish-when-complete: release changed during seal, not publishing: ${recheck.reason}`)
