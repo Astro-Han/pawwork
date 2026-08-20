@@ -92,6 +92,14 @@ describe("electron builder app-update config", () => {
     })
   })
 
+  // One scheme for every channel, named after the channel's app: whichever build
+  // installs last owns pawwork:// links, and the OS prompt should say which one.
+  test("every channel registers the pawwork scheme under its own name", () => {
+    expect(createConfig("dev").protocols).toEqual({ name: "PawWork Dev", schemes: ["pawwork"] })
+    expect(createConfig("beta").protocols).toEqual({ name: "PawWork Beta", schemes: ["pawwork"] })
+    expect(createConfig("prod").protocols).toEqual({ name: "PawWork", schemes: ["pawwork"] })
+  })
+
   test("windows nsis installer uses PawWork shortcut customizations", () => {
     const config = createConfig("prod")
 
@@ -142,22 +150,6 @@ describe("electron builder app-update config", () => {
     expect(readFileSync(zhCn, "utf8")).toContain('CFBundleName = "爪印";')
   })
 
-
-  test("afterPack preserves an existing hook before writing its own files", async () => {
-    const root = mkdtempSync(join(tmpdir(), "pawwork-builder-config-"))
-    roots.push(root)
-    const calls: string[] = []
-    const config = createConfig("prod", {
-      afterPack: async () => {
-        calls.push("existing")
-      },
-    })
-
-    await afterPackHook(config)(macAfterPackContext(root, "PawWork"))
-
-    expect(calls).toEqual(["existing"])
-    expect(existsSync(join(root, "PawWork.app", "Contents", "Resources", "zh-Hans.lproj", "InfoPlist.strings"))).toBe(true)
-  })
 
   // electron-builder writes app-update.yml itself on every packaged platform and
   // fills updaterCacheDirName with sanitizeFileName(name).toLowerCase() +

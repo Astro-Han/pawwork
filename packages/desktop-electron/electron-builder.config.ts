@@ -117,8 +117,10 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
   dmg: {
     sign: true,
   },
+  // Every channel registers the same scheme, so the only per-channel part is the
+  // name the OS shows; createConfig used to restate the whole block for beta.
   protocols: {
-    name: "PawWork",
+    name: PAWWORK_APP[channel].name,
     schemes: ["pawwork"],
   },
   win: {
@@ -140,29 +142,20 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
   },
 })
 
-export function createConfig(channel: PawWorkChannel = currentChannel(), baseOverrides: Partial<Configuration> = {}) {
-  const base = { ...getBase(channel), ...baseOverrides }
-  const publish = getPublishConfig(channel)
-
-  const withAppUpdateConfig = (configuration: Configuration): Configuration => ({
-    ...configuration,
-    publish,
+export function createConfig(channel: PawWorkChannel = currentChannel()): Configuration {
+  const identity = PAWWORK_APP[channel]
+  return {
+    ...getBase(channel),
+    appId: identity.id,
+    productName: identity.name,
+    publish: getPublishConfig(channel),
+    // The localized display names live inside the packaged bundle, so they can
+    // only be written once it exists.
     afterPack: async (context) => {
-      if (typeof configuration.afterPack === "function") {
-        await configuration.afterPack(context)
-      }
       if (context.electronPlatformName !== "darwin") return
       await writeLocalizedMacDisplayName(context.packager.getMacOsResourcesDir(context.appOutDir), channel)
     },
-  })
-
-  const identity = PAWWORK_APP[channel]
-  return withAppUpdateConfig({
-    ...base,
-    appId: identity.id,
-    productName: identity.name,
-    ...(channel === "beta" ? { protocols: { name: identity.name, schemes: ["pawwork"] } } : {}),
-  })
+  }
 }
 
 export default createConfig()
