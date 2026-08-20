@@ -4,7 +4,7 @@ import { app, BrowserWindow, nativeImage, shell } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { macTrafficLightPosition, pawworkWindowTitle, titlebarInsetCss } from "./window-chrome"
-import { decideDshNavigation, guardDshNavigation } from "./window-navigation"
+import { decideDshNavigation, guardDshNavigation, handleDshWindowOpen } from "./window-navigation"
 import { dshTitleBarOptions, dshWebPreferences } from "./window-options"
 
 const root = dirname(fileURLToPath(import.meta.url))
@@ -42,12 +42,8 @@ export function createMainWindow(url: string, preload: string) {
   })
 
   state.manage(win)
-  win.webContents.setWindowOpenHandler(({ url: target }) => {
-    const decision = decideDshNavigation(url, target)
-    if (decision === "same-window") void win.loadURL(target)
-    if (decision === "external") void openExternal(target)
-    return { action: "deny" }
-  })
+  win.webContents.setWindowOpenHandler(({ url: target }) =>
+    handleDshWindowOpen(url, target, (destination) => win.loadURL(destination), openExternal))
   win.webContents.on("will-frame-navigate", (event) => {
     if (event.isMainFrame) {
       guardDshNavigation(url, event.url, event, openExternal)

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { decideDshNavigation, guardDshNavigation } from "./window-navigation"
+import { decideDshNavigation, guardDshNavigation, handleDshWindowOpen } from "./window-navigation"
 
 describe("DSH window navigation", () => {
   test("keeps the owned DSH origin in the secured main window", () => {
@@ -28,6 +28,50 @@ describe("DSH window navigation", () => {
 
     expect(prevented).toBe(true)
     expect(opened).toEqual(["https://example.com/help"])
+  })
+
+  // The decision is what keeps a privileged scheme out of the OS handler, so the
+  // assertion that bites is the empty openExternal, not the preventDefault.
+  test.each([
+    "file:///tmp/secret",
+    "javascript:alert(1)",
+    "not a url",
+  ])("blocks %s from reaching the OS handler", async (target) => {
+    let prevented = false
+    const opened: string[] = []
+
+    guardDshNavigation(
+      "http://127.0.0.1:53501/",
+      target,
+      { preventDefault: () => { prevented = true } },
+      async (destination) => { opened.push(destination) },
+    )
+    await Promise.resolve()
+
+    expect(prevented).toBe(true)
+    expect(opened).toEqual([])
+  })
+
+  test.each([
+    ["http://127.0.0.1:53501/session/1", ["http://127.0.0.1:53501/session/1"], []],
+    ["https://example.com/help", [], ["https://example.com/help"]],
+    ["file:///tmp/secret", [], []],
+    ["javascript:alert(1)", [], []],
+  ] as const)("denies the popup for %s and re-homes it by decision", async (target, loaded, opened) => {
+    const loadedUrls: string[] = []
+    const openedUrls: string[] = []
+
+    const result = handleDshWindowOpen(
+      "http://127.0.0.1:53501/",
+      target,
+      (destination) => loadedUrls.push(destination),
+      async (destination) => { openedUrls.push(destination) },
+    )
+    await Promise.resolve()
+
+    expect(result).toEqual({ action: "deny" })
+    expect(loadedUrls).toEqual(loaded)
+    expect(openedUrls).toEqual(opened)
   })
 
   test("allows the main frame to navigate within the owned DSH origin", () => {
