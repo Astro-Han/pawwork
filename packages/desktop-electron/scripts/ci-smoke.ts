@@ -5,6 +5,7 @@ import { createRequire } from "node:module"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import process from "node:process"
 import readline from "node:readline"
 import { PAWWORK_APP, type PawWorkChannel } from "../src/main/app-identity.ts"
@@ -696,6 +697,10 @@ async function main() {
   }
 }
 
-if (import.meta.main) {
+// `import.meta.main` is undefined when tsx wraps the entry module, and every
+// caller here runs through tsx. It happens to be defined on the Node 24 CI
+// runners, but under Node 26 the smoke silently skips main() and exits 0 having
+// verified nothing. Compare the resolved entry path instead.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   await main()
 }
