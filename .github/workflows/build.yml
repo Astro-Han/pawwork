@@ -658,7 +658,7 @@ jobs:
             grep -qx "provider: github" "$config_path"
             grep -qx "owner: $PUBLISH_OWNER" "$config_path"
             grep -qx "repo: $PUBLISH_REPO" "$config_path"
-            grep -qx "channel: latest" "$config_path"
+            grep -qx "channel: latest-v2" "$config_path"
           }
 
           verify_dir="$RUNNER_TEMP/verify-notarized-artifacts"

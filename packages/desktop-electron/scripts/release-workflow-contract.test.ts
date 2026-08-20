@@ -56,6 +56,7 @@ describe("release workflow", () => {
     expect(verify.body).toMatch(/verify_app_update_config "\$verify_dir\//)
     expect(verify.body).toMatch(/verify_app_update_config "\$mounted_app\//)
     expect(verify.body).toMatch(/grep -qx "repo: \$PUBLISH_REPO"/)
+    expect(verify.body).toMatch(/grep -qx "channel: latest-v2"/)
   })
 
   // The finalizer merges the other arch's entries into this channel's feed, so
