@@ -1,31 +1,17 @@
-import { execFile } from "node:child_process"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
 import { PAWWORK_APP, PAWWORK_PACKAGE_NAME, PAWWORK_RELEASE_OWNER, PAWWORK_UPDATE_CHANNEL, type PawWorkChannel, localizedPawWorkName, parsePawWorkChannel } from "./src/main/app-identity"
 
-const execFileAsync = promisify(execFile)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
-const signScript = path.join(rootDir, "script", "sign-windows.ps1")
 type GitHubPublishConfig = {
   provider: "github"
   owner: string
   repo: string
   channel: string
 }
-async function signWindows(configuration: { path: string }) {
-  if (process.platform !== "win32") return
-
-  await execFileAsync(
-    "pwsh",
-    ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", signScript, configuration.path],
-    { cwd: rootDir },
-  )
-}
-
 export function getPublishConfig(channel: PawWorkChannel): GitHubPublishConfig | undefined {
   const repo = PAWWORK_APP[channel].releaseRepo
   if (!repo) return undefined
@@ -118,7 +104,6 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
   },
   win: {
     icon: `resources/icons/icon.ico`,
-    ...(channel === "prod" ? { signtoolOptions: { sign: signWindows } } : {}),
     target: [{ target: "nsis", arch: ["x64"] }],
   },
   nsis: {

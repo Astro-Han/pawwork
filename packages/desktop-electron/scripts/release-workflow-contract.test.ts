@@ -59,22 +59,19 @@ describe("release workflow", () => {
     expect(verify.body).toMatch(/grep -qx "channel: latest-v2"/)
   })
 
-  test("authenticates, verifies, installs, and smokes a production Windows installer before upload", () => {
-    expect(workflow).toMatch(/id-token: write/)
-    const authenticate = indexOfStep("Authenticate Windows signing")
+  test("installs and smokes a production Windows installer before upload without signing infrastructure", () => {
     const pack = indexOfStep("Package app")
     const install = indexOfStep("Verify and install Windows package")
     const smoke = indexOfStep("Smoke installed Windows package")
     const upload = indexOfStep("Upload packaged app artifact")
 
-    expect(authenticate).toBeGreaterThanOrEqual(0)
-    expect(pack).toBeGreaterThan(authenticate)
+    expect(pack).toBeGreaterThanOrEqual(0)
     expect(install).toBeGreaterThan(pack)
     expect(smoke).toBeGreaterThan(install)
     expect(upload).toBeGreaterThan(smoke)
-    expect(steps[install].body).toMatch(/Get-AuthenticodeSignature/)
     expect(steps[install].body).toMatch(/latest-v2/)
     expect(steps[smoke].body).toMatch(/ci-smoke\.ts packaged prod/)
+    expect(workflow).not.toMatch(/azure\/login|AZURE_|Get-AuthenticodeSignature|signtoolOptions/)
   })
 
   // The finalizer merges the other arch's entries into this channel's feed, so

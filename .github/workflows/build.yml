@@ -191,7 +191,6 @@ jobs:
       # exception; a GITHUB_TOKEN-driven publish does NOT fire release:published).
       actions: write
       contents: write
-      id-token: write
 
     steps:
       - name: Validate selected target
@@ -268,14 +267,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Authenticate Windows signing
-        if: ${{ runner.os == 'Windows' && inputs.channel == 'prod' && inputs.phase != 'finalize' }}
-        uses: azure/login@f5d393ae46f8fde4be8b75f32e3fc50e654ad0ca # v3.0.1
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Prepare uv
         if: ${{ inputs.phase != 'finalize' }}
@@ -766,9 +757,6 @@ jobs:
         env:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
-          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE: ${{ vars.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE }}
 
       - name: Verify and install Windows package
         if: ${{ runner.os == 'Windows' && inputs.channel == 'prod' && inputs.phase != 'finalize' }}
@@ -779,10 +767,6 @@ jobs:
             throw "Expected one Windows installer, found $($installers.Count)"
           }
           $installer = $installers[0].FullName
-          $installerSignature = Get-AuthenticodeSignature -FilePath $installer
-          if ($installerSignature.Status -ne "Valid") {
-            throw "Installer signature is $($installerSignature.Status): $($installerSignature.StatusMessage)"
-          }
 
           $installDir = Join-Path $env:RUNNER_TEMP "pawwork-installed"
           Remove-Item -Path $installDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -795,10 +779,6 @@ jobs:
           $updateConfig = Join-Path $installDir "resources/app-update.yml"
           if (-not (Test-Path $executable)) { throw "Installed executable not found: $executable" }
           if (-not (Test-Path $updateConfig)) { throw "Installed updater config not found: $updateConfig" }
-          $executableSignature = Get-AuthenticodeSignature -FilePath $executable
-          if ($executableSignature.Status -ne "Valid") {
-            throw "Installed executable signature is $($executableSignature.Status): $($executableSignature.StatusMessage)"
-          }
           if (-not (Select-String -Path $updateConfig -Pattern '^channel: latest-v2$' -Quiet)) {
             throw "Installed updater config does not use latest-v2"
           }

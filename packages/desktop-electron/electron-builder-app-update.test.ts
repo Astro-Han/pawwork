@@ -114,9 +114,9 @@ describe("electron builder app-update config", () => {
     })
   })
 
-  test("only production Windows packages invoke the release signer", () => {
+  test("Windows packages do not require a signing service", () => {
     expect(createConfig("dev").win?.signtoolOptions).toBeUndefined()
-    expect(createConfig("prod").win?.signtoolOptions?.sign).toBeTypeOf("function")
+    expect(createConfig("prod").win?.signtoolOptions).toBeUndefined()
   })
 
   test("packaged repository metadata follows the release channel", () => {
