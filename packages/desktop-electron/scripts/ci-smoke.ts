@@ -403,9 +403,6 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const models = (await call("llm.models", {})).groups
     const session = await call("session.create", { cwd: ${workspace} })
     const skills = (await call("skill.list", { sessionId: session.sessionId })).skills
-    // 重启后拿到的 id 和这里创建的对不上，所以要问清楚：应用自己在重启前认为
-    // 它有哪些会话？创建的那个如果连活着的进程都列不出来，问题就不在磁盘上。
-    await new Promise((resolve) => setTimeout(resolve, 500))
     const sessionIdsBeforeRestart = (await call("session.list", {})).items.map((item) => item.sessionId)
     const freeProvider = providers.find((provider) => provider.provider === "opencode")
     const freeModels = models.find((group) => group.id === "opencode")?.models || []
@@ -515,6 +512,26 @@ export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: st
     `sessions after restart: ${restored.length ? restored.join(", ") : "(none)"}`,
     `DSH home contents:\n${describeDirectory(dshHome)}`,
     `first app log tail:\n${appLog.length ? appLog.map((line) => `  ${line}`).join("\n") : "  (empty)"}`,
+  ].join("\n"))
+}
+
+// session.create returns before the session is durable, and restarting the app
+// before the write lands loses it — that is what the Windows job kept catching,
+// including through a graceful before-quit shutdown. So do not restart until the
+// session is actually on disk; a timeout here says the app never made it
+// durable, which is the failure worth reporting rather than sleeping past.
+async function waitForSessionOnDisk(dshHome: string, sessionId: string, timeoutMs = 15_000) {
+  const sessions = join(dshHome, "sessions")
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const stored = existsSync(sessions)
+      && readdirSync(sessions).some((workspace) => existsSync(join(sessions, workspace, sessionId)))
+    if (stored) return
+    await delay(100)
+  }
+  throw new Error([
+    `DSH session ${sessionId} never reached disk within ${timeoutMs}ms`,
+    `sessions tree:\n${describeDirectory(sessions)}`,
   ].join("\n"))
 }
 
@@ -755,6 +772,7 @@ async function main() {
       console.log("CI smoke verified DSH product UI, free model, and bundled skills")
       // 关停前的快照。和失败信息里那张重启后的对照，才能把「会话根本没写成」
       // 和「写成了但没读回来」分开 —— 只看重启后那一张，两者长得一模一样。
+      await waitForSessionOnDisk(dshHome, product.sessionId)
       console.log(`CI smoke sessions before shutdown: ${product.sessionIdsBeforeRestart.join(", ") || "(none)"}`)
       console.log(`CI smoke session files before shutdown:\n${describeDirectory(join(dshHome, "sessions"))}`)
     }
