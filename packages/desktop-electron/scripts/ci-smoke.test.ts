@@ -238,6 +238,7 @@ describe("ci smoke helpers", () => {
       freeModelAvailable: true,
       skillNames: ["office-docx", "office-pdf", "office-pptx", "office-xlsx"],
       sessionId: "session-smoke",
+      sessionIdsBeforeRestart: ["session-smoke"],
     })).not.toThrow()
   })
 
@@ -276,6 +277,7 @@ describe("ci smoke helpers", () => {
       freeModelAvailable: false,
       skillNames: [],
       sessionId: "",
+      sessionIdsBeforeRestart: [],
     })).toThrow(/sidebar brand is not rendered.*titlebar strip is.*drag region.*web content is inset.*inside the native window controls.*hero brand mark.*DSH copy.*preview badge.*off the headline centre.*Automation Settings entry.*Automation should not occupy the sidebar.*Automation surface.*visible chat path.*Automation editor.*compressed.*advanced settings.*Back navigation.*header overflows.*visible form.*cancellable dialog.*discard unsaved edits.*immutable metadata.*one DSH collapse control.*collapse the sidebar.*one DSH expand control.*visibly clickable.*renders empty.*reopen.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
   })
 
