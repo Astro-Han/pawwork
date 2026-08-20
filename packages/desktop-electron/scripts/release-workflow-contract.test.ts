@@ -45,7 +45,9 @@ describe("release workflow", () => {
     // one; --prepackaged is what makes the shipped dmg the stapled build.
     const submit = steps[indexOfStep("Package signed app")]
     const finalize = steps[indexOfStep("Package notarized artifacts")]
-    expect(submit.body).toMatch(/electron-builder --mac dir .*--publish never/)
+    // A distributable target makes electron-builder write app-update.yml into
+    // the bundle before signing; the dir-only target deliberately skips it.
+    expect(submit.body).toMatch(/electron-builder --mac zip .*--publish never/)
     expect(finalize.body).toMatch(/electron-builder --mac dmg zip .*--prepackaged "\$APP_PATH"/)
   })
 
