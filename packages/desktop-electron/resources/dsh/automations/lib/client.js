@@ -168,12 +168,16 @@ window.__ModuleLoader__.load({
       return "done"
     }
 
-    function RunRow({ run, sessions, closeSettings }) {
+    function RunRow({ onError, run, sessions, closeSettings }) {
       const summary = run.error || run.stopReason || run.result
       async function openSession() {
-        await sessions.refresh()
-        sessions.open(run.sessionId)
-        closeSettings()
+        try {
+          await sessions.refresh()
+          sessions.open(run.sessionId)
+          closeSettings()
+        } catch (error) {
+          onError(error instanceof Error ? error.message : String(error))
+        }
       }
       return h("div", { className: "pawwork-automation-run" },
         h("div", { className: "pawwork-automation-run-main" },
@@ -343,7 +347,7 @@ window.__ModuleLoader__.load({
         h("div", { className: "pawwork-automation-history" },
           h("h3", null, text("最近运行", "Recent runs")),
           [definition.activeRun, ...(definition.recentRuns || [])].filter(Boolean).length
-            ? [definition.activeRun, ...(definition.recentRuns || [])].filter(Boolean).map((run) => h(RunRow, { closeSettings, key: run.id, run, sessions }))
+            ? [definition.activeRun, ...(definition.recentRuns || [])].filter(Boolean).map((run) => h(RunRow, { closeSettings, key: run.id, onError: setError, run, sessions }))
             : h("div", { className: "pawwork-automations-empty" }, text("还没有运行记录", "No run history yet")))),
         h(Modal, {
           closeLabel: text("关闭", "Close"),

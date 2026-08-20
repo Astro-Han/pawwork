@@ -251,5 +251,11 @@ describe("PawWork DSH Automations client", () => {
     await (openSession!.props.onClick as () => Promise<void>)()
     expect(open).toHaveBeenCalledWith("session-1")
     expect(close).toHaveBeenCalledTimes(1)
+
+    sessionsRefreshed = false
+    refresh.mockImplementationOnce(async () => {})
+    close.mockClear()
+    await expect((openSession!.props.onClick as () => Promise<void>)()).resolves.toBeUndefined()
+    expect(close).not.toHaveBeenCalled()
   })
 })
