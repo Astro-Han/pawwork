@@ -11,7 +11,6 @@ const { DatabaseSync } = require('node:sqlite');
 const {
   attachDshWorkspace,
   buildDshSession,
-  completedV1SessionTargetIds,
   materializeLegacyImages,
   readV1Sessions,
   runV1SessionImport,
@@ -38,23 +37,15 @@ function fileDigest(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-// This used to assert that a partial import held the public status back, which
-// is what stopped the client refreshing its session list at all: a single
-// unreadable v1 session hid every session that had imported fine, and left the
-// client polling twice a second for the life of the app. The status answers
-// "has the session stage finished", and which sessions made it is in the ledger.
-test('publishes cold sessions once and reports the session stage settled even when one fails', async () => {
+test('announces each imported session without a migration status polling channel', async () => {
   const importerModule = require('./import-v1.cjs');
   const settingsModule = require('./import-v1-settings.cjs');
   const automationsModule = require('./import-v1-automations.cjs');
   const originalRun = importerModule.runV1SessionImport;
-  const originalCompletedSessionTargetIds = importerModule.completedV1SessionTargetIds;
   const originalAttach = importerModule.attachDshWorkspace;
   const originalCreateSettingImporter = settingsModule.createDshSettingImporter;
   const originalSettingsRun = settingsModule.runV1SettingsImport;
   const originalAutomationsRun = automationsModule.runV1AutomationImport;
-  let statusRpc;
-  let rpcRegistration;
   let stopPlugin;
   let importStarted;
   const started = new Promise((resolve) => { importStarted = resolve; });
@@ -63,14 +54,20 @@ test('publishes cold sessions once and reports the session stage settled even wh
   let missingContinueSessionRejected = false;
   let incompleteContinueSessionRejected = false;
   let unavailableAutomationCatalogRejected = false;
+  let sessionPersisted = false;
   const sessionLifecycle = [];
   const finished = new Promise((resolve) => { backgroundFinished = resolve; });
   importerModule.runV1SessionImport = async ({ importSession }) => {
-    await importSession({ id: 'pawwork-v1-session', images: [], meta: {}, seed: [], title: 'Imported session' }, { contentImported: false });
+    await importSession({
+      id: 'pawwork-v1-session',
+      images: [],
+      meta: { cwd: '/Users/alice/worktree', seedLength: 1 },
+      seed: [{ type: 'pawwork-v1/session', data: { sourceSessionId: 'session' } }],
+      title: 'Imported session',
+    });
     importStarted();
     throw new Error('one v1 session could not be read');
   };
-  importerModule.completedV1SessionTargetIds = () => new Set(['pawwork-v1-session']);
   importerModule.attachDshWorkspace = async () => {
     sessionLifecycle.push('attach-workspace');
     return 'workspace';
@@ -103,15 +100,6 @@ test('publishes cold sessions once and reports the session stage settled even wh
     const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?status=${Date.now()}`;
     const { apply } = await import(pluginUrl);
     apply({
-      connection: {
-        rpc: {
-          handle: (channel, handler, options) => {
-            rpcRegistration = { channel, options };
-            statusRpc = handler;
-            return async () => {};
-          },
-        },
-      },
       effect: (setup) => { stopPlugin = setup(); },
       llm: {
         listProviders: () => [{ id: 'opencode' }],
@@ -122,6 +110,24 @@ test('publishes cold sessions once and reports the session stage settled even wh
         scheduler: { refresh: () => {} },
         store: { activateImportedDefinitions: () => { automationsActivated = true; } },
       },
+      sessionPersistence: {
+        inspect: async (id) => {
+          if (id === 'pawwork-v1-session') {
+            if (!sessionPersisted) throw new Error(`session "${id}" not found`);
+            return {
+              meta: { id, cwd: '/Users/alice/worktree', seedLength: 1 },
+              events: [{ type: 'pawwork-v1/session', data: { sourceSessionId: 'session' } }],
+            };
+          }
+          if (id === 'pawwork-v1-incomplete') {
+            return {
+              meta: { id, seedLength: 2 },
+              events: [{ type: 'pawwork-v1/session', data: { sourceSessionId: 'incomplete' } }],
+            };
+          }
+          throw new Error(`session "${id}" not found`);
+        },
+      },
       sessionTitle: { rename: () => { sessionLifecycle.push('rename'); } },
       sessions: {
         announce: () => { sessionLifecycle.push('announce'); },
@@ -129,7 +135,7 @@ test('publishes cold sessions once and reports the session stage settled even wh
           sessionLifecycle.push('enter');
           return () => { sessionLifecycle.push('detach'); };
         },
-        flush: async () => { sessionLifecycle.push('flush'); },
+        flush: async () => { sessionLifecycle.push('flush'); sessionPersisted = true; },
         prepare: () => ({ id: 'pawwork-v1-session' }),
       },
       attachments: { saveImage: async () => {} },
@@ -137,24 +143,16 @@ test('publishes cold sessions once and reports the session stage settled even wh
     });
     await started;
     await finished;
+    await new Promise((resolve) => setImmediate(resolve));
 
-    assert.deepEqual(rpcRegistration, {
-      channel: '/pawwork-import-v1',
-      options: { authority: 'loopback' },
-    });
-    assert.deepEqual(await statusRpc('status'), {
-      ok: true,
-      value: { sessionsSettled: true },
-    });
     assert.equal(automationsActivated, true);
     assert.equal(missingContinueSessionRejected, true);
     assert.equal(incompleteContinueSessionRejected, true);
     assert.equal(unavailableAutomationCatalogRejected, true);
-    assert.deepEqual(sessionLifecycle, ['enter', 'rename', 'flush', 'detach', 'attach-workspace']);
+    assert.deepEqual(sessionLifecycle, ['enter', 'rename', 'flush', 'announce', 'detach', 'attach-workspace']);
     await stopPlugin();
   } finally {
     importerModule.runV1SessionImport = originalRun;
-    importerModule.completedV1SessionTargetIds = originalCompletedSessionTargetIds;
     importerModule.attachDshWorkspace = originalAttach;
     settingsModule.createDshSettingImporter = originalCreateSettingImporter;
     settingsModule.runV1SettingsImport = originalSettingsRun;
@@ -180,19 +178,22 @@ test('saves a session\'s images once and leaves an already-imported one alone', 
   };
   const imported = {
     id: 'pawwork-v1-session',
-    meta: {},
+    meta: { cwd: '/Users/alice/worktree', seedLength: 2 },
     title: 'Imported session',
-    seed: [{
-      type: 'user/message',
-      data: {
-        content: [{
-          type: 'pawwork-v1-attachment',
-          mime: 'image/png',
-          filename: 'pixel.png',
-          url: 'data:image/png;base64,iVBORw0KGgo=',
-        }],
+    seed: [
+      { type: 'pawwork-v1/session', data: { sourceSessionId: 'session' } },
+      {
+        type: 'user/message',
+        data: {
+          content: [{
+            type: 'pawwork-v1-attachment',
+            mime: 'image/png',
+            filename: 'pixel.png',
+            url: 'data:image/png;base64,iVBORw0KGgo=',
+          }],
+        },
       },
-    }],
+    ],
   };
   const saved = [];
   const prepared = [];
@@ -200,11 +201,12 @@ test('saves a session\'s images once and leaves an already-imported one alone', 
   let finishImport;
   const finished = new Promise((resolve) => { finishImport = resolve; });
   let stopPlugin;
+  let inspections = 0;
 
   importerModule.runV1SessionImport = async ({ importSession }) => {
     try {
-      workspaces.push(await importSession(imported, { contentImported: false }));
-      workspaces.push(await importSession(imported, { contentImported: true }));
+      workspaces.push(await importSession(imported));
+      workspaces.push(await importSession(imported));
     } finally {
       finishImport();
     }
@@ -232,8 +234,16 @@ test('saves a session\'s images once and leaves an already-imported one alone', 
         scheduler: { refresh: () => {} },
         store: { activateImportedDefinitions: () => {} },
       },
+      sessionPersistence: {
+        inspect: async (id) => {
+          inspections += 1;
+          if (inspections === 1) throw new Error(`session "${id}" not found`);
+          return { meta: { id, ...imported.meta }, events: structuredClone(imported.seed) };
+        },
+      },
       sessionTitle: { rename: () => {} },
       sessions: {
+        announce: () => {},
         enter: () => () => {},
         flush: async () => {},
         prepare: (id, options) => { prepared.push({ id, seed: options.seed }); return { id }; },
@@ -253,7 +263,7 @@ test('saves a session\'s images once and leaves an already-imported one alone', 
   assert.equal(saved.length, 1);
   assert.equal(saved[0].mediaType, 'image/png');
   assert.equal(prepared.length, 1);
-  assert.deepEqual(prepared[0].seed[0].data.content[0], {
+  assert.deepEqual(prepared[0].seed[1].data.content[0], {
     type: 'image',
     attachment: { attachmentId: 'sha256:1', mediaType: 'image/png', name: 'pixel.png' },
   });
@@ -410,22 +420,7 @@ test('survives a snapshot it cannot delete', { timeout: 20_000 }, async () => {
   }
 });
 
-test('derives completed session targets from the migration ledger', () => {
-  const home = temporaryDirectory();
-  const directory = path.join(home, 'import-v1');
-  fs.mkdirSync(directory, { recursive: true });
-  fs.writeFileSync(path.join(directory, 'ledger.json'), JSON.stringify({
-    schema: 1,
-    sessions: {
-      complete: { status: 'complete', targetId: 'pawwork-v1-complete' },
-      failed: { status: 'failed', targetId: 'pawwork-v1-failed' },
-    },
-  }));
-
-  assert.deepEqual([...completedV1SessionTargetIds(home)], ['pawwork-v1-complete']);
-});
-
-test('plugin disposal aborts and awaits the background migration before unregistering RPC', async () => {
+test('plugin disposal aborts and awaits the background migration', async () => {
   const importerModule = require('./import-v1.cjs');
   const settingsModule = require('./import-v1-settings.cjs');
   const automationsModule = require('./import-v1-automations.cjs');
@@ -435,7 +430,6 @@ test('plugin disposal aborts and awaits the background migration before unregist
   let started;
   const importStarted = new Promise((resolve) => { started = resolve; });
   let stopPlugin;
-  let rpcStopped = false;
   let settingsCalls = 0;
   let automationCalls = 0;
   importerModule.runV1SessionImport = async ({ signal }) => {
@@ -449,17 +443,14 @@ test('plugin disposal aborts and awaits the background migration before unregist
     const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?dispose=${Date.now()}`;
     const { apply } = await import(pluginUrl);
     apply({
-      connection: { rpc: { handle: () => async () => { rpcStopped = true; } } },
       effect: (setup) => { stopPlugin = setup(); },
       logger: { warn: () => {} },
     });
     await importStarted;
 
     const stopped = stopPlugin();
-    assert.equal(rpcStopped, false);
     await stopped;
 
-    assert.equal(rpcStopped, true);
     assert.equal(settingsCalls, 0);
     assert.equal(automationCalls, 0);
   } finally {
@@ -993,6 +984,63 @@ test('materializes v1 data images through the official DSH attachment store', as
   assert.equal(imported.seed[0].data.content[1].type, 'pawwork-v1-attachment');
 });
 
+test('keeps a session when the DSH attachment authority rejects an oversized image', async () => {
+  const imported = {
+    seed: [{
+      type: 'user/message',
+      data: {
+        content: [{
+          type: 'pawwork-v1-attachment',
+          mime: 'image/png',
+          filename: 'large.png',
+          url: 'data:image/png;base64,iVBORw0KGgo=',
+        }],
+      },
+    }],
+  };
+  const admissionError = Object.assign(new Error('image dimensions exceed the configured limit'), {
+    code: 'IMAGE_DIMENSION_TOO_LARGE',
+  });
+
+  await materializeLegacyImages(
+    imported,
+    async () => { throw admissionError; },
+  );
+
+  assert.equal(imported.seed[0].data.content[0].type, 'pawwork-v1-attachment');
+});
+
+test('reuses content already owned by DSH and only repairs workspace attachment', async () => {
+  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?reconcile=${Date.now()}`;
+  const { createDshSessionImporter } = await import(pluginUrl);
+  const imported = {
+    id: 'pawwork-v1-existing',
+    title: 'Imported session',
+    seed: [{ type: 'pawwork-v1/session', seq: 0, time: 1, data: { sourceSessionId: 'existing' } }],
+    meta: { cwd: '/Users/alice/worktree', createdAt: 1, seedLength: 1 },
+  };
+  const attached = [];
+  const importSession = createDshSessionImporter({
+    attachments: { saveImage: async () => { throw new Error('images must not be saved again'); } },
+    sessions: { prepare: () => { throw new Error('persisted content must not be prepared again'); } },
+    sessionPersistence: {
+      inspect: async (id) => {
+        assert.equal(id, imported.id);
+        return { meta: { id, ...imported.meta }, events: structuredClone(imported.seed) };
+      },
+    },
+    sessionTitle: { rename: () => { throw new Error('persisted content must not be renamed again'); } },
+    workspaceRegistry: {
+      create: async () => ({ attachSession: async (id) => attached.push(id) }),
+    },
+  });
+
+  const result = await importSession(imported);
+
+  assert.equal(result, 'attached');
+  assert.deepEqual(attached, [imported.id]);
+});
+
 test('attaches an imported session through the official DSH workspace registry', async () => {
   const attached = [];
   const created = [];
@@ -1028,7 +1076,7 @@ test('records a removed v1 directory as unavailable instead of retrying forever'
   assert.equal(result, 'unavailable');
 });
 
-test('records an idempotent ledger and does no work after a complete session import', async () => {
+test('reconciles every session against DSH and records no copied success state', async () => {
   const root = temporaryDirectory();
   const source = path.join(root, 'pawwork.db');
   const home = path.join(root, 'v2-home');
@@ -1053,17 +1101,18 @@ test('records an idempotent ledger and does no work after a complete session imp
   assert.equal(fs.existsSync(`${ledgerFile}.next`), false);
   const ledger = JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
   assert.equal(ledger.schema, 1);
-  assert.equal(ledger.sessions.ses_parent.targetId, 'pawwork-v1-ses_parent');
-  assert.equal(ledger.sessions.ses_parent.status, 'complete');
-  assert.equal(ledger.sessions.ses_child.status, 'complete');
+  assert.equal(ledger.sessions, undefined);
+  importedIds.length = 0;
   await runV1SessionImport({
     home,
     sourceDatabase: source,
     snapshot: await snapshotOf(home, source),
-    importSession: async () => {
-      throw new Error('completed import must not run again');
+    importSession: async (session) => {
+      importedIds.push(session.id);
+      return 'attached';
     },
   });
+  assert.deepEqual(importedIds, ['pawwork-v1-ses_parent', 'pawwork-v1-ses_child']);
 });
 
 test('a run without a v1 database leaves the recorded source identity intact', async () => {
@@ -1108,7 +1157,6 @@ test('refuses a ledger home that is not absolute', async () => {
     runV1SessionImport({ home: 'v2-home', importSession: async () => {} }),
     /v1 import home must be absolute/,
   );
-  assert.throws(() => completedV1SessionTargetIds('v2-home'), /v1 import home must be absolute/);
 });
 
 test('refuses to keep importing when the v1 database underneath the ledger changed', async () => {
@@ -1137,7 +1185,7 @@ test('refuses to keep importing when the v1 database underneath the ledger chang
   );
 });
 
-test('resumes after a per-session failure without duplicating completed sessions', async () => {
+test('clears a recorded session failure after DSH reconciliation succeeds', async () => {
   const root = temporaryDirectory();
   const source = path.join(root, 'pawwork.db');
   const home = path.join(root, 'v2-home');
@@ -1150,16 +1198,13 @@ test('resumes after a per-session failure without duplicating completed sessions
     snapshot: await snapshotOf(home, source),
     importSession: async (session) => {
       firstAttempt.push(session.id);
-      if (session.id === 'pawwork-v1-ses_parent') session.stats.unsupportedParts += 1;
       if (session.id === 'pawwork-v1-ses_child') throw new Error('simulated interruption');
       return 'attached';
     },
   });
-  // The aggregate status is gone: what the resume actually turns on is the
-  // per-session ledger record the first attempt left behind.
   const afterFailure = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
-  assert.equal(afterFailure.sessions.ses_parent.status, 'complete');
-  assert.equal(afterFailure.sessions.ses_child.status, 'failed');
+  assert.equal(afterFailure.failures.sessions.ses_parent, undefined);
+  assert.match(afterFailure.failures.sessions.ses_child.message, /simulated interruption/);
 
   const resumed = [];
   await runV1SessionImport({
@@ -1171,9 +1216,9 @@ test('resumes after a per-session failure without duplicating completed sessions
       return 'attached';
     },
   });
-  assert.deepEqual(resumed, ['pawwork-v1-ses_child']);
+  assert.deepEqual(resumed, ['pawwork-v1-ses_parent', 'pawwork-v1-ses_child']);
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
-  assert.equal(ledger.sessions.ses_parent.stats.unsupportedParts, 1);
+  assert.deepEqual(ledger.failures.sessions, {});
 });
 
 test('does not commit a session after cancellation during its import', async () => {
@@ -1182,7 +1227,10 @@ test('does not commit a session after cancellation during its import', async () 
   const home = path.join(root, 'v2-home');
   createV1Fixture(source);
   fs.mkdirSync(path.join(home, 'import-v1'), { recursive: true });
-  fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({ schema: 1, sessions: {} }));
+  fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({
+    schema: 1,
+    failures: { sessions: {}, settings: {}, automationDefinitions: {}, automationRuns: {} },
+  }));
   const controller = new AbortController();
 
   await assert.rejects(runV1SessionImport({
@@ -1197,7 +1245,7 @@ test('does not commit a session after cancellation during its import', async () 
   }), /session import stopped/);
 
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
-  assert.equal(ledger.sessions.ses_parent, undefined);
+  assert.equal(ledger.failures.sessions.ses_parent, undefined);
 });
 
 test('records a malformed session and continues importing later sessions', async () => {
@@ -1222,12 +1270,11 @@ test('records a malformed session and continues importing later sessions', async
 
   assert.deepEqual(imported, ['pawwork-v1-ses_child']);
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
-  assert.equal(ledger.sessions.ses_parent.status, 'failed');
-  assert.match(ledger.sessions.ses_parent.message, /invalid JSON in message/);
-  assert.equal(ledger.sessions.ses_child.status, 'complete');
+  assert.match(ledger.failures.sessions.ses_parent.message, /invalid JSON in message/);
+  assert.equal(ledger.failures.sessions.ses_child, undefined);
 });
 
-test('can import sessions from a ledger first written by settings migration', async () => {
+test('preserves source identity and failures written by another migration stage', async () => {
   const root = temporaryDirectory();
   const source = path.join(root, 'pawwork.db');
   const home = path.join(root, 'v2-home');
@@ -1236,7 +1283,7 @@ test('can import sessions from a ledger first written by settings migration', as
   fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({
     schema: 1,
     sourceAppData: '/tmp/v1-app-data',
-    settings: { theme: { status: 'complete', outcome: 'imported' } },
+    settings: { theme: { status: 'failed', message: 'settings store unavailable' } },
   }));
 
   await runV1SessionImport({
@@ -1246,49 +1293,9 @@ test('can import sessions from a ledger first written by settings migration', as
     importSession: async () => 'attached',
   });
 
-  // The three stages share one ledger file and each writes the whole document
-  // back, so what matters is that a stage carries the other stages' records
-  // through rather than replacing them with its own view.
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.sourceAppData, '/tmp/v1-app-data');
-  assert.deepEqual(ledger.settings, { theme: { status: 'complete', outcome: 'imported' } });
-  assert.equal(ledger.sessions.ses_parent.status, 'complete');
-});
-
-test('repairs workspace ownership when session records lack an outcome', async () => {
-  const root = temporaryDirectory();
-  const source = path.join(root, 'pawwork.db');
-  const home = path.join(root, 'v2-home');
-  createV1Fixture(source);
-  fs.mkdirSync(path.join(home, 'import-v1'), { recursive: true });
-  fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({
-    schema: 1,
-    sourceDatabase: source,
-    sessions: {
-      ses_parent: { status: 'complete', targetId: 'pawwork-v1-ses_parent' },
-      ses_child: { status: 'complete', targetId: 'pawwork-v1-ses_child' },
-    },
-  }));
-
-  const repaired = [];
-  await runV1SessionImport({
-    home,
-    sourceDatabase: source,
-    snapshot: await snapshotOf(home, source),
-    importSession: async (session, { contentImported }) => {
-      repaired.push({ id: session.id, contentImported });
-      return session.id === 'pawwork-v1-ses_child' ? 'unavailable' : 'attached';
-    },
-  });
-
-  // Both records say complete, so the workspace retry must not write the seed
-  // again: materializeLegacyImages would save every image in them a second time.
-  assert.deepEqual(repaired, [
-    { id: 'pawwork-v1-ses_parent', contentImported: true },
-    { id: 'pawwork-v1-ses_child', contentImported: true },
-  ]);
-  const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
-  assert.equal(ledger.sessions.ses_parent.workspaceAttached, true);
-  assert.equal(ledger.sessions.ses_child.workspaceAttached, false);
-  assert.equal(ledger.sessions.ses_child.workspaceUnavailable, true);
+  assert.deepEqual(ledger.failures.settings, { theme: { message: 'settings store unavailable' } });
+  assert.equal(ledger.settings, undefined);
+  assert.deepEqual(ledger.failures.sessions, {});
 });

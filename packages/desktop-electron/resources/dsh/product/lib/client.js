@@ -91,34 +91,6 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       return null
     }
 
-    function CompleteV1MigrationRefresh({ connection, sessions }) {
-      useEffect(() => {
-        let checking = false
-        let stopped = false
-        async function check() {
-          if (checking || stopped) return
-          checking = true
-          try {
-            const result = await connection.rpc.call("/pawwork-import-v1", "status", {})
-            if (!result.ok || !result.value.sessionsSettled || stopped) return
-            await sessions.refresh()
-            if (!stopped) clearInterval(timer)
-          } catch {
-            // The importer may not be mounted yet; the next interval retries.
-          } finally {
-            checking = false
-          }
-        }
-        const timer = setInterval(check, 500)
-        void check()
-        return () => {
-          stopped = true
-          clearInterval(timer)
-        }
-      }, [connection, sessions])
-      return null
-    }
-
     function FileAction({ input, inputActions }) {
       if (window.pawworkFiles?.pick === undefined) return null
       async function chooseFiles() {
@@ -195,7 +167,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
           gloveLayer(BRAND_CREAM, GLOVE_PADS)))
     }
 
-    const inject = ["slots", "connection", "sessions"]
+    const inject = ["slots"]
 
     function BrandName() { return text("爪印", "PawWork") }
 
@@ -205,7 +177,6 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawGloveMark))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))
       ctx.slots.inject("conversation.input.left", () => ctx.slots.register({ name: "conversation.input.left", id: "pawwork-files", order: -100 }, FileAction))
-      ctx.slots.inject("shell.overlay", () => ctx.slots.register({ name: "shell.overlay", id: "pawwork-v1-migration-refresh", order: -99 }, () => h(CompleteV1MigrationRefresh, { connection: ctx.connection, sessions: ctx.sessions })))
     }
 
     return { inject, apply }

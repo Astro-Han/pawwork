@@ -115,10 +115,14 @@ function openMigrationLedger(home) {
   if (!home || !path.isAbsolute(home)) throw new Error('v1 import home must be absolute');
   const file = path.join(home, 'import-v1', 'ledger.json');
   const ledger = readMigrationLedger(file, { schema: 1 });
-  ledger.sessions ||= {};
-  ledger.settings ||= {};
-  ledger.automationDefinitions ||= {};
-  ledger.automationRuns ||= {};
+  ledger.failures ||= {};
+  for (const category of ['sessions', 'settings', 'automationDefinitions', 'automationRuns']) {
+    ledger.failures[category] ||= {};
+    for (const [sourceId, entry] of Object.entries(ledger[category] || {})) {
+      if (entry?.status === 'failed') ledger.failures[category][sourceId] = { message: entry.message };
+    }
+    delete ledger[category];
+  }
   return { ledger, save: () => writeJsonAtomically(file, ledger) };
 }
 
@@ -132,11 +136,16 @@ function guardV1DatabaseIdentity(ledger, sourceDatabase) {
   if (sourceDatabase) ledger.sourceDatabase = sourceDatabase;
 }
 
-function writeJsonAtomically(file, value) {
+async function writeJsonAtomically(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temporary = `${file}.next`;
-  fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(temporary, file);
+  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    fs.renameSync(temporary, file);
+  } catch (error) {
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
 }
 
 module.exports = {

@@ -175,7 +175,7 @@ async function runV1AutomationImport({
   const { ledger, save } = openMigrationLedger(home);
   guardV1DatabaseIdentity(ledger, sourceDatabase);
   if (!sourceDatabase) {
-    save();
+    await save();
     return;
   }
 
@@ -184,15 +184,14 @@ async function runV1AutomationImport({
   const source = readV1Automations(snapshot);
   const definitionIds = new Set(source.definitionIds);
   for (const failure of source.failures) {
-    const records = failure.kind === 'definition' ? ledger.automationDefinitions : ledger.automationRuns;
-    const prior = records[failure.id];
-    if (prior?.status !== 'complete') records[failure.id] = { status: 'failed', message: failure.message };
+    const records = failure.kind === 'definition'
+      ? ledger.failures.automationDefinitions
+      : ledger.failures.automationRuns;
+    records[failure.id] = { message: failure.message };
   }
-  if (source.failures.length > 0) save();
+  if (source.failures.length > 0) await save();
   for (const definition of source.definitions) {
     signal?.throwIfAborted();
-    const prior = ledger.automationDefinitions[definition.id];
-    if (prior?.status === 'complete') continue;
     try {
       const resolved = await resolveModel(definition);
       signal?.throwIfAborted();
@@ -200,45 +199,33 @@ async function runV1AutomationImport({
       const outcome = await importDefinition(mapped);
       signal?.throwIfAborted();
       if (!['imported', 'skipped'].includes(outcome)) throw new Error(`invalid definition outcome: ${outcome}`);
-      ledger.automationDefinitions[definition.id] = {
-        status: 'complete',
-        outcome,
-        targetId: mapped.id,
-        warnings: mapped.migration.warnings,
-      };
+      delete ledger.failures.automationDefinitions[definition.id];
     } catch (error) {
       signal?.throwIfAborted();
       const message = error instanceof Error ? error.message : String(error);
-      ledger.automationDefinitions[definition.id] = { status: 'failed', message };
+      ledger.failures.automationDefinitions[definition.id] = { message };
     }
-    save();
+    await save();
   }
 
   const completedAt = now();
   for (const run of source.runs) {
     signal?.throwIfAborted();
-    const prior = ledger.automationRuns[run.id];
-    if (prior?.status === 'complete') continue;
     try {
       const orphanedDefinition = !definitionIds.has(run.automationId);
       const mapped = mapV1AutomationRun(run, { completedAt, orphanedDefinition });
       const outcome = await importRun(mapped);
       signal?.throwIfAborted();
       if (!['imported', 'skipped'].includes(outcome)) throw new Error(`invalid run outcome: ${outcome}`);
-      ledger.automationRuns[run.id] = {
-        status: 'complete',
-        outcome,
-        targetId: mapped.id,
-        orphanedDefinition,
-      };
+      delete ledger.failures.automationRuns[run.id];
     } catch (error) {
       signal?.throwIfAborted();
       const message = error instanceof Error ? error.message : String(error);
-      ledger.automationRuns[run.id] = { status: 'failed', message };
+      ledger.failures.automationRuns[run.id] = { message };
     }
-    save();
+    await save();
   }
-  save();
+  await save();
 }
 
 module.exports = {

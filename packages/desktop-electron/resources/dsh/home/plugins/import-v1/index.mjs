@@ -10,10 +10,10 @@ export const name = 'pawwork-import-v1';
 export const inject = [
   'agentDefaultModel',
   'attachments',
-  'connection',
   'llm',
   'pawworkAutomations',
   'sessions',
+  'sessionPersistence',
   'sessionTitle',
   'settings',
   'workspaceRegistry',
@@ -42,14 +42,51 @@ function createAutomationModelResolver(ctx) {
   };
 }
 
-// A session whose content already landed is revisited only to finish attaching
-// its workspace, so writing the seed again is work the ledger already knows is
-// unnecessary — and harmful: materializeLegacyImages replaces each legacy
-// attachment with a saved one in place, so a second pass saves every image again.
-function createDshSessionImporter(ctx) {
-  return async (imported, { contentImported }) => {
+function isMissingSession(error, id) {
+  return error instanceof Error && error.message === `session "${id}" not found`;
+}
+
+function persistedImportMatches(imported, inspection) {
+  const source = inspection.events[0];
+  return source?.type === 'pawwork-v1/session'
+    && source.data?.sourceSessionId === imported.seed[0]?.data?.sourceSessionId
+    && inspection.meta?.cwd === imported.meta.cwd
+    && inspection.meta?.seedLength === imported.meta.seedLength;
+}
+
+async function hasPersistedV1Session(sessionPersistence, id) {
+  let inspection;
+  try {
+    inspection = await sessionPersistence.inspect(id);
+  } catch (error) {
+    if (isMissingSession(error, id)) return false;
+    throw error;
+  }
+  const source = inspection.events[0];
+  return source?.type === 'pawwork-v1/session'
+    && id === `pawwork-v1-${source.data?.sourceSessionId}`
+    && Number.isInteger(inspection.meta?.seedLength)
+    && inspection.events.length >= inspection.meta.seedLength;
+}
+
+export function createDshSessionImporter(ctx) {
+  return async (imported) => {
+    let inspection;
+    try {
+      inspection = await ctx.sessionPersistence.inspect(imported.id);
+    } catch (error) {
+      if (!isMissingSession(error, imported.id)) throw error;
+    }
+    if (inspection && !persistedImportMatches(imported, inspection)) {
+      throw new Error(`v1 session target does not match source: ${imported.id}`);
+    }
+
+    const contentImported = inspection && inspection.events.length >= imported.meta.seedLength;
     if (!contentImported) {
-      await importer.materializeLegacyImages(imported, (image) => ctx.attachments.saveImage(image));
+      await importer.materializeLegacyImages(
+        imported,
+        (image) => ctx.attachments.saveImage(image),
+      );
       const session = ctx.sessions.prepare(imported.id, {
         seed: imported.seed,
         meta: imported.meta,
@@ -58,6 +95,7 @@ function createDshSessionImporter(ctx) {
       try {
         ctx.sessionTitle.rename(session, imported.title);
         await ctx.sessions.flush(session);
+        ctx.sessions.announce(session);
       } finally {
         detach();
       }
@@ -68,11 +106,6 @@ function createDshSessionImporter(ctx) {
 
 export function apply(ctx) {
   const controller = new AbortController();
-  let sessionsSettled = false;
-  const stopRpc = ctx.connection.rpc.handle('/pawwork-import-v1', async (endpoint) => {
-    if (endpoint === 'status') return { ok: true, value: { sessionsSettled } };
-    return { ok: false, error: { code: 'bad-request', message: `unknown v1 import endpoint: ${endpoint}`, details: {} } };
-  }, { authority: 'loopback' });
   const importTask = (async () => {
     // The two database-backed stages read one private copy of the v1 database,
     // opened once for the whole run: before, each of them VACUUMed the user's
@@ -89,11 +122,8 @@ export function apply(ctx) {
       }
     }
     try {
-      // The client waits on this to reload its session list once, so what it
-      // needs is "the stage is done", not "everything succeeded". Reading a
-      // per-session failure as not-done left every successfully imported session
-      // out of the list for the whole run, and the client polling at 2Hz forever.
-      // Which sessions made it is recorded per id in the ledger.
+      // Each successful session is announced as it lands; one malformed source
+      // must not hide the rest or require a separate completion channel.
       try {
         const importSession = createDshSessionImporter(ctx);
         controller.signal.throwIfAborted();
@@ -109,8 +139,6 @@ export function apply(ctx) {
         if (controller.signal.aborted) return;
         ctx.logger.warn(`v1 session import failed: ${error instanceof Error ? error.message : String(error)}`);
       }
-      sessionsSettled = true;
-
       try {
         controller.signal.throwIfAborted();
         const importSetting = settingsImporter.createDshSettingImporter(ctx);
@@ -127,14 +155,14 @@ export function apply(ctx) {
 
       try {
         controller.signal.throwIfAborted();
-        const completedSessions = importer.completedV1SessionTargetIds(process.env.DSH_HOME);
         await automationImporter.runV1AutomationImport({
           home: process.env.DSH_HOME,
           sourceDatabase,
           snapshot: snapshot?.path,
           resolveModel: createAutomationModelResolver(ctx),
           importDefinition: async (definition) => {
-            if (definition.context === 'continue' && !completedSessions.has(definition.sourceSessionId)) {
+            if (definition.context === 'continue'
+              && !await hasPersistedV1Session(ctx.sessionPersistence, definition.sourceSessionId)) {
               throw new Error(`v1 automation source session is unavailable: ${definition.sourceSessionId}`);
             }
             return ctx.pawworkAutomations.store.importDefinition(definition);
@@ -165,6 +193,5 @@ export function apply(ctx) {
   ctx.effect(() => async () => {
     controller.abort(new Error('PawWork v1 importer stopped'));
     await importTask;
-    await stopRpc();
   });
 }

@@ -18,54 +18,6 @@ describe("PawWork DSH client product layer", () => {
     })
   })
 
-  test("refreshes the DSH session baseline once after v1 migration completes", async () => {
-    let intervalCallback: (() => void) | undefined
-    const clearInterval = vi.fn(() => {})
-    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
-      clearInterval,
-      document: {
-        documentElement: { dataset: {} },
-        querySelector: () => null,
-        createElement: () => ({ dataset: {}, textContent: "" }),
-        head: { appendChild: () => {} },
-      },
-      setInterval: (callback: () => void) => { intervalCallback = callback; return 1 },
-    })
-    let cleanup: (() => void) | undefined
-    const plugin = definition.factory((name) => {
-      if (name === "react") {
-        return {
-          createElement: (type: unknown, props: unknown) => typeof type === "function" ? type(props) : null,
-          useEffect: (effect: () => (() => void)) => { cleanup = effect() },
-          useRef: <T>(value: T) => ({ current: value }),
-        }
-      }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") return {}
-      throw new Error(`unexpected product client dependency: ${name}`)
-    })
-    let migrationRefresh: ((props: unknown) => unknown) | undefined
-    const call = vi.fn(async () => ({ ok: true, value: { sessionsSettled: true } }))
-    const refresh = vi.fn(async () => {})
-    plugin.apply({
-      connection: { rpc: { call } },
-      sessions: { refresh },
-      slots: {
-        inject: (_name: string, register: () => void) => register(),
-        register: (options: { id?: string }, component: typeof migrationRefresh) => {
-          if (options.id === "pawwork-v1-migration-refresh") migrationRefresh = component
-          return () => {}
-        },
-      },
-    })
-    migrationRefresh!({})
-    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
-
-    expect(call).toHaveBeenCalledWith("/pawwork-import-v1", "status", {})
-    expect(clearInterval).toHaveBeenCalledTimes(1)
-    expect(intervalCallback).toBeDefined()
-    cleanup?.()
-  })
-
   test("owns the public brand slots and replaces the DSH welcome notice", () => {
     const document = {
       title: "DeepSeek Harness",
@@ -104,7 +56,7 @@ describe("PawWork DSH client product layer", () => {
 
     plugin.apply(ctx)
     expect(document.title).toBe("DeepSeek Harness")
-    expect(plugin.inject).toEqual(["slots", "connection", "sessions"])
+    expect(plugin.inject).toEqual(["slots"])
     const welcome = registrations.find((entry) => entry.options.id === "welcome-notice")
     expect(welcome).toBeDefined()
     expect(welcome!.options.priority).toBe(-1)

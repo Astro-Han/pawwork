@@ -168,7 +168,7 @@ test('marks history whose v1 definition was already deleted without inventing a 
   assert.equal(mapped.migration.orphanedDefinition, true);
 });
 
-test('imports definitions and runs idempotently with a resumable shared ledger', async () => {
+test('reconciles definitions and runs against the Automation store without copied success state', async () => {
   const source = fixture();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-v1-automation-home-'));
   const definitions = [];
@@ -186,10 +186,11 @@ test('imports definitions and runs idempotently with a resumable shared ledger',
   await runV1AutomationImport(options);
   await runV1AutomationImport(options);
 
-  assert.equal(definitions.length, 1);
-  assert.equal(runs.length, 3);
+  assert.equal(definitions.length, 2);
+  assert.equal(runs.length, 6);
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
-  assert.equal(ledger.automationRuns.automation_run_orphan.orphanedDefinition, true);
+  assert.equal(ledger.automationDefinitions, undefined);
+  assert.equal(ledger.automationRuns, undefined);
 });
 
 test('does not commit an Automation definition after cancellation during import', async () => {
@@ -198,8 +199,7 @@ test('does not commit an Automation definition after cancellation during import'
   fs.mkdirSync(path.join(home, 'import-v1'), { recursive: true });
   fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({
     schema: 1,
-    automationDefinitions: {},
-    automationRuns: {},
+    failures: { sessions: {}, settings: {}, automationDefinitions: {}, automationRuns: {} },
   }));
   const controller = new AbortController();
 
@@ -217,7 +217,7 @@ test('does not commit an Automation definition after cancellation during import'
   }), /automation import stopped/);
 
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
-  assert.equal(ledger.automationDefinitions.automation_source, undefined);
+  assert.equal(ledger.failures.automationDefinitions.automation_source, undefined);
 });
 
 test('records malformed automation rows and continues importing valid rows', async () => {
@@ -240,7 +240,6 @@ test('records malformed automation rows and continues importing valid rows', asy
 
   assert.equal(store.listRuns().length, 3);
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
-  assert.equal(ledger.automationDefinitions.automation_source.status, 'failed');
-  assert.equal(ledger.automationRuns.automation_run_done.status, 'complete');
-  assert.equal(ledger.automationRuns.automation_run_done.orphanedDefinition, true);
+  assert.match(ledger.failures.automationDefinitions.automation_source.message, /invalid JSON/);
+  assert.equal(ledger.failures.automationRuns.automation_run_done, undefined);
 });

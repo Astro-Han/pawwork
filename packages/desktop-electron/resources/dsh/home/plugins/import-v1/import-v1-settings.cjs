@@ -141,9 +141,9 @@ async function runV1SettingsImport({
   if (ledger.sourceAppData && sourceAppData && ledger.sourceAppData !== sourceAppData) {
     throw new Error(`v1 settings source changed from ${ledger.sourceAppData} to ${sourceAppData}`);
   }
-  ledger.sourceAppData = sourceAppData || null;
+  if (sourceAppData) ledger.sourceAppData = sourceAppData;
   if (!sourceAppData) {
-    save();
+    await save();
     return;
   }
 
@@ -151,30 +151,32 @@ async function runV1SettingsImport({
 
   for (const unsupported of preferences.unsupportedSettings) {
     const id = `unsupported:${unsupported}`;
-    ledger.settings[id] = { status: 'complete', outcome: 'unsupported', source: unsupported };
+    ledger.failures.settings[id] = { message: `v1 setting is unsupported: ${unsupported}` };
   }
-  save();
+  await save();
 
   for (const setting of preferences.settings) {
     signal?.throwIfAborted();
-    const prior = ledger.settings[setting.id];
-    if (prior?.status === 'complete') continue;
     try {
       const outcome = await importSetting(setting, signal);
       signal?.throwIfAborted();
       if (!['imported', 'skipped', 'unsupported'].includes(outcome)) {
         throw new Error(`invalid v1 setting import outcome: ${outcome}`);
       }
-      ledger.settings[setting.id] = { status: 'complete', outcome };
+      if (outcome === 'unsupported') {
+        ledger.failures.settings[setting.id] = { message: `v1 setting is unsupported: ${setting.id}` };
+      } else {
+        delete ledger.failures.settings[setting.id];
+      }
     } catch (error) {
       signal?.throwIfAborted();
       const message = error instanceof Error ? error.message : String(error);
-      ledger.settings[setting.id] = { status: 'failed', message };
+      ledger.failures.settings[setting.id] = { message };
     }
-    save();
+    await save();
   }
 
-  save();
+  await save();
 }
 
 module.exports = {

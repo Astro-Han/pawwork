@@ -71,7 +71,7 @@ test('reads only settings with exact DSH equivalents and ignores credentials', (
   assert.equal(JSON.stringify(preferences).includes('secret'), false);
 });
 
-test('records idempotent setting results and resumes only failed settings', async () => {
+test('reconciles settings against DSH and records only failures', async () => {
   const root = temporaryDirectory();
   const appData = path.join(root, 'v1');
   const home = path.join(root, 'v2');
@@ -94,7 +94,8 @@ test('records idempotent setting results and resumes only failed settings', asyn
     },
   });
   const afterFailure = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
-  assert.equal(afterFailure.settings['busy-enter'].status, 'failed');
+  assert.equal(afterFailure.settings, undefined);
+  assert.match(afterFailure.failures.settings['busy-enter'].message, /simulated interruption/);
 
   const resumedCalls = [];
   await runV1SettingsImport({
@@ -105,21 +106,9 @@ test('records idempotent setting results and resumes only failed settings', asyn
       return 'skipped';
     },
   });
-  assert.deepEqual(resumedCalls, ['busy-enter']);
-
-  const settled = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
-  await runV1SettingsImport({
-    home,
-    sourceAppData: appData,
-    importSetting: async () => {
-      throw new Error('completed Stage 2 must not run again');
-    },
-  });
-  // A settled run neither calls the importer again nor rewrites the record.
-  assert.deepEqual(
-    JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8')),
-    settled,
-  );
+  assert.deepEqual(resumedCalls, firstCalls);
+  const reconciled = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+  assert.equal(reconciled.failures.settings['busy-enter'], undefined);
   assert.deepEqual(sourceFiles.map((file) => fs.readFileSync(file)), sourceBefore);
 });
 
@@ -143,7 +132,7 @@ test('does not commit a setting after cancellation during import', async () => {
   }), /settings import stopped/);
 
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
-  assert.equal(ledger.settings[abortedSetting], undefined);
+  assert.equal(ledger.failures.settings[abortedSetting], undefined);
 });
 
 test('preserves v2 overrides and imports the first model currently advertised by DSH', async () => {

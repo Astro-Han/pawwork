@@ -75,14 +75,26 @@ async function* readV1Sessions(snapshot) {
 
 const INTERNAL_PART_TYPES = new Set(['step-start', 'step-finish', 'snapshot', 'patch', 'compaction']);
 const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+// This plugin is copied into DSH_HOME before it loads, so it cannot resolve
+// packages from the installed desktop bundle. Keep only the stable error-code
+// boundary DSH publishes; storage failures are deliberately excluded.
 const IMAGE_ADMISSION_ERRORS = new Set([
+  'TOO_MANY_IMAGES',
+  'IMAGES_TOO_LARGE',
   'UNSUPPORTED_IMAGE_TYPE',
   'INVALID_IMAGE_BASE64',
   'INVALID_IMAGE',
   'IMAGE_TYPE_MISMATCH',
   'IMAGE_TOO_LARGE',
   'IMAGE_TOO_MANY_PIXELS',
+  'IMAGE_DIMENSION_TOO_LARGE',
 ]);
+
+function isImageAdmissionError(error) {
+  return error instanceof Error
+    && typeof error.code === 'string'
+    && IMAGE_ADMISSION_ERRORS.has(error.code);
+}
 
 function dshSessionId(sourceSessionId) {
   return `pawwork-v1-${sourceSessionId}`;
@@ -279,7 +291,7 @@ async function attachDshWorkspace(imported, workspaceRegistry) {
   }
 }
 
-async function materializeLegacyImages(imported, saveImage) {
+async function materializeLegacyImages(imported, saveImage, admissionError = isImageAdmissionError) {
   for (const event of imported.seed) {
     const content = event.type === 'user/message'
       ? event.data.content
@@ -301,7 +313,7 @@ async function materializeLegacyImages(imported, saveImage) {
         });
         content[index] = { type: 'image', attachment };
       } catch (error) {
-        if (!IMAGE_ADMISSION_ERRORS.has(error?.code)) throw error;
+        if (!admissionError(error)) throw error;
         if (imported.stats) imported.stats.unsupportedParts += 1;
       }
     }
@@ -320,7 +332,7 @@ async function runV1SessionImport({
   const { ledger, save } = openMigrationLedger(home);
   guardV1DatabaseIdentity(ledger, sourceDatabase);
   if (!sourceDatabase) {
-    save();
+    await save();
     return;
   }
 
@@ -329,51 +341,30 @@ async function runV1SessionImport({
   for await (const sourceSession of readV1Sessions(snapshot)) {
     signal?.throwIfAborted();
     if (sourceSession.readError) {
-      ledger.sessions[sourceSession.id] = { status: 'failed', message: sourceSession.readError };
-      save();
+      ledger.failures.sessions[sourceSession.id] = { message: sourceSession.readError };
+      await save();
       continue;
     }
     const imported = buildDshSession(sourceSession);
-    const previous = ledger.sessions[sourceSession.id];
-    const alreadyImported = previous?.status === 'complete';
-    if (alreadyImported && (previous.workspaceAttached === true || previous.workspaceUnavailable === true)) {
-      continue;
-    }
     try {
-      const workspaceOutcome = await importSession(imported, { contentImported: alreadyImported });
+      const workspaceOutcome = await importSession(imported);
       signal?.throwIfAborted();
       if (!['attached', 'unavailable'].includes(workspaceOutcome)) throw new Error(`invalid workspace outcome: ${workspaceOutcome}`);
-      ledger.sessions[sourceSession.id] = {
-        ...previous,
-        status: 'complete',
-        targetId: imported.id,
-        stats: imported.stats,
-        workspaceAttached: workspaceOutcome === 'attached',
-        workspaceUnavailable: workspaceOutcome === 'unavailable',
-      };
+      if (workspaceOutcome === 'attached') delete ledger.failures.sessions[sourceSession.id];
+      else ledger.failures.sessions[sourceSession.id] = { message: `v1 workspace is unavailable: ${imported.meta.cwd}` };
     } catch (error) {
       signal?.throwIfAborted();
       const message = error instanceof Error ? error.message : String(error);
-      ledger.sessions[sourceSession.id] = alreadyImported
-        ? { ...previous, workspaceAttached: false, workspaceMessage: message }
-        : { status: 'failed', targetId: imported.id, message };
+      ledger.failures.sessions[sourceSession.id] = { message };
     }
-    save();
+    await save();
   }
-  save();
-}
-
-function completedV1SessionTargetIds(home) {
-  const { ledger } = openMigrationLedger(home);
-  return new Set(Object.values(ledger.sessions)
-    .filter((entry) => entry?.status === 'complete' && typeof entry.targetId === 'string')
-    .map((entry) => entry.targetId));
+  await save();
 }
 
 module.exports = {
   attachDshWorkspace,
   buildDshSession,
-  completedV1SessionTargetIds,
   materializeLegacyImages,
   readV1Sessions,
   runV1SessionImport,
