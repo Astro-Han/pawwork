@@ -7,6 +7,7 @@ export interface DshChildProcess {
   readonly stdout: DshReadableStream | null
   readonly stderr: DshReadableStream | null
   readonly pid?: number
+  send(message: string): boolean
   kill(signal?: NodeJS.Signals | number): boolean
   on(event: "exit", listener: (code: number) => void): this
   once(event: "exit", listener: (code: number) => void): this
@@ -16,13 +17,13 @@ export interface DshChildProcess {
 type SpawnDshProcess = (
   executable: string,
   args: string[],
-  options: { env: NodeJS.ProcessEnv; stdio: ["ignore", "pipe", "pipe"] },
+  options: { env: NodeJS.ProcessEnv; stdio: ["ignore", "pipe", "pipe", "ipc"] },
 ) => DshChildProcess
 
 type LaunchDshSidecarOptions = {
   executable: string
   dshBin: string
-  zenIdentityPreload: string
+  sidecarPreload: string
   productHome: string
   productPatch: string
   toolsDir: string
@@ -59,7 +60,7 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshS
     [
       "--expose-internals",
       "--import",
-      options.zenIdentityPreload,
+      options.sidecarPreload,
       options.dshBin,
       "web",
       "--patch",
@@ -76,7 +77,7 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshS
         DSH_HOME: options.productHome,
         ELECTRON_RUN_AS_NODE: "1",
       },
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
     },
   )
 
@@ -115,7 +116,11 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshS
     const stopProcess = () => {
       stopping ??= (async () => {
         if (exitedAlready) return
-        child.kill()
+        try {
+          child.send("SIGTERM")
+        } catch {
+          child.kill()
+        }
         if (await waitForExit()) return
         if (!exitedAlready) child.kill("SIGKILL")
         await waitForExit()

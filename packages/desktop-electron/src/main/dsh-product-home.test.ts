@@ -109,7 +109,7 @@ describe("DSH product home", () => {
       JSON.parse(readFileSync(join(productHome, "node_modules/@pawwork/dsh-automations/package.json"), "utf8")).name,
     ).toBe("@pawwork/dsh-automations")
     expect(prepared.fileInputPreload).toBe(join(resources, "product", "preload.cjs"))
-    expect(prepared.zenIdentityPreload).toBe(join(resources, "zen-identity-preload.mjs"))
+    expect(prepared.sidecarPreload).toBe(join(resources, "sidecar-preload.mjs"))
   })
 
   test("creates the public free-model credential for a fresh product home", () => {

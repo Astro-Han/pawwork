@@ -1,10 +1,11 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
+const { once } = require('events');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const ZEN_IDENTITY_PRELOAD_HREF = pathToFileURL(path.join(__dirname, 'zen-identity-preload.mjs')).href;
+const SIDECAR_PRELOAD_HREF = pathToFileURL(path.join(__dirname, 'sidecar-preload.mjs')).href;
 
 function headerRecord(init) {
   return Object.fromEntries(new Headers(init?.headers).entries());
@@ -103,7 +104,7 @@ test('Node --import wraps fetch before the entry runs', () => {
     process.execPath,
     [
       '--import',
-      ZEN_IDENTITY_PRELOAD_HREF,
+      SIDECAR_PRELOAD_HREF,
       '-e',
       'process.stdout.write(String(Boolean(globalThis.fetch && globalThis.fetch.__pawworkZenIdentity)))',
     ],
@@ -111,4 +112,32 @@ test('Node --import wraps fetch before the entry runs', () => {
   );
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, 'true');
+});
+
+test('Node --import relays the owned shutdown request to signal handlers', async () => {
+  const child = spawn(
+    process.execPath,
+    [
+      '--import',
+      SIDECAR_PRELOAD_HREF,
+      '-e',
+      `process.on('SIGTERM', () => setTimeout(() => {
+        process.stdout.write('flushed');
+        process.exitCode = 0;
+      }, 10));
+      process.send('ready');`,
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe', 'ipc'] },
+  );
+  let stdout = '';
+  child.stdout.on('data', (chunk) => { stdout += chunk; });
+
+  await once(child, 'message');
+  child.send('SIGTERM');
+  const forceExit = setTimeout(() => child.kill('SIGKILL'), 500);
+  const [code] = await once(child, 'exit');
+  clearTimeout(forceExit);
+
+  assert.equal(code, 0);
+  assert.equal(stdout, 'flushed');
 });

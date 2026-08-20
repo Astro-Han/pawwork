@@ -72,7 +72,7 @@ export function prepareDshProductHome(options: PrepareDshProductHomeOptions) {
     home: options.productHome,
     fileInputPreload: join(options.resources, "product", "preload.cjs"),
     patch: join(options.productHome, "product.cordis.patch.yml"),
-    zenIdentityPreload: join(options.resources, "zen-identity-preload.mjs"),
+    sidecarPreload: join(options.resources, "sidecar-preload.mjs"),
   }
 }
 

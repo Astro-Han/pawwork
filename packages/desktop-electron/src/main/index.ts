@@ -196,7 +196,7 @@ async function startDsh() {
   sidecar = await launchDshSidecar({
     executable: process.execPath,
     dshBin: join(dirname(dshPackage), "lib", "bin.js"),
-    zenIdentityPreload: pathToFileURL(product.zenIdentityPreload).href,
+    sidecarPreload: pathToFileURL(product.sidecarPreload).href,
     productHome: product.home,
     productPatch: product.patch,
     toolsDir: join(dirname(resources.dsh), "tools"),

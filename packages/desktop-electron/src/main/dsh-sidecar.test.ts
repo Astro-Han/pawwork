@@ -11,8 +11,18 @@ class FakeChildProcess extends EventEmitter implements DshChildProcess {
   killed = false
   killCount = 0
   killSignals: Array<NodeJS.Signals | number | undefined> = []
+  messages: unknown[] = []
   gracefulExit = true
   forceExit = true
+
+  send(message: unknown) {
+    this.messages.push(message)
+    if (this.gracefulExit) {
+      this.pid = undefined
+      queueMicrotask(() => this.emit("exit", 0))
+    }
+    return true
+  }
 
   kill(signal?: NodeJS.Signals | number) {
     this.killed = true
@@ -64,13 +74,13 @@ describe("DSH sidecar lifecycle", () => {
       | {
           executable: string
           args: string[]
-          options: { env: NodeJS.ProcessEnv; stdio: ["ignore", "pipe", "pipe"] }
+          options: { env: NodeJS.ProcessEnv; stdio: ["ignore", "pipe", "pipe", "ipc"] }
         }
       | undefined
     const launched = launchDshSidecar({
       executable: "/app/PawWork",
       dshBin: "/app/node_modules/@deepseek-ai/dsh/lib/bin.js",
-      zenIdentityPreload: "file:///app/dsh/zen-identity-preload.mjs",
+      sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
       productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
       toolsDir: "/app/tools",
@@ -91,7 +101,7 @@ describe("DSH sidecar lifecycle", () => {
       args: [
         "--expose-internals",
         "--import",
-        "file:///app/dsh/zen-identity-preload.mjs",
+        "file:///app/dsh/sidecar-preload.mjs",
         "/app/node_modules/@deepseek-ai/dsh/lib/bin.js",
         "web",
         "--patch",
@@ -104,12 +114,12 @@ describe("DSH sidecar lifecycle", () => {
       ],
       options: {
         env: { PATH: `/app/tools${delimiter}/usr/bin`, DSH_HOME: "/data/dsh", ELECTRON_RUN_AS_NODE: "1" },
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
       },
     })
 
     await sidecar.stop()
-    expect(child.killed).toBe(true)
+    expect(child.messages).toEqual(["SIGTERM"])
   })
 
   // The sidecar's stdout carries agent output too, so the readiness line is only
@@ -121,7 +131,7 @@ describe("DSH sidecar lifecycle", () => {
     const launched = launchDshSidecar({
       executable: "/app/PawWork",
       dshBin: "/app/bin.js",
-      zenIdentityPreload: "file:///app/preload.mjs",
+      sidecarPreload: "file:///app/preload.mjs",
       productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
       toolsDir: "/app/tools",
@@ -145,7 +155,7 @@ describe("DSH sidecar lifecycle", () => {
     const launched = launchDshSidecar({
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
-      zenIdentityPreload: "file:///app/dsh/zen-identity-preload.mjs",
+      sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
       productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
       toolsDir: "/app/tools",
@@ -165,7 +175,7 @@ describe("DSH sidecar lifecycle", () => {
     const launched = launchDshSidecar({
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
-      zenIdentityPreload: "file:///app/dsh/zen-identity-preload.mjs",
+      sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
       productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
       toolsDir: "/app/tools",
@@ -176,7 +186,8 @@ describe("DSH sidecar lifecycle", () => {
     })
 
     await expect(launched).rejects.toThrow("DSH did not announce readiness within 1ms")
-    expect(child.killSignals).toEqual([undefined, "SIGKILL"])
+    expect(child.messages).toEqual(["SIGTERM"])
+    expect(child.killSignals).toEqual(["SIGKILL"])
   })
 
   test("stops the owned child process once across concurrent and repeated calls", async () => {
@@ -184,7 +195,7 @@ describe("DSH sidecar lifecycle", () => {
     const launched = launchDshSidecar({
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
-      zenIdentityPreload: "file:///app/dsh/zen-identity-preload.mjs",
+      sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
       productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
       toolsDir: "/app/tools",
@@ -201,7 +212,29 @@ describe("DSH sidecar lifecycle", () => {
     await Promise.all([firstStop, concurrentStop])
     await sidecar.stop()
 
-    expect(child.killCount).toBe(1)
+    expect(child.messages).toEqual(["SIGTERM"])
+    expect(child.killCount).toBe(0)
+  })
+
+  test("requests graceful shutdown through the owned IPC channel", async () => {
+    const child = new FakeChildProcess()
+    const launched = launchDshSidecar({
+      executable: "/app/PawWork",
+      dshBin: "/app/dsh.js",
+      sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
+      productHome: "/data/dsh",
+      productPatch: "/data/dsh/product.cordis.patch.yml",
+      toolsDir: "/app/tools",
+      env: {},
+      timeoutMs: 100,
+      spawn: () => child,
+    })
+    child.stdout.write("dsh web: http://127.0.0.1:43123\n")
+    const sidecar = await launched
+
+    await sidecar.stop()
+
+    expect(child.messages).toEqual(["SIGTERM"])
   })
 
   test("escalates a non-exiting graceful stop to force termination within a bound", async () => {
@@ -211,7 +244,7 @@ describe("DSH sidecar lifecycle", () => {
     const launched = launchDshSidecar({
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
-      zenIdentityPreload: "file:///app/dsh/zen-identity-preload.mjs",
+      sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
       productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
       toolsDir: "/app/tools",
@@ -225,6 +258,7 @@ describe("DSH sidecar lifecycle", () => {
 
     await sidecar.stop()
 
-    expect(child.killSignals).toEqual([undefined, "SIGKILL"])
+    expect(child.messages).toEqual(["SIGTERM"])
+    expect(child.killSignals).toEqual(["SIGKILL"])
   })
 })
