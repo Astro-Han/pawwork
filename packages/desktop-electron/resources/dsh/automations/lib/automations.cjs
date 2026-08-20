@@ -41,6 +41,25 @@ function definitionNext(definition, after, completedRunCount = 0) {
   return recurringNext(definition.createdAt, definition.rhythm.everyMs, after);
 }
 
+// createDefinition, importDefinition and updateDefinition each restated this
+// rule, down to the error strings; the store owns the persisted shape, so it
+// states it once and returns the shape it will persist.
+function normalizeRhythm(rhythm) {
+  if (rhythm?.kind === 'interval') {
+    const everyMs = rhythm.everyMs;
+    if (!Number.isSafeInteger(everyMs) || everyMs < MIN_INTERVAL_MS) {
+      throw new Error(`everyMs must be an integer of at least ${MIN_INTERVAL_MS}`);
+    }
+    return { kind: 'interval', everyMs };
+  }
+  if (rhythm?.kind === 'cron') {
+    const expression = assertText(rhythm.expression, 'rhythm.expression');
+    if (!isValidCronExpression(expression)) throw new Error(`invalid cron expression: ${expression}`);
+    return { kind: 'cron', expression };
+  }
+  throw new Error('recurring rhythm must be interval or cron');
+}
+
 function recurringStop(value) {
   if (value === undefined || value?.kind === 'never') return { kind: 'never' };
   if (value?.kind === 'count' && Number.isSafeInteger(value.count) && value.count > 0) {
@@ -120,24 +139,10 @@ class AutomationStore {
       if (fireAt <= createdAt) throw new Error('fireAt must be in the future');
       definition = { ...common, kind: 'oneshot', fireAt, nextFireAt: fireAt };
     } else if (input.kind === 'recurring') {
-      let rhythm;
-      if (input.rhythm?.kind === 'interval') {
-        const everyMs = input.rhythm.everyMs;
-        if (!Number.isSafeInteger(everyMs) || everyMs < MIN_INTERVAL_MS) {
-          throw new Error(`everyMs must be an integer of at least ${MIN_INTERVAL_MS}`);
-        }
-        rhythm = { kind: 'interval', everyMs };
-      } else if (input.rhythm?.kind === 'cron') {
-        const expression = assertText(input.rhythm.expression, 'rhythm.expression');
-        if (!isValidCronExpression(expression)) throw new Error(`invalid cron expression: ${expression}`);
-        rhythm = { kind: 'cron', expression };
-      } else {
-        throw new Error('recurring rhythm must be interval or cron');
-      }
       definition = {
         ...common,
         kind: 'recurring',
-        rhythm,
+        rhythm: normalizeRhythm(input.rhythm),
         stop: recurringStop(input.stop),
         nextFireAt: null,
       };
@@ -172,20 +177,13 @@ class AutomationStore {
     if (input.migration?.source !== 'pawwork-v1' || !input.migration.sourceId) {
       throw new Error('imported automation requires v1 migration identity');
     }
+    const imported = { ...structuredClone(input), nextFireAt: null };
     if (input.kind === 'oneshot') assertTimestamp(input.fireAt, 'fireAt');
     else if (input.kind === 'recurring') {
-      if (input.rhythm?.kind === 'interval') {
-        if (!Number.isSafeInteger(input.rhythm.everyMs) || input.rhythm.everyMs < MIN_INTERVAL_MS) {
-          throw new Error(`everyMs must be an integer of at least ${MIN_INTERVAL_MS}`);
-        }
-      } else if (input.rhythm?.kind === 'cron') {
-        if (!isValidCronExpression(input.rhythm.expression)) {
-          throw new Error(`invalid cron expression: ${input.rhythm.expression}`);
-        }
-      } else throw new Error('recurring rhythm must be interval or cron');
-      recurringStop(input.stop);
+      imported.rhythm = normalizeRhythm(input.rhythm);
+      imported.stop = recurringStop(input.stop);
     } else throw new Error(`unsupported automation kind: ${input.kind}`);
-    this.document.definitions.push({ ...structuredClone(input), nextFireAt: null });
+    this.document.definitions.push(imported);
     this.save();
     return 'imported';
   }
@@ -288,18 +286,7 @@ class AutomationStore {
     }
     if (patch.rhythm !== undefined) {
       if (next.kind !== 'recurring') throw new Error('rhythm cannot update a one-shot automation');
-      if (patch.rhythm.kind === 'interval') {
-        if (!Number.isSafeInteger(patch.rhythm.everyMs) || patch.rhythm.everyMs < MIN_INTERVAL_MS) {
-          throw new Error(`everyMs must be an integer of at least ${MIN_INTERVAL_MS}`);
-        }
-        next.rhythm = { kind: 'interval', everyMs: patch.rhythm.everyMs };
-      } else if (patch.rhythm.kind === 'cron') {
-        const expression = assertText(patch.rhythm.expression, 'rhythm.expression');
-        if (!isValidCronExpression(expression)) throw new Error(`invalid cron expression: ${expression}`);
-        next.rhythm = { kind: 'cron', expression };
-      } else {
-        throw new Error('recurring rhythm must be interval or cron');
-      }
+      next.rhythm = normalizeRhythm(patch.rhythm);
       scheduleChanged = true;
     }
     if (patch.stop !== undefined) {
@@ -702,6 +689,36 @@ function createAutomationToolDefinitions({
     if (definition.cwd !== cwd()) throw new Error(`automation not found: ${id}`);
     return definition;
   };
+  // automation_create and automation_update accept the same three schedule
+  // fields, so the arg-shape rules that turn them into store input live here
+  // once. The rules about the resulting schedule itself belong to the store.
+  const parseAbsoluteTime = (value) => {
+    if (typeof value !== 'string' || !/(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
+      throw new Error('at must be an RFC 3339 timestamp with an explicit offset');
+    }
+    const fireAt = Date.parse(value);
+    if (!Number.isFinite(fireAt)) throw new Error('at must be a valid timestamp');
+    return fireAt;
+  };
+  const parseIntervalSeconds = (value) => {
+    if (!Number.isSafeInteger(value) || value < MIN_INTERVAL_MS / 1_000) {
+      throw new Error(`every_seconds must be an integer of at least ${MIN_INTERVAL_MS / 1_000}`);
+    }
+    return { kind: 'interval', everyMs: value * 1_000 };
+  };
+  const parseCron = (value) => {
+    if (typeof value !== 'string' || !isValidCronExpression(value)) {
+      throw new Error('cron must be a valid five-field cron expression');
+    }
+    return { kind: 'cron', expression: value };
+  };
+  const parseRunCount = (value) => {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error('run_count must be a non-negative integer');
+    }
+    return value === 0 ? { kind: 'never' } : { kind: 'count', count: value };
+  };
+
   const objectParameters = (properties, required = []) => ({
     type: 'object',
     additionalProperties: false,
@@ -733,29 +750,12 @@ function createAutomationToolDefinitions({
         }
         const createdAt = now();
         let schedule;
-        if (args.at !== undefined) {
-          if (typeof args.at !== 'string' || !/(?:Z|[+-]\d{2}:\d{2})$/.test(args.at)) {
-            throw new Error('at must be an RFC 3339 timestamp with an explicit offset');
-          }
-          const fireAt = Date.parse(args.at);
-          if (!Number.isFinite(fireAt)) throw new Error('at must be a valid timestamp');
-          schedule = { kind: 'oneshot', fireAt };
-        } else if (args.every_seconds !== undefined) {
-          if (!Number.isSafeInteger(args.every_seconds) || args.every_seconds < MIN_INTERVAL_MS / 1_000) {
-            throw new Error(`every_seconds must be an integer of at least ${MIN_INTERVAL_MS / 1_000}`);
-          }
-          schedule = { kind: 'recurring', rhythm: { kind: 'interval', everyMs: args.every_seconds * 1_000 } };
-        } else {
-          if (typeof args.cron !== 'string' || !isValidCronExpression(args.cron)) {
-            throw new Error('cron must be a valid five-field cron expression');
-          }
-          schedule = { kind: 'recurring', rhythm: { kind: 'cron', expression: args.cron } };
-        }
+        if (args.at !== undefined) schedule = { kind: 'oneshot', fireAt: parseAbsoluteTime(args.at) };
+        else if (args.every_seconds !== undefined) {
+          schedule = { kind: 'recurring', rhythm: parseIntervalSeconds(args.every_seconds) };
+        } else schedule = { kind: 'recurring', rhythm: parseCron(args.cron) };
         if (args.run_count !== undefined && schedule.kind !== 'recurring') {
           throw new Error('run_count is only supported for recurring automations');
-        }
-        if (args.run_count !== undefined && (!Number.isSafeInteger(args.run_count) || args.run_count < 0)) {
-          throw new Error('run_count must be a non-negative integer');
         }
         const definition = store.createDefinition({
           ...schedule,
@@ -767,7 +767,7 @@ function createAutomationToolDefinitions({
           context: args.continue_session ? 'continue' : 'fresh',
           ...(args.continue_session ? { sourceSessionId: sessionId() } : {}),
           ...(schedule.kind === 'recurring'
-            ? { stop: !args.run_count ? { kind: 'never' } : { kind: 'count', count: args.run_count } }
+            ? { stop: parseRunCount(args.run_count ?? 0) }
             : {}),
         }, createdAt);
         scheduler.refresh();
@@ -812,33 +812,19 @@ function createAutomationToolDefinitions({
         if (args.model !== undefined) patch.model = parseModelSelection(args.model);
         if (args.at !== undefined) {
           if (previous.kind !== 'oneshot') throw new Error('at cannot update a recurring automation');
-          if (typeof args.at !== 'string' || !/(?:Z|[+-]\d{2}:\d{2})$/.test(args.at)) {
-            throw new Error('at must be an RFC 3339 timestamp with an explicit offset');
-          }
-          const fireAt = Date.parse(args.at);
-          if (!Number.isFinite(fireAt)) throw new Error('at must be a valid timestamp');
-          patch.fireAt = fireAt;
+          patch.fireAt = parseAbsoluteTime(args.at);
         }
         if (args.every_seconds !== undefined) {
           if (previous.kind !== 'recurring') throw new Error('every_seconds cannot update a one-shot automation');
-          if (!Number.isSafeInteger(args.every_seconds) || args.every_seconds < MIN_INTERVAL_MS / 1_000) {
-            throw new Error(`every_seconds must be an integer of at least ${MIN_INTERVAL_MS / 1_000}`);
-          }
-          patch.rhythm = { kind: 'interval', everyMs: args.every_seconds * 1_000 };
+          patch.rhythm = parseIntervalSeconds(args.every_seconds);
         }
         if (args.cron !== undefined) {
           if (previous.kind !== 'recurring') throw new Error('cron cannot update a one-shot automation');
-          if (typeof args.cron !== 'string' || !isValidCronExpression(args.cron)) {
-            throw new Error('cron must be a valid five-field cron expression');
-          }
-          patch.rhythm = { kind: 'cron', expression: args.cron };
+          patch.rhythm = parseCron(args.cron);
         }
         if (args.run_count !== undefined) {
           if (previous.kind !== 'recurring') throw new Error('run_count cannot update a one-shot automation');
-          if (!Number.isSafeInteger(args.run_count) || args.run_count < 0) {
-            throw new Error('run_count must be a non-negative integer');
-          }
-          patch.stop = args.run_count === 0 ? { kind: 'never' } : { kind: 'count', count: args.run_count };
+          patch.stop = parseRunCount(args.run_count);
         }
         if (Object.keys(patch).length === 0) throw new Error('automation_update requires at least one change');
         const definition = store.updateDefinition(args.id, patch, now());

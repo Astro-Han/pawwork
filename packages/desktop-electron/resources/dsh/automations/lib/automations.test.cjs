@@ -794,6 +794,120 @@ test('conversation create accepts cron and finite schedules', async () => {
   assert.equal(definition.timezone, 'Asia/Shanghai');
 });
 
+// Neutering the store's rhythm rule left every test green: the tool layer catches
+// its own arg shapes first, so nothing reached the store with a bad rhythm. The
+// store is what the RPC client and the v1 importer talk to directly.
+test('the store keeps one rhythm rule for creates, updates and imports', () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const base = {
+    title: 'Brief',
+    prompt: 'Write the brief.',
+    cwd,
+    model: { provider: 'opencode', model: 'big-pickle' },
+    timezone: 'UTC',
+    kind: 'recurring',
+  };
+
+  for (const rhythm of [
+    { kind: 'interval', everyMs: 29_999 },
+    { kind: 'interval', everyMs: 60_000.5 },
+    { kind: 'cron', expression: '0 9 * *' },
+    { kind: 'cron', expression: 42 },
+    { kind: 'daily' },
+    undefined,
+  ]) {
+    assert.throws(() => store.createDefinition({ ...base, rhythm }, 1_000), Error);
+  }
+
+  const created = store.createDefinition({ ...base, rhythm: { kind: 'interval', everyMs: 30_000 } }, 1_000);
+  assert.throws(
+    () => store.updateDefinition(created.id, { rhythm: { kind: 'interval', everyMs: 29_999 } }, 2_000),
+    /everyMs must be an integer of at least 30000/,
+  );
+  assert.throws(
+    () => store.importDefinition({
+      ...base,
+      id: 'pawwork-v1-automation_bad',
+      revision: 1,
+      context: 'fresh',
+      createdAt: 1_000,
+      updatedAt: 1_000,
+      migration: { source: 'pawwork-v1', sourceId: 'automation_bad' },
+      rhythm: { kind: 'cron', expression: 'not a cron' },
+    }),
+    /invalid cron expression: not a cron/,
+  );
+});
+
+// The three schedule fields reach the store through one arg-shape rule each, and
+// nothing asserted any of them: a create that took a bad value and an update that
+// refused a good one would both have stayed green.
+test('conversation tools apply one schedule arg rule to create and update alike', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const tools = createAutomationToolDefinitions({
+    store,
+    scheduler: { refresh() {} },
+    cwd: () => cwd,
+    model: () => ({ provider: 'opencode', model: 'big-pickle' }),
+    now: () => Date.parse('2026-08-18T00:30:00.000Z'),
+  });
+  const byName = Object.fromEntries(tools.map((entry) => [entry.name, entry]));
+  const base = { title: 'Brief', prompt: 'Write the brief.', timezone: 'UTC' };
+
+  await assert.rejects(
+    () => byName.automation_create.execute({ ...base, at: '2026-08-19T09:00:00' }),
+    /at must be an RFC 3339 timestamp with an explicit offset/,
+  );
+  await assert.rejects(
+    () => byName.automation_create.execute({ ...base, at: '2026-13-40T09:00:00Z' }),
+    /at must be a valid timestamp/,
+  );
+  await assert.rejects(
+    () => byName.automation_create.execute({ ...base, every_seconds: 29 }),
+    /every_seconds must be an integer of at least 30/,
+  );
+  await assert.rejects(
+    () => byName.automation_create.execute({ ...base, cron: '0 9 * *' }),
+    /cron must be a valid five-field cron expression/,
+  );
+  await assert.rejects(
+    () => byName.automation_create.execute({ ...base, every_seconds: 60, run_count: 1.5 }),
+    /run_count must be a non-negative integer/,
+  );
+  await assert.rejects(
+    () => byName.automation_create.execute({ ...base, at: '2026-08-19T09:00:00Z', run_count: 2 }),
+    /run_count is only supported for recurring automations/,
+  );
+
+  const recurring = await byName.automation_create.execute({ ...base, every_seconds: 30 });
+  assert.deepEqual(recurring.rhythm, { kind: 'interval', everyMs: 30_000 });
+  assert.deepEqual(recurring.stop, { kind: 'never' });
+
+  await assert.rejects(
+    () => byName.automation_update.execute({ id: recurring.id, every_seconds: 29 }),
+    /every_seconds must be an integer of at least 30/,
+  );
+  await assert.rejects(
+    () => byName.automation_update.execute({ id: recurring.id, cron: '0 9 * *' }),
+    /cron must be a valid five-field cron expression/,
+  );
+  await assert.rejects(
+    () => byName.automation_update.execute({ id: recurring.id, run_count: -1 }),
+    /run_count must be a non-negative integer/,
+  );
+
+  const cleared = await byName.automation_update.execute({ id: recurring.id, run_count: 0 });
+  assert.deepEqual(cleared.stop, { kind: 'never' });
+
+  const oneshot = await byName.automation_create.execute({ ...base, at: '2026-08-19T09:00:00+08:00' });
+  await assert.rejects(
+    () => byName.automation_update.execute({ id: oneshot.id, at: '2026-08-19T09:00:00' }),
+    /at must be an RFC 3339 timestamp with an explicit offset/,
+  );
+});
+
 test('conversation update edits v1-manageable fields atomically without changing identity', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
