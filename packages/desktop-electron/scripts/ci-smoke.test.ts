@@ -18,6 +18,7 @@ import {
   resolveLaunchCommand,
   resolveMainEntry,
 } from "./ci-smoke"
+import type { CiSmokeProductSnapshot } from "./ci-smoke"
 import { packagedAppEnv } from "./packaged-app-env.ts"
 import type { PawWorkChannel } from "../src/main/app-identity.ts"
 
@@ -235,44 +236,112 @@ describe("ci smoke helpers", () => {
     }, "darwin")).not.toThrow()
   })
 
-  test("assertCiSmokeProduct reports every missing product capability", () => {
-    expect(() => assertCiSmokeProduct({
-      sidebarBrandVisible: false,
-      heroMarkVisible: false,
-      heroHeadlineOverridden: false,
-      heroPreviewBadgeHidden: false,
-      heroMarkHeadlineOffset: 4.5,
-      automationSettingsEntryVisible: false,
-      automationSidebarEntryAbsent: false,
-      automationSurfaceVisible: false,
-      automationCreateViaChatWorked: false,
-      automationEditorVisible: false,
-      automationEditorUsesFullWidth: false,
-      automationAdvancedVisible: false,
-      automationBackNavigationWorks: false,
-      automationEditorHeaderFits: false,
-      automationSaveWorks: false,
-      automationDeleteDialogWorks: false,
-      automationDirtyPauseBlocked: false,
-      automationMetadataPlain: false,
-      titlebarStripHeight: 0,
-      titlebarStripDraggable: false,
-      contentInsetHeight: 8,
-      sidebarBrandName: "",
-      sidebarBrandTop: -1,
-      sidebarToggleCount: 2,
-      sidebarCollapsed: false,
-      sidebarExpandToggleCount: 0,
-      sidebarExpandToggleUsable: false,
-      sidebarExpandToggleHasContent: false,
-      sidebarExpandedAgain: false,
-      platform: "MacIntel",
-      freeProviderActive: false,
-      freeModelAvailable: false,
-      skillNames: [],
-      sessionId: "",
-      sessionIdsBeforeRestart: [],
-    }, "darwin")).toThrow(/sidebar brand is not rendered.*brand name is not rendered.*reserved titlebar strip.*drag region.*web content is inset.*inside the native window controls.*hero brand mark.*DSH copy.*preview badge.*off the headline centre.*Automation Settings entry.*Automation should not occupy the sidebar.*Automation surface.*visible chat path.*Automation editor.*compressed.*advanced settings.*Back navigation.*header overflows.*visible form.*cancellable dialog.*discard unsaved edits.*immutable metadata.*one DSH collapse control.*collapse the sidebar.*one DSH expand control.*visibly clickable.*renders empty.*reopen.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
+  // A healthy snapshot, and one broken value per field. Asserting on the joined
+  // failure prose meant rewording any one message turned the test red while a
+  // clause that stopped being evaluated stayed green. What matters is that every
+  // field the snapshot carries is actually consulted.
+  const healthy: CiSmokeProductSnapshot = {
+    sidebarBrandVisible: true,
+    sidebarBrandName: "PawWork",
+    sidebarBrandTop: 40,
+    heroMarkVisible: true,
+    heroHeadlineOverridden: true,
+    heroPreviewBadgeHidden: true,
+    heroMarkHeadlineOffset: 0.4,
+    automationSettingsEntryVisible: true,
+    automationSidebarEntryAbsent: true,
+    automationSurfaceVisible: true,
+    automationCreateViaChatWorked: true,
+    automationEditorVisible: true,
+    automationEditorUsesFullWidth: true,
+    automationAdvancedVisible: true,
+    automationBackNavigationWorks: true,
+    automationEditorHeaderFits: true,
+    automationSaveWorks: true,
+    automationDeleteDialogWorks: true,
+    automationDirtyPauseBlocked: true,
+    automationMetadataPlain: true,
+    titlebarStripHeight: 32,
+    titlebarStripDraggable: true,
+    contentInsetHeight: 32,
+    sidebarToggleCount: 1,
+    sidebarCollapsed: true,
+    sidebarExpandToggleCount: 1,
+    sidebarExpandToggleUsable: true,
+    sidebarExpandToggleHasContent: true,
+    sidebarExpandedAgain: true,
+    platform: "MacIntel",
+    freeProviderActive: true,
+    freeModelAvailable: true,
+    skillNames: ["office-docx", "office-pdf", "office-pptx", "office-xlsx"],
+    sessionId: "session-1",
+    sessionIdsBeforeRestart: ["session-1"],
+  }
+
+  const broken: Partial<Record<keyof CiSmokeProductSnapshot, unknown>> = {
+    sidebarBrandVisible: false,
+    sidebarBrandName: "",
+    sidebarBrandTop: 8,
+    heroMarkVisible: false,
+    heroHeadlineOverridden: false,
+    heroPreviewBadgeHidden: false,
+    heroMarkHeadlineOffset: 4.5,
+    automationSettingsEntryVisible: false,
+    automationSidebarEntryAbsent: false,
+    automationSurfaceVisible: false,
+    automationCreateViaChatWorked: false,
+    automationEditorVisible: false,
+    automationEditorUsesFullWidth: false,
+    automationAdvancedVisible: false,
+    automationBackNavigationWorks: false,
+    automationEditorHeaderFits: false,
+    automationSaveWorks: false,
+    automationDeleteDialogWorks: false,
+    automationDirtyPauseBlocked: false,
+    automationMetadataPlain: false,
+    titlebarStripHeight: 0,
+    titlebarStripDraggable: false,
+    contentInsetHeight: 8,
+    sidebarToggleCount: 2,
+    sidebarCollapsed: false,
+    sidebarExpandToggleCount: 0,
+    sidebarExpandToggleUsable: false,
+    sidebarExpandToggleHasContent: false,
+    sidebarExpandedAgain: false,
+    freeProviderActive: false,
+    freeModelAvailable: false,
+    skillNames: ["office-docx"],
+  }
+
+  test("accepts a snapshot where every product capability is present", () => {
+    expect(() => assertCiSmokeProduct(healthy, "darwin")).not.toThrow()
+  })
+
+  test.each(Object.keys(broken))("rejects a snapshot whose %s is wrong", (field) => {
+    const key = field as keyof CiSmokeProductSnapshot
+    expect(() => assertCiSmokeProduct({ ...healthy, [key]: broken[key] }, "darwin")).toThrow(
+      /DSH product smoke failed/,
+    )
+  })
+
+  test("consults every field it collects", () => {
+    // The three left out are carried for the failure report and the restart
+    // comparison, not asserted here. A new field landing outside `broken` means
+    // the smoke gathers something nothing checks.
+    const unchecked = Object.keys(healthy).filter((field) => !(field in broken))
+    expect(unchecked.sort()).toEqual(["platform", "sessionId", "sessionIdsBeforeRestart"])
+  })
+
+  test("reports every failing capability at once, not just the first", () => {
+    // CI reads the thrown message and stops; a check that returned on its first
+    // failure would hide the rest until the next run.
+    let message = ""
+    try {
+      assertCiSmokeProduct({ ...healthy, sidebarBrandVisible: false, freeProviderActive: false }, "darwin")
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+    expect(message.split("\n- ").length - 1).toBe(2)
   })
 
   test("parseSmokeArgs defaults to raw dev mode", () => {
