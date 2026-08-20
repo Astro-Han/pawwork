@@ -333,10 +333,9 @@ class AutomationStore {
 
   deleteDefinition(id) {
     const index = this.document.definitions.findIndex((entry) => entry.id === id);
-    if (index < 0) return false;
+    if (index < 0) throw new Error(`automation not found: ${id}`);
     this.document.definitions.splice(index, 1);
     this.save();
-    return true;
   }
 
   listRuns(automationId) {
@@ -650,10 +649,9 @@ function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }
       }
       if (endpoint === 'delete') {
         if (typeof args.id !== 'string') return rpcFailure('bad-request', 'id is required', { issues: [] });
-        store.getDefinition(args.id);
-        const deleted = store.deleteDefinition(args.id);
+        store.deleteDefinition(args.id);
         scheduler.refresh();
-        return rpcSuccess({ id: args.id, deleted });
+        return rpcSuccess({ id: args.id });
       }
       return rpcFailure('bad-request', `unknown automation endpoint: ${endpoint}`, { issues: [] });
     } catch (error) {
@@ -871,9 +869,9 @@ function createAutomationToolDefinitions({
       objectParameters({ id: { type: 'string' } }, ['id']),
       async (args) => {
         current(args.id);
-        const deleted = store.deleteDefinition(args.id);
+        store.deleteDefinition(args.id);
         scheduler.refresh();
-        return { id: args.id, deleted };
+        return { id: args.id };
       },
     ),
   ];

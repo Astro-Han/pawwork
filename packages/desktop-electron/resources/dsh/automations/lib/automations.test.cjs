@@ -738,7 +738,9 @@ test('conversation tools manage only the current workspace and keep model choice
   assert.equal((await byName.automation_set_paused.execute({ id: created.id, paused: true })).paused, true);
   assert.equal((await byName.automation_run_now.execute({ id: created.id })).state, 'succeeded');
   assert.deepEqual(startedNow, [created.id]);
-  assert.equal((await byName.automation_delete.execute({ id: created.id })).deleted, true);
+  assert.deepEqual(await byName.automation_delete.execute({ id: created.id }), { id: created.id });
+  assert.throws(() => store.getDefinition(created.id), /automation not found/);
+  await assert.rejects(() => byName.automation_delete.execute({ id: created.id }), /automation not found/);
   assert.equal((await byName.automation_list.execute({})).items.length, 0);
 });
 
