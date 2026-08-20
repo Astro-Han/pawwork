@@ -882,12 +882,19 @@ test('a rejected completion leaves the run untouched in memory and on disk', () 
 // Every mutation lands through one writer, and the file holds the user's
 // prompts. Nothing asserted either property: replacing the write with an
 // in-place fs.writeFileSync at the default mode kept the whole suite green.
+// Windows has no POSIX mode bits — the mode passed to writeFileSync is ignored
+// there and stat reports 0o666 — so only the rename half is checkable on it.
+function assertOwnerOnly(file) {
+  if (process.platform === 'win32') return;
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+}
+
 test('persists through a temporary file the reader never sees, owner-readable only', () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
   oneShot(store, cwd, 2_000);
 
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  assertOwnerOnly(file);
   assert.equal(fs.existsSync(`${file}.next`), false);
 
   // A crash between two saves leaves the previous document intact, never a
@@ -895,7 +902,7 @@ test('persists through a temporary file the reader never sees, owner-readable on
   const before = fs.readFileSync(file, 'utf8');
   assert.deepEqual(JSON.parse(before).definitions.length, 1);
   oneShot(store, cwd, 3_000);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  assertOwnerOnly(file);
   assert.equal(fs.existsSync(`${file}.next`), false);
   assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).definitions.length, 2);
 });
