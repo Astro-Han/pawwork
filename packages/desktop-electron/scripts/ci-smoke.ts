@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { once } from "node:events"
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
@@ -479,7 +479,7 @@ async function evaluateCiSmokeJson(target: CdpTarget, expression: string) {
   return JSON.parse(result.result.value) as unknown
 }
 
-export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: string) {
+export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: string, dshHome: string) {
   const expectedSessionId = JSON.stringify(sessionId)
   const expression = `(async () => {
     const call = async (method, payload) => {
@@ -495,10 +495,31 @@ export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: st
       return envelope.result.value
     }
     const sessions = (await call("session.list", {})).items
-    return JSON.stringify(sessions.some((session) => session.sessionId === ${expectedSessionId}))
+    return JSON.stringify(sessions.map((session) => session.sessionId))
   })()`
-  const persisted = await evaluateCiSmokeJson(target, expression)
-  if (persisted !== true) throw new Error(`DSH session ${sessionId} did not survive desktop restart`)
+  const restored = await evaluateCiSmokeJson(target, expression) as string[]
+  if (restored.includes(sessionId)) return
+
+  // 这条断言只在重启后失败一次就没有第二次机会：进程已经换了一个，现场只剩磁盘。
+  // 所以失败信息要自带现场 —— 重启后实际读回哪些会话，以及 DSH home 里到底躺着
+  // 什么文件。区分「根本没写」和「写了但没读回来」全靠这两样。
+  throw new Error([
+    `DSH session ${sessionId} did not survive desktop restart`,
+    `sessions after restart: ${restored.length ? restored.join(", ") : "(none)"}`,
+    `DSH home contents:\n${describeDirectory(dshHome)}`,
+  ].join("\n"))
+}
+
+function describeDirectory(dir: string, prefix = "  "): string {
+  if (!existsSync(dir)) return `${prefix}(missing) ${dir}`
+  return readdirSync(dir, { withFileTypes: true })
+    .flatMap((entry) => {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) return [`${prefix}${entry.name}/`, describeDirectory(full, `${prefix}  `)]
+      const info = statSync(full)
+      return [`${prefix}${entry.name} ${info.size}B mtime=${info.mtimeMs}`]
+    })
+    .join("\n")
 }
 
 export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
@@ -644,6 +665,10 @@ function launchApp(homeDir: string, target: SmokeTarget, options: LaunchAppOptio
   }
 }
 
+// Windows has no signals: child.kill maps to TerminateProcess on this one PID,
+// so the app gets no shutdown path and any sidecar it spawned is orphaned. Log
+// how the app actually went down — a restart that loses state reads very
+// differently depending on whether the first process was asked or shot.
 async function stopChild(child: ChildProcessWithoutNullStreams) {
   if (child.exitCode !== null || child.signalCode !== null) return
 
@@ -654,6 +679,7 @@ async function stopChild(child: ChildProcessWithoutNullStreams) {
     child.kill("SIGKILL")
     await once(child, "exit").catch(() => undefined)
   }
+  console.log(`CI smoke stopped desktop app: code=${child.exitCode} signal=${child.signalCode}`)
 }
 
 async function main() {
@@ -710,7 +736,7 @@ async function main() {
     try {
       await waitForCiSmokeReady(homeDir, target, restarted.child, restarted.spawnError, restartLogs.recent)
       const restartTarget = await probeCiSmokeCdpTarget(restartPort)
-      await inspectCiSmokePersistence(restartTarget, product.sessionId)
+      await inspectCiSmokePersistence(restartTarget, product.sessionId, dshHome)
       console.log("CI smoke verified DSH session persistence after restart")
     } finally {
       restartLogs.close()
