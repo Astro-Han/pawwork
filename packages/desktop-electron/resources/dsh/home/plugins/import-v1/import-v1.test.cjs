@@ -979,7 +979,7 @@ test('can import sessions from a ledger first written by settings migration', as
   fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({
     schema: 1,
     sourceAppData: '/tmp/v1-app-data',
-    settings: {},
+    settings: { theme: { status: 'complete', outcome: 'imported' } },
   }));
 
   const imported = await runV1SessionImport({
@@ -990,6 +990,13 @@ test('can import sessions from a ledger first written by settings migration', as
   });
 
   assert.equal(imported.status, 'complete');
+  // The three stages share one ledger file and each writes the whole document
+  // back, so what matters is that a stage carries the other stages' records
+  // through rather than replacing them with its own view.
+  const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+  assert.equal(ledger.sourceAppData, '/tmp/v1-app-data');
+  assert.deepEqual(ledger.settings, { theme: { status: 'complete', outcome: 'imported' } });
+  assert.equal(ledger.sessions.ses_parent.status, 'complete');
 });
 
 test('repairs workspace ownership when session records lack an outcome', async () => {
@@ -1001,7 +1008,6 @@ test('repairs workspace ownership when session records lack an outcome', async (
   fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({
     schema: 1,
     sourceDatabase: source,
-    snapshot: await snapshotOf(home, source),
     sessions: {
       ses_parent: { status: 'complete', targetId: 'pawwork-v1-ses_parent' },
       ses_child: { status: 'complete', targetId: 'pawwork-v1-ses_child' },

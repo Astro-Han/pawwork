@@ -99,6 +99,25 @@ test('registers and disposes the loopback management RPC with the scheduler life
   }
 });
 
+// Every other listRuns assertion runs against a store holding a single
+// automation, where the automationId filter cannot be observed at all: drop it
+// and they still pass. Two automations are what make the scoping visible, and
+// the undefined case is the whole-history read the RPC layer relies on.
+test('scopes run history to one automation and returns all of it when unscoped', () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const reports = oneShot(store, cwd, 2_000);
+  const inbox = interval(store, cwd, 60_000);
+
+  const first = store.beginRun(reports.id, 1_500);
+  const second = store.beginRun(inbox.id, 1_600);
+  const third = store.beginRun(reports.id, 1_700);
+
+  assert.deepEqual(store.listRuns(reports.id).map((run) => run.id), [third.id, first.id]);
+  assert.deepEqual(store.listRuns(inbox.id).map((run) => run.id), [second.id]);
+  assert.deepEqual(store.listRuns().map((run) => run.id), [third.id, second.id, first.id]);
+});
+
 test('persists definitions and run history with monotonic ids', () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
