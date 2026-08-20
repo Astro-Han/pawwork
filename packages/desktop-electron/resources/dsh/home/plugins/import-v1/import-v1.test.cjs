@@ -267,10 +267,22 @@ test('survives a snapshot it cannot delete', { timeout: 20_000 }, async () => {
   importerModule.runV1SessionImport = async () => ({ status: 'complete' });
   settingsModule.createDshSettingImporter = () => async () => 'skipped';
   settingsModule.runV1SettingsImport = async () => ({ status: 'complete' });
+  // Deny the snapshot's deletion the way the platform actually denies it: POSIX
+  // refuses unlink without write permission on the directory, Windows refuses it
+  // while any handle is open — a directory mode there is not enforced at all, so
+  // the chmod alone left this test asserting nothing on the platform whose
+  // indexers and AV scanners are the reason the guard exists.
+  let heldSnapshot;
+  const denyCleanup = () => {
+    if (process.platform === 'win32') heldSnapshot = fs.openSync(path.join(migrationDir, 'snapshot.db'), 'r');
+    else fs.chmodSync(migrationDir, 0o500);
+  };
+  const allowCleanup = () => {
+    if (heldSnapshot !== undefined) fs.closeSync(heldSnapshot);
+    else fs.chmodSync(migrationDir, 0o700);
+  };
   automationsModule.runV1AutomationImport = async () => {
-    // Deny unlink in the directory holding the snapshot, the way a file held open
-    // by an indexer would on Windows.
-    fs.chmodSync(migrationDir, 0o500);
+    denyCleanup();
     finishedResolve();
     return { status: 'complete' };
   };
@@ -297,7 +309,7 @@ test('survives a snapshot it cannot delete', { timeout: 20_000 }, async () => {
     assert.equal(warnings.length, 1);
     assert.match(warnings[0], /snapshot cleanup failed/);
   } finally {
-    fs.chmodSync(migrationDir, 0o700);
+    allowCleanup();
     importerModule.runV1SessionImport = originalRun;
     settingsModule.createDshSettingImporter = originalCreateSettingImporter;
     settingsModule.runV1SettingsImport = originalSettingsRun;
