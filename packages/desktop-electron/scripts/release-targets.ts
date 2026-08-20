@@ -1,3 +1,5 @@
+import { PAWWORK_UPDATE_CHANNEL } from "../src/main/app-identity.ts"
+
 // One statement of what a PawWork release ships. Every script that names a
 // release asset, an updater metadata file, a download-manifest key, or a
 // per-target CI artifact derives it from here. Before, the verifier, the
@@ -9,7 +11,7 @@ export const RELEASE_TARGETS = [
     arch: "arm64",
     installerExt: "dmg",
     updaterExt: "zip",
-    metadata: "latest-v2-mac.yml",
+    metadata: `${PAWWORK_UPDATE_CHANNEL}-mac.yml`,
     // Rust-triple names, because that is what the CI artifacts are keyed by.
     metadataArtifact: "latest-yml-aarch64-apple-darwin",
     manifestKey: "macArm64",
@@ -19,7 +21,7 @@ export const RELEASE_TARGETS = [
     arch: "x64",
     installerExt: "dmg",
     updaterExt: "zip",
-    metadata: "latest-v2-mac.yml",
+    metadata: `${PAWWORK_UPDATE_CHANNEL}-mac.yml`,
     metadataArtifact: "latest-yml-x86_64-apple-darwin",
     manifestKey: "macX64",
   },
@@ -28,7 +30,7 @@ export const RELEASE_TARGETS = [
     arch: "x64",
     installerExt: "exe",
     updaterExt: "exe",
-    metadata: "latest-v2.yml",
+    metadata: `${PAWWORK_UPDATE_CHANNEL}.yml`,
     metadataArtifact: "latest-yml-x86_64-pc-windows-msvc",
     manifestKey: "winX64",
   },

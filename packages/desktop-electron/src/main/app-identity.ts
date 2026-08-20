@@ -4,6 +4,7 @@ export const PAWWORK_APP = {
 } as const
 
 export const PAWWORK_RELEASE_OWNER = "Astro-Han"
+export const PAWWORK_UPDATE_CHANNEL = "latest-v2"
 
 export type PawWorkChannel = keyof typeof PAWWORK_APP
 
