@@ -291,7 +291,7 @@ async function attachDshWorkspace(imported, workspaceRegistry) {
   }
 }
 
-async function materializeLegacyImages(imported, saveImage, admissionError = isImageAdmissionError) {
+async function materializeLegacyImages(imported, saveImage) {
   for (const event of imported.seed) {
     const content = event.type === 'user/message'
       ? event.data.content
@@ -313,7 +313,7 @@ async function materializeLegacyImages(imported, saveImage, admissionError = isI
         });
         content[index] = { type: 'image', attachment };
       } catch (error) {
-        if (!admissionError(error)) throw error;
+        if (!isImageAdmissionError(error)) throw error;
         if (imported.stats) imported.stats.unsupportedParts += 1;
       }
     }

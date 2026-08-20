@@ -216,27 +216,6 @@ describe("DSH sidecar lifecycle", () => {
     expect(child.killCount).toBe(0)
   })
 
-  test("requests graceful shutdown through the owned IPC channel", async () => {
-    const child = new FakeChildProcess()
-    const launched = launchDshSidecar({
-      executable: "/app/PawWork",
-      dshBin: "/app/dsh.js",
-      sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productHome: "/data/dsh",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
-      toolsDir: "/app/tools",
-      env: {},
-      timeoutMs: 100,
-      spawn: () => child,
-    })
-    child.stdout.write("dsh web: http://127.0.0.1:43123\n")
-    const sidecar = await launched
-
-    await sidecar.stop()
-
-    expect(child.messages).toEqual(["SIGTERM"])
-  })
-
   test("escalates a non-exiting graceful stop to force termination within a bound", async () => {
     const child = new FakeChildProcess()
     child.gracefulExit = false

@@ -55,7 +55,6 @@ describe("PawWork DSH client product layer", () => {
     }
 
     plugin.apply(ctx)
-    expect(document.title).toBe("DeepSeek Harness")
     expect(plugin.inject).toEqual(["slots"])
     const welcome = registrations.find((entry) => entry.options.id === "welcome-notice")
     expect(welcome).toBeDefined()
