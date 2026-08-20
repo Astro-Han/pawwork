@@ -116,10 +116,17 @@ class AutomationStore {
     if (!Array.isArray(this.document.definitions) || !Array.isArray(this.document.runs)) {
       throw new Error('invalid automation store document');
     }
+    this.durableDocument = structuredClone(this.document);
   }
 
   save() {
-    writeJsonAtomically(this.file, this.document);
+    try {
+      writeJsonAtomically(this.file, this.document);
+      this.durableDocument = structuredClone(this.document);
+    } catch (error) {
+      this.document = structuredClone(this.durableDocument);
+      throw error;
+    }
   }
 
   createDefinition(input, now = Date.now()) {

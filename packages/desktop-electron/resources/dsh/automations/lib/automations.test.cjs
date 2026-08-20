@@ -874,6 +874,17 @@ test('a rejected completion leaves the run untouched in memory and on disk', () 
   assert.equal(new AutomationStore(file).listRuns(created.id)[0].error, 'model unavailable');
 });
 
+test('a failed persistence leaves Automation memory at the last durable document', () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = oneShot(store, cwd, 2_000);
+  store.file = path.join(file, 'cannot-be-created');
+
+  assert.throws(() => store.setPaused(created.id, true, 1_500));
+  assert.equal(store.getDefinition(created.id).paused, false);
+  assert.equal(store.getDefinition(created.id).revision, 1);
+});
+
 // A fresh run gets its own session and never sees these tools. A continue-mode
 // run appends to the session that created it, where they are registered for the
 // user — so the run, not the session, is what has to be excluded. Without this
