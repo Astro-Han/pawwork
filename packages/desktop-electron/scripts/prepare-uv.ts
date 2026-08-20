@@ -9,8 +9,8 @@ import manifest from "../bundled-tools.json"
 
 // Bundled-tool supply pattern: version-pinned manifest entry, download from a
 // pinned GitHub release tag, verify, then land the binary in resources/tools/
-// (packaged as extraResources → PATH via bundledToolsDir() in
-// packages/opencode/src/util/env.ts — no special-casing per tool). Two notable
+// (packaged as extraResources and prepended to the DSH sidecar PATH by
+// src/main/dsh-sidecar.ts). Two notable
 // properties:
 //
 // 1. The expected sha256 for every asset is pinned IN THE REPO (bundled-tools
@@ -25,19 +25,10 @@ import manifest from "../bundled-tools.json"
 
 export type SupportedPlatform = "darwin" | "win32"
 export type SupportedArch = "arm64" | "x64"
-export interface UvTarget {
-  platform: SupportedPlatform
-  arch: SupportedArch
-}
 
 const execFileAsync = promisify(execFile)
 const toolsDir = path.resolve(import.meta.dirname, "../resources/tools")
 const uv = manifest.uv
-
-export function uvTargetFor(platform: string, arch: string): UvTarget | null {
-  if (!(`${platform}-${arch}` in uv.assets)) return null
-  return { platform: platform as SupportedPlatform, arch: arch as SupportedArch }
-}
 
 function assetEntryForTarget(platform: SupportedPlatform, arch: SupportedArch) {
   const entry = uv.assets[`${platform}-${arch}` as keyof typeof uv.assets]
@@ -59,10 +50,6 @@ export function binaryNameForPlatform(platform: SupportedPlatform) {
 
 export function companionBinaryNameForPlatform(platform: SupportedPlatform) {
   return platform === "win32" ? "uvx.exe" : "uvx"
-}
-
-export function runtimeBinaryPath(baseToolsDir: string, platform: SupportedPlatform) {
-  return path.join(baseToolsDir, binaryNameForPlatform(platform))
 }
 
 export function uvDownloadUrl(version: string, asset: string) {
@@ -94,18 +81,26 @@ export async function verifyUvVersion(binaryPath: string, expectedVersion: strin
   }
 }
 
+function powershellLiteral(value: string) {
+  return `'${value.replaceAll("'", "''")}'`
+}
+
+export function powershellExpandArchiveArgs(archivePath: string, destDir: string) {
+  return [
+    "-NoLogo",
+    "-NoProfile",
+    "-Command",
+    `Expand-Archive -LiteralPath ${powershellLiteral(archivePath)} -DestinationPath ${powershellLiteral(destDir)} -Force`,
+  ]
+}
+
 async function extractArchive(archivePath: string, asset: string, destDir: string) {
   if (asset.endsWith(".zip")) {
     if (process.platform === "win32") {
       // On Windows CI this script runs under bash, where PATH-resolved `tar`
       // is GNU tar (no zip support) and `unzip` is not guaranteed;
       // PowerShell's Expand-Archive is always present on windows-* images.
-      await execFileAsync("powershell.exe", [
-        "-NoLogo",
-        "-NoProfile",
-        "-Command",
-        `Expand-Archive -LiteralPath '${archivePath}' -DestinationPath '${destDir}' -Force`,
-      ])
+      await execFileAsync("powershell.exe", powershellExpandArchiveArgs(archivePath, destDir))
     } else {
       // unzip ships on both macos-* and ubuntu-* GitHub runner images.
       await execFileAsync("unzip", ["-o", archivePath, "-d", destDir])

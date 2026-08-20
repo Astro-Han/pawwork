@@ -1,5 +1,8 @@
 export type GithubAsset = {
   name: string
+  // The API asset endpoint, used with an octet-stream Accept header. Distinct
+  // from browser_download_url, which redirects and drops the auth header.
+  url: string
   browser_download_url: string
 }
 
@@ -13,36 +16,24 @@ export type GithubRelease = {
 
 type VerificationInput = {
   release: GithubRelease
-  latestYml?: string
-  latestMacYml?: string
-  startupLog?: string
+  // Keyed by metadata file, so a fourth target with a new one is verified by
+  // the same loop that already downloads and mirrors it. Absent means the
+  // caller did not fetch it; empty string would mean it is there and empty.
+  metadata?: Partial<Record<MetadataFile, string>>
 }
 
-const DEFAULT_REPO = "Astro-Han/pawwork"
+const DEFAULT_REPO = `${PAWWORK_RELEASE_OWNER}/${PAWWORK_APP.prod.releaseRepo}`
 const FETCH_TIMEOUT_MS = 15_000
-
-const RELEASE_TARGETS = [
-  { os: "mac", arch: "arm64", installerExt: "dmg", updaterExt: "zip", metadata: "latest-mac.yml" },
-  { os: "mac", arch: "x64", installerExt: "dmg", updaterExt: "zip", metadata: "latest-mac.yml" },
-  { os: "win", arch: "x64", installerExt: "exe", updaterExt: "exe", metadata: "latest.yml" },
-] as const
-
-type MetadataFile = (typeof RELEASE_TARGETS)[number]["metadata"]
-
-function releaseTargetAssetName(target: (typeof RELEASE_TARGETS)[number], version: string, ext: string) {
-  return `pawwork-${target.os}-${target.arch}-${version}.${ext}`
-}
 
 export function releaseAssetNames(version: string) {
   return [
     ...new Set([
       ...RELEASE_TARGETS.flatMap((target) => [
-        releaseTargetAssetName(target, version, target.installerExt),
-        releaseTargetAssetName(target, version, target.updaterExt),
-        `${releaseTargetAssetName(target, version, target.updaterExt)}.blockmap`,
+        releaseAssetName(target, version, target.installerExt),
+        releaseAssetName(target, version, target.updaterExt),
+        `${releaseAssetName(target, version, target.updaterExt)}.blockmap`,
       ]),
-      "latest.yml",
-      "latest-mac.yml",
+      ...METADATA_FILES,
     ]),
   ]
 }
@@ -61,34 +52,23 @@ export function releaseProvenanceAssetNames(version: string) {
 }
 
 export function releaseUpdaterAssetNames(version: string): Record<MetadataFile, string[]> {
-  return {
-    "latest.yml": RELEASE_TARGETS.filter((target) => target.metadata === "latest.yml").map((target) =>
-      releaseTargetAssetName(target, version, target.updaterExt),
-    ),
-    "latest-mac.yml": RELEASE_TARGETS.filter((target) => target.metadata === "latest-mac.yml").map((target) =>
-      releaseTargetAssetName(target, version, target.updaterExt),
-    ),
-  }
+  return Object.fromEntries(
+    METADATA_FILES.map((metadata) => [
+      metadata,
+      RELEASE_TARGETS.filter((target) => target.metadata === metadata).map((target) =>
+        releaseAssetName(target, version, target.updaterExt),
+      ),
+    ]),
+  ) as Record<MetadataFile, string[]>
 }
 
 export function parseUpdaterFileUrls(source: string) {
-  const urls: string[] = []
+  const metadata = parseUpdaterMetadata(source)
+  return [...metadata.files.map((file) => file.url), ...(metadata.path === undefined ? [] : [metadata.path])]
+}
 
-  // This intentionally parses only the electron-builder metadata fields we verify.
-  // It is not a general YAML parser and ignores block scalars, multiline values,
-  // and other YAML forms that electron-builder does not emit for these fields.
-  for (const line of source.split(/\r?\n/)) {
-    const fileMatch = line.match(/^\s*-\s+url:\s*(.+?)\s*$/)
-    if (fileMatch) {
-      urls.push(parseYamlScalar(fileMatch[1]))
-      continue
-    }
-
-    const pathMatch = line.match(/^\s*path:\s*(.+?)\s*$/)
-    if (pathMatch) urls.push(parseYamlScalar(pathMatch[1]))
-  }
-
-  return urls
+export function parseUpdaterVersion(source: string) {
+  return parseUpdaterMetadata(source).version
 }
 
 // Pair each updater file entry with its content sha512, keyed by asset basename.
@@ -98,58 +78,9 @@ export function parseUpdaterFileUrls(source: string) {
 // deliberately-narrow scanner as parseUpdaterFileUrls; ignores the top-level
 // `sha512:` (the `path:` digest), which has no preceding `- url:` entry.
 export function parseUpdaterShaByUrl(source: string): Array<{ name: string; sha512: string }> {
-  const entries: Array<{ name: string; sha512: string }> = []
-  let currentName: string | undefined
-
-  for (const line of source.split(/\r?\n/)) {
-    const fileMatch = line.match(/^\s*-\s+url:\s*(.+?)\s*$/)
-    if (fileMatch) {
-      currentName = assetNameFromUrl(parseYamlScalar(fileMatch[1]))
-      continue
-    }
-
-    const shaMatch = line.match(/^\s*sha512:\s*(.+?)\s*$/)
-    if (shaMatch && currentName) {
-      entries.push({ name: currentName, sha512: parseYamlScalar(shaMatch[1]) })
-      currentName = undefined
-    }
-  }
-
-  return entries
-}
-
-function parseYamlScalar(value: string) {
-  const trimmed = stripInlineComment(value).trim()
-  const quote = trimmed[0]
-  if ((quote === `"` || quote === `'`) && trimmed.at(-1) === quote) return trimmed.slice(1, -1)
-  return trimmed
-}
-
-function stripInlineComment(value: string) {
-  let quote: string | undefined
-
-  for (let index = 0; index < value.length; index += 1) {
-    const char = value[index]
-    if ((char === `"` || char === `'`) && !isEscaped(value, index)) {
-      quote = quote === char ? undefined : (quote ?? char)
-      continue
-    }
-
-    // The fallback space makes a leading # behave as a comment marker.
-    if (!quote && char === "#" && /\s/.test(value[index - 1] ?? " ")) {
-      return value.slice(0, index)
-    }
-  }
-
-  return value
-}
-
-function isEscaped(value: string, index: number) {
-  let slashCount = 0
-  for (let slashIndex = index - 1; slashIndex >= 0 && value[slashIndex] === "\\"; slashIndex -= 1) {
-    slashCount += 1
-  }
-  return slashCount % 2 === 1
+  return parseUpdaterMetadata(source).files.flatMap((file) =>
+    file.sha512 === undefined ? [] : [{ name: assetNameFromUrl(file.url), sha512: file.sha512 }],
+  )
 }
 
 function hasUpdaterEntry(urls: string[], expected: string) {
@@ -168,68 +99,15 @@ function verifyReferencedAssets(sourceName: string, urls: string[], assetNames: 
   }
 }
 
-function latestStartupAttempt(source: string) {
-  const marker = "app starting"
-  const index = source.lastIndexOf(marker)
-  if (index === -1) return undefined
-  return source.slice(index)
-}
-
-function firstLine(source: string) {
-  return source.split(/\r?\n/, 1)[0] ?? ""
-}
-
-function hasInitDone(source: string) {
-  return source.split(/\r?\n/).some((line) => line.trim().endsWith("init done"))
-}
-
-function hasServerReady(source: string) {
-  return source.split(/\r?\n/).some((line) => /\bserver ready\b/.test(line) && /\{\s*url:\s*['"]/.test(line))
+function verifyUpdaterVersion(sourceName: string, source: string | undefined, expected: string, failures: string[]) {
+  if (source === undefined) return
+  const actual = parseUpdaterVersion(source)
+  if (actual === undefined) failures.push(`${sourceName} does not declare version ${expected}`)
+  else if (actual !== expected) failures.push(`${sourceName} version ${actual} does not match release ${expected}`)
 }
 
 function releaseVersion(tag: string) {
   return normalizeTag(tag).slice(1)
-}
-
-export function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-}
-
-function hasStartupVersion(startupLine: string, expectedVersion: string) {
-  return new RegExp(`version:\\s*['"]${escapeRegExp(expectedVersion)}['"]`).test(startupLine)
-}
-
-function hasPackagedStartup(startupLine: string) {
-  return /packaged:\s*true/.test(startupLine)
-}
-
-export function verifyStartupLog(source: string, expectedTag: string) {
-  const failures: string[] = []
-  const latest = latestStartupAttempt(source)
-
-  if (!latest) {
-    failures.push("Latest startup log does not include any app starting entry")
-    return failures
-  }
-
-  const startupLine = firstLine(latest)
-  let expectedVersion: string | undefined
-  try {
-    expectedVersion = releaseVersion(expectedTag)
-  } catch (error) {
-    failures.push(error instanceof Error ? error.message : String(error))
-  }
-
-  if (expectedVersion && !hasStartupVersion(startupLine, expectedVersion)) {
-    failures.push(`Latest startup log version does not match expected ${expectedVersion}`)
-  }
-  if (!hasPackagedStartup(startupLine)) failures.push("Latest startup log does not include packaged true")
-  if (!hasServerReady(latest)) failures.push("Latest startup log does not include server ready")
-  if (!latest.includes("loading task finished"))
-    failures.push("Latest startup log does not include loading task finished")
-  if (!hasInitDone(latest)) failures.push("Latest startup log does not include init step done")
-
-  return failures
 }
 
 export function verifyReleasePayload(input: VerificationInput, options?: { allowDraft?: boolean }) {
@@ -245,26 +123,27 @@ export function verifyReleasePayload(input: VerificationInput, options?: { allow
   if (input.release.draft && !options?.allowDraft) failures.push(`Release ${input.release.tag_name} is still a draft`)
   if (input.release.prerelease) failures.push(`Release ${input.release.tag_name} is marked as a prerelease`)
 
-  const latestUrls = input.latestYml === undefined ? [] : parseUpdaterFileUrls(input.latestYml)
-  verifyReferencedAssets("latest.yml", latestUrls, assetNames, failures)
-  const latestMacUrls = input.latestMacYml === undefined ? [] : parseUpdaterFileUrls(input.latestMacYml)
-  verifyReferencedAssets("latest-mac.yml", latestMacUrls, assetNames, failures)
+  const urls = new Map(
+    METADATA_FILES.map((metadata) => {
+      const source = input.metadata?.[metadata]
+      const parsed = source === undefined ? [] : parseUpdaterFileUrls(source)
+      verifyReferencedAssets(metadata, parsed, assetNames, failures)
+      return [metadata, parsed]
+    }),
+  )
 
   if (version) {
+    const updaterAssets = releaseUpdaterAssetNames(version)
+    for (const metadata of METADATA_FILES) {
+      verifyUpdaterVersion(metadata, input.metadata?.[metadata], version, failures)
+      for (const asset of updaterAssets[metadata]) {
+        if (!hasUpdaterEntry(urls.get(metadata)!, asset)) failures.push(`${metadata} does not include ${asset}`)
+      }
+    }
     for (const asset of releaseAssetNames(version)) {
       if (!assetNames.has(asset)) failures.push(`Missing release asset: ${asset}`)
     }
-
-    const updaterAssets = releaseUpdaterAssetNames(version)
-    for (const asset of updaterAssets["latest.yml"]) {
-      if (!hasUpdaterEntry(latestUrls, asset)) failures.push(`latest.yml does not include ${asset}`)
-    }
-    for (const asset of updaterAssets["latest-mac.yml"]) {
-      if (!hasUpdaterEntry(latestMacUrls, asset)) failures.push(`latest-mac.yml does not include ${asset}`)
-    }
   }
-
-  if (input.startupLog !== undefined) failures.push(...verifyStartupLog(input.startupLog, input.release.tag_name))
 
   return failures
 }
@@ -304,15 +183,6 @@ export async function fetchJson<T>(url: string) {
   }
 }
 
-export async function readStartupLogFile(path: string) {
-  try {
-    return await Bun.file(path).text()
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`Failed to read startup log file ${path}: ${message}`)
-  }
-}
-
 async function fetchWithTimeout(url: string) {
   try {
     return await fetch(url, {
@@ -348,7 +218,7 @@ async function main() {
     const tag = process.argv[2]
     if (!tag) {
       console.error(
-        "Usage: bun packages/desktop-electron/scripts/verify-release.ts <tag> [owner/repo] [env: PAWWORK_RELEASE_STARTUP_LOG=/path/to/main.log]",
+        "Usage: pnpm --filter @pawwork/desktop exec tsx scripts/verify-release.ts <tag> [owner/repo]",
       )
       process.exit(2)
     }
@@ -361,11 +231,10 @@ async function main() {
     const release = await fetchJson<GithubRelease>(
       `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(normalizedTag)}`,
     )
-    const latestYml = await fetchAssetText(release, "latest.yml")
-    const latestMacYml = await fetchAssetText(release, "latest-mac.yml")
-    const startupLogPath = process.env.PAWWORK_RELEASE_STARTUP_LOG
-    const startupLog = startupLogPath ? await readStartupLogFile(startupLogPath) : undefined
-    const failures = verifyReleasePayload({ release, latestYml, latestMacYml, startupLog })
+    const metadata = Object.fromEntries(
+      await Promise.all(METADATA_FILES.map(async (name) => [name, await fetchAssetText(release, name)] as const)),
+    )
+    const failures = verifyReleasePayload({ release, metadata })
 
     if (failures.length) {
       console.error(`Release verification failed for ${repo} ${normalizedTag}:`)
@@ -384,3 +253,11 @@ async function main() {
 if (import.meta.main) {
   await main()
 }
+import { parseUpdaterMetadata } from "./updater-metadata"
+import {
+  METADATA_FILES,
+  RELEASE_TARGETS,
+  releaseAssetName,
+  type MetadataFile,
+} from "./release-targets"
+import { PAWWORK_APP, PAWWORK_RELEASE_OWNER } from "../src/main/app-identity.ts"

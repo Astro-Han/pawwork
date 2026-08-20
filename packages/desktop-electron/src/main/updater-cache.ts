@@ -1,7 +1,6 @@
 import { homedir as currentHomedir } from "node:os"
 import path from "node:path"
-
-export const UPDATER_CACHE_DIR_NAME = "pawwork-updater"
+import { UPDATER_CACHE_DIR_NAME } from "./app-identity"
 
 type CacheInput = {
   platform?: NodeJS.Platform
@@ -13,32 +12,14 @@ function pathForPlatform(platform: NodeJS.Platform) {
   return platform === "win32" ? path.win32 : path.posix
 }
 
-function firstAbsolutePath(
-  platformPath: typeof path.posix | typeof path.win32,
-  fallback: string,
-  ...values: Array<string | undefined>
-) {
-  return values.find((value) => value && platformPath.isAbsolute(value)) ?? fallback
-}
-
-export function getAppCacheDir(input: CacheInput = {}) {
+export function pendingUpdateCacheDir(input: CacheInput = {}) {
   const platform = input.platform ?? process.platform
   const homedir = input.homedir ?? currentHomedir()
   const env = input.env ?? process.env
   const platformPath = pathForPlatform(platform)
 
-  if (platform === "win32")
-    return firstAbsolutePath(
-      platformPath,
-      platformPath.join(homedir, "AppData", "Local"),
-      env.LOCALAPPDATA,
-      env.localappdata,
-    )
-  if (platform === "darwin") return platformPath.join(homedir, "Library", "Caches")
-  return firstAbsolutePath(platformPath, platformPath.join(homedir, ".cache"), env.XDG_CACHE_HOME)
-}
-
-export function pendingUpdateCacheDir(input: CacheInput = {}) {
-  const platform = input.platform ?? process.platform
-  return pathForPlatform(platform).join(getAppCacheDir(input), UPDATER_CACHE_DIR_NAME, "pending")
+  const cacheRoot = platform === "win32"
+    ? env.LOCALAPPDATA || platformPath.join(homedir, "AppData", "Local")
+    : platformPath.join(homedir, "Library", "Caches")
+  return platformPath.join(cacheRoot, UPDATER_CACHE_DIR_NAME, "pending")
 }

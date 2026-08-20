@@ -7,8 +7,6 @@
     "allowImportingTsExtensions": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
-    "jsx": "preserve",
-    "jsxImportSource": "solid-js",
     "allowJs": true,
     "resolveJsonModule": true,
     "strict": true,
@@ -16,9 +14,19 @@
     "noEmit": true,
     "emitDeclarationOnly": false,
     "outDir": "node_modules/.ts-dist",
-    "types": ["vite/client", "node", "electron"]
+    "types": [
+      "vite/client",
+      "node",
+      "electron"
+    ]
   },
-  "references": [{ "path": "../app" }],
-  "include": ["src", "package.json"],
-  "exclude": ["src/**/*.test.ts"]
+  "include": [
+    "src",
+    "scripts",
+    "electron-builder.config.ts",
+    "electron.vite.config.ts",
+    "vitest.config.ts",
+    "*.test.ts",
+    "package.json"
+  ]
 }

@@ -57,8 +57,10 @@ import {
   releaseProvenanceAssetName,
   releaseProvenanceAssetNames,
   verifyReleasePayload,
+  type GithubAsset,
   type GithubRelease,
 } from "./verify-release"
+import { METADATA_FILES, type MetadataFile, releaseAssetName, releaseTarget } from "./release-targets"
 
 const GITHUB_API = "https://api.github.com"
 const FETCH_TIMEOUT_MS = 30_000
@@ -78,8 +80,7 @@ const SEAL_SETTLE_MS = 8_000
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-type ApiAsset = { name: string; url: string; browser_download_url: string }
-type ApiRelease = GithubRelease & { id: number; upload_url: string; assets: ApiAsset[] }
+type ApiRelease = GithubRelease & { id: number; upload_url: string }
 
 // A target's provenance: its build commit and the content hash(es) of the
 // updater asset it produced.
@@ -98,14 +99,13 @@ export type PublishDecision =
 // content hash currently in latest*.yml.
 export function decidePublishAction(args: {
   release: GithubRelease
-  latestYml?: string
-  latestMacYml?: string
+  metadata?: Partial<Record<MetadataFile, string>>
   buildSha: string
   provenance: Record<string, ProvenanceMarker>
   expectedProvenance: string[]
   updaterSha512s: string[]
 }): PublishDecision {
-  const { release, latestYml, latestMacYml, buildSha, provenance, expectedProvenance, updaterSha512s } = args
+  const { release, metadata, buildSha, provenance, expectedProvenance, updaterSha512s } = args
 
   // A prerelease is a bad state for this pipeline: fail loudly instead of
   // waiting forever for a "completion" that publishing would never reach.
@@ -129,7 +129,7 @@ export function decidePublishAction(args: {
   // per-target provenance marker must be present. Any gap means a target has not
   // finished yet -> keep waiting (no-op, exit 0). allowDraft so the draft state
   // itself is not counted as a failure here.
-  const failures = verifyReleasePayload({ release, latestYml, latestMacYml }, { allowDraft: true })
+  const failures = verifyReleasePayload({ release, metadata }, { allowDraft: true })
   const missingMarkers = expectedProvenance.filter((name) => !(name in provenance))
   if (failures.length > 0 || missingMarkers.length > 0) {
     const reasons = [...failures, ...missingMarkers.map((name) => `missing provenance marker ${name}`)]
@@ -225,7 +225,7 @@ async function deleteExistingAsset(repo: string, releaseId: number, name: string
     accept: "application/vnd.github+json",
   })
   if (!res.ok) throw new Error(`failed to list assets for release ${releaseId}: ${res.status} ${res.statusText}`)
-  const existing = ((await res.json()) as ApiAsset[]).find((entry) => entry.name === name)
+  const existing = ((await res.json()) as GithubAsset[]).find((entry) => entry.name === name)
   if (!existing) return
   const del = await ghFetch(existing.url, { method: "DELETE", accept: "application/vnd.github+json" })
   if (!del.ok && del.status !== 404) throw new Error(`failed to replace marker ${name}: ${del.status} ${del.statusText}`)
@@ -287,8 +287,8 @@ async function readProvenance(release: ApiRelease, expected: string[]): Promise<
   return entries
 }
 
-function updaterSha512sFrom(latestYml?: string, latestMacYml?: string): string[] {
-  return [latestYml, latestMacYml].filter((yml): yml is string => yml !== undefined).flatMap((yml) =>
+function updaterSha512sFrom(metadata: Partial<Record<MetadataFile, string>>): string[] {
+  return Object.values(metadata).filter((yml) => yml !== undefined).flatMap((yml) =>
     parseUpdaterShaByUrl(yml).map((entry) => entry.sha512),
   )
 }
@@ -328,19 +328,17 @@ async function publishRelease(repo: string, release: ApiRelease, buildSha: strin
 }
 
 async function gh(args: string[]) {
-  const proc = Bun.spawn(["gh", ...args], { stdout: "inherit", stderr: "inherit" })
-  const code = await proc.exited
+  const { spawn } = await import("node:child_process")
+  const code = await new Promise<number | null>((resolve, reject) => {
+    const child = spawn("gh", args, { stdio: "inherit" })
+    child.once("error", reject)
+    child.once("exit", resolve)
+  })
   if (code !== 0) throw new Error(`gh ${args.join(" ")} exited ${code}`)
 }
 
 async function dispatchMirror(repo: string, tag: string, ref: string) {
   await gh(["workflow", "run", "mirror-release-to-r2.yml", "--repo", repo, "--ref", ref, "-f", `tag=${tag}`])
-}
-
-// The updater asset (the file electron-updater downloads) and its metadata file,
-// per OS. Its content hash is what the marker records for the content anchor.
-function targetUpdater(os: string): { ext: string; metadata: "latest.yml" | "latest-mac.yml" } {
-  return os === "win" ? { ext: "exe", metadata: "latest.yml" } : { ext: "zip", metadata: "latest-mac.yml" }
 }
 
 // Read THIS target's installer hash from its updater metadata, re-fetching to
@@ -364,10 +362,11 @@ async function readOwnUpdaterSha(repo: string, tag: string, metadata: string, as
 
 async function readEvaluationState(repo: string, tag: string, expectedProvenance: string[]) {
   const release = await findRelease(repo, tag)
-  const latestYml = await fetchAssetText(release, "latest.yml")
-  const latestMacYml = await fetchAssetText(release, "latest-mac.yml")
+  const metadata = Object.fromEntries(
+    await Promise.all(METADATA_FILES.map(async (name) => [name, await fetchAssetText(release, name)] as const)),
+  )
   const provenance = await readProvenance(release, expectedProvenance)
-  return { release, latestYml, latestMacYml, provenance }
+  return { release, metadata, provenance }
 }
 
 async function main() {
@@ -389,9 +388,11 @@ async function main() {
   // we cannot read our own installer hash (read-after-write lag, or finalize did
   // not run) we fail loudly instead of vouching for nothing.
   const release = await findRelease(repo, tag)
-  const { ext, metadata } = targetUpdater(os)
-  const myUpdaterAsset = `pawwork-${os}-${arch}-${version}.${ext}`
-  const mySha512 = await readOwnUpdaterSha(repo, tag, metadata, myUpdaterAsset)
+  // The updater asset is the file electron-updater downloads; its content hash
+  // is what the marker records for the content anchor.
+  const target = releaseTarget(os, arch)
+  const myUpdaterAsset = releaseAssetName(target, version, target.updaterExt)
+  const mySha512 = await readOwnUpdaterSha(repo, tag, target.metadata, myUpdaterAsset)
   const marker: ProvenanceMarker = { commit: buildSha, sha512: [mySha512] }
   await putProvenanceMarker(repo, release, thisMarker, JSON.stringify(marker))
 
@@ -399,12 +400,11 @@ async function main() {
     const state = await readEvaluationState(repo, tag, expectedProvenance)
     const decision = decidePublishAction({
       release: state.release,
-      latestYml: state.latestYml,
-      latestMacYml: state.latestMacYml,
+      metadata: state.metadata,
       buildSha,
       provenance: state.provenance,
       expectedProvenance,
-      updaterSha512s: updaterSha512sFrom(state.latestYml, state.latestMacYml),
+      updaterSha512s: updaterSha512sFrom(state.metadata),
     })
     console.log(`publish-when-complete (attempt ${attempt}/${WAIT_POLL_ATTEMPTS}): ${decision.reason}`)
 
@@ -437,12 +437,11 @@ async function main() {
         const reread = await readEvaluationState(repo, tag, expectedProvenance)
         const recheck = decidePublishAction({
           release: reread.release,
-          latestYml: reread.latestYml,
-          latestMacYml: reread.latestMacYml,
+          metadata: reread.metadata,
           buildSha,
           provenance: reread.provenance,
           expectedProvenance,
-          updaterSha512s: updaterSha512sFrom(reread.latestYml, reread.latestMacYml),
+          updaterSha512s: updaterSha512sFrom(reread.metadata),
         })
         if (recheck.kind !== "publish") {
           console.error(`publish-when-complete: release changed during seal, not publishing: ${recheck.reason}`)

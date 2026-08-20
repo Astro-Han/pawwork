@@ -1,16 +1,5 @@
 # Third-Party Notices
 
-## OpenCLI
-
-PawWork bundles `@jackwener/opencli` by @jackwener to power browser-based adapters for supported sites.
-
-PawWork packages the OpenCLI runtime files needed by the desktop app, including its CDP bridge, command registry, browser helpers, bundled site adapters under `clis/**`, and `cli-manifest.json`.
-
-- Project: https://github.com/jackwener/opencli
-- Package: `@jackwener/opencli`
-- Version: 1.8.4
-- License: Apache License 2.0
-
 ## uv
 
 PawWork bundles `uv` by Astral to supply a Python runtime for Excel/Word/PowerPoint skills that generate or edit Office files via Python libraries.
@@ -19,7 +8,7 @@ PawWork bundles `uv` by Astral to supply a Python runtime for Excel/Word/PowerPo
 - Version: 0.11.28
 - License: MIT OR Apache-2.0 (dual-licensed; PawWork relies on the Apache-2.0 grant, whose text is included below)
 
-The Apache License 2.0 text for OpenCLI and uv follows.
+The Apache License 2.0 text for uv follows.
 
 ## Apache License 2.0
 

@@ -1,32 +1,21 @@
 import windowState from "electron-window-state"
-import { app, BrowserWindow, nativeImage, net, protocol } from "electron"
+import log from "electron-log/main.js"
+import { app, BrowserWindow, nativeImage, shell } from "electron"
 import { dirname, join } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
-import { rendererProtocol, rendererUrl, resolveRendererFile } from "./renderer-protocol"
-import { macTrafficLightPosition } from "./window-chrome"
-import { rendererWebPreferences } from "./window-options"
+import { fileURLToPath } from "node:url"
+import { macTrafficLightPosition, pawworkWindowTitle, titlebarInsetCss } from "./window-chrome"
+import { decideDshNavigation, guardDshNavigation, handleDshWindowOpen } from "./window-navigation"
+import { dshTitleBarOptions, dshWebPreferences } from "./window-options"
 
 const root = dirname(fileURLToPath(import.meta.url))
-const rendererRoot = join(root, "../renderer")
-let rendererSchemeRegistered = false
-
-let backgroundColor: string | undefined
-
-export function setBackgroundColor(color: string) {
-  backgroundColor = color
-}
-
-export function getBackgroundColor(): string | undefined {
-  return backgroundColor
-}
 
 function iconsDir() {
   return app.isPackaged ? join(process.resourcesPath, "icons") : join(root, "../../resources/icons")
 }
 
 function iconPath() {
-  const ext = process.platform === "win32" ? "ico" : "png"
-  return join(iconsDir(), `icon.${ext}`)
+  const extension = process.platform === "win32" ? "ico" : "png"
+  return join(iconsDir(), `icon.${extension}`)
 }
 
 export function setDockIcon() {
@@ -35,37 +24,8 @@ export function setDockIcon() {
   if (!icon.isEmpty()) app.dock?.setIcon(icon)
 }
 
-export function registerRendererScheme() {
-  // Must run once before app.whenReady(); the guard only avoids duplicate pre-ready registration attempts.
-  if (rendererSchemeRegistered) return
-  protocol.registerSchemesAsPrivileged([
-    {
-      scheme: rendererProtocol,
-      privileges: {
-        secure: true,
-        standard: true,
-        corsEnabled: true,
-        supportFetchAPI: true,
-      },
-    },
-  ])
-  rendererSchemeRegistered = true
-}
-
-export function registerRendererProtocol() {
-  protocol.handle(rendererProtocol, (request) => {
-    const file = resolveRendererFile(rendererRoot, request.url)
-    if (!file) return new Response(null, { status: 404 })
-    return net.fetch(pathToFileURL(file).toString())
-  })
-}
-
-export function createMainWindow() {
-  const state = windowState({
-    defaultWidth: 1280,
-    defaultHeight: 800,
-  })
-
+export function createMainWindow(url: string, preload: string) {
+  const state = windowState({ defaultWidth: 1280, defaultHeight: 800 })
   const win = new BrowserWindow({
     x: state.x,
     y: state.y,
@@ -76,66 +36,62 @@ export function createMainWindow() {
     show: false,
     title: "PawWork",
     icon: iconPath(),
-    backgroundColor,
-    ...(process.platform === "darwin"
-      ? {
-          titleBarStyle: "hidden" as const,
-          trafficLightPosition: macTrafficLightPosition(),
-        }
-      : {}),
-    webPreferences: rendererWebPreferences(root),
+    ...dshTitleBarOptions(process.platform),
+    ...(process.platform === "darwin" ? { trafficLightPosition: macTrafficLightPosition() } : {}),
+    webPreferences: dshWebPreferences(preload),
   })
 
   state.manage(win)
-
-  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }))
-
-  loadWindow(win, "index.html")
-  wireZoom(win)
-
-  win.once("ready-to-show", () => {
-    win.show()
+  win.webContents.setWindowOpenHandler(({ url: target }) =>
+    handleDshWindowOpen(url, target, (destination) => win.loadURL(destination), openExternal))
+  win.webContents.on("will-frame-navigate", (event) => {
+    if (event.isMainFrame) {
+      guardDshNavigation(url, event.url, event, openExternal)
+      return
+    }
+    if (decideDshNavigation(url, event.url) !== "same-window") event.preventDefault()
   })
-
-  return win
-}
-
-export function createLoadingWindow() {
-  const win = new BrowserWindow({
-    width: 640,
-    height: 480,
-    resizable: false,
-    center: true,
-    show: true,
-    icon: iconPath(),
-    backgroundColor,
-    ...(process.platform === "darwin" ? { titleBarStyle: "hidden" as const } : {}),
-    webPreferences: rendererWebPreferences(root),
+  win.webContents.on("will-redirect", (event, target) => {
+    guardDshNavigation(url, target, event, openExternal)
   })
-
-  if (process.platform === "win32") {
-    win.removeMenu()
+  // insertCSS is scoped to one navigation and returns a key we have to hand back,
+  // or a reload just stacks another copy of the same sheet. Publishes are chained
+  // rather than run concurrently: two overlapping calls would both observe no key,
+  // both insert, and the untracked sheet would survive the next removal as a dead
+  // 32px strip that still swallows clicks.
+  let insetKey: string | undefined
+  let publishing = Promise.resolve()
+  const publishTitlebarInset = (navigated = false) => {
+    publishing = publishing.then(async () => {
+      // A navigation drops every sheet insertCSS gave us, so the key is stale
+      // rather than removable — reset it inside the chain, not beside it.
+      if (navigated) insetKey = undefined
+      if (insetKey !== undefined) {
+        await win.webContents.removeInsertedCSS(insetKey).catch(() => undefined)
+        insetKey = undefined
+      }
+      const css = titlebarInsetCss(process.platform, { fullscreen: win.isFullScreen() })
+      if (css) insetKey = await win.webContents.insertCSS(css)
+    }).catch(() => undefined)
+    return publishing
   }
-
-  loadWindow(win, "loading.html")
-
-  return win
-}
-
-function loadWindow(win: BrowserWindow, html: string) {
-  const devUrl = process.env.ELECTRON_RENDERER_URL
-  if (devUrl) {
-    const url = new URL(html, devUrl)
-    void win.loadURL(url.toString())
-    return
-  }
-
-  void win.loadURL(rendererUrl(html))
-}
-
-function wireZoom(win: BrowserWindow) {
+  win.webContents.on("dom-ready", () => void publishTitlebarInset(true))
+  win.on("enter-full-screen", () => void publishTitlebarInset())
+  win.on("leave-full-screen", () => void publishTitlebarInset())
   win.webContents.setZoomFactor(1)
-  win.webContents.on("zoom-changed", () => {
-    win.webContents.setZoomFactor(1)
+  win.webContents.on("zoom-changed", () => win.webContents.setZoomFactor(1))
+  win.webContents.on("page-title-updated", (event, title) => {
+    event.preventDefault()
+    win.setTitle(pawworkWindowTitle(title))
+  })
+  void win.loadURL(url)
+  win.once("ready-to-show", () => win.show())
+
+  return win
+}
+
+function openExternal(target: string) {
+  return shell.openExternal(target).catch((error) => {
+    log.error("failed to open external URL", { target, error })
   })
 }

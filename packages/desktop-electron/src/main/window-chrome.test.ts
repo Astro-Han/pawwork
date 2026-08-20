@@ -1,29 +1,33 @@
-import { expect, test } from "bun:test"
-import fs from "node:fs"
-import path from "node:path"
+import { expect, test } from "vitest"
+import { TITLEBAR_HEIGHT, macTrafficLightPosition, pawworkWindowTitle, titlebarInsetCss } from "./window-chrome"
 
-import {
-  LEGACY_MACOS_TITLEBAR_HEIGHT,
-  LEGACY_MACOS_TRAFFIC_LIGHT_Y,
-  MACOS_SHELL_TITLEBAR_HEIGHT,
-  macTrafficLightPosition,
-} from "./window-chrome"
-
-function appIndexCss() {
-  return fs.readFileSync(path.join(import.meta.dir, "..", "..", "..", "app", "src", "index.css"), "utf8")
-}
-
-test("macOS traffic lights stay centered when shell titlebar height increases", () => {
-  const css = appIndexCss()
-  const wideDesktopQuery = css.indexOf("@media (min-width: 1280px)")
-
-  expect(wideDesktopQuery).toBeGreaterThan(-1)
-  expect(css).toContain('[data-component="desktop-shell"][data-shell="desktop"] {')
-  expect(css).toContain("--shell-titlebar-height: 44px;")
-  expect(css).not.toContain("--shell-titlebar-height: 40px;")
-  expect(css).not.toContain("--shell-titlebar-height: 48px;")
+test("macOS traffic lights use the DSH shell position", () => {
   expect(macTrafficLightPosition()).toEqual({
     x: 12,
-    y: 16,
+    y: 10,
   })
+})
+
+// macOS is the only platform whose titlebar height we publish ourselves: Windows
+// reads Chromium's env(titlebar-area-*) and Linux keeps its system title bar.
+test.each([
+  ["darwin", false, `:root { --pawwork-titlebar-host-height: ${TITLEBAR_HEIGHT}px; }`],
+  ["darwin", true, ""],
+  ["win32", false, ""],
+  ["linux", false, ""],
+] as const)("publishes the titlebar inset for %s (fullscreen=%s)", (platform, fullscreen, expected) => {
+  expect(titlebarInsetCss(platform, { fullscreen })).toBe(expected)
+})
+
+// The band-exists-exactly-when-frameless relationship is asserted where it can
+// actually be observed: scripts/ci-smoke.ts measures the rendered strip against
+// dshTitleBarOptions on both platforms in CI. Restating it here could only be a
+// tautology, since both sides would come from the same two pure functions.
+
+test.each([
+  ["DeepSeek Harness", "PawWork"],
+  ["Quarterly plan — DeepSeek Harness", "Quarterly plan — PawWork"],
+  ["Quarterly plan", "Quarterly plan"],
+])("maps the DSH page title %s to the PawWork window title", (pageTitle, expected) => {
+  expect(pawworkWindowTitle(pageTitle)).toBe(expected)
 })

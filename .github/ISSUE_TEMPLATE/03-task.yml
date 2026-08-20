@@ -46,7 +46,7 @@ body:
       description: Point to likely files, issues, PRs, logs, screenshots, or existing patterns.
       placeholder: |
         Likely files:
-        - packages/app/src/...
+        - packages/desktop-electron/resources/dsh/...
 
         Related issues:
         - #123

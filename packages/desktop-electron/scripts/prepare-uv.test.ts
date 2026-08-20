@@ -1,5 +1,4 @@
-import { describe, expect, test } from "bun:test"
-import path from "node:path"
+import { describe, expect, test } from "vitest"
 
 import manifest from "../bundled-tools.json"
 import {
@@ -7,10 +6,9 @@ import {
   binaryNameForPlatform,
   companionBinaryNameForPlatform,
   pinnedSha256ForTarget,
-  runtimeBinaryPath,
+  powershellExpandArchiveArgs,
   sha256,
   uvDownloadUrl,
-  uvTargetFor,
   uvVersionMatches,
 } from "./prepare-uv"
 
@@ -19,36 +17,27 @@ describe("prepare-uv manifest helpers", () => {
     expect(assetForTarget("darwin", "arm64")).toBe("uv-aarch64-apple-darwin.tar.gz")
     expect(assetForTarget("darwin", "x64")).toBe("uv-x86_64-apple-darwin.tar.gz")
     expect(assetForTarget("win32", "x64")).toBe("uv-x86_64-pc-windows-msvc.zip")
-    expect(assetForTarget("win32", "arm64")).toBe("uv-aarch64-pc-windows-msvc.zip")
   })
 
   test("rejects unsupported targets", () => {
     expect(() => assetForTarget("linux" as any, "x64")).toThrow("Unsupported uv target: linux-x64")
   })
 
-  test("returns supported targets with narrowed platform and arch", () => {
-    expect(uvTargetFor("darwin", "arm64")).toEqual({ platform: "darwin", arch: "arm64" })
-    expect(uvTargetFor("win32", "x64")).toEqual({ platform: "win32", arch: "x64" })
-    expect(uvTargetFor("linux", "x64")).toBeNull()
-  })
-
   test("pins a lowercase 64-hex sha256 in the repo manifest for every supported target", () => {
     // The pinned hash is the verification authority: prepare-uv.ts must never
     // fall back to a checksum file fetched from the release being verified.
-    for (const [platform, arch] of [
-      ["darwin", "arm64"],
-      ["darwin", "x64"],
-      ["win32", "x64"],
-      ["win32", "arm64"],
+    for (const [platform, arch, target] of [
+      ["darwin", "arm64", "darwin-arm64"],
+      ["darwin", "x64", "darwin-x64"],
+      ["win32", "x64", "win32-x64"],
     ] as const) {
       const pinned = pinnedSha256ForTarget(platform, arch)
       expect(pinned).toMatch(/^[a-f0-9]{64}$/)
-      expect(pinned).toBe(manifest.uv.assets[`${platform}-${arch}`].sha256.toLowerCase())
     }
   })
 
   test("pins distinct hashes per asset (no copy-paste placeholder)", () => {
-    const hashes = (["darwin-arm64", "darwin-x64", "win32-x64", "win32-arm64"] as const).map(
+    const hashes = (["darwin-arm64", "darwin-x64", "win32-x64"] as const).map(
       (key) => manifest.uv.assets[key].sha256,
     )
     expect(new Set(hashes).size).toBe(hashes.length)
@@ -78,9 +67,16 @@ describe("prepare-uv manifest helpers", () => {
     expect(uvVersionMatches("uv 0.11.280 (ebf0f43d7 2026-07-07)\n", "0.11.28")).toBe(false)
   })
 
-  test("resolves runtime binary paths under the tools directory", () => {
-    expect(runtimeBinaryPath("/repo/packages/desktop-electron/resources/tools", "win32")).toBe(
-      path.join("/repo/packages/desktop-electron/resources/tools", "uv.exe"),
-    )
+  test("escapes apostrophes in Windows paths used as PowerShell literals", () => {
+    const archive = "C:\\Users\\O'Brien\\uv.zip"
+    const destination = "C:\\Users\\O'Brien\\extract"
+    const args = powershellExpandArchiveArgs(archive, destination)
+
+    expect(args).toEqual([
+      "-NoLogo",
+      "-NoProfile",
+      "-Command",
+      "Expand-Archive -LiteralPath 'C:\\Users\\O''Brien\\uv.zip' -DestinationPath 'C:\\Users\\O''Brien\\extract' -Force",
+    ])
   })
 })

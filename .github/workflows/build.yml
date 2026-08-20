@@ -18,7 +18,6 @@ on:
         type: choice
         options:
           - dev
-          - beta
           - prod
         default: dev
       target:
@@ -259,27 +258,15 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.source_sha }}
 
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          # Load-bearing for `bun audit` exit semantics; do not bump without re-verifying advisory exit codes.
-          bun-version: "1.3.14"
-
-      # Load-bearing: `bun install` runs `trustedDependencies`
-      # postinstalls from the root package.json (electron, node-pty,
-      # esbuild, tree-sitter at time of writing), which call `node`
-      # explicitly. Do not drop without first patching those scripts.
-      # Source of truth: grep `trustedDependencies` in package.json. (#70)
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: "24"
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Enable pnpm
+        run: corepack enable
 
-      - name: Test remote bridge
-        if: ${{ inputs.phase != 'finalize' }}
-        run: bun test ./src
-        working-directory: packages/remote-bridge
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Prepare uv
         if: ${{ inputs.phase != 'finalize' }}
@@ -293,8 +280,17 @@ jobs:
             *) echo "Unsupported uv target: ${{ matrix.target }}"; exit 1 ;;
           esac
 
-          bun ./scripts/prepare-uv.ts --platform "$uv_platform" --arch "${{ matrix.arch_label }}"
+          pnpm exec tsx ./scripts/prepare-uv.ts --platform "$uv_platform" --arch "${{ matrix.arch_label }}"
         working-directory: packages/desktop-electron
+
+      - name: Resolve packaged app paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec tsx ./scripts/packaged-app-env.ts "$OPENCODE_CHANNEL" "${{ matrix.arch_label }}" >> "$GITHUB_ENV"
+        working-directory: packages/desktop-electron
+        env:
+          OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
 
       - name: Read desktop package version
         id: package_version
@@ -306,17 +302,10 @@ jobs:
 
       - name: Build Electron app
         if: ${{ inputs.phase != 'finalize' }}
-        run: bun run build
+        run: pnpm run build
         working-directory: packages/desktop-electron
         env:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
-          PAWWORK_FEEDBACK_FORM_URL: ${{ vars.PAWWORK_FEEDBACK_FORM_URL || '' }}
-          PAWWORK_BUILD_SHA: ${{ github.sha }}
-
-      - name: Check desktop runtime imports
-        if: ${{ inputs.phase != 'finalize' }}
-        run: bun ./scripts/runtime-import-guard.ts
-        working-directory: packages/desktop-electron
 
       - name: Setup Apple API Key
         if: runner.os == 'macOS'
@@ -326,7 +315,7 @@ jobs:
 
       - name: Download existing updater metadata
         # macOS finalize can run after notarization as a separate phase; Windows finalizes during full packaging.
-        if: ${{ (runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label) || (runner.os == 'Windows' && inputs.phase == 'full') }}
+        if: ${{ inputs.channel != 'dev' && ((runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label) || (runner.os == 'Windows' && inputs.phase == 'full')) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -338,7 +327,7 @@ jobs:
           download_or_warn() {
             local pattern="$1"
             local err="$RUNNER_TEMP/${pattern}.err"
-            if gh release download "$tag" --pattern "$pattern" --dir "$existing_dir" --repo "$GITHUB_REPOSITORY" 2>"$err"; then
+            if gh release download "$tag" --pattern "$pattern" --dir "$existing_dir" --repo "$PUBLISH_OWNER/$PUBLISH_REPO" 2>"$err"; then
               return 0
             fi
             if grep -qiE 'no assets to download|no matches found|no assets match|could not find any assets|release not found' "$err"; then
@@ -349,15 +338,9 @@ jobs:
             return 1
           }
 
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            download_or_warn latest-mac.yml
-          fi
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            download_or_warn latest.yml
-          fi
+          download_or_warn "$METADATA_FILE"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Import code signing certificate
         if: runner.os == 'macOS'
@@ -390,7 +373,7 @@ jobs:
 
       - name: Package signed app
         if: ${{ runner.os == 'macOS' && (inputs.phase == 'submit' || inputs.phase == 'full') }}
-        run: npx electron-builder --mac dir --${{ matrix.arch_label }} --publish never --config electron-builder.config.ts
+        run: pnpm exec electron-builder --mac dir --${{ matrix.arch_label }} --publish never --config electron-builder.config.ts
         working-directory: packages/desktop-electron
         timeout-minutes: 30
         env:
@@ -401,46 +384,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "$OPENCODE_CHANNEL" in
-            dev) APP_NAME="PawWork Dev" ;;
-            beta) APP_NAME="PawWork Beta" ;;
-            prod) APP_NAME="PawWork" ;;
-            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
-          esac
-
-          case "${{ matrix.arch_label }}" in
-            arm64) APP_OUT_DIR="dist/mac-arm64" ;;
-            x64) APP_OUT_DIR="dist/mac" ;;
-            *) echo "Unsupported arch: ${{ matrix.arch_label }}"; exit 1 ;;
-          esac
-
-          APP_PATH="$APP_OUT_DIR/$APP_NAME.app"
-          EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/$APP_NAME"
-          bun ./scripts/ci-smoke.ts packaged "$OPENCODE_CHANNEL" "$EXECUTABLE_PATH"
+          pnpm exec tsx ./scripts/ci-smoke.ts packaged "$OPENCODE_CHANNEL"
         working-directory: packages/desktop-electron
         timeout-minutes: 2
         env:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
+          PAWWORK_CI_SMOKE_CDP: "true"
 
       - name: Prepare signed app artifact
         if: ${{ runner.os == 'macOS' && inputs.phase == 'submit' }}
         run: |
           set -euo pipefail
 
-          case "$OPENCODE_CHANNEL" in
-            dev) APP_NAME="PawWork Dev" ;;
-            beta) APP_NAME="PawWork Beta" ;;
-            prod) APP_NAME="PawWork" ;;
-            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
-          esac
-
-          case "${{ matrix.arch_label }}" in
-            arm64) APP_OUT_DIR="dist/mac-arm64" ;;
-            x64) APP_OUT_DIR="dist/mac" ;;
-            *) echo "Unsupported arch: ${{ matrix.arch_label }}"; exit 1 ;;
-          esac
-
-          APP_PATH="$APP_OUT_DIR/$APP_NAME.app"
           ARTIFACT_DIR="$RUNNER_TEMP/notarization-state"
           mkdir -p "$ARTIFACT_DIR"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ARTIFACT_DIR/signed-app.zip"
@@ -477,20 +432,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "$OPENCODE_CHANNEL" in
-            dev) APP_NAME="PawWork Dev" ;;
-            beta) APP_NAME="PawWork Beta" ;;
-            prod) APP_NAME="PawWork" ;;
-            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
-          esac
-
-          case "${{ matrix.arch_label }}" in
-            arm64) APP_OUT_DIR="dist/mac-arm64" ;;
-            x64) APP_OUT_DIR="dist/mac" ;;
-            *) echo "Unsupported arch: ${{ matrix.arch_label }}"; exit 1 ;;
-          esac
-
-          APP_PATH="$APP_OUT_DIR/$APP_NAME.app"
           ZIP_PATH="$RUNNER_TEMP/notarize-${{ matrix.arch_label }}.zip"
           auth_args=(--key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")
 
@@ -588,19 +529,6 @@ jobs:
 
           PY
 
-          case "${{ matrix.arch_label }}" in
-            arm64) APP_OUT_DIR="dist/mac-arm64" ;;
-            x64) APP_OUT_DIR="dist/mac" ;;
-            *) echo "Unsupported arch: ${{ matrix.arch_label }}"; exit 1 ;;
-          esac
-
-          case "$OPENCODE_CHANNEL" in
-            dev) APP_NAME="PawWork Dev" ;;
-            beta) APP_NAME="PawWork Beta" ;;
-            prod) APP_NAME="PawWork" ;;
-            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
-          esac
-
           rm -rf "$APP_OUT_DIR"
           mkdir -p "$APP_OUT_DIR"
           ditto -x -k "$DOWNLOAD_DIR/signed-app.zip" "$APP_OUT_DIR"
@@ -624,20 +552,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "$OPENCODE_CHANNEL" in
-            dev) APP_NAME="PawWork Dev" ;;
-            beta) APP_NAME="PawWork Beta" ;;
-            prod) APP_NAME="PawWork" ;;
-            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
-          esac
-
-          case "${{ matrix.arch_label }}" in
-            arm64) APP_OUT_DIR="dist/mac-arm64" ;;
-            x64) APP_OUT_DIR="dist/mac" ;;
-            *) echo "Unsupported arch: ${{ matrix.arch_label }}"; exit 1 ;;
-          esac
-
-          APP_PATH="$APP_OUT_DIR/$APP_NAME.app"
           if [ -n "${INPUT_SUBMISSION_ID}" ]; then
             submission_id="$INPUT_SUBMISSION_ID"
           else
@@ -716,28 +630,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "$OPENCODE_CHANNEL" in
-            dev) APP_NAME="PawWork Dev" ;;
-            beta) APP_NAME="PawWork Beta" ;;
-            prod) APP_NAME="PawWork" ;;
-            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
-          esac
-
-          case "${{ matrix.arch_label }}" in
-            arm64) APP_OUT_DIR="dist/mac-arm64" ;;
-            x64) APP_OUT_DIR="dist/mac" ;;
-            *) echo "Unsupported arch: ${{ matrix.arch_label }}"; exit 1 ;;
-          esac
-
-          APP_PATH="$APP_OUT_DIR/$APP_NAME.app"
-
-          bun ./scripts/generate-icons.ts "$OPENCODE_CHANNEL"
-          npx electron-builder --mac dmg zip --${{ matrix.arch_label }} --prepackaged "$APP_PATH" --publish always --config.mac.sign=./script/skip-mac-sign.cjs --config.mac.notarize=false --config electron-builder.config.ts
+          pnpm exec tsx ./scripts/generate-icons.ts
+          pnpm exec electron-builder --mac dmg zip --${{ matrix.arch_label }} --prepackaged "$APP_PATH" --publish always --config.mac.sign=./script/skip-mac-sign.cjs --config.mac.notarize=false --config electron-builder.config.ts
         working-directory: packages/desktop-electron
         timeout-minutes: 30
         env:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
-          PAWWORK_FEEDBACK_FORM_URL: ${{ vars.PAWWORK_FEEDBACK_FORM_URL || '' }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify notarized artifacts
@@ -745,24 +643,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "$OPENCODE_CHANNEL" in
-            dev) APP_NAME="PawWork Dev" ;;
-            beta) APP_NAME="PawWork Beta" ;;
-            prod) APP_NAME="PawWork" ;;
-            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
-          esac
-
-          case "$OPENCODE_CHANNEL" in
-            dev) expected_repo="" ;;
-            beta) expected_repo="pawwork-beta" ;;
-            prod) expected_repo="pawwork" ;;
-            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
-          esac
-
           verify_app_update_config() {
             local config_path="$1"
 
-            if [ -z "$expected_repo" ]; then
+            if [ -z "$PUBLISH_REPO" ]; then
               return 0
             fi
 
@@ -772,9 +656,9 @@ jobs:
             fi
 
             grep -qx "provider: github" "$config_path"
-            grep -qx "owner: Astro-Han" "$config_path"
-            grep -qx "repo: $expected_repo" "$config_path"
-            grep -qx "channel: latest" "$config_path"
+            grep -qx "owner: $PUBLISH_OWNER" "$config_path"
+            grep -qx "repo: $PUBLISH_REPO" "$config_path"
+            grep -qx "channel: latest-v2" "$config_path"
           }
 
           verify_dir="$RUNNER_TEMP/verify-notarized-artifacts"
@@ -867,13 +751,57 @@ jobs:
             publish_flag="always"
           fi
 
-          npx electron-builder ${{ matrix.platform_flag }} --publish "$publish_flag" --config electron-builder.config.ts
+          pnpm exec electron-builder ${{ matrix.platform_flag }} --publish "$publish_flag" --config electron-builder.config.ts
         working-directory: packages/desktop-electron
         timeout-minutes: 60
         env:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
-          PAWWORK_FEEDBACK_FORM_URL: ${{ vars.PAWWORK_FEEDBACK_FORM_URL || '' }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify and install Windows package
+        if: ${{ runner.os == 'Windows' && inputs.channel == 'prod' && inputs.phase != 'finalize' }}
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -Path "dist/pawwork-win-x64-*.exe")
+          if ($installers.Count -ne 1) {
+            throw "Expected one Windows installer, found $($installers.Count)"
+          }
+          $installer = $installers[0].FullName
+
+          $installDir = Join-Path $env:RUNNER_TEMP "pawwork-installed"
+          Remove-Item -Path $installDir -Recurse -Force -ErrorAction SilentlyContinue
+          $install = Start-Process -FilePath $installer -ArgumentList "/S", "/D=$installDir" -Wait -PassThru
+          if ($install.ExitCode -ne 0) {
+            throw "NSIS installer exited with code $($install.ExitCode)"
+          }
+
+          $executable = Join-Path $installDir "PawWork.exe"
+          $updateConfig = Join-Path $installDir "resources/app-update.yml"
+          if (-not (Test-Path $executable)) { throw "Installed executable not found: $executable" }
+          if (-not (Test-Path $updateConfig)) { throw "Installed updater config not found: $updateConfig" }
+          if (-not (Select-String -Path $updateConfig -Pattern '^channel: latest-v2$' -Quiet)) {
+            throw "Installed updater config does not use latest-v2"
+          }
+          "PAWWORK_INSTALLED_DIR=$installDir" >> $env:GITHUB_ENV
+          "PAWWORK_INSTALLED_EXECUTABLE=$executable" >> $env:GITHUB_ENV
+        working-directory: packages/desktop-electron
+
+      - name: Smoke installed Windows package
+        if: ${{ runner.os == 'Windows' && inputs.channel == 'prod' && inputs.phase != 'finalize' }}
+        shell: pwsh
+        run: pnpm exec tsx ./scripts/ci-smoke.ts packaged prod "$env:PAWWORK_INSTALLED_EXECUTABLE"
+        working-directory: packages/desktop-electron
+        timeout-minutes: 5
+        env:
+          PAWWORK_CI_SMOKE_CDP: "true"
+
+      - name: Remove installed Windows package
+        if: ${{ always() && runner.os == 'Windows' && inputs.channel == 'prod' && inputs.phase != 'finalize' }}
+        shell: pwsh
+        run: |
+          if ($env:PAWWORK_INSTALLED_DIR) {
+            Remove-Item -Path "$env:PAWWORK_INSTALLED_DIR" -Recurse -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Upload packaged app artifact
         if: ${{ runner.os == 'Windows' && inputs.phase != 'finalize' }}
@@ -892,36 +820,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "${{ matrix.target }}-${{ matrix.arch_label }}" in
-            macos-arm64)
-              metadata_dir="$RUNNER_TEMP/latest-yml/latest-yml-aarch64-apple-darwin"
-              metadata_file="latest-mac.yml"
-              ;;
-            macos-x64)
-              metadata_dir="$RUNNER_TEMP/latest-yml/latest-yml-x86_64-apple-darwin"
-              metadata_file="latest-mac.yml"
-              ;;
-            windows-x64)
-              metadata_dir="$RUNNER_TEMP/latest-yml/latest-yml-x86_64-pc-windows-msvc"
-              metadata_file="latest.yml"
-              ;;
-            *)
-              echo "Unsupported updater metadata target: ${{ matrix.target }}-${{ matrix.arch_label }}"
-              exit 1
-              ;;
-          esac
-
+          metadata_dir="$RUNNER_TEMP/latest-yml/$METADATA_ARTIFACT"
           mkdir -p "$metadata_dir"
-          cp "dist/$metadata_file" "$metadata_dir/$metadata_file"
+          cp "dist/$METADATA_FILE" "$metadata_dir/$METADATA_FILE"
         working-directory: packages/desktop-electron
 
       - name: Finalize updater metadata
-        if: ${{ (runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label) || (runner.os == 'Windows' && inputs.phase == 'full') }}
-        run: bun ./scripts/finalize-latest-yml.ts
+        if: ${{ inputs.channel != 'dev' && ((runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label) || (runner.os == 'Windows' && inputs.phase == 'full')) }}
+        run: pnpm exec tsx ./scripts/finalize-latest-yml.ts
         working-directory: packages/desktop-electron
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
+          GH_REPO: ${{ env.PUBLISH_OWNER }}/${{ env.PUBLISH_REPO }}
           EXISTING_LATEST_YML_DIR: ${{ runner.temp }}/existing-latest-yml
           LATEST_YML_DIR: ${{ runner.temp }}/latest-yml
           OPENCODE_VERSION: ${{ steps.package_version.outputs.version }}
@@ -932,7 +842,7 @@ jobs:
       # incomplete drafts are a no-op. The LAST target to finish flips the draft.
       - name: Publish release when all targets are complete
         if: ${{ inputs.channel == 'prod' && ((runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label) || (runner.os == 'Windows' && inputs.phase == 'full')) }}
-        run: bun ./scripts/publish-when-complete.ts
+        run: pnpm exec tsx ./scripts/publish-when-complete.ts
         working-directory: packages/desktop-electron
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -957,8 +867,6 @@ jobs:
             packages/desktop-electron/dist/*.dmg
             packages/desktop-electron/dist/*.zip
             packages/desktop-electron/dist/*.exe
-            packages/desktop-electron/dist/*.AppImage
-            packages/desktop-electron/dist/*.deb
 
   cleanup-snapshot-tag:
     needs:

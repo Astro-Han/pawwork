@@ -13,12 +13,8 @@
   "dependencies": {
     "astro": "6.4.6"
   },
-  "overrides": {
-    "esbuild": "0.28.1",
-    "js-yaml": "4.3.0",
-    "postcss": "8.5.23",
-    "sharp": "0.35.3",
-    "svgo": "4.0.2",
-    "vite": "7.3.5"
+  "devDependencies": {
+    "@astrojs/check": "0.9.10",
+    "typescript": "5.9.3"
   }
 }

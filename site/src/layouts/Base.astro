@@ -52,7 +52,7 @@ const cnUrl = new URL("/zh-CN/", Astro.site).href;
 
     <link rel="alternate" type="text/markdown" href="/llms.txt" />
 
-    <script type="application/ld+json" set:html={JSON.stringify({
+    <script is:inline type="application/ld+json" set:html={JSON.stringify({
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
       "name": "PawWork",
@@ -66,7 +66,6 @@ const cnUrl = new URL("/zh-CN/", Astro.site).href;
       "author": { "@type": "Organization", "name": "Astro-Han", "url": "https://github.com/Astro-Han" },
       "sameAs": ["https://github.com/Astro-Han/pawwork"],
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-      "softwareVersion": "2026.6",
       "isAccessibleForFree": true
     }).replace(/</g, "\\u003c")} />
 

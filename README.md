@@ -1,8 +1,8 @@
 # PawWork
 
-**PawWork is a free, open-source desktop AI agent for macOS and Windows that handles documents, spreadsheets, research, writing, code, and local file tasks using 75+ AI model providers.**
+**PawWork is a free, open-source desktop AI agent for macOS and Windows that handles documents, spreadsheets, research, writing, code, and local file tasks.**
 
-Open-source alternative to [Codex App](https://openai.com/codex/) and [Claude Cowork](https://www.anthropic.com/product/claude-cowork). Bring your own key. Works with any model — including ChatGPT OAuth.
+Open-source alternative to [Codex App](https://openai.com/codex/) and [Claude Cowork](https://www.anthropic.com/product/claude-cowork), with free models ready to use.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![macOS](https://img.shields.io/badge/macOS-signed_and_notarized-black.svg)](https://github.com/Astro-Han/pawwork/releases/latest)
@@ -10,7 +10,7 @@ Open-source alternative to [Codex App](https://openai.com/codex/) and [Claude Co
 
 [中文说明](README_CN.md) · [Website](https://pawwork.ai)
 
-PawWork brings AI agent work into a polished desktop app for files, documents, spreadsheets, research, writing, code, and local tasks. Use your ChatGPT Plus/Pro plan via OAuth, or bring your own API key for OpenAI, Claude, Gemini, DeepSeek, Kimi, GLM, and 75+ providers, including local models.
+PawWork brings AI agent work into a polished desktop app for files, documents, spreadsheets, research, writing, code, and local tasks. Open the app, choose a workspace, and start with the included OpenCode Free models.
 
 ![PawWork - Open-source alternative to Codex App and Claude Cowork](assets/readme/pawwork-cover.png)
 
@@ -21,21 +21,17 @@ PawWork is built for people who want AI agents to do real desktop work, not only
 - **Less setup:** download the app, choose a workspace, and start with the included OpenCode Zen free plan.
 - **Real desktop work:** work with local files, documents, spreadsheets, notes, web research, code, and generated outputs.
 - **Task cards:** start from concrete tasks instead of a blank prompt.
-- **Model choice:** connect OpenAI, Claude, DeepSeek, Gemini, Kimi, GLM, OpenAI-compatible providers, and supported coding plans.
-- **Open-source control:** inspect the code, choose your workspace, connect the accounts you trust, and keep important actions reviewable.
+- **Free models included:** start without an API key or paid model subscription.
+- **Open-source control:** inspect the code, choose your workspace, and keep important actions reviewable.
 
 ## How PawWork Compares
 
 | | PawWork | Codex App | Claude Desktop (Cowork) |
 |---|---|---|---|
 | Open-source | Yes (Apache-2.0) | No | No |
-| Bring your own key | Yes, 75+ providers | OpenAI only | Anthropic only (gateway for others) |
-| ChatGPT OAuth | Yes | No | No |
 | Free without subscription | Yes (OpenCode Zen) | Limited (ChatGPT Free) | No (Pro $20/mo required) |
 | Desktop app | macOS + Windows | macOS + Windows | macOS + Windows |
 | Local file access | Full workspace access | Sandboxed by default | User-selected folders |
-| Browser automation | Yes (supported OpenCLI adapters; coverage varies) | No | No |
-| Local models | Yes (Ollama, LM Studio, etc.) | CLI only (Ollama) | Via gateway (Requesty) |
 | Office files (Word/Excel/PPT) | Yes | No | No |
 | Non-technical user focus | Yes (task cards, no terminal) | Developer-focused | Knowledge work + coding |
 
@@ -62,13 +58,6 @@ PawWork is built for people who want AI agents to do real desktop work, not only
 - debug an API error with logs and source files
 - build a small internal tool from a plain-language request
 
-### Browser and Web Services
-
-- search Twitter/X and draft a reply without leaving PawWork
-- check trending topics on Bilibili or Xiaohongshu
-- collect posts, comments, or media from supported web services
-- interact with supported web services through PawWork's browser tools
-
 ## How It Works
 
 1. Choose a workspace folder.
@@ -76,11 +65,9 @@ PawWork is built for people who want AI agents to do real desktop work, not only
 3. Let PawWork work with the files, tools, models, and search it needs.
 4. Review the steps, outputs, and files before you use the result.
 
-## Models, Plans, and Search
+## Models and Search
 
-PawWork includes a free plan powered by OpenCode Zen, plus built-in web search with a free quota. You can start without bringing your own API key.
-
-When you want more model choice or control, connect your own accounts. PawWork supports API keys, OAuth where available, OpenAI-compatible providers, and supported coding plans, including OpenAI, Claude, DeepSeek, Gemini, Kimi, GLM, and more.
+PawWork includes curated free models through OpenCode Free, plus built-in web search. You can start without an API key or paid model subscription.
 
 ## Download
 
@@ -93,30 +80,28 @@ PawWork is early and moving fast. Release notes describe what changed in each bu
 
 ## Build From Source
 
-Requires [Bun](https://bun.sh) v1.2+.
+Requires Node.js 24 and pnpm 11.7.
 
 ```bash
 git clone https://github.com/Astro-Han/pawwork.git
 cd pawwork
-bun install
-bun run dev:desktop
+pnpm install
+pnpm dev:desktop
 ```
 
-## Built on OpenCode
+## Runtime and acknowledgements
 
-PawWork is built on a fork of [OpenCode](https://github.com/anomalyco/opencode). We keep the agent engine, rebuild the desktop product experience, and add PawWork-specific workflows, model defaults, and everyday-work entry points.
+PawWork uses DeepSeek DSH as its agent runtime, wrapped by a native Electron desktop shell and a small PawWork product layer for everyday workflows, migration, and Automation.
 
 Thanks to the OpenCode project and community.
-
-PawWork bundles [OpenCLI](https://github.com/jackwener/opencli) by [@jackwener](https://github.com/jackwener) to power browser-based adapters for supported sites. OpenCLI provides the CDP bridge and bundled command adapters that help PawWork interact with web services like Twitter/X, Bilibili, Xiaohongshu, and more where the adapter coverage fits the task. Thanks to @jackwener for the Apache-2.0 open-source OpenCLI project.
 
 ## FAQ
 
 **Is PawWork free?**
-Yes. PawWork includes a free plan powered by OpenCode Zen with built-in web search. You can start without an API key. For more model choice, connect your own accounts.
+Yes. PawWork includes free models and built-in web search. You can start without an API key.
 
 **What models does PawWork support?**
-OpenAI (including ChatGPT Plus/Pro via OAuth), Claude, DeepSeek, Gemini, Kimi, GLM, and any OpenAI-compatible provider — over 75 providers total, including local models via Ollama and LM Studio.
+PawWork ships a curated set of OpenCode Free models. The available list is shown in the app and may change between releases.
 
 **Does PawWork work with local files?**
 Yes. PawWork runs as a native desktop app with full access to your local workspace. It can read and write documents, spreadsheets, PDFs, code projects, and generated output files.

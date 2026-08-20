@@ -1,197 +1,80 @@
-import { randomUUID } from "node:crypto"
-import { EventEmitter } from "node:events"
+import { spawn } from "node:child_process"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { rm } from "node:fs/promises"
-import { createServer } from "node:net"
-import os, { homedir } from "node:os"
+import { createRequire } from "node:module"
+import { homedir } from "node:os"
 import { dirname, join } from "node:path"
-import type { Event } from "electron"
-import { app, BrowserWindow, dialog, safeStorage, shell } from "electron"
-import pkg from "electron-updater"
-import { buildDesktopContext } from "@opencode-ai/app/desktop-api"
-
+import { fileURLToPath, pathToFileURL } from "node:url"
+import { app, BrowserWindow, dialog, ipcMain, shell, type Event } from "electron"
 import contextMenu from "electron-context-menu"
+import pkg from "electron-updater"
+import { PAWWORK_APP } from "./app-identity"
+import {
+  CHANNEL,
+  DOWNLOAD_PUBLIC_BASE,
+  UPDATE_CHANNEL,
+  UPDATE_GITHUB_OWNER,
+  UPDATE_GITHUB_REPO,
+  UPDATER_ACTIVE,
+} from "./constants"
+import { ciSmokeCdpSwitches } from "./ci-smoke-cdp"
+import { pickConversationFiles } from "./dsh-file-input"
+import { createDshMenu } from "./dsh-menu"
+import {
+  buildDshEnvironment,
+  prepareDshProductHome,
+  resolveDshPackagePath,
+  resolveProductResources,
+} from "./dsh-product-home"
+import { launchDshSidecar, type DshSidecar } from "./dsh-sidecar"
+import { initLogging } from "./logging"
+import { detectSystemMenuLocale } from "./menu-labels"
+import { createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./update-feed"
+import { createUpdaterController } from "./updater"
+import { pendingUpdateCacheDir } from "./updater-cache"
+import { updaterDialogLabels } from "./updater-dialog-labels"
+import { createMainWindow, setDockIcon } from "./windows"
+
 contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false })
 
-// on macOS apps run in `/` which can cause issues with ripgrep
 if (process.platform === "darwin") {
   try {
     process.chdir(homedir())
   } catch {}
 }
 
-process.env.OPENCODE_DISABLE_EMBEDDED_WEB_UI = "true"
-
-const APP_NAMES: Record<string, string> = {
-  dev: "PawWork Dev",
-  beta: "PawWork Beta",
-  prod: "PawWork",
-}
-const APP_IDS: Record<string, string> = {
-  dev: "ai.pawwork.desktop.dev",
-  beta: "ai.pawwork.desktop.beta",
-  prod: "ai.pawwork.desktop",
-}
 const CI_SMOKE_HOME = process.env.PAWWORK_CI_SMOKE_HOME
 const CI_SMOKE_ENABLED = process.env.PAWWORK_CI_SMOKE === "true"
-const gracefulSidecarShutdown = process.platform === "darwin"
-const FEEDBACK_SESSION_EXPORT_TIMEOUT_MS = 3_000
-// How long to wait on one update feed's reachability probe before falling back
-// to the next. The probe is aborted (not abandoned) when it elapses.
 const UPDATE_FEED_TIMEOUT_MS = 10_000
-// electron-updater channel metadata file for this platform; the feed probe HEADs
-// it to decide reachability.
-const UPDATE_CHANNEL_FILE =
-  process.platform === "win32" ? "latest.yml" : process.platform === "darwin" ? "latest-mac.yml" : "latest-linux.yml"
-const userDataRoot = CI_SMOKE_HOME ?? app.getPath("appData")
+const UPDATE_CHANNEL_FILE = process.platform === "win32" ? `${UPDATE_CHANNEL}.yml` : `${UPDATE_CHANNEL}-mac.yml`
+const LATEST_RELEASE_URL = `https://github.com/${UPDATE_GITHUB_OWNER}/${UPDATE_GITHUB_REPO}/releases/latest`
 
-app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "PawWork Dev")
-app.userAgentFallback = app.userAgentFallback.replace(/PawWork(?:\s\w+)?\//g, "opencode/")
-if (CI_SMOKE_HOME) {
-  app.setPath("appData", CI_SMOKE_HOME)
-}
-app.setPath("userData", join(userDataRoot, app.isPackaged ? APP_IDS[CHANNEL] : "ai.pawwork.desktop.dev"))
-if (CI_SMOKE_HOME) {
-  // Keep smoke logs inside the isolated profile so release checks cannot read stale user logs.
-  app.setPath("logs", join(app.getPath("userData"), "logs"))
-}
+const userDataRoot = CI_SMOKE_HOME ?? app.getPath("appData")
+const appIdentity = PAWWORK_APP[app.isPackaged ? CHANNEL : "dev"]
+app.setName(appIdentity.name)
+if (CI_SMOKE_HOME) app.setPath("appData", CI_SMOKE_HOME)
+app.setPath("userData", join(userDataRoot, appIdentity.id))
+if (CI_SMOKE_HOME) app.setPath("logs", join(app.getPath("userData"), "logs"))
+
 const CI_SMOKE_READY_FILE = join(app.getPath("userData"), "ci-smoke-ready.json")
 const { autoUpdater } = pkg
+const logger = initLogging()
+const menuLocale = detectSystemMenuLocale(app.getLocale())
 
-import type { DesktopContext, InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
-import { checkAppExists, resolveAppPath, wslPath } from "./apps"
-import { ciSmokeCdpSwitches } from "./ci-smoke-cdp"
-import {
-  CHANNEL,
-  DEV_UPDATER,
-  DOWNLOAD_PUBLIC_BASE,
-  FEEDBACK_FORM_URL,
-  UPDATE_CHANNEL,
-  UPDATE_GITHUB_OWNER,
-  UPDATE_GITHUB_REPO,
-  UPDATE_R2_ENABLED,
-  UPDATER_ACTIVE,
-} from "./constants"
-import { normalizeDesktopContextPayload, syncWindowTitleForDesktopContext } from "./desktop-context-window"
-import { createDesktopContextStore } from "./desktop-context-store"
-import { createFeedbackHandler } from "./feedback"
-import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
-import { registerAboutIpc, triggerAbout } from "./ipc/about"
-import { registerBrowserIpc } from "./ipc/browser"
-import { registerRemoteIpc } from "./ipc/remote"
-import { createDesktopBrowserBridgeHost } from "./browser/automation-host"
-import { browserControllers } from "./browser/controller-automation"
-import { diagnosticsLogTail, filePath, initLogging } from "./logging"
-import { parseMarkdown } from "./markdown"
-import { createMenu } from "./menu"
-import { menuLabel, type MenuLocale } from "./menu-labels"
-import { readStoredMenuLocale, writeStoredMenuLocale } from "./menu-i18n"
-import { cleanupProblemReports, problemReportsRoot, writeProblemReportFile } from "./problem-report-files"
-import {
-  createRendererDiagnosticsRecorder,
-  exportRendererDiagnosticsLog,
-  rendererDiagnosticsRoot,
-  SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
-} from "./renderer-diagnostics"
-import { backendLogFilePath, getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, spawnLocalServer } from "./server"
-import { createRemoteBridgeRuntime } from "./remote-pairers"
-import { safeStorageCredentialStore, type CredentialStoreEnv } from "./remote-credentials"
-import { PAWWORK_RUNTIME } from "./runtime-namespace"
-import { createUpdaterController, createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./updater"
-import { pendingUpdateCacheDir } from "./updater-cache"
-import { updaterDialogLabels } from "./updater-dialog-labels"
-import {
-  createLoadingWindow,
-  createMainWindow,
-  registerRendererProtocol,
-  registerRendererScheme,
-  setBackgroundColor,
-  setDockIcon,
-} from "./windows"
-import {
-  registerWindowLifecycle,
-  selectCommandWindow,
-  selectNextMainWindow,
-  shouldOpenWindowForExternalEvent,
-  shouldQueueDeepLinks,
-  takeQueuedDeepLinksForReadyWindow,
-} from "./window-lifecycle"
-import type { Server } from "virtual:opencode-server"
-
-const initEmitter = new EventEmitter()
-let initStep: InitStep = { phase: "server_waiting" }
-
-let mainWindow: BrowserWindow | null = null
-let currentProgress: number | null = null
-
-const LATEST_RELEASE_URL = "https://github.com/Astro-Han/pawwork/releases/latest"
-
-async function openLatestReleasePage() {
-  try {
-    await shell.openExternal(LATEST_RELEASE_URL)
-  } catch (error) {
-    logger.error("open latest release page failed", error)
-  }
-}
-
-function applyProgressBar(value: number) {
-  for (const win of BrowserWindow.getAllWindows()) {
-    win.setProgressBar(value)
-  }
-}
-
-function clearProgressBar() {
-  currentProgress = null
-  applyProgressBar(-1)
-}
-
-let server: Server.Listener | null = null
+let dshUrl: string | undefined
+let fileInputPreload: string | undefined
+let sidecar: DshSidecar | undefined
 let sidecarShutdown: Promise<void> | undefined
+let sidecarStopRequested = false
 let gracefulQuitStarted = false
 let gracefulQuitReady = false
-const loadingComplete = defer<void>()
-const deepLinkReadyWindows = new WeakSet<BrowserWindow>()
-let menuLocale: MenuLocale = readStoredMenuLocale(app.getLocale())
-const defaultDesktopContext = (): DesktopContext => ({
-  ...buildDesktopContext({ route: "/", locale: menuLocale }),
-})
-const desktopContexts = createDesktopContextStore(defaultDesktopContext)
-const contextWindowCleanup = new Set<number>()
+let currentProgress: number | null = null
 
-const pendingDeepLinks: string[] = []
-
-const serverReady = defer<ServerReadyData>()
-// The mobile-companion bridge: connects a phone chat app to this desktop's agent
-// sessions. Runs in the main process against the local server; credentials are
-// encrypted main-only and never cross to the renderer.
-// safeStorage + the on-disk paths are injected so the credential store itself
-// stays Electron-free and unit-testable with a fake env.
-const remoteUserData = () => app.getPath("userData")
-const remoteStateFile = () => join(remoteUserData(), "remote-bridge-state.json")
-const remoteCredentialEnv: CredentialStoreEnv = {
-  credentialsFile: () => join(remoteUserData(), "remote-bridge-credentials.json"),
-  isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
-  encryptString: (plain) => safeStorage.encryptString(plain),
-  decryptString: (cipher) => safeStorage.decryptString(cipher),
-}
-const remoteBridge = createRemoteBridgeRuntime({
-  credentials: safeStorageCredentialStore(remoteCredentialEnv),
-  statePath: remoteStateFile(),
-  serverInfo: () => serverReady.promise,
-  locale: () => currentDesktopContext().locale,
-})
-const logger = initLogging()
-const problemReportRoot = problemReportsRoot(app.getPath("userData"))
-const rendererDiagnostics = createRendererDiagnosticsRecorder({
-  root: rendererDiagnosticsRoot(app.getPath("userData")),
-  appLaunchID: randomUUID(),
-})
-// Ordered update feeds: R2 first (fast/reachable in mainland China), GitHub as
-// global fallback. electron-updater binds the download source at check time, so
-// feed selection happens here and the same active feed serves the download.
 function buildUpdateFeeds(): FeedTarget[] {
-  const r2 = UPDATE_R2_ENABLED ? [r2Feed(DOWNLOAD_PUBLIC_BASE, UPDATE_CHANNEL, UPDATE_CHANNEL_FILE)] : []
-  return [...r2, githubFeed(UPDATE_GITHUB_OWNER, UPDATE_GITHUB_REPO, UPDATE_CHANNEL, UPDATE_CHANNEL_FILE)]
+  return [
+    r2Feed(DOWNLOAD_PUBLIC_BASE, UPDATE_CHANNEL, UPDATE_CHANNEL_FILE),
+    githubFeed(UPDATE_GITHUB_OWNER, UPDATE_GITHUB_REPO, UPDATE_CHANNEL, UPDATE_CHANNEL_FILE),
+  ]
 }
 
 const updateFeed = createUpdateFeed({
@@ -209,633 +92,183 @@ const updater = createUpdaterController({
   currentVersion: () => app.getVersion(),
   checkForUpdates: () => updateFeed.check(),
   downloadUpdate: () => updateFeed.download(),
-  clearPendingUpdate: clearPendingUpdate,
+  clearPendingUpdate,
   quitAndInstall: () => {
-    if (!gracefulSidecarShutdown) {
-      killSidecar()
-      autoUpdater.quitAndInstall()
-      return
-    }
     void shutdownSidecar().finally(() => autoUpdater.quitAndInstall())
   },
   log: (message, data) => logger.log(message, data),
   error: (message, error) => logger.error(message, error),
 })
 
-function diagnostics(context = currentDesktopContext()) {
-  return {
-    appVersion: app.getVersion(),
-    channel: CHANNEL,
-    packaged: app.isPackaged,
-    updaterEnabled: UPDATER_ACTIVE,
-    platform: process.platform,
-    osVersion: `${os.type()} ${os.release()}`,
-    arch: process.arch,
-    electronVersion: process.versions.electron,
-    locale: context.locale,
-    route: context.route,
-    directory: context.directory,
-    sessionID: context.sessionID,
-    logPath: filePath(),
-  }
-}
-
-async function sessionExport(context = currentDesktopContext(), signal?: AbortSignal) {
-  if (!context.sessionID) return { status: "none" as const }
-  const ready = await serverReady.promise
-  const sessionID = encodeURIComponent(context.sessionID)
-  const url = new URL(`/session/${sessionID}/message`, ready.url)
-  const headers: Record<string, string> = {}
-  if (ready.username || ready.password) {
-    headers.authorization = `Basic ${Buffer.from(`${ready.username ?? "opencode"}:${ready.password ?? ""}`).toString("base64")}`
-  }
-  const controller = new AbortController()
-  const abort = () => controller.abort()
-  let timeout: ReturnType<typeof setTimeout> | undefined
-  let res: Response
-  try {
-    if (signal?.aborted) controller.abort()
-    else signal?.addEventListener("abort", abort, { once: true })
-    const timeoutPromise = new Promise<Response>((_, reject) => {
-      timeout = setTimeout(() => {
-        controller.abort()
-        reject(new Error("session export timed out"))
-      }, 10_000)
-    })
-    res = await Promise.race([fetch(url, { headers, signal: controller.signal }), timeoutPromise])
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout)
-    signal?.removeEventListener("abort", abort)
-  }
-  if (!res.ok) throw new Error(`session export failed: ${res.status}`)
-  return {
-    status: "ok" as const,
-    info: context,
-    messages: (await res.json()) as unknown[],
-  }
-}
-
-async function exportDiagnosticsFromMenu() {
-  const stamp = new Date().toISOString().replace(/[:T]/g, "-").replace(/\..+$/, "")
-  const result = await dialog.showSaveDialog({
-    title: menuLabel(focusedMenuLocale() ?? "en", "exportDiagnosticsLogTitle"),
-    defaultPath: `pawwork-renderer-diagnostics-${stamp}.json`,
-    filters: [{ name: "JSON", extensions: ["json"] }],
-  })
-  if (result.canceled || !result.filePath) return { ok: false as const, error: "cancelled" }
-
-  try {
-    await rendererDiagnostics.drain()
-    await exportRendererDiagnosticsLog({
-      path: rendererDiagnostics.path,
-      destination: result.filePath,
-    })
-    return { ok: true as const, path: result.filePath }
-  } catch (error) {
-    logger.error("renderer diagnostics export failed", error)
-    return { ok: false as const, error: error instanceof Error ? error.message : "export_failed" }
-  }
-}
-
-function currentDesktopContext() {
-  return desktopContexts.current(BrowserWindow.getFocusedWindow()?.id)
-}
-
-type FeedbackRuntimeContext = {
-  desktop: DesktopContext
-  windowID?: number
-}
-
-function currentFeedbackRuntimeContext(override?: { windowID?: number }): FeedbackRuntimeContext {
-  const win = override?.windowID ? BrowserWindow.fromId(override.windowID) : BrowserWindow.getFocusedWindow()
-  return {
-    desktop: desktopContexts.current(override?.windowID ?? win?.id),
-    windowID: override?.windowID ?? win?.id,
-  }
-}
-
-function isFeedbackRuntimeContext(value: unknown): value is FeedbackRuntimeContext {
-  return Boolean(value && typeof value === "object" && "desktop" in value)
-}
-
-function feedbackRuntimeContext(context: unknown): FeedbackRuntimeContext {
-  if (context === undefined) return currentFeedbackRuntimeContext()
-  if (isFeedbackRuntimeContext(context)) return context
-  return {
-    desktop: normalizeDesktopContextPayload(context, menuLocale),
-  }
-}
-
-function feedbackContext(context: unknown): DesktopContext {
-  return feedbackRuntimeContext(context).desktop
-}
-
-const feedback = createFeedbackHandler({
-  feedbackUrl: FEEDBACK_FORM_URL,
-  reportRoot: problemReportRoot,
-  context: currentFeedbackRuntimeContext,
-  openExternal: (url) => {
-    return shell.openExternal(url).then(() => undefined)
-  },
-  showItemInFolder: (path) => shell.showItemInFolder(path),
-  openPath: (path) => shell.openPath(path),
-  saveReport: (input) => writeProblemReportFile({ root: problemReportRoot, ...input }),
-  cleanupReports: (currentPath) => cleanupProblemReports({ root: problemReportRoot, keep: 10, currentPath }),
-  sessionExportTimeoutMs: FEEDBACK_SESSION_EXPORT_TIMEOUT_MS,
-  diagnostics: (context) => diagnostics(feedbackContext(context)),
-  logTail: () => diagnosticsLogTail({ backendLogPath: backendLogFilePath() }),
-  sessionExport: (context, signal) => sessionExport(feedbackContext(context), signal),
-  rendererDiagnostics: (context) => {
-    const runtimeContext = feedbackRuntimeContext(context)
-    return rendererDiagnostics.slice({
-      sessionID: runtimeContext.desktop.sessionID,
-      windowID: runtimeContext.windowID,
-      maxBytes: SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
-    })
-  },
-  onHandledError: (message, error) => logger.error(message, error),
-  // The review dialog surfaces a failed preparation to the user; here we only log.
-  onError: async (error) => logger.error("problem report failed", error),
-})
-
-logger.log("app starting", {
-  version: app.getVersion(),
-  packaged: app.isPackaged,
-})
-
+logger.log("app starting", { version: app.getVersion(), packaged: app.isPackaged })
 setupApp()
 
 function setupApp() {
   ensureLoopbackNoProxy()
   app.commandLine.appendSwitch("proxy-bypass-list", "<-loopback>")
-  for (const [name, value] of ciSmokeCdpSwitches(process.env)) {
-    app.commandLine.appendSwitch(name, value)
-  }
-  registerRendererScheme()
+  for (const [name, value] of ciSmokeCdpSwitches(process.env)) app.commandLine.appendSwitch(name, value)
 
-  // CI smoke should not fail just because a local desktop instance already holds
-  // the singleton lock on the runner or developer machine.
   if (!CI_SMOKE_ENABLED && !app.requestSingleInstanceLock()) {
     app.quit()
     return
   }
 
-  app.on("second-instance", (_event: Event, argv: string[]) => {
-    const urls = argv.filter((arg: string) => arg.startsWith("opencode://"))
-    if (urls.length) {
-      logger.log("deep link received via second-instance", { urls })
-      emitDeepLinks(urls)
-    }
-    focusMainWindow({ openIfMissing: true })
+  ipcMain.handle("pawwork:pick-conversation-files", (event) => {
+    if (!dshUrl) throw new Error("Cannot pick files before DSH is ready")
+    const owner = BrowserWindow.fromWebContents(event.sender)
+    return pickConversationFiles(dshUrl, event.senderFrame?.url ?? "", (options) =>
+      owner ? dialog.showOpenDialog(owner, options) : dialog.showOpenDialog(options),
+    )
   })
 
-  app.on("open-url", (event: Event, url: string) => {
+  app.on("second-instance", () => focusMainWindow(true))
+  app.on("open-url", (event: Event) => {
     event.preventDefault()
-    logger.log("deep link received via open-url", { url })
-    emitDeepLinks([url])
-    focusMainWindow({ openIfMissing: true })
+    focusMainWindow(true)
   })
-
-  registerWindowLifecycle({
-    onWindowAllClosed: (listener) => app.on("window-all-closed", listener),
-    onActivate: (listener) => app.on("activate", listener),
-    quit: () => app.quit(),
-    getWindowCount: () => BrowserWindow.getAllWindows().length,
-    openWindow: () => {
-      if (isInitialized()) openMainWindow()
-    },
-    platform: process.platform,
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit()
   })
-
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0 && dshUrl) openMainWindow()
+  })
   app.on("before-quit", (event) => {
-    if (!gracefulSidecarShutdown) {
-      void remoteBridge.stop()
-      killSidecar()
-      return
-    }
     if (gracefulQuitReady) return
     event.preventDefault()
     if (gracefulQuitStarted) return
     gracefulQuitStarted = true
-    const finishGracefulQuit = () => {
+
+    const finish = () => {
       if (gracefulQuitReady) return
       gracefulQuitReady = true
       app.quit()
     }
-    const gracefulQuitTimeout = setTimeout(() => {
-      logger.error("graceful sidecar shutdown timed out, forcing quit")
-      finishGracefulQuit()
+    const timeout = setTimeout(() => {
+      logger.error("graceful DSH shutdown timed out, forcing quit")
+      finish()
     }, 10_000)
-    // Best-effort: signal the bridge to stop polling before the server it talks
-    // to is torn down, then let every instance scope release native watchers.
-    void remoteBridge
-      .stop()
-      .catch((error) => logger.error("remote bridge shutdown failed", error))
-      .then(() => shutdownSidecar())
-      .catch((error) => logger.error("sidecar shutdown failed", error))
+    void shutdownSidecar()
+      .catch((error) => logger.error("DSH shutdown failed", error))
       .finally(() => {
-        clearTimeout(gracefulQuitTimeout)
-        finishGracefulQuit()
+        clearTimeout(timeout)
+        finish()
       })
   })
+  for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => app.quit())
 
-  app.on("will-quit", () => {
-    killSidecar()
-  })
-
-  for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.on(signal, () => {
-      if (gracefulSidecarShutdown) {
-        app.quit()
-        return
-      }
-      killSidecar()
-      app.exit(0)
+  void app
+    .whenReady()
+    .then(async () => {
+      app.setAsDefaultProtocolClient("pawwork")
+      setDockIcon()
+      setupAutoUpdater()
+      await startDsh()
+      openMainWindow()
+      wireMenu()
     })
-  }
+    .catch(async (error) => {
+      logger.error("app initialization failed", error)
+      await shutdownSidecar().catch((shutdownError) => logger.error("DSH shutdown failed", shutdownError))
+      app.exit(1)
+    })
+}
 
-  void app.whenReady().then(async () => {
-    app.setAsDefaultProtocolClient("opencode")
-    registerRendererProtocol()
-    setDockIcon()
-    setupAutoUpdater()
-    await initialize()
+async function startDsh() {
+  const appPath = app.isPackaged ? app.getAppPath() : join(dirname(fileURLToPath(import.meta.url)), "../..")
+  const resources = resolveProductResources({
+    appPath,
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
   })
-}
+  const product = prepareDshProductHome({
+    productHome: join(app.getPath("userData"), "dsh"),
+    resources: resources.dsh,
+  })
+  fileInputPreload = product.fileInputPreload
+  const require = createRequire(import.meta.url)
+  const dshPackage = resolveDshPackagePath({
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    resolveDevelopmentPackage: () => require.resolve("@deepseek-ai/dsh/package.json"),
+  })
 
-function emitDeepLinks(urls: string[]) {
-  if (urls.length === 0) return
-  const windowReady = mainWindow ? deepLinkReadyWindows.has(mainWindow) : false
-  if (shouldQueueDeepLinks(Boolean(mainWindow), windowReady)) pendingDeepLinks.push(...urls)
-  if (mainWindow && windowReady) sendDeepLinks(mainWindow, urls)
-}
-
-function flushPendingDeepLinksForReadyWindow(win: BrowserWindow | null) {
-  if (!win || !deepLinkReadyWindows.has(win)) return
-  const urls = takeQueuedDeepLinksForReadyWindow(pendingDeepLinks, true)
-  if (urls.length) sendDeepLinks(win, urls)
-}
-
-function reportDeepLinkReady(win: BrowserWindow | null) {
-  if (!win) return
-  deepLinkReadyWindows.add(win)
-  if (win !== mainWindow) return
-  flushPendingDeepLinksForReadyWindow(win)
-}
-
-function isInitialized() {
-  return initStep.phase === "done"
-}
-
-function focusMainWindow(options: { openIfMissing?: boolean } = {}) {
-  if (!mainWindow && options.openIfMissing && shouldOpenWindowForExternalEvent(false, isInitialized())) openMainWindow()
-  if (!mainWindow) return
-  mainWindow.show()
-  mainWindow.focus()
+  logger.log("spawning DSH sidecar")
+  sidecar = await launchDshSidecar({
+    executable: process.execPath,
+    dshBin: join(dirname(dshPackage), "lib", "bin.js"),
+    sidecarPreload: pathToFileURL(product.sidecarPreload).href,
+    productHome: product.home,
+    productPatch: product.patch,
+    toolsDir: join(dirname(resources.dsh), "tools"),
+    env: buildDshEnvironment(resources.skills),
+    timeoutMs: 30_000,
+    spawn: (executable, args, options) => spawn(executable, args, options),
+    onStdout: (chunk) => logger.log("DSH stdout", { chunk: chunk.trimEnd() }),
+    onStderr: (chunk) => logger.error("DSH stderr", chunk.trimEnd()),
+  })
+  dshUrl = sidecar.url
+  void sidecar.exited.then((code) => {
+    logger.error("DSH sidecar exited", { code })
+    if (!sidecarStopRequested) app.quit()
+  })
 }
 
 function openMainWindow() {
-  const win = createMainWindow()
-  mainWindow = win
-  win.once("ready-to-show", () => {
-    if (currentProgress !== null) {
-      win.setProgressBar(currentProgress)
-    }
-  })
-  win.on("focus", () => syncMenuLocaleForWindow(win))
-  // Browser views are conversation-owned: on close (pre-destroy, so reparenting
-  // still works) they detach and live on; only the window's draft dies with it.
-  win.on("close", () => browserControllers.onWindowClosing(win))
-  win.on("closed", () => {
-    if (mainWindow !== win) return
-    mainWindow = selectNextMainWindow(win, BrowserWindow.getAllWindows())
-    flushPendingDeepLinksForReadyWindow(mainWindow)
-    syncMenuLocaleForWindow(mainWindow)
-  })
-  wireMenu()
+  if (!dshUrl || !fileInputPreload) throw new Error("Cannot open PawWork before DSH is ready")
+  const win = createMainWindow(dshUrl, fileInputPreload)
+  if (currentProgress !== null) win.setProgressBar(currentProgress)
+  if (CI_SMOKE_ENABLED) {
+    win.webContents.once("did-finish-load", () => {
+      mkdirSync(dirname(CI_SMOKE_READY_FILE), { recursive: true })
+      writeFileSync(CI_SMOKE_READY_FILE, JSON.stringify({ readyAt: new Date().toISOString() }), "utf8")
+    })
+  }
   return win
 }
 
-function setInitStep(step: InitStep) {
-  initStep = step
-  logger.log("init step", { step })
-  if (step.phase === "done") logger.log("init done")
-  initEmitter.emit("step", step)
-}
-
-async function initialize() {
-  // The embedded server owns DB initialization. The desktop shell must not
-  // block first launch on a migration progress event that the embedded runtime
-  // does not emit.
-  const needsMigration = false
-  let overlay: BrowserWindow | null = null
-
-  const port = await getSidecarPort()
-  const hostname = "127.0.0.1"
-  const url = `http://${hostname}:${port}`
-  const password = randomUUID()
-
-  logger.log("spawning sidecar", { url })
-  const { listener, health } = await spawnLocalServer(hostname, port, password)
-  server = listener
-
-  // Hand the in-process server its browser-automation host. Same-process
-  // injection by design: the CDP endpoint/secret must never cross renderer
-  // IPC or preload (PR1 security contract rule 7).
-  const { BrowserBridge } = await import("virtual:opencode-server")
-  BrowserBridge.provideHost(createDesktopBrowserBridgeHost())
-  serverReady.resolve({
-    url,
-    username: PAWWORK_RUNTIME.serverUsername,
-    password,
-  })
-
-  const loadingTask = (async () => {
-    logger.log("sidecar connection started", { url })
-
-    initEmitter.on("sqlite", (progress: SqliteMigrationProgress) => {
-      setInitStep({ phase: "sqlite_waiting" })
-      if (overlay) sendSqliteMigrationProgress(overlay, progress)
-      if (mainWindow) sendSqliteMigrationProgress(mainWindow, progress)
-    })
-
-    await Promise.race([
-      health.wait,
-      delay(30_000).then(() => {
-        throw new Error("Sidecar health check timed out")
-      }),
-    ]).catch((error) => {
-      logger.error("sidecar health check failed", error)
-    })
-
-    logger.log("loading task finished")
-  })()
-
-  if (needsMigration) {
-    const show = await Promise.race([loadingTask.then(() => false), delay(1_000).then(() => true)])
-    if (show) {
-      overlay = createLoadingWindow()
-      await delay(1_000)
-    }
-  }
-
-  await loadingTask
-  setInitStep({ phase: "done" })
-
-  // Start the mobile-companion bridge only after the server is healthy, in the
-  // background so it never blocks opening the main window. Failures land in the
-  // bridge's own status (degraded), not here.
-  void remoteBridge.startIfConfigured()
-
-  if (overlay) {
-    await loadingComplete.promise
-  }
-
-  openMainWindow()
-
-  overlay?.close()
-}
-
-function focusedMenuLocale() {
-  const focused = BrowserWindow.getFocusedWindow()
-  if (!focused) return menuLocale
-  return desktopContexts.current(focused.id).locale
-}
-
-function syncMenuLocaleForWindow(win: BrowserWindow | null) {
-  if (!win) return
-  const next = desktopContexts.current(win.id).locale
-  if (next === menuLocale) return
-  menuLocale = next
-  writeStoredMenuLocale(next)
-  wireMenu()
+function focusMainWindow(openIfMissing = false) {
+  const existing = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed())
+  const win = existing ?? (openIfMissing && dshUrl ? openMainWindow() : undefined)
+  win?.show()
+  win?.focus()
 }
 
 function wireMenu() {
-  if (!mainWindow) return
-  const commandWindow = () => selectCommandWindow(BrowserWindow.getFocusedWindow(), mainWindow)
-  createMenu({
-    trigger: (id) => {
-      const win = commandWindow()
-      if (win) sendMenuCommand(win, id)
-    },
-    checkForUpdates: () => {
-      void checkForUpdates(true)
-    },
-    reload: () => commandWindow()?.reload(),
+  createDshMenu({
+    checkForUpdates: () => void checkForUpdates(true),
+    newWindow: openMainWindow,
     relaunch: () => {
-      if (!gracefulSidecarShutdown) {
-        killSidecar()
-        app.relaunch()
-        app.exit(0)
-        return
-      }
       void shutdownSidecar().finally(() => {
         app.relaunch()
         app.exit(0)
       })
     },
-    newWindow: () => openMainWindow(),
-    reportProblem: () => {
-      // The review now lives in the renderer (a themed dialog showing what the
-      // package contains). The menu just asks the focused window to open it.
-      const win = commandWindow()
-      if (win) sendMenuCommand(win, "diagnostics.prepare")
-    },
-    exportDiagnosticsLog: () => {
-      void exportDiagnosticsFromMenu()
-    },
-    triggerAbout: (win) => triggerAbout(win),
-  }, focusedMenuLocale())
+  }, menuLocale)
 }
 
-registerIpcHandlers({
-  killSidecar: () => killSidecar(),
-  awaitInitialization: async (sendStep) => {
-    sendStep(initStep)
-    const listener = (step: InitStep) => sendStep(step)
-    initEmitter.on("step", listener)
-    try {
-      logger.log("awaiting server ready")
-      const res = await serverReady.promise
-      logger.log("server ready", { url: res.url })
-      return res
-    } finally {
-      initEmitter.off("step", listener)
-    }
-  },
-  getServerReadyData: () => serverReady.promise,
-  getDefaultServerUrl: () => getDefaultServerUrl(),
-  setDefaultServerUrl: (url) => setDefaultServerUrl(url),
-  getWslConfig: () => Promise.resolve(getWslConfig()),
-  setWslConfig: (config: WslConfig) => setWslConfig(config),
-  getWindowConfig: () => ({
-    updaterEnabled: UPDATER_ACTIVE,
-    wslEnabled: getWslConfig().enabled,
-  }),
-  consumeInitialDeepLinks: () => pendingDeepLinks.splice(0),
-  getDisplayBackend: async () => null,
-  setDisplayBackend: async () => undefined,
-  parseMarkdown: async (markdown) => parseMarkdown(markdown),
-  checkAppExists: async (appName) => checkAppExists(appName),
-  wslPath: async (path, mode) => wslPath(path, mode),
-  resolveAppPath: async (appName) => resolveAppPath(appName),
-  loadingWindowComplete: () => loadingComplete.resolve(),
-  runUpdater: async (alertOnFail) => checkForUpdates(alertOnFail),
-  checkUpdate: async () => checkUpdate(),
-  prepareReport: (input, context) => feedback.prepareReport(input, context),
-  revealReport: (reportId) => feedback.revealReport(reportId),
-  submitReport: (reportId) => feedback.submitReport(reportId),
-  recordRendererDiagnostic: (event, context) => rendererDiagnostics.record(event, context),
-  exportRendererDiagnostics: exportDiagnosticsFromMenu,
-  rendererDiagnosticsSlice: ({ sessionID, windowID, maxBytes }) =>
-    rendererDiagnostics.slice({
-      sessionID,
-      windowID,
-      maxBytes,
-    }),
-  installUpdate: async () => installUpdate(),
-  setBackgroundColor: (color) => setBackgroundColor(color),
-  reportDeepLinkReady: (win) => reportDeepLinkReady(win),
-  reportCiSmokeReady: () => reportCiSmokeReady(),
-  setDesktopContext: (context, win) => {
-    const next = normalizeDesktopContextPayload(context, menuLocale)
-    desktopContexts.set(win.id, next)
-    syncWindowTitleForDesktopContext(win, next)
-    // Authoritative hide on route change: the renderer panel survives session
-    // switches without remounting, so it can no longer address the previous
-    // conversation's view — main stops displaying what the window left behind.
-    browserControllers.syncWindowDisplay(win, next.sessionID)
-    if (!contextWindowCleanup.has(win.id)) {
-      contextWindowCleanup.add(win.id)
-      win.once("closed", () => {
-        desktopContexts.delete(win.id)
-        contextWindowCleanup.delete(win.id)
-      })
-    }
-    if (BrowserWindow.getFocusedWindow()?.id === win.id) syncMenuLocaleForWindow(win)
-  },
-})
-
-registerAboutIpc()
-registerBrowserIpc({ sessionIDForWindow: (windowID) => desktopContexts.current(windowID).sessionID })
-registerRemoteIpc(remoteBridge)
-
-async function shutdownSidecar() {
-  sidecarShutdown ??= (async () => {
-    const active = server
-    server = null
-    if (!active) return
-    const { Instance } = await import("virtual:opencode-server")
-    try {
-      await Instance.disposeAll({ mode: "force" })
-    } finally {
-      await active.stop(true)
-    }
-  })()
-  await sidecarShutdown
+function applyProgressBar(value: number) {
+  for (const win of BrowserWindow.getAllWindows()) win.setProgressBar(value)
 }
 
-function killSidecar() {
-  if (!gracefulSidecarShutdown) {
-    if (!server) return
-    void server.stop(true)
-    server = null
-    return
-  }
-  void shutdownSidecar().catch((error) => logger.error("sidecar shutdown failed", error))
+function clearProgressBar() {
+  currentProgress = null
+  applyProgressBar(-1)
 }
 
-function reportCiSmokeReady() {
-  if (!CI_SMOKE_ENABLED) return
-  mkdirSync(dirname(CI_SMOKE_READY_FILE), { recursive: true })
-  writeFileSync(CI_SMOKE_READY_FILE, JSON.stringify({ readyAt: new Date().toISOString() }), "utf8")
-}
-
-function ensureLoopbackNoProxy() {
-  const loopback = ["127.0.0.1", "localhost", "::1"]
-  const upsert = (key: string) => {
-    const items = (process.env[key] ?? "")
-      .split(",")
-      .map((value: string) => value.trim())
-      .filter((value: string) => Boolean(value))
-
-    for (const host of loopback) {
-      if (items.some((value: string) => value.toLowerCase() === host)) continue
-      items.push(host)
-    }
-
-    process.env[key] = items.join(",")
-  }
-
-  upsert("NO_PROXY")
-  upsert("no_proxy")
-}
-
-async function getSidecarPort() {
-  const fromEnv = process.env.OPENCODE_PORT
-  if (fromEnv) {
-    const parsed = Number.parseInt(fromEnv, 10)
-    if (!Number.isNaN(parsed)) return parsed
-  }
-
-  return await new Promise<number>((resolve, reject) => {
-    const server = createServer()
-    server.on("error", reject)
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address()
-      if (typeof address !== "object" || !address) {
-        server.close()
-        reject(new Error("Failed to get port"))
-        return
-      }
-      const port = address.port
-      server.close(() => resolve(port))
-    })
-  })
-}
-
-async function clearPendingUpdate() {
-  await rm(pendingUpdateCacheDir(), { recursive: true, force: true })
-}
-
+// No feed is configured here: every check runs through updateFeed, which probes
+// the feeds in order and points electron-updater at the one it picked. Setting
+// the first feed at startup only duplicated that choice — with a worse fallback
+// — and the packaged app-update.yml already covers anything that reads a feed
+// before the first check.
 function setupAutoUpdater() {
   if (!UPDATER_ACTIVE) return
   autoUpdater.logger = logger
-  // Dev-only: run the real updater under dev:desktop so the R2 feed and GitHub
-  // fallback can be exercised without a signed packaged build (#219).
-  if (DEV_UPDATER) autoUpdater.forceDevUpdateConfig = true
-  autoUpdater.channel = "latest"
+  autoUpdater.channel = UPDATE_CHANNEL
   autoUpdater.allowPrerelease = false
   autoUpdater.allowDowngrade = false
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = process.platform !== "darwin"
-  // Set an initial feed so any pre-check path has a sane provider and so a
-  // broken feed config surfaces in logs at startup. Every check() re-selects
-  // the feed (R2 first, GitHub fallback) regardless.
-  const feeds = buildUpdateFeeds()
-  try {
-    autoUpdater.setFeedURL(feeds[0].options)
-  } catch (error) {
-    logger.error("initial update feed config failed", error)
-    const github = feeds.find((feed) => feed.label === "github")
-    if (github) {
-      try {
-        autoUpdater.setFeedURL(github.options)
-      } catch (fallbackError) {
-        logger.error("github update feed config failed", fallbackError)
-      }
-    }
-  }
-  logger.log("auto updater configured", {
-    channel: autoUpdater.channel,
-    allowPrerelease: autoUpdater.allowPrerelease,
-    allowDowngrade: autoUpdater.allowDowngrade,
-    autoInstallOnAppQuit: autoUpdater.autoInstallOnAppQuit,
-    devUpdater: DEV_UPDATER,
-    feeds: feeds.map((feed) => feed.label),
-    currentVersion: app.getVersion(),
-  })
+
   autoUpdater.on("download-progress", (info) => {
     currentProgress = info.percent / 100
     applyProgressBar(currentProgress)
@@ -849,139 +282,90 @@ function setupAutoUpdater() {
   })
 }
 
-async function checkUpdate() {
-  const result = await updater.check()
-  if (result.status === "ready") return { updateAvailable: true as const, status: result.status, version: result.version }
-  if (result.status === "failed") {
-    return { updateAvailable: false as const, status: result.status, reason: result.reason, message: result.message }
-  }
-  return { updateAvailable: false as const, status: result.status }
-}
-
-async function installUpdate() {
-  const started = updater.install()
-  if (!started) logger.log("install update skipped", { reason: "no ready update" })
-  return started
-}
-
 async function checkForUpdates(alertOnFail: boolean) {
-  const labels = updaterDialogLabels(currentDesktopContext().locale)
-  logger.log("checkForUpdates invoked", { alertOnFail })
-  const result = await checkUpdate()
-  if (result.status === "busy") {
-    if (!alertOnFail) return
-    await dialog.showMessageBox({
-      type: "info",
-      title: labels.busy.title,
-      message: labels.busy.message,
-    })
-    return
-  }
-  if (result.status === "disabled") {
-    logger.log("no update decision", { reason: "updates disabled" })
-    if (!alertOnFail) return
-    await dialog.showMessageBox({
-      type: "info",
-      title: labels.disabled.title,
-      message: labels.disabled.message,
-    })
+  const labels = updaterDialogLabels(menuLocale)
+  const result = await updater.check()
+  if (result.status === "busy" || result.status === "disabled") {
+    if (alertOnFail) await dialog.showMessageBox({ type: "info", ...labels[result.status] })
     return
   }
   if (result.status === "failed") {
-    logger.log("no update decision", { reason: result.reason ?? "update check failed" })
     if (!alertOnFail) return
-    const copy = labels.failed.reasonCopy[result.reason] ?? labels.failed.fallbackMessage
-    const detail = [result.message, labels.failed.currentVersionUnaffected]
-      .filter(Boolean)
-      .join("\n\n")
     const response = await dialog.showMessageBox({
       type: "error",
       title: labels.failed.title,
-      message: copy,
-      detail,
+      message: labels.failed.reasonCopy[result.reason],
+      detail: [result.message, labels.failed.currentVersionUnaffected].filter(Boolean).join("\n\n"),
       buttons: [labels.failed.buttons.retry, labels.failed.buttons.openDownloadPage, labels.failed.buttons.later],
       defaultId: 0,
       cancelId: 2,
     })
-    if (response.response === 0) {
-      try {
-        await checkForUpdates(alertOnFail)
-      } catch (error) {
-        logger.error("retry after update failure failed", error)
-      }
-    } else if (response.response === 1) {
-      await openLatestReleasePage()
-    }
+    if (response.response === 0) await checkForUpdates(alertOnFail)
+    if (response.response === 1) await shell.openExternal(LATEST_RELEASE_URL)
     return
   }
-  if (!result.updateAvailable) {
-    logger.log("no update decision", { reason: "already up to date" })
-    if (!alertOnFail) return
-    await dialog.showMessageBox({
-      type: "info",
-      message: labels.none.message,
-      title: labels.none.title,
-    })
+  if (result.status === "none") {
+    if (alertOnFail) await dialog.showMessageBox({ type: "info", ...labels.none })
     return
   }
 
   const response = await dialog.showMessageBox({
     type: "info",
-    message: labels.ready.message(result.version),
     title: labels.ready.title,
+    message: labels.ready.message(result.version),
     buttons: labels.ready.buttons,
     defaultId: 0,
     cancelId: 1,
   })
-  logger.log("update prompt response", {
-    version: result.version ?? null,
-    restartNow: response.response === 0,
-  })
-  if (response.response === 0) {
-    try {
-      const started = await installUpdate()
-      if (!started) {
-        await dialog.showMessageBox({
-          type: "info",
-          title: labels.none.title,
-          message: labels.none.message,
-        })
-      }
-    } catch (error) {
-      logger.error("install update failed", error)
-      const response = await dialog.showMessageBox({
-        type: "error",
-        title: labels.failed.title,
-        message: labels.failed.installFailedMessage,
-        detail: [
-          error instanceof Error ? error.message : "",
-          labels.failed.currentVersionUnaffected,
-        ]
-          .filter(Boolean)
-          .join("\n\n"),
-        buttons: [labels.failed.buttons.openDownloadPage, labels.failed.buttons.later],
-        defaultId: 0,
-        cancelId: 1,
-      })
-      if (response.response === 0) {
-        await openLatestReleasePage()
-      }
-    }
-  } else {
+  if (response.response !== 0) {
     updater.dismissReady()
+    return
+  }
+
+  try {
+    const started = updater.install()
+    if (!started) await dialog.showMessageBox({ type: "info", ...labels.none })
+  } catch (error) {
+    logger.error("install update failed", error)
+    const failure = await dialog.showMessageBox({
+      type: "error",
+      title: labels.failed.title,
+      message: labels.failed.installFailedMessage,
+      detail: [error instanceof Error ? error.message : "", labels.failed.currentVersionUnaffected]
+        .filter(Boolean)
+        .join("\n\n"),
+      buttons: [labels.failed.buttons.openDownloadPage, labels.failed.buttons.later],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    if (failure.response === 0) await shell.openExternal(LATEST_RELEASE_URL)
   }
 }
 
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+async function shutdownSidecar() {
+  sidecarShutdown ??= (async () => {
+    const active = sidecar
+    sidecar = undefined
+    if (active) {
+      sidecarStopRequested = true
+      await active.stop()
+    }
+  })()
+  await sidecarShutdown
 }
 
-function defer<T>() {
-  let resolve!: (value: T) => void
-  let reject!: (error: Error) => void
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res
-    reject = rej
-  })
-  return { promise, resolve, reject }
+async function clearPendingUpdate() {
+  await rm(pendingUpdateCacheDir(), { recursive: true, force: true })
+}
+
+function ensureLoopbackNoProxy() {
+  const loopback = ["127.0.0.1", "localhost", "::1"]
+  for (const key of ["NO_PROXY", "no_proxy"] as const) {
+    const values = (process.env[key] ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+    for (const host of loopback) if (!values.some((value) => value.toLowerCase() === host)) values.push(host)
+    process.env[key] = values.join(",")
+  }
 }

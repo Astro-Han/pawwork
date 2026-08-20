@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 import { createUpdaterController } from "./updater"
 
 function controller(overrides: Partial<Parameters<typeof createUpdaterController>[0]> = {}) {

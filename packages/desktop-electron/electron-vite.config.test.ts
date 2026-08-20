@@ -1,29 +1,32 @@
-import { expect, test } from "bun:test"
-import { readFileSync, realpathSync } from "node:fs"
-import path from "node:path"
-import { createRendererWorkspaceConfig } from "./renderer-workspace-config"
+import { afterEach, expect, test, vi } from "vitest"
+import desktopBuild from "./electron.vite.config"
 
-test("renderer dev server allows the resolved workspace node_modules path", () => {
-  const expected = realpathSync(path.resolve(import.meta.dir, "../../node_modules"))
-  const allow = createRendererWorkspaceConfig(import.meta.dir).server.fs.allow
-
-  expect(allow).toContain(expected)
+test("production build has a single DSH desktop entry", () => {
+  expect(desktopBuild.main).toBeDefined()
+  expect(desktopBuild.preload).toBeUndefined()
+  expect(desktopBuild.renderer).toBeUndefined()
 })
 
-test("renderer dedupes the ui workspace package", () => {
-  const dedupe = createRendererWorkspaceConfig(import.meta.dir).resolve.dedupe
-
-  expect(dedupe).toContain("@opencode-ai/ui")
+afterEach(() => {
+  vi.resetModules()
+  vi.unstubAllEnvs()
 })
 
-test("main build does not externalize OpenCLI from the desktop bundle", () => {
-  const source = readFileSync(path.join(import.meta.dir, "electron.vite.config.ts"), "utf8")
+// This define is the only thing that decides what CHANNEL the bundled main
+// process sees, and it is read from the environment at config load. A channel it
+// fails to recognise ships as dev: dev appId, dev profile directory, updater
+// off — while electron-builder, which parses the same variable elsewhere, still
+// names and signs the build for the channel that was asked for.
+test.each([
+  ["prod", "prod"],
+  ["dev", "dev"],
+  ["nightly", "dev"],
+  [undefined, "dev"],
+])("compiles OPENCODE_CHANNEL=%s into the main process as %s", async (raw, expected) => {
+  vi.resetModules()
+  vi.stubEnv("OPENCODE_CHANNEL", raw)
 
-  // node-pty is the only dependency force-externalized (a native module); OpenCLI
-  // stays bundled. remote-bridge ships .ts source, so it is force-BUNDLED via
-  // exclude — leaving it external would leak a bare .ts import the runtime guard
-  // rejects (see desktop-smoke).
-  expect(source).toContain("include: [nodePtyPkg]")
-  expect(source).toContain('exclude: ["@opencode-ai/remote-bridge"]')
-  expect(source).not.toContain("OPENCLI_EXTERNALS")
+  const config = (await import("./electron.vite.config")).default
+
+  expect(config.main?.define).toEqual({ "import.meta.env.OPENCODE_CHANNEL": JSON.stringify(expected) })
 })

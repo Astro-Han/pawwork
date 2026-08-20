@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "vitest"
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -7,15 +7,19 @@ import type { Configuration } from "electron-builder"
 import {
   createConfig,
   getPublishConfig,
-  nativeWatcherFileSets,
-  nativeWatcherPackageNames,
-  openCliRuntimeFileSets,
-  openCliRuntimePackageNames,
 } from "./electron-builder.config"
-import { serializeAppUpdateConfig } from "./scripts/write-app-update-config"
+import { PAWWORK_PACKAGE_NAME, UPDATER_CACHE_DIR_NAME } from "./src/main/app-identity"
 
 const roots: string[] = []
-type AfterPackContext = Parameters<Extract<NonNullable<Configuration["afterPack"]>, (...args: any[]) => unknown>>[0]
+type AfterPackHook = Extract<NonNullable<Configuration["afterPack"]>, (...args: never[]) => unknown>
+type AfterPackContext = Parameters<AfterPackHook>[0]
+
+// electron-builder types afterPack as `string | Hook`; ours is always the hook.
+function afterPackHook(config: Configuration): AfterPackHook {
+  const hook = config.afterPack
+  if (typeof hook !== "function") throw new Error(`afterPack is ${typeof hook}, not a hook`)
+  return hook
+}
 
 function macAfterPackContext(
   appOutDir: string,
@@ -36,20 +40,47 @@ afterEach(() => {
 })
 
 describe("electron builder app-update config", () => {
-  test("prod publish config feeds local updater config", () => {
-    expect(serializeAppUpdateConfig(getPublishConfig("prod")!)).toContain("repo: pawwork\n")
+  test("production dependencies contain only DSH and desktop runtime packages", () => {
+    const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "package.json"), "utf8")) as {
+      dependencies: Record<string, string>
+    }
+
+    const desktopRuntimePackages = new Set([
+      "electron-context-menu",
+      "electron-log",
+      "electron-updater",
+      "electron-window-state",
+      "semver",
+    ])
+
+    expect(
+      Object.keys(manifest.dependencies).filter(
+        (dependency) => !dependency.startsWith("@deepseek-ai/") && !desktopRuntimePackages.has(dependency),
+      ),
+    ).toEqual([])
   })
 
-  test("beta publish config feeds local updater config", () => {
-    expect(serializeAppUpdateConfig(getPublishConfig("beta")!)).toContain("repo: pawwork-beta\n")
+  test("packages only the DSH production entry", () => {
+    const config = createConfig("prod")
+    const extraResources = config.extraResources
+    if (!Array.isArray(extraResources)) throw new Error("extraResources must be a list")
+    const dshResources = extraResources.find((resource) => typeof resource === "object" && resource.to === "dsh/")
+
+    expect(config.files).toEqual(["out/main/**/*"])
+    expect(dshResources).toMatchObject({ filter: ["**/*", "!**/*.test.cjs"] })
+    expect(config.extraResources).toEqual([
+      expect.objectContaining({ to: "dsh/" }),
+      expect.objectContaining({ to: "icons", filter: ["dock.png", "icon.png", "icon.ico"] }),
+      expect.objectContaining({ to: "skills" }),
+      expect.objectContaining({ to: "THIRD_PARTY_NOTICES.md" }),
+      expect.objectContaining({ to: "tools/" }),
+    ])
   })
 
-  test("dev does not publish updater config", () => {
+  test("only the production build publishes to the PawWork repository", () => {
     expect(getPublishConfig("dev")).toBeUndefined()
-  })
-
-  test("mac packaging has an afterPack hook to write app-update.yml before signing", () => {
-    expect(typeof createConfig("prod").afterPack).toBe("function")
+    const prod = getPublishConfig("prod")
+    expect(prod).toMatchObject({ provider: "github", owner: "Astro-Han", repo: "pawwork", channel: "latest-v2" })
   })
 
   test("mac packaging enables a localized display name", () => {
@@ -61,6 +92,13 @@ describe("electron builder app-update config", () => {
     expect(createConfig("prod").mac?.extendInfo).toMatchObject({
       LSHasLocalizedDisplayName: true,
     })
+  })
+
+  // One scheme for every channel, named after the channel's app: whichever build
+  // installs last owns pawwork:// links, and the OS prompt should say which one.
+  test("every channel registers the pawwork scheme under its own name", () => {
+    expect(createConfig("dev").protocols).toEqual({ name: "PawWork Dev", schemes: ["pawwork"] })
+    expect(createConfig("prod").protocols).toEqual({ name: "PawWork", schemes: ["pawwork"] })
   })
 
   test("windows nsis installer uses PawWork shortcut customizations", () => {
@@ -76,10 +114,9 @@ describe("electron builder app-update config", () => {
     })
   })
 
-  test("all channels share the versioned artifact name", () => {
-    expect(createConfig("dev").artifactName).toBe("pawwork-${os}-${arch}-${version}.${ext}")
-    expect(createConfig("beta").artifactName).toBe("pawwork-${os}-${arch}-${version}.${ext}")
-    expect(createConfig("prod").artifactName).toBe("pawwork-${os}-${arch}-${version}.${ext}")
+  test("Windows packages do not require a signing service", () => {
+    expect(createConfig("dev").win?.signtoolOptions).toBeUndefined()
+    expect(createConfig("prod").win?.signtoolOptions).toBeUndefined()
   })
 
   test("packaged repository metadata follows the release channel", () => {
@@ -89,141 +126,15 @@ describe("electron builder app-update config", () => {
     expect(createConfig("prod").extraMetadata).toMatchObject({
       repository: { type: "git", url: "https://github.com/Astro-Han/pawwork" },
     })
-    expect(createConfig("beta").extraMetadata).toMatchObject({
-      repository: { type: "git", url: "https://github.com/Astro-Han/pawwork-beta" },
-    })
   })
 
-  test("packages third-party notices into app resources", () => {
-    const config = createConfig("prod")
-    expect(config.extraResources).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          from: expect.stringContaining("THIRD_PARTY_NOTICES.md"),
-          to: "THIRD_PARTY_NOTICES.md",
-        }),
-      ]),
-    )
-  })
-
-  test("third-party notices include bundled OpenCLI attribution", () => {
-    const notices = readFileSync(join(import.meta.dir, "../..", "THIRD_PARTY_NOTICES.md"), "utf8")
-    const opencodePackage = JSON.parse(
-      readFileSync(join(import.meta.dir, "..", "opencode", "package.json"), "utf8"),
-    ) as { dependencies: Record<string, string> }
-    const openCliVersion = opencodePackage.dependencies["@jackwener/opencli"]
-
-    expect(notices).toContain("## OpenCLI")
-    expect(notices).toContain("https://github.com/jackwener/opencli")
-    expect(notices).toContain("`@jackwener/opencli`")
-    expect(notices).toContain(`Version: ${openCliVersion}`)
-    expect(notices).toContain("Apache License 2.0")
-  })
-
-  test("native watcher package list covers desktop targets", () => {
-    expect(nativeWatcherPackageNames()).toEqual([
-      "@parcel/watcher-darwin-arm64",
-      "@parcel/watcher-darwin-x64",
-      "@parcel/watcher-linux-arm64-glibc",
-      "@parcel/watcher-linux-arm64-musl",
-      "@parcel/watcher-linux-x64-glibc",
-      "@parcel/watcher-linux-x64-musl",
-      "@parcel/watcher-win32-arm64",
-      "@parcel/watcher-win32-x64",
-    ])
-  })
-
-  test("packages native file watcher bindings for the embedded server", () => {
-    const config = createConfig("prod")
-    const resources = nativeWatcherFileSets()
-
-    expect(config.extraResources).toEqual(
-      expect.arrayContaining(
-        resources.map((resource) =>
-          expect.objectContaining({
-            from: resource.from,
-            to: resource.to,
-          }),
-        ),
-      ),
-    )
-    expect(resources.map((resource) => resource.to)).toEqual(
-      nativeWatcherPackageNames().map((packageName) => join("node_modules", ...packageName.split("/"))),
-    )
-  })
-
-  test("packages OpenCLI adapters and runtime dependencies for the embedded server", () => {
-    const config = createConfig("prod")
-    const resources = openCliRuntimeFileSets()
-
-    expect(openCliRuntimePackageNames()).toEqual([
-      "@jackwener/opencli",
-      "@mixmark-io/domino",
-      "@mozilla/readability",
-      "ansi-regex",
-      "argparse",
-      "cli-table3",
-      "commander",
-      "emoji-regex",
-      "is-fullwidth-code-point",
-      "js-yaml",
-      "string-width",
-      "strip-ansi",
-      "turndown",
-      "turndown-plugin-gfm",
-      "undici",
-      "ws",
-    ])
-    expect(config.extraResources).toEqual(
-      expect.arrayContaining(
-        resources.map((resource) =>
-          expect.objectContaining({
-            from: resource.from,
-            to: resource.to,
-          }),
-        ),
-      ),
-    )
-    expect(resources.map((resource) => resource.to)).toEqual(
-      openCliRuntimePackageNames().map((packageName) => join("node_modules", ...packageName.split("/"))),
-    )
-  })
-
-  test("packages only OpenCLI runtime files", () => {
-    const resources = openCliRuntimeFileSets()
-
-    for (const resource of resources) {
-      expect(resource.filter).toEqual(
-        expect.arrayContaining([
-          "!**/.yarn/**",
-          "!**/{test,tests,__tests__,coverage}/**",
-          "!**/*.{test,spec}.{js,mjs,cjs,ts,tsx}",
-        ]),
-      )
-    }
-    expect(resources.find((resource) => resource.to.endsWith(join("@jackwener", "opencli")))?.filter).toContain(
-      "!clis/test-utils.js",
-    )
-  })
-
-  test("afterPack writes app-update.yml to the packager-reported macOS resources path", async () => {
-    const root = mkdtempSync(join(tmpdir(), "pawwork-builder-config-"))
-    roots.push(root)
-    const config = createConfig("prod")
-
-    await config.afterPack!(macAfterPackContext(root, "PawWork Product Filename"))
-
-    const configPath = join(root, "PawWork Product Filename.app", "Contents", "Resources", "app-update.yml")
-    expect(existsSync(configPath)).toBe(true)
-    expect(readFileSync(configPath, "utf8")).toContain("repo: pawwork\n")
-  })
 
   test("afterPack writes localized macOS display names to the final resources path", async () => {
     const root = mkdtempSync(join(tmpdir(), "pawwork-builder-config-"))
     roots.push(root)
     const config = createConfig("prod")
 
-    await config.afterPack!(macAfterPackContext(root, "PawWork"))
+    await afterPackHook(config)(macAfterPackContext(root, "PawWork"))
 
     const zhHans = join(root, "PawWork.app", "Contents", "Resources", "zh-Hans.lproj", "InfoPlist.strings")
     const zhCn = join(root, "PawWork.app", "Contents", "Resources", "zh_CN.lproj", "InfoPlist.strings")
@@ -236,43 +147,16 @@ describe("electron builder app-update config", () => {
     expect(readFileSync(zhCn, "utf8")).toContain('CFBundleName = "爪印";')
   })
 
-  test("afterPack writes beta app-update.yml to the beta app resources path", async () => {
-    const root = mkdtempSync(join(tmpdir(), "pawwork-builder-config-"))
-    roots.push(root)
-    const config = createConfig("beta")
 
-    await config.afterPack!(macAfterPackContext(root, "PawWork Beta"))
-
-    const configPath = join(root, "PawWork Beta.app", "Contents", "Resources", "app-update.yml")
-    expect(existsSync(configPath)).toBe(true)
-    expect(readFileSync(configPath, "utf8")).toContain("repo: pawwork-beta\n")
+  // electron-builder writes app-update.yml itself on every packaged platform and
+  // fills updaterCacheDirName with sanitizeFileName(name).toLowerCase() +
+  // "-updater". We cannot call that function from here, so instead of restating
+  // its output we pin a package name it cannot change: already lowercase and
+  // free of anything sanitize-filename strips, so it passes through unchanged.
+  // Drop the extraMetadata name and the app cleans a directory the updater never
+  // writes to — which is what "@pawwork/desktop" silently did.
+  test("the packaged package name is a fixed point of the updater cache derivation", () => {
+    expect(PAWWORK_PACKAGE_NAME).toMatch(/^[a-z0-9][a-z0-9-]*$/)
   })
 
-  test("afterPack preserves an existing hook before writing updater config", async () => {
-    const root = mkdtempSync(join(tmpdir(), "pawwork-builder-config-"))
-    roots.push(root)
-    const calls: string[] = []
-    const config = createConfig("prod", {
-      afterPack: async () => {
-        calls.push("existing")
-      },
-    })
-
-    await config.afterPack!(macAfterPackContext(root, "PawWork"))
-
-    const configPath = join(root, "PawWork.app", "Contents", "Resources", "app-update.yml")
-    expect(calls).toEqual(["existing"])
-    expect(existsSync(configPath)).toBe(true)
-  })
-
-  test("afterPack skips updater config when publish is not configured", async () => {
-    const root = mkdtempSync(join(tmpdir(), "pawwork-builder-config-"))
-    roots.push(root)
-    const config = createConfig("dev")
-
-    await config.afterPack!(macAfterPackContext(root, "PawWork Dev"))
-
-    const configPath = join(root, "PawWork Dev.app", "Contents", "Resources", "app-update.yml")
-    expect(existsSync(configPath)).toBe(false)
-  })
 })

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 import { ciSmokeCdpSwitches } from "./ci-smoke-cdp"
 
 describe("CI smoke CDP switches", () => {

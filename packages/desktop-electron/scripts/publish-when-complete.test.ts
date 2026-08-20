@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 
 import { decidePublishAction, type ProvenanceMarker } from "./publish-when-complete"
 import { releaseProvenanceAssetNames, type GithubRelease } from "./verify-release"
@@ -21,13 +21,16 @@ const completeRelease: GithubRelease = {
     "pawwork-mac-x64-2026.6.1.zip.blockmap",
     "pawwork-win-x64-2026.6.1.exe",
     "pawwork-win-x64-2026.6.1.exe.blockmap",
-    "latest.yml",
-    "latest-mac.yml",
-  ].map((name) => ({ name, browser_download_url: `https://example.com/${name}` })),
+    "latest-v2.yml",
+    "latest-v2-mac.yml",
+  ].map((name) => ({ name, url: `https://api.example.com/assets/${name}`, browser_download_url: `https://example.com/${name}` })),
 }
 
-const latestYml = "files:\n  - url: pawwork-win-x64-2026.6.1.exe\n"
-const latestMacYml = "files:\n  - url: pawwork-mac-arm64-2026.6.1.zip\n  - url: pawwork-mac-x64-2026.6.1.zip\n"
+const metadata = {
+  "latest-v2.yml": "version: 2026.6.1\nfiles:\n  - url: pawwork-win-x64-2026.6.1.exe\n",
+  "latest-v2-mac.yml":
+    "version: 2026.6.1\nfiles:\n  - url: pawwork-mac-arm64-2026.6.1.zip\n  - url: pawwork-mac-x64-2026.6.1.zip\n",
+}
 
 const expectedProvenance = releaseProvenanceAssetNames("2026.6.1")
 
@@ -42,8 +45,7 @@ const updaterSha512s = expectedProvenance.map(shaFor)
 const decide = (overrides: Partial<Parameters<typeof decidePublishAction>[0]> = {}) =>
   decidePublishAction({
     release: completeRelease,
-    latestYml,
-    latestMacYml,
+    metadata,
     buildSha: BUILD_SHA,
     provenance: allAgree,
     expectedProvenance,
@@ -77,7 +79,7 @@ describe("decidePublishAction", () => {
   })
 
   test("waits when the updater metadata asset is not uploaded yet", () => {
-    expect(decide({ latestYml: undefined }).kind).toBe("wait")
+    expect(decide({ metadata: { ...metadata, "latest-v2.yml": undefined } }).kind).toBe("wait")
   })
 
   test("waits when a target has not uploaded its provenance marker yet", () => {

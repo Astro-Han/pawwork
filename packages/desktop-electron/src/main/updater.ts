@@ -1,17 +1,19 @@
 import { gt, parse } from "semver"
 
-import { errorMessage } from "./error"
-// re-export the feed selector alongside the controller so the updater seam lives
-// in one place (see update-feed.ts for the R2-first / GitHub-fallback logic).
-export { createUpdateFeed, githubFeed, r2Feed } from "./update-feed"
-export type { FeedTarget } from "./update-feed"
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+// Every reason needs dialog copy in every locale, so the set is stated once and
+// updater-dialog-labels is typed against it.
+export type UpdateFailureReason = "check" | "download" | "metadata" | "cache"
 
 export type UpdateResult =
   | { status: "disabled" }
   | { status: "none" }
   | { status: "busy" }
   | { status: "ready"; version: string }
-  | { status: "failed"; reason: "check" | "download" | "metadata" | "cache"; message: string }
+  | { status: "failed"; reason: UpdateFailureReason; message: string }
 
 type UpdateInfo = {
   version?: string
@@ -42,13 +44,12 @@ function newerThanCurrent(version: string, currentVersion: string) {
 
 export function createUpdaterController(deps: Deps) {
   let inflight: Promise<UpdateResult> | undefined
-  let updateReady = false
   let readyVersion: string | undefined
 
   const run = async (): Promise<UpdateResult> => {
     if (!deps.enabled) return { status: "disabled" }
     const currentVersion = deps.currentVersion()
-    if (updateReady && readyVersion !== undefined) {
+    if (readyVersion !== undefined) {
       const comparison = newerThanCurrent(readyVersion, currentVersion)
       if (comparison === "invalid") {
         return { status: "failed", reason: "metadata", message: "Update version is invalid" }
@@ -63,7 +64,6 @@ export function createUpdaterController(deps: Deps) {
         deps.error("stale update cache cleanup failed", error)
         return { status: "failed", reason: "cache", message: errorMessage(error) }
       }
-      updateReady = false
       readyVersion = undefined
     }
     let clearedStalePendingMetadata = false
@@ -118,7 +118,6 @@ export function createUpdaterController(deps: Deps) {
         return { status: "failed", reason: "download", message: errorMessage(error) }
       }
 
-      updateReady = true
       readyVersion = info.version
       return { status: "ready", version: info.version }
     }
@@ -133,7 +132,7 @@ export function createUpdaterController(deps: Deps) {
       return inflight
     },
     install() {
-      if (!updateReady || readyVersion === undefined) return false
+      if (readyVersion === undefined) return false
       const currentVersion = deps.currentVersion()
       const comparison = newerThanCurrent(readyVersion, currentVersion)
       if (comparison !== true) {
@@ -142,19 +141,14 @@ export function createUpdaterController(deps: Deps) {
       }
       // Keep the ready latch if quitAndInstall throws before Electron starts installing.
       deps.quitAndInstall()
-      updateReady = false
       readyVersion = undefined
       return true
     },
     dismissReady() {
-      if (!updateReady) return false
-      updateReady = false
+      if (readyVersion === undefined) return false
       readyVersion = undefined
       deps.log("dismissed ready update")
       return true
-    },
-    busy() {
-      return Boolean(inflight)
     },
   }
 }

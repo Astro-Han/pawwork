@@ -1,1 +1,0 @@
-ALTER TABLE `session` ADD `skill` text;

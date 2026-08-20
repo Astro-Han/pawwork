@@ -1,6 +1,6 @@
 # PawWork Release Checklist
 
-Use this checklist for stable PawWork desktop releases.
+Use this checklist for PawWork desktop releases.
 
 ## 1. Prepare
 
@@ -49,7 +49,7 @@ Create or update the GitHub Release body before publishing the release. Use Engl
 - macOS Apple Silicon submit/finalize completed successfully, including notarization.
 - macOS Intel submit/finalize completed successfully, including notarization.
 - Windows x64 release build completed successfully.
-- vX.Y.Z is published as the latest stable release.
+- vX.Y.Z is published as the latest release.
 
 ## 中文版本
 
@@ -120,14 +120,14 @@ gh release view vX.Y.Z --repo Astro-Han/pawwork --json isDraft,isPrerelease,targ
 - **Still a draft, a target missing** (the step logged `wait`) → finish or re-run the missing target; its own tail step will publish. Do not publish by hand.
 - **The step failed** (mixed-source, updater-metadata drift, or a missing/empty provenance marker) → **do not publish.** The guard is refusing a release built from more than one commit or with mismatched metadata. Rebuild all three targets from a single commit (see the same-commit note in Step 3) and let auto-publish run.
 
-Manual publish is a **last resort** — e.g. a non-prod channel that has no auto-publish, or recovering a release the pipeline genuinely cannot finish. It bypasses every guard (completeness, single-source markers, the updater-metadata hash anchor, seal/re-read), so only after you have confirmed the draft holds all three installers AND they were built from the same commit, publish and pin the tag to that commit:
+Manual publish is a **last resort** for recovering a release the pipeline genuinely cannot finish. It bypasses every guard (completeness, single-source markers, the updater-metadata hash anchor, seal/re-read), so only after you have confirmed the draft holds all three installers AND they were built from the same commit, publish and pin the tag to that commit:
 
 ```bash
 # LAST RESORT — bypasses the auto-publisher's safety checks.
 gh release edit vX.Y.Z --repo Astro-Han/pawwork --draft=false --latest --prerelease=false --target <build-commit-sha>
 ```
 
-Never publish a non-prod (beta/dev) build as `--latest --prerelease=false`, and never hand-publish a partial draft.
+Never publish a dev build as `--latest --prerelease=false`, and never hand-publish a partial draft.
 
 ## 5. Mirror Downloads to Cloudflare R2
 
@@ -156,7 +156,7 @@ Run the verification helper:
 
 ```bash
 export GH_TOKEN="$(gh auth token)"
-bun packages/desktop-electron/scripts/verify-release.ts vX.Y.Z
+pnpm --filter @pawwork/desktop exec tsx scripts/verify-release.ts vX.Y.Z
 ```
 
 `GH_TOKEN` is recommended so GitHub API requests use the authenticated rate limit.
@@ -169,82 +169,10 @@ The helper verifies:
 - `pawwork-mac-x64-X.Y.Z.dmg` exists.
 - `pawwork-win-x64-X.Y.Z.exe` exists.
 - versioned updater `.zip` and `.blockmap` assets exist.
-- `latest.yml` points to `pawwork-win-x64-X.Y.Z.exe`.
-- `latest-mac.yml` includes both `pawwork-mac-arm64-X.Y.Z.zip` and `pawwork-mac-x64-X.Y.Z.zip`.
+- `latest-v2.yml` points to `pawwork-win-x64-X.Y.Z.exe`.
+- `latest-v2-mac.yml` includes both `pawwork-mac-arm64-X.Y.Z.zip` and `pawwork-mac-x64-X.Y.Z.zip`.
 
-Also verify a fresh packaged startup before closing startup-blocking issues. The command below is for macOS; override `PAWWORK_RELEASE_APP_PATH` and `PAWWORK_RELEASE_STARTUP_LOG` if the app or log is in a custom location.
-
-```bash
-set -euo pipefail
-smoke_home=/tmp/pawwork-release-smoke/user-data
-smoke_user_data="$smoke_home/ai.pawwork.desktop"
-ready_file="$smoke_user_data/ci-smoke-ready.json"
-app_path=${PAWWORK_RELEASE_APP_PATH:-/Applications/PawWork.app/Contents/MacOS/PawWork}
-startup_log=${PAWWORK_RELEASE_STARTUP_LOG:-$smoke_user_data/logs/main.log}
-app_pid=""
-cleanup() {
-  if [ -n "$app_pid" ]; then
-    kill "$app_pid" 2>/dev/null || true
-  fi
-  rm -rf "$smoke_home"
-}
-trap cleanup EXIT
-rm -rf "$smoke_home"
-PAWWORK_CI_SMOKE=true PAWWORK_CI_SMOKE_HOME="$smoke_home" "$app_path" &
-app_pid=$!
-i=0
-while [ "$i" -lt 60 ]; do
-  test -f "$ready_file" && break
-  sleep 1
-  i=$((i + 1))
-done
-if [ ! -f "$ready_file" ]; then
-  echo "Timed out waiting for $ready_file"
-  exit 1
-fi
-sleep 1
-PAWWORK_RELEASE_STARTUP_LOG="$startup_log" bun packages/desktop-electron/scripts/verify-release.ts vX.Y.Z
-```
-
-The startup log check reads the latest `app starting` block and verifies it reaches `server ready`, `loading task finished`, and `init step done`. This catches first-launch hangs where the sidecar becomes reachable but the desktop shell never opens the main window.
-
-For Windows releases, run the same fresh-user-data check from PowerShell:
-
-```powershell
-$ErrorActionPreference = "Stop"
-$smokeHome = "$env:TEMP\pawwork-release-smoke\user-data"
-$smokeUserData = "$smokeHome\ai.pawwork.desktop"
-$readyFile = "$smokeUserData\ci-smoke-ready.json"
-$appPath = if ($env:PAWWORK_RELEASE_APP_PATH) { $env:PAWWORK_RELEASE_APP_PATH } else { "$env:LOCALAPPDATA\Programs\PawWork\PawWork.exe" }
-$startupLog = if ($env:PAWWORK_RELEASE_STARTUP_LOG) { $env:PAWWORK_RELEASE_STARTUP_LOG } else { "$smokeUserData\logs\main.log" }
-Remove-Item -Recurse -Force $smokeHome -ErrorAction SilentlyContinue
-$previousCiSmoke = $env:PAWWORK_CI_SMOKE
-$previousCiSmokeHome = $env:PAWWORK_CI_SMOKE_HOME
-$previousStartupLog = $env:PAWWORK_RELEASE_STARTUP_LOG
-$env:PAWWORK_CI_SMOKE = "true"
-$env:PAWWORK_CI_SMOKE_HOME = $smokeHome
-$app = Start-Process -FilePath $appPath -PassThru
-try {
-  $ready = $false
-  for ($i = 0; $i -lt 60; $i++) {
-    if (Test-Path $readyFile) {
-      $ready = $true
-      break
-    }
-    Start-Sleep -Seconds 1
-  }
-  if (-not $ready) { throw "Timed out waiting for $readyFile" }
-  Start-Sleep -Seconds 1
-  $env:PAWWORK_RELEASE_STARTUP_LOG = $startupLog
-  bun packages/desktop-electron/scripts/verify-release.ts vX.Y.Z
-} finally {
-  if ($app -and -not $app.HasExited) { Stop-Process -Id $app.Id -Force }
-  if ($null -eq $previousCiSmoke) { Remove-Item Env:PAWWORK_CI_SMOKE -ErrorAction SilentlyContinue } else { $env:PAWWORK_CI_SMOKE = $previousCiSmoke }
-  if ($null -eq $previousCiSmokeHome) { Remove-Item Env:PAWWORK_CI_SMOKE_HOME -ErrorAction SilentlyContinue } else { $env:PAWWORK_CI_SMOKE_HOME = $previousCiSmokeHome }
-  if ($null -eq $previousStartupLog) { Remove-Item Env:PAWWORK_RELEASE_STARTUP_LOG -ErrorAction SilentlyContinue } else { $env:PAWWORK_RELEASE_STARTUP_LOG = $previousStartupLog }
-  Remove-Item -Recurse -Force $smokeHome -ErrorAction SilentlyContinue
-}
-```
+Fresh packaged startup and product behavior are owned by the `desktop-smoke` Electron/CDP workflow. Do not recreate a second release gate from implementation-specific log markers.
 
 For Windows installer shortcut verification, record the minimum matrix:
 

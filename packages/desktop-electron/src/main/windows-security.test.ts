@@ -1,18 +1,23 @@
-import { describe, expect, test } from "bun:test"
-import path from "node:path"
-import { rendererWebPreferences } from "./window-options"
+import { describe, expect, test } from "vitest"
+import { dshTitleBarOptions, dshWebPreferences } from "./window-options"
 
 describe("desktop windows security", () => {
-  test("renderer windows use a sandbox-compatible preload bridge without renderer Node access", () => {
-    const prefs = rendererWebPreferences("/Applications/PawWork.app/Contents/Resources/app.asar/out/main")
+  test("DSH windows receive only the scoped PawWork file picker bridge", () => {
+    const prefs = dshWebPreferences("/resources/dsh/product/preload.cjs")
 
     expect(prefs).toMatchObject({
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      preload: "/resources/dsh/product/preload.cjs",
     })
-    // `path.join` uses backslashes on Windows, so compare with the platform
-    // separator instead of hardcoding `/preload/index.js`.
-    expect(prefs.preload).toEndWith(path.join("preload", "index.js"))
+  })
+
+  test("Windows uses system caption buttons over the frameless DSH shell", () => {
+    expect(dshTitleBarOptions("win32")).toEqual({
+      titleBarOverlay: { height: 32 },
+      titleBarStyle: "hidden",
+    })
+    expect(dshTitleBarOptions("darwin")).toEqual({ titleBarStyle: "hidden" })
   })
 })

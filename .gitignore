@@ -12,7 +12,6 @@ playground
 tmp
 dist
 ts-dist
-.turbo
 **/.serena
 .serena/
 /result
@@ -31,7 +30,6 @@ __pycache__/
 opencode-dev
 UPCOMING_CHANGELOG.md
 logs/
-*.bun-build
 tsconfig.tsbuildinfo
 .superpowers/
 

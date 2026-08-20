@@ -1,23 +1,26 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 import { spawnSync } from "node:child_process"
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { desktopShellMainSelector, titlebarShellSelector } from "../src/renderer/ci-smoke-selectors"
+import process from "node:process"
 import {
   allocateCiSmokeCdpPort,
   appIdForSmoke,
+  assertCiSmokeProduct,
   buildSmokeEnv,
-  isCiSmokeRendererTarget,
+  isCiSmokeDshTarget,
   parseSmokeArgs,
   parseSmokeCdpPort,
   probeCiSmokeCdpTarget,
-  requiredSelectors,
   resolveCiSmokeReadyFile,
   resolveCiSmokeCdpPort,
   resolveLaunchCommand,
   resolveMainEntry,
 } from "./ci-smoke"
+import type { CiSmokeProductSnapshot } from "./ci-smoke"
+import { packagedAppEnv } from "./packaged-app-env.ts"
+import type { PawWorkChannel } from "../src/main/app-identity.ts"
 
 describe("ci smoke helpers", () => {
   test("resolveMainEntry points at the built Electron main process bundle", () => {
@@ -27,7 +30,6 @@ describe("ci smoke helpers", () => {
   test("buildSmokeEnv isolates the app state in a temporary home", () => {
     const env = buildSmokeEnv("/tmp/pawwork-ci-smoke")
 
-    expect(env.OPENCODE_CHANNEL).toBe("dev")
     expect(env.PAWWORK_CI_SMOKE).toBe("true")
     expect(env.PAWWORK_CI_SMOKE_HOME).toBe("/tmp/pawwork-ci-smoke")
     expect(env.HOME).toBe("/tmp/pawwork-ci-smoke")
@@ -36,10 +38,6 @@ describe("ci smoke helpers", () => {
     expect(env.XDG_CONFIG_HOME).toBe("/tmp/pawwork-ci-smoke")
     expect(env.XDG_STATE_HOME).toBe("/tmp/pawwork-ci-smoke")
     expect(env.CI).toBe("true")
-  })
-
-  test("required selectors lock one real renderer affordance", () => {
-    expect(requiredSelectors).toEqual([titlebarShellSelector, desktopShellMainSelector])
   })
 
   test("resolveCiSmokeReadyFile points at the CI-ready marker inside the isolated user data dir", () => {
@@ -52,7 +50,6 @@ describe("ci smoke helpers", () => {
     expect(appIdForSmoke("dev", "raw")).toBe("ai.pawwork.desktop.dev")
     expect(appIdForSmoke("prod", "raw")).toBe("ai.pawwork.desktop.dev")
     expect(appIdForSmoke("dev", "packaged")).toBe("ai.pawwork.desktop.dev")
-    expect(appIdForSmoke("beta", "packaged")).toBe("ai.pawwork.desktop.beta")
     expect(appIdForSmoke("prod", "packaged")).toBe("ai.pawwork.desktop")
   })
 
@@ -60,29 +57,24 @@ describe("ci smoke helpers", () => {
     expect(resolveCiSmokeReadyFile("/tmp/pawwork-ci-smoke", { channel: "prod", mode: "packaged" })).toBe(
       path.join("/tmp/pawwork-ci-smoke", "ai.pawwork.desktop", "ci-smoke-ready.json"),
     )
-    expect(resolveCiSmokeReadyFile("/tmp/pawwork-ci-smoke", { channel: "beta", mode: "packaged" })).toBe(
-      path.join("/tmp/pawwork-ci-smoke", "ai.pawwork.desktop.beta", "ci-smoke-ready.json"),
-    )
-  })
-
-  test("buildSmokeEnv carries the requested channel into the child process", () => {
-    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", "prod")
-
-    expect(env.OPENCODE_CHANNEL).toBe("prod")
-    expect(env.PAWWORK_CI_SMOKE).toBe("true")
-    expect(env.PAWWORK_CI_SMOKE_HOME).toBe("/tmp/pawwork-ci-smoke")
   })
 
   test("buildSmokeEnv carries the workflow-scoped CDP port into the child process", () => {
-    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", "dev", { PAWWORK_CI_SMOKE_CDP_PORT: "48291" })
+    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", { PAWWORK_CI_SMOKE_CDP_PORT: "48291" })
 
     expect(env.PAWWORK_CI_SMOKE_CDP_PORT).toBe("48291")
   })
 
   test("buildSmokeEnv injects the harness-allocated CDP port into the child process", () => {
-    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", "dev", {}, { cdpPort: 48291 })
+    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", {}, { cdpPort: 48291 })
 
     expect(env.PAWWORK_CI_SMOKE_CDP_PORT).toBe("48291")
+  })
+
+  test("buildSmokeEnv exposes only the explicit v1 fixture to the importer", () => {
+    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", {}, { v1Database: "/tmp/v1/pawwork.db" })
+
+    expect(env.PAWWORK_V1_DATABASE).toBe("/tmp/v1/pawwork.db")
   })
 
   test("parseSmokeCdpPort accepts only concrete TCP ports", () => {
@@ -123,17 +115,15 @@ describe("ci smoke helpers", () => {
     expect(port).toBeLessThanOrEqual(65_535)
   })
 
-  test("isCiSmokeRendererTarget accepts real renderer page URLs only", () => {
-    expect(isCiSmokeRendererTarget({ type: "page", url: "http://127.0.0.1:5173/index.html" })).toBe(true)
-    expect(isCiSmokeRendererTarget({ type: "page", url: "http://localhost:5173/index.html#/chat" })).toBe(true)
-    expect(isCiSmokeRendererTarget({ type: "page", url: "http://[::1]:5173/index.html?debug=1" })).toBe(true)
-    expect(isCiSmokeRendererTarget({ type: "page", url: "pawwork-renderer://renderer/index.html#/session" })).toBe(true)
-
-    expect(isCiSmokeRendererTarget({ type: "page", url: "about:blank" })).toBe(false)
-    expect(isCiSmokeRendererTarget({ type: "page", url: "devtools://devtools/bundled/inspector.html" })).toBe(false)
-    expect(isCiSmokeRendererTarget({ type: "iframe", url: "pawwork-renderer://renderer/index.html" })).toBe(false)
-    expect(isCiSmokeRendererTarget({ type: "page", url: "file:///Applications/PawWork/index.html" })).toBe(false)
-    expect(isCiSmokeRendererTarget({ type: "page", url: "pawwork-renderer://wrong/index.html" })).toBe(false)
+  test("isCiSmokeDshTarget accepts DSH loopback pages only", () => {
+    expect(isCiSmokeDshTarget({ type: "page", url: "http://127.0.0.1:5173/index.html" })).toBe(true)
+    expect(isCiSmokeDshTarget({ type: "page", url: "http://localhost:5173/index.html#/chat" })).toBe(true)
+    expect(isCiSmokeDshTarget({ type: "page", url: "http://[::1]:5173/index.html?debug=1" })).toBe(true)
+    expect(isCiSmokeDshTarget({ type: "page", url: "about:blank" })).toBe(false)
+    expect(isCiSmokeDshTarget({ type: "page", url: "devtools://devtools/bundled/inspector.html" })).toBe(false)
+    expect(isCiSmokeDshTarget({ type: "iframe", url: "pawwork-renderer://renderer/index.html" })).toBe(false)
+    expect(isCiSmokeDshTarget({ type: "page", url: "file:///Applications/PawWork/index.html" })).toBe(false)
+    expect(isCiSmokeDshTarget({ type: "page", url: "pawwork-renderer://renderer/index.html" })).toBe(false)
   })
 
   test("probeCiSmokeCdpTarget retries until the renderer target is discoverable", async () => {
@@ -142,7 +132,7 @@ describe("ci smoke helpers", () => {
       Promise.reject(new Error("connect ECONNREFUSED")),
       Promise.resolve(new Response(JSON.stringify([{ type: "page", url: "about:blank" }]))),
       Promise.resolve(
-        new Response(JSON.stringify([{ type: "page", url: "pawwork-renderer://renderer/index.html" }])),
+        new Response(JSON.stringify([{ type: "page", url: "http://127.0.0.1:53501/" }])),
       ),
     ]
 
@@ -171,7 +161,7 @@ describe("ci smoke helpers", () => {
         fetch: () => Promise.resolve(new Response(JSON.stringify([{ type: "page", url: "about:blank" }]))),
         sleep: () => Promise.resolve(),
       }),
-    ).rejects.toThrow("CDP endpoint on port 48291 did not expose a renderer page target")
+    ).rejects.toThrow("CDP endpoint on port 48291 did not expose a DSH page target")
   })
 
   test("probeCiSmokeCdpTarget drains non-OK discovery responses before retrying", async () => {
@@ -208,81 +198,255 @@ describe("ci smoke helpers", () => {
     ).rejects.toThrow("CDP endpoint never came up on port 48291")
   })
 
+  test("assertCiSmokeProduct accepts the shipped DSH product contract", () => {
+    expect(() => assertCiSmokeProduct({
+      sidebarBrandVisible: true,
+      heroMarkVisible: true,
+      heroHeadlineOverridden: true,
+      heroPreviewBadgeHidden: true,
+      heroMarkHeadlineOffset: 0,
+      automationSettingsEntryVisible: true,
+      automationSidebarEntryAbsent: true,
+      automationSurfaceVisible: true,
+      automationCreateViaChatWorked: true,
+      automationEditorVisible: true,
+      automationEditorUsesFullWidth: true,
+      automationAdvancedVisible: true,
+      automationBackNavigationWorks: true,
+      automationEditorHeaderFits: true,
+      automationSaveWorks: true,
+      automationDeleteDialogWorks: true,
+      automationDirtyPauseBlocked: true,
+      automationMetadataPlain: true,
+      titlebarStripHeight: 32,
+      titlebarStripDraggable: true,
+      contentInsetHeight: 32,
+      sidebarBrandName: "爪印",
+      sidebarBrandTop: 46,
+      sidebarToggleCount: 1,
+      sidebarCollapsed: true,
+      sidebarExpandToggleCount: 1,
+      sidebarExpandToggleUsable: true,
+      sidebarExpandToggleHasContent: true,
+      sidebarExpandedAgain: true,
+      platform: "MacIntel",
+      freeProviderActive: true,
+      freeModelAvailable: true,
+      v1SessionImported: true,
+      skillNames: ["office-docx", "office-pdf", "office-pptx", "office-xlsx"],
+      sessionId: "session-smoke",
+      sessionIdsBeforeRestart: ["session-smoke"],
+    }, "darwin")).not.toThrow()
+  })
+
+  // A healthy snapshot, and one broken value per field. Asserting on the joined
+  // failure prose meant rewording any one message turned the test red while a
+  // clause that stopped being evaluated stayed green. What matters is that every
+  // field the snapshot carries is actually consulted.
+  const healthy: CiSmokeProductSnapshot = {
+    sidebarBrandVisible: true,
+    sidebarBrandName: "PawWork",
+    sidebarBrandTop: 40,
+    heroMarkVisible: true,
+    heroHeadlineOverridden: true,
+    heroPreviewBadgeHidden: true,
+    heroMarkHeadlineOffset: 0.4,
+    automationSettingsEntryVisible: true,
+    automationSidebarEntryAbsent: true,
+    automationSurfaceVisible: true,
+    automationCreateViaChatWorked: true,
+    automationEditorVisible: true,
+    automationEditorUsesFullWidth: true,
+    automationAdvancedVisible: true,
+    automationBackNavigationWorks: true,
+    automationEditorHeaderFits: true,
+    automationSaveWorks: true,
+    automationDeleteDialogWorks: true,
+    automationDirtyPauseBlocked: true,
+    automationMetadataPlain: true,
+    titlebarStripHeight: 32,
+    titlebarStripDraggable: true,
+    contentInsetHeight: 32,
+    sidebarToggleCount: 1,
+    sidebarCollapsed: true,
+    sidebarExpandToggleCount: 1,
+    sidebarExpandToggleUsable: true,
+    sidebarExpandToggleHasContent: true,
+    sidebarExpandedAgain: true,
+    platform: "MacIntel",
+    freeProviderActive: true,
+    freeModelAvailable: true,
+    v1SessionImported: true,
+    skillNames: ["office-docx", "office-pdf", "office-pptx", "office-xlsx"],
+    sessionId: "session-1",
+    sessionIdsBeforeRestart: ["session-1"],
+  }
+
+  const broken: Partial<Record<keyof CiSmokeProductSnapshot, unknown>> = {
+    sidebarBrandVisible: false,
+    sidebarBrandName: "",
+    sidebarBrandTop: 8,
+    heroMarkVisible: false,
+    heroHeadlineOverridden: false,
+    heroPreviewBadgeHidden: false,
+    heroMarkHeadlineOffset: 4.5,
+    automationSettingsEntryVisible: false,
+    automationSidebarEntryAbsent: false,
+    automationSurfaceVisible: false,
+    automationCreateViaChatWorked: false,
+    automationEditorVisible: false,
+    automationEditorUsesFullWidth: false,
+    automationAdvancedVisible: false,
+    automationBackNavigationWorks: false,
+    automationEditorHeaderFits: false,
+    automationSaveWorks: false,
+    automationDeleteDialogWorks: false,
+    automationDirtyPauseBlocked: false,
+    automationMetadataPlain: false,
+    titlebarStripHeight: 0,
+    titlebarStripDraggable: false,
+    contentInsetHeight: 8,
+    sidebarToggleCount: 2,
+    sidebarCollapsed: false,
+    sidebarExpandToggleCount: 0,
+    sidebarExpandToggleUsable: false,
+    sidebarExpandToggleHasContent: false,
+    sidebarExpandedAgain: false,
+    freeProviderActive: false,
+    freeModelAvailable: false,
+    v1SessionImported: false,
+    skillNames: ["office-docx"],
+  }
+
+  test("accepts a snapshot where every product capability is present", () => {
+    expect(() => assertCiSmokeProduct(healthy, "darwin")).not.toThrow()
+  })
+
+  test.each(Object.keys(broken))("rejects a snapshot whose %s is wrong", (field) => {
+    const key = field as keyof CiSmokeProductSnapshot
+    expect(() => assertCiSmokeProduct({ ...healthy, [key]: broken[key] }, "darwin")).toThrow(
+      /DSH product smoke failed/,
+    )
+  })
+
+  test("consults every field it collects", () => {
+    // The three left out are carried for the failure report and the restart
+    // comparison, not asserted here. A new field landing outside `broken` means
+    // the smoke gathers something nothing checks.
+    const unchecked = Object.keys(healthy).filter((field) => !(field in broken))
+    expect(unchecked.sort()).toEqual(["platform", "sessionId", "sessionIdsBeforeRestart"])
+  })
+
+  test("reports every failing capability at once, not just the first", () => {
+    // CI reads the thrown message and stops; a check that returned on its first
+    // failure would hide the rest until the next run.
+    let message = ""
+    try {
+      assertCiSmokeProduct({ ...healthy, sidebarBrandVisible: false, freeProviderActive: false }, "darwin")
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+    expect(message.split("\n- ").length - 1).toBe(2)
+  })
+
   test("parseSmokeArgs defaults to raw dev mode", () => {
     expect(parseSmokeArgs([])).toEqual({ mode: "raw", channel: "dev" })
   })
 
-  test("parseSmokeArgs accepts a packaged executable path", () => {
+  // The path is derived from the channel now, so these run from a temporary
+  // working directory holding the layout electron-builder would have produced.
+  function inPackagedTree(channel: PawWorkChannel, build: (executablePath: string) => void, run: () => void) {
     const dir = mkdtempSync(path.join(tmpdir(), "pawwork-ci-smoke-"))
+    const previous = process.cwd()
     try {
-      const executablePath = path.join(dir, "PawWork")
-      writeFileSync(executablePath, "")
+      process.chdir(dir)
+      build(packagedAppEnv(channel).EXECUTABLE_PATH)
+      run()
+    } finally {
+      process.chdir(previous)
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
 
+  // PawWork packages for macOS and Windows only, so the derivation has no answer
+  // on the Linux CI runner; packaged-app-env.test.ts covers each platform there.
+  const packagesHere = process.platform === "darwin" || process.platform === "win32"
+
+  test.skipIf(!packagesHere)("parseSmokeArgs derives the packaged executable from the channel", () => {
+    inPackagedTree(
+      "prod",
+      (executablePath) => {
+        mkdirSync(path.dirname(executablePath), { recursive: true })
+        writeFileSync(executablePath, "")
+      },
+      () => {
+        expect(parseSmokeArgs(["packaged", "prod"])).toEqual({
+          mode: "packaged",
+          channel: "prod",
+          executablePath: packagedAppEnv("prod").EXECUTABLE_PATH,
+        })
+      },
+    )
+  })
+
+  test.skipIf(!packagesHere)("parseSmokeArgs rejects packaged mode when the derived executable is missing", () => {
+    inPackagedTree(
+      "dev",
+      () => {},
+      () => {
+        expect(() => parseSmokeArgs(["packaged", "dev"])).toThrow(
+          `Packaged smoke executable not found: ${packagedAppEnv("dev").EXECUTABLE_PATH}`,
+        )
+      },
+    )
+  })
+
+  test("parseSmokeArgs accepts an installed executable selected by the release workflow", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "pawwork-installed-smoke-"))
+    const executablePath = path.join(root, "PawWork.exe")
+    writeFileSync(executablePath, "", { flag: "w" })
+    try {
       expect(parseSmokeArgs(["packaged", "prod", executablePath])).toEqual({
         mode: "packaged",
         channel: "prod",
         executablePath,
       })
     } finally {
-      rmSync(dir, { recursive: true, force: true })
+      rmSync(root, { recursive: true, force: true })
     }
   })
 
-  test("parseSmokeArgs rejects packaged mode without an executable path", () => {
-    expect(() => parseSmokeArgs(["packaged", "dev"])).toThrow("Packaged smoke requires an executable path")
-  })
-
-  test("parseSmokeArgs rejects packaged mode when the executable path is missing", () => {
-    expect(() => parseSmokeArgs(["packaged", "dev", "/tmp/pawwork-missing-executable"])).toThrow(
-      "Packaged smoke executable not found: /tmp/pawwork-missing-executable",
-    )
-  })
-
   test("resolveLaunchCommand uses Electron for raw runs and the app executable for packaged runs", () => {
-    const raw = resolveLaunchCommand(
-      { mode: "raw", channel: "dev" },
-      { electronBinary: () => "/tmp/pawwork-electron/electron" },
-    )
-    expect(raw.args).toEqual([resolveMainEntry()])
-    expect(raw.command).toBe("/tmp/pawwork-electron/electron")
+    expect(resolveLaunchCommand({ mode: "raw", channel: "dev" }).command.toLowerCase()).toContain("electron")
 
-    const packaged = resolveLaunchCommand(
-      {
-        mode: "packaged",
-        channel: "dev",
-        executablePath: "/tmp/PawWork Dev.app/Contents/MacOS/PawWork Dev",
-      },
-      {
-        electronBinary: () => {
-          throw new Error("packaged mode should not resolve electron binary")
-        },
-      },
-    )
-    expect(packaged).toEqual({
+    expect(resolveLaunchCommand({
+      mode: "packaged",
+      channel: "dev",
+      executablePath: "/tmp/PawWork Dev.app/Contents/MacOS/PawWork Dev",
+    })).toEqual({
       command: "/tmp/PawWork Dev.app/Contents/MacOS/PawWork Dev",
       args: [],
     })
   })
 
-  // POSIX-only: the fixture relies on creating an empty file with chmod 0o755
-  // to trigger an ENOEXEC spawn error so ci-smoke.ts emits the
-  // "Failed to launch desktop app:" branch. Windows has no direct equivalent
-  // (empty files run through cmd exit cleanly, sending the flow through the
-  // "Electron exited" branch instead), and the assertion targets the spawn
-  // error format itself, not Windows-specific launch behavior.
-  test.skipIf(process.platform === "win32")(
+  // Spawn a directory rather than a file: exec on a directory is EACCES, and
+  // existsSync still accepts it, so parseSmokeArgs lets it through to the spawn.
+  // macOS only — Linux has no packaged layout to derive, and Windows launch
+  // semantics here are unverified while the assertion targets the spawn-error
+  // format rather than the platform's.
+  test.skipIf(process.platform !== "darwin")(
     "packaged smoke reports spawn failures with launch context",
     () => {
       const dir = mkdtempSync(path.join(tmpdir(), "pawwork-ci-smoke-"))
       try {
-        const executablePath = path.join(dir, "PawWork")
-        writeFileSync(executablePath, "")
-        chmodSync(executablePath, 0o755)
+        const executablePath = packagedAppEnv("dev").EXECUTABLE_PATH
+        mkdirSync(path.join(dir, executablePath), { recursive: true })
 
         const result = spawnSync(
           process.execPath,
-          [path.join(import.meta.dir, "ci-smoke.ts"), "packaged", "dev", executablePath],
+          [path.join(import.meta.dirname, "ci-smoke.ts"), "packaged", "dev"],
           {
+            cwd: dir,
             encoding: "utf8",
             timeout: 5_000,
           },

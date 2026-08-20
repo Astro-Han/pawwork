@@ -4,7 +4,7 @@ ci:
           - ".github/workflows/**"
           - ".github/**"
           - "package.json"
-          - "bun.lock"
+          - "pnpm-lock.yaml"
 
 platform:
   - changed-files:
@@ -15,28 +15,12 @@ platform:
 app:
   - changed-files:
       - any-glob-to-any-file:
-          - "packages/app/**"
+          - "packages/desktop-electron/resources/dsh/**"
           - "README.md"
           - "README_CN.md"
 
 ui:
   - changed-files:
       - any-glob-to-any-file:
-          - "packages/app/src/components/**"
-          - "packages/ui/**"
-          - "**/*.tsx"
+          - "packages/desktop-electron/resources/dsh/product/**"
           - "site/**"
-
-harness:
-  - changed-files:
-      - any-glob-to-any-file:
-          - "packages/opencode/**"
-          - "packages/sdk/**"
-          - "packages/core/**"
-          - "packages/remote-bridge/**"
-          # Rust agent line (crates/): same agent-engine layer, in Rust. Gives the
-          # Rust-only PRs a routing home so pr-triage's label policy passes.
-          - "crates/**"
-          - "Cargo.toml"
-          - "Cargo.lock"
-          - "rust-toolchain.toml"
