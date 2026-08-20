@@ -41,13 +41,19 @@ describe("packaged app locations", () => {
   test("build.yml reads only variables the resolver publishes, and only after it runs", () => {
     const build = readFileSync(join(workflows, "build.yml"), "utf8")
     const steps = build.split(/\n {6}- name: /).slice(1)
-    const published = new Set([...Object.keys(packagedAppEnv("prod", "darwin", "arm64")), "PUBLISH_OWNER", "PUBLISH_REPO"])
+    const published = new Set([
+      ...Object.keys(packagedAppEnv("prod", "darwin", "arm64")),
+      "PUBLISH_OWNER",
+      "PUBLISH_REPO",
+      "METADATA_FILE",
+      "METADATA_ARTIFACT",
+    ])
 
     const resolveIndex = steps.findIndex((step) => step.includes("packaged-app-env.ts"))
     expect(resolveIndex).toBeGreaterThanOrEqual(0)
 
     const readers = steps.flatMap((step, index) =>
-      [...step.matchAll(/\$(APP_NAME|APP_OUT_DIR|APP_PATH|EXECUTABLE_PATH|PUBLISH_OWNER|PUBLISH_REPO)\b/g)]
+      [...step.matchAll(/\$(APP_NAME|APP_OUT_DIR|APP_PATH|EXECUTABLE_PATH|PUBLISH_OWNER|PUBLISH_REPO|METADATA_FILE|METADATA_ARTIFACT)\b/g)]
         .map((match) => ({ index, name: match[1] })),
     )
 
@@ -61,12 +67,16 @@ describe("packaged app locations", () => {
   // The point of the resolver is that CI stops restating what it knows. A copy
   // that creeps back in would be silent — the workflow only runs on a release —
   // so the absence is asserted here instead.
-  test("no workflow spells out an app bundle name or output directory", () => {
+  test("no workflow spells out an app bundle name, output directory or metadata artifact", () => {
     for (const file of ["build.yml", "desktop-smoke.yml"]) {
       const workflow = readFileSync(join(workflows, file), "utf8")
       expect(workflow).not.toMatch(/APP_NAME="PawWork/)
       expect(workflow).not.toMatch(/APP_OUT_DIR="dist\//)
       expect(workflow).not.toMatch(/dist\/(mac|mac-arm64|win-unpacked)\/PawWork/)
+      // A renamed metadata artifact fails silently — the finalizer reads a
+      // directory nothing wrote and exits 0 having finalized nothing.
+      expect(workflow).not.toMatch(/latest-yml-[a-z0-9_]+-/)
+      expect(workflow).not.toMatch(/\blatest(-mac)?\.yml\b/)
     }
   })
 })

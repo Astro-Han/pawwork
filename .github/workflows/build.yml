@@ -339,12 +339,7 @@ jobs:
             return 1
           }
 
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            download_or_warn latest-mac.yml
-          fi
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            download_or_warn latest.yml
-          fi
+          download_or_warn "$METADATA_FILE"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -781,27 +776,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "${{ matrix.target }}-${{ matrix.arch_label }}" in
-            macos-arm64)
-              metadata_dir="$RUNNER_TEMP/latest-yml/latest-yml-aarch64-apple-darwin"
-              metadata_file="latest-mac.yml"
-              ;;
-            macos-x64)
-              metadata_dir="$RUNNER_TEMP/latest-yml/latest-yml-x86_64-apple-darwin"
-              metadata_file="latest-mac.yml"
-              ;;
-            windows-x64)
-              metadata_dir="$RUNNER_TEMP/latest-yml/latest-yml-x86_64-pc-windows-msvc"
-              metadata_file="latest.yml"
-              ;;
-            *)
-              echo "Unsupported updater metadata target: ${{ matrix.target }}-${{ matrix.arch_label }}"
-              exit 1
-              ;;
-          esac
-
+          metadata_dir="$RUNNER_TEMP/latest-yml/$METADATA_ARTIFACT"
           mkdir -p "$metadata_dir"
-          cp "dist/$metadata_file" "$metadata_dir/$metadata_file"
+          cp "dist/$METADATA_FILE" "$metadata_dir/$METADATA_FILE"
         working-directory: packages/desktop-electron
 
       - name: Finalize updater metadata
