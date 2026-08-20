@@ -54,6 +54,42 @@ jobs:
         env:
           PAWWORK_CI_SMOKE_CDP: "true"
 
+  macos-x64:
+    # Intel Macs are still supported, and the arm64 job cannot stand in for them:
+    # it never packages an x64 bundle and could not launch one if it did.
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - name: Enable pnpm
+        run: corepack enable
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Prepare bundled uv
+        run: pnpm exec tsx ./scripts/prepare-uv.ts --platform darwin --arch x64
+        working-directory: packages/desktop-electron
+      - name: Build desktop
+        run: pnpm run build
+        working-directory: packages/desktop-electron
+        env:
+          OPENCODE_CHANNEL: dev
+      - name: Package macOS app
+        run: pnpm exec electron-builder --mac dir --x64 --publish never --config electron-builder.config.ts --config.mac.identity=- --config.mac.notarize=false
+        working-directory: packages/desktop-electron
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          OPENCODE_CHANNEL: dev
+      - name: Smoke packaged macOS app through CDP
+        run: pnpm exec tsx ./scripts/ci-smoke.ts packaged dev
+        working-directory: packages/desktop-electron
+        env:
+          PAWWORK_CI_SMOKE_CDP: "true"
+
   windows-x64:
     runs-on: windows-latest
     timeout-minutes: 35
@@ -93,11 +129,16 @@ jobs:
 
   check:
     if: always()
-    needs: [macos-arm64, windows-x64]
+    needs: [macos-arm64, macos-x64, windows-x64]
     runs-on: ubuntu-latest
     steps:
       - name: Validate desktop smoke results
         env:
-          MACOS_RESULT: ${{ needs.macos-arm64.result }}
+          MACOS_ARM64_RESULT: ${{ needs.macos-arm64.result }}
+          MACOS_X64_RESULT: ${{ needs.macos-x64.result }}
           WINDOWS_RESULT: ${{ needs.windows-x64.result }}
-        run: test "$MACOS_RESULT" = success && test "$WINDOWS_RESULT" = success
+        run: |
+          set -euo pipefail
+          for result in "$MACOS_ARM64_RESULT" "$MACOS_X64_RESULT" "$WINDOWS_RESULT"; do
+            test "$result" = success
+          done
