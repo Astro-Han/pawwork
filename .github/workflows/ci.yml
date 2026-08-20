@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [dev, v2/dsh]
+    branches: [dev]
   pull_request:
     branches: [dev]
   workflow_dispatch:
@@ -15,9 +15,9 @@ permissions:
   contents: read
 
 jobs:
-  dsh-desktop:
+  ci:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
@@ -36,12 +36,37 @@ jobs:
         run: pnpm run typecheck
       - name: Lint
         run: pnpm run lint:ci
-      - name: DSH unit, config, chat, migration, and desktop tests
+      - name: Test PawWork and its DSH integration
         run: pnpm run test
+      - name: Audit dependency graph
+        run: pnpm audit --audit-level high
 
-  dsh-desktop-windows:
-    runs-on: windows-latest
-    timeout-minutes: 25
+  package_smoke:
+    name: desktop / ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            runner: macos-14
+            platform: darwin
+            arch: arm64
+            builder_args: --mac dir --arm64 --publish never --config electron-builder.config.ts --config.mac.identity=- --config.mac.notarize=false
+            development_smoke: true
+          - name: macOS x64
+            runner: macos-15-intel
+            platform: darwin
+            arch: x64
+            builder_args: --mac dir --x64 --publish never --config electron-builder.config.ts --config.mac.identity=- --config.mac.notarize=false
+            development_smoke: false
+          - name: Windows x64
+            runner: windows-latest
+            platform: win32
+            arch: x64
+            builder_args: --win dir --x64 --publish never --config electron-builder.config.ts
+            development_smoke: false
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
     defaults:
       run:
         shell: bash
@@ -56,7 +81,39 @@ jobs:
         run: corepack enable
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Typecheck
-        run: pnpm run typecheck
-      - name: DSH unit, config, chat, migration, and desktop tests
-        run: pnpm run test
+      - name: Prepare bundled uv
+        run: pnpm exec tsx ./scripts/prepare-uv.ts --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
+        working-directory: packages/desktop-electron
+      - name: Build desktop
+        run: pnpm run build
+        working-directory: packages/desktop-electron
+        env:
+          OPENCODE_CHANNEL: dev
+      - name: Smoke development desktop through CDP
+        if: matrix.development_smoke
+        run: pnpm run smoke:ci
+        working-directory: packages/desktop-electron
+        env:
+          PAWWORK_CI_SMOKE_CDP: "true"
+      - name: Package desktop app
+        run: pnpm exec electron-builder ${{ matrix.builder_args }}
+        working-directory: packages/desktop-electron
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          OPENCODE_CHANNEL: dev
+      - name: Smoke packaged desktop through CDP
+        run: pnpm exec tsx ./scripts/ci-smoke.ts packaged dev
+        working-directory: packages/desktop-electron
+        env:
+          PAWWORK_CI_SMOKE_CDP: "true"
+
+  desktop_smoke:
+    name: desktop-smoke
+    if: always()
+    needs: [package_smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate desktop smoke results
+        env:
+          RESULT: ${{ needs.package_smoke.result }}
+        run: test "$RESULT" = success

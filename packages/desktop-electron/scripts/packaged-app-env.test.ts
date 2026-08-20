@@ -68,7 +68,7 @@ describe("packaged app locations", () => {
   // that creeps back in would be silent — the workflow only runs on a release —
   // so the absence is asserted here instead.
   test("no workflow spells out an app bundle name, output directory or metadata artifact", () => {
-    for (const file of ["build.yml", "desktop-smoke.yml"]) {
+    for (const file of ["build.yml", "ci.yml"]) {
       const workflow = readFileSync(join(workflows, file), "utf8")
       expect(workflow).not.toMatch(/APP_NAME="PawWork/)
       expect(workflow).not.toMatch(/APP_OUT_DIR="dist\//)
