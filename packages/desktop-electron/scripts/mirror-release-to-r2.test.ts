@@ -9,6 +9,7 @@ import {
   pointerReferencedAssets,
   uploadPlan,
 } from "./mirror-release-to-r2.ts"
+import { RELEASE_TARGETS } from "./release-targets.ts"
 
 describe("buildManifest", () => {
   test("locks the manifest shape and per-platform installer URLs", () => {
@@ -18,6 +19,18 @@ describe("buildManifest", () => {
       macX64: "https://dl.pawwork.ai/pawwork-mac-x64-2026.5.29.dmg",
       winX64: "https://dl.pawwork.ai/pawwork-win-x64-2026.5.29.exe",
     })
+  })
+
+  // The landing page swaps its download buttons to R2 links by reading these
+  // keys out of latest.json. They are matched by name across two directories,
+  // so a renamed key would only surface as a button that never updates.
+  test("offers exactly the keys the download buttons look up", () => {
+    const home = readFileSync(join(import.meta.dirname, "..", "..", "..", "site", "src", "components", "Home.astro"), "utf8")
+    const buttons = new Set([...home.matchAll(/data-dl="(\w+)"/g)].map((match) => match[1]))
+    const manifest = buildManifest("2026.5.29", "https://dl.pawwork.ai")
+
+    expect(buttons).toEqual(new Set(RELEASE_TARGETS.map((target) => target.manifestKey)))
+    for (const key of buttons) expect(Object.keys(manifest)).toContain(key)
   })
 
   test("normalizes a trailing slash in the public base", () => {
