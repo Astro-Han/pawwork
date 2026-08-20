@@ -301,7 +301,11 @@ describe("ci smoke helpers", () => {
     }
   }
 
-  test("parseSmokeArgs derives the packaged executable from the channel", () => {
+  // PawWork packages for macOS and Windows only, so the derivation has no answer
+  // on the Linux CI runner; packaged-app-env.test.ts covers each platform there.
+  const packagesHere = process.platform === "darwin" || process.platform === "win32"
+
+  test.skipIf(!packagesHere)("parseSmokeArgs derives the packaged executable from the channel", () => {
     inPackagedTree(
       "prod",
       (executablePath) => {
@@ -318,7 +322,7 @@ describe("ci smoke helpers", () => {
     )
   })
 
-  test("parseSmokeArgs rejects packaged mode when the derived executable is missing", () => {
+  test.skipIf(!packagesHere)("parseSmokeArgs rejects packaged mode when the derived executable is missing", () => {
     inPackagedTree(
       "dev",
       () => {},
@@ -343,14 +347,12 @@ describe("ci smoke helpers", () => {
     })
   })
 
-  // Spawn a directory rather than a file: exec on a directory is EACCES on both
-  // macOS and Linux, and existsSync still accepts it, so parseSmokeArgs lets it
-  // through to the spawn. An empty executable file only works on macOS — glibc's
-  // execvp answers ENOEXEC by re-running the file under /bin/sh, so on Linux it
-  // succeeds as an empty script and the flow lands in the "Electron exited"
-  // branch instead. Windows stays skipped: its behaviour here is unverified and
-  // the assertion targets the spawn-error format, not platform launch semantics.
-  test.skipIf(process.platform === "win32")(
+  // Spawn a directory rather than a file: exec on a directory is EACCES, and
+  // existsSync still accepts it, so parseSmokeArgs lets it through to the spawn.
+  // macOS only — Linux has no packaged layout to derive, and Windows launch
+  // semantics here are unverified while the assertion targets the spawn-error
+  // format rather than the platform's.
+  test.skipIf(process.platform !== "darwin")(
     "packaged smoke reports spawn failures with launch context",
     () => {
       const dir = mkdtempSync(path.join(tmpdir(), "pawwork-ci-smoke-"))

@@ -12,6 +12,7 @@ const {
   attachDshWorkspace,
   buildDshSession,
   completedV1SessionTargetIds,
+  importedPrefixIsComplete,
   materializeLegacyImages,
   readV1Sessions,
   runV1SessionImport,
@@ -267,22 +268,16 @@ test('survives a snapshot it cannot delete', { timeout: 20_000 }, async () => {
   importerModule.runV1SessionImport = async () => ({ status: 'complete' });
   settingsModule.createDshSettingImporter = () => async () => 'skipped';
   settingsModule.runV1SettingsImport = async () => ({ status: 'complete' });
-  // Deny the snapshot's deletion the way the platform actually denies it: POSIX
-  // refuses unlink without write permission on the directory, Windows refuses it
-  // while any handle is open — a directory mode there is not enforced at all, so
-  // the chmod alone left this test asserting nothing on the platform whose
-  // indexers and AV scanners are the reason the guard exists.
-  let heldSnapshot;
-  const denyCleanup = () => {
-    if (process.platform === 'win32') heldSnapshot = fs.openSync(path.join(migrationDir, 'snapshot.db'), 'r');
-    else fs.chmodSync(migrationDir, 0o500);
-  };
-  const allowCleanup = () => {
-    if (heldSnapshot !== undefined) fs.closeSync(heldSnapshot);
-    else fs.chmodSync(migrationDir, 0o700);
-  };
+  // What the guard catches is close() throwing — on Windows an indexer or AV
+  // scanner holding the snapshot, on POSIX a directory that denies unlink. Both
+  // are awkward to stage portably (a directory mode is not enforced on Windows,
+  // and Node opens files sharing delete permission), so the snapshot is replaced
+  // with a non-empty directory: rmSync refuses that on every platform.
+  const snapshotPath = path.join(migrationDir, 'snapshot.db');
   automationsModule.runV1AutomationImport = async () => {
-    denyCleanup();
+    fs.rmSync(snapshotPath, { force: true });
+    fs.mkdirSync(snapshotPath, { recursive: true });
+    fs.writeFileSync(path.join(snapshotPath, 'held'), 'still in use');
     finishedResolve();
     return { status: 'complete' };
   };
@@ -309,7 +304,6 @@ test('survives a snapshot it cannot delete', { timeout: 20_000 }, async () => {
     assert.equal(warnings.length, 1);
     assert.match(warnings[0], /snapshot cleanup failed/);
   } finally {
-    allowCleanup();
     importerModule.runV1SessionImport = originalRun;
     settingsModule.createDshSettingImporter = originalCreateSettingImporter;
     settingsModule.runV1SettingsImport = originalSettingsRun;
@@ -983,6 +977,32 @@ test('records the missing source in the migration ledger', async () => {
 
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.sourceDatabase, null);
+});
+
+// This is what decides whether a session already in DSH is re-imported or left
+// alone, and nothing reached it: the plugin tests all start from an empty
+// session store, so a rule that answered "complete" for a half-written session
+// would have stayed green while the repair never ran.
+test('treats a persisted session as imported only when the whole seed and a title survived', () => {
+  const imported = { seed: [{ type: 'session/start' }, { type: 'message', id: 'm1' }] };
+  const closed = { type: 'session/end-seed' };
+  const titled = { type: 'session/title', title: 'Imported' };
+
+  assert.equal(importedPrefixIsComplete([...imported.seed, closed, titled], imported), true);
+
+  // Truncated, diverged, unclosed, or closed but never titled.
+  assert.equal(importedPrefixIsComplete([...imported.seed], imported), false);
+  assert.equal(importedPrefixIsComplete([imported.seed[0], closed, titled], imported), false);
+  assert.equal(
+    importedPrefixIsComplete([{ type: 'session/start' }, { type: 'message', id: 'other' }, closed, titled], imported),
+    false,
+  );
+  assert.equal(importedPrefixIsComplete([...imported.seed, titled, closed], imported), false);
+  assert.equal(importedPrefixIsComplete([...imported.seed, closed], imported), false);
+  assert.equal(
+    importedPrefixIsComplete([...imported.seed, closed, { type: 'turn/start' }], imported),
+    false,
+  );
 });
 
 // All three stages and the ledger reader route through one owner now, so this is

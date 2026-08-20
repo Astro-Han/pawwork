@@ -1,5 +1,4 @@
 import { createRequire } from 'node:module';
-import { isDeepStrictEqual } from 'node:util';
 
 const require = createRequire(import.meta.url);
 const importer = require('./import-v1.cjs');
@@ -44,22 +43,13 @@ function createAutomationModelResolver(ctx) {
   };
 }
 
-function importedPrefixIsComplete(events, imported) {
-  if (events.length <= imported.seed.length) return false;
-  for (let index = 0; index < imported.seed.length; index += 1) {
-    if (!isDeepStrictEqual(events[index], imported.seed[index])) return false;
-  }
-  if (events[imported.seed.length]?.type !== 'session/end-seed') return false;
-  return events.slice(imported.seed.length + 1).some((event) => event.type === 'session/title');
-}
-
 async function createDshSessionImporter(ctx) {
   const persisted = new Set((await ctx.sessionPersistence.list()).map((header) => header.id));
   return async (imported) => {
     let outcome = 'imported';
     if (persisted.has(imported.id)) {
       const inspection = await ctx.sessionPersistence.inspect(imported.id);
-      if (importedPrefixIsComplete(inspection.events, imported)) outcome = 'skipped';
+      if (importer.importedPrefixIsComplete(inspection.events, imported)) outcome = 'skipped';
     }
 
     if (outcome === 'imported') {

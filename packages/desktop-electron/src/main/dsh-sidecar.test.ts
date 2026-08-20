@@ -112,6 +112,34 @@ describe("DSH sidecar lifecycle", () => {
     expect(child.killed).toBe(true)
   })
 
+  // The sidecar's stdout carries agent output too, so the readiness line is only
+  // trusted at the start of a line and only in the exact shape DSH prints. Drop
+  // either half of that rule and anything the model echoes can point the app at
+  // another port.
+  test("trusts a readiness announcement only as a whole line", async () => {
+    const child = new FakeChildProcess()
+    const launched = launchDshSidecar({
+      executable: "/app/PawWork",
+      dshBin: "/app/bin.js",
+      zenIdentityPreload: "file:///app/preload.mjs",
+      productHome: "/data/dsh",
+      productPatch: "/data/dsh/product.cordis.patch.yml",
+      toolsDir: "/app/tools",
+      env: { PATH: "/usr/bin" },
+      timeoutMs: 500,
+      spawn: () => child,
+    })
+
+    child.stdout.write("[assistant] dsh web: http://127.0.0.1:1\n")
+    child.stdout.write("dsh web: http://127.0.0.1:2suffix\n")
+    child.stdout.write("dsh web: http://127.0.0.1:43123 (press h for help)\n")
+
+    const sidecar = await launched
+    expect(sidecar.url).toBe("http://127.0.0.1:43123")
+
+    await sidecar.stop()
+  })
+
   test("fails when the owned child process exits before announcing readiness", async () => {
     const child = new FakeChildProcess()
     const launched = launchDshSidecar({

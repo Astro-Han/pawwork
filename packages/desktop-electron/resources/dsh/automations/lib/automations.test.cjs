@@ -796,6 +796,39 @@ test('conversation create accepts cron and finite schedules', async () => {
   assert.equal(definition.timezone, 'Asia/Shanghai');
 });
 
+// claimDue is what makes two schedulers, or a runDue racing a startNow, unable
+// to fire the same occurrence twice: the claim only succeeds while nextFireAt is
+// still the target the caller read. Nothing exercised that, so the guard could
+// have been dropped and every test would have passed.
+test('claims a due occurrence exactly once', () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const definition = store.createDefinition({
+    title: 'Brief',
+    prompt: 'Write the brief.',
+    cwd,
+    model: { provider: 'opencode', model: 'big-pickle' },
+    timezone: 'UTC',
+    kind: 'recurring',
+    rhythm: { kind: 'interval', everyMs: 60_000 },
+  }, 1_000);
+  const target = definition.nextFireAt;
+  const now = target + 5;
+
+  const claimed = store.claimDue(definition.id, target, now, { state: 'running' });
+  assert.notEqual(claimed, null);
+  // A second caller still holding the same target has lost the race.
+  assert.equal(store.claimDue(definition.id, target, now, { state: 'running' }), null);
+  // Not due yet, paused, and unknown all refuse too.
+  assert.equal(store.claimDue(definition.id, store.getDefinition(definition.id).nextFireAt, now, { state: 'running' }), null);
+  store.setPaused(definition.id, true, now);
+  const paused = store.getDefinition(definition.id);
+  assert.equal(store.claimDue(definition.id, paused.nextFireAt, now + 120_000, { state: 'running' }), null);
+  assert.equal(store.claimDue('automation-missing', target, now, { state: 'running' }), null);
+
+  assert.equal(store.listRuns(definition.id).length, 1);
+});
+
 // Neutering the store's rhythm rule left every test green: the tool layer catches
 // its own arg shapes first, so nothing reached the store with a bad rhythm. The
 // store is what the RPC client and the v1 importer talk to directly.
