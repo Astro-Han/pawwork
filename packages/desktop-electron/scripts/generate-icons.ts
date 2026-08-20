@@ -43,6 +43,13 @@ export const ICNS_OUTPUTS = [
 
 const ICO_OUTPUTS = [16, 24, 32, 48, 64, 256]
 
+const ICO_FILE = "icon.ico"
+const ICNS_FILE = "icon.icns"
+
+// electron-builder and the main process load these by name from a directory this
+// script wipes on every run, so a name only they know would ship as a blank icon.
+export const GENERATED_ICON_FILES = [...ICON_PNG_OUTPUTS.map((output) => output.path), ICO_FILE, ICNS_FILE]
+
 export function createPngCache(render: (source: string, size: number) => Promise<Buffer>) {
   const cache = new Map<string, Promise<Buffer>>()
 
@@ -154,7 +161,7 @@ async function writeIcns(source: string) {
       png: await renderPng(source, output.size),
     })),
   )
-  await writeFile(path.join(ICON_DEST, "icon.icns"), createIcns(images))
+  await writeFile(path.join(ICON_DEST, ICNS_FILE), createIcns(images))
 }
 
 async function writeIco(source: string) {
@@ -164,7 +171,7 @@ async function writeIco(source: string) {
       png: await renderPng(source, size),
     })),
   )
-  await writeFile(path.join(ICON_DEST, "icon.ico"), createIco(images))
+  await writeFile(path.join(ICON_DEST, ICO_FILE), createIco(images))
 }
 
 async function generate() {

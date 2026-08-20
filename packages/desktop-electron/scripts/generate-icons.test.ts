@@ -1,15 +1,18 @@
 import { describe, expect, test } from "vitest"
+import { readFileSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 import sharp from "sharp"
 
+import { createConfig } from "../electron-builder.config"
+
 import * as generateIcons from "./generate-icons"
 
 import {
   DOCK_ICON_CONTENT_RATIO,
-  ICNS_OUTPUTS,
   ICON_PNG_OUTPUTS,
+  GENERATED_ICON_FILES,
   ICON_SOURCE,
   createIcns,
   createIco,
@@ -20,25 +23,40 @@ import {
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
 describe("icon generation manifest", () => {
-  test("covers every icon file used by electron-builder resources", () => {
-    expect(ICON_PNG_OUTPUTS).toEqual([
-      { path: "dock.png", size: 256 },
-      { path: "icon.png", size: 1024 },
-    ])
+  // Comparing the manifest against itself proved nothing. The manifest matters
+  // because two other places name these files: electron-builder ships and points
+  // at them, and the main process loads the Dock icon out of what was shipped.
+  test("generates every icon file electron-builder names", () => {
+    const config = createConfig("prod") as unknown
 
-    expect(ICNS_OUTPUTS).toEqual([
-      { type: "ic04", size: 16 },
-      { type: "ic11", size: 32 },
-      { type: "ic05", size: 32 },
-      { type: "ic12", size: 64 },
-      { type: "ic07", size: 128 },
-      { type: "ic13", size: 256 },
-      { type: "ic08", size: 256 },
-      { type: "ic14", size: 512 },
-      { type: "ic09", size: 512 },
-      { type: "ic10", size: 1024 },
-    ])
+    const named = new Set<string>()
+    const visit = (value: unknown, underIconResources = false) => {
+      if (typeof value === "string") {
+        const match = /resources\/icons\/(.+)$/.exec(value)
+        if (match) named.add(match[1])
+        else if (underIconResources) named.add(value)
+        return
+      }
+      if (Array.isArray(value)) return value.forEach((entry) => visit(entry, underIconResources))
+      if (value && typeof value === "object") {
+        const record = value as Record<string, unknown>
+        const icons = underIconResources || String(record.from ?? "").includes("resources/icons")
+        for (const [key, entry] of Object.entries(record)) visit(entry, icons && key === "filter")
+      }
+    }
+    visit(config)
 
+    expect(named.size).toBeGreaterThan(0)
+    expect([...named].filter((file) => !GENERATED_ICON_FILES.includes(file)).sort()).toEqual([])
+  })
+
+  // The Dock icon is loaded by name at runtime rather than named in the config.
+  test("generates the Dock icon the main process loads", () => {
+    const windows = readFileSync(path.join(PACKAGE_ROOT, "src/main/windows.ts"), "utf8")
+    const loaded = [...windows.matchAll(/iconsDir\(\), "([^"]+)"\)/g)].map((match) => match[1])
+
+    expect(loaded).not.toEqual([])
+    expect(loaded.filter((file) => !GENERATED_ICON_FILES.includes(file))).toEqual([])
   })
 
   test("anchors source and output paths to the desktop package", () => {
