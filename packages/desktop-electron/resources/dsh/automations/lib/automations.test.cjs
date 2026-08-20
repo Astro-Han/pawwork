@@ -874,6 +874,52 @@ test('a rejected completion leaves the run untouched in memory and on disk', () 
   assert.equal(new AutomationStore(file).listRuns(created.id)[0].error, 'model unavailable');
 });
 
+// A fresh run gets its own session and never sees these tools. A continue-mode
+// run appends to the session that created it, where they are registered for the
+// user — so the run, not the session, is what has to be excluded. Without this
+// a scheduled turn could bind another automation to the same session, on every
+// firing, unattended.
+test('conversation tools refuse to run inside a continue-mode automation turn', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const scheduler = new AutomationScheduler({ store, execute: async () => ({ result: 'done' }), clock: fakeClock(1_000) });
+  const tools = createAutomationToolDefinitions({
+    store,
+    scheduler,
+    cwd: () => cwd,
+    sessionId: () => 'session-user-1',
+    model: () => ({ provider: 'opencode', model: 'big-pickle' }),
+    now: () => 1_000,
+  });
+  const byName = Object.fromEntries(tools.map((entry) => [entry.name, entry]));
+
+  const created = await byName.automation_create.execute({
+    title: 'Digest', prompt: 'Write the digest.', timezone: 'UTC', every_seconds: 60, continue_session: true,
+  });
+  assert.equal(created.context, 'continue');
+  assert.equal(created.sourceSessionId, 'session-user-1');
+
+  // Nothing is running yet, so the same session still manages automations.
+  assert.equal((await byName.automation_list.execute({})).items.length, 1);
+
+  store.beginRun(created.id, 2_000);
+  for (const name of Object.keys(byName)) {
+    await assert.rejects(
+      () => byName[name].execute({ id: created.id, title: 'Digest', prompt: 'Write it.', timezone: 'UTC', every_seconds: 60 }),
+      /automations cannot be managed from inside an automation run/,
+      name,
+    );
+  }
+
+  // A different conversation is unaffected while that run is in flight.
+  const other = createAutomationToolDefinitions({
+    store, scheduler, cwd: () => cwd, sessionId: () => 'session-user-2',
+    model: () => ({ provider: 'opencode', model: 'big-pickle' }), now: () => 1_000,
+  });
+  const otherByName = Object.fromEntries(other.map((entry) => [entry.name, entry]));
+  assert.equal((await otherByName.automation_list.execute({})).items.length, 1);
+});
+
 test('conversation tools apply one schedule arg rule to create and update alike', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);

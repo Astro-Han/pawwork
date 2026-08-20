@@ -11,10 +11,15 @@ const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const MIN_INTERVAL_MS = 30_000;
 const AUTOMATION_RUN_ID_PREFIX = 'automation-run-';
 
-// The executor names a run's DSH session after the run id, and tool registration
-// excludes exactly those sessions so an automation cannot schedule automations.
-// Both derive from the run-id prefix here: stated separately, a change to the
-// run-id format silently re-armed the tools inside automation runs.
+// The executor names a fresh run's DSH session after the run id, and tool
+// registration excludes exactly those sessions. Both derive from the run-id
+// prefix here: stated separately, a change to the run-id format silently
+// re-armed the tools inside automation runs.
+//
+// This only answers for fresh runs. A continue-mode run borrows the session
+// that created it, where the tools are registered for the user's own use, so
+// "is this an automation's turn" is a question about the run, not the session —
+// see hasActiveRunInSession.
 function automationRunSessionId(runId) {
   return `pawwork-${runId}`;
 }
@@ -349,6 +354,17 @@ class AutomationStore {
     return this.document.runs.some((run) => (
       run.automationId === automationId && run.state === 'running'
     ));
+  }
+
+  // A continue-mode run appends its turn to the session that created it, so the
+  // session id alone cannot say whether a turn is an automation's own. This can:
+  // an automation must not schedule automations in either mode.
+  hasActiveRunInSession(sessionId) {
+    return this.document.runs.some((run) => {
+      if (run.state !== 'running') return false;
+      const definition = this.document.definitions.find((entry) => entry.id === run.automationId);
+      return definition?.context === 'continue' && definition.sourceSessionId === sessionId;
+    });
   }
 
   completedRunCount(automationId) {
@@ -742,6 +758,17 @@ function createAutomationToolDefinitions({
     ...(required.length > 0 ? { required } : {}),
   });
 
+  // Fresh runs never see these tools at all — their session is excluded at
+  // registration. A continue-mode run does, because it shares the user's
+  // session, so the same rule is applied per call.
+  const outsideAutomationRun = (execute) => async (...args) => {
+    const session = sessionId();
+    if (session !== null && store.hasActiveRunInSession(session)) {
+      throw new Error('automations cannot be managed from inside an automation run');
+    }
+    return execute(...args);
+  };
+
   return [
     tool(
       'automation_create',
@@ -879,7 +906,7 @@ function createAutomationToolDefinitions({
         return { id: args.id };
       },
     ),
-  ];
+  ].map((definition) => ({ ...definition, execute: outsideAutomationRun(definition.execute) }));
 }
 
 module.exports = {
