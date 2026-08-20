@@ -188,6 +188,7 @@ describe("PawWork DSH Automations client", () => {
       }],
     }
     let stateCall = 0
+    const setEditorError = vi.fn(() => {})
     const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]): unknown => {
       const nextProps = { ...props, children }
       return typeof type === "function" ? type(nextProps) : { type, props: nextProps }
@@ -203,6 +204,7 @@ describe("PawWork DSH Automations client", () => {
             stateCall += 1
             if (stateCall === 1) return [{ definitions: [definitionData] }, () => {}]
             if (stateCall === 2) return [definitionData.id, () => {}]
+            if (stateCall === 9) return [value, setEditorError]
             return [value, () => {}]
           },
         }
@@ -257,5 +259,6 @@ describe("PawWork DSH Automations client", () => {
     close.mockClear()
     await expect((openSession!.props.onClick as () => Promise<void>)()).resolves.toBeUndefined()
     expect(close).not.toHaveBeenCalled()
+    expect(setEditorError).toHaveBeenCalledWith(expect.stringContaining("session registry is stale"))
   })
 })
