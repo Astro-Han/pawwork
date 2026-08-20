@@ -190,10 +190,13 @@ describe("PawWork DSH client product layer", () => {
 
     // 顶带必须是真元素：-webkit-app-region 对伪元素无效，拖不动窗口。
     expect(appended.map((node) => node.className)).toEqual(["pawwork-titlebar"])
-    // 高度只在主进程定义一次，渲染层只认那个变量，两边不会各写一个数字。
+    // 让位的规则全部读同一个变量，没有第二处写死的数字。变量本身只从平台来：
+    // Windows 是 Chromium 的 env(titlebar-area-height)，macOS 由主进程注入覆盖。
     expect(style.textContent).toContain("-webkit-app-region: drag")
     expect(style.textContent).toContain("padding-top: var(--pawwork-titlebar-height, 0px)")
-    expect(style.textContent).not.toMatch(/--pawwork-titlebar-height:/)
+    expect(style.textContent).toContain('[class*="_banner_"] { top: var(--pawwork-titlebar-height, 0px); }')
+    expect(style.textContent).toContain("var(--pawwork-titlebar-host-height, env(titlebar-area-height, 0px))")
+    expect(style.textContent).not.toMatch(/--pawwork-titlebar-height:\s*\d/)
   })
 
 

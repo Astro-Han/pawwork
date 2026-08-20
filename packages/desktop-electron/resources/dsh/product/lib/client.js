@@ -6,17 +6,24 @@ window.__ModuleLoader__.load({
 
     const productCss = `
 /* 无边框窗口里没有原生标题栏可抓，这条顶带是窗口唯一的拖拽区；它同时替原生窗口
-   控件（macOS 交通灯、Windows overlay 按钮）占住它们画进内容坐标系的那一行，
-   让 DSH 的布局回到一个没有被侵占的视口里。高度由主进程注入
-   --pawwork-titlebar-height —— 同一个数字在那边摆放原生控件。Linux 保留系统标题
-   栏、不注入变量，两条规则回退到 0px 自动失效。不设 z-index：让模态框照常盖在
-   它上面，而 macOS 的交通灯本来就由系统画在网页内容之上。 */
+   控件（macOS 交通灯、Windows overlay 按钮）占住它们画进内容坐标系的那一行。
+   Windows 由 Chromium 自己把 overlay 的真实几何写进 env(titlebar-area-*)，全屏和
+   DPI 缩放都跟着走；macOS 没有这个原语（titleBarOverlay 在那边不生效），由主进程
+   发布 --pawwork-titlebar-host-height。两个变量角色不同：host 的是宿主给的值，
+   下面这一行把它解析成最终值 —— 用 var() 的回退链而不是靠样式表顺序或选择器权重
+   压过彼此，注入时机和插入位置都不再影响结果。Linux 保留系统标题栏，两边都不给，
+   回退到 0px 自动失效。所有需要让位的规则都读解析后的那一个变量。 */
+:root { --pawwork-titlebar-height: var(--pawwork-titlebar-host-height, env(titlebar-area-height, 0px)); }
 #root { box-sizing: border-box; padding-top: var(--pawwork-titlebar-height, 0px); }
 .pawwork-titlebar {
   -webkit-app-region: drag;
   height: var(--pawwork-titlebar-height, 0px);
   left: 0; position: fixed; right: 0; top: 0;
 }
+/* DSH 的断线重连横幅是 position: fixed; top: 0，不在 #root 的盒子里，padding 推不动
+   它，会整条落进原生控件带下面。同一个变量再用一次即可。选择器锚在 CSS-modules 的
+   前缀上（hash 会随版本变，前缀不会）；代码块横幅同名但不是定位元素，top 对它无效。 */
+[class*="_banner_"] { top: var(--pawwork-titlebar-height, 0px); }
 .pawwork-file-action {
   align-items: center; background: transparent; border: 0; border-radius: 6px;
   color: var(--dsw-alias-label-secondary); cursor: pointer; display: inline-flex;

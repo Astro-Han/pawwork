@@ -58,9 +58,23 @@ export function createMainWindow(url: string, preload: string) {
   win.webContents.on("will-redirect", (event, target) => {
     guardDshNavigation(url, target, event, openExternal)
   })
-  const insetCss = titlebarInsetCss(process.platform)
-  // insertCSS is scoped to one navigation, so re-publish on every load.
-  if (insetCss) win.webContents.on("dom-ready", () => void win.webContents.insertCSS(insetCss))
+  // insertCSS is scoped to one navigation and returns a key we have to hand back,
+  // or a reload just stacks another copy of the same sheet.
+  let insetKey: string | undefined
+  const publishTitlebarInset = async () => {
+    if (insetKey !== undefined) {
+      await win.webContents.removeInsertedCSS(insetKey).catch(() => undefined)
+      insetKey = undefined
+    }
+    const css = titlebarInsetCss(process.platform, { fullscreen: win.isFullScreen() })
+    if (css) insetKey = await win.webContents.insertCSS(css)
+  }
+  win.webContents.on("dom-ready", () => {
+    insetKey = undefined
+    void publishTitlebarInset()
+  })
+  win.on("enter-full-screen", () => void publishTitlebarInset())
+  win.on("leave-full-screen", () => void publishTitlebarInset())
   win.webContents.setZoomFactor(1)
   win.webContents.on("zoom-changed", () => win.webContents.setZoomFactor(1))
   win.webContents.on("page-title-updated", (event, title) => {

@@ -9,7 +9,6 @@ import { join, resolve } from "node:path"
 import process from "node:process"
 import readline from "node:readline"
 import { PAWWORK_APP, type PawWorkChannel } from "../src/main/app-identity.ts"
-import { titlebarHeight } from "../src/main/window-chrome.ts"
 import { dshTitleBarOptions } from "../src/main/window-options.ts"
 const require = createRequire(import.meta.url)
 const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
@@ -57,6 +56,7 @@ export type CiSmokeProductSnapshot = {
   titlebarStripHeight: number
   titlebarStripDraggable: boolean
   contentInsetHeight: number
+  sidebarBrandName: string
   sidebarBrandTop: number
   sidebarToggleCount: number
   sidebarCollapsed: boolean
@@ -268,7 +268,13 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     })
     const brandNodes = ["sidebar.brand.mark", "sidebar.brand.name"].flatMap(slotContent).filter(visible)
     const sidebarBrandVisible = brandNodes.length > 0
-    const sidebarBrandTop = Math.min(...brandNodes.map((node) => node.getBoundingClientRect().top))
+    // 空数组时 Math.min 是 Infinity，JSON 化后变成 null，>= 比较会静默通过。
+    const sidebarBrandTop = brandNodes.length
+      ? Math.min(...brandNodes.map((node) => node.getBoundingClientRect().top))
+      : -1
+    // 品牌名槽位渲染的是纯字符串，也就是文本节点 —— slotContent 只选元素后代，
+    // 匹配不到任何东西。单独读文本，否则这条槽位回归 null 也不会红。
+    const sidebarBrandName = (document.querySelector('[data-slot="sidebar.brand.name"]')?.textContent || "").trim()
     const titlebarStrip = document.querySelector(".pawwork-titlebar")
     const titlebarStripHeight = titlebarStrip ? titlebarStrip.getBoundingClientRect().height : -1
     const titlebarStripDraggable = Boolean(titlebarStrip)
@@ -284,7 +290,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const heroHeadlineOverridden = Boolean(heroHeadline)
       && getComputedStyle(heroHeadline).fontSize === "0px"
       && getComputedStyle(heroHeadline, "::before").content.replace(/^"|"$/g, "").trim().length > 0
-    const heroPreviewBadgeHidden = !visible(heroBadge)
+    const heroPreviewBadgeHidden = Boolean(heroHeadline) && !visible(heroBadge)
     const heroMarkRect = heroMark?.getBoundingClientRect()
     const heroHeadlineRect = heroHeadline?.getBoundingClientRect()
     const heroMarkHeadlineOffset = heroMarkRect && heroHeadlineRect
@@ -432,6 +438,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       titlebarStripHeight,
       titlebarStripDraggable,
       contentInsetHeight,
+      sidebarBrandName,
       sidebarBrandTop,
       sidebarToggleCount: collapseToggles.length,
       sidebarCollapsed,
@@ -528,15 +535,25 @@ async function waitForSessionOnDisk(dshHome: string, sessionId: string, timeoutM
   const sessions = join(dshHome, "sessions")
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    const stored = existsSync(sessions)
-      && readdirSync(sessions).some((workspace) => existsSync(join(sessions, workspace, sessionId)))
-    if (stored) return
+    if (sessionBytesOnDisk(sessions, sessionId) > 0) return
     await delay(100)
   }
   throw new Error([
     `DSH session ${sessionId} never reached disk within ${timeoutMs}ms`,
     `sessions tree:\n${describeDirectory(sessions)}`,
   ].join("\n"))
+}
+
+// DSH creates the session directory before it writes the log into it, so the
+// directory existing proves nothing — wait for actual bytes.
+function sessionBytesOnDisk(sessions: string, sessionId: string) {
+  if (!existsSync(sessions)) return 0
+  return readdirSync(sessions)
+    .map((workspace) => join(sessions, workspace, sessionId))
+    .filter((dir) => existsSync(dir))
+    .flatMap((dir) => readdirSync(dir).map((name) => join(dir, name)))
+    .filter((file) => statSync(file).isFile())
+    .reduce((total, file) => total + statSync(file).size, 0)
 }
 
 function describeDirectory(dir: string, prefix = "  "): string {
@@ -551,27 +568,23 @@ function describeDirectory(dir: string, prefix = "  "): string {
     .join("\n")
 }
 
-export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
-  // 原生窗口控件画在内容坐标系里，顶带是唯一声明这块安全区的地方。四条一起看：
-  // 无边框的平台必须有带子、带子高度等于主进程给的数字、带子可拖、内容按同一个
-  // 数字下移 —— 少任何一条，侧边栏左上角就会重新压到交通灯或 Windows overlay
-  // 按钮下面。第一条的期望来自 window-options 的无边框决定，和高度不是同一个
-  // 来源；否则整个特性被平台关掉时，期望值会跟着归零，断言静默通过。
-  const frameless = "titleBarStyle" in dshTitleBarOptions(process.platform)
-  const expectedTitlebarHeight = titlebarHeight(process.platform)
+export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform: NodeJS.Platform = process.platform) {
+  // 原生窗口控件画在内容坐标系里，顶带是唯一声明这块安全区的地方。断言的是**关系**
+  // 而不是某个数字：数字在 Windows 上由 Chromium 的 env(titlebar-area-height) 决定，
+  // 在 macOS 上由主进程决定，这里再写一遍就又多一个手写权威。frameless 取自
+  // window-options 的无边框决定 —— 它和高度不同源，所以两边发散会红。
+  const frameless = "titleBarStyle" in dshTitleBarOptions(platform)
   const failures = [
     snapshot.sidebarBrandVisible ? null : "PawWork sidebar brand is not rendered",
-    frameless === expectedTitlebarHeight > 0
+    snapshot.sidebarBrandName ? null : "PawWork sidebar brand name is not rendered",
+    frameless === snapshot.titlebarStripHeight > 0
       ? null
-      : `frameless=${frameless} but the reserved titlebar strip is ${expectedTitlebarHeight}px`,
-    snapshot.titlebarStripHeight === expectedTitlebarHeight
-      ? null
-      : `titlebar strip is ${snapshot.titlebarStripHeight}px, expected ${expectedTitlebarHeight}px`,
+      : `frameless=${frameless} but the reserved titlebar strip is ${snapshot.titlebarStripHeight}px`,
     snapshot.titlebarStripDraggable ? null : "titlebar strip is not a drag region",
-    snapshot.contentInsetHeight === expectedTitlebarHeight
+    snapshot.contentInsetHeight === snapshot.titlebarStripHeight
       ? null
-      : `web content is inset ${snapshot.contentInsetHeight}px, expected ${expectedTitlebarHeight}px`,
-    snapshot.sidebarBrandTop >= expectedTitlebarHeight
+      : `web content is inset ${snapshot.contentInsetHeight}px against a ${snapshot.titlebarStripHeight}px strip`,
+    snapshot.sidebarBrandTop >= snapshot.titlebarStripHeight
       ? null
       : `sidebar brand starts at ${snapshot.sidebarBrandTop}px, inside the native window controls`,
     snapshot.heroMarkVisible ? null : "PawWork hero brand mark is not rendered",
@@ -781,9 +794,11 @@ async function main() {
       console.log(`CI smoke session files before shutdown:\n${describeDirectory(join(dshHome, "sessions"))}`)
     }
   } finally {
+    // After stopChild, not before: the shutdown path is exactly where the session
+    // write can be lost, so its logs are the ones the persistence failure needs.
+    await stopChild(child, cdpTarget === undefined ? undefined : () => closeAppWindow(cdpTarget as CdpTarget))
     firstAppLog = [...logs.recent]
     logs.close()
-    await stopChild(child, cdpTarget === undefined ? undefined : () => closeAppWindow(cdpTarget as CdpTarget))
   }
 
   if (product !== undefined) {

@@ -4,7 +4,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import process from "node:process"
-import { titlebarHeight } from "../src/main/window-chrome.ts"
 import {
   allocateCiSmokeCdpPort,
   appIdForSmoke,
@@ -223,10 +222,11 @@ describe("ci smoke helpers", () => {
       automationDeleteDialogWorks: true,
       automationDirtyPauseBlocked: true,
       automationMetadataPlain: true,
-      titlebarStripHeight: titlebarHeight(process.platform),
+      titlebarStripHeight: 32,
       titlebarStripDraggable: true,
-      contentInsetHeight: titlebarHeight(process.platform),
-      sidebarBrandTop: titlebarHeight(process.platform) + 14,
+      contentInsetHeight: 32,
+      sidebarBrandName: "爪印",
+      sidebarBrandTop: 46,
       sidebarToggleCount: 1,
       sidebarCollapsed: true,
       sidebarExpandToggleCount: 1,
@@ -239,7 +239,7 @@ describe("ci smoke helpers", () => {
       skillNames: ["office-docx", "office-pdf", "office-pptx", "office-xlsx"],
       sessionId: "session-smoke",
       sessionIdsBeforeRestart: ["session-smoke"],
-    })).not.toThrow()
+    }, "darwin")).not.toThrow()
   })
 
   test("assertCiSmokeProduct reports every missing product capability", () => {
@@ -262,9 +262,10 @@ describe("ci smoke helpers", () => {
       automationDeleteDialogWorks: false,
       automationDirtyPauseBlocked: false,
       automationMetadataPlain: false,
-      titlebarStripHeight: -1,
+      titlebarStripHeight: 0,
       titlebarStripDraggable: false,
-      contentInsetHeight: -1,
+      contentInsetHeight: 8,
+      sidebarBrandName: "",
       sidebarBrandTop: -1,
       sidebarToggleCount: 2,
       sidebarCollapsed: false,
@@ -278,7 +279,7 @@ describe("ci smoke helpers", () => {
       skillNames: [],
       sessionId: "",
       sessionIdsBeforeRestart: [],
-    })).toThrow(/sidebar brand is not rendered.*titlebar strip is.*drag region.*web content is inset.*inside the native window controls.*hero brand mark.*DSH copy.*preview badge.*off the headline centre.*Automation Settings entry.*Automation should not occupy the sidebar.*Automation surface.*visible chat path.*Automation editor.*compressed.*advanced settings.*Back navigation.*header overflows.*visible form.*cancellable dialog.*discard unsaved edits.*immutable metadata.*one DSH collapse control.*collapse the sidebar.*one DSH expand control.*visibly clickable.*renders empty.*reopen.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
+    }, "darwin")).toThrow(/sidebar brand is not rendered.*brand name is not rendered.*reserved titlebar strip.*drag region.*web content is inset.*inside the native window controls.*hero brand mark.*DSH copy.*preview badge.*off the headline centre.*Automation Settings entry.*Automation should not occupy the sidebar.*Automation surface.*visible chat path.*Automation editor.*compressed.*advanced settings.*Back navigation.*header overflows.*visible form.*cancellable dialog.*discard unsaved edits.*immutable metadata.*one DSH collapse control.*collapse the sidebar.*one DSH expand control.*visibly clickable.*renders empty.*reopen.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
   })
 
   test("parseSmokeArgs defaults to raw dev mode", () => {
