@@ -479,7 +479,7 @@ async function evaluateCiSmokeJson(target: CdpTarget, expression: string) {
   return JSON.parse(result.result.value) as unknown
 }
 
-export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: string, dshHome: string) {
+export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: string, dshHome: string, appLog: string[] = []) {
   const expectedSessionId = JSON.stringify(sessionId)
   const expression = `(async () => {
     const call = async (method, payload) => {
@@ -507,6 +507,7 @@ export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: st
     `DSH session ${sessionId} did not survive desktop restart`,
     `sessions after restart: ${restored.length ? restored.join(", ") : "(none)"}`,
     `DSH home contents:\n${describeDirectory(dshHome)}`,
+    `first app log tail:\n${appLog.length ? appLog.map((line) => `  ${line}`).join("\n") : "  (empty)"}`,
   ].join("\n"))
 }
 
@@ -736,6 +737,7 @@ async function main() {
   const logs = watchChildLogs(child)
   let product: CiSmokeProductSnapshot | undefined
   let cdpTarget: CdpTarget | undefined
+  let firstAppLog: string[] = []
 
   try {
     await waitForCiSmokeReady(homeDir, target, child, spawnError, logs.recent)
@@ -744,8 +746,12 @@ async function main() {
       product = await inspectCiSmokeProduct(cdpTarget, homeDir)
       assertCiSmokeProduct(product)
       console.log("CI smoke verified DSH product UI, free model, and bundled skills")
+      // 关停前的快照。和失败信息里那张重启后的对照，才能把「会话根本没写成」
+      // 和「写成了但没读回来」分开 —— 只看重启后那一张，两者长得一模一样。
+      console.log(`CI smoke sessions before shutdown:\n${describeDirectory(join(dshHome, "sessions"))}`)
     }
   } finally {
+    firstAppLog = [...logs.recent]
     logs.close()
     await stopChild(child, cdpTarget === undefined ? undefined : () => closeAppWindow(cdpTarget as CdpTarget))
   }
@@ -759,7 +765,7 @@ async function main() {
     try {
       await waitForCiSmokeReady(homeDir, target, restarted.child, restarted.spawnError, restartLogs.recent)
       restartTarget = await probeCiSmokeCdpTarget(restartPort)
-      await inspectCiSmokePersistence(restartTarget, product.sessionId, dshHome)
+      await inspectCiSmokePersistence(restartTarget, product.sessionId, dshHome, firstAppLog)
       console.log("CI smoke verified DSH session persistence after restart")
     } finally {
       restartLogs.close()
