@@ -59,6 +59,24 @@ describe("release workflow", () => {
     expect(verify.body).toMatch(/grep -qx "channel: latest-v2"/)
   })
 
+  test("authenticates, verifies, installs, and smokes a production Windows installer before upload", () => {
+    expect(workflow).toMatch(/id-token: write/)
+    const authenticate = indexOfStep("Authenticate Windows signing")
+    const pack = indexOfStep("Package app")
+    const install = indexOfStep("Verify and install Windows package")
+    const smoke = indexOfStep("Smoke installed Windows package")
+    const upload = indexOfStep("Upload packaged app artifact")
+
+    expect(authenticate).toBeGreaterThanOrEqual(0)
+    expect(pack).toBeGreaterThan(authenticate)
+    expect(install).toBeGreaterThan(pack)
+    expect(smoke).toBeGreaterThan(install)
+    expect(upload).toBeGreaterThan(smoke)
+    expect(steps[install].body).toMatch(/Get-AuthenticodeSignature/)
+    expect(steps[install].body).toMatch(/latest-v2/)
+    expect(steps[smoke].body).toMatch(/ci-smoke\.ts packaged prod/)
+  })
+
   // The finalizer merges the other arch's entries into this channel's feed, so
   // the repository it reads from and the one it writes to have to be the same
   // one — reading metadata from the wrong release into this feed puts an

@@ -18,7 +18,6 @@ type GitHubPublishConfig = {
 }
 async function signWindows(configuration: { path: string }) {
   if (process.platform !== "win32") return
-  if (process.env.GITHUB_ACTIONS !== "true") return
 
   await execFileAsync(
     "pwsh",
@@ -119,9 +118,7 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
   },
   win: {
     icon: `resources/icons/icon.ico`,
-    signtoolOptions: {
-      sign: signWindows,
-    },
+    ...(channel === "prod" ? { signtoolOptions: { sign: signWindows } } : {}),
     target: [{ target: "nsis", arch: ["x64"] }],
   },
   nsis: {

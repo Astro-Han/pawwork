@@ -114,6 +114,11 @@ describe("electron builder app-update config", () => {
     })
   })
 
+  test("only production Windows packages invoke the release signer", () => {
+    expect(createConfig("dev").win?.signtoolOptions).toBeUndefined()
+    expect(createConfig("prod").win?.signtoolOptions?.sign).toBeTypeOf("function")
+  })
+
   test("packaged repository metadata follows the release channel", () => {
     expect(createConfig("dev").extraMetadata).toMatchObject({
       repository: { type: "git", url: "https://github.com/Astro-Han/pawwork" },

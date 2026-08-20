@@ -71,6 +71,12 @@ describe("ci smoke helpers", () => {
     expect(env.PAWWORK_CI_SMOKE_CDP_PORT).toBe("48291")
   })
 
+  test("buildSmokeEnv exposes only the explicit v1 fixture to the importer", () => {
+    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", {}, { v1Database: "/tmp/v1/pawwork.db" })
+
+    expect(env.PAWWORK_V1_DATABASE).toBe("/tmp/v1/pawwork.db")
+  })
+
   test("parseSmokeCdpPort accepts only concrete TCP ports", () => {
     expect(parseSmokeCdpPort("48291")).toBe(48291)
     expect(parseSmokeCdpPort(undefined)).toBeUndefined()
@@ -226,6 +232,7 @@ describe("ci smoke helpers", () => {
       platform: "MacIntel",
       freeProviderActive: true,
       freeModelAvailable: true,
+      v1SessionImported: true,
       skillNames: ["office-docx", "office-pdf", "office-pptx", "office-xlsx"],
       sessionId: "session-smoke",
       sessionIdsBeforeRestart: ["session-smoke"],
@@ -269,6 +276,7 @@ describe("ci smoke helpers", () => {
     platform: "MacIntel",
     freeProviderActive: true,
     freeModelAvailable: true,
+    v1SessionImported: true,
     skillNames: ["office-docx", "office-pdf", "office-pptx", "office-xlsx"],
     sessionId: "session-1",
     sessionIdsBeforeRestart: ["session-1"],
@@ -306,6 +314,7 @@ describe("ci smoke helpers", () => {
     sidebarExpandedAgain: false,
     freeProviderActive: false,
     freeModelAvailable: false,
+    v1SessionImported: false,
     skillNames: ["office-docx"],
   }
 
@@ -390,6 +399,21 @@ describe("ci smoke helpers", () => {
         )
       },
     )
+  })
+
+  test("parseSmokeArgs accepts an installed executable selected by the release workflow", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "pawwork-installed-smoke-"))
+    const executablePath = path.join(root, "PawWork.exe")
+    writeFileSync(executablePath, "", { flag: "w" })
+    try {
+      expect(parseSmokeArgs(["packaged", "prod", executablePath])).toEqual({
+        mode: "packaged",
+        channel: "prod",
+        executablePath,
+      })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   test("resolveLaunchCommand uses Electron for raw runs and the app executable for packaged runs", () => {

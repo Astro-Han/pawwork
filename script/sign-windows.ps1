@@ -10,8 +10,7 @@ if (-not $Path -or $Path.Count -eq 0) {
 }
 
 if ($env:GITHUB_ACTIONS -ne "true") {
-  Write-Host "Skipping Windows signing because this is not running on GitHub Actions"
-  exit 0
+  throw "Production Windows signing must run on GitHub Actions"
 }
 
 $vars = @{
@@ -21,8 +20,7 @@ $vars = @{
 }
 
 if ($vars.Values | Where-Object { -not $_ }) {
-  Write-Host "Skipping Windows signing because Azure Artifact Signing is not configured"
-  exit 0
+  throw "Azure Artifact Signing is not configured"
 }
 
 $moduleVersion = "0.5.8"

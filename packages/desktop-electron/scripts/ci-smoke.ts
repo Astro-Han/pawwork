@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessByStdio } from "node:child_process"
 import { once } from "node:events"
 import type { Readable } from "node:stream"
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
@@ -12,6 +12,11 @@ import { PAWWORK_APP, type PawWorkChannel, isPawWorkChannel } from "../src/main/
 import { parseCdpPort } from "../src/main/ci-smoke-cdp.ts"
 import { dshTitleBarOptions } from "../src/main/window-options.ts"
 import { packagedAppEnv } from "./packaged-app-env.ts"
+import {
+  CI_SMOKE_IMPORTED_AUTOMATION_ID,
+  CI_SMOKE_IMPORTED_SESSION_ID,
+  createCiSmokeV1Fixture,
+} from "./ci-smoke-v1-fixture.ts"
 const require = createRequire(import.meta.url)
 const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
@@ -68,6 +73,7 @@ export type CiSmokeProductSnapshot = {
   platform: string
   freeProviderActive: boolean
   freeModelAvailable: boolean
+  v1SessionImported: boolean
   skillNames: string[]
   sessionId: string
   sessionIdsBeforeRestart: string[]
@@ -83,10 +89,12 @@ type ProbeOptions = {
 
 type BuildSmokeEnvOptions = {
   cdpPort?: number
+  v1Database?: string
 }
 
 type LaunchAppOptions = {
   cdpPort?: number
+  v1Database?: string
 }
 
 function parseChannel(raw: string | undefined): PawWorkChannel {
@@ -109,7 +117,7 @@ export function parseSmokeArgs(argv: string[]): SmokeTarget {
   // Where electron-builder put the app is not the caller's business: the two
   // smoke workflows used to spell the path out by hand, once per platform.
   const channel = parseChannel(argv[1])
-  const { EXECUTABLE_PATH: executablePath } = packagedAppEnv(channel)
+  const executablePath = argv[2] ? resolve(argv[2]) : packagedAppEnv(channel).EXECUTABLE_PATH
   if (!existsSync(executablePath)) throw new Error(`Packaged smoke executable not found: ${executablePath}`)
   return { mode, channel, executablePath }
 }
@@ -134,6 +142,7 @@ export function buildSmokeEnv(
     XDG_CONFIG_HOME: homeDir,
     XDG_STATE_HOME: homeDir,
     ...(options.cdpPort !== undefined ? { PAWWORK_CI_SMOKE_CDP_PORT: String(options.cdpPort) } : {}),
+    ...(options.v1Database !== undefined ? { PAWWORK_V1_DATABASE: options.v1Database } : {}),
   }
 }
 
@@ -220,8 +229,9 @@ export async function probeCiSmokeCdpTarget(port: number, options: ProbeOptions 
   throw new Error(`CDP endpoint on port ${port} did not expose a DSH page target`)
 }
 
-export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: string) {
+export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: string, expectedV1SessionId = CI_SMOKE_IMPORTED_SESSION_ID) {
   const workspace = JSON.stringify(workspacePath)
+  const expectedSession = JSON.stringify(expectedV1SessionId)
   const expression = `(async () => {
     const visible = (element) => {
       if (!element) return false
@@ -406,6 +416,12 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     expandToggles[0]?.click()
     await new Promise((resolve) => setTimeout(resolve, 200))
 
+    let v1SessionImported = false
+    for (let attempt = 0; attempt < 100 && !v1SessionImported; attempt += 1) {
+      const sessions = (await call("session.list", {})).items
+      v1SessionImported = sessions.some((item) => item.sessionId === ${expectedSession})
+      if (!v1SessionImported) await new Promise((resolve) => setTimeout(resolve, 100))
+    }
     const providers = (await call("llm.providers", {})).providers
     const models = (await call("llm.models", {})).groups
     const session = await call("session.create", { cwd: ${workspace} })
@@ -446,6 +462,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       platform: typeof navigator === "undefined" ? "" : navigator.platform,
       freeProviderActive: freeProvider?.active === true && freeProvider?.displayName === "OpenCode Free",
       freeModelAvailable: freeModels.some((model) => model.id === "deepseek-v4-flash-free" && model.name === "DeepSeek V4 Flash Free"),
+      v1SessionImported,
       skillNames: skills.map((skill) => skill.name).sort(),
       sessionId: session.sessionId,
       sessionIdsBeforeRestart,
@@ -611,6 +628,7 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.sidebarExpandedAgain ? null : "DSH expand control did not reopen the sidebar",
     snapshot.freeProviderActive ? null : "OpenCode Free provider is not active",
     snapshot.freeModelAvailable ? null : "DeepSeek V4 Flash Free is unavailable",
+    snapshot.v1SessionImported ? null : "V1 session was not imported into DSH",
     ["office-docx", "office-pdf", "office-pptx", "office-xlsx"].every((name) => snapshot.skillNames.includes(name))
       ? null
       : `bundled Office skills are incomplete: ${snapshot.skillNames.join(", ")}`,
@@ -689,7 +707,7 @@ function launchApp(homeDir: string, target: SmokeTarget, options: LaunchAppOptio
   const spawnError = { current: undefined as Error | undefined }
   try {
     const child = spawn(launch.command, launch.args, {
-      env: buildSmokeEnv(homeDir, process.env, { cdpPort: options.cdpPort }),
+      env: buildSmokeEnv(homeDir, process.env, options),
       stdio: ["ignore", "pipe", "pipe"],
     })
     child.on("error", (error) => {
@@ -744,6 +762,8 @@ async function main() {
   const target = parseSmokeArgs(process.argv.slice(2))
   const homeDir = mkdtempSync(join(tmpdir(), "pawwork-ci-smoke-"))
   const dshHome = join(homeDir, appIdForSmoke(target.channel, target.mode), "dsh")
+  const v1Database = join(homeDir, "v1", "pawwork.db")
+  createCiSmokeV1Fixture(v1Database, homeDir)
   mkdirSync(dshHome, { recursive: true })
   writeFileSync(join(dshHome, "automations.json"), `${JSON.stringify({
     schema: 1,
@@ -769,7 +789,7 @@ async function main() {
     runs: [],
   }, null, 2)}\n`, { mode: 0o600 })
   const cdpPort = await resolveCiSmokeCdpPort(process.env)
-  const { child, spawnError } = launchApp(homeDir, target, { cdpPort })
+  const { child, spawnError } = launchApp(homeDir, target, { cdpPort, v1Database })
   const logs = watchChildLogs(child)
   let product: CiSmokeProductSnapshot | undefined
   let cdpTarget: CdpTarget | undefined
@@ -799,7 +819,7 @@ async function main() {
   if (product !== undefined) {
     rmSync(resolveCiSmokeReadyFile(homeDir, { channel: target.channel, mode: target.mode }), { force: true })
     const restartPort = await allocateCiSmokeCdpPort()
-    const restarted = launchApp(homeDir, target, { cdpPort: restartPort })
+    const restarted = launchApp(homeDir, target, { cdpPort: restartPort, v1Database })
     const restartLogs = watchChildLogs(restarted.child)
     let restartTarget: CdpTarget | undefined
     try {
@@ -811,6 +831,13 @@ async function main() {
       restartLogs.close()
       await stopChild(restarted.child, restartTarget === undefined ? undefined : () => closeAppWindow(restartTarget as CdpTarget))
     }
+    const automationDocument = JSON.parse(readFileSync(join(dshHome, "automations.json"), "utf8")) as {
+      definitions?: Array<{ id?: string }>
+    }
+    if (!automationDocument.definitions?.some((definition) => definition.id === CI_SMOKE_IMPORTED_AUTOMATION_ID)) {
+      throw new Error(`V1 Automation ${CI_SMOKE_IMPORTED_AUTOMATION_ID} did not survive desktop restart`)
+    }
+    console.log("CI smoke verified V1 session and Automation migration after restart")
   }
 }
 
