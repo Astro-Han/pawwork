@@ -52,7 +52,7 @@ describe("PawWork DSH client product layer", () => {
       throw new Error(`unexpected product client dependency: ${name}`)
     })
     let migrationRefresh: ((props: unknown) => unknown) | undefined
-    const call = vi.fn(async () => ({ ok: true, value: { sessionsComplete: true } }))
+    const call = vi.fn(async () => ({ ok: true, value: { sessionsSettled: true } }))
     const refresh = vi.fn(async () => {})
     plugin.apply({
       connection: { rpc: { call } },

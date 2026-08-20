@@ -100,7 +100,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
           checking = true
           try {
             const result = await connection.rpc.call("/pawwork-import-v1", "status", {})
-            if (!result.ok || !result.value.sessionsComplete || stopped) return
+            if (!result.ok || !result.value.sessionsSettled || stopped) return
             await sessions.refresh()
             if (!stopped) clearInterval(timer)
           } catch {

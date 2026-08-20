@@ -174,13 +174,11 @@ test('imports definitions and runs idempotently with a resumable shared ledger',
     now: () => 8_000,
   };
 
-  const first = await runV1AutomationImport(options);
-  const second = await runV1AutomationImport(options);
+  await runV1AutomationImport(options);
+  await runV1AutomationImport(options);
 
-  assert.equal(first.status, 'complete');
   assert.equal(definitions.length, 1);
   assert.equal(runs.length, 3);
-  assert.equal(second.status, 'complete');
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.automationRuns.automation_run_orphan.orphanedDefinition, true);
 });
@@ -221,7 +219,7 @@ test('records malformed automation rows and continues importing valid rows', asy
   database.prepare('UPDATE automation_definition SET data = ? WHERE id = ?').run('{', 'automation_source');
   database.close();
 
-  const result = await runV1AutomationImport({
+  await runV1AutomationImport({
     home,
     sourceDatabase: source,
     snapshot: await snapshotOf(home, source),
@@ -231,7 +229,6 @@ test('records malformed automation rows and continues importing valid rows', asy
     now: () => 8_000,
   });
 
-  assert.equal(result.status, 'partial');
   assert.equal(store.listRuns().length, 3);
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.automationDefinitions.automation_source.status, 'failed');

@@ -99,7 +99,7 @@ test('records idempotent setting results and resumes only failed settings', asyn
   const sourceBefore = sourceFiles.map((file) => fs.readFileSync(file));
   const firstCalls = [];
 
-  const partial = await runV1SettingsImport({
+  await runV1SettingsImport({
     home,
     sourceAppData: appData,
     importSetting: async (setting) => {
@@ -108,11 +108,11 @@ test('records idempotent setting results and resumes only failed settings', asyn
       return setting.id === 'default-model' ? 'unsupported' : 'imported';
     },
   });
-  assert.equal(partial.status, 'partial');
-  assert.equal(Object.hasOwn(partial, 'credentials'), false);
+  const afterFailure = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+  assert.equal(afterFailure.settings['busy-enter'].status, 'failed');
 
   const resumedCalls = [];
-  const complete = await runV1SettingsImport({
+  await runV1SettingsImport({
     home,
     sourceAppData: appData,
     importSetting: async (setting) => {
@@ -121,16 +121,20 @@ test('records idempotent setting results and resumes only failed settings', asyn
     },
   });
   assert.deepEqual(resumedCalls, ['busy-enter']);
-  assert.equal(complete.status, 'complete');
 
-  const third = await runV1SettingsImport({
+  const settled = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+  await runV1SettingsImport({
     home,
     sourceAppData: appData,
     importSetting: async () => {
       throw new Error('completed Stage 2 must not run again');
     },
   });
-  assert.deepEqual(third, complete);
+  // A settled run neither calls the importer again nor rewrites the record.
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8')),
+    settled,
+  );
   assert.deepEqual(sourceFiles.map((file) => fs.readFileSync(file)), sourceBefore);
 });
 

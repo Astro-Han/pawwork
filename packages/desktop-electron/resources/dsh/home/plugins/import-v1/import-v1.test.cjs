@@ -37,7 +37,12 @@ function fileDigest(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-test('publishes cold sessions once and keeps the public status incomplete after a partial import', async () => {
+// This used to assert that a partial import held the public status back, which
+// is what stopped the client refreshing its session list at all: a single
+// unreadable v1 session hid every session that had imported fine, and left the
+// client polling twice a second for the life of the app. The status answers
+// "has the session stage finished", and which sessions made it is in the ledger.
+test('publishes cold sessions once and reports the session stage settled even when one fails', async () => {
   const importerModule = require('./import-v1.cjs');
   const settingsModule = require('./import-v1-settings.cjs');
   const automationsModule = require('./import-v1-automations.cjs');
@@ -62,7 +67,7 @@ test('publishes cold sessions once and keeps the public status incomplete after 
   importerModule.runV1SessionImport = async ({ importSession }) => {
     await importSession({ id: 'pawwork-v1-session', images: [], meta: {}, seed: [], title: 'Imported session' });
     importStarted();
-    return { status: 'partial' };
+    throw new Error('one v1 session could not be read');
   };
   importerModule.completedV1SessionTargetIds = () => new Set(['pawwork-v1-session']);
   importerModule.attachDshWorkspace = async () => {
@@ -139,7 +144,7 @@ test('publishes cold sessions once and keeps the public status incomplete after 
     });
     assert.deepEqual(await statusRpc('status'), {
       ok: true,
-      value: { sessionsComplete: false },
+      value: { sessionsSettled: true },
     });
     assert.equal(automationsActivated, true);
     assert.equal(missingContinueSessionRejected, true);
@@ -913,7 +918,7 @@ test('records an idempotent ledger and does no work after a complete session imp
   createV1Fixture(source);
   const importedIds = [];
 
-  const first = await runV1SessionImport({
+  await runV1SessionImport({
     home,
     sourceDatabase: source,
     snapshot: await snapshotOf(home, source),
@@ -923,14 +928,13 @@ test('records an idempotent ledger and does no work after a complete session imp
     },
   });
   assert.deepEqual(importedIds, ['pawwork-v1-ses_parent', 'pawwork-v1-ses_child']);
-  assert.equal(first.status, 'complete');
 
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.schema, 1);
   assert.equal(ledger.sessions.ses_parent.targetId, 'pawwork-v1-ses_parent');
   assert.equal(ledger.sessions.ses_parent.status, 'complete');
   assert.equal(ledger.sessions.ses_child.status, 'complete');
-  const second = await runV1SessionImport({
+  await runV1SessionImport({
     home,
     sourceDatabase: source,
     snapshot: await snapshotOf(home, source),
@@ -938,18 +942,16 @@ test('records an idempotent ledger and does no work after a complete session imp
       throw new Error('completed import must not run again');
     },
   });
-  assert.equal(second.status, 'complete');
 });
 
 test('records the missing source in the migration ledger', async () => {
   const home = path.join(temporaryDirectory(), 'v2-home');
-  const result = await runV1SessionImport({
+  await runV1SessionImport({
     home,
     sourceDatabase: null,
     importSession: async () => { throw new Error('no session should be imported'); },
   });
 
-  assert.equal(result.status, 'not-found');
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.sourceDatabase, null);
 });
@@ -961,7 +963,7 @@ test('resumes after a per-session failure without duplicating completed sessions
   createV1Fixture(source);
   const firstAttempt = [];
 
-  const partial = await runV1SessionImport({
+  await runV1SessionImport({
     home,
     sourceDatabase: source,
     snapshot: await snapshotOf(home, source),
@@ -972,10 +974,14 @@ test('resumes after a per-session failure without duplicating completed sessions
       return { session: 'imported', workspace: 'attached' };
     },
   });
-  assert.equal(partial.status, 'partial');
+  // The aggregate status is gone: what the resume actually turns on is the
+  // per-session ledger record the first attempt left behind.
+  const afterFailure = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+  assert.equal(afterFailure.sessions.ses_parent.status, 'complete');
+  assert.equal(afterFailure.sessions.ses_child.status, 'failed');
 
   const resumed = [];
-  const complete = await runV1SessionImport({
+  await runV1SessionImport({
     home,
     sourceDatabase: source,
     snapshot: await snapshotOf(home, source),
@@ -985,7 +991,6 @@ test('resumes after a per-session failure without duplicating completed sessions
     },
   });
   assert.deepEqual(resumed, ['pawwork-v1-ses_child']);
-  assert.equal(complete.status, 'complete');
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.sessions.ses_parent.stats.unsupportedParts, 1);
 });
@@ -1024,7 +1029,7 @@ test('records a malformed session and continues importing later sessions', async
   database.close();
   const imported = [];
 
-  const result = await runV1SessionImport({
+  await runV1SessionImport({
     home,
     sourceDatabase: source,
     snapshot: await snapshotOf(home, source),
@@ -1034,7 +1039,6 @@ test('records a malformed session and continues importing later sessions', async
     },
   });
 
-  assert.equal(result.status, 'partial');
   assert.deepEqual(imported, ['pawwork-v1-ses_child']);
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.sessions.ses_parent.status, 'failed');
@@ -1054,14 +1058,13 @@ test('can import sessions from a ledger first written by settings migration', as
     settings: { theme: { status: 'complete', outcome: 'imported' } },
   }));
 
-  const imported = await runV1SessionImport({
+  await runV1SessionImport({
     home,
     sourceDatabase: source,
     snapshot: await snapshotOf(home, source),
     importSession: async () => ({ session: 'imported', workspace: 'attached' }),
   });
 
-  assert.equal(imported.status, 'complete');
   // The three stages share one ledger file and each writes the whole document
   // back, so what matters is that a stage carries the other stages' records
   // through rather than replacing them with its own view.
@@ -1087,7 +1090,7 @@ test('repairs workspace ownership when session records lack an outcome', async (
   }));
 
   const repaired = [];
-  const result = await runV1SessionImport({
+  await runV1SessionImport({
     home,
     sourceDatabase: source,
     snapshot: await snapshotOf(home, source),
@@ -1101,7 +1104,6 @@ test('repairs workspace ownership when session records lack an outcome', async (
   });
 
   assert.deepEqual(repaired, ['pawwork-v1-ses_parent', 'pawwork-v1-ses_child']);
-  assert.equal(result.status, 'complete');
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.sessions.ses_parent.workspaceAttached, true);
   assert.equal(ledger.sessions.ses_child.workspaceAttached, false);

@@ -177,11 +177,10 @@ async function runV1SettingsImport({
   if (!sourceAppData) {
     ledger.sourceAppData = null;
     writeJsonAtomically(ledgerPath, ledger);
-    return { status: 'not-found' };
+    return;
   }
 
   const preferences = readV1Preferences(sourceAppData);
-  let failed = false;
   ledger.sourceAppData = sourceAppData;
 
   for (const unsupported of preferences.unsupportedSettings) {
@@ -204,14 +203,12 @@ async function runV1SettingsImport({
     } catch (error) {
       signal?.throwIfAborted();
       const message = error instanceof Error ? error.message : String(error);
-      failed = true;
       ledger.settings[setting.id] = { status: 'failed', message };
     }
     writeJsonAtomically(ledgerPath, ledger);
   }
 
   writeJsonAtomically(ledgerPath, ledger);
-  return { status: failed ? 'partial' : 'complete' };
 }
 
 module.exports = {

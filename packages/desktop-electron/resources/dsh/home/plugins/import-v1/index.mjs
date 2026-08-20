@@ -86,9 +86,9 @@ async function createDshSessionImporter(ctx) {
 
 export function apply(ctx) {
   const controller = new AbortController();
-  let sessionsComplete = false;
+  let sessionsSettled = false;
   const stopRpc = ctx.connection.rpc.handle('/pawwork-import-v1', async (endpoint) => {
-    if (endpoint === 'status') return { ok: true, value: { sessionsComplete } };
+    if (endpoint === 'status') return { ok: true, value: { sessionsSettled } };
     return { ok: false, error: { code: 'bad-request', message: `unknown v1 import endpoint: ${endpoint}`, details: {} } };
   }, { authority: 'loopback' });
   const importTask = (async () => {
@@ -107,10 +107,15 @@ export function apply(ctx) {
       }
     }
     try {
+      // The client waits on this to reload its session list once, so what it
+      // needs is "the stage is done", not "everything succeeded". Reading a
+      // per-session failure as not-done left every successfully imported session
+      // out of the list for the whole run, and the client polling at 2Hz forever.
+      // Which sessions made it is recorded per id in the ledger.
       try {
         const importSession = await createDshSessionImporter(ctx);
         controller.signal.throwIfAborted();
-        const result = await importer.runV1SessionImport({
+        await importer.runV1SessionImport({
           home: process.env.DSH_HOME,
           sourceDatabase,
           snapshot: snapshot?.path,
@@ -118,11 +123,11 @@ export function apply(ctx) {
           signal: controller.signal,
         });
         controller.signal.throwIfAborted();
-        sessionsComplete = result.status === 'complete' || result.status === 'not-found';
       } catch (error) {
         if (controller.signal.aborted) return;
         ctx.logger.warn(`v1 session import failed: ${error instanceof Error ? error.message : String(error)}`);
       }
+      sessionsSettled = true;
 
       try {
         controller.signal.throwIfAborted();

@@ -334,18 +334,16 @@ async function runV1SessionImport({
   if (!sourceDatabase) {
     ledger.sourceDatabase = null;
     writeJsonAtomically(ledgerPath, ledger);
-    return { status: 'not-found' };
+    return;
   }
 
   if (!snapshot) throw new Error('v1 session import requires a database snapshot');
   fs.mkdirSync(directory, { recursive: true });
-  let failed = false;
   ledger.sourceDatabase = sourceDatabase;
   signal?.throwIfAborted();
   for await (const sourceSession of readV1Sessions(snapshot)) {
     signal?.throwIfAborted();
     if (sourceSession.readError) {
-      failed = true;
       ledger.sessions[sourceSession.id] = { status: 'failed', message: sourceSession.readError };
       writeJsonAtomically(ledgerPath, ledger);
       continue;
@@ -374,7 +372,6 @@ async function runV1SessionImport({
     } catch (error) {
       signal?.throwIfAborted();
       const message = error instanceof Error ? error.message : String(error);
-      failed = true;
       ledger.sessions[sourceSession.id] = alreadyImported
         ? { ...previous, workspaceAttached: false, workspaceMessage: message }
         : { status: 'failed', targetId: imported.id, message };
@@ -382,7 +379,6 @@ async function runV1SessionImport({
     writeJsonAtomically(ledgerPath, ledger);
   }
   writeJsonAtomically(ledgerPath, ledger);
-  return { status: failed ? 'partial' : 'complete' };
 }
 
 function completedV1SessionTargetIds(home) {

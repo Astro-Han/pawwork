@@ -191,12 +191,11 @@ async function runV1AutomationImport({
   if (!sourceDatabase) {
     ledger.sourceDatabase = null;
     writeJsonAtomically(ledgerPath, ledger);
-    return { status: 'not-found' };
+    return;
   }
 
   if (!snapshot) throw new Error('v1 automation import requires a database snapshot');
   fs.mkdirSync(directory, { recursive: true });
-  let failed = false;
   ledger.sourceDatabase = sourceDatabase;
   signal?.throwIfAborted();
   const source = readV1Automations(snapshot);
@@ -204,10 +203,7 @@ async function runV1AutomationImport({
   for (const failure of source.failures) {
     const records = failure.kind === 'definition' ? ledger.automationDefinitions : ledger.automationRuns;
     const prior = records[failure.id];
-    if (prior?.status !== 'complete') {
-      failed = true;
-      records[failure.id] = { status: 'failed', message: failure.message };
-    }
+    if (prior?.status !== 'complete') records[failure.id] = { status: 'failed', message: failure.message };
   }
   if (source.failures.length > 0) writeJsonAtomically(ledgerPath, ledger);
   for (const definition of source.definitions) {
@@ -230,7 +226,6 @@ async function runV1AutomationImport({
     } catch (error) {
       signal?.throwIfAborted();
       const message = error instanceof Error ? error.message : String(error);
-      failed = true;
       ledger.automationDefinitions[definition.id] = { status: 'failed', message };
     }
     writeJsonAtomically(ledgerPath, ledger);
@@ -256,13 +251,11 @@ async function runV1AutomationImport({
     } catch (error) {
       signal?.throwIfAborted();
       const message = error instanceof Error ? error.message : String(error);
-      failed = true;
       ledger.automationRuns[run.id] = { status: 'failed', message };
     }
     writeJsonAtomically(ledgerPath, ledger);
   }
   writeJsonAtomically(ledgerPath, ledger);
-  return { status: failed ? 'partial' : 'complete' };
 }
 
 module.exports = {
