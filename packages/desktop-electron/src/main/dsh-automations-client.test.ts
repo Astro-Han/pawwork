@@ -134,6 +134,7 @@ describe("PawWork DSH Automations client", () => {
       }),
     })
     const visit = (node: unknown): Array<{ type: unknown; props: Record<string, unknown> }> => {
+      if (Array.isArray(node)) return node.flatMap(visit)
       if (!node || typeof node !== "object") return []
       const element = node as { type: unknown; props: Record<string, unknown> }
       return [element, ...((element.props?.children as unknown[]) || []).flatMap(visit)]
@@ -146,6 +147,108 @@ describe("PawWork DSH Automations client", () => {
     await (createButton!.props.onClick as () => Promise<void>)()
     expect(connectWorkspace).toHaveBeenCalledWith("workspace-1")
     expect(setDraft).toHaveBeenCalledWith("帮我创建一个自动化。先问我它要做什么、什么时候运行，再帮我创建。")
+    expect(open).toHaveBeenCalledWith("session-1")
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  test("opens a completed run session and closes Settings", async () => {
+    const source = readFileSync(resolve(automationsRoot, "lib/client.js"), "utf8")
+    let definition: {
+      factory: (require: (name: string) => unknown) => { apply(ctx: unknown): void }
+    } | null = null
+    const document = {
+      documentElement: { lang: "en" },
+      querySelector: () => null,
+      createElement: () => ({ dataset: {}, textContent: "" }),
+      head: { appendChild: () => {} },
+    }
+    const window = { __ModuleLoader__: { load: (value: typeof definition) => { definition = value } } }
+    vm.runInNewContext(source, { document, window })
+
+    const definitionData = {
+      id: "automation-1",
+      title: "Daily summary",
+      prompt: "Summarize the workspace",
+      revision: 1,
+      paused: false,
+      context: "fresh",
+      cwd: "/tmp/workspace",
+      model: { provider: "opencode", model: "deepseek-v4-flash-free" },
+      timezone: "UTC",
+      kind: "recurring",
+      rhythm: { kind: "interval", everyMs: 86_400_000 },
+      stop: { kind: "never" },
+      nextFireAt: Date.now() + 86_400_000,
+      recentRuns: [{
+        id: "automation-run-1",
+        state: "succeeded",
+        triggeredAt: Date.now(),
+        sessionId: "session-1",
+        result: "Done",
+      }],
+    }
+    let stateCall = 0
+    const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]): unknown => {
+      const nextProps = { ...props, children }
+      return typeof type === "function" ? type(nextProps) : { type, props: nextProps }
+    }
+    const primitive = (type: string) => (props: Record<string, unknown>) => ({ type, props })
+    const plugin = definition!.factory((name) => {
+      if (name === "react") {
+        return {
+          createElement,
+          useEffect: () => {},
+          useRef: <T>(value: T) => ({ current: value }),
+          useState: <T>(value: T) => {
+            stateCall += 1
+            if (stateCall === 1) return [{ definitions: [definitionData] }, () => {}]
+            if (stateCall === 2) return [definitionData.id, () => {}]
+            return [value, () => {}]
+          },
+        }
+      }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") {
+        return {
+          Button: primitive("button"), DisclosureRow: primitive("div"), Input: primitive("input"),
+          Menu: primitive("div"), Modal: primitive("div"), Pill: primitive("button"), StateDot: primitive("span"),
+          IconChevronLeftOutline14: "IconChevronLeftOutline14", IconChevronDownOutline14: "IconChevronDownOutline14",
+          IconPauseOutline16: "IconPauseOutline16", IconPlayOutline16: "IconPlayOutline16",
+          IconSearchOutline16: "IconSearchOutline16", IconSettingsOutline16: "IconSettingsOutline16",
+          IconTrashOutline16: "IconTrashOutline16",
+        }
+      }
+      throw new Error(`unexpected Automations client dependency: ${name}`)
+    })
+    let settingsSection: ((props: unknown) => unknown) | undefined
+    let sessionsRefreshed = false
+    const open = vi.fn(() => {
+      if (!sessionsRefreshed) throw new Error("session registry is stale")
+    })
+    const refresh = vi.fn(async () => { sessionsRefreshed = true })
+    plugin.apply({
+      connection: {}, conversation: {}, sessions: { open, refresh }, workspaces: {},
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (_options: unknown, component: typeof settingsSection) => { settingsSection = component },
+      },
+    })
+    const close = vi.fn(() => {})
+    const tree = settingsSection!({
+      close,
+      useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
+    })
+    const visit = (node: unknown): Array<{ type: unknown; props: Record<string, unknown> }> => {
+      if (Array.isArray(node)) return node.flatMap(visit)
+      if (!node || typeof node !== "object") return []
+      const element = node as { type: unknown; props: Record<string, unknown> }
+      return [element, ...((element.props?.children as unknown[]) || []).flatMap(visit)]
+    }
+    const openSession = visit(tree).find((element) =>
+      element.type === "button" && element.props.children?.includes("Open session"),
+    )
+
+    expect(openSession).toBeDefined()
+    await (openSession!.props.onClick as () => Promise<void>)()
     expect(open).toHaveBeenCalledWith("session-1")
     expect(close).toHaveBeenCalledTimes(1)
   })

@@ -168,15 +168,20 @@ window.__ModuleLoader__.load({
       return "done"
     }
 
-    function RunRow({ run, sessions, close }) {
+    function RunRow({ run, sessions, closeSettings }) {
       const summary = run.error || run.stopReason || run.result
+      async function openSession() {
+        await sessions.refresh()
+        sessions.open(run.sessionId)
+        closeSettings()
+      }
       return h("div", { className: "pawwork-automation-run" },
         h("div", { className: "pawwork-automation-run-main" },
           h(StateDot, { size: 10, state: runDotState(run) }),
           h("span", { className: "pawwork-automation-run-state" }, runState(run)),
           h("span", { className: "pawwork-automation-run-time" }, formatTime(run.triggeredAt)),
           summary ? h("span", { className: "pawwork-automation-run-summary" }, summary) : null),
-        run.sessionId ? h(Button, { onClick: () => { sessions.open(run.sessionId); close() }, size: "sm", variant: "outline" }, text("打开会话", "Open session")) : null)
+        run.sessionId ? h(Button, { onClick: openSession, size: "sm", variant: "outline" }, text("打开会话", "Open session")) : null)
     }
 
     function localDateTime(value) {
@@ -240,7 +245,7 @@ window.__ModuleLoader__.load({
       })
     }
 
-    function AutomationEditor({ connection, definition, onClose, onDeleted, onSaved, sessions }) {
+    function AutomationEditor({ closeSettings, connection, definition, onClose, onDeleted, onSaved, sessions }) {
       const baseline = useRef(formState(definition))
       const [form, setForm] = useState(baseline.current)
       const [busy, setBusy] = useState("")
@@ -338,7 +343,7 @@ window.__ModuleLoader__.load({
         h("div", { className: "pawwork-automation-history" },
           h("h3", null, text("最近运行", "Recent runs")),
           [definition.activeRun, ...(definition.recentRuns || [])].filter(Boolean).length
-            ? [definition.activeRun, ...(definition.recentRuns || [])].filter(Boolean).map((run) => h(RunRow, { close: onClose, key: run.id, run, sessions }))
+            ? [definition.activeRun, ...(definition.recentRuns || [])].filter(Boolean).map((run) => h(RunRow, { closeSettings, key: run.id, run, sessions }))
             : h("div", { className: "pawwork-automations-empty" }, text("还没有运行记录", "No run history yet")))),
         h(Modal, {
           closeLabel: text("关闭", "Close"),
@@ -352,7 +357,7 @@ window.__ModuleLoader__.load({
         }))
     }
 
-    function AutomationSurface({ connection, createViaChat, sessions, useWorkspaces }) {
+    function AutomationSurface({ close, connection, createViaChat, sessions, useWorkspaces }) {
       const workspaceState = useWorkspaces((state) => state)
       const workspaces = workspaceState.items || []
       const [data, setData] = useState(null)
@@ -406,7 +411,7 @@ window.__ModuleLoader__.load({
       }
 
       if (selected) return h("main", { className: "pawwork-automations-surface" },
-        h(AutomationEditor, { connection, definition: selected, key: `${selected.id}:${selected.revision}`, onClose: closePanel, onDeleted: async () => { closePanel(); await load() }, onSaved: reloadAfter, sessions }))
+        h(AutomationEditor, { closeSettings: close, connection, definition: selected, key: `${selected.id}:${selected.revision}`, onClose: closePanel, onDeleted: async () => { closePanel(); await load() }, onSaved: reloadAfter, sessions }))
 
       return h("main", { className: "pawwork-automations-surface" },
           h("div", { className: "pawwork-automations-titlebar" },
