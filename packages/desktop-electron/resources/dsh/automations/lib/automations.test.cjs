@@ -172,6 +172,52 @@ test('startup interrupts unfinished runs, does not replay misses, and arms only 
   await scheduler.stop();
 });
 
+// Every other stop() here runs after its runs have already finished, so the
+// abort loop has nothing to abort and can be deleted with the whole suite green.
+// An automation turn in flight when the sidecar quits is the case it exists for:
+// without it stop() waits on a promise nothing will ever settle.
+test('aborts a run still in flight when the scheduler stops', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = oneShot(store, cwd, 2_000);
+  const clock = fakeClock(1_000);
+  let observedSignal;
+  let releaseRun;
+  const scheduler = new AutomationScheduler({
+    store,
+    execute: (definition, run, signal) => {
+      observedSignal = signal;
+      // A hung agent turn: settles on abort, or when this test lets it go so a
+      // failing run does not leave the whole file waiting on it.
+      return new Promise((resolve, reject) => {
+        releaseRun = () => reject(new Error('test released the run'));
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    },
+    clock,
+  });
+
+  const { run } = scheduler.startNow(created.id, 1_500);
+  assert.equal(store.listRuns(created.id)[0].state, 'running');
+
+  // Raced rather than awaited: without the abort loop stop() never returns, and
+  // awaiting it would stall the whole file instead of failing this test.
+  const outcome = await Promise.race([
+    scheduler.stop().then(() => 'stopped'),
+    new Promise((resolve) => setTimeout(() => resolve('still waiting on the run'), 2_000).unref()),
+  ]);
+
+  try {
+    assert.equal(outcome, 'stopped');
+    assert.equal(observedSignal.aborted, true);
+    const stopped = store.listRuns(created.id).find((entry) => entry.id === run.id);
+    assert.equal(stopped.state, 'stopped');
+    assert.equal(stopped.stopReason, 'cancelled');
+  } finally {
+    releaseRun();
+  }
+});
+
 test('executes a due definition once, records its result, and advances recurring cadence', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
