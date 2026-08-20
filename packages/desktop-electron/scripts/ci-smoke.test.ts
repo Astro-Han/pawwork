@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import process from "node:process"
+import { titlebarHeight } from "../src/main/window-chrome.ts"
 import {
   allocateCiSmokeCdpPort,
   appIdForSmoke,
@@ -203,7 +205,7 @@ describe("ci smoke helpers", () => {
 
   test("assertCiSmokeProduct accepts the shipped DSH product contract", () => {
     expect(() => assertCiSmokeProduct({
-      sidebarBrandVisible: false,
+      sidebarBrandVisible: true,
       heroMarkVisible: true,
       heroHeadlineOverridden: true,
       heroPreviewBadgeHidden: true,
@@ -221,16 +223,17 @@ describe("ci smoke helpers", () => {
       automationDeleteDialogWorks: true,
       automationDirtyPauseBlocked: true,
       automationMetadataPlain: true,
-      collapsedSidebarDividerHiddenOnMac: true,
+      titlebarStripHeight: titlebarHeight(process.platform),
+      titlebarStripDraggable: true,
+      contentInsetHeight: titlebarHeight(process.platform),
+      sidebarBrandTop: titlebarHeight(process.platform) + 14,
       sidebarToggleCount: 1,
-      sidebarToggleAlignedWithWindowControls: true,
-      sidebarToggleChromeSubtle: true,
       sidebarCollapsed: true,
       sidebarExpandToggleCount: 1,
       sidebarExpandToggleUsable: true,
-      sidebarToggleShift: 0,
+      sidebarExpandToggleHasContent: true,
       sidebarExpandedAgain: true,
-      platform: "macos",
+      platform: "MacIntel",
       freeProviderActive: true,
       freeModelAvailable: true,
       skillNames: ["office-docx", "office-pdf", "office-pptx", "office-xlsx"],
@@ -240,7 +243,7 @@ describe("ci smoke helpers", () => {
 
   test("assertCiSmokeProduct reports every missing product capability", () => {
     expect(() => assertCiSmokeProduct({
-      sidebarBrandVisible: true,
+      sidebarBrandVisible: false,
       heroMarkVisible: false,
       heroHeadlineOverridden: false,
       heroPreviewBadgeHidden: false,
@@ -258,21 +261,22 @@ describe("ci smoke helpers", () => {
       automationDeleteDialogWorks: false,
       automationDirtyPauseBlocked: false,
       automationMetadataPlain: false,
-      collapsedSidebarDividerHiddenOnMac: false,
+      titlebarStripHeight: -1,
+      titlebarStripDraggable: false,
+      contentInsetHeight: -1,
+      sidebarBrandTop: -1,
       sidebarToggleCount: 2,
-      sidebarToggleAlignedWithWindowControls: false,
-      sidebarToggleChromeSubtle: false,
       sidebarCollapsed: false,
       sidebarExpandToggleCount: 0,
       sidebarExpandToggleUsable: false,
-      sidebarToggleShift: 218,
+      sidebarExpandToggleHasContent: false,
       sidebarExpandedAgain: false,
-      platform: "macos",
+      platform: "MacIntel",
       freeProviderActive: false,
       freeModelAvailable: false,
       skillNames: [],
       sessionId: "",
-    })).toThrow(/sidebar brand.*hero brand mark.*DSH copy.*preview badge.*off the headline centre.*Automation Settings entry.*Automation should not occupy the sidebar.*Automation surface.*visible chat path.*Automation editor.*compressed.*advanced settings.*Back navigation.*header overflows.*visible form.*cancellable dialog.*discard unsaved edits.*immutable metadata.*divider.*one DSH collapse control.*aligned.*blend.*collapse.*one DSH expand control.*visibly clickable.*moved.*reopen.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
+    })).toThrow(/sidebar brand is not rendered.*titlebar strip is.*drag region.*web content is inset.*inside the native window controls.*hero brand mark.*DSH copy.*preview badge.*off the headline centre.*Automation Settings entry.*Automation should not occupy the sidebar.*Automation surface.*visible chat path.*Automation editor.*compressed.*advanced settings.*Back navigation.*header overflows.*visible form.*cancellable dialog.*discard unsaved edits.*immutable metadata.*one DSH collapse control.*collapse the sidebar.*one DSH expand control.*visibly clickable.*renders empty.*reopen.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
   })
 
   test("parseSmokeArgs defaults to raw dev mode", () => {

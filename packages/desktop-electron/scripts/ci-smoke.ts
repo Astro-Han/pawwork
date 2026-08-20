@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url"
 import process from "node:process"
 import readline from "node:readline"
 import { PAWWORK_APP, type PawWorkChannel } from "../src/main/app-identity.ts"
+import { titlebarHeight } from "../src/main/window-chrome.ts"
+import { dshTitleBarOptions } from "../src/main/window-options.ts"
 const require = createRequire(import.meta.url)
 const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
@@ -49,14 +51,15 @@ export type CiSmokeProductSnapshot = {
   automationDeleteDialogWorks: boolean
   automationDirtyPauseBlocked: boolean
   automationMetadataPlain: boolean
-  collapsedSidebarDividerHiddenOnMac: boolean
+  titlebarStripHeight: number
+  titlebarStripDraggable: boolean
+  contentInsetHeight: number
+  sidebarBrandTop: number
   sidebarToggleCount: number
-  sidebarToggleAlignedWithWindowControls: boolean
-  sidebarToggleChromeSubtle: boolean
   sidebarCollapsed: boolean
   sidebarExpandToggleCount: number
   sidebarExpandToggleUsable: boolean
-  sidebarToggleShift: number
+  sidebarExpandToggleHasContent: boolean
   sidebarExpandedAgain: boolean
   platform: string
   freeProviderActive: boolean
@@ -258,7 +261,15 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       const label = button.getAttribute("aria-label") || button.getAttribute("title") || ""
       return visible(button) && /^(收起侧边栏|打开侧边栏|切换侧边栏|Collapse sidebar|Open sidebar|Toggle sidebar)$/i.test(label)
     })
-    const sidebarBrandVisible = ["sidebar.brand.mark", "sidebar.brand.name"].flatMap(slotContent).some(visible)
+    const brandNodes = ["sidebar.brand.mark", "sidebar.brand.name"].flatMap(slotContent).filter(visible)
+    const sidebarBrandVisible = brandNodes.length > 0
+    const sidebarBrandTop = Math.min(...brandNodes.map((node) => node.getBoundingClientRect().top))
+    const titlebarStrip = document.querySelector(".pawwork-titlebar")
+    const titlebarStripHeight = titlebarStrip ? titlebarStrip.getBoundingClientRect().height : -1
+    const titlebarStripDraggable = Boolean(titlebarStrip)
+      && getComputedStyle(titlebarStrip).getPropertyValue("-webkit-app-region").trim() === "drag"
+    const appRoot = document.getElementById("root")
+    const contentInsetHeight = appRoot ? Number.parseFloat(getComputedStyle(appRoot).paddingTop) : -1
     // Hero 是品牌标识唯一的落点：mark、覆盖后的标题、以及被隐藏的 DSH「预览版」角标。
     // 只断言覆盖机制是否还在生效，不锁死具体文案 —— rc.7→rc.8 悄悄失效的正是机制。
     const heroMark = document.querySelector('[data-slot="conversation.hero.brand.mark"] > svg')
@@ -368,27 +379,22 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     settingsClose?.click()
     await new Promise((resolve) => setTimeout(resolve, 50))
     const collapseToggles = sidebarToggles()
-    const collapseRect = collapseToggles[0]?.getBoundingClientRect()
-    const collapseStyle = collapseToggles[0] ? getComputedStyle(collapseToggles[0]) : null
     collapseToggles[0]?.click()
-    let sidebarColumn = null
-    for (let frame = 0; frame < 40; frame += 1) {
-      sidebarColumn = document.querySelector("[data-sidebar-collapsed] > :first-child")
-      if (sidebarColumn && getComputedStyle(sidebarColumn).borderRightWidth === "0px") break
+    // 折叠轨道是重新挂载的，data-sidebar-collapsed 会先于按钮出现；等按钮真正
+    // 就位再量，否则慢一点的机器上量到的是过渡中的空态。空壳按钮仍然有 36×36
+    // 的盒子，所以这个循环不会替真正的缺陷兜底 —— 那条由 hasContent 单独盯。
+    let expandToggles = []
+    for (let frame = 0; frame < 60; frame += 1) {
       await new Promise((resolve) => setTimeout(resolve, 16))
+      expandToggles = sidebarToggles()
+      if (document.querySelector("[data-sidebar-collapsed]") && expandToggles.length > 0) break
     }
     const sidebarCollapsed = Boolean(document.querySelector("[data-sidebar-collapsed]"))
-    const collapsedSidebarDividerHiddenOnMac = document.documentElement.dataset.pawworkPlatform !== "macos"
-      || Boolean(sidebarColumn && getComputedStyle(sidebarColumn).borderRightWidth === "0px")
-    const expandToggles = sidebarToggles()
-    const expandRect = expandToggles[0]?.getBoundingClientRect()
     const sidebarExpandToggleUsable = usable(expandToggles[0])
-    const sidebarToggleShift = collapseRect && expandRect
-      ? Math.hypot(
-          collapseRect.left + collapseRect.width / 2 - expandRect.left - expandRect.width / 2,
-          collapseRect.top + collapseRect.height / 2 - expandRect.top - expandRect.height / 2,
-        )
-      : 9_999
+    // 折叠态下 DSH 把品牌 mark 当作展开按钮的图标，悬停才换成面板图标。品牌槽位
+    // 一旦留空，这颗按钮就是个看不见的空壳 —— 这里盯的就是那种空壳。
+    const sidebarExpandToggleHasContent = Boolean(expandToggles[0])
+      && Array.from(expandToggles[0].querySelectorAll("*")).some(visible)
     expandToggles[0]?.click()
     await new Promise((resolve) => setTimeout(resolve, 200))
 
@@ -417,18 +423,17 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       automationDeleteDialogWorks,
       automationDirtyPauseBlocked,
       automationMetadataPlain,
-      collapsedSidebarDividerHiddenOnMac,
+      titlebarStripHeight,
+      titlebarStripDraggable,
+      contentInsetHeight,
+      sidebarBrandTop,
       sidebarToggleCount: collapseToggles.length,
-      sidebarToggleAlignedWithWindowControls: document.documentElement.dataset.pawworkPlatform !== "macos"
-        || Boolean(collapseRect && collapseRect.left === 76 && collapseRect.top === 9),
-      sidebarToggleChromeSubtle: document.documentElement.dataset.pawworkPlatform !== "macos"
-        || Boolean(collapseStyle && collapseStyle.backgroundColor === "rgba(0, 0, 0, 0)" && collapseStyle.borderRadius === "6px"),
       sidebarCollapsed,
       sidebarExpandToggleCount: expandToggles.length,
       sidebarExpandToggleUsable,
-      sidebarToggleShift,
+      sidebarExpandToggleHasContent,
       sidebarExpandedAgain: !document.querySelector("[data-sidebar-collapsed]"),
-      platform: document.documentElement.dataset.pawworkPlatform || "",
+      platform: typeof navigator === "undefined" ? "" : navigator.platform,
       freeProviderActive: freeProvider?.active === true && freeProvider?.displayName === "OpenCode Free",
       freeModelAvailable: freeModels.some((model) => model.id === "deepseek-v4-flash-free" && model.name === "DeepSeek V4 Flash Free"),
       skillNames: skills.map((skill) => skill.name).sort(),
@@ -497,8 +502,28 @@ export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: st
 }
 
 export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
+  // 原生窗口控件画在内容坐标系里，顶带是唯一声明这块安全区的地方。四条一起看：
+  // 无边框的平台必须有带子、带子高度等于主进程给的数字、带子可拖、内容按同一个
+  // 数字下移 —— 少任何一条，侧边栏左上角就会重新压到交通灯或 Windows overlay
+  // 按钮下面。第一条的期望来自 window-options 的无边框决定，和高度不是同一个
+  // 来源；否则整个特性被平台关掉时，期望值会跟着归零，断言静默通过。
+  const frameless = "titleBarStyle" in dshTitleBarOptions(process.platform)
+  const expectedTitlebarHeight = titlebarHeight(process.platform)
   const failures = [
-    !snapshot.sidebarBrandVisible ? null : "sidebar brand should stay out of the macOS titlebar",
+    snapshot.sidebarBrandVisible ? null : "PawWork sidebar brand is not rendered",
+    frameless === expectedTitlebarHeight > 0
+      ? null
+      : `frameless=${frameless} but the reserved titlebar strip is ${expectedTitlebarHeight}px`,
+    snapshot.titlebarStripHeight === expectedTitlebarHeight
+      ? null
+      : `titlebar strip is ${snapshot.titlebarStripHeight}px, expected ${expectedTitlebarHeight}px`,
+    snapshot.titlebarStripDraggable ? null : "titlebar strip is not a drag region",
+    snapshot.contentInsetHeight === expectedTitlebarHeight
+      ? null
+      : `web content is inset ${snapshot.contentInsetHeight}px, expected ${expectedTitlebarHeight}px`,
+    snapshot.sidebarBrandTop >= expectedTitlebarHeight
+      ? null
+      : `sidebar brand starts at ${snapshot.sidebarBrandTop}px, inside the native window controls`,
     snapshot.heroMarkVisible ? null : "PawWork hero brand mark is not rendered",
     snapshot.heroHeadlineOverridden ? null : "hero headline fell back to DSH copy",
     snapshot.heroPreviewBadgeHidden ? null : "DSH preview badge is still visible on the hero",
@@ -516,14 +541,11 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
     snapshot.automationDeleteDialogWorks ? null : "Automation delete confirmation is not a cancellable dialog",
     snapshot.automationDirtyPauseBlocked ? null : "Automation pause can discard unsaved edits",
     snapshot.automationMetadataPlain ? null : "Automation immutable metadata is not plain read-only text",
-    snapshot.collapsedSidebarDividerHiddenOnMac ? null : "collapsed macOS sidebar divider crosses the window controls",
     snapshot.sidebarToggleCount === 1 ? null : `expected one DSH collapse control, found ${snapshot.sidebarToggleCount}`,
-    snapshot.sidebarToggleAlignedWithWindowControls ? null : "sidebar toggle is not aligned with the macOS window controls",
-    snapshot.sidebarToggleChromeSubtle ? null : "sidebar toggle chrome does not blend into the titlebar",
     snapshot.sidebarCollapsed ? null : "DSH collapse control did not collapse the sidebar",
     snapshot.sidebarExpandToggleCount === 1 ? null : `expected one DSH expand control, found ${snapshot.sidebarExpandToggleCount}`,
     snapshot.sidebarExpandToggleUsable ? null : "DSH expand control is not visibly clickable",
-    snapshot.platform !== "macos" || snapshot.sidebarToggleShift <= 1 ? null : `DSH sidebar control moved ${snapshot.sidebarToggleShift.toFixed(1)}px while collapsing`,
+    snapshot.sidebarExpandToggleHasContent ? null : "collapsed sidebar expand control renders empty",
     snapshot.sidebarExpandedAgain ? null : "DSH expand control did not reopen the sidebar",
     snapshot.freeProviderActive ? null : "OpenCode Free provider is not active",
     snapshot.freeModelAvailable ? null : "DeepSeek V4 Flash Free is unavailable",
@@ -697,10 +719,9 @@ async function main() {
   }
 }
 
-// `import.meta.main` is undefined when tsx wraps the entry module, and every
-// caller here runs through tsx. It happens to be defined on the Node 24 CI
-// runners, but under Node 26 the smoke silently skips main() and exits 0 having
-// verified nothing. Compare the resolved entry path instead.
+// tsx wraps the entry module, and there `import.meta.main` is undefined — the
+// smoke would exit 0 having verified nothing. Every caller (package script and
+// both packaged CI jobs) runs through tsx, so compare the entry path instead.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   await main()
 }

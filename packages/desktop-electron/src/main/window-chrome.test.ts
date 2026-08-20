@@ -4,7 +4,7 @@ import { macTrafficLightPosition, pawworkWindowTitle } from "./window-chrome"
 test("macOS traffic lights use the DSH shell position", () => {
   expect(macTrafficLightPosition()).toEqual({
     x: 12,
-    y: 16,
+    y: 10,
   })
 })
 

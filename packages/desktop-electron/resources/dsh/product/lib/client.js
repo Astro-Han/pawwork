@@ -2,25 +2,21 @@ window.__ModuleLoader__.load({
   id: "@pawwork/dsh-product",
   factory: (require) => {
     const { createElement, useEffect, useRef } = require("react")
-    const { IconPanelLeftOutline16 } = require("@deepseek-ai/dsh-client-ui-primitives")
     const h = createElement
 
     const productCss = `
-.pawwork-sidebar-toggle { display: none; }
-html[data-pawwork-platform="macos"] button[aria-label="收起侧边栏"]:not(.pawwork-sidebar-toggle),
-html[data-pawwork-platform="macos"] button[aria-label="打开侧边栏"]:not(.pawwork-sidebar-toggle),
-html[data-pawwork-platform="macos"] button[aria-label="Collapse sidebar"]:not(.pawwork-sidebar-toggle),
-html[data-pawwork-platform="macos"] button[aria-label="Open sidebar"]:not(.pawwork-sidebar-toggle) { display: none; }
-html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle {
-  -webkit-app-region: no-drag;
-  align-items: center; background: transparent; border: 0; border-radius: 6px;
-  color: var(--dsw-alias-label-secondary); cursor: pointer; display: inline-flex;
-  height: 28px; justify-content: center; left: 76px; padding: 0; position: fixed;
-  top: 9px; width: 28px;
+/* 无边框窗口里没有原生标题栏可抓，这条顶带是窗口唯一的拖拽区；它同时替原生窗口
+   控件（macOS 交通灯、Windows overlay 按钮）占住它们画进内容坐标系的那一行，
+   让 DSH 的布局回到一个没有被侵占的视口里。高度由主进程注入
+   --pawwork-titlebar-height —— 同一个数字在那边摆放原生控件。Linux 保留系统标题
+   栏、不注入变量，两条规则回退到 0px 自动失效。不设 z-index：让模态框照常盖在
+   它上面，而 macOS 的交通灯本来就由系统画在网页内容之上。 */
+#root { box-sizing: border-box; padding-top: var(--pawwork-titlebar-height, 0px); }
+.pawwork-titlebar {
+  -webkit-app-region: drag;
+  height: var(--pawwork-titlebar-height, 0px);
+  left: 0; position: fixed; right: 0; top: 0;
 }
-html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle:hover { background: var(--dsw-alias-interactive-bg-hover); }
-html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle:active { background: var(--dsw-alias-interactive-bg-active); }
-html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle:focus-visible { outline: 2px solid #fc5c14; outline-offset: 1px; }
 .pawwork-file-action {
   align-items: center; background: transparent; border: 0; border-radius: 6px;
   color: var(--dsw-alias-label-secondary); cursor: pointer; display: inline-flex;
@@ -29,7 +25,6 @@ html[data-pawwork-platform="macos"] .pawwork-sidebar-toggle:focus-visible { outl
 .pawwork-file-action:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .pawwork-file-action:focus-visible { outline: 2px solid #fc5c14; outline-offset: 1px; }
 .pawwork-file-action:disabled { cursor: default; opacity: 0.45; }
-html[data-pawwork-platform="macos"] [data-sidebar-collapsed] > :first-child { border-right: 0; }
 /* Hero 的标题与「预览版」角标是 DSH 自带文案。rc.8 的 locale registry 对重复
    命名空间直接抛错，没有公开覆盖点，所以锚在 SlotOutlet 的 data-slot 上做视觉
    替换 —— data-slot 是稳定的可寻址属性，不像构建产物的哈希类名会随版本变。
@@ -63,10 +58,14 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       style.textContent = productCss
       document.head.appendChild(style)
     }
-    if (document.documentElement?.dataset !== undefined) {
-      const platform = typeof navigator === "undefined" ? "" : navigator.platform
-      document.documentElement.dataset.pawworkPlatform = platform.startsWith("Mac") ? "macos" : "other"
+    function mountTitlebar() {
+      if (!document.body || document.querySelector(".pawwork-titlebar") !== null) return
+      const bar = document.createElement("div")
+      bar.className = "pawwork-titlebar"
+      document.body.appendChild(bar)
     }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountTitlebar, { once: true })
+    else mountTitlebar()
 
     function isChinese() { return document.documentElement.lang.startsWith("zh") }
     function text(chinese, english) { return isChinese() ? chinese : english }
@@ -125,11 +124,6 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       const label = text("添加文件", "Add files")
       return h("button", { "aria-label": label, className: "pawwork-file-action", disabled: input.phase !== "plain", onClick: chooseFiles, title: label, type: "button" },
         icon(["M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"]))
-    }
-
-    function SidebarToggle({ toggleSidebar }) {
-      const label = text("切换侧边栏", "Toggle sidebar")
-      return h("button", { "aria-label": label, className: "pawwork-sidebar-toggle", onClick: toggleSidebar, title: label, type: "button" }, h(IconPanelLeftOutline16, { size: 16 }))
     }
 
     // --- 爪印手套 mark -------------------------------------------------------
@@ -194,17 +188,16 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
           gloveLayer(BRAND_CREAM, GLOVE_PADS)))
     }
 
-    const inject = ["slots", "layout", "connection", "sessions"]
-    // macOS 交通灯与自绘的折叠按钮占据侧边栏左上角，品牌标识只放 hero 一处。
-    function EmptyBrand() { return null }
+    const inject = ["slots", "connection", "sessions"]
+
+    function BrandName() { return text("爪印", "PawWork") }
 
     function apply(ctx) {
-      ctx.slots.inject("sidebar.brand.mark", () => ctx.slots.register({ name: "sidebar.brand.mark", priority: -100 }, EmptyBrand))
-      ctx.slots.inject("sidebar.brand.name", () => ctx.slots.register({ name: "sidebar.brand.name", priority: -100 }, EmptyBrand))
+      ctx.slots.inject("sidebar.brand.mark", () => ctx.slots.register({ name: "sidebar.brand.mark", priority: -100 }, PawGloveMark))
+      ctx.slots.inject("sidebar.brand.name", () => ctx.slots.register({ name: "sidebar.brand.name", priority: -100 }, BrandName))
       ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawGloveMark))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))
       ctx.slots.inject("conversation.input.left", () => ctx.slots.register({ name: "conversation.input.left", id: "pawwork-files", order: -100 }, FileAction))
-      ctx.slots.inject("shell.overlay", () => ctx.slots.register({ name: "shell.overlay", id: "pawwork-sidebar-toggle", order: -100 }, () => h(SidebarToggle, { toggleSidebar: () => ctx.layout.toggleSidebar() })))
       ctx.slots.inject("shell.overlay", () => ctx.slots.register({ name: "shell.overlay", id: "pawwork-v1-migration-refresh", order: -99 }, () => h(CompleteV1MigrationRefresh, { connection: ctx.connection, sessions: ctx.sessions })))
     }
 

@@ -1,3 +1,5 @@
+import { TITLEBAR_HEIGHT } from "./window-chrome.ts"
+
 export function dshWebPreferences(preload: string) {
   return {
     sandbox: true,
@@ -8,7 +10,9 @@ export function dshWebPreferences(preload: string) {
 }
 
 export function dshTitleBarOptions(platform: NodeJS.Platform) {
-  if (platform === "win32") return { titleBarOverlay: true as const, titleBarStyle: "hidden" as const }
+  if (platform === "win32") {
+    return { titleBarOverlay: { height: TITLEBAR_HEIGHT }, titleBarStyle: "hidden" as const }
+  }
   if (platform === "darwin") return { titleBarStyle: "hidden" as const }
   return {}
 }

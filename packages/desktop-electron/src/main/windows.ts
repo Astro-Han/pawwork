@@ -3,7 +3,7 @@ import log from "electron-log/main.js"
 import { app, BrowserWindow, nativeImage, shell } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { macTrafficLightPosition, pawworkWindowTitle } from "./window-chrome"
+import { macTrafficLightPosition, pawworkWindowTitle, titlebarInsetCss } from "./window-chrome"
 import { decideDshNavigation, guardDshNavigation } from "./window-navigation"
 import { dshTitleBarOptions, dshWebPreferences } from "./window-options"
 
@@ -58,6 +58,9 @@ export function createMainWindow(url: string, preload: string) {
   win.webContents.on("will-redirect", (event, target) => {
     guardDshNavigation(url, target, event, openExternal)
   })
+  const insetCss = titlebarInsetCss(process.platform)
+  // insertCSS is scoped to one navigation, so re-publish on every load.
+  if (insetCss) win.webContents.on("dom-ready", () => void win.webContents.insertCSS(insetCss))
   win.webContents.setZoomFactor(1)
   win.webContents.on("zoom-changed", () => win.webContents.setZoomFactor(1))
   win.webContents.on("page-title-updated", (event, title) => {

@@ -132,7 +132,7 @@ describe("PawWork DSH client product layer", () => {
 
     plugin.apply(ctx)
     expect(document.title).toBe("DeepSeek Harness")
-    expect(plugin.inject).toEqual(["slots", "layout", "connection", "sessions"])
+    expect(plugin.inject).toEqual(["slots", "connection", "sessions"])
     const welcome = registrations.find((entry) => entry.options.id === "welcome-notice")
     expect(welcome).toBeDefined()
     expect(welcome!.options.priority).toBe(-1)
@@ -147,62 +147,45 @@ describe("PawWork DSH client product layer", () => {
       "conversation.hero.brand.mark",
     ])
     expect(brandEntries.every((entry) => entry.options.priority === -100)).toBe(true)
-    // 侧边栏左上角归 macOS 交通灯和自绘的折叠按钮，品牌标识只落在 hero。
-    expect(brandEntries[0].component({})).toBeNull()
-    expect(brandEntries[1].component({})).toBeNull()
+    // 顶带替原生窗口控件占住了左上角，侧边栏品牌不再需要为它们让路：mark 和名字
+    // 在所有平台上一致渲染。
+    const sidebarMark = brandEntries[0].component({ size: 24 }) as { type: string; props: Record<string, unknown> }
+    expect(sidebarMark.type).toBe("svg")
+    expect(sidebarMark.props).toMatchObject({ viewBox: "0 0 64 64", width: 24, height: 24 })
+    expect(brandEntries[1].component({})).toBe("爪印")
     const heroMark = brandEntries[2].component({ size: 34 }) as { type: string; props: Record<string, unknown> }
     expect(heroMark.type).toBe("svg")
     expect(heroMark.props).toMatchObject({ viewBox: "0 0 64 64", width: 34, height: 34 })
   })
 
-  test("exposes one titlebar sidebar toggle through the public overlay slot", () => {
+  test("mounts the drag strip that reserves the native window chrome", () => {
     const source = readFileSync(resolve(productRoot, "lib/client.js"), "utf8")
-    let definition: {
-      factory: (require: (name: string) => unknown) => { apply(ctx: unknown): void }
-    } | null = null
+    const appended: Array<{ className: string }> = []
+    const style = { dataset: {} as Record<string, string>, textContent: "" }
     const document = {
       title: "DeepSeek Harness",
       documentElement: { lang: "zh-CN", dataset: {} },
+      readyState: "complete",
       querySelector: () => null,
-      createElement: () => ({ dataset: {}, textContent: "" }),
+      createElement: (tag: string) => (tag === "style" ? style : { className: "" }),
       head: { appendChild: () => {} },
+      body: { appendChild: (node: { className: string }) => appended.push(node) },
     }
+    let definition: { factory: (require: (name: string) => unknown) => unknown } | null = null
     const window = { __ModuleLoader__: { load: (value: typeof definition) => { definition = value } } }
 
     vm.runInNewContext(source, { document, navigator: { platform: "MacIntel" }, window })
-    const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
-      type,
-      props: { ...props, children },
-    })
-    const IconPanelLeftOutline16 = Symbol("IconPanelLeftOutline16")
-    const plugin = definition!.factory((name) => {
-      if (name === "react") return { createElement, useEffect: () => {}, useRef: <T>(value: T) => ({ current: value }) }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16 }
+    definition!.factory((name) => {
+      if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
-    const toggleSidebar = vi.fn(() => {})
-    const registrations: Array<{
-      options: { id?: string }
-      component: () => { props: Record<string, unknown> }
-    }> = []
-    plugin.apply({
-      layout: { toggleSidebar },
-      slots: {
-        inject: (_name: string, register: () => void) => register(),
-        register: (options: { id?: string }, component: () => { props: Record<string, unknown> }) => {
-          registrations.push({ options, component })
-        },
-      },
-    })
 
-    const registration = registrations.find((entry) => entry.options.id === "pawwork-sidebar-toggle")
-    expect(registration).toBeDefined()
-    const overlay = registration!.component()
-    const button = (overlay.type as (props: Record<string, unknown>) => { props: Record<string, unknown> })(overlay.props)
-    expect(button.props["aria-label"]).toBe("切换侧边栏")
-    expect(button.props.children[0].type).toBe(IconPanelLeftOutline16)
-    ;(button.props.onClick as () => void)()
-    expect(toggleSidebar).toHaveBeenCalledTimes(1)
+    // 顶带必须是真元素：-webkit-app-region 对伪元素无效，拖不动窗口。
+    expect(appended.map((node) => node.className)).toEqual(["pawwork-titlebar"])
+    // 高度只在主进程定义一次，渲染层只认那个变量，两边不会各写一个数字。
+    expect(style.textContent).toContain("-webkit-app-region: drag")
+    expect(style.textContent).toContain("padding-top: var(--pawwork-titlebar-height, 0px)")
+    expect(style.textContent).not.toMatch(/--pawwork-titlebar-height:/)
   })
 
 

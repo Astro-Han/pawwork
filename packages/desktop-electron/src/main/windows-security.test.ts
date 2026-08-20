@@ -15,7 +15,7 @@ describe("desktop windows security", () => {
 
   test("Windows uses system caption buttons over the frameless DSH shell", () => {
     expect(dshTitleBarOptions("win32")).toEqual({
-      titleBarOverlay: true,
+      titleBarOverlay: { height: 32 },
       titleBarStyle: "hidden",
     })
     expect(dshTitleBarOptions("darwin")).toEqual({ titleBarStyle: "hidden" })
