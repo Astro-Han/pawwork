@@ -32,14 +32,20 @@ describe("PawWork DSH Automations client", () => {
     }
     const window = {
       __ModuleLoader__: {
-        load: (value: typeof definition) => {
+        load: (value: {
+      id: string
+      factory: (require: (name: string) => unknown) => {
+        apply(ctx: unknown): void
+        inject: string[]
+      }
+    }) => {
           definition = value
         },
       },
     }
 
     vm.runInNewContext(source, { document, window })
-    expect(definition?.id).toBe("@pawwork/dsh-automations")
+    expect(definition!.id).toBe("@pawwork/dsh-automations")
 
     const plugin = definition!.factory((name) => {
       if (name === "react") return { createElement: () => null }
@@ -80,7 +86,9 @@ describe("PawWork DSH Automations client", () => {
       createElement: () => ({ dataset: {}, textContent: "" }),
       head: { appendChild: () => {} },
     }
-    const window = { __ModuleLoader__: { load: (value: typeof definition) => { definition = value } } }
+    const window = { __ModuleLoader__: { load: (value: {
+      factory: (require: (name: string) => unknown) => { apply(ctx: unknown): void }
+    }) => { definition = value } } }
     vm.runInNewContext(source, { document, window })
 
     const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]): unknown => {
@@ -140,7 +148,7 @@ describe("PawWork DSH Automations client", () => {
       return [element, ...((element.props?.children as unknown[]) || []).flatMap(visit)]
     }
     const createButton = visit(tree).find((element) =>
-      element.type === "button" && element.props.children?.includes("在对话中创建"),
+      element.type === "button" && (element.props.children as unknown[] | undefined)?.includes("在对话中创建"),
     )
 
     expect(createButton).toBeDefined()
@@ -162,7 +170,9 @@ describe("PawWork DSH Automations client", () => {
       createElement: () => ({ dataset: {}, textContent: "" }),
       head: { appendChild: () => {} },
     }
-    const window = { __ModuleLoader__: { load: (value: typeof definition) => { definition = value } } }
+    const window = { __ModuleLoader__: { load: (value: {
+      factory: (require: (name: string) => unknown) => { apply(ctx: unknown): void }
+    }) => { definition = value } } }
     vm.runInNewContext(source, { document, window })
 
     const definitionData = {
@@ -246,7 +256,7 @@ describe("PawWork DSH Automations client", () => {
       return [element, ...((element.props?.children as unknown[]) || []).flatMap(visit)]
     }
     const openSession = visit(tree).find((element) =>
-      element.type === "button" && element.props.children?.includes("Open session"),
+      element.type === "button" && (element.props.children as unknown[] | undefined)?.includes("Open session"),
     )
 
     expect(openSession).toBeDefined()

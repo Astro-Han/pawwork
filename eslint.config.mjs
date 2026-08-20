@@ -4,8 +4,12 @@ import { fileURLToPath } from "node:url"
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url))
 
+// Everything the package typechecks, so a new script or test cannot land
+// outside the lint boundary by default.
 const productTs = [
   "packages/desktop-electron/src/**/*.ts",
+  "packages/desktop-electron/scripts/**/*.ts",
+  "packages/desktop-electron/*.config.ts",
 ]
 
 export default tseslint.config([
@@ -16,7 +20,6 @@ export default tseslint.config([
       "**/dist/**",
       "**/out/**",
       "**/.artifacts/**",
-      "**/*.test.ts",
       "**/*.test.tsx",
       "**/*.spec.ts",
       "**/*.spec.tsx",

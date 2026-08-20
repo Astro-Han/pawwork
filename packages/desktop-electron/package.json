@@ -11,7 +11,7 @@
   "scripts": {
     "typecheck": "tsgo -b",
     "test": "vitest run && pnpm run test:node",
-    "test:node": "node --test resources/dsh/automations/lib/automation-cron.test.cjs resources/dsh/automations/lib/automations.test.cjs resources/dsh/home/plugins/import-v1/import-v1-automations.node-test.cjs resources/dsh/home/plugins/import-v1/import-v1-settings.test.cjs resources/dsh/home/plugins/import-v1/import-v1.node-test.cjs resources/dsh/zen-identity.test.cjs",
+    "test:node": "node --test \"resources/dsh/**/*.test.cjs\"",
     "smoke:ci": "tsx ./scripts/ci-smoke.ts",
     "predev": "tsx ./scripts/generate-icons.ts",
     "dev": "electron-vite dev",
@@ -51,7 +51,7 @@
   },
   "devDependencies": {
     "@types/js-yaml": "4.0.9",
-    "@types/node": "22.13.9",
+    "@types/node": "24.13.3",
     "@types/semver": "7.7.1",
     "@typescript/native-preview": "7.0.0-dev.20251207.1",
     "electron": "41.10.3",

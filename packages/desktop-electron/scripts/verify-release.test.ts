@@ -24,42 +24,52 @@ const baseRelease: GithubRelease = {
   assets: [
     {
       name: "pawwork-mac-arm64-2026.4.28.dmg",
+      url: "https://api.example.com/assets/pawwork-mac-arm64-2026.4.28.dmg",
       browser_download_url: "https://example.com/pawwork-mac-arm64-2026.4.28.dmg",
     },
     {
       name: "pawwork-mac-arm64-2026.4.28.zip",
+      url: "https://api.example.com/assets/pawwork-mac-arm64-2026.4.28.zip",
       browser_download_url: "https://example.com/pawwork-mac-arm64-2026.4.28.zip",
     },
     {
       name: "pawwork-mac-arm64-2026.4.28.zip.blockmap",
+      url: "https://api.example.com/assets/pawwork-mac-arm64-2026.4.28.zip.blockmap",
       browser_download_url: "https://example.com/pawwork-mac-arm64-2026.4.28.zip.blockmap",
     },
     {
       name: "pawwork-mac-x64-2026.4.28.dmg",
+      url: "https://api.example.com/assets/pawwork-mac-x64-2026.4.28.dmg",
       browser_download_url: "https://example.com/pawwork-mac-x64-2026.4.28.dmg",
     },
     {
       name: "pawwork-mac-x64-2026.4.28.zip",
+      url: "https://api.example.com/assets/pawwork-mac-x64-2026.4.28.zip",
       browser_download_url: "https://example.com/pawwork-mac-x64-2026.4.28.zip",
     },
     {
       name: "pawwork-mac-x64-2026.4.28.zip.blockmap",
+      url: "https://api.example.com/assets/pawwork-mac-x64-2026.4.28.zip.blockmap",
       browser_download_url: "https://example.com/pawwork-mac-x64-2026.4.28.zip.blockmap",
     },
     {
       name: "pawwork-win-x64-2026.4.28.exe",
+      url: "https://api.example.com/assets/pawwork-win-x64-2026.4.28.exe",
       browser_download_url: "https://example.com/pawwork-win-x64-2026.4.28.exe",
     },
     {
       name: "pawwork-win-x64-2026.4.28.exe.blockmap",
+      url: "https://api.example.com/assets/pawwork-win-x64-2026.4.28.exe.blockmap",
       browser_download_url: "https://example.com/pawwork-win-x64-2026.4.28.exe.blockmap",
     },
     {
       name: "latest.yml",
+      url: "https://api.example.com/assets/latest.yml",
       browser_download_url: "https://example.com/latest.yml",
     },
     {
       name: "latest-mac.yml",
+      url: "https://api.example.com/assets/latest-mac.yml",
       browser_download_url: "https://example.com/latest-mac.yml",
     },
   ],

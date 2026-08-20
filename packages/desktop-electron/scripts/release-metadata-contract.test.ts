@@ -14,6 +14,14 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
+// node:stream/web's ReadableStream is not the DOM one, so it cannot be handed
+// to Response. Read the pipe directly instead.
+async function readAll(stream: Readable) {
+  const chunks: Buffer[] = []
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk))
+  return Buffer.concat(chunks).toString("utf8")
+}
+
 function spawnFinalizer(binDir: string, latestDir: string, runnerTemp: string, env: Record<string, string> = {}) {
   const child = spawn(process.execPath, ["--import", "tsx", "./scripts/finalize-latest-yml.ts"], {
     cwd: packageDir,
@@ -29,8 +37,8 @@ function spawnFinalizer(binDir: string, latestDir: string, runnerTemp: string, e
     stdio: ["ignore", "pipe", "pipe"],
   })
   return {
-    stdout: Readable.toWeb(child.stdout),
-    stderr: Readable.toWeb(child.stderr),
+    stdout: readAll(child.stdout),
+    stderr: readAll(child.stderr),
     exited: new Promise<number | null>((resolve, reject) => {
       child.once("error", reject)
       child.once("exit", resolve)
@@ -68,8 +76,8 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
     const proc = spawnFinalizer(binDir, latestDir, runnerTemp)
 
     const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
+      proc.stdout,
+      proc.stderr,
       proc.exited,
     ])
 
@@ -248,7 +256,7 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
 
     const proc = spawnFinalizer(binDir, latestDir, runnerTemp)
 
-    const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
+    const [stderr, exitCode] = await Promise.all([proc.stderr, proc.exited])
 
     expect(exitCode).not.toBe(0)
     expect(stderr).toContain("Failed to download existing latest-mac.yml")
@@ -271,7 +279,7 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
 
     const proc = spawnFinalizer(binDir, latestDir, runnerTemp, { EXISTING_LATEST_YML_DIR: snapshotDir })
 
-    const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
+    const [stderr, exitCode] = await Promise.all([proc.stderr, proc.exited])
     expect(exitCode).not.toBe(0)
     expect(stderr).toContain("Failed to download existing latest-mac.yml")
     expect(stderr).toContain("HTTP 404: Not Found")
@@ -293,7 +301,7 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
 
     const proc = spawnFinalizer(binDir, latestDir, runnerTemp)
 
-    const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
+    const [stderr, exitCode] = await Promise.all([proc.stderr, proc.exited])
     expect(exitCode).not.toBe(0)
     expect(stderr).toContain("already published")
     const uploadsLog = join(root, "gh-uploads.log")
@@ -316,7 +324,7 @@ describe.skipIf(process.platform === "win32")("release metadata finalizer", () =
 
     const proc = spawnFinalizer(binDir, latestDir, runnerTemp, { EXISTING_LATEST_YML_DIR: snapshotDir })
 
-    const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
+    const [stderr, exitCode] = await Promise.all([proc.stderr, proc.exited])
     expect(exitCode).not.toBe(0)
     expect(stderr).toContain("Existing latest-mac.yml from EXISTING_LATEST_YML_DIR has version 0.2.3")
   })

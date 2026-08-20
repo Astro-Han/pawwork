@@ -26,14 +26,14 @@ describe("prepare-uv manifest helpers", () => {
   test("pins a lowercase 64-hex sha256 in the repo manifest for every supported target", () => {
     // The pinned hash is the verification authority: prepare-uv.ts must never
     // fall back to a checksum file fetched from the release being verified.
-    for (const [platform, arch] of [
-      ["darwin", "arm64"],
-      ["darwin", "x64"],
-      ["win32", "x64"],
+    for (const [platform, arch, target] of [
+      ["darwin", "arm64", "darwin-arm64"],
+      ["darwin", "x64", "darwin-x64"],
+      ["win32", "x64", "win32-x64"],
     ] as const) {
       const pinned = pinnedSha256ForTarget(platform, arch)
       expect(pinned).toMatch(/^[a-f0-9]{64}$/)
-      expect(pinned).toBe(manifest.uv.assets[`${platform}-${arch}`].sha256.toLowerCase())
+      expect(pinned).toBe(manifest.uv.assets[target].sha256.toLowerCase())
     }
   })
 

@@ -1,5 +1,8 @@
 export type GithubAsset = {
   name: string
+  // The API asset endpoint, used with an octet-stream Accept header. Distinct
+  // from browser_download_url, which redirects and drops the auth header.
+  url: string
   browser_download_url: string
 }
 

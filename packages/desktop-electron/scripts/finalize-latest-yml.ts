@@ -9,8 +9,12 @@ const execFileAsync = promisify(execFile)
 const dir = process.env.LATEST_YML_DIR!
 if (!dir) throw new Error("LATEST_YML_DIR is required")
 
-const repo = process.env.GH_REPO
-if (!repo) throw new Error("GH_REPO is required")
+function requireEnv(name: string) {
+  const value = process.env[name]
+  if (!value) throw new Error(`${name} is required`)
+  return value
+}
+const repo = requireEnv("GH_REPO")
 
 const version = process.env.OPENCODE_VERSION
 if (!version) throw new Error("OPENCODE_VERSION is required")

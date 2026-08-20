@@ -14,8 +14,18 @@
     "noEmit": true,
     "emitDeclarationOnly": false,
     "outDir": "node_modules/.ts-dist",
-    "types": ["vite/client", "node", "electron"]
+    "types": [
+      "vite/client",
+      "node",
+      "electron"
+    ]
   },
-  "include": ["src", "package.json"],
-  "exclude": ["src/**/*.test.ts"]
+  "include": [
+    "src",
+    "scripts",
+    "electron-builder.config.ts",
+    "electron.vite.config.ts",
+    "vitest.config.ts",
+    "package.json"
+  ]
 }

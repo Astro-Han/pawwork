@@ -23,7 +23,7 @@ const completeRelease: GithubRelease = {
     "pawwork-win-x64-2026.6.1.exe.blockmap",
     "latest.yml",
     "latest-mac.yml",
-  ].map((name) => ({ name, browser_download_url: `https://example.com/${name}` })),
+  ].map((name) => ({ name, url: `https://api.example.com/assets/${name}`, browser_download_url: `https://example.com/${name}` })),
 }
 
 const latestYml = "version: 2026.6.1\nfiles:\n  - url: pawwork-win-x64-2026.6.1.exe\n"

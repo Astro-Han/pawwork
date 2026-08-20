@@ -17,7 +17,7 @@ type GitHubPublishConfig = {
   repo: string
   channel: string
 }
-const localizedMacDisplayNameByChannel: Record<Channel, string> = {
+const localizedMacDisplayNameByChannel: Record<PawWorkChannel, string> = {
   dev: "爪印 Dev",
   beta: "爪印 Beta",
   prod: "爪印",
@@ -93,7 +93,7 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
     {
       from: "resources/dsh/",
       to: "dsh/",
-      filter: ["**/*", "!**/*.test.cjs", "!**/*-test.cjs"],
+      filter: ["**/*", "!**/*.test.cjs"],
     },
     {
       from: "resources/icons/",

@@ -56,7 +56,7 @@ describe("electron builder app-update config", () => {
     const dshResources = config.extraResources?.find((resource) => typeof resource === "object" && resource.to === "dsh/")
 
     expect(config.files).toEqual(["out/main/**/*", "resources/**/*", "!resources/dsh/**/*"])
-    expect(dshResources).toMatchObject({ filter: ["**/*", "!**/*.test.cjs", "!**/*-test.cjs"] })
+    expect(dshResources).toMatchObject({ filter: ["**/*", "!**/*.test.cjs"] })
     expect(config.extraResources).toEqual([
       expect.objectContaining({ to: "dsh/" }),
       expect.objectContaining({ to: "icons", filter: ["dock.png", "icon.png", "icon.ico"] }),

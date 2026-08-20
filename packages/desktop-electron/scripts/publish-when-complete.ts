@@ -57,6 +57,7 @@ import {
   releaseProvenanceAssetName,
   releaseProvenanceAssetNames,
   verifyReleasePayload,
+  type GithubAsset,
   type GithubRelease,
 } from "./verify-release"
 
@@ -78,8 +79,7 @@ const SEAL_SETTLE_MS = 8_000
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-type ApiAsset = { name: string; url: string; browser_download_url: string }
-type ApiRelease = GithubRelease & { id: number; upload_url: string; assets: ApiAsset[] }
+type ApiRelease = GithubRelease & { id: number; upload_url: string }
 
 // A target's provenance: its build commit and the content hash(es) of the
 // updater asset it produced.
@@ -225,7 +225,7 @@ async function deleteExistingAsset(repo: string, releaseId: number, name: string
     accept: "application/vnd.github+json",
   })
   if (!res.ok) throw new Error(`failed to list assets for release ${releaseId}: ${res.status} ${res.statusText}`)
-  const existing = ((await res.json()) as ApiAsset[]).find((entry) => entry.name === name)
+  const existing = ((await res.json()) as GithubAsset[]).find((entry) => entry.name === name)
   if (!existing) return
   const del = await ghFetch(existing.url, { method: "DELETE", accept: "application/vnd.github+json" })
   if (!del.ok && del.status !== 404) throw new Error(`failed to replace marker ${name}: ${del.status} ${del.statusText}`)

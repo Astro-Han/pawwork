@@ -30,7 +30,9 @@ describe("PawWork DSH client product layer", () => {
     } | null = null
     let intervalCallback: (() => void) | undefined
     const clearInterval = vi.fn(() => {})
-    const window = { __ModuleLoader__: { load: (value: typeof definition) => { definition = value } } }
+    const window = { __ModuleLoader__: { load: (value: {
+      factory: (require: (name: string) => unknown) => { apply(ctx: unknown): void }
+    }) => { definition = value } } }
     vm.runInNewContext(source, {
       clearInterval,
       document: {
@@ -97,14 +99,20 @@ describe("PawWork DSH client product layer", () => {
     }
     const window = {
       __ModuleLoader__: {
-        load: (value: typeof definition) => {
+        load: (value: {
+      id: string
+      factory: (require: (name: string) => unknown) => {
+        apply(ctx: unknown): void
+        inject: string[]
+      }
+    }) => {
           definition = value
         },
       },
     }
 
     vm.runInNewContext(source, { document, window })
-    expect(definition?.id).toBe("@pawwork/dsh-product")
+    expect(definition!.id).toBe("@pawwork/dsh-product")
 
     const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
       type,
@@ -172,7 +180,7 @@ describe("PawWork DSH client product layer", () => {
       body: { appendChild: (node: { className: string }) => appended.push(node) },
     }
     let definition: { factory: (require: (name: string) => unknown) => unknown } | null = null
-    const window = { __ModuleLoader__: { load: (value: typeof definition) => { definition = value } } }
+    const window = { __ModuleLoader__: { load: (value: { factory: (require: (name: string) => unknown) => unknown }) => { definition = value } } }
 
     vm.runInNewContext(source, { document, navigator: { platform: "MacIntel" }, window })
     definition!.factory((name) => {
@@ -210,7 +218,11 @@ describe("PawWork DSH client product layer", () => {
     const window = {
       pawworkFiles: { pick },
       __ModuleLoader__: {
-        load: (value: typeof definition) => {
+        load: (value: {
+      factory: (require: (name: string) => unknown) => {
+        apply(ctx: unknown): void
+      }
+    }) => {
           definition = value
         },
       },

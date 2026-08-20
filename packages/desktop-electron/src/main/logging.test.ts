@@ -12,7 +12,9 @@ const { fakeLog } = vi.hoisted(() => ({ fakeLog: {
     },
     console: {
       level: "info" as string | false,
-      writeFn: () => undefined,
+      // electron-log hands the console transport a message payload; the fake
+      // has to accept it or setupLog cannot install a spying writeFn.
+      writeFn: (_options: unknown): void => undefined,
     },
   },
 } }))

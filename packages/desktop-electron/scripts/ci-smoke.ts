@@ -1,5 +1,6 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
+import { spawn, type ChildProcessByStdio } from "node:child_process"
 import { once } from "node:events"
+import type { Readable } from "node:stream"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { createServer } from "node:net"
@@ -20,8 +21,11 @@ export type SmokeTarget =
   | { mode: "raw"; channel: SmokeChannel }
   | { mode: "packaged"; channel: SmokeChannel; executablePath: string }
 
+// stdio is ["ignore", "pipe", "pipe"], so stdin really is null at runtime.
+type SmokeChild = ChildProcessByStdio<null, Readable, Readable>
+
 type LaunchedApp = {
-  child: ChildProcessWithoutNullStreams
+  child: SmokeChild
   spawnError: { current: Error | undefined }
 }
 
@@ -71,7 +75,8 @@ export type CiSmokeProductSnapshot = {
 type ProbeOptions = {
   attempts?: number
   delayMs?: number
-  fetch?: typeof fetch
+  // The probe only ever calls this with a plain URL string.
+  fetch?: (url: string) => Promise<Response>
   sleep?: (ms: number) => Promise<unknown>
 }
 
@@ -623,7 +628,7 @@ export function resolveLaunchCommand(target: SmokeTarget, options: LaunchCommand
   return { command: (options.electronBinary ?? resolveElectronBinary)(), args: [resolveMainEntry()] }
 }
 
-function watchChildLogs(child: ChildProcessWithoutNullStreams) {
+function watchChildLogs(child: SmokeChild) {
   const stdout = readline.createInterface({ input: child.stdout })
   const stderr = readline.createInterface({ input: child.stderr })
   const recent: string[] = []
@@ -648,7 +653,7 @@ function watchChildLogs(child: ChildProcessWithoutNullStreams) {
 async function waitForCiSmokeReady(
   homeDir: string,
   target: SmokeTarget,
-  child: ChildProcessWithoutNullStreams,
+  child: SmokeChild,
   spawnError: { current: Error | undefined },
   recent: string[],
 ) {
@@ -704,7 +709,7 @@ async function closeAppWindow(target: CdpTarget) {
 // app.quit(). Windows has none — child.kill is TerminateProcess on this one PID
 // — so the app never reaches before-quit and the sidecar is shot mid-flush.
 // There, ask through the window instead; the kill below stays as the fallback.
-async function stopChild(child: ChildProcessWithoutNullStreams, closeWindow?: () => Promise<void>) {
+async function stopChild(child: SmokeChild, closeWindow?: () => Promise<void>) {
   if (child.exitCode !== null || child.signalCode !== null) return
 
   if (process.platform === "win32" && closeWindow !== undefined) {
