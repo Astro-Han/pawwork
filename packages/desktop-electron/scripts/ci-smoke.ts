@@ -665,12 +665,33 @@ function launchApp(homeDir: string, target: SmokeTarget, options: LaunchAppOptio
   }
 }
 
-// Windows has no signals: child.kill maps to TerminateProcess on this one PID,
-// so the app gets no shutdown path and any sidecar it spawned is orphaned. Log
-// how the app actually went down — a restart that loses state reads very
-// differently depending on whether the first process was asked or shot.
-async function stopChild(child: ChildProcessWithoutNullStreams) {
+// Ask the window to close, the way a user quits: window-all-closed → app.quit()
+// → before-quit → shutdownSidecar(), which is where DSH state reaches disk.
+// window.close() tears the page down mid-call, so defer it past the reply or the
+// evaluation never returns.
+async function closeAppWindow(target: CdpTarget) {
+  await evaluateCiSmokeJson(target, `(() => {
+    setTimeout(() => window.close(), 0)
+    return JSON.stringify(true)
+  })()`).catch(() => undefined)
+}
+
+// Signals do the job wherever they exist: the app handles SIGTERM by calling
+// app.quit(). Windows has none — child.kill is TerminateProcess on this one PID
+// — so the app never reaches before-quit and the sidecar is shot mid-flush.
+// There, ask through the window instead; the kill below stays as the fallback.
+async function stopChild(child: ChildProcessWithoutNullStreams, closeWindow?: () => Promise<void>) {
   if (child.exitCode !== null || child.signalCode !== null) return
+
+  if (process.platform === "win32" && closeWindow !== undefined) {
+    await closeWindow()
+    // before-quit gives the sidecar up to 10s to shut down; outwait it.
+    const closed = await Promise.race([once(child, "exit").then(() => "exit"), delay(15_000).then(() => "timeout")])
+    if (closed === "exit") {
+      console.log(`CI smoke closed desktop app: code=${child.exitCode} signal=${child.signalCode}`)
+      return
+    }
+  }
 
   child.kill("SIGTERM")
   const result = await Promise.race([once(child, "exit").then(() => "exit"), delay(5_000).then(() => "timeout")])
@@ -714,18 +735,19 @@ async function main() {
   const { child, spawnError } = launchApp(homeDir, target, { cdpPort })
   const logs = watchChildLogs(child)
   let product: CiSmokeProductSnapshot | undefined
+  let cdpTarget: CdpTarget | undefined
 
   try {
     await waitForCiSmokeReady(homeDir, target, child, spawnError, logs.recent)
     if (cdpPort !== undefined) {
-      const cdpTarget = await probeCiSmokeCdpTarget(cdpPort)
+      cdpTarget = await probeCiSmokeCdpTarget(cdpPort)
       product = await inspectCiSmokeProduct(cdpTarget, homeDir)
       assertCiSmokeProduct(product)
       console.log("CI smoke verified DSH product UI, free model, and bundled skills")
     }
   } finally {
     logs.close()
-    await stopChild(child)
+    await stopChild(child, cdpTarget === undefined ? undefined : () => closeAppWindow(cdpTarget as CdpTarget))
   }
 
   if (product !== undefined) {
@@ -733,14 +755,15 @@ async function main() {
     const restartPort = await allocateCiSmokeCdpPort()
     const restarted = launchApp(homeDir, target, { cdpPort: restartPort })
     const restartLogs = watchChildLogs(restarted.child)
+    let restartTarget: CdpTarget | undefined
     try {
       await waitForCiSmokeReady(homeDir, target, restarted.child, restarted.spawnError, restartLogs.recent)
-      const restartTarget = await probeCiSmokeCdpTarget(restartPort)
+      restartTarget = await probeCiSmokeCdpTarget(restartPort)
       await inspectCiSmokePersistence(restartTarget, product.sessionId, dshHome)
       console.log("CI smoke verified DSH session persistence after restart")
     } finally {
       restartLogs.close()
-      await stopChild(restarted.child)
+      await stopChild(restarted.child, restartTarget === undefined ? undefined : () => closeAppWindow(restartTarget as CdpTarget))
     }
   }
 }
