@@ -118,10 +118,6 @@ function openMigrationLedger(home) {
   ledger.failures ||= {};
   for (const category of ['sessions', 'settings', 'automationDefinitions', 'automationRuns']) {
     ledger.failures[category] ||= {};
-    for (const [sourceId, entry] of Object.entries(ledger[category] || {})) {
-      if (entry?.status === 'failed') ledger.failures[category][sourceId] = { message: entry.message };
-    }
-    delete ledger[category];
   }
   return { ledger, save: () => writeJsonAtomically(file, ledger) };
 }

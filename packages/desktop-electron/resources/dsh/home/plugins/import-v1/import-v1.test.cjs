@@ -1283,7 +1283,7 @@ test('preserves source identity and failures written by another migration stage'
   fs.writeFileSync(path.join(home, 'import-v1', 'ledger.json'), JSON.stringify({
     schema: 1,
     sourceAppData: '/tmp/v1-app-data',
-    settings: { theme: { status: 'failed', message: 'settings store unavailable' } },
+    failures: { settings: { theme: { message: 'settings store unavailable' } } },
   }));
 
   await runV1SessionImport({
@@ -1296,6 +1296,5 @@ test('preserves source identity and failures written by another migration stage'
   const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
   assert.equal(ledger.sourceAppData, '/tmp/v1-app-data');
   assert.deepEqual(ledger.failures.settings, { theme: { message: 'settings store unavailable' } });
-  assert.equal(ledger.settings, undefined);
   assert.deepEqual(ledger.failures.sessions, {});
 });
