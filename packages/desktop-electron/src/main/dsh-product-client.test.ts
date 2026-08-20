@@ -147,9 +147,12 @@ describe("PawWork DSH client product layer", () => {
       "conversation.hero.brand.mark",
     ])
     expect(brandEntries.every((entry) => entry.options.priority === -100)).toBe(true)
+    // 侧边栏左上角归 macOS 交通灯和自绘的折叠按钮，品牌标识只落在 hero。
     expect(brandEntries[0].component({})).toBeNull()
-    expect(brandEntries[2].component({})).toBeNull()
     expect(brandEntries[1].component({})).toBeNull()
+    const heroMark = brandEntries[2].component({ size: 34 }) as { type: string; props: Record<string, unknown> }
+    expect(heroMark.type).toBe("svg")
+    expect(heroMark.props).toMatchObject({ viewBox: "0 0 64 64", width: 34, height: 34 })
   })
 
   test("exposes one titlebar sidebar toggle through the public overlay slot", () => {

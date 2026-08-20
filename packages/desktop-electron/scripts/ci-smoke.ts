@@ -31,6 +31,10 @@ type CdpTarget = {
 
 export type CiSmokeProductSnapshot = {
   sidebarBrandVisible: boolean
+  heroMarkVisible: boolean
+  heroHeadlineOverridden: boolean
+  heroPreviewBadgeHidden: boolean
+  heroMarkHeadlineOffset: number
   automationSettingsEntryVisible: boolean
   automationSidebarEntryAbsent: boolean
   automationSurfaceVisible: boolean
@@ -248,12 +252,27 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     }
     await call("workspace.create", { path: ${workspace} })
     await new Promise((resolve) => setTimeout(resolve, 100))
-    const pawworkBrandName = document.querySelector(".pawwork-brand-name")
+    const slotContent = (slot) => Array.from(document.querySelectorAll('[data-slot="' + slot + '"] *'))
     const sidebarToggles = () => Array.from(document.querySelectorAll("button")).filter((button) => {
       const label = button.getAttribute("aria-label") || button.getAttribute("title") || ""
       return visible(button) && /^(收起侧边栏|打开侧边栏|切换侧边栏|Collapse sidebar|Open sidebar|Toggle sidebar)$/i.test(label)
     })
-    const sidebarBrandVisible = visible(pawworkBrandName)
+    const sidebarBrandVisible = ["sidebar.brand.mark", "sidebar.brand.name"].flatMap(slotContent).some(visible)
+    // Hero 是品牌标识唯一的落点：mark、覆盖后的标题、以及被隐藏的 DSH「预览版」角标。
+    // 只断言覆盖机制是否还在生效，不锁死具体文案 —— rc.7→rc.8 悄悄失效的正是机制。
+    const heroMark = document.querySelector('[data-slot="conversation.hero.brand.mark"] > svg')
+    const heroHeadline = heroMark?.parentElement?.parentElement?.nextElementSibling
+    const heroBadge = heroHeadline?.nextElementSibling
+    const heroMarkVisible = visible(heroMark)
+    const heroHeadlineOverridden = Boolean(heroHeadline)
+      && getComputedStyle(heroHeadline).fontSize === "0px"
+      && getComputedStyle(heroHeadline, "::before").content.replace(/^"|"$/g, "").trim().length > 0
+    const heroPreviewBadgeHidden = !visible(heroBadge)
+    const heroMarkRect = heroMark?.getBoundingClientRect()
+    const heroHeadlineRect = heroHeadline?.getBoundingClientRect()
+    const heroMarkHeadlineOffset = heroMarkRect && heroHeadlineRect
+      ? Math.abs((heroMarkRect.top + heroMarkRect.height / 2) - (heroHeadlineRect.top + heroHeadlineRect.height / 2))
+      : Number.NaN
     const automationSidebarEntryAbsent = !Array.from(document.querySelectorAll("button")).some((button) => {
       const label = (button.getAttribute("aria-label") || button.textContent || "").trim()
       return visible(button) && /^(自动化|Automations)$/i.test(label)
@@ -380,6 +399,10 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const freeModels = models.find((group) => group.id === "opencode")?.models || []
     return JSON.stringify({
       sidebarBrandVisible,
+      heroMarkVisible,
+      heroHeadlineOverridden,
+      heroPreviewBadgeHidden,
+      heroMarkHeadlineOffset,
       automationSettingsEntryVisible,
       automationSidebarEntryAbsent,
       automationSurfaceVisible,
@@ -475,6 +498,10 @@ export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: st
 export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot) {
   const failures = [
     !snapshot.sidebarBrandVisible ? null : "sidebar brand should stay out of the macOS titlebar",
+    snapshot.heroMarkVisible ? null : "PawWork hero brand mark is not rendered",
+    snapshot.heroHeadlineOverridden ? null : "hero headline fell back to DSH copy",
+    snapshot.heroPreviewBadgeHidden ? null : "DSH preview badge is still visible on the hero",
+    snapshot.heroMarkHeadlineOffset <= 1 ? null : `hero mark sits ${snapshot.heroMarkHeadlineOffset.toFixed(1)}px off the headline centre`,
     snapshot.automationSettingsEntryVisible ? null : "Automation Settings entry is not visible",
     snapshot.automationSidebarEntryAbsent ? null : "Automation should not occupy the sidebar",
     snapshot.automationSurfaceVisible ? null : "Automation surface did not open",

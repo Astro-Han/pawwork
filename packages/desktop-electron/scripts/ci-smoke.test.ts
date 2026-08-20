@@ -204,6 +204,10 @@ describe("ci smoke helpers", () => {
   test("assertCiSmokeProduct accepts the shipped DSH product contract", () => {
     expect(() => assertCiSmokeProduct({
       sidebarBrandVisible: false,
+      heroMarkVisible: true,
+      heroHeadlineOverridden: true,
+      heroPreviewBadgeHidden: true,
+      heroMarkHeadlineOffset: 0,
       automationSettingsEntryVisible: true,
       automationSidebarEntryAbsent: true,
       automationSurfaceVisible: true,
@@ -237,6 +241,10 @@ describe("ci smoke helpers", () => {
   test("assertCiSmokeProduct reports every missing product capability", () => {
     expect(() => assertCiSmokeProduct({
       sidebarBrandVisible: true,
+      heroMarkVisible: false,
+      heroHeadlineOverridden: false,
+      heroPreviewBadgeHidden: false,
+      heroMarkHeadlineOffset: 4.5,
       automationSettingsEntryVisible: false,
       automationSidebarEntryAbsent: false,
       automationSurfaceVisible: false,
@@ -264,7 +272,7 @@ describe("ci smoke helpers", () => {
       freeModelAvailable: false,
       skillNames: [],
       sessionId: "",
-    })).toThrow(/sidebar brand.*Automation Settings entry.*Automation should not occupy the sidebar.*Automation surface.*visible chat path.*Automation editor.*compressed.*advanced settings.*Back navigation.*header overflows.*visible form.*cancellable dialog.*discard unsaved edits.*immutable metadata.*divider.*one DSH collapse control.*aligned.*blend.*collapse.*one DSH expand control.*visibly clickable.*moved.*reopen.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
+    })).toThrow(/sidebar brand.*hero brand mark.*DSH copy.*preview badge.*off the headline centre.*Automation Settings entry.*Automation should not occupy the sidebar.*Automation surface.*visible chat path.*Automation editor.*compressed.*advanced settings.*Back navigation.*header overflows.*visible form.*cancellable dialog.*discard unsaved edits.*immutable metadata.*divider.*one DSH collapse control.*aligned.*blend.*collapse.*one DSH expand control.*visibly clickable.*moved.*reopen.*OpenCode Free.*DeepSeek V4 Flash Free.*Office skills/s)
   })
 
   test("parseSmokeArgs defaults to raw dev mode", () => {
