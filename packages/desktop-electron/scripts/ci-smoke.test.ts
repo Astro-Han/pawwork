@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 import { spawnSync } from "node:child_process"
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import {
@@ -331,20 +331,20 @@ describe("ci smoke helpers", () => {
     })
   })
 
-  // POSIX-only: the fixture relies on creating an empty file with chmod 0o755
-  // to trigger an ENOEXEC spawn error so ci-smoke.ts emits the
-  // "Failed to launch desktop app:" branch. Windows has no direct equivalent
-  // (empty files run through cmd exit cleanly, sending the flow through the
-  // "Electron exited" branch instead), and the assertion targets the spawn
-  // error format itself, not Windows-specific launch behavior.
+  // Spawn a directory rather than a file: exec on a directory is EACCES on both
+  // macOS and Linux, and existsSync still accepts it, so parseSmokeArgs lets it
+  // through to the spawn. An empty executable file only works on macOS — glibc's
+  // execvp answers ENOEXEC by re-running the file under /bin/sh, so on Linux it
+  // succeeds as an empty script and the flow lands in the "Electron exited"
+  // branch instead. Windows stays skipped: its behaviour here is unverified and
+  // the assertion targets the spawn-error format, not platform launch semantics.
   test.skipIf(process.platform === "win32")(
     "packaged smoke reports spawn failures with launch context",
     () => {
       const dir = mkdtempSync(path.join(tmpdir(), "pawwork-ci-smoke-"))
       try {
         const executablePath = path.join(dir, "PawWork")
-        writeFileSync(executablePath, "")
-        chmodSync(executablePath, 0o755)
+        mkdirSync(executablePath)
 
         const result = spawnSync(
           process.execPath,
