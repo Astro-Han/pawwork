@@ -956,6 +956,42 @@ test('records the missing source in the migration ledger', async () => {
   assert.equal(ledger.sourceDatabase, null);
 });
 
+// All three stages and the ledger reader route through one owner now, so this is
+// the only implementation of either guard left to break.
+test('refuses a ledger home that is not absolute', async () => {
+  await assert.rejects(
+    runV1SessionImport({ home: 'v2-home', importSession: async () => {} }),
+    /v1 import home must be absolute/,
+  );
+  assert.throws(() => completedV1SessionTargetIds('v2-home'), /v1 import home must be absolute/);
+});
+
+test('refuses to keep importing when the v1 database underneath the ledger changed', async () => {
+  const root = temporaryDirectory();
+  const first = path.join(root, 'pawwork.db');
+  const second = path.join(root, 'moved.db');
+  const home = path.join(root, 'v2-home');
+  createV1Fixture(first);
+  createV1Fixture(second);
+
+  await runV1SessionImport({
+    home,
+    sourceDatabase: first,
+    snapshot: await snapshotOf(home, first),
+    importSession: async () => ({ session: 'imported', workspace: 'attached' }),
+  });
+
+  await assert.rejects(
+    runV1SessionImport({
+      home,
+      sourceDatabase: second,
+      snapshot: await snapshotOf(home, second),
+      importSession: async () => { throw new Error('a swapped source must not import'); },
+    }),
+    /v1 migration source changed from .*pawwork\.db to .*moved\.db/,
+  );
+});
+
 test('resumes after a per-session failure without duplicating completed sessions', async () => {
   const root = temporaryDirectory();
   const source = path.join(root, 'pawwork.db');

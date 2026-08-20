@@ -1,13 +1,11 @@
 'use strict';
-const fs = require('node:fs');
-const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const {
   discoverV1Database,
+  guardV1DatabaseIdentity,
+  openMigrationLedger,
   parseJson,
-  readMigrationLedger,
   requireColumns,
-  writeJsonAtomically,
 } = require('./migration-io.cjs');
 
 function readV1Automations(snapshot) {
@@ -171,32 +169,17 @@ async function runV1AutomationImport({
   signal,
   now = () => Date.now(),
 }) {
-  if (!home || !path.isAbsolute(home)) throw new Error('v1 import home must be absolute');
   if (typeof resolveModel !== 'function') throw new Error('v1 resolveModel adapter is required');
   if (typeof importDefinition !== 'function') throw new Error('v1 importDefinition adapter is required');
   if (typeof importRun !== 'function') throw new Error('v1 importRun adapter is required');
-  const directory = path.join(home, 'import-v1');
-  const ledgerPath = path.join(directory, 'ledger.json');
-  const ledger = readMigrationLedger(ledgerPath, {
-    schema: 1,
-    sourceDatabase,
-    automationDefinitions: {},
-    automationRuns: {},
-  });
-  ledger.automationDefinitions ||= {};
-  ledger.automationRuns ||= {};
-  if (ledger.sourceDatabase && sourceDatabase && ledger.sourceDatabase !== sourceDatabase) {
-    throw new Error(`v1 migration source changed from ${ledger.sourceDatabase} to ${sourceDatabase}`);
-  }
+  const { ledger, save } = openMigrationLedger(home);
+  guardV1DatabaseIdentity(ledger, sourceDatabase);
   if (!sourceDatabase) {
-    ledger.sourceDatabase = null;
-    writeJsonAtomically(ledgerPath, ledger);
+    save();
     return;
   }
 
   if (!snapshot) throw new Error('v1 automation import requires a database snapshot');
-  fs.mkdirSync(directory, { recursive: true });
-  ledger.sourceDatabase = sourceDatabase;
   signal?.throwIfAborted();
   const source = readV1Automations(snapshot);
   const definitionIds = new Set(source.definitionIds);
@@ -205,7 +188,7 @@ async function runV1AutomationImport({
     const prior = records[failure.id];
     if (prior?.status !== 'complete') records[failure.id] = { status: 'failed', message: failure.message };
   }
-  if (source.failures.length > 0) writeJsonAtomically(ledgerPath, ledger);
+  if (source.failures.length > 0) save();
   for (const definition of source.definitions) {
     signal?.throwIfAborted();
     const prior = ledger.automationDefinitions[definition.id];
@@ -228,7 +211,7 @@ async function runV1AutomationImport({
       const message = error instanceof Error ? error.message : String(error);
       ledger.automationDefinitions[definition.id] = { status: 'failed', message };
     }
-    writeJsonAtomically(ledgerPath, ledger);
+    save();
   }
 
   const completedAt = now();
@@ -253,9 +236,9 @@ async function runV1AutomationImport({
       const message = error instanceof Error ? error.message : String(error);
       ledger.automationRuns[run.id] = { status: 'failed', message };
     }
-    writeJsonAtomically(ledgerPath, ledger);
+    save();
   }
-  writeJsonAtomically(ledgerPath, ledger);
+  save();
 }
 
 module.exports = {

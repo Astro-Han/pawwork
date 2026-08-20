@@ -92,6 +92,32 @@ function readMigrationLedger(file, fallback) {
   return ledger;
 }
 
+// The three stages and the ledger reader all opened the same file themselves:
+// four copies of the absolute-home guard (one of which silently returned an empty
+// result instead of throwing), four path constructions, four reads, and four
+// hand-seeded table sets. The ledger has one owner now; the stages say only what
+// they record in it.
+function openMigrationLedger(home) {
+  if (!home || !path.isAbsolute(home)) throw new Error('v1 import home must be absolute');
+  const file = path.join(home, 'import-v1', 'ledger.json');
+  const ledger = readMigrationLedger(file, { schema: 1 });
+  ledger.sessions ||= {};
+  ledger.settings ||= {};
+  ledger.automationDefinitions ||= {};
+  ledger.automationRuns ||= {};
+  return { ledger, save: () => writeJsonAtomically(file, ledger) };
+}
+
+// The session and automation stages read one database and record one identity,
+// so this guard was byte-for-byte the same in both. The settings stage tracks a
+// different source under a different key and states its own.
+function guardV1DatabaseIdentity(ledger, sourceDatabase) {
+  if (ledger.sourceDatabase && sourceDatabase && ledger.sourceDatabase !== sourceDatabase) {
+    throw new Error(`v1 migration source changed from ${ledger.sourceDatabase} to ${sourceDatabase}`);
+  }
+  ledger.sourceDatabase = sourceDatabase || null;
+}
+
 function writeJsonAtomically(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temporary = `${file}.next`;
@@ -102,11 +128,11 @@ function writeJsonAtomically(file, value) {
 module.exports = {
   createDatabaseSnapshot,
   discoverV1Database,
+  guardV1DatabaseIdentity,
+  openMigrationLedger,
   openV1Snapshot,
   parseJson,
   readJson,
-  readMigrationLedger,
   requireColumns,
   v1DatabaseCandidates,
-  writeJsonAtomically,
 };

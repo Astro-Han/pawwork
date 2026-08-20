@@ -1,13 +1,11 @@
 'use strict';
-const fs = require('node:fs');
-const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const {
   discoverV1Database,
+  guardV1DatabaseIdentity,
+  openMigrationLedger,
   parseJson,
-  readMigrationLedger,
   requireColumns,
-  writeJsonAtomically,
 } = require('./migration-io.cjs');
 
 async function* readV1Sessions(snapshot) {
@@ -318,34 +316,21 @@ async function runV1SessionImport({
   importSession,
   signal,
 }) {
-  if (!home || !path.isAbsolute(home)) throw new Error('v1 import home must be absolute');
   if (typeof importSession !== 'function') throw new Error('v1 importSession adapter is required');
-  const directory = path.join(home, 'import-v1');
-  const ledgerPath = path.join(directory, 'ledger.json');
-  const ledger = readMigrationLedger(ledgerPath, {
-    schema: 1,
-    sourceDatabase,
-    sessions: {},
-  });
-  ledger.sessions ||= {};
-  if (ledger.sourceDatabase && sourceDatabase && ledger.sourceDatabase !== sourceDatabase) {
-    throw new Error(`v1 migration source changed from ${ledger.sourceDatabase} to ${sourceDatabase}`);
-  }
+  const { ledger, save } = openMigrationLedger(home);
+  guardV1DatabaseIdentity(ledger, sourceDatabase);
   if (!sourceDatabase) {
-    ledger.sourceDatabase = null;
-    writeJsonAtomically(ledgerPath, ledger);
+    save();
     return;
   }
 
   if (!snapshot) throw new Error('v1 session import requires a database snapshot');
-  fs.mkdirSync(directory, { recursive: true });
-  ledger.sourceDatabase = sourceDatabase;
   signal?.throwIfAborted();
   for await (const sourceSession of readV1Sessions(snapshot)) {
     signal?.throwIfAborted();
     if (sourceSession.readError) {
       ledger.sessions[sourceSession.id] = { status: 'failed', message: sourceSession.readError };
-      writeJsonAtomically(ledgerPath, ledger);
+      save();
       continue;
     }
     const imported = buildDshSession(sourceSession);
@@ -376,18 +361,14 @@ async function runV1SessionImport({
         ? { ...previous, workspaceAttached: false, workspaceMessage: message }
         : { status: 'failed', targetId: imported.id, message };
     }
-    writeJsonAtomically(ledgerPath, ledger);
+    save();
   }
-  writeJsonAtomically(ledgerPath, ledger);
+  save();
 }
 
 function completedV1SessionTargetIds(home) {
-  if (!home || !path.isAbsolute(home)) return new Set();
-  const ledger = readMigrationLedger(path.join(home, 'import-v1', 'ledger.json'), {
-    schema: 1,
-    sessions: {},
-  });
-  return new Set(Object.values(ledger.sessions || {})
+  const { ledger } = openMigrationLedger(home);
+  return new Set(Object.values(ledger.sessions)
     .filter((entry) => entry?.status === 'complete' && typeof entry.targetId === 'string')
     .map((entry) => entry.targetId));
 }

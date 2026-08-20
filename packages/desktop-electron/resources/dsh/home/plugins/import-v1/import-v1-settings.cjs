@@ -2,7 +2,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { readJson, readMigrationLedger, writeJsonAtomically } = require('./migration-io.cjs');
+const { openMigrationLedger, readJson } = require('./migration-io.cjs');
 
 const V1_APP_ID = 'ai.pawwork.desktop';
 
@@ -161,33 +161,26 @@ async function runV1SettingsImport({
   importSetting,
   signal,
 }) {
-  if (!home || !path.isAbsolute(home)) throw new Error('v1 import home must be absolute');
   if (typeof importSetting !== 'function') throw new Error('v1 importSetting adapter is required');
-  const directory = path.join(home, 'import-v1');
-  const ledgerPath = path.join(directory, 'ledger.json');
-  const ledger = readMigrationLedger(ledgerPath, {
-    schema: 1,
-    sourceAppData,
-    settings: {},
-  });
-  ledger.settings ||= {};
+  const { ledger, save } = openMigrationLedger(home);
+  // This stage reads the v1 app-data directory, not the v1 database, so it
+  // tracks its own source under its own key.
   if (ledger.sourceAppData && sourceAppData && ledger.sourceAppData !== sourceAppData) {
     throw new Error(`v1 settings source changed from ${ledger.sourceAppData} to ${sourceAppData}`);
   }
+  ledger.sourceAppData = sourceAppData || null;
   if (!sourceAppData) {
-    ledger.sourceAppData = null;
-    writeJsonAtomically(ledgerPath, ledger);
+    save();
     return;
   }
 
   const preferences = readV1Preferences(sourceAppData);
-  ledger.sourceAppData = sourceAppData;
 
   for (const unsupported of preferences.unsupportedSettings) {
     const id = `unsupported:${unsupported}`;
     ledger.settings[id] = { status: 'complete', outcome: 'unsupported', source: unsupported };
   }
-  writeJsonAtomically(ledgerPath, ledger);
+  save();
 
   for (const setting of preferences.settings) {
     signal?.throwIfAborted();
@@ -205,10 +198,10 @@ async function runV1SettingsImport({
       const message = error instanceof Error ? error.message : String(error);
       ledger.settings[setting.id] = { status: 'failed', message };
     }
-    writeJsonAtomically(ledgerPath, ledger);
+    save();
   }
 
-  writeJsonAtomically(ledgerPath, ledger);
+  save();
 }
 
 module.exports = {
