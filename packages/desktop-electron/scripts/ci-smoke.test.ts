@@ -8,6 +8,7 @@ import {
   allocateCiSmokeCdpPort,
   appIdForSmoke,
   dshHomeForSmoke,
+  legacyDshHomeForSmoke,
   assertCiSmokeProduct,
   buildSmokeEnv,
   isCiSmokeDshTarget,
@@ -61,6 +62,12 @@ describe("ci smoke helpers", () => {
     expect(
       dshHomeForSmoke("/tmp/smoke", { mode: "packaged", channel: "prod", executablePath: "/app" }),
     ).toBe(path.join("/tmp/smoke", ".pawwork", "dsh"))
+  })
+
+  test("legacyDshHomeForSmoke points at the pre-dotdir location the app migrates from", () => {
+    expect(legacyDshHomeForSmoke("/tmp/smoke", { mode: "raw", channel: "prod" })).toBe(
+      path.join("/tmp/smoke", "ai.pawwork.desktop.dev", "dsh"),
+    )
   })
 
   test("resolveCiSmokeReadyFile follows packaged channel app IDs", () => {

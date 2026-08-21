@@ -7,7 +7,7 @@ import type { PawWorkChannel } from "./app-identity"
 // Code and Codex do, instead of leaving it in Electron's userData directory.
 // Chromium's own state (Cache, Cookies, Local Storage, Preferences, window
 // state, logs, updater cache) stays in userData — only DSH data lives here.
-export const PAWWORK_HOME_DIR_NAME = ".pawwork"
+const PAWWORK_HOME_DIR_NAME = ".pawwork"
 
 // One level down rather than ~/.pawwork itself: v1 is still maintained on
 // maint/v1 and owns ~/.pawwork directly, including a node_modules/ that would
@@ -21,8 +21,7 @@ export const DSH_MOVED_MARKER_NAME = "dsh-moved.json"
 // and os.homedir() reads USERPROFILE on Windows — a smoke run resolving through
 // homedir() there would write into the real user profile.
 export function resolvePawWorkHomeRoot(env: NodeJS.ProcessEnv = process.env) {
-  const smokeHome = env.PAWWORK_CI_SMOKE_HOME
-  return smokeHome !== undefined && smokeHome !== "" ? smokeHome : homedir()
+  return env.PAWWORK_CI_SMOKE_HOME ?? homedir()
 }
 
 export function resolveDshHome(options: { channel: PawWorkChannel; homeRoot: string }) {
@@ -49,8 +48,8 @@ type MigrateDshHomeOptions = {
   home: string
   legacyHome: string
   now?: () => Date
-  // Injected so the cross-device fallback can be exercised: a test cannot make
-  // two temporary directories live on different filesystems.
+  // Injected so the cross-device path can be exercised: a test cannot make two
+  // temporary directories live on different filesystems.
   rename?: (from: string, to: string) => void
   onEvent?: (message: string, detail: Record<string, unknown>) => void
 }
@@ -71,9 +70,19 @@ function isCrossDeviceError(error: unknown) {
   return (error as NodeJS.ErrnoException | undefined)?.code === "EXDEV"
 }
 
-// Every path under the source, relative and with separators normalized, so the
-// copy can be checked before the source is deleted. Names alone are enough: cp
-// preserves contents, and a partial copy shows up as a missing entry.
+function describe(error: unknown) {
+  return error instanceof Error ? error : new Error(String(error))
+}
+
+// Where a cross-device copy is assembled before it becomes the home. A sibling
+// of the home so the final rename stays on one filesystem.
+function stagingHome(home: string) {
+  return `${home}.migrating`
+}
+
+// Every path under the root, relative and separator-normalized, so a copy can be
+// checked against its source. Names alone are enough: cp preserves contents, and
+// an interrupted copy shows up as a missing entry.
 function listEntries(root: string, prefix = ""): string[] {
   return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
     const relativePath = prefix === "" ? entry.name : `${prefix}/${entry.name}`
@@ -83,20 +92,33 @@ function listEntries(root: string, prefix = ""): string[] {
   })
 }
 
-function copyAcrossDevices(legacyHome: string, home: string) {
-  cpSync(legacyHome, home, { recursive: true, verbatimSymlinks: true })
-  const copied = new Set(listEntries(home))
-  const missing = listEntries(legacyHome).filter((entry) => !copied.has(entry))
-  if (missing.length) {
-    throw new Error(`DSH home copy is incomplete: ${missing.slice(0, 5).join(", ")}`)
+/**
+ * Moves the legacy home onto the new path and returns how it got there. This is
+ * the commit point: it either throws with the legacy home still authoritative,
+ * or returns with the new home holding the data.
+ */
+function commitDshHome(legacyHome: string, home: string, rename: (from: string, to: string) => void) {
+  try {
+    rename(legacyHome, home)
+    return "renamed" as const
+  } catch (error) {
+    if (!isCrossDeviceError(error)) throw error
+    // A cross-device move has no rename to lean on, so the atomicity is built
+    // by hand: copy into a sibling staging directory, verify it, and only then
+    // rename it into place. A copy interrupted by a crash leaves the staging
+    // directory behind rather than a half-written home that the next start
+    // would read as already migrated.
+    const staging = stagingHome(home)
+    rmSync(staging, { force: true, recursive: true })
+    cpSync(legacyHome, staging, { recursive: true, verbatimSymlinks: true })
+    // cpSync throws rather than skipping entries, so this is a backstop, not
+    // the primary guard: nothing gets deleted until the copy has been read back.
+    const copied = new Set(listEntries(staging))
+    const missing = listEntries(legacyHome).filter((entry) => !copied.has(entry))
+    if (missing.length) throw new Error(`DSH home copy is incomplete: ${missing.slice(0, 5).join(", ")}`)
+    renameSync(staging, home)
+    return "copied" as const
   }
-  rmSync(legacyHome, { force: true, recursive: true })
-}
-
-function writeMovedMarker(legacyHome: string, home: string, movedAt: Date) {
-  const marker = join(dirname(legacyHome), DSH_MOVED_MARKER_NAME)
-  const document = { schema: 1, movedAt: movedAt.toISOString(), from: legacyHome, to: home }
-  writeFileSync(marker, `${JSON.stringify(document, null, 2)}\n`, "utf8")
 }
 
 /**
@@ -110,40 +132,32 @@ export function migrateDshHome(options: MigrateDshHomeOptions): DshHomeMigration
   const now = options.now ?? (() => new Date())
   const onEvent = options.onEvent ?? (() => {})
 
-  if (home === legacyHome || !isDirectory(legacyHome)) {
-    return { home, status: "no-legacy-home" }
-  }
-  // The new home wins whenever it holds anything: a newer build already wrote
-  // there, and the legacy directory is a stale copy from a downgrade.
-  if (isDirectory(home) && !isEmptyDirectory(home)) {
-    onEvent("DSH home migration skipped, destination already populated", { home, legacyHome })
-    return { home, status: "home-already-populated" }
-  }
-
+  let status: "renamed" | "copied"
   try {
-    mkdirSync(dirname(home), { recursive: true })
+    if (!isDirectory(legacyHome)) return { home, status: "no-legacy-home" }
+    // The new home wins whenever it holds anything: a newer build already wrote
+    // there, and the legacy directory is a stale copy from a downgrade.
+    if (isDirectory(home) && !isEmptyDirectory(home)) {
+      onEvent("DSH home migration skipped, destination already populated", { home, legacyHome })
+      return { home, status: "home-already-populated" }
+    }
+
+    // ~/Library is 0700 and used to protect the sessions inside it; the home
+    // directory is not, so the dotdir has to ask. An existing ~/.pawwork — v1
+    // owns one — keeps whatever mode it already has.
+    mkdirSync(dirname(home), { mode: 0o700, recursive: true })
     // rename onto an existing directory is fine on POSIX and fails on Windows,
     // so the empty placeholder goes first either way.
     if (existsSync(home)) rmSync(home, { recursive: true })
 
-    let status: DshHomeMigrationStatus
-    try {
-      rename(legacyHome, home)
-      status = "renamed"
-    } catch (error) {
-      if (!isCrossDeviceError(error)) throw error
-      copyAcrossDevices(legacyHome, home)
-      status = "copied"
-    }
-
-    writeMovedMarker(legacyHome, home, now())
-    onEvent("DSH home migrated", { home, legacyHome, status })
-    return { home, status }
+    status = commitDshHome(legacyHome, home, rename)
   } catch (error) {
-    // A half-finished copy would read as an already-migrated home on the next
-    // start, so it is removed and this run keeps using the legacy directory.
-    if (existsSync(home) && isDirectory(legacyHome)) rmSync(home, { force: true, recursive: true })
-    const failure = error instanceof Error ? error : new Error(String(error))
+    // Only reachable before the commit, so the legacy home is still intact and
+    // anything at the new path is a leftover the next start would misread as a
+    // migrated home.
+    rmSync(home, { force: true, recursive: true })
+    rmSync(stagingHome(home), { force: true, recursive: true })
+    const failure = describe(error)
     onEvent("DSH home migration failed, staying in the legacy home", {
       home,
       legacyHome,
@@ -151,5 +165,40 @@ export function migrateDshHome(options: MigrateDshHomeOptions): DshHomeMigration
     })
     return { home: legacyHome, status: "failed", error: failure }
   }
+
+  // Past the commit the new home is authoritative, so the rest is best-effort:
+  // failing to tidy up must not undo a move that already succeeded.
+  discardLegacyHome(legacyHome, onEvent)
+  writeMovedMarker(legacyHome, home, now, onEvent)
+  onEvent("DSH home migrated", { home, legacyHome, status })
+  return { home, status }
 }
 
+// Left over only after a cross-device copy. Keeping it costs a stale directory
+// the next start walks past; deleting the migrated home to "undo" would cost the
+// data, so a lock or a permission problem here just gets logged.
+function discardLegacyHome(legacyHome: string, onEvent: NonNullable<MigrateDshHomeOptions["onEvent"]>) {
+  if (!isDirectory(legacyHome)) return
+  try {
+    rmSync(legacyHome, { force: true, maxRetries: 3, recursive: true })
+  } catch (error) {
+    onEvent("DSH legacy home left behind", { legacyHome, error: describe(error).message })
+  }
+}
+
+// A signpost for whoever goes looking in the old location. Nothing reads it, so
+// a write failure is worth a log line and nothing more.
+function writeMovedMarker(
+  legacyHome: string,
+  home: string,
+  now: () => Date,
+  onEvent: NonNullable<MigrateDshHomeOptions["onEvent"]>,
+) {
+  const marker = join(dirname(legacyHome), DSH_MOVED_MARKER_NAME)
+  try {
+    const document = { schema: 1, movedAt: now().toISOString(), from: legacyHome, to: home }
+    writeFileSync(marker, `${JSON.stringify(document, null, 2)}\n`, "utf8")
+  } catch (error) {
+    onEvent("DSH moved marker not written", { marker, error: describe(error).message })
+  }
+}

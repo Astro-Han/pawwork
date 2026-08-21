@@ -119,6 +119,16 @@ export function dshHomeForSmoke(homeDir: string, target: SmokeTarget) {
   return resolveDshHome({ channel: channelForSmoke(target.channel, target.mode), homeRoot: homeDir })
 }
 
+// Seeded into the legacy home and asserted in the new one, so it is only ever
+// present because the one-time migration ran.
+export const CI_SMOKE_MIGRATED_AUTOMATION_ID = "automation-smoke"
+
+// Where the app kept DSH before the dotdir. The smoke run seeds here so every
+// pass exercises the one-time migration on its way to dshHomeForSmoke.
+export function legacyDshHomeForSmoke(homeDir: string, target: SmokeTarget) {
+  return join(homeDir, appIdForSmoke(target.channel, target.mode), "dsh")
+}
+
 export function parseSmokeArgs(argv: string[]): SmokeTarget {
   const mode = argv[0] as SmokeMode | undefined
   if (mode === undefined || mode === "raw") {
@@ -774,15 +784,19 @@ async function main() {
   const target = parseSmokeArgs(process.argv.slice(2))
   const homeDir = mkdtempSync(join(tmpdir(), "pawwork-ci-smoke-"))
   const dshHome = dshHomeForSmoke(homeDir, target)
+  // Seeded in the legacy home, asserted in the new one: the automation below has
+  // to survive the migration to reach the assertions after the restart, so a
+  // migration that stopped running would fail the smoke rather than pass quietly.
+  const legacyDshHome = legacyDshHomeForSmoke(homeDir, target)
   const v1Database = join(homeDir, "v1", "pawwork.db")
   createCiSmokeV1Fixture(v1Database, homeDir)
-  mkdirSync(dshHome, { recursive: true })
-  writeFileSync(join(dshHome, "automations.json"), `${JSON.stringify({
+  mkdirSync(legacyDshHome, { recursive: true })
+  writeFileSync(join(legacyDshHome, "automations.json"), `${JSON.stringify({
     schema: 1,
     nextDefinition: 2,
     nextRun: 1,
     definitions: [{
-      id: "automation-smoke",
+      id: CI_SMOKE_MIGRATED_AUTOMATION_ID,
       title: "AutomationTitleWithoutBreaksAutomationTitleWithoutBreaksAutomationTitleWithoutBreaksAutomationTitleWithoutBreaks",
       prompt: "Verify the Automation editor.",
       revision: 1,
@@ -848,6 +862,11 @@ async function main() {
     }
     if (!automationDocument.definitions?.some((definition) => definition.id === CI_SMOKE_IMPORTED_AUTOMATION_ID)) {
       throw new Error(`V1 Automation ${CI_SMOKE_IMPORTED_AUTOMATION_ID} did not survive desktop restart`)
+    }
+    // Seeded in the legacy home, read back from the dotdir home: the only way
+    // it got here is the migration, so dropping the migration fails the smoke.
+    if (!automationDocument.definitions?.some((definition) => definition.id === CI_SMOKE_MIGRATED_AUTOMATION_ID)) {
+      throw new Error(`Automation ${CI_SMOKE_MIGRATED_AUTOMATION_ID} seeded in ${legacyDshHome} did not reach ${dshHome}`)
     }
     console.log("CI smoke verified V1 session and Automation migration after restart")
   }
