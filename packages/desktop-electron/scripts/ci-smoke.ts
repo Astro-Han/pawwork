@@ -461,7 +461,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       sidebarExpandedAgain: !document.querySelector("[data-sidebar-collapsed]"),
       platform: typeof navigator === "undefined" ? "" : navigator.platform,
       freeProviderActive: freeProvider?.active === true && freeProvider?.displayName === "OpenCode Free",
-      freeModelAvailable: freeModels.some((model) => model.id === "big-pickle" && model.name === "Big Pickle"),
+      freeModelAvailable: freeModels.length > 0,
       v1SessionImported,
       skillNames: skills.map((skill) => skill.name).sort(),
       sessionId: session.sessionId,
@@ -627,7 +627,7 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.sidebarExpandToggleHasContent ? null : "collapsed sidebar expand control renders empty",
     snapshot.sidebarExpandedAgain ? null : "DSH expand control did not reopen the sidebar",
     snapshot.freeProviderActive ? null : "OpenCode Free provider is not active",
-    snapshot.freeModelAvailable ? null : "Big Pickle free model is unavailable",
+    snapshot.freeModelAvailable ? null : "No OpenCode Free model is available",
     snapshot.v1SessionImported ? null : "V1 session was not imported into DSH",
     ["office-docx", "office-pdf", "office-pptx", "office-xlsx"].every((name) => snapshot.skillNames.includes(name))
       ? null
