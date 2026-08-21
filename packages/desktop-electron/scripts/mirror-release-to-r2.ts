@@ -1,12 +1,12 @@
 // Mirror a published GitHub Release's installers to Cloudflare R2 so the China
-// landing page (site/) can serve fast, CDN-cached direct downloads.
+// V1 updater can serve fast, CDN-cached downloads without changing the V2
+// landing-page release.
 //
 // Ordering matters (see PR discussion): versioned installer objects are
 // immutable and uploaded first; the mutable pointers — the electron-updater
-// latest*.yml and finally the landing page's latest.json — are written last,
-// so a failure leaves the site pointing at the previous good release rather
-// than a half-mirrored one. Run AFTER verify-release.ts has confirmed the
-// release is complete.
+// latest*.yml — are written last. V1 must not write latest.json because that
+// manifest now belongs to the V2 product release. Run AFTER verify-release.ts
+// has confirmed the release is complete.
 //
 // Usage: bun packages/desktop-electron/scripts/mirror-release-to-r2.ts <tag> [owner/repo]
 // Env:
@@ -27,26 +27,12 @@ const POINTER_YMLS = ["latest.yml", "latest-mac.yml"] as const
 const MUTABLE_POINTERS = new Set(["latest.yml", "latest-mac.yml"])
 const IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
 const POINTER_CACHE = "no-cache, must-revalidate"
-const MANIFEST_NAME = "latest.json"
 
-export type UploadStep = { name: string; cacheControl: string; manifest?: boolean }
+export type UploadStep = { name: string; cacheControl: string }
 
-// Pointer object the landing page reads to swap download buttons to R2 links.
-// Keys match the data-dl attributes on the buttons in site/src/pages/index.astro.
-export function buildManifest(version: string, publicBase: string) {
-  const base = publicBase.replace(/\/$/, "")
-  return {
-    version,
-    macArm64: `${base}/pawwork-mac-arm64-${version}.dmg`,
-    macX64: `${base}/pawwork-mac-x64-${version}.dmg`,
-    winX64: `${base}/pawwork-win-x64-${version}.exe`,
-  }
-}
-
-// Ordered upload plan: immutable versioned artifacts first, then the mutable
-// electron-updater pointers, then the landing-page manifest LAST — the single
-// switch that makes a release live. The order is load-bearing (a half-mirror
-// must never point the site at incomplete artifacts); locked by the test.
+// Ordered upload plan: immutable versioned artifacts first, then the mutable V1
+// electron-updater pointers. The order is load-bearing: a half-mirror must not
+// advertise artifacts that have not landed yet.
 export function uploadPlan(assets: string[]): UploadStep[] {
   const versioned = assets
     .filter((name) => !MUTABLE_POINTERS.has(name))
@@ -54,7 +40,7 @@ export function uploadPlan(assets: string[]): UploadStep[] {
   const pointers = assets
     .filter((name) => MUTABLE_POINTERS.has(name))
     .map((name) => ({ name, cacheControl: POINTER_CACHE }))
-  return [...versioned, ...pointers, { name: MANIFEST_NAME, cacheControl: POINTER_CACHE, manifest: true }]
+  return [...versioned, ...pointers]
 }
 
 // The bare asset names a latest*.yml points electron-updater at. The generic R2
@@ -119,7 +105,7 @@ async function main() {
 
   const dir = await mkdtemp(join(tmpdir(), "pawwork-r2-"))
   try {
-    await mirror({ assets, tag, repo, dir, bucket, endpoint, publicBase, version })
+    await mirror({ assets, tag, repo, dir, bucket, endpoint, publicBase })
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -133,10 +119,9 @@ type MirrorArgs = {
   bucket: string
   endpoint: string
   publicBase: string
-  version: string
 }
 
-async function mirror({ assets, tag, repo, dir, bucket, endpoint, publicBase, version }: MirrorArgs) {
+async function mirror({ assets, tag, repo, dir, bucket, endpoint, publicBase }: MirrorArgs) {
   console.log(`Downloading ${assets.length} assets of ${tag} from ${repo} ...`)
   for (const name of assets) {
     await run(["gh", "release", "download", tag, "--repo", repo, "--pattern", name, "--dir", dir])
@@ -175,16 +160,12 @@ async function mirror({ assets, tag, repo, dir, bucket, endpoint, publicBase, ve
     console.log(`  ✓ ${name} (${localSize} bytes)`)
   }
 
-  // Upload in the load-bearing order (versioned -> updater pointers -> manifest
-  // last). The manifest is generated just before its upload.
+  // Upload in the load-bearing order (versioned -> updater pointers).
   for (const step of uploadPlan(assets)) {
-    if (step.manifest) {
-      await Bun.write(join(dir, step.name), JSON.stringify(buildManifest(version, publicBase), null, 2))
-    }
     await upload(step.name, step.cacheControl)
   }
 
-  console.log(`Mirrored ${tag} to ${publicBase} (latest.json -> ${version}).`)
+  console.log(`Mirrored ${tag} V1 artifacts to ${publicBase}; latest.json remains on V2.`)
 }
 
 if (import.meta.main) {

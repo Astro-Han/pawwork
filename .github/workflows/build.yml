@@ -947,7 +947,7 @@ jobs:
           # Identify this target so it can upload its own provenance marker.
           RELEASE_OS: ${{ runner.os == 'macOS' && 'mac' || 'win' }}
           RELEASE_ARCH: ${{ matrix.arch_label }}
-          MIRROR_REF: dev
+          MIRROR_REF: v1
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: ${{ runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label }}

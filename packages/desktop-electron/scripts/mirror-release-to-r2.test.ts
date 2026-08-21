@@ -3,37 +3,14 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { releaseAssetNames } from "./verify-release.ts"
-import {
-  buildManifest,
-  missingPointerReferences,
-  pointerReferencedAssets,
-  uploadPlan,
-} from "./mirror-release-to-r2.ts"
-
-describe("buildManifest", () => {
-  test("locks the manifest shape and per-platform installer URLs", () => {
-    expect(buildManifest("2026.5.29", "https://dl.pawwork.ai")).toEqual({
-      version: "2026.5.29",
-      macArm64: "https://dl.pawwork.ai/pawwork-mac-arm64-2026.5.29.dmg",
-      macX64: "https://dl.pawwork.ai/pawwork-mac-x64-2026.5.29.dmg",
-      winX64: "https://dl.pawwork.ai/pawwork-win-x64-2026.5.29.exe",
-    })
-  })
-
-  test("normalizes a trailing slash in the public base", () => {
-    expect(buildManifest("2026.5.29", "https://dl.pawwork.ai/").macArm64).toBe(
-      "https://dl.pawwork.ai/pawwork-mac-arm64-2026.5.29.dmg",
-    )
-  })
-})
+import { missingPointerReferences, pointerReferencedAssets, uploadPlan } from "./mirror-release-to-r2.ts"
 
 describe("uploadPlan", () => {
   const plan = uploadPlan(releaseAssetNames("2026.5.29"))
   const names = plan.map((step) => step.name)
 
-  test("ends with the landing-page manifest as the single live switch", () => {
-    expect(names.at(-1)).toBe("latest.json")
-    expect(plan.at(-1)).toMatchObject({ manifest: true, cacheControl: "no-cache, must-revalidate" })
+  test("does not move the V2 landing-page manifest", () => {
+    expect(names).not.toContain("latest.json")
   })
 
   test("orders immutable versioned artifacts before the mutable updater pointers", () => {
@@ -44,7 +21,6 @@ describe("uploadPlan", () => {
     )
     const firstPointer = Math.min(names.indexOf("latest.yml"), names.indexOf("latest-mac.yml"))
     expect(lastVersioned).toBeLessThan(firstPointer)
-    expect(firstPointer).toBeLessThan(names.indexOf("latest.json"))
   })
 
   test("marks versioned artifacts immutable and pointers no-cache", () => {
@@ -54,9 +30,9 @@ describe("uploadPlan", () => {
     expect(cacheOf("latest-mac.yml")).toBe("no-cache, must-revalidate")
   })
 
-  test("uploads every released asset exactly once plus the manifest", () => {
+  test("uploads every V1 release asset exactly once", () => {
     const assets = releaseAssetNames("2026.5.29")
-    expect(names.slice(0, -1).sort()).toEqual([...assets].sort())
+    expect(names.sort()).toEqual([...assets].sort())
     expect(new Set(names).size).toBe(names.length)
   })
 })
