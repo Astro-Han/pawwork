@@ -84,13 +84,17 @@ const productResources = resolveProductResources({
 })
 const fileInputPreload = dshFileInputPreload(productResources.dsh)
 
-let dshUrl: string | undefined
+// One fact — what the runtime is doing — rather than a URL and a page state kept
+// in step by hand. Every window's destination is a projection of it, so there is
+// nothing to synchronise and no way for the two to disagree.
+type Runtime = StartupPageState | { phase: "running"; url: string }
+
+let runtime: Runtime = { phase: "starting" }
 // DSH states the cause and the fix on its own stderr before it exits, and the
 // window has no other copy of it: once DSH is gone, its stdio is gone with it.
 // Keeping the tail costs a few kilobytes.
 const DSH_OUTPUT_TAIL_CHARS = 4_000
 let dshOutputTail = ""
-let startupState: StartupPageState = { phase: "starting" }
 let dshAttempt: Promise<void> | undefined
 let sidecar: DshSidecar | undefined
 let sidecarShutdown: Promise<void> | undefined
@@ -142,9 +146,9 @@ function setupApp() {
   }
 
   ipcMain.handle("pawwork:pick-conversation-files", (event) => {
-    if (!dshUrl) throw new Error("Cannot pick files before DSH is ready")
+    if (runtime.phase !== "running") throw new Error("Cannot pick files before DSH is ready")
     const owner = BrowserWindow.fromWebContents(event.sender)
-    return pickConversationFiles(dshUrl, event.senderFrame?.url ?? "", (options) =>
+    return pickConversationFiles(runtime.url, event.senderFrame?.url ?? "", (options) =>
       owner ? dialog.showOpenDialog(owner, options) : dialog.showOpenDialog(options),
     )
   })
@@ -199,7 +203,7 @@ function setupApp() {
       // is a reload of the page already on screen.
       protocol.handle(STARTUP_SCHEME, () =>
         Promise.resolve(
-          new Response(startupPageHtml(menuLocale, startupState), {
+          new Response(startupPageHtml(menuLocale, startupPage()), {
             headers: { "content-type": "text/html; charset=utf-8" },
           }),
         ),
@@ -238,8 +242,9 @@ async function attemptDsh() {
   await stopActiveSidecar().catch((error) => logger.error("DSH shutdown failed", error))
   // A retry reports on itself, not on the attempt the user just tried to fix.
   dshOutputTail = ""
+  let url: string
   try {
-    dshUrl = await startDsh()
+    url = await startDsh()
   } catch (error) {
     logger.error("DSH sidecar failed to start", error)
     failStartup("startup", error)
@@ -248,7 +253,7 @@ async function attemptDsh() {
   // What DSH said while booting is not what it will say when it dies, and the
   // tail is what the failure page quotes.
   dshOutputTail = ""
-  for (const win of liveWindows()) if (isOnStartupPage(win)) navigateWindow(win, dshUrl)
+  setRuntime({ phase: "running", url })
 }
 
 /**
@@ -261,7 +266,6 @@ async function attemptDsh() {
  * @param error - whatever the attempt rejected with.
  */
 function failStartup(reason: StartupFailureReason, error: unknown) {
-  dshUrl = undefined
   // A smoke run has nobody to click retry, and its runner already reads a dead
   // process as the failure it is. Rendering instead would hold the app open
   // until the runner's own timeout.
@@ -269,15 +273,14 @@ function failStartup(reason: StartupFailureReason, error: unknown) {
     app.exit(1)
     return
   }
-  startupState = {
+  setRuntime({
     phase: "failed",
     reason,
     diagnosis: startupDiagnosis(error, dshOutputTail),
     output: dshOutputTail,
     logPath: logger.transports.file.getFile().path,
     copied: false,
-  }
-  showStartupPage()
+  })
 }
 
 function handleStartupAction(action: StartupAction) {
@@ -287,21 +290,19 @@ function handleStartupAction(action: StartupAction) {
       // page goes back to progress before anything is spawned. A first launch
       // has nothing to switch — the window opened on the startup page already,
       // and loading it there a second time aborts the load still in flight.
-      startupState = { phase: "starting" }
-      showStartupPage()
+      setRuntime({ phase: "starting" })
       void runDsh()
       return
     case "report-issue":
       void shell.openExternal(PAWWORK_GITHUB_ISSUE_URL)
       return
     case "show-log":
-      if (startupState.phase === "failed") shell.showItemInFolder(startupState.logPath)
+      if (runtime.phase === "failed") shell.showItemInFolder(runtime.logPath)
       return
     case "copy-details":
-      if (startupState.phase !== "failed") return
-      clipboard.writeText(startupFailureReport(startupState, menuLocale))
-      startupState = { ...startupState, copied: true }
-      showStartupPage()
+      if (runtime.phase !== "failed") return
+      clipboard.writeText(startupFailureReport(runtime, menuLocale))
+      setRuntime({ ...runtime, copied: true })
       return
   }
 }
@@ -310,15 +311,28 @@ function liveWindows() {
   return BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed())
 }
 
-function isOnStartupPage(win: BrowserWindow) {
-  return win.webContents.getURL().startsWith(STARTUP_URL)
+function dshUrl() {
+  return runtime.phase === "running" ? runtime.url : undefined
 }
 
-function showStartupPage() {
-  for (const win of liveWindows()) {
-    if (isOnStartupPage(win)) win.webContents.reload()
-    else navigateWindow(win, STARTUP_URL)
-  }
+// A running runtime has no page. A window still on this origin then is one
+// setRuntime is already moving, so it gets progress rather than a stale failure
+// carrying buttons it could still act on.
+function startupPage(): StartupPageState {
+  return runtime.phase === "running" ? { phase: "starting" } : runtime
+}
+
+/**
+ * Move the runtime on, and every window with it.
+ *
+ * Called on transitions only, which is what makes pointing every window at the
+ * new destination safe: a window is somewhere else than the rest exactly when
+ * the user opened a second one, and that one was opened on this same state.
+ * @param next - what the runtime is doing now.
+ */
+function setRuntime(next: Runtime) {
+  runtime = next
+  for (const win of liveWindows()) navigateWindow(win, dshUrl() ?? STARTUP_URL)
 }
 
 async function startDsh() {
@@ -377,7 +391,7 @@ async function startDsh() {
 function openMainWindow() {
   const win = createMainWindow({
     preload: fileInputPreload,
-    dshUrl: () => dshUrl,
+    dshUrl,
     onStartupAction: handleStartupAction,
   })
   if (currentProgress !== null) win.setProgressBar(currentProgress)
@@ -385,7 +399,8 @@ function openMainWindow() {
     // The first load is the startup page now, so readiness is the load that
     // lands on DSH — not the first one to finish.
     win.webContents.on("did-finish-load", () => {
-      if (!dshUrl || !win.webContents.getURL().startsWith(dshUrl)) return
+      const url = dshUrl()
+      if (!url || !win.webContents.getURL().startsWith(url)) return
       mkdirSync(dirname(CI_SMOKE_READY_FILE), { recursive: true })
       writeFileSync(CI_SMOKE_READY_FILE, JSON.stringify({ readyAt: new Date().toISOString() }), "utf8")
     })
