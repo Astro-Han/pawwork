@@ -242,18 +242,23 @@ async function attemptDsh() {
   await stopActiveSidecar().catch((error) => logger.error("DSH shutdown failed", error))
   // A retry reports on itself, not on the attempt the user just tried to fix.
   dshOutputTail = ""
-  let url: string
+  let started: DshSidecar
   try {
-    url = await startDsh()
+    started = await startDsh()
   } catch (error) {
     logger.error("DSH sidecar failed to start", error)
     failStartup("startup", error)
     return
   }
+  // The same identity check the exit handler makes, from the other side: this
+  // attempt may announce a URL for a sidecar the app has since let go of — a
+  // quit reached stopActiveSidecar while the runtime was still booting. Running
+  // is a claim about the sidecar we own, so only its owner may make it.
+  if (sidecar !== started) return
   // What DSH said while booting is not what it will say when it dies, and the
   // tail is what the failure page quotes.
   dshOutputTail = ""
-  setRuntime({ phase: "running", url })
+  setRuntime({ phase: "running", url: started.url })
 }
 
 /**
@@ -385,7 +390,7 @@ async function startDsh() {
     logger.error("DSH sidecar exited", { code })
     failStartup("crash", new Error(`DSH exited ${describeExit(code)}`))
   })
-  return started.url
+  return started
 }
 
 function openMainWindow() {
