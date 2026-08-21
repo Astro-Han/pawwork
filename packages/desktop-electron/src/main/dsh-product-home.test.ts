@@ -118,7 +118,9 @@ describe("DSH product home", () => {
 
     prepareDshProductHome({ productHome, resources })
 
-    expect(readFileSync(join(productHome, ".credentials.yaml"), "utf8")).toBe('OPENCODE_API_KEY: "public"\n')
+    expect(readFileSync(join(productHome, ".credentials.yaml"), "utf8")).toBe(
+      'version: 1\nrefs:\n  OPENCODE_API_KEY: "public"\n',
+    )
     // The file sits next to every other user in a shared home, and the next key
     // written into it is the user's own. Windows ignores the mode entirely.
     if (process.platform !== "win32") {
