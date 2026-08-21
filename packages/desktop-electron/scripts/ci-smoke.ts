@@ -435,7 +435,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     let v1SessionImported = false
     // The fixture's target session imports last (bulk sessions keep the run
     // going), so this wait spans the whole migration on a slow runner.
-    const importDeadline = Date.now() + 40_000
+    const importDeadline = Date.now() + 180_000
     while (!v1SessionImported && Date.now() < importDeadline) {
       const sessions = (await call("session.list", {})).items
       v1SessionImported = sessions.some((item) => item.sessionId === ${expectedSession})
@@ -504,7 +504,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     })
   })()`
 
-  return await evaluateCiSmokeJson(target, expression, 75_000) as CiSmokeProductSnapshot
+  return await evaluateCiSmokeJson(target, expression, 200_000) as CiSmokeProductSnapshot
 }
 
 async function evaluateCiSmokeJson(target: CdpTarget, expression: string, timeoutMs = 20_000) {

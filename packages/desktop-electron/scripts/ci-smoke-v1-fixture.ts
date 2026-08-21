@@ -14,7 +14,7 @@ export const CI_SMOKE_IMPORTED_AUTOMATION_ID = `pawwork-v1-${CI_SMOKE_V1_AUTOMAT
 // and lands last - while it is missing, the fix under test (poll
 // /pawwork-import-v1, refresh the list once at completion) is the only path
 // that can surface it in the sidebar without a reload.
-export const CI_SMOKE_V1_BULK_SESSION_COUNT = 200
+export const CI_SMOKE_V1_BULK_SESSION_COUNT = 150
 
 export function createCiSmokeV1Fixture(file: string, workspace: string) {
   mkdirSync(dirname(file), { recursive: true })

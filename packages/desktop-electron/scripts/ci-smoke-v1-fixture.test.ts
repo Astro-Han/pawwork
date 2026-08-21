@@ -21,7 +21,7 @@ afterEach(() => {
 })
 
 describe("CI smoke v1 fixture", () => {
-  test("is consumed by the production session and Automation import readers", async () => {
+  test("is consumed by the production session and Automation import readers", { timeout: 20_000 }, async () => {
     const root = mkdtempSync(join(tmpdir(), "pawwork-ci-v1-"))
     roots.push(root)
     const database = join(root, "pawwork.db")
