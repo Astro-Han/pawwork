@@ -167,9 +167,73 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
           gloveLayer(BRAND_CREAM, GLOVE_PADS)))
     }
 
-    const inject = ["slots"]
+    const inject = ["slots", "connection", "sessions"]
 
     function BrandName() { return text("爪印", "PawWork") }
+
+    // v1 迁移是后台任务：它把冷会话逐条写进持久化，而客户端只在连接/重连时
+    // 拉取一次冷列表，迁移结束的时刻没人再刷新，侧边栏就停在旧列表上。宿主的
+    // import-v1 插件在 /pawwork-import-v1 暴露 session 阶段与最后一个已持久化
+    // session marker。完成后双读跨过 refreshList 的单飞屏障；只有 marker 已进入
+    // 公开 list 快照才算权威列表安装成功，否则退避后重试。
+    const IMPORT_POLL_INTERVAL_MS = 1_000
+    const IMPORT_POLL_MAX_RETRY_MS = 30_000
+
+    function watchV1Import({ connection, sessions }) {
+      let retryDelay = IMPORT_POLL_INTERVAL_MS
+      let timer = null
+      let stopped = false
+      const stop = () => {
+        stopped = true
+        if (timer !== null) clearTimeout(timer)
+      }
+      const schedule = (delay) => {
+        timer = setTimeout(() => void poll(), delay)
+      }
+      const retry = () => {
+        const delay = retryDelay
+        retryDelay = Math.min(retryDelay * 2, IMPORT_POLL_MAX_RETRY_MS)
+        schedule(delay)
+      }
+      async function poll() {
+        if (stopped) return
+        let result
+        try {
+          result = await connection.rpc.call("/pawwork-import-v1", "status", {})
+        } catch {
+          if (stopped) return
+          retry()
+          return
+        }
+        if (stopped) return
+        const value = result?.ok === true ? result.value : undefined
+        if (value === null || typeof value !== "object"
+          || (value.phase !== "running" && value.phase !== "done")
+          || (value.sessionId !== undefined && typeof value.sessionId !== "string")) {
+          retry()
+          return
+        }
+        if (value.phase === "running") {
+          retryDelay = IMPORT_POLL_INTERVAL_MS
+          schedule(IMPORT_POLL_INTERVAL_MS)
+          return
+        }
+        // 离开 running 即完成。refreshList 单飞复用仍在途的拉取——完成信号出现
+        // 时可能还挂着一条迁移前的旧列表——所以读两次：第一次等在途的 settle，
+        // 第二次才是必然在完成屏障之后发起的权威读取。
+        await sessions.refresh()
+        if (stopped) return
+        await sessions.refresh()
+        if (stopped) return
+        if (value.sessionId === undefined || sessions.list.getSnapshot().ids.includes(value.sessionId)) {
+          stop()
+          return
+        }
+        retry()
+      }
+      void poll()
+      return stop
+    }
 
     function apply(ctx) {
       ctx.slots.inject("sidebar.brand.mark", () => ctx.slots.register({ name: "sidebar.brand.mark", priority: -100 }, PawGloveMark))
@@ -177,6 +241,9 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawGloveMark))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))
       ctx.slots.inject("conversation.input.left", () => ctx.slots.register({ name: "conversation.input.left", id: "pawwork-files", order: -100 }, FileAction))
+      // 轮询器随插件而止：dispose（HMR / 重新登录）时清掉定时器，不再对已销毁的
+      // fiber 发起 status / refresh 调用。
+      ctx.effect(() => watchV1Import(ctx))
     }
 
     return { inject, apply }

@@ -37,7 +37,7 @@ function fileDigest(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-test('announces each imported session without a migration status polling channel', async () => {
+test('retires each persisted v1 session through the paired live lifecycle', async () => {
   const importerModule = require('./import-v1.cjs');
   const settingsModule = require('./import-v1-settings.cjs');
   const automationsModule = require('./import-v1-automations.cjs');
@@ -100,6 +100,7 @@ test('announces each imported session without a migration status polling channel
     const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?status=${Date.now()}`;
     const { apply } = await import(pluginUrl);
     apply({
+      connection: { rpc: { handle: () => async () => {} } },
       effect: (setup) => { stopPlugin = setup(); },
       llm: {
         listProviders: () => [{ id: 'opencode' }],
@@ -149,6 +150,10 @@ test('announces each imported session without a migration status polling channel
     assert.equal(missingContinueSessionRejected, true);
     assert.equal(incompleteContinueSessionRejected, true);
     assert.equal(unavailableAutomationCatalogRejected, true);
+    // DSH rc.8 persistence adopts ownership on session/created and releases it
+    // on the paired session/disposed. Detaching an unannounced session removes
+    // it from the live store without retirement, leaving later load/prepare to
+    // fail with "already has a live persistence owner" until restart.
     assert.deepEqual(sessionLifecycle, ['enter', 'rename', 'flush', 'announce', 'detach', 'attach-workspace']);
     await stopPlugin();
   } finally {
@@ -157,6 +162,175 @@ test('announces each imported session without a migration status polling channel
     settingsModule.createDshSettingImporter = originalCreateSettingImporter;
     settingsModule.runV1SettingsImport = originalSettingsRun;
     automationsModule.runV1AutomationImport = originalAutomationsRun;
+  }
+});
+
+// The sidebar is the only status consumer, so its barrier belongs to the
+// session stage: once the cold sessions are flushed, later settings and
+// Automation work must not delay the authoritative list refresh.
+test('reports the session import settled while later migration stages continue', async () => {
+  const importerModule = require('./import-v1.cjs');
+  const settingsModule = require('./import-v1-settings.cjs');
+  const automationsModule = require('./import-v1-automations.cjs');
+  const originalRun = importerModule.runV1SessionImport;
+  const originalSettingsRun = settingsModule.runV1SettingsImport;
+  const originalCreateSettingImporter = settingsModule.createDshSettingImporter;
+  const originalAutomationsRun = automationsModule.runV1AutomationImport;
+  const originalHome = process.env.DSH_HOME;
+  const originalSource = process.env.PAWWORK_V1_DATABASE;
+
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  createV1Fixture(source);
+  process.env.DSH_HOME = home;
+  process.env.PAWWORK_V1_DATABASE = source;
+
+  let releaseSessions;
+  const sessionsGate = new Promise((resolve) => { releaseSessions = resolve; });
+  let settingsStarted;
+  const settingsStage = new Promise((resolve) => { settingsStarted = resolve; });
+  let releaseSettings;
+  const settingsGate = new Promise((resolve) => { releaseSettings = resolve; });
+  let automationsStarted;
+  const automationsStage = new Promise((resolve) => { automationsStarted = resolve; });
+  let releaseAutomations;
+  const automationsGate = new Promise((resolve) => { releaseAutomations = resolve; });
+  let sessionFlushed = false;
+  importerModule.runV1SessionImport = async ({ importSession }) => {
+    await sessionsGate;
+    await importSession({
+      id: 'pawwork-v1-session',
+      images: [],
+      meta: { cwd: root, seedLength: 1 },
+      seed: [{ type: 'pawwork-v1/session', data: { sourceSessionId: 'session' } }],
+      title: 'Imported session',
+    });
+    return { status: 'complete' };
+  };
+  settingsModule.createDshSettingImporter = () => async () => 'skipped';
+  settingsModule.runV1SettingsImport = async () => {
+    settingsStarted();
+    await settingsGate;
+    return { status: 'complete' };
+  };
+  automationsModule.runV1AutomationImport = async () => {
+    automationsStarted();
+    await automationsGate;
+    return { status: 'complete' };
+  };
+  let registration;
+  let status;
+  let stopPlugin;
+
+  try {
+    const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?status-rpc=${Date.now()}`;
+    const { apply } = await import(pluginUrl);
+    apply({
+      connection: {
+        rpc: {
+          handle: (channel, handler, options) => {
+            registration = { channel, options };
+            status = handler;
+            return async () => {};
+          },
+        },
+      },
+      effect: (setup) => { stopPlugin = setup(); },
+      llm: { listProviders: () => [], listModels: async () => [] },
+      logger: { warn: () => {} },
+      agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }) },
+      pawworkAutomations: { scheduler: { refresh: () => {} }, store: { activateImportedDefinitions: () => {} } },
+      sessionPersistence: { inspect: async (id) => { throw new Error(`session "${id}" not found`); } },
+      sessionTitle: { rename: () => {} },
+      sessions: {
+        announce: () => {},
+        enter: () => () => {},
+        flush: async () => { sessionFlushed = true; },
+        prepare: () => ({ id: 'pawwork-v1-session' }),
+      },
+      attachments: { saveImage: async () => {} },
+      workspaceRegistry: {},
+    });
+
+    assert.deepEqual(registration, {
+      channel: '/pawwork-import-v1',
+      options: { authority: 'loopback' },
+    });
+    assert.deepEqual(await status('status', {}), { ok: true, value: { phase: 'running' } });
+
+    releaseSessions();
+    await settingsStage;
+    assert.equal(sessionFlushed, true);
+    assert.deepEqual(await status('status', {}), {
+      ok: true,
+      value: { phase: 'done', sessionId: 'pawwork-v1-session' },
+    });
+
+    releaseSettings();
+    await automationsStage;
+    assert.deepEqual(await status('status', {}), {
+      ok: true,
+      value: { phase: 'done', sessionId: 'pawwork-v1-session' },
+    });
+    releaseAutomations();
+    await stopPlugin();
+  } finally {
+    releaseSessions?.();
+    releaseSettings?.();
+    releaseAutomations?.();
+    importerModule.runV1SessionImport = originalRun;
+    settingsModule.createDshSettingImporter = originalCreateSettingImporter;
+    settingsModule.runV1SettingsImport = originalSettingsRun;
+    automationsModule.runV1AutomationImport = originalAutomationsRun;
+    if (originalHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = originalHome;
+    if (originalSource === undefined) delete process.env.PAWWORK_V1_DATABASE;
+    else process.env.PAWWORK_V1_DATABASE = originalSource;
+  }
+});
+
+test('settles the session status when source discovery fails before import', async () => {
+  const migrationIoModule = require('./migration-io.cjs');
+  const settingsModule = require('./import-v1-settings.cjs');
+  const automationsModule = require('./import-v1-automations.cjs');
+  const originalDiscover = migrationIoModule.discoverV1Database;
+  const originalSettingsRun = settingsModule.runV1SettingsImport;
+  const originalCreateSettingImporter = settingsModule.createDshSettingImporter;
+  const originalAutomationsRun = automationsModule.runV1AutomationImport;
+  migrationIoModule.discoverV1Database = () => { throw new Error('source discovery failed'); };
+  settingsModule.createDshSettingImporter = () => async () => 'skipped';
+  settingsModule.runV1SettingsImport = async () => ({ status: 'complete' });
+  automationsModule.runV1AutomationImport = async () => ({ status: 'complete' });
+  let status;
+  let stopPlugin;
+
+  try {
+    const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?discovery-status=${Date.now()}`;
+    const { apply } = await import(pluginUrl);
+    apply({
+      connection: { rpc: { handle: (_channel, handler) => { status = handler; return async () => {}; } } },
+      effect: (setup) => { stopPlugin = setup(); },
+      llm: { listProviders: () => [], listModels: async () => [] },
+      logger: { warn: () => {} },
+      agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }) },
+      pawworkAutomations: { scheduler: { refresh: () => {} }, store: { activateImportedDefinitions: () => {} } },
+      sessionPersistence: { inspect: async () => { throw new Error('no session should be inspected'); } },
+      sessionTitle: { rename: () => {} },
+      sessions: { announce: () => {}, enter: () => () => {}, flush: async () => {}, prepare: () => ({}) },
+      attachments: { saveImage: async () => {} },
+      workspaceRegistry: {},
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(await status('status', {}), { ok: true, value: { phase: 'done' } });
+    await stopPlugin();
+  } finally {
+    migrationIoModule.discoverV1Database = originalDiscover;
+    settingsModule.createDshSettingImporter = originalCreateSettingImporter;
+    settingsModule.runV1SettingsImport = originalSettingsRun;
+    automationsModule.runV1AutomationImport = originalAutomationsRun;
+    if (stopPlugin) await stopPlugin().catch(() => {});
   }
 });
 
@@ -430,9 +604,13 @@ test('plugin disposal aborts and awaits the background migration', async () => {
   let started;
   const importStarted = new Promise((resolve) => { started = resolve; });
   let stopPlugin;
+  let releaseStatusRpc;
+  const statusRpcStopped = new Promise((resolve) => { releaseStatusRpc = resolve; });
+  let importSignal;
   let settingsCalls = 0;
   let automationCalls = 0;
   importerModule.runV1SessionImport = async ({ signal }) => {
+    importSignal = signal;
     started();
     await new Promise((resolve) => signal.addEventListener('abort', () => setImmediate(resolve), { once: true }));
     signal.throwIfAborted();
@@ -443,14 +621,19 @@ test('plugin disposal aborts and awaits the background migration', async () => {
     const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?dispose=${Date.now()}`;
     const { apply } = await import(pluginUrl);
     apply({
+      connection: { rpc: { handle: () => async () => { await statusRpcStopped; } } },
       effect: (setup) => { stopPlugin = setup(); },
       logger: { warn: () => {} },
     });
     await importStarted;
 
     const stopped = stopPlugin();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(importSignal.aborted, false);
+    releaseStatusRpc();
     await stopped;
 
+    assert.equal(importSignal.aborted, true);
     assert.equal(settingsCalls, 0);
     assert.equal(automationCalls, 0);
   } finally {
