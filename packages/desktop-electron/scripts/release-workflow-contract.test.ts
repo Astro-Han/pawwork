@@ -51,6 +51,10 @@ describe("release workflow app-update verification", () => {
     expectBefore(workflow, "Prepare uv", "npx electron-builder ${{ matrix.platform_flag }}")
     expect(workflow).toContain('uv_platform="win32"')
   })
+
+  test("dispatches the release mirror with the V1 contract", () => {
+    expect(workflow).toContain("MIRROR_REF: v1")
+  })
 })
 
 const checklist = readFileSync(join(import.meta.dir, "..", "..", "..", ".github", "RELEASE_CHECKLIST.md"), "utf8")
