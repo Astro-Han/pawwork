@@ -213,16 +213,20 @@ async function refreshOpenCodeFreeModels({ settings, defaultModel, logger, fetch
 	const currentIds = configuredModelIds(value);
 	// Skip the write when the served set and routing already match: a periodic
 	// refresh must not churn settings.yaml or rebuild the adapter every interval.
-	if (currentIds !== undefined && routeConfigured(value) && sameModelIds(currentIds, nextIds)) return selectable.length;
+	const unchanged = currentIds !== undefined && routeConfigured(value) && sameModelIds(currentIds, nextIds);
+	if (!unchanged) {
+		const merged = mergeModelEntries(value, selectable);
+		await settings.mutate(LLM_PI_AI_NAMESPACE, [
+			{ op: 'set', path: ['providers', 'opencode', 'api'], value: OPENCODE_ROUTE_API },
+			{ op: 'set', path: ['providers', 'opencode', 'baseURL'], value: OPENCODE_ROUTE_BASE_URL },
+			{ op: 'set', path: MODELS_PATH, value: merged },
+		]);
+		logger?.info?.(`OpenCode Free catalog refreshed to ${selectable.length} models`);
+	}
 	// Keep the opencode default usable when the refresh drops it from the set.
+	// Runs after (or without) a write, and also when the set is unchanged, so a
+	// default pointing outside the configured list is repaired either way.
 	await ensureDefaultModelSurvives({ defaultModel, logger, nextIds, selectable });
-	const merged = mergeModelEntries(value, selectable);
-	await settings.mutate(LLM_PI_AI_NAMESPACE, [
-		{ op: 'set', path: ['providers', 'opencode', 'api'], value: OPENCODE_ROUTE_API },
-		{ op: 'set', path: ['providers', 'opencode', 'baseURL'], value: OPENCODE_ROUTE_BASE_URL },
-		{ op: 'set', path: MODELS_PATH, value: merged },
-	]);
-	logger?.info?.(`OpenCode Free catalog refreshed to ${selectable.length} models`);
 	return selectable.length;
 }
 

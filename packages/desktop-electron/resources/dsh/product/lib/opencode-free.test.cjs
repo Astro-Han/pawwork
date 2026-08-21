@@ -161,7 +161,9 @@ test('refresh is bounded by the per-request deadline when a fetch hangs', async 
 	const elapsed = Date.now() - started;
 	assert.equal(count, undefined);
 	assert.equal(writes.length, 0);
-	assert.ok(elapsed < 10000, `refresh took too long: ${elapsed}ms`);
+	// The mock aborts on the 100ms deadline; a regression that restored the 15s
+	// default (or left the fetch hung) would blow past 2s.
+	assert.ok(elapsed < 2000, `refresh took too long: ${elapsed}ms`);
 });
 
 test('refresh never writes while the llm-pi-ai namespace is unregistered', async () => {
@@ -256,6 +258,8 @@ test('refresh moves the opencode default model when it is dropped', async () => 
 	const count = await refreshOpenCodeFreeModels({ settings, defaultModel, fetchImpl });
 	assert.equal(count, 1);
 	assert.deepEqual(saves, [{ provider: 'opencode', model: 'hy3-free' }]);
+	assert.equal(writes.length, 1);
+	assert.deepEqual(writes[0].ops[2].value, [{ id: 'hy3-free' }]);
 });
 
 test('refresh leaves a non-opencode default untouched', async () => {
