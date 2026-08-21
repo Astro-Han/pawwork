@@ -28,6 +28,7 @@ import {
   resolveProductResources,
 } from "./dsh-product-home"
 import { launchDshSidecar, type DshSidecar } from "./dsh-sidecar"
+import { migrateDshHome, resolveDshHome, resolvePawWorkHomeRoot } from "./pawwork-home"
 import { initLogging } from "./logging"
 import { detectSystemMenuLocale } from "./menu-labels"
 import { createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./update-feed"
@@ -53,7 +54,8 @@ const UPDATE_CHANNEL_FILE = process.platform === "win32" ? `${UPDATE_CHANNEL}.ym
 const LATEST_RELEASE_URL = `https://github.com/${UPDATE_GITHUB_OWNER}/${UPDATE_GITHUB_REPO}/releases/latest`
 
 const userDataRoot = CI_SMOKE_HOME ?? app.getPath("appData")
-const appIdentity = PAWWORK_APP[app.isPackaged ? CHANNEL : "dev"]
+const appChannel = app.isPackaged ? CHANNEL : "dev"
+const appIdentity = PAWWORK_APP[appChannel]
 app.setName(appIdentity.name)
 if (CI_SMOKE_HOME) app.setPath("appData", CI_SMOKE_HOME)
 app.setPath("userData", join(userDataRoot, appIdentity.id))
@@ -207,8 +209,16 @@ async function startDsh() {
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
   })
+  // Runs before the overlay is prepared: prepareDshProductHome would create and
+  // populate the dotdir home, and the migration would then read it as a home a
+  // newer build had already written and leave the real data behind in userData.
+  const migration = migrateDshHome({
+    home: resolveDshHome({ channel: appChannel, homeRoot: resolvePawWorkHomeRoot() }),
+    legacyHome: join(app.getPath("userData"), "dsh"),
+    onEvent: (message, detail) => logger.log(message, detail),
+  })
   const product = prepareDshProductHome({
-    productHome: join(app.getPath("userData"), "dsh"),
+    productHome: migration.home,
     resources: resources.dsh,
   })
   fileInputPreload = product.fileInputPreload

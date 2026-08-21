@@ -10,6 +10,7 @@ import process from "node:process"
 import readline from "node:readline"
 import { PAWWORK_APP, type PawWorkChannel, isPawWorkChannel } from "../src/main/app-identity.ts"
 import { parseCdpPort } from "../src/main/ci-smoke-cdp.ts"
+import { resolveDshHome } from "../src/main/pawwork-home.ts"
 import { dshTitleBarOptions } from "../src/main/window-options.ts"
 import { packagedAppEnv } from "./packaged-app-env.ts"
 import {
@@ -103,8 +104,19 @@ function parseChannel(raw: string | undefined): PawWorkChannel {
   return raw
 }
 
+// A raw run is an unpackaged app, and index.ts pins those to dev the same way.
+export function channelForSmoke(channel: PawWorkChannel, mode: SmokeMode): PawWorkChannel {
+  return mode === "raw" ? "dev" : channel
+}
+
 export function appIdForSmoke(channel: PawWorkChannel, mode: SmokeMode) {
-  return PAWWORK_APP[mode === "raw" ? "dev" : channel].id
+  return PAWWORK_APP[channelForSmoke(channel, mode)].id
+}
+
+// PAWWORK_CI_SMOKE_HOME, not HOME: buildSmokeEnv cannot redirect os.homedir()
+// on Windows, where it reads USERPROFILE.
+export function dshHomeForSmoke(homeDir: string, target: SmokeTarget) {
+  return resolveDshHome({ channel: channelForSmoke(target.channel, target.mode), homeRoot: homeDir })
 }
 
 export function parseSmokeArgs(argv: string[]): SmokeTarget {
@@ -761,7 +773,7 @@ async function stopChild(child: SmokeChild, closeWindow?: () => Promise<void>) {
 async function main() {
   const target = parseSmokeArgs(process.argv.slice(2))
   const homeDir = mkdtempSync(join(tmpdir(), "pawwork-ci-smoke-"))
-  const dshHome = join(homeDir, appIdForSmoke(target.channel, target.mode), "dsh")
+  const dshHome = dshHomeForSmoke(homeDir, target)
   const v1Database = join(homeDir, "v1", "pawwork.db")
   createCiSmokeV1Fixture(v1Database, homeDir)
   mkdirSync(dshHome, { recursive: true })
