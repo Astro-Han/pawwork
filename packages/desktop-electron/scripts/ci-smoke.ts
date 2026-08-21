@@ -10,6 +10,7 @@ import process from "node:process"
 import readline from "node:readline"
 import { PAWWORK_APP, type PawWorkChannel, isPawWorkChannel } from "../src/main/app-identity.ts"
 import { parseCdpPort } from "../src/main/ci-smoke-cdp.ts"
+import { resolveDshHome } from "../src/main/pawwork-home.ts"
 import { dshTitleBarOptions } from "../src/main/window-options.ts"
 import { packagedAppEnv } from "./packaged-app-env.ts"
 import {
@@ -103,9 +104,24 @@ function parseChannel(raw: string | undefined): PawWorkChannel {
   return raw
 }
 
-export function appIdForSmoke(channel: PawWorkChannel, mode: SmokeMode) {
-  return PAWWORK_APP[mode === "raw" ? "dev" : channel].id
+// A raw run is an unpackaged app, and index.ts pins those to dev the same way.
+function channelForSmoke(channel: PawWorkChannel, mode: SmokeMode): PawWorkChannel {
+  return mode === "raw" ? "dev" : channel
 }
+
+export function appIdForSmoke(channel: PawWorkChannel, mode: SmokeMode) {
+  return PAWWORK_APP[channelForSmoke(channel, mode)].id
+}
+
+// PAWWORK_CI_SMOKE_HOME, not HOME: buildSmokeEnv cannot redirect os.homedir()
+// on Windows, where it reads USERPROFILE.
+export function dshHomeForSmoke(homeDir: string, target: SmokeTarget) {
+  return resolveDshHome({ channel: channelForSmoke(target.channel, target.mode), homeRoot: homeDir })
+}
+
+// Seeded into the legacy home and asserted in the new one, so it is only ever
+// present because the one-time migration ran.
+export const CI_SMOKE_MIGRATED_AUTOMATION_ID = "automation-smoke"
 
 export function parseSmokeArgs(argv: string[]): SmokeTarget {
   const mode = argv[0] as SmokeMode | undefined
@@ -761,16 +777,20 @@ async function stopChild(child: SmokeChild, closeWindow?: () => Promise<void>) {
 async function main() {
   const target = parseSmokeArgs(process.argv.slice(2))
   const homeDir = mkdtempSync(join(tmpdir(), "pawwork-ci-smoke-"))
-  const dshHome = join(homeDir, appIdForSmoke(target.channel, target.mode), "dsh")
+  const dshHome = dshHomeForSmoke(homeDir, target)
+  // Seeded in the legacy home, asserted in the new one: the automation below has
+  // to survive the migration to reach the assertions after the restart, so a
+  // migration that stopped running would fail the smoke rather than pass quietly.
+  const legacyDshHome = join(homeDir, appIdForSmoke(target.channel, target.mode), "dsh")
   const v1Database = join(homeDir, "v1", "pawwork.db")
   createCiSmokeV1Fixture(v1Database, homeDir)
-  mkdirSync(dshHome, { recursive: true })
-  writeFileSync(join(dshHome, "automations.json"), `${JSON.stringify({
+  mkdirSync(legacyDshHome, { recursive: true })
+  writeFileSync(join(legacyDshHome, "automations.json"), `${JSON.stringify({
     schema: 1,
     nextDefinition: 2,
     nextRun: 1,
     definitions: [{
-      id: "automation-smoke",
+      id: CI_SMOKE_MIGRATED_AUTOMATION_ID,
       title: "AutomationTitleWithoutBreaksAutomationTitleWithoutBreaksAutomationTitleWithoutBreaksAutomationTitleWithoutBreaks",
       prompt: "Verify the Automation editor.",
       revision: 1,
@@ -836,6 +856,11 @@ async function main() {
     }
     if (!automationDocument.definitions?.some((definition) => definition.id === CI_SMOKE_IMPORTED_AUTOMATION_ID)) {
       throw new Error(`V1 Automation ${CI_SMOKE_IMPORTED_AUTOMATION_ID} did not survive desktop restart`)
+    }
+    // Seeded in the legacy home, read back from the dotdir home: the only way
+    // it got here is the migration, so dropping the migration fails the smoke.
+    if (!automationDocument.definitions?.some((definition) => definition.id === CI_SMOKE_MIGRATED_AUTOMATION_ID)) {
+      throw new Error(`Automation ${CI_SMOKE_MIGRATED_AUTOMATION_ID} seeded in ${legacyDshHome} did not reach ${dshHome}`)
     }
     console.log("CI smoke verified V1 session and Automation migration after restart")
   }

@@ -28,6 +28,7 @@ import {
   resolveProductResources,
 } from "./dsh-product-home"
 import { launchDshSidecar, type DshSidecar } from "./dsh-sidecar"
+import { migrateDshHome, resolveDshHome } from "./pawwork-home"
 import { initLogging } from "./logging"
 import { detectSystemMenuLocale } from "./menu-labels"
 import { createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./update-feed"
@@ -53,7 +54,8 @@ const UPDATE_CHANNEL_FILE = process.platform === "win32" ? `${UPDATE_CHANNEL}.ym
 const LATEST_RELEASE_URL = `https://github.com/${UPDATE_GITHUB_OWNER}/${UPDATE_GITHUB_REPO}/releases/latest`
 
 const userDataRoot = CI_SMOKE_HOME ?? app.getPath("appData")
-const appIdentity = PAWWORK_APP[app.isPackaged ? CHANNEL : "dev"]
+const appChannel = app.isPackaged ? CHANNEL : "dev"
+const appIdentity = PAWWORK_APP[appChannel]
 app.setName(appIdentity.name)
 if (CI_SMOKE_HOME) app.setPath("appData", CI_SMOKE_HOME)
 app.setPath("userData", join(userDataRoot, appIdentity.id))
@@ -207,8 +209,19 @@ async function startDsh() {
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
   })
+  // The migration is the argument rather than a preceding statement, so it
+  // cannot be reordered: prepareDshProductHome creates and populates whatever
+  // home it is handed, and a migration running after it would read that overlay
+  // as a home a newer build had written and leave the real data in userData.
   const product = prepareDshProductHome({
-    productHome: join(app.getPath("userData"), "dsh"),
+    // CI_SMOKE_HOME, not just homedir(): buildSmokeEnv can only set HOME, and
+    // homedir() reads USERPROFILE on Windows, where a smoke run would then
+    // migrate the real user profile.
+    productHome: migrateDshHome({
+      home: resolveDshHome({ channel: appChannel, homeRoot: CI_SMOKE_HOME ?? homedir() }),
+      legacyHome: join(app.getPath("userData"), "dsh"),
+      onEvent: (message, detail) => logger.log(message, detail),
+    }),
     resources: resources.dsh,
   })
   fileInputPreload = product.fileInputPreload

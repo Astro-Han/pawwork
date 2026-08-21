@@ -7,6 +7,7 @@ import process from "node:process"
 import {
   allocateCiSmokeCdpPort,
   appIdForSmoke,
+  dshHomeForSmoke,
   assertCiSmokeProduct,
   buildSmokeEnv,
   isCiSmokeDshTarget,
@@ -51,6 +52,12 @@ describe("ci smoke helpers", () => {
     expect(appIdForSmoke("prod", "raw")).toBe("ai.pawwork.desktop.dev")
     expect(appIdForSmoke("dev", "packaged")).toBe("ai.pawwork.desktop.dev")
     expect(appIdForSmoke("prod", "packaged")).toBe("ai.pawwork.desktop")
+  })
+
+  test("dshHomeForSmoke hangs the DSH home off the smoke home, not off its app data directory", () => {
+    expect(dshHomeForSmoke("/tmp/smoke", { mode: "raw", channel: "prod" })).toBe(
+      path.join("/tmp/smoke", ".pawwork", "dsh-dev"),
+    )
   })
 
   test("resolveCiSmokeReadyFile follows packaged channel app IDs", () => {
