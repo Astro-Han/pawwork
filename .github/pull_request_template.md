@@ -65,4 +65,4 @@ Required for visible UI changes.
 - [ ] **(conditional)** I considered macOS and Windows impact for platform, packaging, updater, signing, paths, shell, or permissions changes. Leave unticked only if no platform/packaging surface was touched.
 - [ ] **(conditional)** I called out docs, release notes, dependencies, permissions, credentials, deletion behavior, generated content, or local file changes when relevant. Leave unticked only if none of those surfaces was touched.
 - [ ] I reviewed the final diff for unrelated changes and suspicious dependency changes.
-- [ ] I am targeting `dev`, and my PR title and commit messages use Conventional Commits in English.
+- [ ] I am targeting `maint/v1`, and my PR title and commit messages use Conventional Commits in English.

@@ -2,7 +2,7 @@ name: dev-dep-audit
 
 on:
   pull_request:
-    branches: [dev]
+    branches: [maint/v1]
 
 concurrency:
   group: dev-dep-audit-${{ github.event.pull_request.number || github.ref }}

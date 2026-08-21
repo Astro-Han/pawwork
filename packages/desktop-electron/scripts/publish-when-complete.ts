@@ -376,7 +376,7 @@ async function main() {
   const buildSha = requireEnv("BUILD_SHA")
   const os = requireEnv("RELEASE_OS")
   const arch = requireEnv("RELEASE_ARCH")
-  const mirrorRef = process.env.MIRROR_REF ?? "dev"
+  const mirrorRef = requireEnv("MIRROR_REF")
 
   const version = tag.replace(/^v/, "")
   const expectedProvenance = releaseProvenanceAssetNames(version)

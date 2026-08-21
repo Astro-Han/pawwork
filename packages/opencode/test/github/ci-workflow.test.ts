@@ -382,10 +382,10 @@ describe("ci workflow", () => {
     expect(parseWorkflow(ciWorkflowPath).jobs?.check?.needs).not.toContain(actionlintJobName)
   })
 
-  test("keeps dev runs and cancels stale pull request runs", () => {
+  test("keeps maintenance runs and cancels stale pull request runs", () => {
     const parsed = parseWorkflow(ciWorkflowPath)
 
-    expect(parsed.concurrency?.group).toContain("github.ref == 'refs/heads/dev'")
+    expect(parsed.concurrency?.group).toContain("github.ref == 'refs/heads/maint/v1'")
     expect(parsed.concurrency?.group).toContain("github.run_id")
     expect(parsed.concurrency?.["cancel-in-progress"]).toBe(true)
   })
@@ -582,13 +582,13 @@ describe("ci workflow", () => {
 
     expect(parsed.name).toBe("windows-advisory")
     expect(workflow).toContain("run-name: windows advisory @ ${{ github.ref_name }} / ${{ github.sha }}")
-    expect(parsed.on?.push).toEqual({ branches: ["dev"] })
-    expect(parsed.on?.pull_request).toEqual({ branches: ["dev"] })
+    expect(parsed.on?.push).toEqual({ branches: ["maint/v1"] })
+    expect(parsed.on?.pull_request).toEqual({ branches: ["maint/v1"] })
     expect(parsed.on?.workflow_dispatch).toEqual(null)
     expect(workflow).toContain("workflow_dispatch:")
-    expect(parsed.concurrency?.group).toContain("github.ref == 'refs/heads/dev'")
+    expect(parsed.concurrency?.group).toContain("github.ref == 'refs/heads/maint/v1'")
     expect(parsed.concurrency?.group).toContain("github.run_id")
-    expect(parsed.concurrency?.["cancel-in-progress"]).toBe("${{ github.ref != 'refs/heads/dev' }}")
+    expect(parsed.concurrency?.["cancel-in-progress"]).toBe("${{ github.ref != 'refs/heads/maint/v1' }}")
     expect(parsed.permissions).toEqual({ contents: "read" })
     expect(parsed.jobs?.changes?.permissions).toEqual({ contents: "read", "pull-requests": "read" })
     expect(checkoutStep("changes", windowsAdvisoryWorkflowPath)?.uses).toBe(pinned.checkout)

@@ -86,7 +86,7 @@ describe("pr triage workflow", () => {
     expect(triageParsed.name).toBe("pr-triage")
     expect(triageParsed.on?.pull_request_target).toEqual({
       types: ["opened", "synchronize", "reopened", "labeled", "unlabeled"],
-      branches: ["dev"],
+      branches: ["maint/v1"],
     })
     expect(triageParsed.permissions).toEqual({
       contents: "read",

@@ -6,7 +6,7 @@ const repoRoot = path.join(import.meta.dir, "../../../..")
 const workflowPath = path.join(repoRoot, ".github", "workflows", "codeql.yml")
 
 describe("codeql workflow", () => {
-  test("defines a JS/TS code scanning workflow for dev pushes, PRs, and weekly scans", () => {
+  test("defines a JS/TS code scanning workflow for maintenance pushes, PRs, and weekly scans", () => {
     const workflow = readWorkflow(workflowPath)
     const parsed = parseWorkflow(workflowPath)
     const jobs = parsed.jobs ?? {}
@@ -23,8 +23,8 @@ describe("codeql workflow", () => {
     const analyzeStep = steps.find((step) => step.name === "Analyze with CodeQL")
 
     expect(parsed.name).toBe("codeql")
-    expect(parsed.on?.push).toEqual({ branches: ["dev"] })
-    expect(parsed.on?.pull_request).toEqual({ branches: ["dev"] })
+    expect(parsed.on?.push).toEqual({ branches: ["maint/v1"] })
+    expect(parsed.on?.pull_request).toEqual({ branches: ["maint/v1"] })
     expect(parsed.on?.schedule).toEqual([{ cron: "0 2 * * 1" }])
     expect(parsed.on?.workflow_dispatch).toBeUndefined()
     expect(parsed.permissions).toEqual({
@@ -78,10 +78,10 @@ describe("codeql workflow", () => {
     expect(steps.every((step) => step.run === undefined && step.env === undefined)).toBe(true)
 
     expect(parsed.concurrency?.group).toContain("codeql-")
-    expect(parsed.concurrency?.group).toContain("github.ref == 'refs/heads/dev'")
+    expect(parsed.concurrency?.group).toContain("github.ref == 'refs/heads/maint/v1'")
     expect(parsed.concurrency?.group).toContain("github.run_id")
     expect(parsed.concurrency?.group).toContain("github.event.pull_request.number || github.ref")
-    expect(parsed.concurrency?.["cancel-in-progress"]).toBe("${{ github.ref != 'refs/heads/dev' }}")
+    expect(parsed.concurrency?.["cancel-in-progress"]).toBe("${{ github.ref != 'refs/heads/maint/v1' }}")
     expect(workflow).not.toContain("pull_request_target")
     expect(workflow).not.toContain("persist-credentials: true")
     expect(workflow).not.toContain("strategy:")

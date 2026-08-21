@@ -2,13 +2,13 @@ name: ci
 
 on:
   push:
-    branches: [dev]
+    branches: [maint/v1]
   pull_request:
-    branches: [dev]
+    branches: [maint/v1]
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.ref == 'refs/heads/dev' && format('ci-{0}', github.run_id) || format('ci-{0}', github.event.pull_request.number || github.ref) }}
+  group: ${{ github.ref == 'refs/heads/maint/v1' && format('ci-{0}', github.run_id) || format('ci-{0}', github.event.pull_request.number || github.ref) }}
   cancel-in-progress: true
 
 permissions:
@@ -221,9 +221,9 @@ jobs:
               base_sha="$BEFORE_SHA"
             fi
             head_sha="$HEAD_SHA"
-          elif [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$REF_NAME" != "dev" ]; then
-            git fetch --no-tags origin dev:refs/remotes/origin/dev
-            base_sha="$(git merge-base origin/dev HEAD)"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$REF_NAME" != "maint/v1" ]; then
+            git fetch --no-tags origin maint/v1:refs/remotes/origin/maint/v1
+            base_sha="$(git merge-base origin/maint/v1 HEAD)"
             head_sha="$HEAD_SHA"
           else
             skipped=true
@@ -556,7 +556,7 @@ jobs:
           path: packages/remote-bridge/.artifacts/unit/junit.xml
 
   # Compatibility aggregator for branch protection setups that require
-  # `ci / check`. The live dev ruleset currently requires the individual
+  # `ci / check`. The maintenance ruleset currently requires the individual
   # blocking jobs directly, so every blocking job added above should still
   # be listed in `needs:` below.
   # If the blocking list grows past ~5 entries, consider switching to

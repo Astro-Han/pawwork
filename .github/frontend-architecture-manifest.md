@@ -8,7 +8,7 @@ This manifest covers git-tracked, hand-written frontend files under `packages/ap
 
 - Manifest status: LOC warn-only CI slice.
 - Baseline commit: `c3e931935` (`chore(release): bump desktop version to v2026.5.17`).
-- Default branch: `dev`.
+- Maintenance branch: `maint/v1`.
 - Master owner: [#599 UI rewrite v2](https://github.com/Astro-Han/pawwork/issues/599).
 - Historical issue [#440](https://github.com/Astro-Han/pawwork/issues/440) is closed and must not be used as a new work entry.
 - Perf gate [#600](https://github.com/Astro-Han/pawwork/issues/600) is closed/completed and is required for implementation PRs.
@@ -20,7 +20,7 @@ The repeatable report command is:
 ```sh
 bun run frontend:inventory
 node script/frontend-inventory.mjs --format json
-node script/frontend-inventory.mjs --check-baseline --base origin/dev --head HEAD
+node script/frontend-inventory.mjs --check-baseline --base origin/maint/v1 --head HEAD
 bun run frontend:inventory -- --format markdown --max-rows 120
 ```
 

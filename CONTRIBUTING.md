@@ -53,7 +53,7 @@ bun run dev:desktop
 
 ## Branches and Commits
 
-- Open pull requests against `dev`
+- Open V1 maintenance pull requests against `maint/v1`
 - Use small, reversible commits
 - Use Conventional Commits in English, such as `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`
 

@@ -1,4 +1,4 @@
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { execFileSync, spawnSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
@@ -10,7 +10,36 @@ import { parseWorkflow, readWorkflow } from "./workflow-parser"
 const repoRoot = path.join(import.meta.dir, "../../../..")
 const workflowPath = path.join(repoRoot, ".github", "workflows", "build.yml")
 
+function runSourceValidation(phase: string, githubRef: string, sourceRef = "") {
+  const parsed = parseWorkflow(workflowPath)
+  const validate = parsed.jobs?.["select-build-target"]?.steps?.find(
+    (step) => step.name === "Validate release source branch",
+  )
+  if (!validate?.run) throw new Error("release source validation step is missing")
+
+  return spawnSync("bash", ["-c", validate.run], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      EXPECTED_SOURCE_REF: "maint/v1",
+      GITHUB_REF: githubRef,
+      PHASE: phase,
+      SOURCE_REF: sourceRef,
+    },
+  })
+}
+
 describe("release workflow", () => {
+  test("accepts V1 maintenance submit and finalize sources", () => {
+    expect(runSourceValidation("submit", "refs/heads/maint/v1").status).toBe(0)
+    expect(runSourceValidation("finalize", "refs/tags/workflow-snapshot-1", "maint/v1").status).toBe(0)
+  })
+
+  test("rejects release sources outside V1 maintenance", () => {
+    expect(runSourceValidation("submit", "refs/heads/v1").status).toBe(1)
+    expect(runSourceValidation("finalize", "refs/tags/workflow-snapshot-1", "v1").status).toBe(1)
+  })
+
   it.live("selects the macOS x64 release matrix", () =>
     Effect.gen(function* () {
       const result = yield* Effect.promise(() =>
@@ -340,7 +369,7 @@ function replaceGithubExpressions(script: string) {
     "steps.submit_notarization.outputs.submission_id": "sample-submission-id",
     "github.run_id": "123456",
     "github.run_attempt": "2",
-    "github.ref_name": "dev",
+    "github.ref_name": "maint/v1",
     "github.sha": "0123456789abcdef0123456789abcdef01234567",
     "matrix.arch_label": "arm64",
     "needs.create-snapshot-tag.outputs.workflow_ref": "workflow-snapshot-123",
