@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { spawnSync } from "node:child_process"
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { desktopShellMainSelector, titlebarShellSelector } from "../src/renderer/ci-smoke-selectors"
@@ -8,6 +8,7 @@ import {
   allocateCiSmokeCdpPort,
   appIdForSmoke,
   buildSmokeEnv,
+  collectCiSmokeArtifacts,
   isCiSmokeRendererTarget,
   parseSmokeArgs,
   parseSmokeCdpPort,
@@ -20,6 +21,32 @@ import {
 } from "./ci-smoke"
 
 describe("ci smoke helpers", () => {
+  test("collectCiSmokeArtifacts preserves isolated main and backend logs", async () => {
+    const homeDir = mkdtempSync(path.join(tmpdir(), "pawwork-ci-smoke-home-"))
+    const artifactDir = mkdtempSync(path.join(tmpdir(), "pawwork-ci-smoke-artifacts-"))
+    try {
+      const mainLog = path.join(homeDir, "app", "logs", "main.log")
+      const backendLog = path.join(homeDir, "data", "opencode", "log", "backend.log")
+      mkdirSync(path.dirname(mainLog), { recursive: true })
+      mkdirSync(path.dirname(backendLog), { recursive: true })
+      writeFileSync(mainLog, "main diagnostic")
+      writeFileSync(backendLog, "backend diagnostic")
+      writeFileSync(path.join(homeDir, "ignore.txt"), "not a log")
+
+      const copied = await collectCiSmokeArtifacts(homeDir, artifactDir)
+
+      expect(copied.sort()).toEqual(["app/logs/main.log", "data/opencode/log/backend.log"])
+      expect(readFileSync(path.join(artifactDir, "app", "logs", "main.log"), "utf8")).toBe("main diagnostic")
+      expect(readFileSync(path.join(artifactDir, "data", "opencode", "log", "backend.log"), "utf8")).toBe(
+        "backend diagnostic",
+      )
+      expect(existsSync(path.join(artifactDir, "ignore.txt"))).toBe(false)
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true })
+      rmSync(artifactDir, { recursive: true, force: true })
+    }
+  })
+
   test("resolveMainEntry points at the built Electron main process bundle", () => {
     expect(resolveMainEntry().endsWith(path.join("packages", "desktop-electron", "out", "main", "index.js"))).toBe(true)
   })
@@ -83,6 +110,13 @@ describe("ci smoke helpers", () => {
     const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", "dev", {}, { cdpPort: 48291 })
 
     expect(env.PAWWORK_CI_SMOKE_CDP_PORT).toBe("48291")
+  })
+
+  test("buildSmokeEnv routes completed-task diagnostics through the controlled e2e model", () => {
+    const env = buildSmokeEnv("/tmp/pawwork-ci-smoke", "dev", {}, { e2eLlmUrl: "http://127.0.0.1:48292" })
+
+    expect(env.OPENCODE_E2E_ENABLED).toBe("true")
+    expect(env.OPENCODE_E2E_LLM_URL).toBe("http://127.0.0.1:48292")
   })
 
   test("parseSmokeCdpPort accepts only concrete TCP ports", () => {

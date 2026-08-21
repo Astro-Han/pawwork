@@ -1,10 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { once } from "node:events"
 import { existsSync, mkdtempSync } from "node:fs"
+import { copyFile, mkdir, readdir, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import process from "node:process"
 import readline from "node:readline"
 import { rendererOrigin } from "../src/main/renderer-protocol"
@@ -39,10 +40,12 @@ type ProbeOptions = {
 
 type BuildSmokeEnvOptions = {
   cdpPort?: number
+  e2eLlmUrl?: string
 }
 
 type LaunchAppOptions = {
   cdpPort?: number
+  e2eLlmUrl?: string
 }
 
 const APP_ID_BY_CHANNEL: Record<SmokeChannel, string> = {
@@ -97,6 +100,9 @@ export function buildSmokeEnv(
     XDG_STATE_HOME: homeDir,
     OPENCODE_CHANNEL: channel,
     ...(options.cdpPort !== undefined ? { PAWWORK_CI_SMOKE_CDP_PORT: String(options.cdpPort) } : {}),
+    ...(options.e2eLlmUrl !== undefined
+      ? { OPENCODE_E2E_ENABLED: "true", OPENCODE_E2E_LLM_URL: options.e2eLlmUrl }
+      : {}),
   }
 }
 
@@ -265,7 +271,10 @@ function launchApp(homeDir: string, target: SmokeTarget, options: LaunchAppOptio
   const spawnError = { current: undefined as Error | undefined }
   try {
     const child = spawn(launch.command, launch.args, {
-      env: buildSmokeEnv(homeDir, target.channel, process.env, { cdpPort: options.cdpPort }),
+      env: buildSmokeEnv(homeDir, target.channel, process.env, {
+        cdpPort: options.cdpPort,
+        e2eLlmUrl: options.e2eLlmUrl,
+      }),
       stdio: ["ignore", "pipe", "pipe"],
     })
     child.on("error", (error) => {
@@ -290,20 +299,127 @@ async function stopChild(child: ChildProcessWithoutNullStreams) {
   }
 }
 
+export async function collectCiSmokeArtifacts(homeDir: string, artifactDir: string) {
+  const copied: string[] = []
+  const visit = async (directory: string): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const source = join(directory, entry.name)
+      if (entry.isDirectory()) {
+        await visit(source)
+        continue
+      }
+      const relative = source.slice(homeDir.length + 1).split("\\").join("/")
+      const segments = relative.toLowerCase().split("/")
+      if (
+        !entry.isFile() ||
+        !entry.name.endsWith(".log") ||
+        !segments.some((part) => part === "log" || part === "logs")
+      ) {
+        continue
+      }
+      const destination = join(artifactDir, relative)
+      await mkdir(dirname(destination), { recursive: true })
+      await copyFile(source, destination)
+      copied.push(relative)
+    }
+  }
+
+  await mkdir(artifactDir, { recursive: true })
+  await visit(homeDir)
+  return copied
+}
+
+async function runSessionConcurrencyCdpWithNode(port: number, homeDir: string) {
+  const outdir = resolve(import.meta.dir, "../.artifacts/session-concurrency-harness")
+  const build = await Bun.build({
+    entrypoints: [resolve(import.meta.dir, "session-concurrency-cdp-runner.ts")],
+    target: "node",
+    external: ["@playwright/test"],
+    outdir,
+    naming: "runner.mjs",
+  })
+  if (!build.success) {
+    throw new Error(`Failed to build Electron CDP harness: ${build.logs.map((item) => item.message).join("\n")}`)
+  }
+
+  const child = Bun.spawn(["node", join(outdir, "runner.mjs"), String(port), homeDir], {
+    cwd: resolve(import.meta.dir, ".."),
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ])
+  if (exitCode !== 0) throw new Error(`Electron CDP harness failed (exit ${exitCode}):\n${stdout}${stderr}`)
+  return JSON.parse(stdout.trim()) as unknown
+}
+
 async function main() {
   const target = parseSmokeArgs(Bun.argv.slice(2))
   const homeDir = mkdtempSync(join(tmpdir(), "pawwork-ci-smoke-"))
   const cdpPort = await resolveCiSmokeCdpPort(process.env)
-  const { child, spawnError } = launchApp(homeDir, target, { cdpPort })
+  const sessionConcurrency = process.env.PAWWORK_CI_SMOKE_SESSION_CONCURRENCY === "true"
+  const llm = sessionConcurrency
+    ? await import("../../opencode/test/lib/llm-server").then(({ startTestLLMServer }) => startTestLLMServer())
+    : undefined
+  if (llm) {
+    await Promise.all(
+      [0, 1, 2].map((index) =>
+        llm.textMatch(`run Windows Electron task ${index}`, `completed task ${index}`),
+      ),
+    )
+  }
+  const { child, spawnError } = launchApp(homeDir, target, { cdpPort, e2eLlmUrl: llm?.url })
   const logs = watchChildLogs(child)
+
+  const artifactDir = process.env.PAWWORK_CI_SMOKE_ARTIFACT_DIR
+    ? resolve(process.env.PAWWORK_CI_SMOKE_ARTIFACT_DIR)
+    : undefined
+  let failure: unknown
+  let diagnostic: unknown
 
   try {
     await waitForCiSmokeReady(homeDir, target, child, spawnError, logs.recent)
     if (cdpPort !== undefined) await probeCiSmokeCdpTarget(cdpPort)
+    if (sessionConcurrency) {
+      if (cdpPort === undefined) throw new Error("Electron session concurrency diagnostic requires CDP")
+      diagnostic = await runSessionConcurrencyCdpWithNode(cdpPort, homeDir)
+      const pendingResponses = await llm!.pending()
+      if (pendingResponses !== 0) {
+        throw new Error(`Electron session concurrency diagnostic left ${pendingResponses} model responses unused`)
+      }
+    }
+  } catch (error) {
+    failure = error
   } finally {
     logs.close()
     await stopChild(child)
+    await llm?.dispose()
+    if (artifactDir) {
+      try {
+        const copiedLogs = await collectCiSmokeArtifacts(homeDir, artifactDir)
+        await writeFile(
+          join(artifactDir, "summary.json"),
+          JSON.stringify(
+            {
+              status: failure ? "failed" : "passed",
+              diagnostic,
+              error: failure instanceof Error ? failure.stack ?? failure.message : failure ? String(failure) : undefined,
+              copiedLogs,
+            },
+            null,
+            2,
+          ),
+        )
+      } catch (error) {
+        if (!failure) failure = error
+      }
+    }
   }
+
+  if (failure) throw failure
 }
 
 if (import.meta.main) {

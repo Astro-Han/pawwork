@@ -1,6 +1,6 @@
 import { NodeHttpServer, NodeHttpServerRequest } from "@effect/platform-node"
 import * as Http from "node:http"
-import { Deferred, Effect, Layer, Context, Stream } from "effect"
+import { Deferred, Effect, Layer, Context, ManagedRuntime, Stream } from "effect"
 import * as HttpServer from "effect/unstable/http/HttpServer"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 
@@ -840,4 +840,16 @@ export class TestLLMServer extends Context.Service<TestLLMServer, TestLLMServer.
       })
     }),
   ).pipe(Layer.provide(HttpRouter.layer), Layer.provide(NodeHttpServer.layer(() => Http.createServer(), { port: 0 })))
+}
+
+export async function startTestLLMServer() {
+  const runtime = ManagedRuntime.make(TestLLMServer.layer)
+  const service = await runtime.runPromise(TestLLMServer)
+  return {
+    url: service.url,
+    textMatch: (requestText: string, responseText: string) =>
+      runtime.runPromise(service.textMatch((hit) => JSON.stringify(hit.body).includes(requestText), responseText)),
+    pending: () => runtime.runPromise(service.pending),
+    dispose: () => runtime.dispose(),
+  }
 }
