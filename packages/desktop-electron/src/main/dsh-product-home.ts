@@ -1,7 +1,10 @@
 import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { isAbsolute, join } from "node:path"
 
-const PUBLIC_CREDENTIAL = 'OPENCODE_API_KEY: "public"\n'
+// DSH 的凭据文档自 dsh 0.1.1-rc.1 起是版本化的：`refs:` 存引用名到值的映射，
+// `records:` 存登录态。旧的扁平映射仍会在 boot 时被就地迁移，但种子直接写成
+// 目标格式，新建的 product home 就不必走一次迁移。
+const PUBLIC_CREDENTIAL = 'version: 1\nrefs:\n  OPENCODE_API_KEY: "public"\n'
 const DROPPED_MODEL_ENVIRONMENT = [
   "OPENCODE_API_KEY",
   "OPENCODE_GO_API_KEY",
