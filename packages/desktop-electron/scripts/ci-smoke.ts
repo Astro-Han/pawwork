@@ -105,7 +105,7 @@ function parseChannel(raw: string | undefined): PawWorkChannel {
 }
 
 // A raw run is an unpackaged app, and index.ts pins those to dev the same way.
-export function channelForSmoke(channel: PawWorkChannel, mode: SmokeMode): PawWorkChannel {
+function channelForSmoke(channel: PawWorkChannel, mode: SmokeMode): PawWorkChannel {
   return mode === "raw" ? "dev" : channel
 }
 
@@ -122,12 +122,6 @@ export function dshHomeForSmoke(homeDir: string, target: SmokeTarget) {
 // Seeded into the legacy home and asserted in the new one, so it is only ever
 // present because the one-time migration ran.
 export const CI_SMOKE_MIGRATED_AUTOMATION_ID = "automation-smoke"
-
-// Where the app kept DSH before the dotdir. The smoke run seeds here so every
-// pass exercises the one-time migration on its way to dshHomeForSmoke.
-export function legacyDshHomeForSmoke(homeDir: string, target: SmokeTarget) {
-  return join(homeDir, appIdForSmoke(target.channel, target.mode), "dsh")
-}
 
 export function parseSmokeArgs(argv: string[]): SmokeTarget {
   const mode = argv[0] as SmokeMode | undefined
@@ -787,7 +781,7 @@ async function main() {
   // Seeded in the legacy home, asserted in the new one: the automation below has
   // to survive the migration to reach the assertions after the restart, so a
   // migration that stopped running would fail the smoke rather than pass quietly.
-  const legacyDshHome = legacyDshHomeForSmoke(homeDir, target)
+  const legacyDshHome = join(homeDir, appIdForSmoke(target.channel, target.mode), "dsh")
   const v1Database = join(homeDir, "v1", "pawwork.db")
   createCiSmokeV1Fixture(v1Database, homeDir)
   mkdirSync(legacyDshHome, { recursive: true })

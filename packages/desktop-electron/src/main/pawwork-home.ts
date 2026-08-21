@@ -1,5 +1,4 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import type { PawWorkChannel } from "./app-identity"
 
@@ -15,33 +14,10 @@ const PAWWORK_HOME_DIR_NAME = ".pawwork"
 // retired its files can move into ~/.pawwork/legacy/ without touching this.
 const DSH_HOME_DIR_NAME: Record<PawWorkChannel, string> = { dev: "dsh-dev", prod: "dsh" }
 
-export const DSH_MOVED_MARKER_NAME = "dsh-moved.json"
-
-// CI smoke pins the home root explicitly because buildSmokeEnv can only set HOME,
-// and os.homedir() reads USERPROFILE on Windows — a smoke run resolving through
-// homedir() there would write into the real user profile.
-export function resolvePawWorkHomeRoot(env: NodeJS.ProcessEnv = process.env) {
-  return env.PAWWORK_CI_SMOKE_HOME ?? homedir()
-}
+const DSH_MOVED_MARKER_NAME = "dsh-moved.json"
 
 export function resolveDshHome(options: { channel: PawWorkChannel; homeRoot: string }) {
   return join(options.homeRoot, PAWWORK_HOME_DIR_NAME, DSH_HOME_DIR_NAME[options.channel])
-}
-
-export type DshHomeMigrationStatus =
-  | "no-legacy-home"
-  | "home-already-populated"
-  | "renamed"
-  | "copied"
-  | "failed"
-
-export type DshHomeMigration = {
-  // Where DSH should actually be started from. Everything but a failure answers
-  // the new home; a failure answers the legacy one so a botched migration
-  // degrades to the old location instead of an app that cannot start.
-  home: string
-  status: DshHomeMigrationStatus
-  error?: Error
 }
 
 type MigrateDshHomeOptions = {
@@ -123,10 +99,14 @@ function commitDshHome(legacyHome: string, home: string, rename: (from: string, 
 
 /**
  * Moves `<userData>/dsh` to the dotdir home the first time a build that knows
- * about the dotdir starts. Must run before the product overlay is prepared,
- * which would otherwise populate the new home and make it look already migrated.
+ * about the dotdir starts, and answers where DSH should actually be started
+ * from: the new home, or the legacy one when the move failed, so a botched
+ * migration degrades to the old location instead of an app that cannot start.
+ *
+ * Must run before the product overlay is prepared, which would otherwise
+ * populate the new home and make it look already migrated.
  */
-export function migrateDshHome(options: MigrateDshHomeOptions): DshHomeMigration {
+export function migrateDshHome(options: MigrateDshHomeOptions): string {
   const { home, legacyHome } = options
   const rename = options.rename ?? renameSync
   const now = options.now ?? (() => new Date())
@@ -134,12 +114,12 @@ export function migrateDshHome(options: MigrateDshHomeOptions): DshHomeMigration
 
   let status: "renamed" | "copied"
   try {
-    if (!isDirectory(legacyHome)) return { home, status: "no-legacy-home" }
+    if (!isDirectory(legacyHome)) return home
     // The new home wins whenever it holds anything: a newer build already wrote
     // there, and the legacy directory is a stale copy from a downgrade.
     if (isDirectory(home) && !isEmptyDirectory(home)) {
       onEvent("DSH home migration skipped, destination already populated", { home, legacyHome })
-      return { home, status: "home-already-populated" }
+      return home
     }
 
     // ~/Library is 0700 and used to protect the sessions inside it; the home
@@ -157,13 +137,12 @@ export function migrateDshHome(options: MigrateDshHomeOptions): DshHomeMigration
     // migrated home.
     rmSync(home, { force: true, recursive: true })
     rmSync(stagingHome(home), { force: true, recursive: true })
-    const failure = describe(error)
     onEvent("DSH home migration failed, staying in the legacy home", {
       home,
       legacyHome,
-      error: failure.message,
+      error: describe(error).message,
     })
-    return { home: legacyHome, status: "failed", error: failure }
+    return legacyHome
   }
 
   // Past the commit the new home is authoritative, so the rest is best-effort:
@@ -171,15 +150,16 @@ export function migrateDshHome(options: MigrateDshHomeOptions): DshHomeMigration
   discardLegacyHome(legacyHome, onEvent)
   writeMovedMarker(legacyHome, home, now, onEvent)
   onEvent("DSH home migrated", { home, legacyHome, status })
-  return { home, status }
+  return home
 }
 
 // Left over only after a cross-device copy. Keeping it costs a stale directory
 // the next start walks past; deleting the migrated home to "undo" would cost the
 // data, so a lock or a permission problem here just gets logged.
 function discardLegacyHome(legacyHome: string, onEvent: NonNullable<MigrateDshHomeOptions["onEvent"]>) {
-  if (!isDirectory(legacyHome)) return
   try {
+    // force swallows ENOENT, so the rename path — where there is nothing left
+    // to discard — passes straight through.
     rmSync(legacyHome, { force: true, maxRetries: 3, recursive: true })
   } catch (error) {
     onEvent("DSH legacy home left behind", { legacyHome, error: describe(error).message })

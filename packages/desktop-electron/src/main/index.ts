@@ -28,7 +28,7 @@ import {
   resolveProductResources,
 } from "./dsh-product-home"
 import { launchDshSidecar, type DshSidecar } from "./dsh-sidecar"
-import { migrateDshHome, resolveDshHome, resolvePawWorkHomeRoot } from "./pawwork-home"
+import { migrateDshHome, resolveDshHome } from "./pawwork-home"
 import { initLogging } from "./logging"
 import { detectSystemMenuLocale } from "./menu-labels"
 import { createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./update-feed"
@@ -209,16 +209,19 @@ async function startDsh() {
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
   })
-  // Runs before the overlay is prepared: prepareDshProductHome would create and
-  // populate the dotdir home, and the migration would then read it as a home a
-  // newer build had already written and leave the real data behind in userData.
-  const migration = migrateDshHome({
-    home: resolveDshHome({ channel: appChannel, homeRoot: resolvePawWorkHomeRoot() }),
-    legacyHome: join(app.getPath("userData"), "dsh"),
-    onEvent: (message, detail) => logger.log(message, detail),
-  })
+  // The migration is the argument rather than a preceding statement, so it
+  // cannot be reordered: prepareDshProductHome creates and populates whatever
+  // home it is handed, and a migration running after it would read that overlay
+  // as a home a newer build had written and leave the real data in userData.
   const product = prepareDshProductHome({
-    productHome: migration.home,
+    // CI_SMOKE_HOME, not just homedir(): buildSmokeEnv can only set HOME, and
+    // homedir() reads USERPROFILE on Windows, where a smoke run would then
+    // migrate the real user profile.
+    productHome: migrateDshHome({
+      home: resolveDshHome({ channel: appChannel, homeRoot: CI_SMOKE_HOME ?? homedir() }),
+      legacyHome: join(app.getPath("userData"), "dsh"),
+      onEvent: (message, detail) => logger.log(message, detail),
+    }),
     resources: resources.dsh,
   })
   fileInputPreload = product.fileInputPreload

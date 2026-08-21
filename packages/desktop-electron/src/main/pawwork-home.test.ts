@@ -13,14 +13,9 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs"
-import { homedir, tmpdir } from "node:os"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import {
-  DSH_MOVED_MARKER_NAME,
-  migrateDshHome,
-  resolveDshHome,
-  resolvePawWorkHomeRoot,
-} from "./pawwork-home"
+import { migrateDshHome, resolveDshHome } from "./pawwork-home"
 
 const temporaryDirectories: string[] = []
 
@@ -54,7 +49,7 @@ function seedHomes(): Homes {
 }
 
 function markerPath({ legacyHome }: Homes) {
-  return join(dirname(legacyHome), DSH_MOVED_MARKER_NAME)
+  return join(dirname(legacyHome), "dsh-moved.json")
 }
 
 function readMovedMarker(homes: Homes) {
@@ -88,14 +83,6 @@ describe("PawWork home", () => {
     )
   })
 
-  test("prefers the CI smoke home over the real user home", () => {
-    // Windows resolves os.homedir() from USERPROFILE, which buildSmokeEnv does
-    // not set, so a smoke run that fell through to homedir() would write into
-    // the real user profile.
-    expect(resolvePawWorkHomeRoot({ PAWWORK_CI_SMOKE_HOME: "/tmp/smoke" })).toBe("/tmp/smoke")
-    expect(resolvePawWorkHomeRoot({})).toBe(homedir())
-  })
-
   test("renames the legacy home and leaves a marker behind", () => {
     const homes = seedHomes()
     const { events, onEvent } = collectEvents()
@@ -106,7 +93,7 @@ describe("PawWork home", () => {
       onEvent,
     })
 
-    expect(migration).toEqual({ home: homes.home, status: "renamed" })
+    expect(migration).toBe(homes.home)
     expect(existsSync(homes.legacyHome)).toBe(false)
     expect(readFileSync(join(homes.home, "settings.yaml"), "utf8")).toBe("theme: dark\n")
     expect(readFileSync(join(homes.home, "sessions", "session-1.json"), "utf8")).toBe('{"id":"session-1"}')
@@ -136,7 +123,7 @@ describe("PawWork home", () => {
 
     const migration = migrateDshHome({ ...homes, rename: crossDeviceRename() })
 
-    expect(migration).toEqual({ home: homes.home, status: "copied" })
+    expect(migration).toBe(homes.home)
     expect(existsSync(homes.legacyHome)).toBe(false)
     expect(existsSync(`${homes.home}.migrating`)).toBe(false)
     expect(readdirSync(homes.home).sort()).toEqual([
@@ -172,7 +159,7 @@ describe("PawWork home", () => {
 
     // The copy was verified before the delete was attempted, so the move stands
     // and the undeleted legacy home is just litter.
-    expect(migration).toEqual({ home: homes.home, status: "copied" })
+    expect(migration).toBe(homes.home)
     expect(readFileSync(join(homes.home, "settings.yaml"), "utf8")).toBe("theme: dark\n")
     expect(events.map((event) => event.message)).toEqual([
       "DSH legacy home left behind",
@@ -195,7 +182,7 @@ describe("PawWork home", () => {
 
     // The rename already committed: answering the legacy home here would start
     // DSH on a path that no longer exists.
-    expect(migration).toEqual({ home: homes.home, status: "renamed" })
+    expect(migration).toBe(homes.home)
     expect(readFileSync(join(homes.home, "settings.yaml"), "utf8")).toBe("theme: dark\n")
     expect(existsSync(markerPath(homes))).toBe(false)
     expect(events.map((event) => event.message)).toEqual([
@@ -211,7 +198,7 @@ describe("PawWork home", () => {
     writeFileSync(join(homes.home, "settings.yaml"), "theme: light\n")
     const second = migrateDshHome(homes)
 
-    expect(second).toEqual({ home: homes.home, status: "no-legacy-home" })
+    expect(second).toBe(homes.home)
     expect(readFileSync(join(homes.home, "settings.yaml"), "utf8")).toBe("theme: light\n")
   })
 
@@ -222,7 +209,7 @@ describe("PawWork home", () => {
 
     const migration = migrateDshHome(homes)
 
-    expect(migration).toEqual({ home: homes.home, status: "home-already-populated" })
+    expect(migration).toBe(homes.home)
     expect(readFileSync(join(homes.home, "settings.yaml"), "utf8")).toBe("theme: light\n")
     expect(readFileSync(join(homes.legacyHome, "settings.yaml"), "utf8")).toBe("theme: dark\n")
     expect(existsSync(markerPath(homes))).toBe(false)
@@ -232,7 +219,7 @@ describe("PawWork home", () => {
     const homes = seedHomes()
     mkdirSync(homes.home, { recursive: true })
 
-    expect(migrateDshHome(homes)).toEqual({ home: homes.home, status: "renamed" })
+    expect(migrateDshHome(homes)).toBe(homes.home)
     expect(readFileSync(join(homes.home, "settings.yaml"), "utf8")).toBe("theme: dark\n")
   })
 
@@ -250,17 +237,21 @@ describe("PawWork home", () => {
       },
     })
 
-    expect(migration.status).toBe("failed")
-    expect(migration.home).toBe(homes.legacyHome)
-    expect(migration.error?.message).toBe("disk is full")
+    expect(migration).toBe(homes.legacyHome)
     // Nothing committed, so the leftovers go: the next start has to migrate
     // again rather than read them as a home a newer build had written.
     expect(existsSync(homes.home)).toBe(false)
     expect(existsSync(`${homes.home}.migrating`)).toBe(false)
     expect(readFileSync(join(homes.legacyHome, "settings.yaml"), "utf8")).toBe("theme: dark\n")
     expect(existsSync(markerPath(homes))).toBe(false)
-    expect(events.map((event) => event.message)).toEqual([
-      "DSH home migration failed, staying in the legacy home",
+    // The cause only survives in the log now, so the log has to carry it.
+    expect(events).toEqual([
+      {
+        message: "DSH home migration failed, staying in the legacy home",
+        home: homes.home,
+        legacyHome: homes.legacyHome,
+        error: "disk is full",
+      },
     ])
   })
 
@@ -268,10 +259,7 @@ describe("PawWork home", () => {
     const root = temporaryDirectory()
     const home = join(root, ".pawwork", "dsh")
 
-    expect(migrateDshHome({ home, legacyHome: join(root, "userData", "dsh") })).toEqual({
-      home,
-      status: "no-legacy-home",
-    })
+    expect(migrateDshHome({ home, legacyHome: join(root, "userData", "dsh") })).toBe(home)
     expect(existsSync(home)).toBe(false)
   })
 })
