@@ -1,14 +1,14 @@
 # Advisory check: lint PR titles against Conventional Commits. Catches
 # drift early so PR titles read consistently in listings and serve as a
 # well-formed subject when a PR is squash-merged. Not required in the
-# `dev` ruleset -- failures flag the PR but do not block merge. Draft
+# `maint/v1` ruleset -- failures flag the PR but do not block merge. Draft
 # PRs with `WIP:` prefix are skipped. (#68)
 name: pr-title-lint
 
 on:
   pull_request_target:
     types: [opened, edited, reopened, ready_for_review]
-    branches: [dev]
+    branches: [maint/v1]
 
 concurrency:
   group: pr-title-lint-${{ github.event.pull_request.number }}

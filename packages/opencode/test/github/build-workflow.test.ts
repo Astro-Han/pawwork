@@ -1,4 +1,4 @@
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { execFileSync, spawnSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
@@ -11,6 +11,18 @@ const repoRoot = path.join(import.meta.dir, "../../../..")
 const workflowPath = path.join(repoRoot, ".github", "workflows", "build.yml")
 
 describe("release workflow", () => {
+  test("accepts releases only from the V1 maintenance branch", () => {
+    const parsed = parseWorkflow(workflowPath)
+    const validate = parsed.jobs?.["select-build-target"]?.steps?.find(
+      (step) => step.name === "Validate release source branch",
+    )
+
+    expect(validate).toBeDefined()
+    expect(validate?.env?.EXPECTED_SOURCE_REF).toBe("maint/v1")
+    expect(validate?.run).toContain('refs/heads/$EXPECTED_SOURCE_REF')
+    expect(validate?.run).toContain('"$SOURCE_REF" != "$EXPECTED_SOURCE_REF"')
+  })
+
   it.live("selects the macOS x64 release matrix", () =>
     Effect.gen(function* () {
       const result = yield* Effect.promise(() =>
@@ -340,7 +352,7 @@ function replaceGithubExpressions(script: string) {
     "steps.submit_notarization.outputs.submission_id": "sample-submission-id",
     "github.run_id": "123456",
     "github.run_attempt": "2",
-    "github.ref_name": "dev",
+    "github.ref_name": "maint/v1",
     "github.sha": "0123456789abcdef0123456789abcdef01234567",
     "matrix.arch_label": "arm64",
     "needs.create-snapshot-tag.outputs.workflow_ref": "workflow-snapshot-123",

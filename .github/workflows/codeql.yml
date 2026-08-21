@@ -1,4 +1,4 @@
-# This workflow is a required merge check on `dev`. The exact ruleset
+# This workflow is a required merge check on `maint/v1`. The exact ruleset
 # entry to register is `analyze-js-ts`. PawWork runs user-
 # authored skills and accesses the OS keychain; solo-dev code review is
 # not a substitute for a JS/TS security scanner. Keep it in its own file
@@ -8,9 +8,9 @@ name: codeql
 
 on:
   push:
-    branches: [dev]
+    branches: [maint/v1]
   pull_request:
-    branches: [dev]
+    branches: [maint/v1]
   schedule:
     - cron: "0 2 * * 1"
 
@@ -20,8 +20,8 @@ permissions:
   security-events: write
 
 concurrency:
-  group: ${{ github.ref == 'refs/heads/dev' && format('codeql-{0}', github.run_id) || format('codeql-{0}', github.event.pull_request.number || github.ref) }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/dev' }}
+  group: ${{ github.ref == 'refs/heads/maint/v1' && format('codeql-{0}', github.run_id) || format('codeql-{0}', github.event.pull_request.number || github.ref) }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/maint/v1' }}
 
 jobs:
   changes:

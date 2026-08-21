@@ -47,7 +47,7 @@ describe("dependency review workflow", () => {
     const audit = steps.find((step) => step.name === "Run Bun audit")
 
     expect(parsed.name).toBe("dev-dep-audit")
-    expect(parsed.on?.pull_request).toEqual({ branches: ["dev"] })
+    expect(parsed.on?.pull_request).toEqual({ branches: ["maint/v1"] })
     expect(parsed.permissions).toEqual({ contents: "read" })
     expect(Object.keys(parsed.jobs ?? {})).toEqual(["dev-dep-audit"])
     expect(job?.["runs-on"]).toBe("ubuntu-latest")

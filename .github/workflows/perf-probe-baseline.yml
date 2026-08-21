@@ -58,9 +58,9 @@ jobs:
           if [ "$EVENT_NAME" = "pull_request" ]; then
             base_sha="$(git merge-base "origin/$PR_BASE_REF" "$PR_HEAD_SHA")"
             head_sha="$PR_HEAD_SHA"
-          elif [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$REF_NAME" != "dev" ]; then
-            git fetch --no-tags origin dev:refs/remotes/origin/dev
-            base_sha="$(git merge-base origin/dev HEAD)"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$REF_NAME" != "maint/v1" ]; then
+            git fetch --no-tags origin maint/v1:refs/remotes/origin/maint/v1
+            base_sha="$(git merge-base origin/maint/v1 HEAD)"
             head_sha="$HEAD_SHA"
           else
             skipped=true

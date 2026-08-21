@@ -1,12 +1,12 @@
 # Independent CI for the Rust agent line (crates/). Kept out of ci.yml so the
 # Rust experiment stays fully decoupled from the JS/TS product pipeline and its
 # failures are legible in isolation. Path-gated: only runs when Rust sources
-# change. Not a required check in the dev ruleset during M0.
+# change. Not a required check in the maintenance ruleset during M0.
 name: rust-ci
 
 on:
   push:
-    branches: [dev]
+    branches: [maint/v1]
     paths:
       - "crates/**"
       - "Cargo.toml"
@@ -14,7 +14,7 @@ on:
       - "rust-toolchain.toml"
       - ".github/workflows/rust-ci.yml"
   pull_request:
-    branches: [dev]
+    branches: [maint/v1]
     paths:
       - "crates/**"
       - "Cargo.toml"
@@ -25,7 +25,7 @@ on:
 
 concurrency:
   group: rust-ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/dev' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/maint/v1' }}
 
 permissions:
   contents: read
