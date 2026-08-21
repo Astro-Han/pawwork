@@ -50,11 +50,22 @@ function sameModelIds(left, right) {
 	const a = new Set(left);
 	return right.every((id) => a.has(id));
 }
-/** A model entry is free when its leading input cost is explicitly zero. */
+/** Billable cost fields that must all be zero for a model to be free. */
+const BILLABLE_COST_FIELDS = ['input', 'output', 'cache_read', 'cache_write'];
+/** A model is free only when every present billable field, in every cost tier, is numeric zero. */
 function isZeroCost(cost) {
 	if (cost === null || typeof cost !== 'object') return false;
-	if (Array.isArray(cost)) return cost.length > 0 && isZeroCost(cost[0]);
-	return Number(cost.input) === 0;
+	const tiers = Array.isArray(cost) ? cost : [cost];
+	if (tiers.length === 0) return false;
+	for (const tier of tiers) {
+		if (tier === null || typeof tier !== 'object') return false;
+		for (const field of BILLABLE_COST_FIELDS) {
+			const value = tier[field];
+			if (value === undefined) continue; // absent field charges nothing
+			if (typeof value !== 'number' || !Number.isFinite(value) || value !== 0) return false;
+		}
+	}
+	return true;
 }
 /**
  * Select the free-and-served opencode models.
@@ -97,11 +108,13 @@ async function fetchJson(url, fetchImpl, signal) {
  * slow adapter from silently dropping the refresh.
  * @param describe - the settings service's `describe()`.
  * @param timeoutMs - upper bound on the wait.
- * @returns the `llm-pi-ai` descriptor, or `undefined` on timeout.
+ * @param signal - cancellation; aborts the wait promptly on shutdown.
+ * @returns the `llm-pi-ai` descriptor, or `undefined` on timeout/cancel.
  */
-async function waitForNamespace(describe, timeoutMs) {
+async function waitForNamespace(describe, timeoutMs, signal) {
 	const deadline = Date.now() + (timeoutMs === undefined ? 10000 : timeoutMs);
 	for (;;) {
+		if (signal?.aborted) return undefined;
 		const descriptor = describe().find((entry) => entry.ns === LLM_PI_AI_NAMESPACE);
 		if (descriptor !== undefined) return descriptor;
 		if (Date.now() >= deadline) return undefined;
@@ -118,7 +131,7 @@ async function waitForNamespace(describe, timeoutMs) {
  * @returns the selectable model count written, or `undefined` when nothing was written.
  */
 async function refreshOpenCodeFreeModels({ settings, describe, logger, fetchImpl = globalThis.fetch, signal, timeoutMs }) {
-	const descriptor = await waitForNamespace(describe ?? (() => settings.describe()), timeoutMs);
+	const descriptor = await waitForNamespace(describe ?? (() => settings.describe()), timeoutMs, signal);
 	if (descriptor === undefined) {
 		logger?.warn?.('llm-pi-ai settings namespace is not registered; leaving the packaged OpenCode Free model list');
 		return undefined;

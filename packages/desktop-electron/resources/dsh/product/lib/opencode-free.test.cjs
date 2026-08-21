@@ -18,14 +18,27 @@ function catalogWith(models) {
 	return { opencode: { api: 'https://opencode.ai/zen/v1', models } };
 }
 
-test('isZeroCost treats leading zero input cost as free', () => {
+test('isZeroCost accepts only fully zero-cost models across all tiers', () => {
 	assert.equal(isZeroCost({ input: 0, output: 0, cache_read: 0 }), true);
 	assert.equal(isZeroCost({ input: 0, output: 0, cache_read: 0, cache_write: 0 }), true);
-	assert.equal(isZeroCost({ input: 2, output: 12 }), false);
 	assert.equal(isZeroCost([{ input: 0, output: 0 }]), true);
+	// Any present billable field above zero makes the model paid.
+	assert.equal(isZeroCost({ input: 0, output: 1 }), false);
+	assert.equal(isZeroCost({ input: 0, cache_read: 1 }), false);
+	assert.equal(isZeroCost({ input: 0, cache_write: 1 }), false);
+	assert.equal(isZeroCost({ input: 2, output: 12 }), false);
+	// A later paid tier still makes the whole model paid.
+	assert.equal(isZeroCost([{ input: 0 }, { input: 1 }]), false);
+	// Zero-like but non-numeric values are rejected, not coerced.
+	assert.equal(isZeroCost({ input: null }), false);
+	assert.equal(isZeroCost({ input: '' }), false);
+	assert.equal(isZeroCost({ input: false }), false);
+	assert.equal(isZeroCost({ input: NaN }), false);
+	// Non-object inputs are rejected.
 	assert.equal(isZeroCost(null), false);
 	assert.equal(isZeroCost('0'), false);
 	assert.equal(isZeroCost(undefined), false);
+	assert.equal(isZeroCost([]), false);
 });
 
 test('selectFreeAndServed returns only free AND served models, sorted', () => {
@@ -63,6 +76,14 @@ test('waitForNamespace resolves with the descriptor once registered', async () =
 
 test('waitForNamespace times out without a registered namespace', async () => {
 	const descriptor = await waitForNamespace(() => [], 50);
+	assert.equal(descriptor, undefined);
+});
+
+test('waitForNamespace aborts promptly when the signal fires', async () => {
+	const controller = new AbortController();
+	const pending = waitForNamespace(() => [], 5000, controller.signal);
+	setTimeout(() => controller.abort(), 30);
+	const descriptor = await pending;
 	assert.equal(descriptor, undefined);
 });
 
