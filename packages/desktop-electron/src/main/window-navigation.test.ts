@@ -7,6 +7,14 @@ describe("DSH window navigation", () => {
     expect(decideDshNavigation("http://127.0.0.1:53501/", "http://127.0.0.1:9999/")).toBe("external")
   })
 
+  // The window outlives the runtime now: it opens before DSH has an origin and
+  // returns to the local startup page when DSH dies. Everything is off-origin
+  // then, including the address DSH was serving a moment earlier.
+  test("belongs to no origin while there is no runtime", () => {
+    expect(decideDshNavigation(undefined, "http://127.0.0.1:53501/session/1")).toBe("deny")
+    expect(decideDshNavigation(undefined, "https://github.com/Astro-Han/pawwork")).toBe("deny")
+  })
+
   test("opens public web links externally and rejects privileged schemes", () => {
     expect(decideDshNavigation("http://127.0.0.1:53501/", "https://github.com/deepseek-ai/DeepSeek-Harness")).toBe("external")
     expect(decideDshNavigation("http://127.0.0.1:53501/", "file:///tmp/secret")).toBe("deny")

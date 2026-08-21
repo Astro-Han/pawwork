@@ -4,6 +4,7 @@ import { app, BrowserWindow, nativeImage, shell } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { macTrafficLightPosition, pawworkWindowTitle, titlebarInsetCss } from "./window-chrome"
+import { STARTUP_URL, startupPageTarget, type StartupAction } from "./startup-page"
 import { decideDshNavigation, guardDshNavigation, handleDshWindowOpen } from "./window-navigation"
 import { dshTitleBarOptions, dshWebPreferences } from "./window-options"
 
@@ -24,7 +25,23 @@ export function setDockIcon() {
   if (!icon.isEmpty()) app.dock?.setIcon(icon)
 }
 
-export function createMainWindow(url: string, preload: string) {
+type MainWindowOptions = {
+  preload: string
+  // Read on every navigation rather than captured: the window is created before
+  // DSH has an origin, and outlives the one it eventually gets.
+  dshUrl: () => string | undefined
+  onStartupAction: (action: StartupAction) => void
+}
+
+// A load that is superseded rejects with ERR_ABORTED, and an unhandled rejection
+// in the main process is a crash. Superseding one is ordinary now: the startup
+// page is replaced by DSH's own URL the moment DSH is ready, and replaced again
+// by the failure page if it dies.
+export function navigateWindow(win: BrowserWindow, url: string) {
+  win.loadURL(url).catch((error) => log.error("failed to load URL", { url, error }))
+}
+
+export function createMainWindow(options: MainWindowOptions) {
   const state = windowState({ defaultWidth: 1280, defaultHeight: 800 })
   const win = new BrowserWindow({
     x: state.x,
@@ -38,21 +55,34 @@ export function createMainWindow(url: string, preload: string) {
     icon: iconPath(),
     ...dshTitleBarOptions(process.platform),
     ...(process.platform === "darwin" ? { trafficLightPosition: macTrafficLightPosition() } : {}),
-    webPreferences: dshWebPreferences(preload),
+    webPreferences: dshWebPreferences(options.preload),
   })
 
   state.manage(win)
   win.webContents.setWindowOpenHandler(({ url: target }) =>
-    handleDshWindowOpen(url, target, (destination) => win.loadURL(destination), openExternal))
+    handleDshWindowOpen(options.dshUrl(), target, (destination) => navigateWindow(win, destination), openExternal))
   win.webContents.on("will-frame-navigate", (event) => {
     if (event.isMainFrame) {
-      guardDshNavigation(url, event.url, event, openExternal)
+      // The startup page's buttons are links back into its own origin, and only
+      // that page may spend them. Asked for from anywhere else — DSH renders
+      // model output, and a link is the cheapest thing a model can emit — the
+      // scheme falls to the ordinary guard, which denies everything but http.
+      const startup = win.webContents.getURL().startsWith(STARTUP_URL)
+        ? startupPageTarget(event.url)
+        : undefined
+      if (startup) {
+        if (startup.kind === "page") return
+        event.preventDefault()
+        options.onStartupAction(startup.action)
+        return
+      }
+      guardDshNavigation(options.dshUrl(), event.url, event, openExternal)
       return
     }
-    if (decideDshNavigation(url, event.url) !== "same-window") event.preventDefault()
+    if (decideDshNavigation(options.dshUrl(), event.url) !== "same-window") event.preventDefault()
   })
   win.webContents.on("will-redirect", (event, target) => {
-    guardDshNavigation(url, target, event, openExternal)
+    guardDshNavigation(options.dshUrl(), target, event, openExternal)
   })
   // insertCSS is scoped to one navigation and returns a key we have to hand back,
   // or a reload just stacks another copy of the same sheet. Publishes are chained
@@ -84,7 +114,7 @@ export function createMainWindow(url: string, preload: string) {
     event.preventDefault()
     win.setTitle(pawworkWindowTitle(title))
   })
-  void win.loadURL(url)
+  navigateWindow(win, options.dshUrl() ?? STARTUP_URL)
   win.once("ready-to-show", () => win.show())
 
   return win

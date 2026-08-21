@@ -33,6 +33,9 @@ const webContents = vi.hoisted(() => ({
     webContents.removed.push(key)
   },
   setZoomFactor: () => {},
+  url: "",
+  getURL: () => webContents.url,
+  reload: () => {},
 }))
 
 const win = vi.hoisted(() => ({
@@ -50,7 +53,10 @@ const win = vi.hoisted(() => ({
   isFullScreen: () => win.fullscreen,
   setTitle: () => {},
   show: () => {},
-  loadURL: (async () => {}) as (url: string) => Promise<void>,
+  loaded: [] as string[],
+  async loadURL(url: string) {
+    win.loaded.push(url)
+  },
 }))
 
 const openExternal = vi.hoisted(() => vi.fn(async () => {}))
@@ -75,8 +81,19 @@ vi.mock("electron-window-state", () => ({
 }))
 
 const { createMainWindow } = await import("./windows")
+const { STARTUP_URL } = await import("./startup-page")
 
 const DSH = "http://127.0.0.1:4321/"
+const startupActions: string[] = []
+
+function openWindow(dshUrl?: string) {
+  webContents.url = dshUrl ?? STARTUP_URL
+  return createMainWindow({
+    preload: "/preload.cjs",
+    dshUrl: () => dshUrl,
+    onStartupAction: (action) => startupActions.push(action),
+  })
+}
 
 beforeEach(() => {
   webContents.listeners.clear()
@@ -85,6 +102,9 @@ beforeEach(() => {
   webContents.removed.length = 0
   webContents.nextKey = 0
   win.fullscreen = false
+  webContents.url = ""
+  win.loaded.length = 0
+  startupActions.length = 0
   openExternal.mockClear()
 })
 
@@ -96,7 +116,7 @@ function navigate(url: string, isMainFrame: boolean) {
 
 describe("main window wiring", () => {
   test("holds a subframe to the DSH origin", () => {
-    createMainWindow(DSH, "/preload.cjs")
+    openWindow(DSH)
 
     expect(navigate("http://127.0.0.1:4321/settings", false).preventDefault).not.toHaveBeenCalled()
     // A subframe that leaves the origin is stopped where it is: unlike the main
@@ -106,23 +126,69 @@ describe("main window wiring", () => {
   })
 
   test("sends a main-frame navigation off the origin to the browser instead", () => {
-    createMainWindow(DSH, "/preload.cjs")
+    openWindow(DSH)
 
     expect(navigate("https://example.com/docs", true).preventDefault).toHaveBeenCalled()
     expect(openExternal).toHaveBeenCalledWith("https://example.com/docs")
   })
 
   test("never opens a second window: same-origin loads here, everything else in the browser", () => {
-    const loaded: string[] = []
-    win.loadURL = async (url: string) => { loaded.push(url) }
-    createMainWindow(DSH, "/preload.cjs")
-    loaded.length = 0
+    openWindow(DSH)
+    win.loaded.length = 0
 
     expect(webContents.windowOpenHandler!({ url: "http://127.0.0.1:4321/settings" })).toEqual({ action: "deny" })
-    expect(loaded).toEqual(["http://127.0.0.1:4321/settings"])
+    expect(win.loaded).toEqual(["http://127.0.0.1:4321/settings"])
 
     expect(webContents.windowOpenHandler!({ url: "https://example.com/docs" })).toEqual({ action: "deny" })
     expect(openExternal).toHaveBeenCalledWith("https://example.com/docs")
-    expect(loaded).toEqual(["http://127.0.0.1:4321/settings"])
+    expect(win.loaded).toEqual(["http://127.0.0.1:4321/settings"])
+  })
+
+  // The window is created before DSH has an origin and has to show something in
+  // the meantime; loading nothing is what the 30-second blank start used to be.
+  test("opens on the local startup page until DSH has a URL", () => {
+    openWindow()
+    expect(win.loaded).toEqual([STARTUP_URL])
+
+    win.loaded.length = 0
+    openWindow(DSH)
+    expect(win.loaded).toEqual([DSH])
+  })
+
+  test("hands the startup page's own links to the main process instead of navigating", () => {
+    openWindow()
+
+    expect(navigate(`${STARTUP_URL}retry`, true).preventDefault).toHaveBeenCalled()
+    expect(navigate(`${STARTUP_URL}copy-details`, true).preventDefault).toHaveBeenCalled()
+    expect(startupActions).toEqual(["retry", "copy-details"])
+    expect(openExternal).not.toHaveBeenCalled()
+  })
+
+  test("lets the startup page reload itself", () => {
+    openWindow()
+
+    expect(navigate(STARTUP_URL, true).preventDefault).not.toHaveBeenCalled()
+    expect(startupActions).toEqual([])
+  })
+
+  // DSH renders model output, and a link is the cheapest thing a model can emit.
+  // Only the page that owns the buttons may spend them.
+  test("refuses the startup scheme when DSH is what is on screen", () => {
+    openWindow(DSH)
+
+    expect(navigate(`${STARTUP_URL}retry`, true).preventDefault).toHaveBeenCalled()
+    expect(startupActions).toEqual([])
+    expect(openExternal).not.toHaveBeenCalled()
+  })
+
+  // With no origin to belong to, nothing belongs to it — including the page DSH
+  // was showing a moment before it died.
+  test("denies every DSH-origin navigation once the runtime is gone", () => {
+    openWindow()
+    webContents.url = STARTUP_URL
+
+    expect(navigate("http://127.0.0.1:4321/settings", true).preventDefault).toHaveBeenCalled()
+    expect(navigate("http://127.0.0.1:4321/settings", false).preventDefault).toHaveBeenCalled()
+    expect(openExternal).not.toHaveBeenCalled()
   })
 })
