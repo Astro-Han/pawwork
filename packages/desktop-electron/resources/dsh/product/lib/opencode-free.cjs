@@ -88,11 +88,15 @@ function selectFreeAndServed(catalog, servedIds) {
 	}
 	return out.sort((left, right) => left.id.localeCompare(right.id));
 }
-/** Fetch one URL as JSON, honoring cancellation. */
-async function fetchJson(url, fetchImpl, signal) {
+/** Per-request bound so a hung gateway cannot leave a refresh pending forever. */
+const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
+/** Fetch one URL as JSON, honoring cancellation and a bounded deadline. */
+async function fetchJson(url, fetchImpl, signal, requestTimeoutMs) {
+	const deadline = AbortSignal.timeout(requestTimeoutMs);
+	const requestSignal = signal === undefined ? deadline : AbortSignal.any([signal, deadline]);
 	const response = await fetchImpl(url, {
 		headers: { accept: 'application/json' },
-		...(signal === undefined ? {} : { signal }),
+		signal: requestSignal,
 	});
 	if (!response.ok) throw new Error(`${url} answered ${response.status}`);
 	const body = await response.json();
@@ -130,7 +134,7 @@ async function waitForNamespace(describe, timeoutMs, signal) {
  * @param deps - settings service, fetch impl, logger, and an optional abort signal.
  * @returns the selectable model count written, or `undefined` when nothing was written.
  */
-async function refreshOpenCodeFreeModels({ settings, describe, logger, fetchImpl = globalThis.fetch, signal, timeoutMs }) {
+async function refreshOpenCodeFreeModels({ settings, describe, logger, fetchImpl = globalThis.fetch, signal, timeoutMs, requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS }) {
 	const descriptor = await waitForNamespace(describe ?? (() => settings.describe()), timeoutMs, signal);
 	if (descriptor === undefined) {
 		logger?.warn?.('llm-pi-ai settings namespace is not registered; leaving the packaged OpenCode Free model list');
@@ -140,8 +144,8 @@ async function refreshOpenCodeFreeModels({ settings, describe, logger, fetchImpl
 	let gateway;
 	try {
 		[catalog, gateway] = await Promise.all([
-			fetchJson(OPENCODE_MODELS_URL, fetchImpl, signal),
-			fetchJson(OPENCODE_ZEN_MODELS_URL, fetchImpl, signal),
+			fetchJson(OPENCODE_MODELS_URL, fetchImpl, signal, requestTimeoutMs),
+			fetchJson(OPENCODE_ZEN_MODELS_URL, fetchImpl, signal, requestTimeoutMs),
 		]);
 	} catch (error) {
 		logger?.warn?.(`OpenCode Free catalog refresh failed; leaving the packaged model list: ${error instanceof Error ? error.message : String(error)}`);

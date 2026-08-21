@@ -151,6 +151,26 @@ test('refresh leaves the list untouched on a fetch failure', async () => {
 	assert.equal(writes.length, 0);
 });
 
+test('refresh is bounded by the per-request deadline when a fetch hangs', async () => {
+	const writes = [];
+	const settings = {
+		describe: () => [{ ns: 'llm-pi-ai', revision: 1 }],
+		async mutate(ns, ops) { writes.push({ ns, ops }); },
+	};
+	// A fetch that never settles would otherwise leave the refresh pending
+	// forever; fetchJson must pass a combined signal that aborts on the
+	// deadline, which this mock observes and turns into a rejection.
+	const fetchImpl = (_url, init) => new Promise((_resolve, reject) => {
+		init.signal.addEventListener('abort', () => reject(new Error('aborted')));
+	});
+	const started = Date.now();
+	const count = await refreshOpenCodeFreeModels({ settings, fetchImpl, describe: settings.describe, requestTimeoutMs: 100 });
+	const elapsed = Date.now() - started;
+	assert.equal(count, undefined);
+	assert.equal(writes.length, 0);
+	assert.ok(elapsed < 10000, `refresh took too long: ${elapsed}ms`);
+});
+
 test('refresh never writes while the llm-pi-ai namespace is unregistered', async () => {
 	const writes = [];
 	const settings = {
