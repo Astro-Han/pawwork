@@ -15,7 +15,8 @@
   },
   "devDependencies": {
     "eslint": "^9.39.4",
-    "typescript-eslint": "8.59.3"
+    "typescript-eslint": "8.59.3",
+    "wrangler": "4.124.0"
   },
   "repository": {
     "type": "git",

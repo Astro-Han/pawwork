@@ -12,6 +12,7 @@ allowBuilds:
   node-pty: true
   protobufjs: false
   sharp: true
+  workerd: false
 
 minimumReleaseAgeExclude:
   - '@deepseek-ai/*'
