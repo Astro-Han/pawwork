@@ -25,6 +25,7 @@ const expectedProductionEventSchemaRefs = [
   "Event.message.part.updated",
   "Event.message.removed",
   "Event.message.updated",
+  "Event.models.dev.refreshed",
   "Event.permission.asked",
   "Event.permission.replied",
   "Event.project.updated",

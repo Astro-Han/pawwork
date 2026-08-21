@@ -10,6 +10,7 @@ import "@/lsp"
 import "@/lsp/client"
 import "@/mcp"
 import "@/permission"
+import "@/provider/models"
 import "@/project/project"
 import "@/project/vcs"
 import "@/pty"
@@ -39,6 +40,7 @@ export const productionBusEventTypes = [
   "lsp.updated",
   "mcp.browser.open.failed",
   "mcp.tools.changed",
+  "models.dev.refreshed",
   "message.part.delta",
   "message.part.removed",
   "message.part.updated",

@@ -13,6 +13,7 @@ import { Instance } from "../../src/project/instance"
 import { ModelsDev, Provider } from "../../src/provider"
 import { withPawWorkProviders } from "../../src/provider/pawwork-providers"
 import { ModelID, ProviderID } from "../../src/provider/schema"
+import { GlobalBus } from "../../src/bus/global"
 
 const originalFetch = globalThis.fetch
 const originalModelsPath = process.env.OPENCODE_MODELS_PATH
@@ -64,6 +65,18 @@ function mockFetchWithCatalog(catalog: Record<string, unknown>) {
   globalThis.fetch = asFetch(async () => new Response(JSON.stringify(catalog), { status: 200 }))
 }
 
+async function captureGlobalEvents(run: () => Promise<void>) {
+  const events: unknown[] = []
+  const listener = (event: unknown) => events.push(event)
+  GlobalBus.on("event", listener)
+  try {
+    await run()
+  } finally {
+    GlobalBus.off("event", listener)
+  }
+  return events
+}
+
 function catalogWithModels(modelIDs: string[]) {
   return {
     "moonshotai-cn": {
@@ -109,12 +122,15 @@ test("refresh publishes a valid candidate catalog", async () => {
   delete process.env.OPENCODE_MODELS_PATH
   await writeCache(catalogWithModels(["kimi-k2.5"]))
   mockFetchWithCatalog(catalogWithModels(["kimi-k2.5", "kimi-k2.6"]))
-
   const before = ModelsDev.version()
-  await refreshModels(true)
+  const events = await captureGlobalEvents(() => refreshModels(true))
 
   expect(await readCacheText()).toContain("kimi-k2.6")
   expect(ModelsDev.version()).toBe(before + 1)
+  expect(events).toContainEqual({
+    directory: "global",
+    payload: { type: "models.dev.refreshed", properties: {} },
+  })
 })
 
 test("refresh keeps existing cache when candidate JSON is invalid", async () => {
@@ -124,10 +140,14 @@ test("refresh keeps existing cache when candidate JSON is invalid", async () => 
   const beforeVersion = ModelsDev.version()
   globalThis.fetch = asFetch(async () => new Response("not json", { status: 200 }))
 
-  await refreshModels(true)
+  const events = await captureGlobalEvents(() => refreshModels(true))
 
   expect(await readCacheText()).toBe(beforeCache)
   expect(ModelsDev.version()).toBe(beforeVersion)
+  expect(events).not.toContainEqual({
+    directory: "global",
+    payload: { type: "models.dev.refreshed", properties: {} },
+  })
 })
 
 test("refresh keeps existing cache when candidate catalog cannot become runtime providers", async () => {

@@ -542,6 +542,10 @@ function createGlobalSync() {
     const recent = bootingRoot || Date.now() - bootedAt < 1500
 
     if (directory === "global") {
+      if (event.type === "models.dev.refreshed") {
+        queue.refreshAll(Object.keys(children.children))
+        return
+      }
       applyGlobalEvent({
         event,
         project: globalStore.project,

@@ -129,6 +129,8 @@ export function createModelsView(
     const state = visibility().get(key)
     if (state === "hide") return false
     if (state === "show") return true
+    const item = model.providerID === "opencode" ? providers.connected().find((provider) => provider.id === "opencode") : undefined
+    if (item?.models[model.modelID]?.cost?.input === 0) return true
     if (latestSet().has(key)) return true
     const date = release().get(key)
     if (!date?.isValid) return true

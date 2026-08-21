@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, mock, test } from "bun:test"
 import { createRoot } from "solid-js"
+import { DateTime } from "luxon"
 import { VOLCENGINE_PLAN_PROVIDER_ID } from "@opencode-ai/util/volcengine-plan"
 import { compareModelsForDisplay } from "@/utils/model-order"
 import type { useProviders } from "@/hooks/use-providers"
@@ -23,16 +24,42 @@ beforeAll(async () => {
 })
 
 // A providers scope with just the connected models the test cares about — the
-// only thing createModelsView reads. Models carry no release_date so they stay
-// visible by default (release memo treats them as undated).
-function fakeProviders(connected: Array<{ providerID: string; modelID: string }>): ReturnType<typeof useProviders> {
+// only thing createModelsView reads. Models are undated by default, with the
+// optional fields covering visibility-policy cases.
+function fakeProviders(
+  connected: Array<{
+    providerID: string
+    modelID: string
+    family?: string
+    releaseDate?: string
+    inputCost?: number
+  }>,
+): ReturnType<typeof useProviders> {
   const byProvider = new Map<
     string,
-    { id: string; models: Record<string, { id: string; name: string; release_date: string }> }
+    {
+      id: string
+      models: Record<
+        string,
+        {
+          id: string
+          name: string
+          release_date: string
+          family?: string
+          cost?: { input: number }
+        }
+      >
+    }
   >()
   for (const m of connected) {
     const p = byProvider.get(m.providerID) ?? { id: m.providerID, models: {} }
-    p.models[m.modelID] = { id: m.modelID, name: m.modelID, release_date: "" }
+    p.models[m.modelID] = {
+      id: m.modelID,
+      name: m.modelID,
+      release_date: m.releaseDate ?? "",
+      family: m.family,
+      cost: m.inputCost === undefined ? undefined : { input: m.inputCost },
+    }
     byProvider.set(m.providerID, p)
   }
   const list = [...byProvider.values()]
@@ -110,18 +137,78 @@ describe("createModelsView scopes to the providers it is given", () => {
 
   test("visible honours the shared visibility map", () => {
     createRoot((dispose) => {
-      const hidden = () => new Map<string, "show" | "hide">([["alpha:a-1", "hide"]])
+      const hidden = () => new Map<string, "show" | "hide">([["opencode:a-1", "hide"]])
       const view = createModelsView(
         fakeProviders([
-          { providerID: "alpha", modelID: "a-1" },
+          { providerID: "opencode", modelID: "a-1", inputCost: 0 },
           { providerID: "alpha", modelID: "a-2" },
         ]),
         hidden,
       )
 
-      expect(view.visible({ providerID: "alpha", modelID: "a-1" })).toBe(false)
+      expect(view.visible({ providerID: "opencode", modelID: "a-1" })).toBe(false)
       // Undated, no explicit pref → visible by default.
       expect(view.visible({ providerID: "alpha", modelID: "a-2" })).toBe(true)
+
+      dispose()
+    })
+  })
+
+  test("shows every OpenCode Zen free model by default", () => {
+    createRoot((dispose) => {
+      const noHidden = () => new Map<string, "show" | "hide">()
+      const recent = DateTime.now().minus({ months: 1 }).toISODate()!
+      const older = DateTime.now().minus({ months: 2 }).toISODate()!
+      const old = DateTime.now().minus({ months: 7 }).toISODate()!
+      const view = createModelsView(
+        fakeProviders([
+          {
+            providerID: "opencode",
+            modelID: "nemotron-3.5-lightning-free",
+            family: "nemotron-free",
+            releaseDate: recent,
+            inputCost: 0,
+          },
+          {
+            providerID: "opencode",
+            modelID: "nemotron-3-ultra-free",
+            family: "nemotron-free",
+            releaseDate: older,
+            inputCost: 0,
+          },
+          {
+            providerID: "opencode",
+            modelID: "x-preview-f-free",
+            releaseDate: older,
+            inputCost: 0,
+          },
+          {
+            providerID: "opencode",
+            modelID: "newer-unrelated-model",
+            releaseDate: recent,
+            inputCost: 1,
+          },
+          {
+            providerID: "opencode",
+            modelID: "big-pickle",
+            family: "big-pickle",
+            releaseDate: old,
+            inputCost: 0,
+          },
+        ]),
+        noHidden,
+      )
+
+      const visibleFreeModels = view
+        .list()
+        .filter((model) => model.cost?.input === 0)
+        .filter((model) => view.visible({ providerID: model.provider.id, modelID: model.id }))
+        .map((model) => model.id)
+        .sort()
+
+      expect(visibleFreeModels).toEqual(
+        ["big-pickle", "nemotron-3-ultra-free", "nemotron-3.5-lightning-free", "x-preview-f-free"].sort(),
+      )
 
       dispose()
     })
