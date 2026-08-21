@@ -7,6 +7,10 @@ const root = join(import.meta.dirname, "..", "..", "..")
 const workflow = load(
   readFileSync(join(root, ".github", "workflows", "deploy-site.yml"), "utf8"),
 ) as {
+  on: {
+    push: { paths: string[] }
+    pull_request: { paths: string[] }
+  }
   jobs: {
     "build-and-deploy": {
       steps: Array<{ run?: string; uses?: string; if?: string; env?: Record<string, string> }>
@@ -36,5 +40,7 @@ describe("site deploy workflow", () => {
       },
     })
     expect(steps.some((step) => step.uses?.startsWith("cloudflare/wrangler-action@"))).toBe(false)
+    expect(workflow.on.push.paths).toContain("package.json")
+    expect(workflow.on.pull_request.paths).toContain("package.json")
   })
 })

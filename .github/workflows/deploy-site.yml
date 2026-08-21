@@ -5,12 +5,14 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/deploy-site.yml"
+      - "package.json"
       - "site/**"
 
   # Build-check the site on PRs that touch it; deploy step is skipped (see below)
   pull_request:
     paths:
       - ".github/workflows/deploy-site.yml"
+      - "package.json"
       - "site/**"
 
   # Allow manual trigger for first deploy or re-deploy without code change
