@@ -1,4 +1,5 @@
 'use strict';
+const { isDeepStrictEqual } = require('node:util');
 /**
  * OpenCode Free catalog discovery for PawWork.
  *
@@ -45,24 +46,14 @@ const MODELS_PATH = ['providers', 'opencode', 'models'];
 const OPENCODE_ROUTE_API = 'openai-completions';
 /** Base URL the opencode zen gateway serves. */
 const OPENCODE_ROUTE_BASE_URL = 'https://opencode.ai/zen/v1';
+/** Capabilities the current pi-ai adapter can express. */
+const SUPPORTED_INPUT_MODALITIES = new Set(['text', 'image']);
+const SUPPORTED_REASONING_EFFORTS = new Set(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
-/** The ids currently configured for opencode, when the resolved value lists them. */
-function configuredModelIds(value) {
-	const models = value?.providers?.opencode?.models;
-	if (!Array.isArray(models)) return undefined;
-	const ids = models.map((entry) => entry?.id).filter((id) => typeof id === 'string');
-	return ids.length === models.length ? ids : undefined;
-}
 /** Whether the opencode route already carries our api/baseURL wiring. */
 function routeConfigured(value) {
 	const provider = value?.providers?.opencode;
 	return provider?.api === OPENCODE_ROUTE_API && provider?.baseURL === OPENCODE_ROUTE_BASE_URL;
-}
-/** Whether two id arrays name the same set, in any order. */
-function sameModelIds(left, right) {
-	if (left.length !== right.length) return false;
-	const a = new Set(left);
-	return right.every((id) => a.has(id));
 }
 /**
  * A model is free only when its cost metadata has no nonzero numeric leaf.
@@ -84,6 +75,33 @@ function isZeroCost(cost) {
 	};
 	return Object.keys(cost).length > 0 && walk(cost, 'root');
 }
+/** Translate one models.dev entry into fields the pi-ai settings schema owns. */
+function modelProfile(id, entry) {
+	const profile = { id };
+	if (typeof entry.name === 'string' && entry.name.length > 0) profile.name = entry.name;
+	if (Number.isInteger(entry.limit?.context) && entry.limit.context > 0) profile.contextWindow = entry.limit.context;
+	if (Number.isInteger(entry.limit?.output) && entry.limit.output > 0) profile.maxTokens = entry.limit.output;
+	const input = Array.isArray(entry.modalities?.input)
+		? entry.modalities.input.filter((modality) => SUPPORTED_INPUT_MODALITIES.has(modality))
+		: [];
+	if (input.length > 0) profile.input = [...new Set(input)];
+	if (entry.reasoning === false) profile.reasoningEfforts = false;
+	const reasoningEfforts = {};
+	if (Array.isArray(entry.reasoning_options)) {
+		if (entry.reasoning_options.some((option) => option?.type === 'toggle')) reasoningEfforts.off = null;
+		for (const option of entry.reasoning_options) {
+			if (option?.type !== 'effort' || !Array.isArray(option.values)) continue;
+			for (const effort of option.values) {
+				if (SUPPORTED_REASONING_EFFORTS.has(effort)) reasoningEfforts[effort] = effort;
+			}
+		}
+	}
+	// `reasoning: true` with no effort values means the provider may think, but
+	// exposes no selectable level. Let it use its default instead of inventing
+	// wire spellings the catalog did not advertise.
+	if (entry.reasoning !== false && Object.keys(reasoningEfforts).some((effort) => effort !== 'off')) profile.reasoningEfforts = reasoningEfforts;
+	return profile;
+}
 /**
  * Select the free, non-deprecated opencode models.
  * @param catalog - the raw `models.dev/api.json` document.
@@ -99,16 +117,27 @@ function selectFreeAndServed(catalog) {
 		if (entry === null || typeof entry !== 'object') continue;
 		if (entry.status === 'deprecated') continue;
 		if (!isZeroCost(entry.cost)) continue;
-		out.push({ id });
+		out.push(modelProfile(id, entry));
 	}
 	return out.sort((left, right) => left.id.localeCompare(right.id));
 }
-/** Preserve configured metadata for surviving models; new ids get `{ id }`. */
+/**
+ * Keep metadata models.dev cannot answer; its live catalog owns identity,
+ * capacities, modalities, and selectable efforts for this product-managed
+ * route. `compat` remains local because it describes this gateway's wire.
+ */
 function mergeModelEntries(currentValue, selectable) {
 	const current = currentValue?.providers?.opencode?.models;
 	if (!Array.isArray(current)) return selectable;
 	const existing = new Map(current.map((entry) => [entry?.id, entry]));
-	return selectable.map((entry) => existing.get(entry.id) ?? entry);
+	return selectable.map((entry) => {
+		const local = existing.get(entry.id);
+		return {
+			...local?.maxTokens === undefined ? {} : { maxTokens: local.maxTokens },
+			...local?.compat === undefined ? {} : { compat: local.compat },
+			...entry,
+		};
+	});
 }
 /**
  * Keep the opencode default model usable after a refresh drops it.
@@ -128,13 +157,21 @@ async function ensureDefaultModelSurvives({ defaultModel, logger, nextIds, selec
 	}
 	if (current === undefined || current.provider !== 'opencode') return;
 	if (nextIds.includes(current.model)) return;
-	const fallbackId = selectable[0]?.id;
-	if (fallbackId === undefined) return;
+	const fallback = selectable[0];
+	if (fallback === undefined) return;
+	const reasoningEffort = current.reasoningEffort;
+	const next = {
+		provider: 'opencode',
+		model: fallback.id,
+		...(typeof reasoningEffort === 'string' && fallback.reasoningEfforts?.[reasoningEffort] !== undefined
+			? { reasoningEffort }
+			: {}),
+	};
 	try {
-		await defaultModel.saveSelection({ provider: 'opencode', model: fallbackId });
-		logger?.info?.(`default opencode model ${current.model} retired; moved to ${fallbackId}`);
+		await defaultModel.saveSelection(next);
+		logger?.info?.(`default opencode model ${current.model} retired; moved to ${fallback.id}`);
 	} catch (error) {
-		logger?.warn?.(`failed to move default opencode model from ${current.model} to ${fallbackId}: ${error instanceof Error ? error.message : String(error)}`);
+		logger?.warn?.(`failed to move default opencode model from ${current.model} to ${fallback.id}: ${error instanceof Error ? error.message : String(error)}`);
 	}
 }
 /** Per-request bound so a hung gateway cannot leave a refresh pending forever. */
@@ -204,18 +241,25 @@ async function refreshOpenCodeFreeModels({ settings, defaultModel, logger, fetch
 		logger?.warn?.('OpenCode Free catalog refresh found no usable free models; leaving the packaged model list');
 		return undefined;
 	}
+	// The network request may outlive a settings edit. Re-read the authoritative
+	// descriptor immediately before deriving and committing the replacement,
+	// then let the settings revision reject any still-later concurrent change.
+	const descriptor = settings.describe?.().find((entry) => entry.ns === LLM_PI_AI_NAMESPACE);
+	const currentValue = descriptor?.value ?? value;
 	const nextIds = selectable.map((entry) => entry.id);
-	const currentIds = configuredModelIds(value);
-	// Skip the write when the served set and routing already match: a periodic
+	const merged = mergeModelEntries(currentValue, selectable);
+	const currentModels = currentValue?.providers?.opencode?.models;
+	// Skip the write when the live profiles and routing already match: a periodic
 	// refresh must not churn settings.yaml or rebuild the adapter every interval.
-	const unchanged = currentIds !== undefined && routeConfigured(value) && sameModelIds(currentIds, nextIds);
+	const unchanged = Array.isArray(currentModels)
+		&& routeConfigured(currentValue)
+		&& isDeepStrictEqual(currentModels, merged);
 	if (!unchanged) {
-		const merged = mergeModelEntries(value, selectable);
 		await settings.mutate(LLM_PI_AI_NAMESPACE, [
 			{ op: 'set', path: ['providers', 'opencode', 'api'], value: OPENCODE_ROUTE_API },
 			{ op: 'set', path: ['providers', 'opencode', 'baseURL'], value: OPENCODE_ROUTE_BASE_URL },
 			{ op: 'set', path: MODELS_PATH, value: merged },
-		]);
+		], descriptor?.revision);
 		logger?.info?.(`OpenCode Free catalog refreshed to ${selectable.length} models`);
 	}
 	// Keep the opencode default usable when the refresh drops it from the set.
@@ -226,11 +270,9 @@ async function refreshOpenCodeFreeModels({ settings, defaultModel, logger, fetch
 }
 
 module.exports = {
-	configuredModelIds,
 	isZeroCost,
 	mergeModelEntries,
 	refreshOpenCodeFreeModels,
-	sameModelIds,
 	selectFreeAndServed,
 	waitForNamespace,
 };
