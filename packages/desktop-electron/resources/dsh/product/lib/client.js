@@ -186,18 +186,16 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       }
       async function poll() {
         if (stopped) return
-        let result
+        let result = undefined
         try {
           result = await connection.rpc.call("/pawwork-import-v1", "status", {})
         } catch {
           // 传输层失败不是完成信号（旧后端没有这个通道、宿主重启窗口都只是瞬时
-          // 的），继续等；绝不因为数满几次失败就放弃，否则侧边栏停在旧列表上。
-          if (stopped) return
-          timer = setTimeout(() => void poll(), IMPORT_POLL_INTERVAL_MS)
-          return
+          // 的），落到下面同一个"还没完成就继续等"分支；绝不因为数满几次失败就
+          // 放弃，否则侧边栏停在旧列表上。
         }
         if (stopped) return
-        if (!result.ok || result.value.phase === "running") {
+        if (result === undefined || !result.ok || result.value.phase === "running") {
           timer = setTimeout(() => void poll(), IMPORT_POLL_INTERVAL_MS)
           return
         }

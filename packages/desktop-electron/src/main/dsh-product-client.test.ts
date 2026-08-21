@@ -7,6 +7,42 @@ const repositoryRoot = resolve(import.meta.dirname, "../../../..")
 const productRoot = resolve(repositoryRoot, "packages/desktop-electron/resources/dsh/product")
 
 describe("PawWork DSH client product layer", () => {
+  // 共享的 watcher 测试脚手架：假定时器驱动轮询节奏，假 context 钉住 rpc/sessions
+  // 契约。每个测试只声明自己关心的 call/refresh/effect 行为。
+  function loadPlugin(timers: Array<() => void>) {
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
+      document: {
+        title: "DeepSeek Harness",
+        documentElement: { lang: "zh-CN" },
+        querySelector: () => null,
+        createElement: () => ({ dataset: {}, textContent: "" }),
+        head: { appendChild: () => {} },
+      },
+      setTimeout: (callback: () => void) => {
+        timers.push(callback)
+        return timers.length
+      },
+      clearTimeout: () => {},
+    })
+    return definition.factory((name) => {
+      if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
+      throw new Error(`unexpected product client dependency: ${name}`)
+    })
+  }
+
+  function applyWatcher({ call, refresh, dispose }: {
+    call: () => Promise<unknown>
+    refresh: () => Promise<void>
+    dispose?: (setup: () => unknown) => void
+  }) {
+    return {
+      connection: { rpc: { call } },
+      effect: dispose ?? ((fn: () => unknown) => fn()),
+      sessions: { refresh },
+      slots: { inject: (_name: string, register: () => void) => register(), register: () => {} },
+    }
+  }
+
   test("is a packaged DSH web plugin", () => {
     const productPackage = JSON.parse(readFileSync(resolve(productRoot, "package.json"), "utf8"))
 
@@ -178,35 +214,12 @@ describe("PawWork DSH client product layer", () => {
   // /pawwork-import-v1 暴露 phase。这里钉住「等到 phase 离开 running，就补一次
   // 权威列表读取，然后停」的契约——不是「轮询到某个时刻就刷一次」。
   test("refreshes the session list once the v1 import settles", async () => {
-    const document = {
-      title: "DeepSeek Harness",
-      documentElement: { lang: "zh-CN" },
-      querySelector: () => null,
-      createElement: () => ({ dataset: {}, textContent: "" }),
-      head: { appendChild: () => {} },
-    }
     const timers: Array<() => void> = []
-    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
-      document,
-      setTimeout: (callback: () => void) => {
-        timers.push(callback)
-        return timers.length
-      },
-      clearTimeout: () => {},
-    })
-    const plugin = definition.factory((name) => {
-      if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
-      throw new Error(`unexpected product client dependency: ${name}`)
-    })
+    const plugin = loadPlugin(timers)
     const remainingPhases = ["running", "done"]
     const call = vi.fn(async () => ({ ok: true, value: { phase: remainingPhases.shift() } }))
     const refresh = vi.fn(async () => {})
-    plugin.apply({
-      connection: { rpc: { call } },
-      effect: (fn: () => unknown) => fn(),
-      sessions: { refresh },
-      slots: { inject: (_name: string, register: () => void) => register(), register: () => {} },
-    })
+    plugin.apply(applyWatcher({ call, refresh }))
 
     await new Promise((resolve) => setImmediate(resolve))
     expect(call).toHaveBeenCalledTimes(1)
@@ -225,26 +238,8 @@ describe("PawWork DSH client product layer", () => {
   // 传输层失败不是完成信号：旧后端没有这个通道、宿主重启窗口都只是瞬时的，
   // 客户端必须继续等，而不是数满几次失败就放弃、让侧边栏停在旧列表上。
   test("waits through transport failures until the import settles", async () => {
-    const document = {
-      title: "DeepSeek Harness",
-      documentElement: { lang: "zh-CN" },
-      querySelector: () => null,
-      createElement: () => ({ dataset: {}, textContent: "" }),
-      head: { appendChild: () => {} },
-    }
     const timers: Array<() => void> = []
-    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
-      document,
-      setTimeout: (callback: () => void) => {
-        timers.push(callback)
-        return timers.length
-      },
-      clearTimeout: () => {},
-    })
-    const plugin = definition.factory((name) => {
-      if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
-      throw new Error(`unexpected product client dependency: ${name}`)
-    })
+    const plugin = loadPlugin(timers)
     let failuresLeft = 2
     const call = vi.fn(async () => {
       if (failuresLeft > 0) {
@@ -254,12 +249,7 @@ describe("PawWork DSH client product layer", () => {
       return { ok: true, value: { phase: "done" } }
     })
     const refresh = vi.fn(async () => {})
-    plugin.apply({
-      connection: { rpc: { call } },
-      effect: (fn: () => unknown) => fn(),
-      sessions: { refresh },
-      slots: { inject: (_name: string, register: () => void) => register(), register: () => {} },
-    })
+    plugin.apply(applyWatcher({ call, refresh }))
 
     await new Promise((resolve) => setImmediate(resolve))
     // 第一次调用即失败：不停止、不刷新，只排下一轮。
@@ -284,38 +274,15 @@ describe("PawWork DSH client product layer", () => {
   // refreshList 单飞复用仍在途的拉取，完成信号出现时可能还挂着一条迁移前的旧
   // 拉取；所以要读两次：第一次等在途的 settle，第二次才是必然全新的权威读取。
   test("issues a fresh authoritative read after any in-flight refresh settles", async () => {
-    const document = {
-      title: "DeepSeek Harness",
-      documentElement: { lang: "zh-CN" },
-      querySelector: () => null,
-      createElement: () => ({ dataset: {}, textContent: "" }),
-      head: { appendChild: () => {} },
-    }
     const timers: Array<() => void> = []
-    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
-      document,
-      setTimeout: (callback: () => void) => {
-        timers.push(callback)
-        return timers.length
-      },
-      clearTimeout: () => {},
-    })
-    const plugin = definition.factory((name) => {
-      if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
-      throw new Error(`unexpected product client dependency: ${name}`)
-    })
+    const plugin = loadPlugin(timers)
     // 第一次 refresh 停在在途不 resolve；第二次才开始新的拉取。
     const refresh = vi.fn()
     let firstInFlight: () => void = () => {}
     refresh.mockImplementationOnce(() => new Promise<void>((resolve) => { firstInFlight = resolve }))
     refresh.mockImplementation(async () => {})
     const call = vi.fn(async () => ({ ok: true, value: { phase: "done" } }))
-    plugin.apply({
-      connection: { rpc: { call } },
-      effect: (fn: () => unknown) => fn(),
-      sessions: { refresh },
-      slots: { inject: (_name: string, register: () => void) => register(), register: () => {} },
-    })
+    plugin.apply(applyWatcher({ call, refresh }))
 
     await new Promise((resolve) => setImmediate(resolve))
     expect(call).toHaveBeenCalledTimes(1)
@@ -329,35 +296,12 @@ describe("PawWork DSH client product layer", () => {
 
   // 轮询器随插件而止：dispose 后不再排下一轮、也不再发 status 调用。
   test("stops polling when the client plugin is disposed", () => {
-    const document = {
-      title: "DeepSeek Harness",
-      documentElement: { lang: "zh-CN" },
-      querySelector: () => null,
-      createElement: () => ({ dataset: {}, textContent: "" }),
-      head: { appendChild: () => {} },
-    }
     const timers: Array<() => void> = []
-    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
-      document,
-      setTimeout: (callback: () => void) => {
-        timers.push(callback)
-        return timers.length
-      },
-      clearTimeout: () => {},
-    })
-    const plugin = definition.factory((name) => {
-      if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
-      throw new Error(`unexpected product client dependency: ${name}`)
-    })
+    const plugin = loadPlugin(timers)
     const call = vi.fn(async () => ({ ok: true, value: { phase: "running" } }))
     const refresh = vi.fn(async () => {})
     let dispose: (() => void) | undefined
-    plugin.apply({
-      connection: { rpc: { call } },
-      effect: (fn: () => unknown) => { dispose = fn() as () => void },
-      sessions: { refresh },
-      slots: { inject: (_name: string, register: () => void) => register(), register: () => {} },
-    })
+    plugin.apply(applyWatcher({ call, refresh, dispose: (fn) => { dispose = fn() as () => void } }))
     expect(dispose).toBeTypeOf("function")
     dispose!()
     const pending = timers.splice(0)
