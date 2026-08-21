@@ -45,8 +45,6 @@ const MODELS_PATH = ['providers', 'opencode', 'models'];
 const OPENCODE_ROUTE_API = 'openai-completions';
 /** Base URL the opencode zen gateway serves. */
 const OPENCODE_ROUTE_BASE_URL = 'https://opencode.ai/zen/v1';
-/** The id the product ships as the default opencode model. */
-const DEFAULT_OPENCODE_MODEL_ID = 'big-pickle';
 
 /** The ids currently configured for opencode, when the resolved value lists them. */
 function configuredModelIds(value) {
@@ -117,9 +115,8 @@ function mergeModelEntries(currentValue, selectable) {
  *
  * The product ships `opencode/big-pickle` as the default; if the refresh stops
  * selecting it (upstream deprecation), new sessions would fail with an unknown
- * model. Prefer the product default when it still survives, else the first
- * selectable id. Only touches an `opencode` default; a user default on another
- * provider is left alone.
+ * model. Move to the first surviving selectable model. Only touches an
+ * `opencode` default; a user default on another provider is left alone.
  */
 async function ensureDefaultModelSurvives({ defaultModel, logger, nextIds, selectable }) {
 	if (defaultModel === undefined) return;
@@ -131,9 +128,7 @@ async function ensureDefaultModelSurvives({ defaultModel, logger, nextIds, selec
 	}
 	if (current === undefined || current.provider !== 'opencode') return;
 	if (nextIds.includes(current.model)) return;
-	const fallbackId = selectable.some((entry) => entry.id === DEFAULT_OPENCODE_MODEL_ID)
-		? DEFAULT_OPENCODE_MODEL_ID
-		: selectable[0]?.id;
+	const fallbackId = selectable[0]?.id;
 	if (fallbackId === undefined) return;
 	try {
 		await defaultModel.saveSelection({ provider: 'opencode', model: fallbackId });
@@ -231,10 +226,6 @@ async function refreshOpenCodeFreeModels({ settings, defaultModel, logger, fetch
 }
 
 module.exports = {
-	LLM_PI_AI_NAMESPACE,
-	OPENCODE_MODELS_URL,
-	OPENCODE_ROUTE_API,
-	OPENCODE_ROUTE_BASE_URL,
 	configuredModelIds,
 	isZeroCost,
 	mergeModelEntries,
