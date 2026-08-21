@@ -7,7 +7,6 @@ import { load } from "js-yaml"
 import { DOCUMENT_VERSION, parseCredentialsDocument } from "@deepseek-ai/dsh-credentials-local"
 import {
   buildDshEnvironment,
-  dshProductPreload,
   prepareDshProductHome,
   resolveDshPackagePath,
   resolveProductResources,
@@ -111,12 +110,6 @@ describe("DSH product home", () => {
       JSON.parse(readFileSync(join(productHome, "node_modules/@pawwork/dsh-automations/package.json"), "utf8")).name,
     ).toBe("@pawwork/dsh-automations")
     expect(prepared.sidecarPreload).toBe(join(resources, "sidecar-preload.mjs"))
-  })
-
-  // The window resolves this before the product home exists, so it cannot come
-  // from prepareDshProductHome's return value.
-  test("resolves the product preload from the resource directory alone", () => {
-    expect(dshProductPreload("/app/resources/dsh")).toBe(join("/app/resources/dsh", "product", "preload.cjs"))
   })
 
   test("creates the public free-model credential for a fresh product home", () => {

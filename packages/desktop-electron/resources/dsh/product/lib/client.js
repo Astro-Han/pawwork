@@ -158,12 +158,6 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     }
 
     function PawGloveMark({ size = 24, className }) {
-      // This mark is part of both wide and collapsed desktop shells. Its effect
-      // therefore marks the first committed product frame without observing DOM
-      // implementation details or treating the HTTP document load as usable UI.
-      useEffect(() => {
-        window.pawworkLifecycle?.ready()
-      }, [])
       return h("svg", { "aria-hidden": "true", className, height: size, viewBox: "0 0 64 64", width: size },
         h("g", { transform: GLOVE_TRANSFORM },
           gloveLayer(BRAND_NAVY, [GLOVE_SILHOUETTE], BRAND_NAVY, 25),
@@ -171,6 +165,15 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
           h("g", { transform: GLOVE_CUFF_RISE }, gloveLayer(BRAND_CREAM, [GLOVE_CUFF], BRAND_NAVY, 26)),
           gloveLayer(BRAND_CREAM, [GLOVE_CUFF]),
           gloveLayer(BRAND_CREAM, GLOVE_PADS)))
+    }
+
+    function PawReadyMark(props) {
+      // The sidebar mark exists in both the wide and collapsed shell, so it is
+      // the one canonical product-commit signal. The hero mark stays visual only.
+      useEffect(() => {
+        window.pawworkLifecycle?.ready()
+      }, [])
+      return PawGloveMark(props)
     }
 
     const inject = ["slots", "connection", "sessions"]
@@ -242,7 +245,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     }
 
     function apply(ctx) {
-      ctx.slots.inject("sidebar.brand.mark", () => ctx.slots.register({ name: "sidebar.brand.mark", priority: -100 }, PawGloveMark))
+      ctx.slots.inject("sidebar.brand.mark", () => ctx.slots.register({ name: "sidebar.brand.mark", priority: -100 }, PawReadyMark))
       ctx.slots.inject("sidebar.brand.name", () => ctx.slots.register({ name: "sidebar.brand.name", priority: -100 }, BrandName))
       ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawGloveMark))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))

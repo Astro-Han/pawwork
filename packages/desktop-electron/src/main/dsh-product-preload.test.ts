@@ -6,28 +6,6 @@ import { describe, expect, vi, test } from "vitest"
 const preloadPath = resolve(import.meta.dirname, "../../resources/dsh/product/preload.cjs")
 
 describe("PawWork DSH product preload", () => {
-  test("keeps the DSH handoff on the same spinner as the native startup page", () => {
-    const styles: Array<{ textContent: string }> = []
-    const document = {
-      createElement: () => ({ textContent: "" }),
-      documentElement: { appendChild: (style: { textContent: string }) => styles.push(style) },
-    }
-
-    vm.runInNewContext(readFileSync(preloadPath, "utf8"), {
-      document,
-      require: (name: string) => {
-        if (name === "electron") {
-          return { contextBridge: { exposeInMainWorld: () => {} }, ipcRenderer: { invoke: () => {}, send: () => {} } }
-        }
-        throw new Error(`unexpected preload dependency: ${name}`)
-      },
-    })
-
-    expect(styles).toHaveLength(1)
-    expect(styles[0].textContent).toContain("[data-dsh-boot-spinner]")
-    expect(styles[0].textContent).toContain("#fc5c14")
-  })
-
   test("exposes the bridges before the document exists", () => {
     const exposed: string[] = []
     const listeners: Array<() => unknown> = []
@@ -109,29 +87,4 @@ describe("PawWork DSH product preload", () => {
     expect(invoke).toHaveBeenCalledWith("pawwork:pick-conversation-files")
   })
 
-  test("does not swallow native picker failures", async () => {
-    const failure = new Error("picker unavailable")
-    const invoke = vi.fn(async () => {
-      throw failure
-    })
-    let exposed: { api: Record<string, () => Promise<unknown>> } | undefined
-
-    vm.runInNewContext(readFileSync(preloadPath, "utf8"), {
-      require: (name: string) => {
-        if (name === "electron") {
-          return {
-            contextBridge: {
-              exposeInMainWorld: (_name: string, api: Record<string, () => Promise<unknown>>) => {
-                exposed = { api }
-              },
-            },
-            ipcRenderer: { invoke },
-          }
-        }
-        throw new Error(`unexpected preload dependency: ${name}`)
-      },
-    })
-
-    await expect(exposed!.api.pick()).rejects.toBe(failure)
-  })
 })

@@ -43,8 +43,8 @@ type MainWindowOptions = {
 
 // A load that is superseded rejects with ERR_ABORTED, and an unhandled rejection
 // in the main process is a crash. Superseding one is ordinary now: the startup
-// page is replaced by DSH's own URL the moment DSH is ready, and replaced again
-// by the failure page if it dies.
+// page is replaced by DSH's own URL the moment DSH is ready, and a failed run
+// returns every window to the startup surface before native recovery is shown.
 export function navigateWindow(win: BrowserWindow, url: string) {
   win.loadURL(url).catch((error) => log.error("failed to load URL", { url, error }))
 }

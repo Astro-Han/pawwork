@@ -57,6 +57,7 @@ describe("PawWork DSH client product layer", () => {
   })
 
   test("owns the public brand slots and replaces the DSH welcome notice", () => {
+    const ready = vi.fn(() => {})
     const document = {
       title: "DeepSeek Harness",
       documentElement: { lang: "zh-CN" },
@@ -65,7 +66,10 @@ describe("PawWork DSH client product layer", () => {
       head: { appendChild: () => {} },
     }
 
-    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), { document })
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
+      document,
+      window: { pawworkLifecycle: { ready } },
+    })
     expect(definition.id).toBe("@pawwork/dsh-product")
 
     const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
@@ -120,38 +124,6 @@ describe("PawWork DSH client product layer", () => {
     const heroMark = brandEntries[2].component({ size: 34 }) as { type: string; props: Record<string, unknown> }
     expect(heroMark.type).toBe("svg")
     expect(heroMark.props).toMatchObject({ viewBox: "0 0 64 64", width: 34, height: 34 })
-  })
-
-  test("reports readiness from the committed product tree", () => {
-    const ready = vi.fn(() => {})
-    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
-      document: {
-        documentElement: { lang: "en" },
-        querySelector: () => null,
-        createElement: () => ({ dataset: {}, textContent: "" }),
-        head: { appendChild: () => {} },
-      },
-      window: { pawworkLifecycle: { ready } },
-    })
-    const plugin = definition.factory((name) => {
-      if (name === "react") return { createElement: () => null, useEffect: (effect: () => void) => effect(), useRef: () => ({ current: null }) }
-      throw new Error(`unexpected product client dependency: ${name}`)
-    })
-    let brandMark: ((props?: unknown) => unknown) | undefined
-
-    plugin.apply({
-      connection: { rpc: { call: vi.fn(async () => ({ ok: true, value: { phase: "done" } })) } },
-      effect: (effect: () => unknown) => effect(),
-      sessions: { refresh: vi.fn(async () => {}) },
-      slots: {
-        inject: (_name: string, register: () => void) => register(),
-        register: (options: { name?: string }, component: () => unknown) => {
-          if (options.name === "sidebar.brand.mark") brandMark = component
-        },
-      },
-    })
-    brandMark!({})
-
     expect(ready).toHaveBeenCalledTimes(1)
   })
 

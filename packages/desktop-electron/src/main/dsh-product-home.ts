@@ -52,13 +52,6 @@ export function resolveDshPackagePath(options: ResolveDshPackagePathOptions) {
   )
 }
 
-// The window is created before DSH is asked to start, so it needs the preload
-// path before prepareDshProductHome has run. Resolving it is pure path work; the
-// preparation below is not, which is why the two are separate.
-export function dshProductPreload(resources: string) {
-  return join(resources, "product", "preload.cjs")
-}
-
 export function prepareDshProductHome(options: PrepareDshProductHomeOptions) {
   if (!isAbsolute(options.productHome)) throw new Error("DSH product home must be absolute")
 

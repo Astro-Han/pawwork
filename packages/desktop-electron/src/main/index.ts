@@ -23,7 +23,6 @@ import { DshLifecycle, type DshLifecycleState } from "./dsh-lifecycle"
 import { createDshMenu } from "./dsh-menu"
 import {
   buildDshEnvironment,
-  dshProductPreload,
   prepareDshProductHome,
   resolveDshPackagePath,
   resolveProductResources,
@@ -73,7 +72,7 @@ const productResources = resolveProductResources({
   isPackaged: app.isPackaged,
   resourcesPath: process.resourcesPath,
 })
-const productPreload = dshProductPreload(productResources.dsh)
+const productPreload = join(productResources.dsh, "product", "preload.cjs")
 
 // DSH states the cause and the fix on its own stderr before it exits, and the
 // window has no other copy of it: once DSH is gone, its stdio is gone with it.
@@ -128,13 +127,15 @@ function setupApp() {
   }
 
   ipcMain.handle("pawwork:pick-conversation-files", (event) => {
-    if (!lifecycle.isReady || lifecycle.url === undefined) throw new Error("Cannot pick files before DSH is ready")
+    const state = lifecycle.state
+    if (state.phase !== "ready") throw new Error("Cannot pick files before DSH is ready")
     const owner = BrowserWindow.fromWebContents(event.sender)
-    return pickConversationFiles(lifecycle.url, event.senderFrame?.url ?? "", (options) =>
+    return pickConversationFiles(state.url, event.senderFrame?.url ?? "", (options) =>
       owner ? dialog.showOpenDialog(owner, options) : dialog.showOpenDialog(options),
     )
   })
   ipcMain.on("pawwork:product-ready", (event) => {
+    if (event.senderFrame !== event.sender.mainFrame) return
     lifecycle.productReady(event.senderFrame?.url ?? "")
   })
 
@@ -220,7 +221,7 @@ async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed
       defaultId: 0,
       cancelId: 3,
     }
-    const [owner] = liveWindows()
+    const owner = BrowserWindow.getFocusedWindow() ?? liveWindows()[0]
     const result = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options)
     if (result.response === 0) {
       showStartupPage()
@@ -260,7 +261,10 @@ function handleLifecycleChange(state: DshLifecycleState) {
   if (state.phase === "failed") {
     logger.error("DSH lifecycle failed", state.error)
     if (CI_SMOKE_ENABLED) app.exit(1)
-    else void showDshFailure(state)
+    else {
+      showStartupPage()
+      void showDshFailure(state)
+    }
   }
 }
 
