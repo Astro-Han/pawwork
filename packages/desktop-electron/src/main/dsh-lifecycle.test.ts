@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest"
+import { afterEach, describe, expect, test, vi } from "vitest"
 import { DshLifecycle, type DshLifecycleState } from "./dsh-lifecycle"
 import type { DshRun } from "./dsh-sidecar"
 
@@ -24,12 +24,14 @@ async function settle() {
 }
 
 describe("DshLifecycle", () => {
+  afterEach(() => vi.useRealTimers())
+
   test("stopping during startup owns the spawned run and rejects every late event", async () => {
     const spawned = run()
     const states: DshLifecycleState[] = []
     const lifecycle = new DshLifecycle({ launch: () => spawned.sidecar, onChange: (state) => states.push(state) })
 
-    expect(lifecycle.start()).toBe(true)
+    lifecycle.start()
     const stopping = lifecycle.stop()
     expect(lifecycle.stop()).toBe(stopping)
     spawned.ready.resolve("http://127.0.0.1:43123")
@@ -43,6 +45,7 @@ describe("DshLifecycle", () => {
   })
 
   test("becomes usable only after the current DSH origin reports a committed product tree", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     const spawned = run()
     const states: DshLifecycleState[] = []
     const lifecycle = new DshLifecycle({ launch: () => spawned.sidecar, onChange: (state) => states.push(state) })
@@ -51,10 +54,54 @@ describe("DshLifecycle", () => {
     spawned.ready.resolve("http://127.0.0.1:43123")
     await settle()
 
-    expect(lifecycle.productReady("http://127.0.0.1:9/")).toBe(false)
-    expect(lifecycle.productReady("http://127.0.0.1:43123/session/new")).toBe(true)
-    expect(lifecycle.isReady).toBe(true)
+    lifecycle.productReady("http://127.0.0.1:9/")
+    expect(lifecycle.state.phase).toBe("loading")
+    lifecycle.productReady("http://127.0.0.1:43123/session/new")
+    expect(lifecycle.state.phase).toBe("ready")
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(lifecycle.state.phase).toBe("ready")
+    expect(spawned.stop).not.toHaveBeenCalled()
     expect(states.map((state) => state.phase)).toEqual(["starting", "loading", "ready"])
+  })
+
+  test("fails when the product tree never becomes ready", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    const spawned = run()
+    const lifecycle = new DshLifecycle({
+      launch: () => spawned.sidecar,
+      onChange: () => {},
+      productTimeoutMs: 30_000,
+    })
+
+    lifecycle.start()
+    spawned.ready.resolve("http://127.0.0.1:43123")
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    expect(spawned.stop).toHaveBeenCalledTimes(1)
+    expect(lifecycle.state).toMatchObject({
+      phase: "failed",
+      reason: "startup",
+      error: new Error("DSH product did not become ready within 30000ms"),
+    })
+  })
+
+  test("stopping product loading cancels its deadline", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    const spawned = run()
+    const lifecycle = new DshLifecycle({
+      launch: () => spawned.sidecar,
+      onChange: () => {},
+      productTimeoutMs: 30_000,
+    })
+
+    lifecycle.start()
+    spawned.ready.resolve("http://127.0.0.1:43123")
+    await settle()
+    await lifecycle.stop()
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    expect(spawned.stop).toHaveBeenCalledTimes(1)
+    expect(lifecycle.state.phase).toBe("stopped")
   })
 
   test("classifies an exit before product readiness as startup failure", async () => {
@@ -100,7 +147,7 @@ describe("DshLifecycle", () => {
     await settle()
     expect(lifecycle.state.phase).toBe("failed")
 
-    expect(lifecycle.start()).toBe(true)
+    lifecycle.start()
     second.ready.resolve("http://127.0.0.1:43124")
     await settle()
 

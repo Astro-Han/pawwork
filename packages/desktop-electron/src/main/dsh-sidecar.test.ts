@@ -263,8 +263,32 @@ describe("DSH sidecar lifecycle", () => {
     })
 
     await expect(launched.ready).rejects.toThrow("DSH did not announce readiness within 1ms")
+    await launched.exited
     expect(child.messages).toEqual(["SIGTERM"])
     expect(child.killSignals).toEqual(["SIGKILL"])
+  })
+
+  test("reports a readiness timeout before the resulting process exit", async () => {
+    const child = new FakeChildProcess()
+    const launched = launchDshSidecar({
+      executable: "/app/PawWork",
+      dshBin: "/app/dsh.js",
+      sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
+      productHome: "/data/dsh",
+      productPatch: "/data/dsh/product.cordis.patch.yml",
+      toolsDir: "/app/tools",
+      env: {},
+      timeoutMs: 1,
+      spawn: () => child,
+    })
+    const outcomes: string[] = []
+
+    await Promise.all([
+      launched.ready.catch((error: Error) => outcomes.push(error.message)),
+      launched.exited.then(() => outcomes.push("exited")),
+    ])
+
+    expect(outcomes).toEqual(["DSH did not announce readiness within 1ms", "exited"])
   })
 
   test("stops the owned child process once across concurrent and repeated calls", async () => {

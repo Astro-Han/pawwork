@@ -151,8 +151,8 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
     if (settled) return
     settled = true
     cleanupReadiness()
-    if (terminate && child.pid !== undefined) await stopProcess()
     rejectReady(error)
+    if (terminate && child.pid !== undefined) await stopProcess()
   }
 
   const onEarlyExit = (code: number | null) => {

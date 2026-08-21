@@ -13,12 +13,16 @@ export type DshLifecycleState =
 type DshLifecycleOptions = {
   launch(): DshRun
   onChange(state: DshLifecycleState): void
+  productTimeoutMs?: number
 }
+
+const DEFAULT_PRODUCT_TIMEOUT_MS = 30_000
 
 export class DshLifecycle {
   #state: DshLifecycleState = { phase: "stopped" }
   #run: DshRun | undefined
   #stopping: Promise<void> | undefined
+  #productTimeout: ReturnType<typeof setTimeout> | undefined
 
   constructor(private readonly options: DshLifecycleOptions) {}
 
@@ -30,12 +34,8 @@ export class DshLifecycle {
     return this.#state.phase === "loading" || this.#state.phase === "ready" ? this.#state.url : undefined
   }
 
-  get isReady() {
-    return this.#state.phase === "ready"
-  }
-
   start() {
-    if (["starting", "loading", "ready", "stopping"].includes(this.#state.phase)) return false
+    if (["starting", "loading", "ready", "stopping"].includes(this.#state.phase)) return
     this.#publish({ phase: "starting" })
 
     let run: DshRun
@@ -43,7 +43,7 @@ export class DshLifecycle {
       run = this.options.launch()
     } catch (error) {
       this.#publish({ phase: "failed", reason: "startup", error })
-      return true
+      return
     }
     this.#run = run
 
@@ -51,6 +51,10 @@ export class DshLifecycle {
       (url) => {
         if (this.#run !== run) return
         this.#publish({ phase: "loading", url })
+        const timeoutMs = this.options.productTimeoutMs ?? DEFAULT_PRODUCT_TIMEOUT_MS
+        this.#productTimeout = setTimeout(() => {
+          void this.#fail(run, "startup", new Error(`DSH product did not become ready within ${timeoutMs}ms`))
+        }, timeoutMs)
       },
       (error) => void this.#fail(run, "startup", error),
     )
@@ -58,22 +62,22 @@ export class DshLifecycle {
       const reason = this.#state.phase === "ready" ? "crash" : "startup"
       void this.#fail(run, reason, new Error(`DSH exited ${describeExit(code)}`))
     })
-    return true
   }
 
   productReady(frameUrl: string) {
-    if (this.#state.phase !== "loading") return false
+    if (this.#state.phase !== "loading") return
     try {
-      if (new URL(frameUrl).origin !== new URL(this.#state.url).origin) return false
+      if (new URL(frameUrl).origin !== new URL(this.#state.url).origin) return
     } catch {
-      return false
+      return
     }
+    this.#clearProductTimeout()
     this.#publish({ phase: "ready", url: this.#state.url })
-    return true
   }
 
   stop() {
     if (this.#stopping !== undefined) return this.#stopping
+    this.#clearProductTimeout()
     const run = this.#run
     this.#run = undefined
     this.#publish({ phase: "stopping" })
@@ -87,9 +91,16 @@ export class DshLifecycle {
   async #fail(run: DshRun, reason: DshFailureReason, error: unknown) {
     if (this.#run !== run) return
     this.#run = undefined
+    this.#clearProductTimeout()
     await run.stop()
     if (this.#state.phase === "stopping" || this.#state.phase === "stopped") return
     this.#publish({ phase: "failed", reason, error })
+  }
+
+  #clearProductTimeout() {
+    if (this.#productTimeout === undefined) return
+    clearTimeout(this.#productTimeout)
+    this.#productTimeout = undefined
   }
 
   #publish(state: DshLifecycleState) {
