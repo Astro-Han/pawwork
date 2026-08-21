@@ -23,24 +23,21 @@ const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
 }
 
 describe("site deploy workflow", () => {
-  test("preinstalls the requested Wrangler version before the deploy action", () => {
+  test("uses the workspace's preinstalled Wrangler before the deploy action", () => {
     const steps = workflow.jobs["build-and-deploy"].steps
     const install = steps.findIndex((step) => step.run === "pnpm install --frozen-lockfile")
     const deploy = steps.findIndex((step) => step.uses?.startsWith("cloudflare/wrangler-action@"))
-    const wranglerVersion = steps[deploy]?.with?.wranglerVersion
 
     expect(install).toBeGreaterThanOrEqual(0)
     expect(deploy).toBeGreaterThan(install)
-    expect(wranglerVersion).toMatch(/^\d+\.\d+\.\d+$/)
-    expect(packageJson.devDependencies?.wrangler).toBe(wranglerVersion)
+    expect(packageJson.devDependencies?.wrangler).toMatch(/^\d+\.\d+\.\d+$/)
+    expect(steps[deploy]?.with?.wranglerVersion).toBeUndefined()
   })
 
   test("build-checks every file that controls the site deployment", () => {
     const deploymentInputs = [
       ".github/workflows/deploy-site.yml",
       "package.json",
-      "pnpm-lock.yaml",
-      "pnpm-workspace.yaml",
       "site/**",
     ]
 

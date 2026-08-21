@@ -6,8 +6,6 @@ on:
     paths:
       - ".github/workflows/deploy-site.yml"
       - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
       - "site/**"
 
   # Build-check the site on PRs that touch it; deploy step is skipped (see below)
@@ -15,8 +13,6 @@ on:
     paths:
       - ".github/workflows/deploy-site.yml"
       - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
       - "site/**"
 
   # Allow manual trigger for first deploy or re-deploy without code change
@@ -57,5 +53,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          wranglerVersion: "4.124.0"
           command: pages deploy site/dist --project-name=pawwork --branch=main
