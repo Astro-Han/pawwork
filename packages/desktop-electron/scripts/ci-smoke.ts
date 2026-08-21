@@ -74,6 +74,7 @@ export type CiSmokeProductSnapshot = {
   platform: string
   freeProviderActive: boolean
   v1SessionImported: boolean
+  v1SidebarLaggingHost: boolean
   v1SessionVisibleInSidebar: boolean
   skillNames: string[]
   sessionId: string
@@ -432,28 +433,30 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     expandToggles[0]?.click()
     await new Promise((resolve) => setTimeout(resolve, 200))
 
-    let v1SessionImported = false
-    // The fixture's target session imports last (bulk sessions keep the run
-    // going), so this wait spans the whole migration on a slow runner.
-    const importDeadline = Date.now() + 180_000
-    while (!v1SessionImported && Date.now() < importDeadline) {
-      const sessions = (await call("session.list", {})).items
-      v1SessionImported = sessions.some((item) => item.sessionId === ${expectedSession})
-      if (!v1SessionImported) await new Promise((resolve) => setTimeout(resolve, 250))
-    }
     // The list the HOST returns is not the list the SIDEBAR shows: the client
-    // pulls cold sessions only at connect, which is before the migration
-    // finishes, so what proves the fix is the imported title appearing in the
-    // visible sidebar without a reload. The sample is repeated after a pause
-    // because the pre-fix importer announced each session and detached it in
-    // the same tick - a single sample could catch that sub-frame flicker.
+    // pulls cold sessions only at connect, before the migration finishes, so the
+    // imported title only reaches the visible sidebar through the post-completion
+    // refresh. To prove this run actually exercised that path we require the
+    // sidebar to be observed LAGGING the authoritative host list at least once
+    // (host has the session, sidebar does not): if the sidebar never lagged, the
+    // migration finished before the client's connect-time pull and this run could
+    // not have proved the fix. The sidebar sample is repeated after a pause
+    // because a single sample could catch a sub-frame transition.
     const sidebarHasV1Session = () => Array.from(document.querySelectorAll("*"))
       .filter((element) => element.childElementCount === 0)
       .some((element) => visible(element) && (element.textContent || "").trim() === "Imported V1 session")
+    let v1SessionImported = false
+    let v1SidebarLaggingHost = false
     let v1SessionVisibleInSidebar = false
-    const sidebarDeadline = Date.now() + 25_000
-    while (!v1SessionVisibleInSidebar && Date.now() < sidebarDeadline) {
-      if (sidebarHasV1Session()) {
+    // The fixture's target session imports last (bulk sessions keep the run
+    // going), so this wait spans the whole migration on a slow runner.
+    const importDeadline = Date.now() + 180_000
+    while (!v1SessionVisibleInSidebar && Date.now() < importDeadline) {
+      const sidebarHas = sidebarHasV1Session()
+      const sessions = (await call("session.list", {})).items
+      v1SessionImported = sessions.some((item) => item.sessionId === ${expectedSession})
+      if (v1SessionImported && !sidebarHas) v1SidebarLaggingHost = true
+      if (sidebarHas) {
         await new Promise((resolve) => setTimeout(resolve, 500))
         v1SessionVisibleInSidebar = sidebarHasV1Session()
       }
@@ -497,6 +500,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       platform: typeof navigator === "undefined" ? "" : navigator.platform,
       freeProviderActive: freeProvider?.active === true && freeProvider?.displayName === "OpenCode Free",
       v1SessionImported,
+      v1SidebarLaggingHost,
       v1SessionVisibleInSidebar,
       skillNames: skills.map((skill) => skill.name).sort(),
       sessionId: session.sessionId,
@@ -663,7 +667,11 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.sidebarExpandedAgain ? null : "DSH expand control did not reopen the sidebar",
     snapshot.freeProviderActive ? null : "OpenCode Free provider is not active",
     snapshot.v1SessionImported ? null : "V1 session was not imported into DSH",
-    snapshot.v1SessionVisibleInSidebar ? null : "Imported V1 session never appeared in the sidebar without a reload",
+    snapshot.v1SessionVisibleInSidebar
+      ? snapshot.v1SidebarLaggingHost
+        ? null
+        : "Imported V1 session appeared in the sidebar, but the sidebar was never observed lagging the host list - this run did not exercise the post-connect refresh and cannot prove the fix"
+      : "Imported V1 session never appeared in the sidebar without a reload",
     ["office-docx", "office-pdf", "office-pptx", "office-xlsx"].every((name) => snapshot.skillNames.includes(name))
       ? null
       : `bundled Office skills are incomplete: ${snapshot.skillNames.join(", ")}`,

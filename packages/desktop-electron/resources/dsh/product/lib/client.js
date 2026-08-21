@@ -173,16 +173,12 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
 
     // v1 迁移是后台任务：它把冷会话逐条写进持久化，而客户端只在连接/重连时
     // 拉取一次冷列表，迁移结束的时刻没人再刷新，侧边栏就停在旧列表上。宿主的
-    // import-v1 插件在 /pawwork-import-v1 暴露 phase；这里轮询到它离开 running
-    // 就刷新一次列表。refreshList 单飞且合并有序基线，重复调用无害；传输层连续
-    // 失败（旧后端、宿主重启窗口）重试有限次后放弃，不做兜底刷新——重连路径
-    // 本身就会刷新冷列表。
+    // import-v1 插件在 /pawwork-import-v1 暴露 phase；这里等到它离开 running
+    // 就补一次列表读取，然后停。refreshList 单飞且合并有序基线，重复调用无害。
     const IMPORT_POLL_INTERVAL_MS = 1_000
-    const IMPORT_POLL_MAX_FAILURES = 10
 
     function watchV1Import({ connection, sessions }) {
       let timer = null
-      let failures = 0
       let stopped = false
       const stop = () => {
         stopped = true
@@ -190,23 +186,30 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       }
       async function poll() {
         if (stopped) return
+        let result
         try {
-          const result = await connection.rpc.call("/pawwork-import-v1", "status", {})
-          if (stopped) return
-          failures = 0
-          if (result.ok && result.value.phase === "running") {
-            timer = setTimeout(() => void poll(), IMPORT_POLL_INTERVAL_MS)
-            return
-          }
-          stop()
-          await sessions.refresh()
+          result = await connection.rpc.call("/pawwork-import-v1", "status", {})
         } catch {
+          // 传输层失败不是完成信号（旧后端没有这个通道、宿主重启窗口都只是瞬时
+          // 的），继续等；绝不因为数满几次失败就放弃，否则侧边栏停在旧列表上。
           if (stopped) return
-          failures += 1
-          if (failures < IMPORT_POLL_MAX_FAILURES) timer = setTimeout(() => void poll(), IMPORT_POLL_INTERVAL_MS)
+          timer = setTimeout(() => void poll(), IMPORT_POLL_INTERVAL_MS)
+          return
         }
+        if (stopped) return
+        if (!result.ok || result.value.phase === "running") {
+          timer = setTimeout(() => void poll(), IMPORT_POLL_INTERVAL_MS)
+          return
+        }
+        // 离开 running 即完成。refreshList 单飞复用仍在途的拉取——完成信号出现
+        // 时可能还挂着一条迁移前的旧列表——所以读两次：第一次等在途的 settle，
+        // 第二次才是必然在完成屏障之后发起的权威读取。
+        await sessions.refresh()
+        await sessions.refresh()
+        stop()
       }
       void poll()
+      return stop
     }
 
     function apply(ctx) {
@@ -215,7 +218,9 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawGloveMark))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))
       ctx.slots.inject("conversation.input.left", () => ctx.slots.register({ name: "conversation.input.left", id: "pawwork-files", order: -100 }, FileAction))
-      watchV1Import(ctx)
+      // 轮询器随插件而止：dispose（HMR / 重新登录）时清掉定时器，不再对已销毁的
+      // fiber 发起 status / refresh 调用。
+      ctx.effect(() => watchV1Import(ctx))
     }
 
     return { inject, apply }
