@@ -5,21 +5,21 @@ const { refreshOpenCodeFreeModels } = require('./opencode-free.cjs');
 
 export const name = "pawwork-product"
 
-// Requires the settings service (to refresh the llm-pi-ai model list) and the
-// timer service (to re-run that refresh periodically). Activation waits for
-// both, so the first refresh runs after the pi-ai adapter has registered its
-// settings namespace rather than racing it.
-export const inject = ['settings', 'timer'];
+// Requires the settings service (to refresh the llm-pi-ai model list), the
+// timer service (to re-run that refresh periodically), and the default-model
+// service (so a refresh that retires the opencode default can move it to a
+// surviving model). Activation waits for all three.
+export const inject = ['settings', 'timer', 'agentDefaultModel'];
 
 // How often to re-discover the OpenCode Free catalog. New free models appear
-// without a PawWork release; the cadence balances freshness against the two
-// cheap GETs per sweep and the (no-op when unchanged) settings write.
+// without a PawWork release; the cadence balances freshness against the one
+// cheap GET per sweep and the (no-op when unchanged) settings write.
 const REFRESH_INTERVAL_MS = 60 * 60 * 1000;
 
 function runRefresh(ctx, controller) {
 	return refreshOpenCodeFreeModels({
 		settings: ctx.settings,
-		describe: () => ctx.settings.describe(),
+		defaultModel: ctx.agentDefaultModel,
 		logger: ctx.logger,
 		signal: controller.signal,
 	}).catch((error) => {
