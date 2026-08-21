@@ -173,38 +173,63 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
 
     // v1 迁移是后台任务：它把冷会话逐条写进持久化，而客户端只在连接/重连时
     // 拉取一次冷列表，迁移结束的时刻没人再刷新，侧边栏就停在旧列表上。宿主的
-    // import-v1 插件在 /pawwork-import-v1 暴露 phase；这里等到它离开 running
-    // 就补一次列表读取，然后停。refreshList 单飞且合并有序基线，重复调用无害。
+    // import-v1 插件在 /pawwork-import-v1 暴露 session 阶段与最后一个已持久化
+    // session marker。完成后双读跨过 refreshList 的单飞屏障；只有 marker 已进入
+    // 公开 list 快照才算权威列表安装成功，否则退避后重试。
     const IMPORT_POLL_INTERVAL_MS = 1_000
+    const IMPORT_POLL_MAX_RETRY_MS = 30_000
 
     function watchV1Import({ connection, sessions }) {
+      let retryDelay = IMPORT_POLL_INTERVAL_MS
       let timer = null
       let stopped = false
       const stop = () => {
         stopped = true
         if (timer !== null) clearTimeout(timer)
       }
+      const schedule = (delay) => {
+        timer = setTimeout(() => void poll(), delay)
+      }
+      const retry = () => {
+        const delay = retryDelay
+        retryDelay = Math.min(retryDelay * 2, IMPORT_POLL_MAX_RETRY_MS)
+        schedule(delay)
+      }
       async function poll() {
         if (stopped) return
-        let result = undefined
+        let result
         try {
           result = await connection.rpc.call("/pawwork-import-v1", "status", {})
         } catch {
-          // 传输层失败不是完成信号（旧后端没有这个通道、宿主重启窗口都只是瞬时
-          // 的），落到下面同一个"还没完成就继续等"分支；绝不因为数满几次失败就
-          // 放弃，否则侧边栏停在旧列表上。
+          if (stopped) return
+          retry()
+          return
         }
         if (stopped) return
-        if (result === undefined || !result.ok || result.value.phase === "running") {
-          timer = setTimeout(() => void poll(), IMPORT_POLL_INTERVAL_MS)
+        const value = result?.ok === true ? result.value : undefined
+        if (value === null || typeof value !== "object"
+          || (value.phase !== "running" && value.phase !== "done")
+          || (value.sessionId !== undefined && typeof value.sessionId !== "string")) {
+          retry()
+          return
+        }
+        if (value.phase === "running") {
+          retryDelay = IMPORT_POLL_INTERVAL_MS
+          schedule(IMPORT_POLL_INTERVAL_MS)
           return
         }
         // 离开 running 即完成。refreshList 单飞复用仍在途的拉取——完成信号出现
         // 时可能还挂着一条迁移前的旧列表——所以读两次：第一次等在途的 settle，
         // 第二次才是必然在完成屏障之后发起的权威读取。
         await sessions.refresh()
+        if (stopped) return
         await sessions.refresh()
-        stop()
+        if (stopped) return
+        if (value.sessionId === undefined || sessions.list.getSnapshot().ids.includes(value.sessionId)) {
+          stop()
+          return
+        }
+        retry()
       }
       void poll()
       return stop

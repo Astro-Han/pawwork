@@ -70,7 +70,7 @@ async function hasPersistedV1Session(sessionPersistence, id) {
     && inspection.events.length >= inspection.meta.seedLength;
 }
 
-export function createDshSessionImporter(ctx) {
+export function createDshSessionImporter(ctx, onPersisted = () => {}) {
   return async (imported) => {
     let inspection;
     try {
@@ -96,45 +96,41 @@ export function createDshSessionImporter(ctx) {
       try {
         ctx.sessionTitle.rename(session, imported.title);
         await ctx.sessions.flush(session);
-        // No announce: imported sessions are cold, and the client list removes
-        // a session again on session/disposed, so announcing here only made
-        // each import flicker into the sidebar and back out at detach. Cold
-        // sessions reach the client through its list refresh, which runs at
-        // connect time - before this task finishes - so the status RPC below
-        // tells the client to refresh once the import settles.
+        // DSH persistence adopts the session on session/created and retires
+        // that ownership on the paired session/disposed emitted by detach.
+        // Imported sessions are cold after this lifecycle; the status RPC
+        // below still supplies the later authoritative sidebar refresh.
+        ctx.sessions.announce(session);
       } finally {
         detach();
       }
     }
+    onPersisted(imported.id);
     return await importer.attachDshWorkspace(imported, ctx.workspaceRegistry);
   };
 }
 
 export function apply(ctx) {
   const controller = new AbortController();
-  let phase = 'running';
+  let lastPersistedSessionId;
+  let sessionPhase = 'running';
   const importTask = (async () => {
-    // The two database-backed stages read one private copy of the v1 database,
-    // opened once for the whole run: before, each of them VACUUMed the user's
-    // entire v1 database into a copy of its own. The settings stage reads JSON
-    // files and needs no snapshot; a snapshot that fails to open lets the two
-    // database stages report it as their own failure.
-    const sourceDatabase = migrationIo.discoverV1Database();
+    let sourceDatabase;
     let snapshot;
-    if (sourceDatabase) {
-      try {
-        snapshot = await migrationIo.openV1Snapshot({ home: process.env.DSH_HOME, sourceDatabase });
-      } catch (error) {
-        ctx.logger.warn(`v1 database snapshot failed: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
     try {
       // Each stage is caught individually so one malformed source must not
-      // hide the rest; the session stage is the long one, and the client
-      // learns when all of it landed through the status RPC, not through
-      // per-session announce.
+      // hide the rest. The two database-backed stages share one private copy
+      // of the v1 database; settings read independent JSON files.
       try {
-        const importSession = createDshSessionImporter(ctx);
+        sourceDatabase = migrationIo.discoverV1Database();
+        if (sourceDatabase) {
+          try {
+            snapshot = await migrationIo.openV1Snapshot({ home: process.env.DSH_HOME, sourceDatabase });
+          } catch (error) {
+            ctx.logger.warn(`v1 database snapshot failed: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+        const importSession = createDshSessionImporter(ctx, (id) => { lastPersistedSessionId = id; });
         controller.signal.throwIfAborted();
         await importer.runV1SessionImport({
           home: process.env.DSH_HOME,
@@ -147,6 +143,11 @@ export function apply(ctx) {
       } catch (error) {
         if (controller.signal.aborted) return;
         ctx.logger.warn(`v1 session import failed: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        // The sidebar consumes only session persistence. Settings and
+        // Automation continue independently after this barrier and must not
+        // delay the client's cold-session list refresh.
+        sessionPhase = 'done';
       }
       try {
         controller.signal.throwIfAborted();
@@ -197,22 +198,18 @@ export function apply(ctx) {
       } catch (error) {
         ctx.logger.warn(`v1 database snapshot cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
       }
-      // Every settle path passes through here, including the early returns the
-      // abort checks take: the phase is done whether the import completed, was
-      // aborted, or found nothing to do.
-      phase = 'done';
     }
   })();
   ctx.effect(() => {
     const stopStatusRpc = ctx.connection.rpc.handle(
       '/pawwork-import-v1',
-      async (endpoint) => {
-        if (endpoint === 'status') return { ok: true, value: { phase } };
-        return {
-          ok: false,
-          error: { code: 'bad-request', message: `unknown import-v1 endpoint: ${endpoint}`, details: {} },
-        };
-      },
+      async () => ({
+        ok: true,
+        value: {
+          phase: sessionPhase,
+          ...(lastPersistedSessionId === undefined ? {} : { sessionId: lastPersistedSessionId }),
+        },
+      }),
       { authority: 'loopback' },
     );
     return async () => {
