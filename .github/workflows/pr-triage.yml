@@ -3,7 +3,7 @@ name: pr-triage
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, labeled, unlabeled]
-    branches: [dev]
+    branches: [main]
 
 concurrency:
   group: pr-triage-${{ github.event.pull_request.number }}

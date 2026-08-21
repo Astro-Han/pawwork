@@ -2,7 +2,7 @@ name: deploy-site
 
 on:
   push:
-    branches: [dev]
+    branches: [main]
     paths:
       - "site/**"
 
@@ -41,13 +41,13 @@ jobs:
 
       - run: pnpm --filter @pawwork/site build
 
-      # Deploy only when on dev (push to dev or manual dispatch from dev). PRs and
+      # Deploy only when on main (push to main or manual dispatch from main). PRs and
       # manual runs from other branches stop after the build-check steps above, so
-      # the fixed --branch=dev below can never publish non-dev content.
+      # the fixed --branch=main below can never publish non-main content.
       - uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
-        if: github.ref == 'refs/heads/dev'
+        if: github.ref == 'refs/heads/main'
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "3.90.0"
-          command: pages deploy site/dist --project-name=pawwork --branch=dev
+          command: pages deploy site/dist --project-name=pawwork --branch=main

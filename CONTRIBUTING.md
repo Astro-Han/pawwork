@@ -53,7 +53,7 @@ pnpm dev:desktop
 
 ## Branches and Commits
 
-- Open pull requests against `dev`
+- Open pull requests against `main`
 - Use small, reversible commits
 - Use Conventional Commits in English, such as `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`
 

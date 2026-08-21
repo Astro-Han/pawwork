@@ -14,8 +14,8 @@ interface Props {
 const { lang } = Astro.props;
 const t = I18N[lang];
 const otherHref = lang === "cn" ? "/" : "/zh-CN/";
-const README_URL = lang === "cn" ? `${REPO_URL}/blob/dev/README_CN.md` : `${REPO_URL}#readme`;
-const LICENSE_URL = `${REPO_URL}/blob/dev/LICENSE`;
+const README_URL = lang === "cn" ? `${REPO_URL}/blob/main/README_CN.md` : `${REPO_URL}#readme`;
+const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE`;
 ---
 
 <svg width="0" height="0" style="position:absolute"

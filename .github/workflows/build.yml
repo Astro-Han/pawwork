@@ -82,6 +82,24 @@ jobs:
       target: ${{ steps.select.outputs.target }}
       arch: ${{ steps.select.outputs.arch }}
     steps:
+      - name: Validate release source branch
+        run: |
+          set -euo pipefail
+
+          if [ "$PHASE" = "finalize" ]; then
+            if [ "$SOURCE_REF" != "$EXPECTED_SOURCE_REF" ]; then
+              echo "Finalize source must be $EXPECTED_SOURCE_REF, got ${SOURCE_REF:-<empty>}"
+              exit 1
+            fi
+          elif [ "$GITHUB_REF" != "refs/heads/$EXPECTED_SOURCE_REF" ]; then
+            echo "Releases must start from $EXPECTED_SOURCE_REF, got $GITHUB_REF"
+            exit 1
+          fi
+        env:
+          EXPECTED_SOURCE_REF: main
+          PHASE: ${{ inputs.phase || 'submit' }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+
       - id: select
         run: |
           set -euo pipefail
@@ -857,7 +875,7 @@ jobs:
           # Identify this target so it can upload its own provenance marker.
           RELEASE_OS: ${{ runner.os == 'macOS' && 'mac' || 'win' }}
           RELEASE_ARCH: ${{ matrix.arch_label }}
-          MIRROR_REF: dev
+          MIRROR_REF: main
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: ${{ runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label }}

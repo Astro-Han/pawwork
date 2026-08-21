@@ -2,7 +2,7 @@ name: dependency-review
 
 on:
   pull_request:
-    branches: [dev]
+    branches: [main]
 
 concurrency:
   group: dependency-review-${{ github.event.pull_request.number || github.ref }}

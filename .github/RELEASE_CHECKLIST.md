@@ -4,12 +4,12 @@ Use this checklist for PawWork desktop releases.
 
 ## 1. Prepare
 
-- Confirm the release PR targets `dev` and all required CI checks are green.
-- Confirm the version bump is merged into `dev`.
-- Confirm `dev` is up to date locally:
+- Confirm the release PR targets `main` and all required CI checks are green.
+- Confirm the version bump is merged into `main`.
+- Confirm `main` is up to date locally:
 
 ```bash
-git switch dev
+git switch main
 git pull --ff-only
 ```
 
@@ -71,8 +71,8 @@ Do not rely on the GitHub Assets list as the primary download UI. It mixes user 
 Submit macOS notarization for both architectures:
 
 ```bash
-gh workflow run build.yml --repo Astro-Han/pawwork --ref dev -f phase=submit -f channel=prod -f target=macos -f arch=arm64
-gh workflow run build.yml --repo Astro-Han/pawwork --ref dev -f phase=submit -f channel=prod -f target=macos -f arch=x64
+gh workflow run build.yml --repo Astro-Han/pawwork --ref main -f phase=submit -f channel=prod -f target=macos -f arch=arm64
+gh workflow run build.yml --repo Astro-Han/pawwork --ref main -f phase=submit -f channel=prod -f target=macos -f arch=x64
 ```
 
 Record each submit run's source run ID, source run attempt, source ref, source sha, workflow ref, workflow sha, and Apple submission ID from the workflow summary.
@@ -82,7 +82,7 @@ The submit workflow summary should include values like this:
 ```text
 source_run_id: 123456789
 source_run_attempt: 1
-source_ref: dev
+source_ref: main
 source_sha: 0123456789abcdef0123456789abcdef01234567
 source_workflow_ref: workflow-snapshot-123456789-1-macos-arm64
 source_workflow_sha: 0123456789abcdef0123456789abcdef01234567
@@ -101,10 +101,10 @@ gh workflow run build.yml --repo Astro-Han/pawwork --ref X64_SOURCE_WORKFLOW_REF
 Build and publish the Windows installer:
 
 ```bash
-gh workflow run build.yml --repo Astro-Han/pawwork --ref dev -f phase=full -f channel=prod -f target=windows -f arch=x64
+gh workflow run build.yml --repo Astro-Han/pawwork --ref main -f phase=full -f channel=prod -f target=windows -f arch=x64
 ```
 
-> **All three final targets must be the same build commit.** mac finalize rebuilds from the commit pinned by its submit snapshot tag (`source_sha`), while the Windows `full` build uses the current `dev` HEAD (`github.sha`). If `dev` moves between the macOS submits and the Windows build, the targets disagree and the auto-publisher (Step 4) refuses to publish — by design. Freeze `dev` for the duration of the release, or confirm the Windows build's commit matches the macOS `source_sha` before expecting auto-publish to fire.
+> **All three final targets must be the same build commit.** mac finalize rebuilds from the commit pinned by its submit snapshot tag (`source_sha`), while the Windows `full` build uses the current `main` HEAD (`github.sha`). If `main` moves between the macOS submits and the Windows build, the targets disagree and the auto-publisher (Step 4) refuses to publish — by design. Freeze `main` for the duration of the release, or confirm the Windows build's commit matches the macOS `source_sha` before expecting auto-publish to fire.
 
 ## 4. Publish
 
@@ -138,7 +138,7 @@ On the normal path the auto-publisher (Step 4) dispatches `.github/workflows/mir
 ```bash
 gh run list --workflow mirror-release-to-r2.yml --repo Astro-Han/pawwork --limit 3
 # If no run was triggered for this tag, dispatch it manually:
-gh workflow run mirror-release-to-r2.yml --repo Astro-Han/pawwork --ref dev -f tag=vX.Y.Z
+gh workflow run mirror-release-to-r2.yml --repo Astro-Han/pawwork --ref main -f tag=vX.Y.Z
 ```
 
 Then confirm the landing page points at the new version on R2:

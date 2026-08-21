@@ -22,6 +22,15 @@ function indexOfStep(name: string) {
 }
 
 describe("release workflow", () => {
+  test("accepts releases only from the main product branch", () => {
+    const validate = steps[indexOfStep("Validate release source branch")]
+
+    expect(validate).toBeDefined()
+    expect(validate.body).toMatch(/EXPECTED_SOURCE_REF: main/)
+    expect(validate.body).toMatch(/refs\/heads\/\$EXPECTED_SOURCE_REF/)
+    expect(validate.body).toMatch(/SOURCE_REF.*EXPECTED_SOURCE_REF/)
+  })
+
   test("bundles uv before anything packages the app", () => {
     const packaging = stepsRunning(/electron-builder .*(--mac|\$\{\{ matrix\.platform_flag \}\})/)
     // submit packs the signed directory, finalize repacks it into dmg/zip, and
