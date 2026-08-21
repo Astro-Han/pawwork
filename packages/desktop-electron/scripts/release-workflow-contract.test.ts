@@ -53,7 +53,7 @@ describe("release workflow app-update verification", () => {
   })
 
   test("dispatches the release mirror with the V1 contract", () => {
-    expect(workflow).toContain("MIRROR_REF: v1")
+    expect(workflow).toContain("MIRROR_REF: maint/v1")
   })
 })
 
