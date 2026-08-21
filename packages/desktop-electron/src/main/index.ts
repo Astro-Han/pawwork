@@ -238,8 +238,6 @@ async function attemptDsh() {
   await stopActiveSidecar().catch((error) => logger.error("DSH shutdown failed", error))
   // A retry reports on itself, not on the attempt the user just tried to fix.
   dshOutputTail = ""
-  startupState = { phase: "starting" }
-  showStartupPage()
   try {
     dshUrl = await startDsh()
   } catch (error) {
@@ -285,6 +283,12 @@ function failStartup(reason: StartupFailureReason, error: unknown) {
 function handleStartupAction(action: StartupAction) {
   switch (action) {
     case "retry":
+      // The click's own feedback, and the only caller that needs it: the failure
+      // page goes back to progress before anything is spawned. A first launch
+      // has nothing to switch — the window opened on the startup page already,
+      // and loading it there a second time aborts the load still in flight.
+      startupState = { phase: "starting" }
+      showStartupPage()
       void runDsh()
       return
     case "report-issue":
