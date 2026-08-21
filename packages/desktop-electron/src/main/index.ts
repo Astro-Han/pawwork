@@ -4,6 +4,7 @@ import { rm } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
+import { setTimeout as delay } from "node:timers/promises"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { app, BrowserWindow, dialog, ipcMain, shell, type Event } from "electron"
 import contextMenu from "electron-context-menu"
@@ -30,6 +31,8 @@ import { launchDshSidecar, type DshSidecar } from "./dsh-sidecar"
 import { initLogging } from "./logging"
 import { detectSystemMenuLocale } from "./menu-labels"
 import { createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./update-feed"
+import { reportStartupFailure } from "./startup-failure"
+import { PAWWORK_GITHUB_ISSUE_URL } from "./support-links"
 import { createUpdaterController } from "./updater"
 import { pendingUpdateCacheDir } from "./updater-cache"
 import { updaterDialogLabels } from "./updater-dialog-labels"
@@ -63,6 +66,11 @@ const menuLocale = detectSystemMenuLocale(app.getLocale())
 
 let dshUrl: string | undefined
 let fileInputPreload: string | undefined
+// DSH states the cause and the fix on its own stderr before it exits, and a
+// failure that early has no window to render it in. Keeping the tail costs a few
+// kilobytes and is the only copy the dialog can reach.
+const DSH_OUTPUT_TAIL_CHARS = 4_000
+let dshOutputTail = ""
 let sidecar: DshSidecar | undefined
 let sidecarShutdown: Promise<void> | undefined
 let sidecarStopRequested = false
@@ -169,6 +177,25 @@ function setupApp() {
     .catch(async (error) => {
       logger.error("app initialization failed", error)
       await shutdownSidecar().catch((shutdownError) => logger.error("DSH shutdown failed", shutdownError))
+      // The log already holds all of this, but no window ever opened, so the log
+      // is the one place the user cannot be expected to look. The dialog is also
+      // what keeps the process alive long enough for DSH's last words to reach
+      // the log. Failing to show it must not replace the original failure.
+      if (!CI_SMOKE_ENABLED) {
+        await reportStartupFailure({
+          locale: menuLocale,
+          logPath: logger.transports.file.getFile().path,
+          output: dshOutputTail,
+          showMessageBox: (options) => dialog.showMessageBox(options),
+          openIssue: () => shell.openExternal(PAWWORK_GITHUB_ISSUE_URL),
+          showItemInFolder: async (path) => {
+            shell.showItemInFolder(path)
+            // Windows hands the reveal to a background task and app.exit skips
+            // cleanup, so give the call a moment to land before the process goes.
+            await delay(500)
+          },
+        }).catch((dialogError) => logger.error("startup failure dialog failed", dialogError))
+      }
       app.exit(1)
     })
 }
@@ -204,7 +231,10 @@ async function startDsh() {
     timeoutMs: 30_000,
     spawn: (executable, args, options) => spawn(executable, args, options),
     onStdout: (chunk) => logger.log("DSH stdout", { chunk: chunk.trimEnd() }),
-    onStderr: (chunk) => logger.error("DSH stderr", chunk.trimEnd()),
+    onStderr: (chunk) => {
+      dshOutputTail = (dshOutputTail + chunk).slice(-DSH_OUTPUT_TAIL_CHARS)
+      logger.error("DSH stderr", chunk.trimEnd())
+    },
   })
   dshUrl = sidecar.url
   void sidecar.exited.then((code) => {
