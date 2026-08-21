@@ -13,6 +13,7 @@ import { Instance } from "../../src/project/instance"
 import { ModelsDev, Provider } from "../../src/provider"
 import { withPawWorkProviders } from "../../src/provider/pawwork-providers"
 import { ModelID, ProviderID } from "../../src/provider/schema"
+import { GlobalBus } from "../../src/bus/global"
 
 const originalFetch = globalThis.fetch
 const originalModelsPath = process.env.OPENCODE_MODELS_PATH
@@ -115,6 +116,26 @@ test("refresh publishes a valid candidate catalog", async () => {
 
   expect(await readCacheText()).toContain("kimi-k2.6")
   expect(ModelsDev.version()).toBe(before + 1)
+})
+
+test("refresh announces a published catalog to connected clients", async () => {
+  delete process.env.OPENCODE_MODELS_PATH
+  await writeCache(catalogWithModels(["kimi-k2.5"]))
+  mockFetchWithCatalog(catalogWithModels(["kimi-k2.5", "kimi-k2.6"]))
+  const events: unknown[] = []
+  const listener = (event: unknown) => events.push(event)
+  GlobalBus.on("event", listener)
+
+  try {
+    await refreshModels(true)
+  } finally {
+    GlobalBus.off("event", listener)
+  }
+
+  expect(events).toContainEqual({
+    directory: "global",
+    payload: { type: "models.dev.refreshed", properties: {} },
+  })
 })
 
 test("refresh keeps existing cache when candidate JSON is invalid", async () => {

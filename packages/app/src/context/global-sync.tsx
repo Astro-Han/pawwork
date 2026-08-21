@@ -545,8 +545,8 @@ function createGlobalSync() {
       applyGlobalEvent({
         event,
         project: globalStore.project,
-        refresh: () => {
-          if (recent) return
+        refresh: (force) => {
+          if (recent && !force) return
           queue.refresh()
         },
         setGlobalProject: setProjects,

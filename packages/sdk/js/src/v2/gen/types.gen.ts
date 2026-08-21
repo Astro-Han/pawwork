@@ -1136,6 +1136,13 @@ export type EventMcpToolsChanged = {
   }
 }
 
+export type EventModelsDevRefreshed = {
+  type: "models.dev.refreshed"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
 export type EventMessagePartDelta = {
   type: "message.part.delta"
   properties: {
@@ -1496,6 +1503,7 @@ export type Event =
   | EventMessagePartUpdated
   | EventMessageRemoved
   | EventMessageUpdated
+  | EventModelsDevRefreshed
   | EventPermissionAsked
   | EventPermissionReplied
   | EventProjectUpdated

@@ -10,6 +10,8 @@ import { Hash } from "../util/hash"
 import { withPawWorkProviders } from "./pawwork-providers"
 import { Cause, Context, Effect, Exit, Layer, ManagedRuntime, Option } from "effect"
 import { memoMap } from "@opencode-ai/core/effect/memo-map"
+import { BusEvent } from "@/bus/bus-event"
+import { GlobalBus } from "@/bus/global"
 
 // Try to import bundled snapshot (generated at build time)
 // Falls back to undefined in dev mode when snapshot doesn't exist
@@ -109,6 +111,17 @@ export const Provider = z.object({
 })
 
 export type Provider = z.infer<typeof Provider>
+
+export const Event = {
+  Refreshed: BusEvent.define("models.dev.refreshed", z.object({})),
+}
+
+function publishRefreshed() {
+  GlobalBus.emit("event", {
+    directory: "global",
+    payload: { type: Event.Refreshed.type, properties: {} },
+  })
+}
 
 const PublishModel = z
   .object({
@@ -360,6 +373,7 @@ export const layer = Layer.effect(
       yield* atomicWriteFile(fs, filepath, text)
       catalogVersion++
       yield* reset()
+      yield* Effect.sync(publishRefreshed)
       return catalog
     })
 
@@ -367,11 +381,13 @@ export const layer = Layer.effect(
       if (modelsPathOverride()) {
         catalogVersion++
         yield* reset()
+        yield* Effect.sync(publishRefreshed)
         return
       }
       if (yield* skipCache(fs, force)) {
         catalogVersion++
         yield* reset()
+        yield* Effect.sync(publishRefreshed)
         return
       }
       yield* flock
@@ -380,6 +396,7 @@ export const layer = Layer.effect(
             if (yield* skipCache(fs, force)) {
               catalogVersion++
               yield* reset()
+              yield* Effect.sync(publishRefreshed)
               return
             }
             const result = yield* fetchApi()

@@ -16814,6 +16814,23 @@
           "properties"
         ]
       },
+      "Event.models.dev.refreshed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "models.dev.refreshed"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "required": [
+          "type",
+          "properties"
+        ]
+      },
       "Event.message.part.delta": {
         "type": "object",
         "properties": {
@@ -18033,6 +18050,9 @@
           },
           {
             "$ref": "#/components/schemas/Event.message.updated"
+          },
+          {
+            "$ref": "#/components/schemas/Event.models.dev.refreshed"
           },
           {
             "$ref": "#/components/schemas/Event.permission.asked"
