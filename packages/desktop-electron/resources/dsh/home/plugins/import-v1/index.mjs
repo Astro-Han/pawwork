@@ -10,6 +10,7 @@ export const name = 'pawwork-import-v1';
 export const inject = [
   'agentDefaultModel',
   'attachments',
+  'connection',
   'llm',
   'pawworkAutomations',
   'sessions',
@@ -95,7 +96,12 @@ export function createDshSessionImporter(ctx) {
       try {
         ctx.sessionTitle.rename(session, imported.title);
         await ctx.sessions.flush(session);
-        ctx.sessions.announce(session);
+        // No announce: imported sessions are cold, and the client list removes
+        // a session again on session/disposed, so announcing here only made
+        // each import flicker into the sidebar and back out at detach. Cold
+        // sessions reach the client through its list refresh, which runs at
+        // connect time - before this task finishes - so the status RPC below
+        // tells the client to refresh once the import settles.
       } finally {
         detach();
       }
@@ -106,6 +112,7 @@ export function createDshSessionImporter(ctx) {
 
 export function apply(ctx) {
   const controller = new AbortController();
+  let phase = 'running';
   const importTask = (async () => {
     // The two database-backed stages read one private copy of the v1 database,
     // opened once for the whole run: before, each of them VACUUMed the user's
@@ -122,8 +129,10 @@ export function apply(ctx) {
       }
     }
     try {
-      // Each successful session is announced as it lands; one malformed source
-      // must not hide the rest or require a separate completion channel.
+      // Each stage is caught individually so one malformed source must not
+      // hide the rest; the session stage is the long one, and the client
+      // learns when all of it landed through the status RPC, not through
+      // per-session announce.
       try {
         const importSession = createDshSessionImporter(ctx);
         controller.signal.throwIfAborted();
@@ -188,10 +197,28 @@ export function apply(ctx) {
       } catch (error) {
         ctx.logger.warn(`v1 database snapshot cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
       }
+      // Every settle path passes through here, including the early returns the
+      // abort checks take: the phase is done whether the import completed, was
+      // aborted, or found nothing to do.
+      phase = 'done';
     }
   })();
-  ctx.effect(() => async () => {
-    controller.abort(new Error('PawWork v1 importer stopped'));
-    await importTask;
+  ctx.effect(() => {
+    const stopStatusRpc = ctx.connection.rpc.handle(
+      '/pawwork-import-v1',
+      async (endpoint) => {
+        if (endpoint === 'status') return { ok: true, value: { phase } };
+        return {
+          ok: false,
+          error: { code: 'bad-request', message: `unknown import-v1 endpoint: ${endpoint}`, details: {} },
+        };
+      },
+      { authority: 'loopback' },
+    );
+    return async () => {
+      await stopStatusRpc();
+      controller.abort(new Error('PawWork v1 importer stopped'));
+      await importTask;
+    };
   });
 }

@@ -46,6 +46,8 @@ describe("PawWork DSH client product layer", () => {
       component: (props: unknown) => unknown
     }> = []
     const ctx = {
+      connection: { rpc: { call: vi.fn(async () => ({ ok: true, value: { phase: "done" } })) } },
+      sessions: { refresh: vi.fn(async () => {}) },
       slots: {
         inject: (_name: string, register: () => void) => register(),
         register: (options: { id?: string; name?: string; priority?: number }, component: (props: unknown) => unknown) => {
@@ -55,7 +57,7 @@ describe("PawWork DSH client product layer", () => {
     }
 
     plugin.apply(ctx)
-    expect(plugin.inject).toEqual(["slots"])
+    expect(plugin.inject).toEqual(["slots", "connection", "sessions"])
     const welcome = registrations.find((entry) => entry.options.id === "welcome-notice")
     expect(welcome).toBeDefined()
     expect(welcome!.options.priority).toBe(-1)
@@ -146,6 +148,8 @@ describe("PawWork DSH client product layer", () => {
     })
     let fileAction: ((props: unknown) => { props: Record<string, unknown> }) | undefined
     const ctx = {
+      connection: { rpc: { call: vi.fn(async () => ({ ok: true, value: { phase: "done" } })) } },
+      sessions: { refresh: vi.fn(async () => {}) },
       slots: {
         inject: (_name: string, register: () => void) => register(),
         register: (options: { id?: string }, component: typeof fileAction) => {
@@ -165,5 +169,96 @@ describe("PawWork DSH client product layer", () => {
 
     expect(pick).toHaveBeenCalledTimes(1)
     expect(setDraft).toHaveBeenCalledWith('请总结\n\n文件：\n- "/tmp/notes.md"')
+  })
+
+  // v1 迁移在后台把冷会话逐条写进持久化，而客户端只在连接/重连时拉取冷列表：
+  // 迁移结束的那一刻侧边栏不会自己更新。宿主的 import-v1 插件在
+  // /pawwork-import-v1 暴露 phase，这里钉住「轮询到离开 running 就刷一次列表、
+  // 然后停」的契约。
+  test("refreshes the session list once the v1 import settles", async () => {
+    const document = {
+      title: "DeepSeek Harness",
+      documentElement: { lang: "zh-CN" },
+      querySelector: () => null,
+      createElement: () => ({ dataset: {}, textContent: "" }),
+      head: { appendChild: () => {} },
+    }
+    const timers: Array<() => void> = []
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
+      document,
+      setTimeout: (callback: () => void) => {
+        timers.push(callback)
+        return timers.length
+      },
+      clearTimeout: () => {},
+    })
+    const plugin = definition.factory((name) => {
+      if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
+      throw new Error(`unexpected product client dependency: ${name}`)
+    })
+    const remainingPhases = ["running", "done"]
+    const call = vi.fn(async () => ({ ok: true, value: { phase: remainingPhases.shift() } }))
+    const refresh = vi.fn(async () => {})
+    plugin.apply({
+      connection: { rpc: { call } },
+      sessions: { refresh },
+      slots: { inject: (_name: string, register: () => void) => register(), register: () => {} },
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(call).toHaveBeenCalledTimes(1)
+    expect(call).toHaveBeenCalledWith("/pawwork-import-v1", "status", {})
+    expect(refresh).not.toHaveBeenCalled()
+
+    timers.shift()!()
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(call).toHaveBeenCalledTimes(2)
+    expect(refresh).toHaveBeenCalledTimes(1)
+    // Completion is terminal: no further poll is scheduled.
+    expect(timers).toHaveLength(0)
+  })
+
+  // 传输层连续失败（旧后端没有这个通道、宿主重启窗口）只重试有限次；失败分支
+  // 不做兜底刷新——重连路径本身会刷新冷列表。
+  test("stops polling after repeated status failures without refreshing", async () => {
+    const document = {
+      title: "DeepSeek Harness",
+      documentElement: { lang: "zh-CN" },
+      querySelector: () => null,
+      createElement: () => ({ dataset: {}, textContent: "" }),
+      head: { appendChild: () => {} },
+    }
+    const timers: Array<() => void> = []
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
+      document,
+      setTimeout: (callback: () => void) => {
+        timers.push(callback)
+        return timers.length
+      },
+      clearTimeout: () => {},
+    })
+    const plugin = definition.factory((name) => {
+      if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
+      throw new Error(`unexpected product client dependency: ${name}`)
+    })
+    const call = vi.fn(async () => {
+      throw new Error("status channel unavailable")
+    })
+    const refresh = vi.fn(async () => {})
+    plugin.apply({
+      connection: { rpc: { call } },
+      sessions: { refresh },
+      slots: { inject: (_name: string, register: () => void) => register(), register: () => {} },
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+    for (let round = 0; round < 9; round += 1) {
+      timers.shift()!()
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+
+    expect(call).toHaveBeenCalledTimes(10)
+    expect(refresh).not.toHaveBeenCalled()
+    expect(timers).toHaveLength(0)
   })
 })

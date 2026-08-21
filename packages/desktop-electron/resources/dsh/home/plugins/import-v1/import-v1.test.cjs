@@ -37,7 +37,7 @@ function fileDigest(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-test('announces each imported session without a migration status polling channel', async () => {
+test('persists each v1 session without announcing it on the live session channel', async () => {
   const importerModule = require('./import-v1.cjs');
   const settingsModule = require('./import-v1-settings.cjs');
   const automationsModule = require('./import-v1-automations.cjs');
@@ -100,6 +100,7 @@ test('announces each imported session without a migration status polling channel
     const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?status=${Date.now()}`;
     const { apply } = await import(pluginUrl);
     apply({
+      connection: { rpc: { handle: () => async () => {} } },
       effect: (setup) => { stopPlugin = setup(); },
       llm: {
         listProviders: () => [{ id: 'opencode' }],
@@ -149,7 +150,12 @@ test('announces each imported session without a migration status polling channel
     assert.equal(missingContinueSessionRejected, true);
     assert.equal(incompleteContinueSessionRejected, true);
     assert.equal(unavailableAutomationCatalogRejected, true);
-    assert.deepEqual(sessionLifecycle, ['enter', 'rename', 'flush', 'announce', 'detach', 'attach-workspace']);
+    // The importer writes cold sessions: enter/rename/flush/detach is the
+    // persistence path, and attach-workspace is the follow-up that does not
+    // depend on the session staying live. announce used to sit between flush
+    // and detach, but the client list removes a session again on
+    // session/disposed, so every announced import flickered in and out.
+    assert.deepEqual(sessionLifecycle, ['enter', 'rename', 'flush', 'detach', 'attach-workspace']);
     await stopPlugin();
   } finally {
     importerModule.runV1SessionImport = originalRun;
@@ -157,6 +163,91 @@ test('announces each imported session without a migration status polling channel
     settingsModule.createDshSettingImporter = originalCreateSettingImporter;
     settingsModule.runV1SettingsImport = originalSettingsRun;
     automationsModule.runV1AutomationImport = originalAutomationsRun;
+  }
+});
+
+// The client only pulls the cold-session list at connect time, which is before
+// this background task finishes, so the sidebar needs a completion signal. The
+// status RPC is that signal: the client polls it, and refreshes the list once
+// the phase leaves "running".
+test('reports migration progress through the loopback status RPC', async () => {
+  const importerModule = require('./import-v1.cjs');
+  const settingsModule = require('./import-v1-settings.cjs');
+  const automationsModule = require('./import-v1-automations.cjs');
+  const originalRun = importerModule.runV1SessionImport;
+  const originalSettingsRun = settingsModule.runV1SettingsImport;
+  const originalCreateSettingImporter = settingsModule.createDshSettingImporter;
+  const originalAutomationsRun = automationsModule.runV1AutomationImport;
+  const originalHome = process.env.DSH_HOME;
+  const originalSource = process.env.PAWWORK_V1_DATABASE;
+
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  createV1Fixture(source);
+  process.env.DSH_HOME = home;
+  process.env.PAWWORK_V1_DATABASE = source;
+
+  let releaseAutomations;
+  const automationsGate = new Promise((resolve) => { releaseAutomations = resolve; });
+  importerModule.runV1SessionImport = async () => ({ status: 'complete' });
+  settingsModule.createDshSettingImporter = () => async () => 'skipped';
+  settingsModule.runV1SettingsImport = async () => ({ status: 'complete' });
+  automationsModule.runV1AutomationImport = async () => {
+    await automationsGate;
+    return { status: 'complete' };
+  };
+  let registration;
+  let status;
+  let stopPlugin;
+
+  try {
+    const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?status-rpc=${Date.now()}`;
+    const { apply } = await import(pluginUrl);
+    apply({
+      connection: {
+        rpc: {
+          handle: (channel, handler, options) => {
+            registration = { channel, options };
+            status = handler;
+            return async () => {};
+          },
+        },
+      },
+      effect: (setup) => { stopPlugin = setup(); },
+      llm: { listProviders: () => [], listModels: async () => [] },
+      logger: { warn: () => {} },
+      agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }) },
+      pawworkAutomations: { scheduler: { refresh: () => {} }, store: { activateImportedDefinitions: () => {} } },
+      sessionPersistence: { inspect: async () => { throw new Error('no session should be inspected'); } },
+      sessionTitle: { rename: () => {} },
+      sessions: { enter: () => () => {}, flush: async () => {}, prepare: () => ({}) },
+      attachments: { saveImage: async () => {} },
+      workspaceRegistry: {},
+    });
+
+    assert.deepEqual(registration, {
+      channel: '/pawwork-import-v1',
+      options: { authority: 'loopback' },
+    });
+    // The automations stage is gated, so the run is still in flight here no
+    // matter how far the earlier microtasks advanced.
+    assert.deepEqual(await status('status', {}), { ok: true, value: { phase: 'running' } });
+    assert.equal((await status('bogus', {})).ok, false);
+
+    releaseAutomations();
+    // Disposal awaits the task, so the finally that retires the phase has run.
+    await stopPlugin();
+    assert.deepEqual(await status('status', {}), { ok: true, value: { phase: 'done' } });
+  } finally {
+    importerModule.runV1SessionImport = originalRun;
+    settingsModule.createDshSettingImporter = originalCreateSettingImporter;
+    settingsModule.runV1SettingsImport = originalSettingsRun;
+    automationsModule.runV1AutomationImport = originalAutomationsRun;
+    if (originalHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = originalHome;
+    if (originalSource === undefined) delete process.env.PAWWORK_V1_DATABASE;
+    else process.env.PAWWORK_V1_DATABASE = originalSource;
   }
 });
 
@@ -443,6 +534,7 @@ test('plugin disposal aborts and awaits the background migration', async () => {
     const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?dispose=${Date.now()}`;
     const { apply } = await import(pluginUrl);
     apply({
+      connection: { rpc: { handle: () => async () => {} } },
       effect: (setup) => { stopPlugin = setup(); },
       logger: { warn: () => {} },
     });

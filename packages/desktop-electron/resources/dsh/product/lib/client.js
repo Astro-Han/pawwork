@@ -167,9 +167,47 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
           gloveLayer(BRAND_CREAM, GLOVE_PADS)))
     }
 
-    const inject = ["slots"]
+    const inject = ["slots", "connection", "sessions"]
 
     function BrandName() { return text("爪印", "PawWork") }
+
+    // v1 迁移是后台任务：它把冷会话逐条写进持久化，而客户端只在连接/重连时
+    // 拉取一次冷列表，迁移结束的时刻没人再刷新，侧边栏就停在旧列表上。宿主的
+    // import-v1 插件在 /pawwork-import-v1 暴露 phase；这里轮询到它离开 running
+    // 就刷新一次列表。refreshList 单飞且合并有序基线，重复调用无害；传输层连续
+    // 失败（旧后端、宿主重启窗口）重试有限次后放弃，不做兜底刷新——重连路径
+    // 本身就会刷新冷列表。
+    const IMPORT_POLL_INTERVAL_MS = 1_000
+    const IMPORT_POLL_MAX_FAILURES = 10
+
+    function watchV1Import({ connection, sessions }) {
+      let timer = null
+      let failures = 0
+      let stopped = false
+      const stop = () => {
+        stopped = true
+        if (timer !== null) clearTimeout(timer)
+      }
+      async function poll() {
+        if (stopped) return
+        try {
+          const result = await connection.rpc.call("/pawwork-import-v1", "status", {})
+          if (stopped) return
+          failures = 0
+          if (result.ok && result.value.phase === "running") {
+            timer = setTimeout(() => void poll(), IMPORT_POLL_INTERVAL_MS)
+            return
+          }
+          stop()
+          await sessions.refresh()
+        } catch {
+          if (stopped) return
+          failures += 1
+          if (failures < IMPORT_POLL_MAX_FAILURES) timer = setTimeout(() => void poll(), IMPORT_POLL_INTERVAL_MS)
+        }
+      }
+      void poll()
+    }
 
     function apply(ctx) {
       ctx.slots.inject("sidebar.brand.mark", () => ctx.slots.register({ name: "sidebar.brand.mark", priority: -100 }, PawGloveMark))
@@ -177,6 +215,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawGloveMark))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))
       ctx.slots.inject("conversation.input.left", () => ctx.slots.register({ name: "conversation.input.left", id: "pawwork-files", order: -100 }, FileAction))
+      watchV1Import(ctx)
     }
 
     return { inject, apply }
