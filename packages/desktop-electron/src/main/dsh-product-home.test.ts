@@ -4,6 +4,7 @@ import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { load } from "js-yaml"
+import { DOCUMENT_VERSION, parseCredentialsDocument } from "@deepseek-ai/dsh-credentials-local"
 import {
   buildDshEnvironment,
   prepareDshProductHome,
@@ -126,6 +127,23 @@ describe("DSH product home", () => {
     if (process.platform !== "win32") {
       expect(statSync(join(productHome, ".credentials.yaml")).mode & 0o777).toBe(0o600)
     }
+  })
+
+  // The seed is a literal, so byte-equality against another literal can only
+  // restate it. What has to hold is that the *installed* DSH accepts it: the
+  // format is versioned now, and a DSH that moves to version 2 would otherwise
+  // fail nowhere until a user's app quietly refuses to open.
+  test("seeds a credential document the installed DSH accepts", () => {
+    const productHome = join(temporaryDirectory(), "fresh")
+    const resources = join(import.meta.dirname, "../../resources/dsh")
+
+    prepareDshProductHome({ productHome, resources })
+    const file = join(productHome, ".credentials.yaml")
+    const seeded = readFileSync(file, "utf8")
+
+    expect(DOCUMENT_VERSION).toBe(1)
+    const parsed = parseCredentialsDocument(seeded, file)
+    expect([...parsed.refs]).toEqual([["OPENCODE_API_KEY", "public"]])
   })
 
   test("publishes the installed zero-cost OpenCode catalog as OpenCode Free", () => {
