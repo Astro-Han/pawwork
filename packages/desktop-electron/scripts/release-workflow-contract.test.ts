@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest"
+import { spawnSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
@@ -7,6 +8,7 @@ import { join } from "node:path"
 // ordered correctly. These read the workflow as steps rather than as text, so a
 // reformat inside a step does not fail them and a deleted step does.
 const workflow = readFileSync(join(import.meta.dirname, "..", "..", "..", ".github", "workflows", "build.yml"), "utf8")
+const publisher = readFileSync(join(import.meta.dirname, "publish-when-complete.ts"), "utf8")
 
 const steps = workflow
   .split(/\n {6}- name: /)
@@ -21,14 +23,38 @@ function indexOfStep(name: string) {
   return steps.findIndex((step) => step.name === name)
 }
 
-describe("release workflow", () => {
-  test("accepts releases only from the main product branch", () => {
-    const validate = steps[indexOfStep("Validate release source branch")]
+function runSourceValidation(phase: string, githubRef: string, sourceRef = "") {
+  const match = workflow.match(
+    /- name: Validate release source branch\n\s+run: \|\n(?<script>(?: {10}.*\n|\n)+?)\s+env:/,
+  )
+  if (!match?.groups?.script) throw new Error("release source validation step is missing")
 
-    expect(validate).toBeDefined()
-    expect(validate.body).toMatch(/EXPECTED_SOURCE_REF: main/)
-    expect(validate.body).toMatch(/refs\/heads\/\$EXPECTED_SOURCE_REF/)
-    expect(validate.body).toMatch(/SOURCE_REF.*EXPECTED_SOURCE_REF/)
+  return spawnSync("bash", ["-c", match.groups.script.replace(/^ {10}/gm, "")], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      EXPECTED_SOURCE_REF: "main",
+      GITHUB_REF: githubRef,
+      PHASE: phase,
+      SOURCE_REF: sourceRef,
+    },
+  })
+}
+
+describe("release workflow", () => {
+  test("accepts main branch submit and finalize sources", () => {
+    expect(runSourceValidation("submit", "refs/heads/main").status).toBe(0)
+    expect(runSourceValidation("finalize", "refs/tags/workflow-snapshot-1", "main").status).toBe(0)
+  })
+
+  test("rejects release sources outside main", () => {
+    expect(runSourceValidation("submit", "refs/heads/dev").status).toBe(1)
+    expect(runSourceValidation("finalize", "refs/tags/workflow-snapshot-1", "dev").status).toBe(1)
+  })
+
+  test("requires the workflow to name the mirror branch explicitly", () => {
+    expect(publisher).toContain('const mirrorRef = requireEnv("MIRROR_REF")')
+    expect(publisher).not.toMatch(/MIRROR_REF.*\?\?/)
   })
 
   test("bundles uv before anything packages the app", () => {
