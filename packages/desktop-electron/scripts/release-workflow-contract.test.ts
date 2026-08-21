@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
 const workflow = readFileSync(join(import.meta.dir, "..", "..", "..", ".github", "workflows", "build.yml"), "utf8")
+const publisher = readFileSync(join(import.meta.dir, "publish-when-complete.ts"), "utf8")
 
 function expectBefore(haystack: string, before: string, after: string) {
   const beforeIndex = haystack.indexOf(before)
@@ -54,6 +55,11 @@ describe("release workflow app-update verification", () => {
 
   test("dispatches the release mirror with the V1 contract", () => {
     expect(workflow).toContain("MIRROR_REF: maint/v1")
+  })
+
+  test("requires the workflow to name the mirror branch explicitly", () => {
+    expect(publisher).toContain('const mirrorRef = requireEnv("MIRROR_REF")')
+    expect(publisher).not.toMatch(/MIRROR_REF.*\?\?/)
   })
 })
 

@@ -10,17 +10,34 @@ import { parseWorkflow, readWorkflow } from "./workflow-parser"
 const repoRoot = path.join(import.meta.dir, "../../../..")
 const workflowPath = path.join(repoRoot, ".github", "workflows", "build.yml")
 
-describe("release workflow", () => {
-  test("accepts releases only from the V1 maintenance branch", () => {
-    const parsed = parseWorkflow(workflowPath)
-    const validate = parsed.jobs?.["select-build-target"]?.steps?.find(
-      (step) => step.name === "Validate release source branch",
-    )
+function runSourceValidation(phase: string, githubRef: string, sourceRef = "") {
+  const parsed = parseWorkflow(workflowPath)
+  const validate = parsed.jobs?.["select-build-target"]?.steps?.find(
+    (step) => step.name === "Validate release source branch",
+  )
+  if (!validate?.run) throw new Error("release source validation step is missing")
 
-    expect(validate).toBeDefined()
-    expect(validate?.env?.EXPECTED_SOURCE_REF).toBe("maint/v1")
-    expect(validate?.run).toContain('refs/heads/$EXPECTED_SOURCE_REF')
-    expect(validate?.run).toContain('"$SOURCE_REF" != "$EXPECTED_SOURCE_REF"')
+  return spawnSync("bash", ["-c", validate.run], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      EXPECTED_SOURCE_REF: "maint/v1",
+      GITHUB_REF: githubRef,
+      PHASE: phase,
+      SOURCE_REF: sourceRef,
+    },
+  })
+}
+
+describe("release workflow", () => {
+  test("accepts V1 maintenance submit and finalize sources", () => {
+    expect(runSourceValidation("submit", "refs/heads/maint/v1").status).toBe(0)
+    expect(runSourceValidation("finalize", "refs/tags/workflow-snapshot-1", "maint/v1").status).toBe(0)
+  })
+
+  test("rejects release sources outside V1 maintenance", () => {
+    expect(runSourceValidation("submit", "refs/heads/v1").status).toBe(1)
+    expect(runSourceValidation("finalize", "refs/tags/workflow-snapshot-1", "v1").status).toBe(1)
   })
 
   it.live("selects the macOS x64 release matrix", () =>
