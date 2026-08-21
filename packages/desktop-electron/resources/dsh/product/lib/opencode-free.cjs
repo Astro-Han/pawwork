@@ -1,39 +1,12 @@
 'use strict';
 const { isDeepStrictEqual } = require('node:util');
 /**
- * OpenCode Free catalog discovery for PawWork.
- *
- * The shipped "OpenCode Free" model list is a build-time static snapshot (the
- * product patch replaces `llm-pi-ai.providers.opencode.models` with a fixed
- * set of ids). Upstream opencode adds and retires free models independently of
- * any PawWork release, so a frozen list both hides new models and keeps dead
- * ones selectable until a request 401s, which the surface mislabels as
- * "API key is invalid".
- *
- * This module restores the old v1 behavior at runtime: it reads the live
- * models.dev catalog once, selects the models that are genuinely free and not
- * deprecated, and writes them into the existing `llm-pi-ai` settings
- * namespace. The `llm-pi-ai` adapter rebuilds from its configured model list
- * on change, so streaming stays with the already-verified pi-ai adapter; this
- * module only supplies the list.
- *
- * One authority, one predicate:
- *  - `models.dev/api.json` is the pricing/metadata authority (what opencode
- *    itself reads). A model is selectable iff its cost has no nonzero numeric
- *    leaf and it is not marked `deprecated`; the gateway serves a model that
- *    is neither paid nor deprecated, so no separate serviceability probe is
- *    needed. (A model priced at zero but `deprecated` — e.g. a promotion that
- *    has ended — 401s on use and must not be offered as free.)
- *
- * Route wiring: opencode speaks `openai-completions` at
- * `https://opencode.ai/zen/v1`. The adapter only accepts models it describes,
- * plus a route-level `api`/`baseURL` for the rest; the write therefore sets
- * those two keys alongside the model list so the selectable set is servable.
- *
- * Failure policy: any fetch/parse error, or a usable set of zero models,
- * leaves the configured list untouched (the packaged bootstrap) rather than
- * writing an empty list — DSH interprets an empty configured `models` as "use
- * the entire bundled catalog".
+ * Refresh OpenCode Free membership and capabilities from models.dev without
+ * taking ownership of streaming. The explicit route protocol is required for
+ * new IDs because the bundled OpenCode catalog spans several protocols. Only
+ * zero-cost, non-deprecated models are selected. Fetch, parse, and empty-result
+ * failures leave the packaged fallback untouched because an empty configured
+ * model list means "use the entire bundled catalog" in DSH.
  */
 
 /** Live opencode catalog (what the opencode CLI itself reads). */
@@ -42,19 +15,11 @@ const OPENCODE_MODELS_URL = 'https://models.dev/api.json';
 const LLM_PI_AI_NAMESPACE = 'llm-pi-ai';
 /** Path of the opencode model list inside that namespace. */
 const MODELS_PATH = ['providers', 'opencode', 'models'];
-/** Wire protocol every opencode route uses. */
 const OPENCODE_ROUTE_API = 'openai-completions';
-/** Base URL the opencode zen gateway serves. */
 const OPENCODE_ROUTE_BASE_URL = 'https://opencode.ai/zen/v1';
 /** Capabilities the current pi-ai adapter can express. */
 const SUPPORTED_INPUT_MODALITIES = new Set(['text', 'image']);
 const SUPPORTED_REASONING_EFFORTS = new Set(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
-
-/** Whether the opencode route already carries our api/baseURL wiring. */
-function routeConfigured(value) {
-	const provider = value?.providers?.opencode;
-	return provider?.api === OPENCODE_ROUTE_API && provider?.baseURL === OPENCODE_ROUTE_BASE_URL;
-}
 /**
  * A model is free only when its cost metadata has no nonzero numeric leaf.
  *
@@ -159,13 +124,9 @@ async function ensureDefaultModelSurvives({ defaultModel, logger, nextIds, selec
 	if (nextIds.includes(current.model)) return;
 	const fallback = selectable[0];
 	if (fallback === undefined) return;
-	const reasoningEffort = current.reasoningEffort;
 	const next = {
 		provider: 'opencode',
 		model: fallback.id,
-		...(typeof reasoningEffort === 'string' && fallback.reasoningEfforts?.[reasoningEffort] !== undefined
-			? { reasoningEffort }
-			: {}),
 	};
 	try {
 		await defaultModel.saveSelection(next);
@@ -216,8 +177,8 @@ async function waitForNamespace(get, timeoutMs, signal) {
  *
  * A fetch/parse failure or an empty usable set leaves the packaged list
  * untouched. A successful non-empty set replaces `providers.opencode.models`
- * (plus the route `api`/`baseURL` needed to serve models the bundled catalog
- * does not yet describe), which triggers the pi-ai adapter to rebuild.
+ * and pins the gateway protocol and endpoint needed by IDs absent from the
+ * bundled mixed-protocol catalog, which triggers the pi-ai adapter to rebuild.
  * Surviving models keep their configured metadata; when the opencode default
  * model is dropped, the default selection moves to a surviving model.
  * @param deps - settings service, optional default-model service, fetch impl, logger, abort signal.
@@ -249,10 +210,12 @@ async function refreshOpenCodeFreeModels({ settings, defaultModel, logger, fetch
 	const nextIds = selectable.map((entry) => entry.id);
 	const merged = mergeModelEntries(currentValue, selectable);
 	const currentModels = currentValue?.providers?.opencode?.models;
+	const currentProvider = currentValue?.providers?.opencode;
 	// Skip the write when the live profiles and routing already match: a periodic
 	// refresh must not churn settings.yaml or rebuild the adapter every interval.
 	const unchanged = Array.isArray(currentModels)
-		&& routeConfigured(currentValue)
+		&& currentProvider?.api === OPENCODE_ROUTE_API
+		&& currentProvider?.baseURL === OPENCODE_ROUTE_BASE_URL
 		&& isDeepStrictEqual(currentModels, merged);
 	if (!unchanged) {
 		await settings.mutate(LLM_PI_AI_NAMESPACE, [
@@ -271,7 +234,6 @@ async function refreshOpenCodeFreeModels({ settings, defaultModel, logger, fetch
 
 module.exports = {
 	isZeroCost,
-	mergeModelEntries,
 	refreshOpenCodeFreeModels,
 	selectFreeAndServed,
 	waitForNamespace,

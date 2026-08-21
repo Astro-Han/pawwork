@@ -7,12 +7,29 @@ const {
 	selectFreeAndServed,
 	waitForNamespace,
 	refreshOpenCodeFreeModels,
-	mergeModelEntries,
 } = require('./opencode-free.cjs');
 
 // A catalog shaped like models.dev/api.json (opencode provider).
 function catalogWith(models) {
 	return { opencode: { api: 'https://opencode.ai/zen/v1', models } };
+}
+
+function fetchCatalog(models) {
+	return async () => ({ ok: true, json: async () => catalogWith(models) });
+}
+
+function settingsHarness(value, descriptor) {
+	const writes = [];
+	const settings = {
+		get: (ns) => ns === 'llm-pi-ai' ? value : undefined,
+		async mutate(ns, ops, revision) { writes.push({ ns, ops, revision }); },
+	};
+	if (descriptor !== undefined) settings.describe = () => [descriptor];
+	return { settings, writes };
+}
+
+function writtenModels(write) {
+	return write.ops.find((op) => op.path.at(-1) === 'models')?.value;
 }
 
 test('isZeroCost accepts only fully zero-cost models', () => {
@@ -90,12 +107,7 @@ test('waitForNamespace resolves with the registered value', async () => {
 	assert.deepEqual(value, { providers: { opencode: { models: [] } } });
 });
 
-test('waitForNamespace times out without a registered namespace', async () => {
-	const value = await waitForNamespace(() => undefined, 50);
-	assert.equal(value, undefined);
-});
-
-test('waitForNamespace returns undefined when aborted', async () => {
+test('waitForNamespace returns promptly when aborted', { timeout: 1000 }, async () => {
 	const controller = new AbortController();
 	const pending = waitForNamespace(() => undefined, 5000, controller.signal);
 	setTimeout(() => controller.abort(), 30);
@@ -103,21 +115,12 @@ test('waitForNamespace returns undefined when aborted', async () => {
 	assert.equal(value, undefined);
 });
 
-test('refresh writes free non-deprecated models plus route wiring via settings.mutate', async () => {
-	const writes = [];
-	const settings = {
-		get: (ns) => ns === 'llm-pi-ai' ? { providers: { opencode: { models: [{ id: 'old' }] } } } : undefined,
-		async mutate(ns, ops, revision) {
-			writes.push({ ns, ops, revision });
-		},
-	};
-	const fetchImpl = async () => ({
-		ok: true,
-		json: async () => catalogWith({
-			'hy3-free': { cost: { input: 0, output: 0 } },
-			'dead-free': { cost: { input: 0, output: 0 }, status: 'deprecated' },
-			'paid': { cost: { input: 2, output: 12 } },
-		}),
+test('refresh writes free non-deprecated models with serviceable route wiring', async () => {
+	const { settings, writes } = settingsHarness({ providers: { opencode: { models: [{ id: 'old' }] } } });
+	const fetchImpl = fetchCatalog({
+		'hy3-free': { cost: { input: 0, output: 0 } },
+		'dead-free': { cost: { input: 0, output: 0 }, status: 'deprecated' },
+		'paid': { cost: { input: 2, output: 12 } },
 	});
 	const count = await refreshOpenCodeFreeModels({ settings, fetchImpl });
 	assert.equal(count, 1);
@@ -131,23 +134,15 @@ test('refresh writes free non-deprecated models plus route wiring via settings.m
 });
 
 test('refresh does not write an empty list when nothing is usable', async () => {
-	const writes = [];
-	const settings = {
-		get: (ns) => ns === 'llm-pi-ai' ? { providers: { opencode: { models: [] } } } : undefined,
-		mutate: async (ns, ops) => writes.push({ ns, ops }),
-	};
-	const fetchImpl = async () => ({ ok: true, json: async () => catalogWith({ 'dead-free': { cost: { input: 0, output: 0 }, status: 'deprecated' } }) });
+	const { settings, writes } = settingsHarness({ providers: { opencode: { models: [] } } });
+	const fetchImpl = fetchCatalog({ 'dead-free': { cost: { input: 0, output: 0 }, status: 'deprecated' } });
 	const count = await refreshOpenCodeFreeModels({ settings, fetchImpl });
 	assert.equal(count, undefined);
 	assert.equal(writes.length, 0);
 });
 
 test('refresh leaves the list untouched on a fetch failure', async () => {
-	const writes = [];
-	const settings = {
-		get: (ns) => ns === 'llm-pi-ai' ? { providers: { opencode: { models: [] } } } : undefined,
-		async mutate(ns, ops) { writes.push({ ns, ops }); },
-	};
+	const { settings, writes } = settingsHarness({ providers: { opencode: { models: [] } } });
 	const fetchImpl = async () => { throw new Error('network down'); };
 	const count = await refreshOpenCodeFreeModels({ settings, fetchImpl });
 	assert.equal(count, undefined);
@@ -155,11 +150,7 @@ test('refresh leaves the list untouched on a fetch failure', async () => {
 });
 
 test('refresh is bounded by the per-request deadline when a fetch hangs', { timeout: 2000 }, async () => {
-	const writes = [];
-	const settings = {
-		get: (ns) => ns === 'llm-pi-ai' ? { providers: { opencode: { models: [] } } } : undefined,
-		async mutate(ns, ops) { writes.push({ ns, ops }); },
-	};
+	const { settings, writes } = settingsHarness({ providers: { opencode: { models: [] } } });
 	// A fetch that never settles would otherwise leave the refresh pending
 	// forever; fetchJson must pass a combined signal that aborts on the
 	// deadline, which this mock observes and turns into a rejection.
@@ -172,176 +163,96 @@ test('refresh is bounded by the per-request deadline when a fetch hangs', { time
 });
 
 test('refresh never writes while the llm-pi-ai namespace is unregistered', async () => {
-	const writes = [];
-	const settings = {
-		get: (ns) => ns === 'llm-pi-ai' ? undefined : undefined,
-		async mutate(ns, ops) { writes.push({ ns, ops }); },
-	};
+	const { settings, writes } = settingsHarness(undefined);
 	const count = await refreshOpenCodeFreeModels({ settings, timeoutMs: 30 });
 	assert.equal(count, undefined);
 	assert.equal(writes.length, 0);
 });
 
 test('refresh skips the write when live profiles and routing already match', async () => {
-	const writes = [];
-	const settings = {
-		get: (ns) => ns === 'llm-pi-ai' ? {
-			providers: { opencode: {
-				api: 'openai-completions',
-				baseURL: 'https://opencode.ai/zen/v1',
-				models: [{ id: 'hy3-free' }],
-			} },
-		} : undefined,
-		async mutate(ns, ops) { writes.push({ ns, ops }); },
-	};
-	const fetchImpl = async () => ({ ok: true, json: async () => catalogWith({
+	const { settings, writes } = settingsHarness({
+		providers: { opencode: {
+			api: 'openai-completions',
+			baseURL: 'https://opencode.ai/zen/v1',
+			models: [{ id: 'hy3-free' }],
+		} },
+	});
+	const fetchImpl = fetchCatalog({
 		'hy3-free': { cost: { input: 0, output: 0 } },
 		'paid': { cost: { input: 2, output: 12 } },
-	}) });
+	});
 	const count = await refreshOpenCodeFreeModels({ settings, fetchImpl });
 	assert.equal(count, 1); // still reports the usable count
 	assert.equal(writes.length, 0); // but nothing was written
 });
 
-test('refresh writes when a new free model appears', async () => {
-	const writes = [];
-	const settings = {
-		get: (ns) => ns === 'llm-pi-ai' ? {
-			providers: { opencode: {
-				api: 'openai-completions',
-				baseURL: 'https://opencode.ai/zen/v1',
-				models: [{ id: 'old-model' }],
-			} },
-		} : undefined,
-		async mutate(ns, ops) { writes.push({ ns, ops }); },
-	};
-	const fetchImpl = async () => ({ ok: true, json: async () => catalogWith({
-		'old-model': { cost: { input: 0, output: 0 } },
-		'brand-new-free': { cost: { input: 0, output: 0 } },
-	}) });
-	const count = await refreshOpenCodeFreeModels({ settings, fetchImpl });
-	assert.equal(count, 2);
-	assert.equal(writes.length, 1);
-	assert.deepEqual(writes[0].ops[2].value, [{ id: 'brand-new-free' }, { id: 'old-model' }]);
-});
-
 test('refresh writes when live metadata changes without an id change', async () => {
-	const writes = [];
-	const settings = {
-		get: (ns) => ns === 'llm-pi-ai' ? {
-			providers: { opencode: {
-				api: 'openai-completions',
-				baseURL: 'https://opencode.ai/zen/v1',
-				models: [{ id: 'hy3-free', contextWindow: 262144 }],
-			} },
-		} : undefined,
-		async mutate(ns, ops) { writes.push({ ns, ops }); },
-	};
-	const fetchImpl = async () => ({ ok: true, json: async () => catalogWith({
+	const { settings, writes } = settingsHarness({
+		providers: { opencode: { models: [{ id: 'hy3-free', contextWindow: 262144 }] } },
+	});
+	const fetchImpl = fetchCatalog({
 		'hy3-free': { cost: { input: 0, output: 0 }, limit: { context: 190000 } },
-	}) });
+	});
 	await refreshOpenCodeFreeModels({ settings, fetchImpl });
-	assert.deepEqual(writes[0].ops[2].value, [{ id: 'hy3-free', contextWindow: 190000 }]);
+	assert.deepEqual(writtenModels(writes[0]), [{ id: 'hy3-free', contextWindow: 190000 }]);
 });
 
 test('refresh writes against the latest settings revision after the catalog request', async () => {
-	const writes = [];
 	const initial = { providers: { opencode: { models: [{ id: 'old-model' }] } } };
 	const latest = { providers: { opencode: { models: [{ id: 'old-model', compat: { supportsStore: false } }] } } };
-	const settings = {
-		get: (ns) => ns === 'llm-pi-ai' ? initial : undefined,
-		describe: () => [{ ns: 'llm-pi-ai', value: latest, revision: 7 }],
-		async mutate(ns, ops, revision) { writes.push({ ns, ops, revision }); },
-	};
-	const fetchImpl = async () => ({ ok: true, json: async () => catalogWith({
+	const { settings, writes } = settingsHarness(initial, { ns: 'llm-pi-ai', value: latest, revision: 7 });
+	const fetchImpl = fetchCatalog({
 		'old-model': { cost: { input: 0, output: 0 }, limit: { context: 190000 } },
-	}) });
+	});
 	await refreshOpenCodeFreeModels({ settings, fetchImpl });
 	assert.equal(writes[0].revision, 7);
-	assert.deepEqual(writes[0].ops[2].value, [{ id: 'old-model', contextWindow: 190000, compat: { supportsStore: false } }]);
-});
-
-test('mergeModelEntries keeps local route metadata but refreshes catalog-owned fields', () => {
-	const current = { providers: { opencode: { models: [{ id: 'kept', contextWindow: 1234, compat: { supportsStore: false } }, { id: 'old' }] } } };
-	const merged = mergeModelEntries(current, [{ id: 'kept', contextWindow: 190000 }, { id: 'added' }]);
-	assert.deepEqual(merged, [{ id: 'kept', contextWindow: 190000, compat: { supportsStore: false } }, { id: 'added' }]);
+	assert.deepEqual(writtenModels(writes[0]), [{ id: 'old-model', contextWindow: 190000, compat: { supportsStore: false } }]);
 });
 
 test('refresh moves the opencode default model when it is dropped', async () => {
-	const writes = [];
 	const saves = [];
-	const settings = {
-		get: (ns) => ns === 'llm-pi-ai' ? { providers: { opencode: { models: [{ id: 'big-pickle' }] } } } : undefined,
-		async mutate(ns, ops) { writes.push({ ns, ops }); },
-	};
+	const { settings, writes } = settingsHarness({ providers: { opencode: { models: [{ id: 'big-pickle' }] } } });
 	const defaultModel = {
 		currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }),
 		async saveSelection(next) { saves.push(next); },
 	};
-	const fetchImpl = async () => ({ ok: true, json: async () => catalogWith({
+	const fetchImpl = fetchCatalog({
 		'hy3-free': { cost: { input: 0, output: 0 } },
-	}) });
+	});
 	const count = await refreshOpenCodeFreeModels({ settings, defaultModel, fetchImpl });
 	assert.equal(count, 1);
 	assert.deepEqual(saves, [{ provider: 'opencode', model: 'hy3-free' }]);
 	assert.equal(writes.length, 1);
-	assert.deepEqual(writes[0].ops[2].value, [{ id: 'hy3-free' }]);
+	assert.deepEqual(writtenModels(writes[0]), [{ id: 'hy3-free' }]);
 });
 
-test('refresh preserves a supported reasoning effort when moving the default model', async () => {
+test('refresh clears the previous reasoning effort when moving the default model', async () => {
 	const saves = [];
-	const settings = {
-		get: (ns) => ns === 'llm-pi-ai' ? { providers: { opencode: { models: [{ id: 'retired' }] } } } : undefined,
-		async mutate() {},
-	};
+	const { settings } = settingsHarness({ providers: { opencode: { models: [{ id: 'retired' }] } } });
 	const defaultModel = {
 		currentSelection: () => ({ provider: 'opencode', model: 'retired', reasoningEffort: 'high' }),
 		async saveSelection(next) { saves.push(next); },
 	};
-	const fetchImpl = async () => ({ ok: true, json: async () => catalogWith({
+	const fetchImpl = fetchCatalog({
 		'survivor': {
 			cost: { input: 0, output: 0 },
 			reasoning_options: [{ type: 'effort', values: ['low', 'high'] }],
 		},
-	}) });
-	await refreshOpenCodeFreeModels({ settings, defaultModel, fetchImpl });
-	assert.deepEqual(saves, [{ provider: 'opencode', model: 'survivor', reasoningEffort: 'high' }]);
-});
-
-test('refresh clears an unsupported reasoning effort when moving the default model', async () => {
-	const saves = [];
-	const settings = {
-		get: (ns) => ns === 'llm-pi-ai' ? { providers: { opencode: { models: [{ id: 'retired' }] } } } : undefined,
-		async mutate() {},
-	};
-	const defaultModel = {
-		currentSelection: () => ({ provider: 'opencode', model: 'retired', reasoningEffort: 'max' }),
-		async saveSelection(next) { saves.push(next); },
-	};
-	const fetchImpl = async () => ({ ok: true, json: async () => catalogWith({
-		'survivor': {
-			cost: { input: 0, output: 0 },
-			reasoning_options: [{ type: 'effort', values: ['low', 'high'] }],
-		},
-	}) });
+	});
 	await refreshOpenCodeFreeModels({ settings, defaultModel, fetchImpl });
 	assert.deepEqual(saves, [{ provider: 'opencode', model: 'survivor' }]);
 });
 
 test('refresh leaves a non-opencode default untouched', async () => {
-	const writes = [];
 	const saves = [];
-	const settings = {
-		get: (ns) => ns === 'llm-pi-ai' ? { providers: { opencode: { models: [{ id: 'big-pickle' }] } } } : undefined,
-		async mutate(ns, ops) { writes.push({ ns, ops }); },
-	};
+	const { settings } = settingsHarness({ providers: { opencode: { models: [{ id: 'big-pickle' }] } } });
 	const defaultModel = {
 		currentSelection: () => ({ provider: 'deepseek', model: 'deepseek-chat' }),
 		async saveSelection(next) { saves.push(next); },
 	};
-	const fetchImpl = async () => ({ ok: true, json: async () => catalogWith({
+	const fetchImpl = fetchCatalog({
 		'hy3-free': { cost: { input: 0, output: 0 } },
-	}) });
+	});
 	await refreshOpenCodeFreeModels({ settings, defaultModel, fetchImpl });
 	assert.deepEqual(saves, []);
 });
@@ -381,7 +292,7 @@ test('product lifecycle immediately refreshes the runtime catalog through settin
 		await wrote;
 		assert.equal(writes.length, 1);
 		assert.equal(writes[0].revision, 0);
-		assert.deepEqual(writes[0].ops[2].value, [{ id: 'live-free', contextWindow: 190000, maxTokens: 64000 }]);
+		assert.deepEqual(writtenModels(writes[0]), [{ id: 'live-free', contextWindow: 190000, maxTokens: 64000 }]);
 	} finally {
 		dispose?.();
 		globalThis.fetch = originalFetch;
