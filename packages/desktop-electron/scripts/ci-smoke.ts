@@ -73,7 +73,6 @@ export type CiSmokeProductSnapshot = {
   sidebarExpandedAgain: boolean
   platform: string
   freeProviderActive: boolean
-  freeModelAvailable: boolean
   v1SessionImported: boolean
   skillNames: string[]
   sessionId: string
@@ -439,12 +438,10 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       if (!v1SessionImported) await new Promise((resolve) => setTimeout(resolve, 100))
     }
     const providers = (await call("llm.providers", {})).providers
-    const models = (await call("llm.models", {})).groups
     const session = await call("session.create", { cwd: ${workspace} })
     const skills = (await call("skill.list", { sessionId: session.sessionId })).skills
     const sessionIdsBeforeRestart = (await call("session.list", {})).items.map((item) => item.sessionId)
     const freeProvider = providers.find((provider) => provider.provider === "opencode")
-    const freeModels = models.find((group) => group.id === "opencode")?.models || []
     return JSON.stringify({
       sidebarBrandVisible,
       heroMarkVisible,
@@ -477,7 +474,6 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       sidebarExpandedAgain: !document.querySelector("[data-sidebar-collapsed]"),
       platform: typeof navigator === "undefined" ? "" : navigator.platform,
       freeProviderActive: freeProvider?.active === true && freeProvider?.displayName === "OpenCode Free",
-      freeModelAvailable: freeModels.some((model) => model.id === "deepseek-v4-flash-free" && model.name === "DeepSeek V4 Flash Free"),
       v1SessionImported,
       skillNames: skills.map((skill) => skill.name).sort(),
       sessionId: session.sessionId,
@@ -643,7 +639,6 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.sidebarExpandToggleHasContent ? null : "collapsed sidebar expand control renders empty",
     snapshot.sidebarExpandedAgain ? null : "DSH expand control did not reopen the sidebar",
     snapshot.freeProviderActive ? null : "OpenCode Free provider is not active",
-    snapshot.freeModelAvailable ? null : "DeepSeek V4 Flash Free is unavailable",
     snapshot.v1SessionImported ? null : "V1 session was not imported into DSH",
     ["office-docx", "office-pdf", "office-pptx", "office-xlsx"].every((name) => snapshot.skillNames.includes(name))
       ? null

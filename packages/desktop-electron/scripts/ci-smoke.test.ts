@@ -238,7 +238,6 @@ describe("ci smoke helpers", () => {
       sidebarExpandedAgain: true,
       platform: "MacIntel",
       freeProviderActive: true,
-      freeModelAvailable: true,
       v1SessionImported: true,
       skillNames: ["office-docx", "office-pdf", "office-pptx", "office-xlsx"],
       sessionId: "session-smoke",
@@ -282,7 +281,6 @@ describe("ci smoke helpers", () => {
     sidebarExpandedAgain: true,
     platform: "MacIntel",
     freeProviderActive: true,
-    freeModelAvailable: true,
     v1SessionImported: true,
     skillNames: ["office-docx", "office-pdf", "office-pptx", "office-xlsx"],
     sessionId: "session-1",
@@ -320,7 +318,6 @@ describe("ci smoke helpers", () => {
     sidebarExpandToggleHasContent: false,
     sidebarExpandedAgain: false,
     freeProviderActive: false,
-    freeModelAvailable: false,
     v1SessionImported: false,
     skillNames: ["office-docx"],
   }
