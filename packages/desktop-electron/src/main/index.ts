@@ -75,9 +75,16 @@ const { autoUpdater } = pkg
 const logger = initLogging()
 const menuLocale = detectSystemMenuLocale(app.getLocale())
 
+// Pure path work over values that never change for the life of the process, so
+// there is nothing to sequence and nothing that can be read before it is set.
+const productResources = resolveProductResources({
+  appPath: app.isPackaged ? app.getAppPath() : join(dirname(fileURLToPath(import.meta.url)), "../.."),
+  isPackaged: app.isPackaged,
+  resourcesPath: process.resourcesPath,
+})
+const fileInputPreload = dshFileInputPreload(productResources.dsh)
+
 let dshUrl: string | undefined
-let fileInputPreload: string | undefined
-let productResources: ReturnType<typeof resolveProductResources> | undefined
 // DSH states the cause and the fix on its own stderr before it exits, and the
 // window has no other copy of it: once DSH is gone, its stdio is gone with it.
 // Keeping the tail costs a few kilobytes.
@@ -198,13 +205,6 @@ function setupApp() {
         ),
       )
 
-      productResources = resolveProductResources({
-        appPath: app.isPackaged ? app.getAppPath() : join(dirname(fileURLToPath(import.meta.url)), "../.."),
-        isPackaged: app.isPackaged,
-        resourcesPath: process.resourcesPath,
-      })
-      fileInputPreload = dshFileInputPreload(productResources.dsh)
-
       // The window is what makes every DSH failure reportable, so it opens
       // before anything that can fail. The menu goes up with it: it is where the
       // issue link lives, and it used to be built only after a successful start.
@@ -318,8 +318,6 @@ function showStartupPage() {
 }
 
 async function startDsh() {
-  if (!productResources) throw new Error("Cannot start DSH before its resources are resolved")
-  const resources = productResources
   // The migration is the argument rather than a preceding statement, so it
   // cannot be reordered: prepareDshProductHome creates and populates whatever
   // home it is handed, and a migration running after it would read that overlay
@@ -333,7 +331,7 @@ async function startDsh() {
       legacyHome: join(app.getPath("userData"), "dsh"),
       onEvent: (message, detail) => logger.log(message, detail),
     }),
-    resources: resources.dsh,
+    resources: productResources.dsh,
   })
   const require = createRequire(import.meta.url)
   const dshPackage = resolveDshPackagePath({
@@ -349,8 +347,8 @@ async function startDsh() {
     sidecarPreload: pathToFileURL(product.sidecarPreload).href,
     productHome: product.home,
     productPatch: product.patch,
-    toolsDir: join(dirname(resources.dsh), "tools"),
-    env: buildDshEnvironment(resources.skills),
+    toolsDir: join(dirname(productResources.dsh), "tools"),
+    env: buildDshEnvironment(productResources.skills),
     timeoutMs: 30_000,
     spawn: (executable, args, options) => spawn(executable, args, options),
     onStdout: (chunk) => logger.log("DSH stdout", { chunk: chunk.trimEnd() }),
@@ -373,7 +371,6 @@ async function startDsh() {
 }
 
 function openMainWindow() {
-  if (!fileInputPreload) throw new Error("Cannot open PawWork before its resources are resolved")
   const win = createMainWindow({
     preload: fileInputPreload,
     dshUrl: () => dshUrl,

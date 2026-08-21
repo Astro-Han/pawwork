@@ -52,9 +52,9 @@ export function resolveDshPackagePath(options: ResolveDshPackagePathOptions) {
   )
 }
 
-// The one place the preload's location is known. The window needs it before the
-// product home has been prepared — it is created before DSH is asked to start —
-// and a second join() elsewhere would be a second authority on the same path.
+// The window is created before DSH is asked to start, so it needs the preload
+// path before prepareDshProductHome has run. Resolving it is pure path work; the
+// preparation below is not, which is why the two are separate.
 export function dshFileInputPreload(resources: string) {
   return join(resources, "product", "preload.cjs")
 }
@@ -80,7 +80,6 @@ export function prepareDshProductHome(options: PrepareDshProductHomeOptions) {
 
   return {
     home: options.productHome,
-    fileInputPreload: dshFileInputPreload(options.resources),
     patch: join(options.productHome, "product.cordis.patch.yml"),
     sidecarPreload: join(options.resources, "sidecar-preload.mjs"),
   }

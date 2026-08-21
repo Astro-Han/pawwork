@@ -8,6 +8,7 @@ import {
   startupPageTarget,
   type StartupPageState,
 } from "./startup-page"
+import { startupPageLabels } from "./startup-page-labels"
 
 const LOG_PATH = "/Users/pat/Library/Logs/PawWork/main.log"
 
@@ -127,19 +128,24 @@ describe("startup page", () => {
     expect(html).not.toContain("<img")
   })
 
-  test("names the cause it is reporting, in either locale", () => {
-    expect(startupPageHtml("en", failed({ reason: "startup" }))).toContain("PawWork Could Not Start")
-    expect(startupPageHtml("en", failed({ reason: "crash" }))).toContain("PawWork Stopped")
-    expect(startupPageHtml("zh", failed({ reason: "startup" }))).toContain("爪印无法启动")
-    expect(startupPageHtml("zh", failed({ reason: "crash" }))).toContain("爪印已停止")
+  // The wiring, not the wording: which cause and which locale reach the page.
+  // Asserting the copy literals here would only restate startup-page-labels and
+  // would break on every edit to it.
+  test("renders the copy for the cause and the locale it was given", () => {
+    for (const locale of ["en", "zh"] as const) {
+      const copy = startupPageLabels(locale).failed
+      // Splitting the two causes is only worth anything if they read
+      // differently; one sentence for both would satisfy the rest of this test.
+      expect(copy.startup.title).not.toBe(copy.crash.title)
+      expect(startupPageHtml(locale, failed({ reason: "startup" }))).toContain(copy.startup.title)
+      expect(startupPageHtml(locale, failed({ reason: "crash" }))).toContain(copy.crash.title)
+    }
   })
 
   test("offers a retry and a way to report from every failure", () => {
-    for (const locale of ["en", "zh"] as const) {
-      const html = startupPageHtml(locale, failed())
-      for (const action of ["retry", "report-issue", "show-log", "copy-details"]) {
-        expect(html).toContain(`href="${STARTUP_URL}${action}"`)
-      }
+    const html = startupPageHtml("en", failed())
+    for (const action of ["retry", "report-issue", "show-log", "copy-details"]) {
+      expect(html).toContain(`href="${STARTUP_URL}${action}"`)
     }
   })
 
@@ -149,15 +155,17 @@ describe("startup page", () => {
   test("confirms a copy in place of offering it again", () => {
     const html = startupPageHtml("zh", failed({ copied: true }))
 
+    // The confirmation is rendered by a reload, which collapses <details> unless
+    // it is reopened — so `open` is what makes the confirmation visible at all.
     expect(html).toContain("<details open>")
-    expect(html).toContain("已复制")
+    expect(html).toContain(startupPageLabels("zh").actions.copied)
     expect(html).not.toContain(`href="${STARTUP_URL}copy-details"`)
   })
 
   test("shows progress instead of a failure while the runtime is still starting", () => {
     const html = startupPageHtml("zh", { phase: "starting" })
 
-    expect(html).toContain("正在启动爪印")
+    expect(html).toContain(startupPageLabels("zh").starting.title)
     expect(html).toContain('role="progressbar"')
     expect(html).not.toContain(`href="${STARTUP_URL}retry"`)
   })
