@@ -122,6 +122,39 @@ describe("PawWork DSH client product layer", () => {
     expect(heroMark.props).toMatchObject({ viewBox: "0 0 64 64", width: 34, height: 34 })
   })
 
+  test("reports readiness from the committed product tree", () => {
+    const ready = vi.fn(() => {})
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
+      document: {
+        documentElement: { lang: "en" },
+        querySelector: () => null,
+        createElement: () => ({ dataset: {}, textContent: "" }),
+        head: { appendChild: () => {} },
+      },
+      window: { pawworkLifecycle: { ready } },
+    })
+    const plugin = definition.factory((name) => {
+      if (name === "react") return { createElement: () => null, useEffect: (effect: () => void) => effect(), useRef: () => ({ current: null }) }
+      throw new Error(`unexpected product client dependency: ${name}`)
+    })
+    let brandMark: ((props?: unknown) => unknown) | undefined
+
+    plugin.apply({
+      connection: { rpc: { call: vi.fn(async () => ({ ok: true, value: { phase: "done" } })) } },
+      effect: (effect: () => unknown) => effect(),
+      sessions: { refresh: vi.fn(async () => {}) },
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (options: { name?: string }, component: () => unknown) => {
+          if (options.name === "sidebar.brand.mark") brandMark = component
+        },
+      },
+    })
+    brandMark!({})
+
+    expect(ready).toHaveBeenCalledTimes(1)
+  })
+
   test("mounts the drag strip that reserves the native window chrome", () => {
     const appended: Array<{ className: string }> = []
     const style = { dataset: {} as Record<string, string>, textContent: "" }

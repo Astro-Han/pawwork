@@ -1,3 +1,5 @@
+import { delimiter } from "node:path"
+
 type DshReadableStream = {
   on(event: "data", listener: (data: Buffer | string) => void): unknown
   off(event: "data", listener: (data: Buffer | string) => void): unknown
@@ -41,8 +43,8 @@ type LaunchDshSidecarOptions = {
   onError?: (error: Error) => void
 }
 
-export type DshSidecar = {
-  url: string
+export type DshRun = {
+  ready: Promise<string>
   exited: Promise<number | null>
   stop(): Promise<void>
 }
@@ -66,7 +68,7 @@ export function withBundledToolsPath(env: NodeJS.ProcessEnv, toolsDir: string, s
   return result
 }
 
-export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshSidecar> {
+export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   const child = options.spawn(
     options.executable,
     [
@@ -101,99 +103,104 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshS
     })
   })
 
-  return new Promise<DshSidecar>((resolve, reject) => {
-    let stdoutBuffer = ""
-    let settled = false
-    let stopping: Promise<void> | undefined
-    let timeout: ReturnType<typeof setTimeout> | undefined
-    const stopTimeoutMs = options.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS
+  let stdoutBuffer = ""
+  let settled = false
+  let stopping: Promise<void> | undefined
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  let rejectReady!: (error: Error) => void
+  const stopTimeoutMs = options.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS
 
-    const waitForExit = () => {
-      if (exitedAlready) return Promise.resolve(true)
-      return new Promise<boolean>((resolveWait) => {
-        const waitTimeout = setTimeout(() => resolveWait(false), stopTimeoutMs)
-        void exited.then(() => {
-          clearTimeout(waitTimeout)
-          resolveWait(true)
-        })
+  const waitForExit = () => {
+    if (exitedAlready) return Promise.resolve(true)
+    return new Promise<boolean>((resolveWait) => {
+      const waitTimeout = setTimeout(() => resolveWait(false), stopTimeoutMs)
+      void exited.then(() => {
+        clearTimeout(waitTimeout)
+        resolveWait(true)
       })
-    }
+    })
+  }
 
-    const cleanupReadiness = () => {
-      if (timeout !== undefined) clearTimeout(timeout)
-      child.stdout?.off("data", onStdout)
-      child.off("exit", onEarlyExit)
-    }
+  const cleanupReadiness = () => {
+    if (timeout !== undefined) clearTimeout(timeout)
+    child.stdout?.off("data", onStdout)
+    child.off("exit", onEarlyExit)
+  }
 
-    const stopProcess = () => {
-      stopping ??= (async () => {
-        if (exitedAlready) return
-        try {
-          child.send("SIGTERM")
-        } catch {
-          child.kill()
-        }
-        if (await waitForExit()) return
-        if (!exitedAlready) child.kill("SIGKILL")
-        await waitForExit()
-      })()
-      return stopping
-    }
-
-    const fail = async (error: Error, terminate: boolean) => {
-      if (settled) return
-      settled = true
-      cleanupReadiness()
-      if (terminate && child.pid !== undefined) await stopProcess()
-      reject(error)
-    }
-
-    const onEarlyExit = (code: number | null) => {
-      void fail(new Error(`DSH exited before readiness ${describeExit(code)}`), false)
-    }
-
-    // Spawn failure — an unexecutable helper, a bad path, a process table that
-    // is full — arrives here rather than as a throw from spawn(), and it is the
-    // one failure where no child exists: readiness will never time out, and the
-    // exit event will never come, so this is the only signal there is. It stays
-    // attached past readiness because kill and send report their failures the
-    // same way, and dropping the listener would put the crash back.
-    const onSpawnError = (error: Error) => {
-      options.onError?.(error)
-      void fail(new Error(`DSH failed to start: ${error.message}`, { cause: error }), true)
-    }
-
-    const onStdout = (data: Buffer | string) => {
-      const chunk = data.toString()
-      options.onStdout?.(chunk)
-      stdoutBuffer += chunk
-
-      const lines = stdoutBuffer.split(/\r?\n/)
-      stdoutBuffer = lines.pop() ?? ""
-      for (const line of lines) {
-        const match = READY_LINE.exec(line)
-        if (!match) continue
+  const stopProcess = () => {
+    stopping ??= (async () => {
+      if (!settled) {
         settled = true
         cleanupReadiness()
-        resolve({
-          url: match[1],
-          exited,
-          stop() {
-            return stopProcess()
-          },
-        })
-        return
+        rejectReady(new Error("DSH stopped before readiness"))
       }
-    }
+      if (exitedAlready || child.pid === undefined) return
+      try {
+        child.send("SIGTERM")
+      } catch {
+        child.kill()
+      }
+      if (await waitForExit()) return
+      if (!exitedAlready) child.kill("SIGKILL")
+      await waitForExit()
+    })()
+    return stopping
+  }
 
-    child.stdout?.on("data", onStdout)
-    child.stderr?.on("data", (data: Buffer | string) => options.onStderr?.(data.toString()))
-    child.once("exit", onEarlyExit)
-    child.on("error", onSpawnError)
+  const fail = async (error: Error, terminate: boolean) => {
+    if (settled) return
+    settled = true
+    cleanupReadiness()
+    if (terminate && child.pid !== undefined) await stopProcess()
+    rejectReady(error)
+  }
 
-    timeout = setTimeout(() => {
-      void fail(new Error(`DSH did not announce readiness within ${options.timeoutMs}ms`), true)
-    }, options.timeoutMs)
+  const onEarlyExit = (code: number | null) => {
+    void fail(new Error(`DSH exited before readiness ${describeExit(code)}`), false)
+  }
+
+  // Spawn failure — an unexecutable helper, a bad path, a process table that
+  // is full — arrives here rather than as a throw from spawn(), and it is the
+  // one failure where no child exists: readiness will never time out, and the
+  // exit event will never come, so this is the only signal there is. It stays
+  // attached past readiness because kill and send report their failures the
+  // same way, and dropping the listener would put the crash back.
+  const onSpawnError = (error: Error) => {
+    options.onError?.(error)
+    void fail(new Error(`DSH failed to start: ${error.message}`, { cause: error }), true)
+  }
+
+  let resolveReady!: (url: string) => void
+  const ready = new Promise<string>((resolve, reject) => {
+    resolveReady = resolve
+    rejectReady = reject
   })
+
+  const onStdout = (data: Buffer | string) => {
+    const chunk = data.toString()
+    options.onStdout?.(chunk)
+    stdoutBuffer += chunk
+
+    const lines = stdoutBuffer.split(/\r?\n/)
+    stdoutBuffer = lines.pop() ?? ""
+    for (const line of lines) {
+      const match = READY_LINE.exec(line)
+      if (!match) continue
+      settled = true
+      cleanupReadiness()
+      resolveReady(match[1])
+      return
+    }
+  }
+
+  child.stdout?.on("data", onStdout)
+  child.stderr?.on("data", (data: Buffer | string) => options.onStderr?.(data.toString()))
+  child.once("exit", onEarlyExit)
+  child.on("error", onSpawnError)
+
+  timeout = setTimeout(() => {
+    void fail(new Error(`DSH did not announce readiness within ${options.timeoutMs}ms`), true)
+  }, options.timeoutMs)
+
+  return { ready, exited, stop: stopProcess }
 }
-import { delimiter } from "node:path"

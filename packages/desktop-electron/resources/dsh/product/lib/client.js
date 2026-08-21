@@ -158,6 +158,12 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     }
 
     function PawGloveMark({ size = 24, className }) {
+      // This mark is part of both wide and collapsed desktop shells. Its effect
+      // therefore marks the first committed product frame without observing DOM
+      // implementation details or treating the HTTP document load as usable UI.
+      useEffect(() => {
+        window.pawworkLifecycle?.ready()
+      }, [])
       return h("svg", { "aria-hidden": "true", className, height: size, viewBox: "0 0 64 64", width: size },
         h("g", { transform: GLOVE_TRANSFORM },
           gloveLayer(BRAND_NAVY, [GLOVE_SILHOUETTE], BRAND_NAVY, 25),
