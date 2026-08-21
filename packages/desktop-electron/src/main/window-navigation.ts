@@ -1,6 +1,10 @@
 export type DshNavigationDecision = "same-window" | "external" | "deny"
 
-export function decideDshNavigation(dshUrl: string, target: string): DshNavigationDecision {
+// The URL is optional because the window now outlives the runtime: it opens on
+// the local startup page before DSH has an origin, and goes back to that page
+// when DSH dies. With no origin to belong to, nothing belongs to it.
+export function decideDshNavigation(dshUrl: string | undefined, target: string): DshNavigationDecision {
+  if (dshUrl === undefined) return "deny"
   try {
     const dsh = new URL(dshUrl)
     const destination = new URL(target)
@@ -17,7 +21,7 @@ type OpenExternal = (target: string) => Promise<unknown>
 type LoadUrl = (target: string) => unknown
 
 export function guardDshNavigation(
-  dshUrl: string,
+  dshUrl: string | undefined,
   target: string,
   event: NavigationEvent,
   openExternal: OpenExternal,
@@ -35,7 +39,7 @@ export function guardDshNavigation(
 // privileged scheme must reach neither the window nor the browser — is testable
 // without an Electron window.
 export function handleDshWindowOpen(
-  dshUrl: string,
+  dshUrl: string | undefined,
   target: string,
   loadInSameWindow: LoadUrl,
   openExternal: OpenExternal,

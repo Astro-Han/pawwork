@@ -24,6 +24,13 @@ class FakeChildProcess extends EventEmitter implements DshChildProcess {
     return true
   }
 
+  // A spawn that never happened: Node reports it as an "error" event on a child
+  // that has no pid, no stdio activity, and no exit to come.
+  emitSpawnError(message = "spawn /app/PawWork EACCES") {
+    this.pid = undefined
+    this.emit("error", new Error(message))
+  }
+
   kill(signal?: NodeJS.Signals | number) {
     this.killed = true
     this.killCount += 1
@@ -150,6 +157,27 @@ describe("DSH sidecar lifecycle", () => {
     await sidecar.stop()
   })
 
+  // A signal kill has no exit code at all, and "code null" is not a status the
+  // failure page can put in front of anyone.
+  test("names a signal kill as the absence of a status rather than a null one", async () => {
+    const child = new FakeChildProcess()
+    const launched = launchDshSidecar({
+      executable: "/app/PawWork",
+      dshBin: "/app/dsh.js",
+      sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
+      productHome: "/data/dsh",
+      productPatch: "/data/dsh/product.cordis.patch.yml",
+      toolsDir: "/app/tools",
+      env: {},
+      timeoutMs: 100,
+      spawn: () => child,
+    })
+
+    child.emit("exit", null)
+
+    await expect(launched).rejects.toThrow("DSH exited before readiness without a status code")
+  })
+
   test("fails when the owned child process exits before announcing readiness", async () => {
     const child = new FakeChildProcess()
     const launched = launchDshSidecar({
@@ -166,7 +194,35 @@ describe("DSH sidecar lifecycle", () => {
 
     child.emit("exit", 23)
 
-    await expect(launched).rejects.toThrow("DSH exited before readiness (code 23)")
+    await expect(launched).rejects.toThrow("DSH exited before readiness with code 23")
+  })
+
+  // Without an "error" listener the EventEmitter rethrows the event as an
+  // uncaught exception in the main process: the app dies before this promise can
+  // settle, so the caller's catch never runs and nothing is ever reported.
+  test("fails the launch when the child process never spawns", async () => {
+    const child = new FakeChildProcess()
+    const errors: Error[] = []
+    const launched = launchDshSidecar({
+      executable: "/app/PawWork",
+      dshBin: "/app/dsh.js",
+      sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
+      productHome: "/data/dsh",
+      productPatch: "/data/dsh/product.cordis.patch.yml",
+      toolsDir: "/app/tools",
+      env: {},
+      timeoutMs: 100,
+      spawn: () => child,
+      onError: (error) => errors.push(error),
+    })
+
+    child.emitSpawnError()
+
+    await expect(launched).rejects.toThrow("DSH failed to start: spawn /app/PawWork EACCES")
+    expect(errors.map((error) => error.message)).toEqual(["spawn /app/PawWork EACCES"])
+    // There is no process behind a failed spawn, so nothing may be signalled at
+    // one: the pid is what says whether a child exists.
+    expect([child.messages, child.killSignals]).toEqual([[], []])
   })
 
   test("force-terminates the owned child process when readiness times out", async () => {

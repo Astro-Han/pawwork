@@ -9,9 +9,14 @@ export interface DshChildProcess {
   readonly pid?: number
   send(message: string): boolean
   kill(signal?: NodeJS.Signals | number): boolean
-  on(event: "exit", listener: (code: number) => void): this
-  once(event: "exit", listener: (code: number) => void): this
-  off(event: "exit", listener: (code: number) => void): this
+  // "error" is declared because it must be listened to, not because anything
+  // here wants it: an EventEmitter with no "error" listener rethrows the event
+  // as an uncaught exception, and in the main process that is the app dying
+  // before any promise this module returns can settle.
+  on(event: "exit", listener: (code: number | null) => void): this
+  on(event: "error", listener: (error: Error) => void): this
+  once(event: "exit", listener: (code: number | null) => void): this
+  off(event: "exit", listener: (code: number | null) => void): this
 }
 
 type SpawnDshProcess = (
@@ -33,12 +38,19 @@ type LaunchDshSidecarOptions = {
   spawn: SpawnDshProcess
   onStdout?: (chunk: string) => void
   onStderr?: (chunk: string) => void
+  onError?: (error: Error) => void
 }
 
 export type DshSidecar = {
   url: string
-  exited: Promise<number>
+  exited: Promise<number | null>
   stop(): Promise<void>
+}
+
+// Node reports a signal kill as a null code, so "code null" is what a plain
+// interpolation puts in front of the user. It is not a status; say so.
+export function describeExit(code: number | null) {
+  return code === null ? "without a status code" : `with code ${code}`
 }
 
 const READY_LINE = /^dsh web: (http:\/\/127\.0\.0\.1:\d+)(?: \(|$)/
@@ -82,7 +94,7 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshS
   )
 
   let exitedAlready = false
-  const exited = new Promise<number>((resolve) => {
+  const exited = new Promise<number | null>((resolve) => {
     child.once("exit", (code) => {
       exitedAlready = true
       resolve(code)
@@ -136,8 +148,19 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshS
       reject(error)
     }
 
-    const onEarlyExit = (code: number) => {
-      void fail(new Error(`DSH exited before readiness (code ${code})`), false)
+    const onEarlyExit = (code: number | null) => {
+      void fail(new Error(`DSH exited before readiness ${describeExit(code)}`), false)
+    }
+
+    // Spawn failure — an unexecutable helper, a bad path, a process table that
+    // is full — arrives here rather than as a throw from spawn(), and it is the
+    // one failure where no child exists: readiness will never time out, and the
+    // exit event will never come, so this is the only signal there is. It stays
+    // attached past readiness because kill and send report their failures the
+    // same way, and dropping the listener would put the crash back.
+    const onSpawnError = (error: Error) => {
+      options.onError?.(error)
+      void fail(new Error(`DSH failed to start: ${error.message}`, { cause: error }), true)
     }
 
     const onStdout = (data: Buffer | string) => {
@@ -166,6 +189,7 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): Promise<DshS
     child.stdout?.on("data", onStdout)
     child.stderr?.on("data", (data: Buffer | string) => options.onStderr?.(data.toString()))
     child.once("exit", onEarlyExit)
+    child.on("error", onSpawnError)
 
     timeout = setTimeout(() => {
       void fail(new Error(`DSH did not announce readiness within ${options.timeoutMs}ms`), true)
