@@ -211,44 +211,13 @@ describe("PawWork DSH client product layer", () => {
     expect(setDraft).toHaveBeenCalledWith('请总结\n\n文件：\n- "/tmp/notes.md"')
   })
 
-  // v1 迁移在后台把冷会话逐条写进持久化，而客户端只在连接/重连时拉取冷列表：
-  // 迁移结束的那一刻侧边栏不会自己更新。宿主的 import-v1 插件在
-  // /pawwork-import-v1 暴露 phase。这里钉住「等到 phase 离开 running，就补一次
-  // 权威列表读取，然后停」的契约——不是「轮询到某个时刻就刷一次」。
-  test("refreshes the session list once the v1 import settles", async () => {
-    const timers: Array<() => void> = []
-    const plugin = loadPlugin(timers)
-    const remainingPhases = ["running", "done"]
-    const visibleSessionIds: string[] = []
-    const call = vi.fn(async () => ({
-      ok: true,
-      value: { phase: remainingPhases.shift(), sessionId: "pawwork-v1-session" },
-    }))
-    const refresh = vi.fn(async () => {
-      if (refresh.mock.calls.length === 2) visibleSessionIds.push("pawwork-v1-session")
-    })
-    plugin.apply(applyWatcher({ call, refresh, sessionIds: () => visibleSessionIds }))
-
-    await new Promise((resolve) => setImmediate(resolve))
-    expect(call).toHaveBeenCalledTimes(1)
-    expect(call).toHaveBeenCalledWith("/pawwork-import-v1", "status", {})
-    expect(refresh).not.toHaveBeenCalled()
-
-    timers.shift()!()
-    await new Promise((resolve) => setImmediate(resolve))
-    expect(call).toHaveBeenCalledTimes(2)
-    // 完成信号出现后必须读一次权威列表，而不是只在途的一次。
-    expect(refresh).toHaveBeenCalledTimes(2)
-    // Completion is terminal: no further poll is scheduled.
-    expect(timers).toHaveLength(0)
-  })
-
   // 传输层失败不是完成信号：旧后端没有这个通道、宿主重启窗口都只是瞬时的，
   // 客户端必须继续等，而不是数满几次失败就放弃、让侧边栏停在旧列表上。
-  test("waits through transport failures until the import settles", async () => {
+  test("backs off repeated transport failures and recovers without giving up", async () => {
     const timers: Array<() => void> = []
-    const plugin = loadPlugin(timers)
-    let failuresLeft = 2
+    const delays: number[] = []
+    const plugin = loadPlugin(timers, delays)
+    let failuresLeft = 20
     const call = vi.fn(async () => {
       if (failuresLeft > 0) {
         failuresLeft -= 1
@@ -263,42 +232,14 @@ describe("PawWork DSH client product layer", () => {
     plugin.apply(applyWatcher({ call, refresh, sessionIds: () => visibleSessionIds }))
 
     await new Promise((resolve) => setImmediate(resolve))
-    // 第一次调用即失败：不停止、不刷新，只排下一轮。
-    expect(call).toHaveBeenCalledTimes(1)
-    expect(refresh).not.toHaveBeenCalled()
-    expect(timers).toHaveLength(1)
-
-    timers.shift()!()
-    await new Promise((resolve) => setImmediate(resolve))
-    expect(call).toHaveBeenCalledTimes(2)
-    expect(refresh).not.toHaveBeenCalled()
-    expect(timers).toHaveLength(1)
-
-    timers.shift()!()
-    await new Promise((resolve) => setImmediate(resolve))
-    expect(call).toHaveBeenCalledTimes(3)
-    // 失败结束后恢复正常：完成信号触发权威刷新，然后停。
-    expect(refresh).toHaveBeenCalledTimes(2)
-    expect(timers).toHaveLength(0)
-  })
-
-  test("backs off repeated transport failures without giving up", async () => {
-    const timers: Array<() => void> = []
-    const delays: number[] = []
-    const plugin = loadPlugin(timers, delays)
-    const call = vi.fn(async () => { throw new Error("status channel unavailable") })
-    const refresh = vi.fn(async () => {})
-    plugin.apply(applyWatcher({ call, refresh }))
-
-    await new Promise((resolve) => setImmediate(resolve))
     for (let retry = 0; retry < 20; retry += 1) {
       timers.shift()!()
       await new Promise((resolve) => setImmediate(resolve))
     }
 
     expect(call).toHaveBeenCalledTimes(21)
-    expect(refresh).not.toHaveBeenCalled()
-    expect(timers).toHaveLength(1)
+    expect(refresh).toHaveBeenCalledTimes(2)
+    expect(timers).toHaveLength(0)
     expect(delays.slice(0, 6)).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 30_000])
     expect(delays.at(-1)).toBe(30_000)
   })
@@ -326,9 +267,9 @@ describe("PawWork DSH client product layer", () => {
     expect(timers).toHaveLength(0)
   })
 
-  // refreshList 单飞复用仍在途的拉取，完成信号出现时可能还挂着一条迁移前的旧
-  // 拉取；所以要读两次：第一次等在途的 settle，第二次才是必然全新的权威读取。
-  test("issues a fresh authoritative read after any in-flight refresh settles", async () => {
+  // 迁移运行时不读冷列表。完成后 refreshList 可能单飞复用仍在途的旧拉取；
+  // 所以要读两次：第一次等在途的 settle，第二次才是必然全新的权威读取。
+  test("waits for v1 import completion before issuing a fresh authoritative read", async () => {
     const timers: Array<() => void> = []
     const plugin = loadPlugin(timers)
     // 第一次 refresh 停在在途不 resolve；第二次才开始新的拉取。
@@ -337,19 +278,28 @@ describe("PawWork DSH client product layer", () => {
     const visibleSessionIds: string[] = []
     refresh.mockImplementationOnce(() => new Promise<void>((resolve) => { firstInFlight = resolve }))
     refresh.mockImplementation(async () => { visibleSessionIds.push("pawwork-v1-session") })
+    const remainingPhases = ["running", "done"]
     const call = vi.fn(async () => ({
       ok: true,
-      value: { phase: "done", sessionId: "pawwork-v1-session" },
+      value: { phase: remainingPhases.shift(), sessionId: "pawwork-v1-session" },
     }))
     plugin.apply(applyWatcher({ call, refresh, sessionIds: () => visibleSessionIds }))
 
     await new Promise((resolve) => setImmediate(resolve))
     expect(call).toHaveBeenCalledTimes(1)
+    expect(call).toHaveBeenCalledWith("/pawwork-import-v1", "status", {})
+    expect(refresh).not.toHaveBeenCalled()
+    expect(timers).toHaveLength(1)
+
+    timers.shift()!()
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(call).toHaveBeenCalledTimes(2)
     expect(refresh).toHaveBeenCalledTimes(1)
     // 第一条在途：权威读取必须等它 settle，而不是并发。
     firstInFlight()
     await new Promise((resolve) => setImmediate(resolve))
     expect(refresh).toHaveBeenCalledTimes(2)
+    expect(timers).toHaveLength(0)
   })
 
   test("does not start the authoritative read after disposal", async () => {
