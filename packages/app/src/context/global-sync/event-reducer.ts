@@ -69,12 +69,8 @@ export function applyGlobalEvent(input: {
   event: { type: string; properties?: unknown }
   project: Project[]
   setGlobalProject: (next: Project[] | ((draft: Project[]) => void)) => void
-  refresh: (force?: boolean) => void
+  refresh: () => void
 }) {
-  if (input.event.type === "models.dev.refreshed") {
-    input.refresh(true)
-    return
-  }
   if (input.event.type === "global.disposed" || input.event.type === "server.connected") {
     input.refresh()
     return

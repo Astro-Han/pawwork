@@ -180,20 +180,6 @@ describe("applyGlobalEvent", () => {
 
     expect(refreshCount).toBe(1)
   })
-
-  test("handles models.dev.refreshed by forcing a provider refresh", () => {
-    const refreshes: Array<boolean | undefined> = []
-    applyGlobalEvent({
-      event: { type: "models.dev.refreshed" },
-      project: [],
-      refresh: (force) => {
-        refreshes.push(force)
-      },
-      setGlobalProject() {},
-    })
-
-    expect(refreshes).toEqual([true])
-  })
 })
 
 describe("applyDirectoryEvent", () => {

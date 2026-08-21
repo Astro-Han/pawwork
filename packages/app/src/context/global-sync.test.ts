@@ -4,6 +4,7 @@ import { createStore } from "solid-js/store"
 import { canAcceptSessionTodo, setSessionTodoSnapshot, type GlobalStore, type SessionTodoSnapshot } from "./global-sync"
 import { canDisposeDirectory, pickDirectoriesToEvict } from "./global-sync/eviction"
 import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global-sync/session-load"
+import { createRefreshQueue } from "./global-sync/queue"
 
 const globalStoreFixture = (): GlobalStore => ({
   ready: true,
@@ -184,5 +185,28 @@ describe("canDisposeDirectory", () => {
         loadingSessions: false,
       }),
     ).toBe(true)
+  })
+})
+
+describe("global refresh queue", () => {
+  test("refreshes root before every mounted directory", async () => {
+    const calls: string[] = []
+    const queue = createRefreshQueue({
+      paused: () => false,
+      bootstrap: async () => {
+        calls.push("global")
+      },
+      bootstrapInstance: async (directory) => {
+        calls.push(directory)
+      },
+    })
+
+    queue.refreshAll(["project-a", "project-b"])
+    for (let attempt = 0; attempt < 5 && calls.length < 3; attempt++) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    }
+
+    expect(calls).toEqual(["global", "project-a", "project-b"])
+    queue.dispose()
   })
 })

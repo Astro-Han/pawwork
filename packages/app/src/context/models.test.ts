@@ -159,6 +159,7 @@ describe("createModelsView scopes to the providers it is given", () => {
       const noHidden = () => new Map<string, "show" | "hide">()
       const recent = DateTime.now().minus({ months: 1 }).toISODate()!
       const older = DateTime.now().minus({ months: 2 }).toISODate()!
+      const old = DateTime.now().minus({ months: 7 }).toISODate()!
       const view = createModelsView(
         fakeProviders([
           {
@@ -177,24 +178,37 @@ describe("createModelsView scopes to the providers it is given", () => {
           },
           {
             providerID: "opencode",
-            modelID: "ox-alpha-free",
-            family: "",
+            modelID: "x-preview-f-free",
             releaseDate: older,
             inputCost: 0,
           },
           {
             providerID: "opencode",
             modelID: "newer-unrelated-model",
-            family: "",
             releaseDate: recent,
             inputCost: 1,
+          },
+          {
+            providerID: "opencode",
+            modelID: "big-pickle",
+            family: "big-pickle",
+            releaseDate: old,
+            inputCost: 0,
           },
         ]),
         noHidden,
       )
 
-      expect(view.visible({ providerID: "opencode", modelID: "nemotron-3-ultra-free" })).toBe(true)
-      expect(view.visible({ providerID: "opencode", modelID: "ox-alpha-free" })).toBe(true)
+      const visibleFreeModels = view
+        .list()
+        .filter((model) => model.cost?.input === 0)
+        .filter((model) => view.visible({ providerID: model.provider.id, modelID: model.id }))
+        .map((model) => model.id)
+        .sort()
+
+      expect(visibleFreeModels).toEqual(
+        ["big-pickle", "nemotron-3-ultra-free", "nemotron-3.5-lightning-free", "x-preview-f-free"].sort(),
+      )
 
       dispose()
     })

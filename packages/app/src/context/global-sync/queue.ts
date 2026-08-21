@@ -72,6 +72,10 @@ export function createRefreshQueue(input: QueueInput) {
   return {
     push,
     refresh,
+    refreshAll(directories: string[]) {
+      refresh()
+      for (const directory of directories) push(directory)
+    },
     clear(directory: string) {
       queued.delete(directory)
     },
