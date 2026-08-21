@@ -32,7 +32,7 @@ describe("e2e artifacts workflow", () => {
     const validateStep = checkSteps.find((step) => step.name === "Validate e2e-artifacts result")
 
     expect(parsed.name).toBe("e2e-artifacts")
-    expect(parsed.on?.pull_request).toEqual({ branches: ["dev"] })
+    expect(parsed.on?.pull_request).toEqual({ branches: ["maint/v1"] })
     expect(parsed.on?.workflow_dispatch).toEqual({
       inputs: {
         suite: {
