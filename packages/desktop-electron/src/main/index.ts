@@ -224,7 +224,7 @@ async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed
     const owner = BrowserWindow.getFocusedWindow() ?? liveWindows()[0]
     const result = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options)
     if (result.response === 0) {
-      showStartupPage()
+      focusMainWindow(true)
       lifecycle.start()
       return
     }
