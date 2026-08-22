@@ -5,14 +5,15 @@ window.__ModuleLoader__.load({
     const h = createElement
 
     const productCss = `
-/* 无边框窗口里没有原生标题栏可抓，这条顶带是窗口唯一的拖拽区；它同时替原生窗口
-   控件（macOS 交通灯、Windows overlay 按钮）占住它们画进内容坐标系的那一行。
-   Windows 由 Chromium 自己把 overlay 的真实几何写进 env(titlebar-area-*)，全屏和
-   DPI 缩放都跟着走；macOS 没有这个原语（titleBarOverlay 在那边不生效），由主进程
-   发布 --pawwork-titlebar-host-height。两个变量角色不同：host 的是宿主给的值，
-   下面这一行把它解析成最终值 —— 用 var() 的回退链而不是靠样式表顺序或选择器权重
-   压过彼此，注入时机和插入位置都不再影响结果。Linux 保留系统标题栏，两边都不给，
-   回退到 0px 自动失效。所有需要让位的规则都读解析后的那一个变量。 */
+/* A frameless window has no native title bar to grab: this strip is the window's only drag region,
+   and it reserves the row the native controls (macOS traffic lights, Windows overlay buttons) paint
+   into the content coordinate system. On Windows Chromium publishes the overlay's real geometry in
+   env(titlebar-area-*), which tracks fullscreen and DPI scaling; macOS has no such primitive
+   (titleBarOverlay does nothing there), so the main process publishes --pawwork-titlebar-host-height.
+   The line below resolves whichever the host supplies through a var() fallback chain instead of
+   stylesheet order or selector weight, so injection timing and insertion point stop mattering. Linux
+   keeps its system title bar and supplies neither, falling back to 0px. Every rule that has to yield
+   space reads the resolved variable. */
 :root { --pawwork-titlebar-height: var(--pawwork-titlebar-host-height, env(titlebar-area-height, 0px)); }
 #root { box-sizing: border-box; padding-top: var(--pawwork-titlebar-height, 0px); }
 .pawwork-titlebar {
@@ -20,9 +21,10 @@ window.__ModuleLoader__.load({
   height: var(--pawwork-titlebar-height, 0px);
   left: 0; position: fixed; right: 0; top: 0;
 }
-/* DSH 的断线重连横幅是 position: fixed; top: 0，不在 #root 的盒子里，padding 推不动
-   它，会整条落进原生控件带下面。同一个变量再用一次即可。选择器锚在 CSS-modules 的
-   前缀上（hash 会随版本变，前缀不会）；代码块横幅同名但不是定位元素，top 对它无效。 */
+/* The DSH reconnect banner is position: fixed; top: 0, outside #root's box, so padding cannot push
+   it and it would sit under the native control row. Reusing the same variable is enough. The selector
+   anchors on the CSS-modules prefix (the hash changes per version, the prefix does not); the code
+   block banner shares that name but is not positioned, so top does nothing to it. */
 [class*="_banner_"] { top: var(--pawwork-titlebar-height, 0px); }
 .pawwork-file-action {
   align-items: center; background: transparent; border: 0; border-radius: 6px;
@@ -32,19 +34,19 @@ window.__ModuleLoader__.load({
 .pawwork-file-action:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .pawwork-file-action:focus-visible { outline: 2px solid #fc5c14; outline-offset: 1px; }
 .pawwork-file-action:disabled { cursor: default; opacity: 0.45; }
-/* Hero 的标题与「预览版」角标是 DSH 自带文案。rc.8 的 locale registry 对重复
-   命名空间直接抛错，没有公开覆盖点，所以锚在 SlotOutlet 的 data-slot 上做视觉
-   替换 —— data-slot 是稳定的可寻址属性，不像构建产物的哈希类名会随版本变。
-   line-height 必须一起归零：只清 font-size 会留下 32px 的行高撑大行盒，把
-   整行文字相对 mark 上移 4.5px。 */
+/* The hero headline and the preview badge are DSH's own copy. The rc.8 locale registry throws on a
+   duplicate namespace and exposes no override point, so the replacement is visual and anchored on
+   SlotOutlet's data-slot — a stable addressable attribute, unlike build-hashed class names.
+   line-height has to be zeroed too: clearing font-size alone leaves a 32px line box that lifts the
+   whole line 4.5px relative to the mark. */
 span:has(> [data-slot="conversation.hero.brand.mark"]) + span { font-size: 0; line-height: 0; }
 span:has(> [data-slot="conversation.hero.brand.mark"]) + span::before { content: "What's first today?"; font-size: 26px; line-height: 32px; }
 html[lang^="zh"] span:has(> [data-slot="conversation.hero.brand.mark"]) + span::before { content: "今天从哪件事开始？"; }
 span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: none; }
-/* Hero mark 的悬停摆动。DSH 的 hero-fish-swim 是按鱼调的小幅度（±1px / -5°~3°），
-   爪印是只手套，挥手的左右幅度要大得多才读得出来。同样锚 data-slot，选择器权重
-   0,3,2 高于 DSH 的 0,3,0，直接覆盖 animation 简写。transform-origin 沿用 DSH 的
-   50% 60%，只改幅度不改性格。 */
+/* Hover wiggle for the hero mark. DSH's hero-fish-swim is tuned for a fish and stays small
+   (±1px, -5° to 3°); PawWork's mark is a glove, and a wave needs far more lateral travel to
+   read. Same data-slot anchor; selector weight 0,3,2 beats DSH's 0,3,0 and overrides the animation
+   shorthand outright. transform-origin keeps DSH's 50% 60% — only the amplitude changes. */
 @keyframes pawwork-hero-mark-swim {
   0%, 100% { transform: translate(0) rotate(0deg); }
   35% { transform: translate(-3px, -1.5px) rotate(-13deg); }
@@ -105,10 +107,11 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
         icon(["M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"]))
     }
 
-    // --- 爪印手套 mark -------------------------------------------------------
-    // 描自品牌应用图标：橙色手套体、米白肉垫与袖口、藏蓝外圈。袖口另画一份上移
-    // 副本，把它从原图的 19% 高度撑到约 29%，否则 24px 侧边栏里手套语义会塌成纯爪。
-    // 路径坐标空间是 0..6270，由 GLOVE_TRANSFORM 映射进 64x64 viewBox。
+    // --- PawWork glove mark --------------------------------------------------
+    // Traced from the brand app icon: orange glove body, cream pads and cuff, navy outline. The cuff
+    // is drawn a second time, shifted up, to grow it from 19% of the source height to roughly 29% —
+    // otherwise the glove collapses into a bare paw in the 24px sidebar. Path coordinates live in a
+    // 0..6270 space that GLOVE_TRANSFORM maps into the 64x64 viewBox.
     const BRAND_ORANGE = "#fc5c14"
     const BRAND_NAVY = "#1a2d5a"
     const BRAND_CREAM = "#faf6f1"
@@ -180,11 +183,12 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
 
     function BrandName() { return text("爪印", "PawWork") }
 
-    // v1 迁移是后台任务：它把冷会话逐条写进持久化，而客户端只在连接/重连时
-    // 拉取一次冷列表，迁移结束的时刻没人再刷新，侧边栏就停在旧列表上。宿主的
-    // import-v1 插件在 /pawwork-import-v1 暴露 session 阶段与最后一个已持久化
-    // session marker。完成后双读跨过 refreshList 的单飞屏障；只有 marker 已进入
-    // 公开 list 快照才算权威列表安装成功，否则退避后重试。
+    // The v1 import is a background job: it writes cold sessions into persistence one at a time,
+    // while the client fetches the cold list only on connect and reconnect. Nothing refreshes when
+    // the import finishes, so the sidebar keeps the old list. The host's import-v1 plugin exposes the
+    // session phase and the last persisted session marker at /pawwork-import-v1. On completion two
+    // reads clear refreshList's single-flight barrier; the authoritative list only counts as
+    // installed once the marker appears in the public list snapshot, otherwise back off and retry.
     const IMPORT_POLL_INTERVAL_MS = 1_000
     const IMPORT_POLL_MAX_RETRY_MS = 30_000
 
@@ -227,9 +231,9 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
           schedule(IMPORT_POLL_INTERVAL_MS)
           return
         }
-        // 离开 running 即完成。refreshList 单飞复用仍在途的拉取——完成信号出现
-        // 时可能还挂着一条迁移前的旧列表——所以读两次：第一次等在途的 settle，
-        // 第二次才是必然在完成屏障之后发起的权威读取。
+        // Leaving running means done. refreshList reuses a still in-flight fetch, which when the
+        // completion signal arrives may still be carrying the pre-import list, so read twice: the
+        // first waits for that fetch to settle, the second is guaranteed to start after the barrier.
         await sessions.refresh()
         if (stopped) return
         await sessions.refresh()
@@ -250,8 +254,8 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawGloveMark))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))
       ctx.slots.inject("conversation.input.left", () => ctx.slots.register({ name: "conversation.input.left", id: "pawwork-files", order: -100 }, FileAction))
-      // 轮询器随插件而止：dispose（HMR / 重新登录）时清掉定时器，不再对已销毁的
-      // fiber 发起 status / refresh 调用。
+      // The poller stops with the plugin: dispose (HMR, re-login) clears the timer so no status or
+      // refresh call is fired at a destroyed fiber.
       ctx.effect(() => watchV1Import(ctx))
     }
 

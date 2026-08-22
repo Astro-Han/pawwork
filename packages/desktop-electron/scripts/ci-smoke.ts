@@ -291,12 +291,12 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     })
     const brandNodes = ["sidebar.brand.mark", "sidebar.brand.name"].flatMap(slotContent).filter(visible)
     const sidebarBrandVisible = brandNodes.length > 0
-    // 空数组时 Math.min 是 Infinity，JSON 化后变成 null，>= 比较会静默通过。
+    // Math.min of an empty array is Infinity, which JSON-serialises to null and lets >= pass silently.
     const sidebarBrandTop = brandNodes.length
       ? Math.min(...brandNodes.map((node) => node.getBoundingClientRect().top))
       : -1
-    // 品牌名槽位渲染的是纯字符串，也就是文本节点 —— slotContent 只选元素后代，
-    // 匹配不到任何东西。单独读文本，否则这条槽位回归 null 也不会红。
+    // The brand-name slot renders a bare string, i.e. a text node, and slotContent only selects
+    // element descendants. Read the text separately or a regression to null here stays green.
     const sidebarBrandName = (document.querySelector('[data-slot="sidebar.brand.name"]')?.textContent || "").trim()
     const titlebarStrip = document.querySelector(".pawwork-titlebar")
     const titlebarStripHeight = titlebarStrip ? titlebarStrip.getBoundingClientRect().height : -1
@@ -304,8 +304,9 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       && getComputedStyle(titlebarStrip).getPropertyValue("-webkit-app-region").trim() === "drag"
     const appRoot = document.getElementById("root")
     const contentInsetHeight = appRoot ? Number.parseFloat(getComputedStyle(appRoot).paddingTop) : -1
-    // Hero 是品牌标识唯一的落点：mark、覆盖后的标题、以及被隐藏的 DSH「预览版」角标。
-    // 只断言覆盖机制是否还在生效，不锁死具体文案 —— rc.7→rc.8 悄悄失效的正是机制。
+    // The hero is the only place the brand lands: mark, overridden headline, and the hidden DSH
+    // preview badge. Assert that the override still fires rather than pinning the copy — the
+    // mechanism is what broke silently between rc.7 and rc.8.
     const heroMark = document.querySelector('[data-slot="conversation.hero.brand.mark"] > svg')
     const heroHeadline = heroMark?.parentElement?.parentElement?.nextElementSibling
     const heroBadge = heroHeadline?.nextElementSibling
@@ -414,9 +415,9 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     await new Promise((resolve) => setTimeout(resolve, 50))
     const collapseToggles = sidebarToggles()
     collapseToggles[0]?.click()
-    // 折叠轨道是重新挂载的，data-sidebar-collapsed 会先于按钮出现；等按钮真正
-    // 就位再量，否则慢一点的机器上量到的是过渡中的空态。空壳按钮仍然有 36×36
-    // 的盒子，所以这个循环不会替真正的缺陷兜底 —— 那条由 hasContent 单独盯。
+    // The collapsed rail remounts, so data-sidebar-collapsed lands before the button does; wait
+    // for the button itself or a slower machine measures the mid-transition empty state. An empty
+    // shell button still has a 36x36 box, so this loop cannot mask the real defect — hasContent does.
     let expandToggles = []
     for (let frame = 0; frame < 60; frame += 1) {
       await new Promise((resolve) => setTimeout(resolve, 16))
@@ -425,8 +426,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     }
     const sidebarCollapsed = Boolean(document.querySelector("[data-sidebar-collapsed]"))
     const sidebarExpandToggleUsable = usable(expandToggles[0])
-    // 折叠态下 DSH 把品牌 mark 当作展开按钮的图标，悬停才换成面板图标。品牌槽位
-    // 一旦留空，这颗按钮就是个看不见的空壳 —— 这里盯的就是那种空壳。
+    // Collapsed, DSH uses the brand mark as the expand button's icon and swaps in the panel icon
+    // on hover. An empty brand slot leaves an invisible shell button, which is what this catches.
     const sidebarExpandToggleHasContent = Boolean(expandToggles[0])
       && Array.from(expandToggles[0].querySelectorAll("*")).some(visible)
     expandToggles[0]?.click()
@@ -559,9 +560,9 @@ export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: st
   const restored = await evaluateCiSmokeJson(target, expression) as string[]
   if (restored.includes(sessionId)) return
 
-  // 这条断言只在重启后失败一次就没有第二次机会：进程已经换了一个，现场只剩磁盘。
-  // 所以失败信息要自带现场 —— 重启后实际读回哪些会话，以及 DSH home 里到底躺着
-  // 什么文件。区分「根本没写」和「写了但没读回来」全靠这两样。
+  // This assertion gets one shot: the process that wrote is gone and only the disk is left, so the
+  // message has to carry the scene — which sessions came back, and what sits in the DSH home. Those
+  // two are what separate "never written" from "written but not read back".
   throw new Error([
     `DSH session ${sessionId} did not survive desktop restart`,
     `sessions before restart: ${listedBefore.length ? listedBefore.join(", ") : "(none)"}`,
@@ -616,10 +617,11 @@ function describeDirectory(dir: string, prefix = "  "): string {
 }
 
 export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform: NodeJS.Platform = process.platform) {
-  // 原生窗口控件画在内容坐标系里，顶带是唯一声明这块安全区的地方。断言的是**关系**
-  // 而不是某个数字：数字在 Windows 上由 Chromium 的 env(titlebar-area-height) 决定，
-  // 在 macOS 上由主进程决定，这里再写一遍就又多一个手写权威。frameless 取自
-  // window-options 的无边框决定 —— 它和高度不同源，所以两边发散会红。
+  // Native window controls are painted in the content coordinate system, and the strip is the only
+  // declaration of that safe area. Assert the relationship, not a number: the number comes from
+  // Chromium's env(titlebar-area-height) on Windows and from the main process on macOS, so
+  // restating it here would add a second hand-written authority. frameless comes from the
+  // window-options frameless decision — a different source than the height, so divergence goes red.
   const frameless = "titleBarStyle" in dshTitleBarOptions(platform)
   const failures = [
     snapshot.sidebarBrandVisible ? null : "PawWork sidebar brand is not rendered",
@@ -837,8 +839,8 @@ async function main() {
       product = await inspectCiSmokeProduct(cdpTarget, homeDir)
       assertCiSmokeProduct(product)
       console.log("CI smoke verified DSH product UI, free model, and bundled skills")
-      // 关停前的快照。和失败信息里那张重启后的对照，才能把「会话根本没写成」
-      // 和「写成了但没读回来」分开 —— 只看重启后那一张，两者长得一模一样。
+      // Snapshot before shutdown. Paired with the post-restart one in the failure message it tells
+      // "never written" apart from "written but not read back"; the later snapshot alone cannot.
       await waitForSessionOnDisk(dshHome, product.sessionId)
       console.log(`CI smoke sessions before shutdown: ${product.sessionIdsBeforeRestart.join(", ") || "(none)"}`)
       console.log(`CI smoke session files before shutdown:\n${describeDirectory(join(dshHome, "sessions"))}`)
