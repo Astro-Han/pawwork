@@ -1,9 +1,8 @@
 import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { isAbsolute, join } from "node:path"
 
-// DSH credential documents are versioned since dsh 0.1.1-rc.1: `refs:` maps ref
-// names to values, `records:` holds login state. Boot still migrates the old flat
-// map in place, but seeding the target format skips that migration entirely.
+// Boot migrates a pre-0.1.1-rc.1 flat credential map into `version: 1` in place, so seeding the
+// versioned form directly is what keeps a fresh product home out of that migration.
 const PUBLIC_CREDENTIAL = 'version: 1\nrefs:\n  OPENCODE_API_KEY: "public"\n'
 const DROPPED_MODEL_ENVIRONMENT = [
   "OPENCODE_API_KEY",

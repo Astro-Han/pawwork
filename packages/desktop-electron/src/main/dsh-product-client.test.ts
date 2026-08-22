@@ -7,8 +7,6 @@ const repositoryRoot = resolve(import.meta.dirname, "../../../..")
 const productRoot = resolve(repositoryRoot, "packages/desktop-electron/resources/dsh/product")
 
 describe("PawWork DSH client product layer", () => {
-  // Shared watcher scaffold: fake timers drive the polling cadence and a fake context
-  // pins the rpc/sessions contract, so each test only declares what it cares about.
   function loadPlugin(timers: Array<() => void>, delays: number[] = []) {
     const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
       document: {
@@ -115,8 +113,6 @@ describe("PawWork DSH client product layer", () => {
       "conversation.hero.brand.mark",
     ])
     expect(brandEntries.every((entry) => entry.options.priority === -100)).toBe(true)
-    // The drag strip already reserves the top-left corner for the native window
-    // controls, so the sidebar brand renders identically on every platform.
     const sidebarMark = brandEntries[0].component({ size: 24 }) as { type: string; props: Record<string, unknown> }
     expect(sidebarMark.type).toBe("svg")
     expect(sidebarMark.props).toMatchObject({ viewBox: "0 0 64 64", width: 24, height: 24 })
@@ -149,9 +145,6 @@ describe("PawWork DSH client product layer", () => {
 
     // The strip must be a real element: -webkit-app-region does nothing on pseudo-elements.
     expect(appended.map((node) => node.className)).toEqual(["pawwork-titlebar"])
-    // Every rule that yields space reads the same variable instead of a second hardcoded
-    // number, and the variable comes only from the platform: Chromium's
-    // env(titlebar-area-height) on Windows, a main-process override on macOS.
     expect(style.textContent).toContain("-webkit-app-region: drag")
     expect(style.textContent).toContain("padding-top: var(--pawwork-titlebar-height, 0px)")
     expect(style.textContent).toContain('[class*="_banner_"] { top: var(--pawwork-titlebar-height, 0px); }')
@@ -218,9 +211,8 @@ describe("PawWork DSH client product layer", () => {
     expect(setDraft).toHaveBeenCalledWith('请总结\n\n文件：\n- "/tmp/notes.md"')
   })
 
-  // A transport failure is not a completion signal — an older backend without this channel
-  // and a host restart are both transient — so the client keeps waiting instead of giving
-  // up after N failures and stranding the sidebar on a stale list.
+  // An old backend without this channel and a host restart are both transient, so a transport
+  // failure must not be read as completion.
   test("backs off repeated transport failures and recovers without giving up", async () => {
     const timers: Array<() => void> = []
     const delays: number[] = []
@@ -275,13 +267,9 @@ describe("PawWork DSH client product layer", () => {
     expect(timers).toHaveLength(0)
   })
 
-  // The migration runtime never reads the cold list, and after it completes refreshList may
-  // ride along on a still in-flight fetch. Hence two reads: the first waits for that fetch to
-  // settle, the second is the guaranteed-fresh authoritative one.
   test("waits for v1 import completion before issuing a fresh authoritative read", async () => {
     const timers: Array<() => void> = []
     const plugin = loadPlugin(timers)
-    // The first refresh stays in flight and never resolves; only the second fetches again.
     const refresh = vi.fn()
     let firstInFlight: () => void = () => {}
     const visibleSessionIds: string[] = []
@@ -304,7 +292,6 @@ describe("PawWork DSH client product layer", () => {
     await new Promise((resolve) => setImmediate(resolve))
     expect(call).toHaveBeenCalledTimes(2)
     expect(refresh).toHaveBeenCalledTimes(1)
-    // The first is still in flight: the authoritative read waits for it, it does not race it.
     firstInFlight()
     await new Promise((resolve) => setImmediate(resolve))
     expect(refresh).toHaveBeenCalledTimes(2)

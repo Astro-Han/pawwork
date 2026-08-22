@@ -5,15 +5,12 @@ window.__ModuleLoader__.load({
     const h = createElement
 
     const productCss = `
-/* A frameless window has no native title bar to grab: this strip is the window's only drag region,
-   and it reserves the row the native controls (macOS traffic lights, Windows overlay buttons) paint
-   into the content coordinate system. On Windows Chromium publishes the overlay's real geometry in
-   env(titlebar-area-*), which tracks fullscreen and DPI scaling; macOS has no such primitive
-   (titleBarOverlay does nothing there), so the main process publishes --pawwork-titlebar-host-height.
-   The line below resolves whichever the host supplies through a var() fallback chain instead of
-   stylesheet order or selector weight, so injection timing and insertion point stop mattering. Linux
-   keeps its system title bar and supplies neither, falling back to 0px. Every rule that has to yield
-   space reads the resolved variable. */
+/* A frameless window has nothing to grab, and the native controls paint into the content
+   coordinate system, so this strip is both the only drag region and the reservation for them.
+   Chromium publishes the overlay geometry in env(titlebar-area-*) on Windows; macOS has no such
+   primitive, so the main process publishes --pawwork-titlebar-host-height instead. Resolving them
+   through a var() fallback chain rather than competing rules keeps injection order irrelevant, and
+   Linux, which supplies neither, falls back to 0px. */
 :root { --pawwork-titlebar-height: var(--pawwork-titlebar-host-height, env(titlebar-area-height, 0px)); }
 #root { box-sizing: border-box; padding-top: var(--pawwork-titlebar-height, 0px); }
 .pawwork-titlebar {
@@ -21,10 +18,9 @@ window.__ModuleLoader__.load({
   height: var(--pawwork-titlebar-height, 0px);
   left: 0; position: fixed; right: 0; top: 0;
 }
-/* The DSH reconnect banner is position: fixed; top: 0, outside #root's box, so padding cannot push
-   it and it would sit under the native control row. Reusing the same variable is enough. The selector
-   anchors on the CSS-modules prefix (the hash changes per version, the prefix does not); the code
-   block banner shares that name but is not positioned, so top does nothing to it. */
+/* The DSH reconnect banner is fixed and outside #root, so #root's padding cannot push it clear of
+   the control row. The selector anchors on the CSS-modules prefix because the hash after it changes
+   per version; the code block banner matches too but is not positioned, so top is inert there. */
 [class*="_banner_"] { top: var(--pawwork-titlebar-height, 0px); }
 .pawwork-file-action {
   align-items: center; background: transparent; border: 0; border-radius: 6px;
@@ -34,19 +30,17 @@ window.__ModuleLoader__.load({
 .pawwork-file-action:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .pawwork-file-action:focus-visible { outline: 2px solid #fc5c14; outline-offset: 1px; }
 .pawwork-file-action:disabled { cursor: default; opacity: 0.45; }
-/* The hero headline and the preview badge are DSH's own copy. The rc.8 locale registry throws on a
-   duplicate namespace and exposes no override point, so the replacement is visual and anchored on
-   SlotOutlet's data-slot — a stable addressable attribute, unlike build-hashed class names.
-   line-height has to be zeroed too: clearing font-size alone leaves a 32px line box that lifts the
-   whole line 4.5px relative to the mark. */
+/* The rc.8 locale registry throws on a duplicate namespace and offers no override point, so DSH's
+   own headline and preview badge are replaced visually, anchored on data-slot rather than on class
+   names that carry a per-version hash. Zeroing font-size alone leaves a 32px line box that lifts
+   the line 4.5px against the mark, so line-height has to go with it. */
 span:has(> [data-slot="conversation.hero.brand.mark"]) + span { font-size: 0; line-height: 0; }
 span:has(> [data-slot="conversation.hero.brand.mark"]) + span::before { content: "What's first today?"; font-size: 26px; line-height: 32px; }
 html[lang^="zh"] span:has(> [data-slot="conversation.hero.brand.mark"]) + span::before { content: "今天从哪件事开始？"; }
 span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: none; }
-/* Hover wiggle for the hero mark. DSH's hero-fish-swim is tuned for a fish and stays small
-   (±1px, -5° to 3°); PawWork's mark is a glove, and a wave needs far more lateral travel to
-   read. Same data-slot anchor; selector weight 0,3,2 beats DSH's 0,3,0 and overrides the animation
-   shorthand outright. transform-origin keeps DSH's 50% 60% — only the amplitude changes. */
+/* DSH's hero-fish-swim swims a fish in ±1px and -5° to 3°; a glove has to wave, which needs far
+   more travel to read. Selector weight 0,3,2 beats DSH's 0,3,0 and takes the animation shorthand
+   outright, and transform-origin stays at DSH's 50% 60%. */
 @keyframes pawwork-hero-mark-swim {
   0%, 100% { transform: translate(0) rotate(0deg); }
   35% { transform: translate(-3px, -1.5px) rotate(-13deg); }
@@ -108,10 +102,9 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     }
 
     // --- PawWork glove mark --------------------------------------------------
-    // Traced from the brand app icon: orange glove body, cream pads and cuff, navy outline. The cuff
-    // is drawn a second time, shifted up, to grow it from 19% of the source height to roughly 29% —
-    // otherwise the glove collapses into a bare paw in the 24px sidebar. Path coordinates live in a
-    // 0..6270 space that GLOVE_TRANSFORM maps into the 64x64 viewBox.
+    // Traced from the brand app icon, in a 0..6270 coordinate space GLOVE_TRANSFORM maps into the
+    // 64x64 viewBox. The cuff is drawn twice, the copy shifted up, to grow it from 19% of the source
+    // height to roughly 29% — at 19% the glove collapses into a bare paw in the 24px sidebar.
     const BRAND_ORANGE = "#fc5c14"
     const BRAND_NAVY = "#1a2d5a"
     const BRAND_CREAM = "#faf6f1"
@@ -183,12 +176,11 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
 
     function BrandName() { return text("爪印", "PawWork") }
 
-    // The v1 import is a background job: it writes cold sessions into persistence one at a time,
-    // while the client fetches the cold list only on connect and reconnect. Nothing refreshes when
-    // the import finishes, so the sidebar keeps the old list. The host's import-v1 plugin exposes the
-    // session phase and the last persisted session marker at /pawwork-import-v1. On completion two
-    // reads clear refreshList's single-flight barrier; the authoritative list only counts as
-    // installed once the marker appears in the public list snapshot, otherwise back off and retry.
+    // The client fetches the cold list only on connect and reconnect, while the v1 import writes
+    // into it in the background — nothing refreshes when the import ends, so the sidebar keeps the
+    // pre-import list. The host's import-v1 plugin exposes the phase and the last persisted session
+    // at /pawwork-import-v1; the list only counts as installed once that marker shows up in the
+    // public snapshot.
     const IMPORT_POLL_INTERVAL_MS = 1_000
     const IMPORT_POLL_MAX_RETRY_MS = 30_000
 
@@ -231,9 +223,9 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
           schedule(IMPORT_POLL_INTERVAL_MS)
           return
         }
-        // Leaving running means done. refreshList reuses a still in-flight fetch, which when the
-        // completion signal arrives may still be carrying the pre-import list, so read twice: the
-        // first waits for that fetch to settle, the second is guaranteed to start after the barrier.
+        // refreshList reuses a still in-flight fetch, which at this point may be one that started
+        // before the import finished, so the first read only settles it and the second is the one
+        // guaranteed to begin after the completion barrier.
         await sessions.refresh()
         if (stopped) return
         await sessions.refresh()
@@ -254,8 +246,6 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawGloveMark))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))
       ctx.slots.inject("conversation.input.left", () => ctx.slots.register({ name: "conversation.input.left", id: "pawwork-files", order: -100 }, FileAction))
-      // The poller stops with the plugin: dispose (HMR, re-login) clears the timer so no status or
-      // refresh call is fired at a destroyed fiber.
       ctx.effect(() => watchV1Import(ctx))
     }
 

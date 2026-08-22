@@ -295,8 +295,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const sidebarBrandTop = brandNodes.length
       ? Math.min(...brandNodes.map((node) => node.getBoundingClientRect().top))
       : -1
-    // The brand-name slot renders a bare string, i.e. a text node, and slotContent only selects
-    // element descendants. Read the text separately or a regression to null here stays green.
+    // The slot renders a bare string, so slotContent — element descendants only — misses it.
     const sidebarBrandName = (document.querySelector('[data-slot="sidebar.brand.name"]')?.textContent || "").trim()
     const titlebarStrip = document.querySelector(".pawwork-titlebar")
     const titlebarStripHeight = titlebarStrip ? titlebarStrip.getBoundingClientRect().height : -1
@@ -304,9 +303,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       && getComputedStyle(titlebarStrip).getPropertyValue("-webkit-app-region").trim() === "drag"
     const appRoot = document.getElementById("root")
     const contentInsetHeight = appRoot ? Number.parseFloat(getComputedStyle(appRoot).paddingTop) : -1
-    // The hero is the only place the brand lands: mark, overridden headline, and the hidden DSH
-    // preview badge. Assert that the override still fires rather than pinning the copy — the
-    // mechanism is what broke silently between rc.7 and rc.8.
+    // Assert that the headline override still fires, not the copy it produces: the mechanism is
+    // what broke silently between rc.7 and rc.8.
     const heroMark = document.querySelector('[data-slot="conversation.hero.brand.mark"] > svg')
     const heroHeadline = heroMark?.parentElement?.parentElement?.nextElementSibling
     const heroBadge = heroHeadline?.nextElementSibling
@@ -415,9 +413,9 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     await new Promise((resolve) => setTimeout(resolve, 50))
     const collapseToggles = sidebarToggles()
     collapseToggles[0]?.click()
-    // The collapsed rail remounts, so data-sidebar-collapsed lands before the button does; wait
-    // for the button itself or a slower machine measures the mid-transition empty state. An empty
-    // shell button still has a 36x36 box, so this loop cannot mask the real defect — hasContent does.
+    // The collapsed rail remounts, and data-sidebar-collapsed lands before the button does, so a
+    // slower machine would measure the transition. An empty shell button still has a 36x36 box, so
+    // waiting cannot mask the defect hasContent catches.
     let expandToggles = []
     for (let frame = 0; frame < 60; frame += 1) {
       await new Promise((resolve) => setTimeout(resolve, 16))
@@ -426,8 +424,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     }
     const sidebarCollapsed = Boolean(document.querySelector("[data-sidebar-collapsed]"))
     const sidebarExpandToggleUsable = usable(expandToggles[0])
-    // Collapsed, DSH uses the brand mark as the expand button's icon and swaps in the panel icon
-    // on hover. An empty brand slot leaves an invisible shell button, which is what this catches.
+    // Collapsed, DSH uses the brand mark as the expand button's icon, so an empty brand slot
+    // leaves a button that is present and clickable but invisible.
     const sidebarExpandToggleHasContent = Boolean(expandToggles[0])
       && Array.from(expandToggles[0].querySelectorAll("*")).some(visible)
     expandToggles[0]?.click()
@@ -560,9 +558,9 @@ export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: st
   const restored = await evaluateCiSmokeJson(target, expression) as string[]
   if (restored.includes(sessionId)) return
 
-  // This assertion gets one shot: the process that wrote is gone and only the disk is left, so the
-  // message has to carry the scene — which sessions came back, and what sits in the DSH home. Those
-  // two are what separate "never written" from "written but not read back".
+  // The process that wrote is gone and only the disk is left, so the message has to carry the
+  // scene: it is the sessions plus the home listing that separate "never written" from "not read
+  // back".
   throw new Error([
     `DSH session ${sessionId} did not survive desktop restart`,
     `sessions before restart: ${listedBefore.length ? listedBefore.join(", ") : "(none)"}`,
@@ -617,11 +615,9 @@ function describeDirectory(dir: string, prefix = "  "): string {
 }
 
 export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform: NodeJS.Platform = process.platform) {
-  // Native window controls are painted in the content coordinate system, and the strip is the only
-  // declaration of that safe area. Assert the relationship, not a number: the number comes from
-  // Chromium's env(titlebar-area-height) on Windows and from the main process on macOS, so
-  // restating it here would add a second hand-written authority. frameless comes from the
-  // window-options frameless decision — a different source than the height, so divergence goes red.
+  // Assert relationships, never a height: that number is owned by Chromium on Windows and by the
+  // main process on macOS, and restating it here would add a third authority. frameless is read
+  // from window-options, a different source than the height, so the two diverging goes red.
   const frameless = "titleBarStyle" in dshTitleBarOptions(platform)
   const failures = [
     snapshot.sidebarBrandVisible ? null : "PawWork sidebar brand is not rendered",
@@ -839,8 +835,6 @@ async function main() {
       product = await inspectCiSmokeProduct(cdpTarget, homeDir)
       assertCiSmokeProduct(product)
       console.log("CI smoke verified DSH product UI, free model, and bundled skills")
-      // Snapshot before shutdown. Paired with the post-restart one in the failure message it tells
-      // "never written" apart from "written but not read back"; the later snapshot alone cannot.
       await waitForSessionOnDisk(dshHome, product.sessionId)
       console.log(`CI smoke sessions before shutdown: ${product.sessionIdsBeforeRestart.join(", ") || "(none)"}`)
       console.log(`CI smoke session files before shutdown:\n${describeDirectory(join(dshHome, "sessions"))}`)
