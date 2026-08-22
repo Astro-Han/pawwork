@@ -21,6 +21,8 @@
 - id: llm-deepseek
   disabled: true
 - insert:
+    - id: pawwork-identity
+      name: '@pawwork/dsh-identity'
     - id: pawwork-product
       name: '@pawwork/dsh-product'
     - id: import-v1
