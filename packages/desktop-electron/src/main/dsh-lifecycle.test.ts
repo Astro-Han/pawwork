@@ -26,6 +26,44 @@ async function settle() {
 describe("DshLifecycle", () => {
   afterEach(() => vi.useRealTimers())
 
+  test("does not launch after a starting subscriber stops the lifecycle", async () => {
+    const spawned = run()
+    const launch = vi.fn(() => spawned.sidecar)
+    let lifecycle!: DshLifecycle
+    lifecycle = new DshLifecycle({
+      launch,
+      onChange: (state) => {
+        if (state.phase === "starting") void lifecycle.stop()
+      },
+    })
+
+    lifecycle.start()
+    await settle()
+
+    expect(launch).not.toHaveBeenCalled()
+    expect(lifecycle.state.phase).toBe("stopped")
+  })
+
+  test("shares the pending stop with a stopping subscriber", async () => {
+    const spawned = run()
+    let subscriberStop: Promise<void> | undefined
+    let lifecycle!: DshLifecycle
+    lifecycle = new DshLifecycle({
+      launch: () => spawned.sidecar,
+      onChange: (state) => {
+        if (state.phase === "stopping") subscriberStop = lifecycle.stop()
+      },
+    })
+
+    lifecycle.start()
+    const stopping = lifecycle.stop()
+
+    expect(subscriberStop).toBe(stopping)
+    await stopping
+    expect(spawned.stop).toHaveBeenCalledTimes(1)
+    expect(lifecycle.state.phase).toBe("stopped")
+  })
+
   test("stopping during startup owns the spawned run and rejects every late event", async () => {
     const spawned = run()
     const states: DshLifecycleState[] = []

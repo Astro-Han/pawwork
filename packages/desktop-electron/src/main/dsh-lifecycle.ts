@@ -38,6 +38,7 @@ export class DshLifecycle {
   start() {
     if (["starting", "loading", "ready", "stopping"].includes(this.#state.phase)) return
     this.#publish({ phase: "starting" })
+    if (this.#state.phase !== "starting") return
 
     let run: DshRun
     try {
@@ -91,15 +92,15 @@ export class DshLifecycle {
   #finish(run: DshRun | undefined, terminal: DshTerminalState) {
     this.#run = undefined
     this.#clearProductTimeout()
-    this.#publish({ phase: "stopping" })
     const stopping = { promise: Promise.resolve(), terminal }
-    this.#stopping = stopping
     stopping.promise = Promise.resolve()
       .then(() => run?.stop())
       .finally(() => {
-        this.#publish(stopping.terminal)
         if (this.#stopping === stopping) this.#stopping = undefined
+        this.#publish(stopping.terminal)
       })
+    this.#stopping = stopping
+    this.#publish({ phase: "stopping" })
     return stopping.promise
   }
 
