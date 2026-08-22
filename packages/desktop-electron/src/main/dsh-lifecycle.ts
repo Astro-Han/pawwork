@@ -15,10 +15,9 @@ type DshTerminalState = Extract<DshLifecycleState, { phase: "stopped" | "failed"
 type DshLifecycleOptions = {
   launch(): DshRun
   onChange(state: DshLifecycleState): void
-  productTimeoutMs?: number
 }
 
-const DEFAULT_PRODUCT_TIMEOUT_MS = 30_000
+const PRODUCT_TIMEOUT_MS = 30_000
 
 export class DshLifecycle {
   #state: DshLifecycleState = { phase: "stopped" }
@@ -53,10 +52,9 @@ export class DshLifecycle {
       (url) => {
         if (this.#run !== run) return
         this.#publish({ phase: "loading", url })
-        const timeoutMs = this.options.productTimeoutMs ?? DEFAULT_PRODUCT_TIMEOUT_MS
         this.#productTimeout = setTimeout(() => {
-          void this.#fail(run, "startup", new Error(`DSH product did not become ready within ${timeoutMs}ms`))
-        }, timeoutMs)
+          void this.#fail(run, "startup", new Error(`DSH product did not become ready within ${PRODUCT_TIMEOUT_MS}ms`))
+        }, PRODUCT_TIMEOUT_MS)
       },
       (error) => void this.#fail(run, "startup", error),
     )

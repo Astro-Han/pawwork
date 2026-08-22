@@ -70,7 +70,6 @@ describe("DshLifecycle", () => {
     const lifecycle = new DshLifecycle({
       launch: () => spawned.sidecar,
       onChange: () => {},
-      productTimeoutMs: 30_000,
     })
 
     lifecycle.start()
@@ -91,7 +90,6 @@ describe("DshLifecycle", () => {
     const lifecycle = new DshLifecycle({
       launch: () => spawned.sidecar,
       onChange: () => {},
-      productTimeoutMs: 30_000,
     })
 
     lifecycle.start()
