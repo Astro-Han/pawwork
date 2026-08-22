@@ -40,7 +40,7 @@ window.__ModuleLoader__.load({
 .pawwork-automations-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
 .pawwork-automation-row {
   align-items: center; background: transparent; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
-  color: inherit; cursor: pointer; display: grid; font: inherit; gap: 10px;
+  color: inherit; display: grid; font: inherit; gap: 10px;
   grid-template-columns: 20px minmax(0, 1fr); min-height: 62px;
   padding: 10px 14px; text-align: left; width: 100%;
 }

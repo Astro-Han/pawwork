@@ -205,47 +205,6 @@ describe("ci smoke helpers", () => {
     ).rejects.toThrow("CDP endpoint never came up on port 48291")
   })
 
-  test("assertCiSmokeProduct accepts the shipped DSH product contract", () => {
-    expect(() => assertCiSmokeProduct({
-      sidebarBrandVisible: true,
-      heroMarkVisible: true,
-      heroHeadlineOverridden: true,
-      heroPreviewBadgeHidden: true,
-      heroMarkHeadlineOffset: 0,
-      automationSettingsEntryVisible: true,
-      automationSidebarEntryAbsent: true,
-      automationSurfaceVisible: true,
-      automationCreateViaChatWorked: true,
-      automationEditorVisible: true,
-      automationEditorUsesFullWidth: true,
-      automationAdvancedVisible: true,
-      automationBackNavigationWorks: true,
-      automationEditorHeaderFits: true,
-      automationSaveWorks: true,
-      automationDeleteDialogWorks: true,
-      automationDirtyPauseBlocked: true,
-      automationMetadataPlain: true,
-      titlebarStripHeight: 32,
-      titlebarStripDraggable: true,
-      contentInsetHeight: 32,
-      sidebarBrandName: "爪印",
-      sidebarBrandTop: 46,
-      sidebarToggleCount: 1,
-      sidebarCollapsed: true,
-      sidebarExpandToggleCount: 1,
-      sidebarExpandToggleUsable: true,
-      sidebarExpandToggleHasContent: true,
-      sidebarExpandedAgain: true,
-      platform: "MacIntel",
-      freeProviderActive: true,
-      v1SessionImported: true,
-      v1SessionVisibleInSidebar: true,
-      skillNames: ["office-docx", "office-pdf", "office-pptx", "office-xlsx"],
-      sessionId: "session-smoke",
-      sessionIdsBeforeRestart: ["session-smoke"],
-    }, "darwin")).not.toThrow()
-  })
-
   // A healthy snapshot, and one broken value per field. Asserting on the joined
   // failure prose meant rewording any one message turned the test red while a
   // clause that stopped being evaluated stayed green. What matters is that every
@@ -271,6 +230,8 @@ describe("ci smoke helpers", () => {
     automationDeleteDialogWorks: true,
     automationDirtyPauseBlocked: true,
     automationMetadataPlain: true,
+    cursorMismatches: [],
+    cursorProbeCaught: ["a.pawwork-cursor-probe", "button.pawwork-cursor-probe"],
     titlebarStripHeight: 32,
     titlebarStripDraggable: true,
     contentInsetHeight: 32,
@@ -310,6 +271,8 @@ describe("ci smoke helpers", () => {
     automationDeleteDialogWorks: false,
     automationDirtyPauseBlocked: false,
     automationMetadataPlain: false,
+    cursorMismatches: ["div.CY-8Ka_root"],
+    cursorProbeCaught: [],
     titlebarStripHeight: 0,
     titlebarStripDraggable: false,
     contentInsetHeight: 8,

@@ -22,14 +22,25 @@ window.__ModuleLoader__.load({
    the control row. The selector anchors on the CSS-modules prefix because the hash after it changes
    per version; the code block banner matches too but is not positioned, so top is inert there. */
 [class*="_banner_"] { top: var(--pawwork-titlebar-height, 0px); }
+/* The shell keeps the hand cursor for links and gives DSH's buttons, rows and tabs the arrow.
+   PawWork's preference, not a platform rule, so it stays in the shell instead of going upstream.
+   :not(:disabled) is a specificity lever rather than a filter: it beats DSH's [data-expandable]
+   rules at (0,2,0) behind tool cards, skill cards and trajectory rows, which the hero page cannot
+   reveal. Known gap: trajectory's collapsed-summary row is a bare <tr> with no role to match. */
+html body :is(button, [role="button"], [role="treeitem"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="option"], [aria-haspopup], label, summary, select):not(a[href]):not(:disabled) { cursor: default; }
+/* Taking the hand away leaves nothing behind on controls DSH ships without a hover state (sidebar
+   brand row, copyable card, search-result file header). :where() drops this below DSH's own
+   .cls:hover at (0,2,0), making it a fallback rather than an override. Background only: a shared
+   border-radius would replace each control's own for as long as the hover lasts. */
+html body :where(button, [role="button"], [role="treeitem"]):where(:not(:disabled)):hover { background-color: var(--dsw-alias-interactive-bg-hover); }
 .pawwork-file-action {
   align-items: center; background: transparent; border: 0; border-radius: 6px;
-  color: var(--dsw-alias-label-secondary); cursor: pointer; display: inline-flex;
+  color: var(--dsw-alias-label-secondary); display: inline-flex;
   height: 28px; justify-content: center; padding: 0; width: 28px;
 }
 .pawwork-file-action:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .pawwork-file-action:focus-visible { outline: 2px solid #fc5c14; outline-offset: 1px; }
-.pawwork-file-action:disabled { cursor: default; opacity: 0.45; }
+.pawwork-file-action:disabled { opacity: 0.45; }
 /* The rc.8 locale registry throws on a duplicate namespace and offers no override point, so DSH's
    own headline and preview badge are replaced visually, anchored on data-slot rather than on class
    names that carry a per-version hash. Zeroing font-size alone leaves a 32px line box that lifts

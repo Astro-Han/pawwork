@@ -60,6 +60,8 @@ export type CiSmokeProductSnapshot = {
   automationDeleteDialogWorks: boolean
   automationDirtyPauseBlocked: boolean
   automationMetadataPlain: boolean
+  cursorMismatches: string[]
+  cursorProbeCaught: string[]
   titlebarStripHeight: number
   titlebarStripDraggable: boolean
   contentInsetHeight: number
@@ -270,6 +272,43 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       const label = (button.getAttribute("aria-label") || button.textContent || "").trim()
       return visible(button) && pattern.test(label)
     })
+    // The arrow rule's own selector, read back from the live stylesheet rather than copied here, so the
+    // probe cannot drift from the rule it checks. A missing rule reports itself instead of passing.
+    const arrowSelector = () => Array.from(document.styleSheets)
+      .flatMap((sheet) => { try { return Array.from(sheet.cssRules) } catch { return [] } })
+      .find((rule) => rule.style?.cursor === "default" && rule.selectorText?.includes("[aria-haspopup]"))?.selectorText
+    // Two directions, both scanned document-wide: a link that lost the hand fails as loudly as a
+    // control the rule claims and did not win. Elements outside the rule's reach — DSH's clickable
+    // bare divs, which carry no role to match on — are out of contract and deliberately not asserted.
+    const cursorMismatches = () => {
+      const selector = arrowSelector()
+      if (!selector) return ["<arrow cursor rule missing from the document>"]
+      return Array.from(new Set(Array.from(document.querySelectorAll("*"))
+        .filter((element) => {
+          const pointer = getComputedStyle(element).cursor === "pointer"
+          return element.matches("a[href]") ? !pointer : pointer && element.matches(selector)
+        })
+        // classList rather than splitting className: a regex literal loses its backslash on the way
+        // into Runtime.evaluate, so /\s+/ arrived as /s+/ and cut class names at every letter s.
+        .map((element) => element.tagName.toLowerCase() + (element.classList[0] ? "." + element.classList[0] : ""))))
+    }
+    // A probe that quietly stops reporting is worse than no probe, and this one is easy to break: it
+    // depends on a selector read back at runtime. So plant one failure in each direction, confirm both
+    // come back, and take them away again.
+    const cursorProbeDetects = () => {
+      const plant = (tag, cursor) => {
+        const element = document.createElement(tag)
+        element.className = "pawwork-cursor-probe"
+        if (tag === "a") element.href = "https://example.com"
+        element.style.setProperty("cursor", cursor, "important")
+        document.body.appendChild(element)
+        return element
+      }
+      const planted = [plant("a", "default"), plant("button", "pointer")]
+      const caught = cursorMismatches().filter((id) => id.endsWith(".pawwork-cursor-probe"))
+      planted.forEach((element) => element.remove())
+      return caught
+    }
     const call = async (method, payload) => {
       const request = { type: "client-request", rpcId: crypto.randomUUID(), method, payload }
       const response = await fetch("/api/" + method, {
@@ -301,6 +340,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const titlebarStripHeight = titlebarStrip ? titlebarStrip.getBoundingClientRect().height : -1
     const titlebarStripDraggable = Boolean(titlebarStrip)
       && getComputedStyle(titlebarStrip).getPropertyValue("-webkit-app-region").trim() === "drag"
+    const cursorProbeCaught = cursorProbeDetects()
+    const heroCursorMismatches = cursorMismatches()
     const appRoot = document.getElementById("root")
     const contentInsetHeight = appRoot ? Number.parseFloat(getComputedStyle(appRoot).paddingTop) : -1
     // Assert that the headline override still fires, not the copy it produces: the mechanism is
@@ -411,6 +452,9 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     })
     settingsClose?.click()
     await new Promise((resolve) => setTimeout(resolve, 50))
+    // Sample again here: the hero page carries no [data-expandable] rows, so measuring only the
+    // first screen would miss the conversation surface entirely.
+    const settledCursorMismatches = cursorMismatches()
     const collapseToggles = sidebarToggles()
     collapseToggles[0]?.click()
     // The collapsed rail remounts, and data-sidebar-collapsed lands before the button does, so a
@@ -478,6 +522,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       automationDeleteDialogWorks,
       automationDirtyPauseBlocked,
       automationMetadataPlain,
+      cursorMismatches: Array.from(new Set([...heroCursorMismatches, ...settledCursorMismatches])),
+      cursorProbeCaught,
       titlebarStripHeight,
       titlebarStripDraggable,
       contentInsetHeight,
@@ -632,6 +678,12 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.sidebarBrandTop >= snapshot.titlebarStripHeight
       ? null
       : `sidebar brand starts at ${snapshot.sidebarBrandTop}px, inside the native window controls`,
+    snapshot.cursorProbeCaught.length === 2
+      ? null
+      : `the cursor probe caught ${snapshot.cursorProbeCaught.length}/2 planted mismatches (${snapshot.cursorProbeCaught.join(", ") || "nothing"}) and cannot be trusted`,
+    snapshot.cursorMismatches.length === 0
+      ? null
+      : `cursor does not match link status on: ${snapshot.cursorMismatches.join(", ")}`,
     snapshot.heroMarkVisible ? null : "PawWork hero brand mark is not rendered",
     snapshot.heroHeadlineOverridden ? null : "hero headline fell back to DSH copy",
     snapshot.heroPreviewBadgeHidden ? null : "DSH preview badge is still visible on the hero",
