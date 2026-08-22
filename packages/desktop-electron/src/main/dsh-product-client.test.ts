@@ -7,8 +7,6 @@ const repositoryRoot = resolve(import.meta.dirname, "../../../..")
 const productRoot = resolve(repositoryRoot, "packages/desktop-electron/resources/dsh/product")
 
 describe("PawWork DSH client product layer", () => {
-  // 共享的 watcher 测试脚手架：假定时器驱动轮询节奏，假 context 钉住 rpc/sessions
-  // 契约。每个测试只声明自己关心的 call/refresh/effect 行为。
   function loadPlugin(timers: Array<() => void>, delays: number[] = []) {
     const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
       document: {
@@ -115,8 +113,6 @@ describe("PawWork DSH client product layer", () => {
       "conversation.hero.brand.mark",
     ])
     expect(brandEntries.every((entry) => entry.options.priority === -100)).toBe(true)
-    // 顶带替原生窗口控件占住了左上角，侧边栏品牌不再需要为它们让路：mark 和名字
-    // 在所有平台上一致渲染。
     const sidebarMark = brandEntries[0].component({ size: 24 }) as { type: string; props: Record<string, unknown> }
     expect(sidebarMark.type).toBe("svg")
     expect(sidebarMark.props).toMatchObject({ viewBox: "0 0 64 64", width: 24, height: 24 })
@@ -147,10 +143,8 @@ describe("PawWork DSH client product layer", () => {
       throw new Error(`unexpected product client dependency: ${name}`)
     })
 
-    // 顶带必须是真元素：-webkit-app-region 对伪元素无效，拖不动窗口。
+    // The strip must be a real element: -webkit-app-region does nothing on pseudo-elements.
     expect(appended.map((node) => node.className)).toEqual(["pawwork-titlebar"])
-    // 让位的规则全部读同一个变量，没有第二处写死的数字。变量本身只从平台来：
-    // Windows 是 Chromium 的 env(titlebar-area-height)，macOS 由主进程注入覆盖。
     expect(style.textContent).toContain("-webkit-app-region: drag")
     expect(style.textContent).toContain("padding-top: var(--pawwork-titlebar-height, 0px)")
     expect(style.textContent).toContain('[class*="_banner_"] { top: var(--pawwork-titlebar-height, 0px); }')
@@ -217,8 +211,8 @@ describe("PawWork DSH client product layer", () => {
     expect(setDraft).toHaveBeenCalledWith('请总结\n\n文件：\n- "/tmp/notes.md"')
   })
 
-  // 传输层失败不是完成信号：旧后端没有这个通道、宿主重启窗口都只是瞬时的，
-  // 客户端必须继续等，而不是数满几次失败就放弃、让侧边栏停在旧列表上。
+  // An old backend without this channel and a host restart are both transient, so a transport
+  // failure must not be read as completion.
   test("backs off repeated transport failures and recovers without giving up", async () => {
     const timers: Array<() => void> = []
     const delays: number[] = []
@@ -273,12 +267,9 @@ describe("PawWork DSH client product layer", () => {
     expect(timers).toHaveLength(0)
   })
 
-  // 迁移运行时不读冷列表。完成后 refreshList 可能单飞复用仍在途的旧拉取；
-  // 所以要读两次：第一次等在途的 settle，第二次才是必然全新的权威读取。
   test("waits for v1 import completion before issuing a fresh authoritative read", async () => {
     const timers: Array<() => void> = []
     const plugin = loadPlugin(timers)
-    // 第一次 refresh 停在在途不 resolve；第二次才开始新的拉取。
     const refresh = vi.fn()
     let firstInFlight: () => void = () => {}
     const visibleSessionIds: string[] = []
@@ -301,7 +292,6 @@ describe("PawWork DSH client product layer", () => {
     await new Promise((resolve) => setImmediate(resolve))
     expect(call).toHaveBeenCalledTimes(2)
     expect(refresh).toHaveBeenCalledTimes(1)
-    // 第一条在途：权威读取必须等它 settle，而不是并发。
     firstInFlight()
     await new Promise((resolve) => setImmediate(resolve))
     expect(refresh).toHaveBeenCalledTimes(2)
@@ -349,7 +339,6 @@ describe("PawWork DSH client product layer", () => {
     expect(timers).toHaveLength(0)
   })
 
-  // 轮询器随插件而止：dispose 后不再排下一轮、也不再发 status 调用。
   test("stops polling when the client plugin is disposed", async () => {
     const timers: Array<() => void> = []
     const plugin = loadPlugin(timers)
