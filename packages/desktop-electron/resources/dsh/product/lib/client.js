@@ -167,6 +167,15 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
           gloveLayer(BRAND_CREAM, GLOVE_PADS)))
     }
 
+    function PawReadyMark(props) {
+      // The sidebar mark exists in both the wide and collapsed shell, so it is
+      // the one canonical product-commit signal. The hero mark stays visual only.
+      useEffect(() => {
+        window.pawworkLifecycle?.ready()
+      }, [])
+      return PawGloveMark(props)
+    }
+
     const inject = ["slots", "connection", "sessions"]
 
     function BrandName() { return text("爪印", "PawWork") }
@@ -236,7 +245,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     }
 
     function apply(ctx) {
-      ctx.slots.inject("sidebar.brand.mark", () => ctx.slots.register({ name: "sidebar.brand.mark", priority: -100 }, PawGloveMark))
+      ctx.slots.inject("sidebar.brand.mark", () => ctx.slots.register({ name: "sidebar.brand.mark", priority: -100 }, PawReadyMark))
       ctx.slots.inject("sidebar.brand.name", () => ctx.slots.register({ name: "sidebar.brand.name", priority: -100 }, BrandName))
       ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawGloveMark))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))

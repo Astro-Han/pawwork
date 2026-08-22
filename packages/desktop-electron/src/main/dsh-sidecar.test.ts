@@ -100,9 +100,9 @@ describe("DSH sidecar lifecycle", () => {
     })
 
     child.stdout.write("booting\ndsh web: http://127.0.0.1:43123\n")
-    const sidecar = await launched
+    const url = await launched.ready
 
-    expect(sidecar.url).toBe("http://127.0.0.1:43123")
+    expect(url).toBe("http://127.0.0.1:43123")
     expect(invocation).toEqual({
       executable: "/app/PawWork",
       args: [
@@ -125,8 +125,29 @@ describe("DSH sidecar lifecycle", () => {
       },
     })
 
-    await sidecar.stop()
+    await launched.stop()
     expect(child.messages).toEqual(["SIGTERM"])
+  })
+
+  test("owns and can stop the child immediately after spawn", async () => {
+    const child = new FakeChildProcess()
+    const sidecar = launchDshSidecar({
+      executable: "/app/PawWork",
+      dshBin: "/app/dsh.js",
+      sidecarPreload: "file:///app/preload.mjs",
+      productHome: "/data/dsh",
+      productPatch: "/data/dsh/product.cordis.patch.yml",
+      toolsDir: "/app/tools",
+      env: {},
+      timeoutMs: 100,
+      spawn: () => child,
+    })
+
+    const stoppedBeforeReady = sidecar.ready.catch((error: unknown) => error)
+    await sidecar.stop()
+
+    expect(child.messages).toEqual(["SIGTERM"])
+    await expect(stoppedBeforeReady).resolves.toBeInstanceOf(Error)
   })
 
   // The sidecar's stdout carries agent output too, so the readiness line is only
@@ -151,10 +172,9 @@ describe("DSH sidecar lifecycle", () => {
     child.stdout.write("dsh web: http://127.0.0.1:2suffix\n")
     child.stdout.write("dsh web: http://127.0.0.1:43123 (press h for help)\n")
 
-    const sidecar = await launched
-    expect(sidecar.url).toBe("http://127.0.0.1:43123")
+    expect(await launched.ready).toBe("http://127.0.0.1:43123")
 
-    await sidecar.stop()
+    await launched.stop()
   })
 
   // A signal kill has no exit code at all, and "code null" is not a status the
@@ -175,7 +195,7 @@ describe("DSH sidecar lifecycle", () => {
 
     child.emit("exit", null)
 
-    await expect(launched).rejects.toThrow("DSH exited before readiness without a status code")
+    await expect(launched.ready).rejects.toThrow("DSH exited before readiness without a status code")
   })
 
   test("fails when the owned child process exits before announcing readiness", async () => {
@@ -194,7 +214,7 @@ describe("DSH sidecar lifecycle", () => {
 
     child.emit("exit", 23)
 
-    await expect(launched).rejects.toThrow("DSH exited before readiness with code 23")
+    await expect(launched.ready).rejects.toThrow("DSH exited before readiness with code 23")
   })
 
   // Without an "error" listener the EventEmitter rethrows the event as an
@@ -218,7 +238,8 @@ describe("DSH sidecar lifecycle", () => {
 
     child.emitSpawnError()
 
-    await expect(launched).rejects.toThrow("DSH failed to start: spawn /app/PawWork EACCES")
+    await expect(launched.ready).rejects.toThrow("DSH failed to start: spawn /app/PawWork EACCES")
+    await launched.stop()
     expect(errors.map((error) => error.message)).toEqual(["spawn /app/PawWork EACCES"])
     // There is no process behind a failed spawn, so nothing may be signalled at
     // one: the pid is what says whether a child exists.
@@ -241,9 +262,33 @@ describe("DSH sidecar lifecycle", () => {
       spawn: () => child,
     })
 
-    await expect(launched).rejects.toThrow("DSH did not announce readiness within 1ms")
+    await expect(launched.ready).rejects.toThrow("DSH did not announce readiness within 1ms")
+    await launched.exited
     expect(child.messages).toEqual(["SIGTERM"])
     expect(child.killSignals).toEqual(["SIGKILL"])
+  })
+
+  test("reports a readiness timeout before the resulting process exit", async () => {
+    const child = new FakeChildProcess()
+    const launched = launchDshSidecar({
+      executable: "/app/PawWork",
+      dshBin: "/app/dsh.js",
+      sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
+      productHome: "/data/dsh",
+      productPatch: "/data/dsh/product.cordis.patch.yml",
+      toolsDir: "/app/tools",
+      env: {},
+      timeoutMs: 1,
+      spawn: () => child,
+    })
+    const outcomes: string[] = []
+
+    await Promise.all([
+      launched.ready.catch((error: Error) => outcomes.push(error.message)),
+      launched.exited.then(() => outcomes.push("exited")),
+    ])
+
+    expect(outcomes).toEqual(["DSH did not announce readiness within 1ms", "exited"])
   })
 
   test("stops the owned child process once across concurrent and repeated calls", async () => {
@@ -260,13 +305,13 @@ describe("DSH sidecar lifecycle", () => {
       spawn: () => child,
     })
     child.stdout.write("dsh web: http://127.0.0.1:43123\n")
-    const sidecar = await launched
+    await launched.ready
 
-    const firstStop = sidecar.stop()
-    const concurrentStop = sidecar.stop()
+    const firstStop = launched.stop()
+    const concurrentStop = launched.stop()
     expect(concurrentStop).toBe(firstStop)
     await Promise.all([firstStop, concurrentStop])
-    await sidecar.stop()
+    await launched.stop()
 
     expect(child.messages).toEqual(["SIGTERM"])
     expect(child.killCount).toBe(0)
@@ -289,9 +334,9 @@ describe("DSH sidecar lifecycle", () => {
       spawn: () => child,
     })
     child.stdout.write("dsh web: http://127.0.0.1:43123\n")
-    const sidecar = await launched
+    await launched.ready
 
-    await sidecar.stop()
+    await launched.stop()
 
     expect(child.messages).toEqual(["SIGTERM"])
     expect(child.killSignals).toEqual(["SIGKILL"])

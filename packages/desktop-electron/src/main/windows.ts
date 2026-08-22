@@ -4,11 +4,20 @@ import { app, BrowserWindow, nativeImage, shell } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { macTrafficLightPosition, pawworkWindowTitle, titlebarInsetCss } from "./window-chrome"
-import { STARTUP_URL, startupPageTarget, type StartupAction } from "./startup-page"
 import { decideDshNavigation, guardDshNavigation, handleDshWindowOpen } from "./window-navigation"
 import { dshTitleBarOptions, dshWebPreferences } from "./window-options"
 
 const root = dirname(fileURLToPath(import.meta.url))
+const STARTUP_HTML = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>PawWork</title><style>
+:root{--bg:#fff;--line:#e3e3e7;--accent:#fc5c14}@media(prefers-color-scheme:dark){:root{--bg:#191919;--line:#2d2d31}}
+html,body{height:100%;margin:0}body{align-items:center;background:var(--bg);display:flex;justify-content:center}
+.titlebar{-webkit-app-region:drag;height:var(--pawwork-titlebar-host-height,env(titlebar-area-height,0px));left:0;position:fixed;right:0;top:0}
+.spinner{animation:spin .8s linear infinite;border:2px solid var(--line);border-radius:50%;box-sizing:border-box;height:20px;position:relative;width:20px}
+.spinner:after{background:conic-gradient(var(--accent) 72deg,transparent 0);border-radius:inherit;content:"";inset:-2px;mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 0);position:absolute;-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 0)}
+@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spinner{animation:none}}
+</style></head><body><div class="titlebar"></div><div aria-label="PawWork is starting" class="spinner" role="progressbar"></div></body></html>`
+
+export const STARTUP_URL = `data:text/html;charset=utf-8,${encodeURIComponent(STARTUP_HTML)}`
 
 function iconsDir() {
   return app.isPackaged ? join(process.resourcesPath, "icons") : join(root, "../../resources/icons")
@@ -30,13 +39,12 @@ type MainWindowOptions = {
   // Read on every navigation rather than captured: the window is created before
   // DSH has an origin, and outlives the one it eventually gets.
   dshUrl: () => string | undefined
-  onStartupAction: (action: StartupAction) => void
 }
 
 // A load that is superseded rejects with ERR_ABORTED, and an unhandled rejection
 // in the main process is a crash. Superseding one is ordinary now: the startup
-// page is replaced by DSH's own URL the moment DSH is ready, and replaced again
-// by the failure page if it dies.
+// page is replaced by DSH's own URL the moment DSH is ready, and a failed run
+// returns every window to the startup surface before native recovery is shown.
 export function navigateWindow(win: BrowserWindow, url: string) {
   win.loadURL(url).catch((error) => log.error("failed to load URL", { url, error }))
 }
@@ -63,19 +71,6 @@ export function createMainWindow(options: MainWindowOptions) {
     handleDshWindowOpen(options.dshUrl(), target, (destination) => navigateWindow(win, destination), openExternal))
   win.webContents.on("will-frame-navigate", (event) => {
     if (event.isMainFrame) {
-      // The startup page's buttons are links back into its own origin, and only
-      // that page may spend them. Asked for from anywhere else — DSH renders
-      // model output, and a link is the cheapest thing a model can emit — the
-      // scheme falls to the ordinary guard, which denies everything but http.
-      const startup = win.webContents.getURL().startsWith(STARTUP_URL)
-        ? startupPageTarget(event.url)
-        : undefined
-      if (startup) {
-        if (startup.kind === "page") return
-        event.preventDefault()
-        options.onStartupAction(startup.action)
-        return
-      }
       guardDshNavigation(options.dshUrl(), event.url, event, openExternal)
       return
     }

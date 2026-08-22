@@ -57,6 +57,7 @@ describe("PawWork DSH client product layer", () => {
   })
 
   test("owns the public brand slots and replaces the DSH welcome notice", () => {
+    const ready = vi.fn(() => {})
     const document = {
       title: "DeepSeek Harness",
       documentElement: { lang: "zh-CN" },
@@ -65,7 +66,10 @@ describe("PawWork DSH client product layer", () => {
       head: { appendChild: () => {} },
     }
 
-    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), { document })
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
+      document,
+      window: { pawworkLifecycle: { ready } },
+    })
     expect(definition.id).toBe("@pawwork/dsh-product")
 
     const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
@@ -116,10 +120,12 @@ describe("PawWork DSH client product layer", () => {
     const sidebarMark = brandEntries[0].component({ size: 24 }) as { type: string; props: Record<string, unknown> }
     expect(sidebarMark.type).toBe("svg")
     expect(sidebarMark.props).toMatchObject({ viewBox: "0 0 64 64", width: 24, height: 24 })
+    expect(ready).toHaveBeenCalledTimes(1)
     expect(brandEntries[1].component({})).toBe("爪印")
     const heroMark = brandEntries[2].component({ size: 34 }) as { type: string; props: Record<string, unknown> }
     expect(heroMark.type).toBe("svg")
     expect(heroMark.props).toMatchObject({ viewBox: "0 0 64 64", width: 34, height: 34 })
+    expect(ready).toHaveBeenCalledTimes(1)
   })
 
   test("mounts the drag strip that reserves the native window chrome", () => {

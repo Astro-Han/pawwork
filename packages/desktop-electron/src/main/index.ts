@@ -5,7 +5,7 @@ import { createRequire } from "node:module"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, shell, type Event } from "electron"
+import { app, BrowserWindow, dialog, ipcMain, shell, type Event } from "electron"
 import contextMenu from "electron-context-menu"
 import pkg from "electron-updater"
 import { PAWWORK_APP } from "./app-identity"
@@ -19,34 +19,24 @@ import {
 } from "./constants"
 import { ciSmokeCdpSwitches } from "./ci-smoke-cdp"
 import { pickConversationFiles } from "./dsh-file-input"
+import { DshLifecycle, type DshLifecycleState } from "./dsh-lifecycle"
 import { createDshMenu } from "./dsh-menu"
 import {
   buildDshEnvironment,
-  dshFileInputPreload,
   prepareDshProductHome,
   resolveDshPackagePath,
   resolveProductResources,
 } from "./dsh-product-home"
-import { describeExit, launchDshSidecar, type DshSidecar } from "./dsh-sidecar"
+import { launchDshSidecar } from "./dsh-sidecar"
 import { migrateDshHome, resolveDshHome } from "./pawwork-home"
 import { initLogging } from "./logging"
 import { detectSystemMenuLocale } from "./menu-labels"
 import { createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./update-feed"
-import {
-  STARTUP_SCHEME,
-  STARTUP_URL,
-  startupDiagnosis,
-  startupFailureReport,
-  startupPageHtml,
-  type StartupAction,
-  type StartupPageState,
-} from "./startup-page"
-import type { StartupFailureReason } from "./startup-page-labels"
 import { PAWWORK_GITHUB_ISSUE_URL } from "./support-links"
 import { createUpdaterController } from "./updater"
 import { pendingUpdateCacheDir } from "./updater-cache"
 import { updaterDialogLabels } from "./updater-dialog-labels"
-import { createMainWindow, navigateWindow, setDockIcon } from "./windows"
+import { createMainWindow, navigateWindow, setDockIcon, STARTUP_URL } from "./windows"
 
 contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false })
 
@@ -82,25 +72,16 @@ const productResources = resolveProductResources({
   isPackaged: app.isPackaged,
   resourcesPath: process.resourcesPath,
 })
-const fileInputPreload = dshFileInputPreload(productResources.dsh)
+const productPreload = join(productResources.dsh, "product", "preload.cjs")
 
-// One fact — what the runtime is doing — rather than a URL and a page state kept
-// in step by hand. Every window's destination is a projection of it, so there is
-// nothing to synchronise and no way for the two to disagree.
-type Runtime = StartupPageState | { phase: "running"; url: string }
-
-let runtime: Runtime = { phase: "starting" }
 // DSH states the cause and the fix on its own stderr before it exits, and the
 // window has no other copy of it: once DSH is gone, its stdio is gone with it.
 // Keeping the tail costs a few kilobytes.
 const DSH_OUTPUT_TAIL_CHARS = 4_000
 let dshOutputTail = ""
-let dshAttempt: Promise<void> | undefined
-let sidecar: DshSidecar | undefined
-let sidecarShutdown: Promise<void> | undefined
-let gracefulQuitStarted = false
-let gracefulQuitReady = false
 let currentProgress: number | null = null
+
+const lifecycle = new DshLifecycle({ launch: launchDsh, onChange: handleLifecycleChange })
 
 function buildUpdateFeeds(): FeedTarget[] {
   return [
@@ -126,7 +107,7 @@ const updater = createUpdaterController({
   downloadUpdate: () => updateFeed.download(),
   clearPendingUpdate,
   quitAndInstall: () => {
-    void shutdownSidecar().finally(() => autoUpdater.quitAndInstall())
+    void lifecycle.stop().finally(() => autoUpdater.quitAndInstall())
   },
   log: (message, data) => logger.log(message, data),
   error: (message, error) => logger.error(message, error),
@@ -146,11 +127,16 @@ function setupApp() {
   }
 
   ipcMain.handle("pawwork:pick-conversation-files", (event) => {
-    if (runtime.phase !== "running") throw new Error("Cannot pick files before DSH is ready")
+    const state = lifecycle.state
+    if (state.phase !== "ready") throw new Error("Cannot pick files before DSH is ready")
     const owner = BrowserWindow.fromWebContents(event.sender)
-    return pickConversationFiles(runtime.url, event.senderFrame?.url ?? "", (options) =>
+    return pickConversationFiles(state.url, event.senderFrame?.url ?? "", (options) =>
       owner ? dialog.showOpenDialog(owner, options) : dialog.showOpenDialog(options),
     )
+  })
+  ipcMain.on("pawwork:product-ready", (event) => {
+    if (event.senderFrame !== event.sender.mainFrame) return
+    lifecycle.productReady(event.senderFrame?.url ?? "")
   })
 
   app.on("second-instance", () => focusMainWindow(true))
@@ -165,33 +151,13 @@ function setupApp() {
     if (BrowserWindow.getAllWindows().length === 0) openMainWindow()
   })
   app.on("before-quit", (event) => {
-    if (gracefulQuitReady) return
+    if (lifecycle.state.phase === "stopped") return
     event.preventDefault()
-    if (gracefulQuitStarted) return
-    gracefulQuitStarted = true
-
-    const finish = () => {
-      if (gracefulQuitReady) return
-      gracefulQuitReady = true
-      app.quit()
-    }
-    const timeout = setTimeout(() => {
-      logger.error("graceful DSH shutdown timed out, forcing quit")
-      finish()
-    }, 10_000)
-    void shutdownSidecar()
+    void lifecycle.stop()
       .catch((error) => logger.error("DSH shutdown failed", error))
-      .finally(() => {
-        clearTimeout(timeout)
-        finish()
-      })
+      .finally(() => app.quit())
   })
   for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => app.quit())
-
-  // Standard and secure so the page gets an ordinary origin: without it the
-  // scheme has no host, `startsWith(STARTUP_URL)` has nothing stable to match,
-  // and the document lands in an opaque origin the guard cannot name.
-  protocol.registerSchemesAsPrivileged([{ scheme: STARTUP_SCHEME, privileges: { standard: true, secure: true } }])
 
   void app
     .whenReady()
@@ -199,22 +165,13 @@ function setupApp() {
       app.setAsDefaultProtocolClient("pawwork")
       setDockIcon()
       setupAutoUpdater()
-      // Served on every load rather than cached, so re-rendering a state change
-      // is a reload of the page already on screen.
-      protocol.handle(STARTUP_SCHEME, () =>
-        Promise.resolve(
-          new Response(startupPageHtml(menuLocale, startupPage()), {
-            headers: { "content-type": "text/html; charset=utf-8" },
-          }),
-        ),
-      )
 
       // The window is what makes every DSH failure reportable, so it opens
       // before anything that can fail. The menu goes up with it: it is where the
       // issue link lives, and it used to be built only after a successful start.
       openMainWindow()
       wireMenu()
-      void runDsh()
+      lifecycle.start()
     })
     .catch((error) => {
       // Nothing here waits on DSH any more; what is left is Electron's own setup,
@@ -224,123 +181,94 @@ function setupApp() {
     })
 }
 
-/**
- * Start DSH, and put whatever happens on screen.
- *
- * One attempt at a time: the retry button is a link the user can click twice
- * before the first click has spawned anything.
- * @returns the attempt in flight.
- */
-function runDsh() {
-  dshAttempt ??= attemptDsh().finally(() => {
-    dshAttempt = undefined
-  })
-  return dshAttempt
-}
-
-async function attemptDsh() {
-  await stopActiveSidecar().catch((error) => logger.error("DSH shutdown failed", error))
-  // A retry reports on itself, not on the attempt the user just tried to fix.
-  dshOutputTail = ""
-  let started: DshSidecar
-  try {
-    started = await startDsh()
-  } catch (error) {
-    logger.error("DSH sidecar failed to start", error)
-    failStartup("startup", error)
-    return
-  }
-  // The same identity check the exit handler makes, from the other side: this
-  // attempt may announce a URL for a sidecar the app has since let go of — a
-  // quit reached stopActiveSidecar while the runtime was still booting. Running
-  // is a claim about the sidecar we own, so only its owner may make it.
-  if (sidecar !== started) return
-  // What DSH said while booting is not what it will say when it dies, and the
-  // tail is what the failure page quotes.
-  dshOutputTail = ""
-  setRuntime({ phase: "running", url: started.url })
-}
-
-/**
- * Hand the failure back to the user, in the window, with a way out.
- *
- * The same surface serves a runtime that never started and one that died
- * mid-session: from the user's seat they are the same event — PawWork is not
- * working and the app has to say why — and the retry is the same respawn.
- * @param reason - which of the two happened, for the copy.
- * @param error - whatever the attempt rejected with.
- */
-function failStartup(reason: StartupFailureReason, error: unknown) {
-  // A smoke run has nobody to click retry, and its runner already reads a dead
-  // process as the failure it is. Rendering instead would hold the app open
-  // until the runner's own timeout.
-  if (CI_SMOKE_ENABLED) {
-    app.exit(1)
-    return
-  }
-  setRuntime({
-    phase: "failed",
-    reason,
-    diagnosis: startupDiagnosis(error, dshOutputTail),
-    output: dshOutputTail,
-    logPath: logger.transports.file.getFile().path,
-    copied: false,
-  })
-}
-
-function handleStartupAction(action: StartupAction) {
-  switch (action) {
-    case "retry":
-      // The click's own feedback, and the only caller that needs it: the failure
-      // page goes back to progress before anything is spawned. A first launch
-      // has nothing to switch — the window opened on the startup page already,
-      // and loading it there a second time aborts the load still in flight.
-      setRuntime({ phase: "starting" })
-      void runDsh()
-      return
-    case "report-issue":
-      void shell.openExternal(PAWWORK_GITHUB_ISSUE_URL)
-      return
-    case "show-log":
-      if (runtime.phase === "failed") shell.showItemInFolder(runtime.logPath)
-      return
-    case "copy-details":
-      if (runtime.phase !== "failed") return
-      clipboard.writeText(startupFailureReport(runtime, menuLocale))
-      setRuntime({ ...runtime, copied: true })
-      return
-  }
-}
-
 function liveWindows() {
   return BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed())
 }
 
 function dshUrl() {
-  return runtime.phase === "running" ? runtime.url : undefined
+  return lifecycle.url
 }
 
-// A running runtime has no page. A window still on this origin then is one
-// setRuntime is already moving, so it gets progress rather than a stale failure
-// carrying buttons it could still act on.
-function startupPage(): StartupPageState {
-  return runtime.phase === "running" ? { phase: "starting" } : runtime
+function showStartupPage() {
+  for (const win of liveWindows()) navigateWindow(win, STARTUP_URL)
 }
 
-/**
- * Move the runtime on, and every window with it.
- *
- * Called on transitions only, which is what makes pointing every window at the
- * new destination safe: a window is somewhere else than the rest exactly when
- * the user opened a second one, and that one was opened on this same state.
- * @param next - what the runtime is doing now.
- */
-function setRuntime(next: Runtime) {
-  runtime = next
-  for (const win of liveWindows()) navigateWindow(win, dshUrl() ?? STARTUP_URL)
+async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed" }>) {
+  const copy = menuLocale === "zh"
+    ? {
+        title: state.reason === "startup" ? "爪印无法启动" : "爪印已停止",
+        message: state.reason === "startup" ? "智能体运行时未能启动。" : "智能体运行时意外退出。",
+        buttons: ["重试", "显示日志", "反馈问题", "退出"],
+        log: "完整日志",
+      }
+    : {
+        title: state.reason === "startup" ? "PawWork Could Not Start" : "PawWork Stopped",
+        message: state.reason === "startup" ? "The agent runtime did not start." : "The agent runtime stopped unexpectedly.",
+        buttons: ["Try Again", "Show Log", "Report a Problem", "Quit"],
+        log: "Full log",
+      }
+  const logPath = logger.transports.file.getFile().path
+  const error = state.error instanceof Error ? state.error.message : String(state.error ?? "")
+  const detail = [error, dshOutputTail.trim(), `${copy.log}: ${logPath}`].filter(Boolean).join("\n\n")
+
+  for (;;) {
+    const options = {
+      type: "error" as const,
+      title: copy.title,
+      message: copy.message,
+      detail,
+      buttons: copy.buttons,
+      defaultId: 0,
+      cancelId: 3,
+    }
+    const owner = BrowserWindow.getFocusedWindow() ?? liveWindows()[0]
+    const result = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options)
+    if (result.response === 0) {
+      focusMainWindow(true)
+      lifecycle.start()
+      return
+    }
+    if (result.response === 1) {
+      shell.showItemInFolder(logPath)
+      continue
+    }
+    if (result.response === 2) {
+      await shell.openExternal(PAWWORK_GITHUB_ISSUE_URL).catch((failure) => logger.error("failed to open issue form", failure))
+      continue
+    }
+    app.quit()
+    return
+  }
 }
 
-async function startDsh() {
+function handleLifecycleChange(state: DshLifecycleState) {
+  if (state.phase === "starting") {
+    dshOutputTail = ""
+    return
+  }
+  if (state.phase === "loading") {
+    for (const win of liveWindows()) navigateWindow(win, state.url)
+    return
+  }
+  if (state.phase === "ready") {
+    dshOutputTail = ""
+    if (CI_SMOKE_ENABLED) {
+      mkdirSync(dirname(CI_SMOKE_READY_FILE), { recursive: true })
+      writeFileSync(CI_SMOKE_READY_FILE, JSON.stringify({ readyAt: new Date().toISOString() }), "utf8")
+    }
+    return
+  }
+  if (state.phase === "failed") {
+    logger.error("DSH lifecycle failed", state.error)
+    if (CI_SMOKE_ENABLED) app.exit(1)
+    else {
+      showStartupPage()
+      void showDshFailure(state)
+    }
+  }
+}
+
+function launchDsh() {
   // The migration is the argument rather than a preceding statement, so it
   // cannot be reordered: prepareDshProductHome creates and populates whatever
   // home it is handed, and a migration running after it would read that overlay
@@ -364,7 +292,7 @@ async function startDsh() {
   })
 
   logger.log("spawning DSH sidecar")
-  const started = await launchDshSidecar({
+  return launchDshSidecar({
     executable: process.execPath,
     dshBin: join(dirname(dshPackage), "lib", "bin.js"),
     sidecarPreload: pathToFileURL(product.sidecarPreload).href,
@@ -381,35 +309,14 @@ async function startDsh() {
     },
     onError: (error) => logger.error("DSH sidecar process error", error),
   })
-  sidecar = started
-  void started.exited.then((code) => {
-    // A stop we asked for clears the slot before it waits, so an exit that still
-    // owns it is one nobody asked for. It used to take the app down with it.
-    if (sidecar !== started) return
-    sidecar = undefined
-    logger.error("DSH sidecar exited", { code })
-    failStartup("crash", new Error(`DSH exited ${describeExit(code)}`))
-  })
-  return started
 }
 
 function openMainWindow() {
   const win = createMainWindow({
-    preload: fileInputPreload,
+    preload: productPreload,
     dshUrl,
-    onStartupAction: handleStartupAction,
   })
   if (currentProgress !== null) win.setProgressBar(currentProgress)
-  if (CI_SMOKE_ENABLED) {
-    // The first load is the startup page now, so readiness is the load that
-    // lands on DSH — not the first one to finish.
-    win.webContents.on("did-finish-load", () => {
-      const url = dshUrl()
-      if (!url || !win.webContents.getURL().startsWith(url)) return
-      mkdirSync(dirname(CI_SMOKE_READY_FILE), { recursive: true })
-      writeFileSync(CI_SMOKE_READY_FILE, JSON.stringify({ readyAt: new Date().toISOString() }), "utf8")
-    })
-  }
   return win
 }
 
@@ -425,7 +332,7 @@ function wireMenu() {
     checkForUpdates: () => void checkForUpdates(true),
     newWindow: openMainWindow,
     relaunch: () => {
-      void shutdownSidecar().finally(() => {
+      void lifecycle.stop().finally(() => {
         app.relaunch()
         app.exit(0)
       })
@@ -527,19 +434,6 @@ async function checkForUpdates(alertOnFail: boolean) {
     })
     if (failure.response === 0) await shell.openExternal(LATEST_RELEASE_URL)
   }
-}
-
-// Memoised because quit can be reached from several directions at once; the
-// stop itself is not, so a retry can start a fresh sidecar after it.
-async function shutdownSidecar() {
-  sidecarShutdown ??= stopActiveSidecar()
-  await sidecarShutdown
-}
-
-async function stopActiveSidecar() {
-  const active = sidecar
-  sidecar = undefined
-  if (active) await active.stop()
 }
 
 async function clearPendingUpdate() {

@@ -752,7 +752,7 @@ function launchApp(homeDir: string, target: SmokeTarget, options: LaunchAppOptio
 }
 
 // Ask the window to close, the way a user quits: window-all-closed → app.quit()
-// → before-quit → shutdownSidecar(), which is where DSH state reaches disk.
+// → before-quit → DshLifecycle.stop(), which is where DSH state reaches disk.
 // window.close() tears the page down mid-call, so defer it past the reply or the
 // evaluation never returns.
 async function closeAppWindow(target: CdpTarget) {

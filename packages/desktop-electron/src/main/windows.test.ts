@@ -80,18 +80,15 @@ vi.mock("electron-window-state", () => ({
   default: () => ({ x: 0, y: 0, width: 1280, height: 800, manage: () => {} }),
 }))
 
-const { createMainWindow } = await import("./windows")
-const { STARTUP_URL } = await import("./startup-page")
+const { createMainWindow, STARTUP_URL } = await import("./windows")
 
 const DSH = "http://127.0.0.1:4321/"
-const startupActions: string[] = []
 
 function openWindow(dshUrl?: string) {
   webContents.url = dshUrl ?? STARTUP_URL
   return createMainWindow({
     preload: "/preload.cjs",
     dshUrl: () => dshUrl,
-    onStartupAction: (action) => startupActions.push(action),
   })
 }
 
@@ -104,7 +101,6 @@ beforeEach(() => {
   win.fullscreen = false
   webContents.url = ""
   win.loaded.length = 0
-  startupActions.length = 0
   openExternal.mockClear()
 })
 
@@ -153,32 +149,6 @@ describe("main window wiring", () => {
     win.loaded.length = 0
     openWindow(DSH)
     expect(win.loaded).toEqual([DSH])
-  })
-
-  test("hands the startup page's own links to the main process instead of navigating", () => {
-    openWindow()
-
-    expect(navigate(`${STARTUP_URL}retry`, true).preventDefault).toHaveBeenCalled()
-    expect(navigate(`${STARTUP_URL}copy-details`, true).preventDefault).toHaveBeenCalled()
-    expect(startupActions).toEqual(["retry", "copy-details"])
-    expect(openExternal).not.toHaveBeenCalled()
-  })
-
-  test("lets the startup page reload itself", () => {
-    openWindow()
-
-    expect(navigate(STARTUP_URL, true).preventDefault).not.toHaveBeenCalled()
-    expect(startupActions).toEqual([])
-  })
-
-  // DSH renders model output, and a link is the cheapest thing a model can emit.
-  // Only the page that owns the buttons may spend them.
-  test("refuses the startup scheme when DSH is what is on screen", () => {
-    openWindow(DSH)
-
-    expect(navigate(`${STARTUP_URL}retry`, true).preventDefault).toHaveBeenCalled()
-    expect(startupActions).toEqual([])
-    expect(openExternal).not.toHaveBeenCalled()
   })
 
   // With no origin to belong to, nothing belongs to it — including the page DSH
