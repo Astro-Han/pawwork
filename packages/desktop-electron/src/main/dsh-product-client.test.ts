@@ -120,6 +120,7 @@ describe("PawWork DSH client product layer", () => {
     const sidebarMark = brandEntries[0].component({ size: 24 }) as { type: string; props: Record<string, unknown> }
     expect(sidebarMark.type).toBe("svg")
     expect(sidebarMark.props).toMatchObject({ viewBox: "0 0 64 64", width: 24, height: 24 })
+    expect(ready).toHaveBeenCalledTimes(1)
     expect(brandEntries[1].component({})).toBe("爪印")
     const heroMark = brandEntries[2].component({ size: 34 }) as { type: string; props: Record<string, unknown> }
     expect(heroMark.type).toBe("svg")
