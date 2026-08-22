@@ -119,6 +119,55 @@ describe("DshLifecycle", () => {
     expect(states.at(-1)).toMatchObject({ phase: "failed", reason: "startup" })
   })
 
+  test("rejects product readiness after failure owns the current run", async () => {
+    const spawned = run()
+    const stopped = deferred<void>()
+    spawned.sidecar.stop = vi.fn(() => stopped.promise)
+    const states: DshLifecycleState[] = []
+    const lifecycle = new DshLifecycle({ launch: () => spawned.sidecar, onChange: (state) => states.push(state) })
+
+    lifecycle.start()
+    spawned.ready.resolve("http://127.0.0.1:43123")
+    await settle()
+    spawned.exited.resolve(23)
+    await settle()
+
+    expect(lifecycle.state.phase).toBe("stopping")
+    lifecycle.productReady("http://127.0.0.1:43123/")
+    expect(lifecycle.state.phase).toBe("stopping")
+
+    stopped.resolve()
+    await settle()
+    expect(states.map((state) => state.phase)).toEqual(["starting", "loading", "stopping", "failed"])
+  })
+
+  test("shares failure cleanup with an overlapping stop request", async () => {
+    const spawned = run()
+    const stopped = deferred<void>()
+    spawned.sidecar.stop = vi.fn(() => stopped.promise)
+    const lifecycle = new DshLifecycle({ launch: () => spawned.sidecar, onChange: () => {} })
+
+    lifecycle.start()
+    spawned.ready.resolve("http://127.0.0.1:43123")
+    await settle()
+    spawned.exited.resolve(23)
+    await settle()
+
+    const stopping = lifecycle.stop()
+    let finished = false
+    void stopping.then(() => {
+      finished = true
+    })
+    await settle()
+
+    expect(finished).toBe(false)
+    expect(spawned.sidecar.stop).toHaveBeenCalledTimes(1)
+
+    stopped.resolve()
+    await stopping
+    expect(lifecycle.state.phase).toBe("stopped")
+  })
+
   test("classifies an exit after product readiness as a crash", async () => {
     const spawned = run()
     const states: DshLifecycleState[] = []

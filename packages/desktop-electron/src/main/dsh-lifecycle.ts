@@ -10,6 +10,8 @@ export type DshLifecycleState =
   | { phase: "stopping" }
   | { phase: "failed"; reason: DshFailureReason; error: unknown }
 
+type DshTerminalState = Extract<DshLifecycleState, { phase: "stopped" | "failed" }>
+
 type DshLifecycleOptions = {
   launch(): DshRun
   onChange(state: DshLifecycleState): void
@@ -21,7 +23,7 @@ const DEFAULT_PRODUCT_TIMEOUT_MS = 30_000
 export class DshLifecycle {
   #state: DshLifecycleState = { phase: "stopped" }
   #run: DshRun | undefined
-  #stopping: Promise<void> | undefined
+  #stopping: { promise: Promise<void>; terminal: DshTerminalState } | undefined
   #productTimeout: ReturnType<typeof setTimeout> | undefined
 
   constructor(private readonly options: DshLifecycleOptions) {}
@@ -76,25 +78,31 @@ export class DshLifecycle {
   }
 
   stop() {
-    if (this.#stopping !== undefined) return this.#stopping
-    this.#clearProductTimeout()
-    const run = this.#run
-    this.#run = undefined
-    this.#publish({ phase: "stopping" })
-    this.#stopping = Promise.resolve(run?.stop()).finally(() => {
-      this.#publish({ phase: "stopped" })
-      this.#stopping = undefined
-    })
-    return this.#stopping
+    if (this.#stopping !== undefined) {
+      this.#stopping.terminal = { phase: "stopped" }
+      return this.#stopping.promise
+    }
+    return this.#finish(this.#run, { phase: "stopped" })
   }
 
-  async #fail(run: DshRun, reason: DshFailureReason, error: unknown) {
+  #fail(run: DshRun, reason: DshFailureReason, error: unknown) {
     if (this.#run !== run) return
+    return this.#finish(run, { phase: "failed", reason, error })
+  }
+
+  #finish(run: DshRun | undefined, terminal: DshTerminalState) {
     this.#run = undefined
     this.#clearProductTimeout()
-    await run.stop()
-    if (this.#state.phase === "stopping" || this.#state.phase === "stopped") return
-    this.#publish({ phase: "failed", reason, error })
+    this.#publish({ phase: "stopping" })
+    const stopping = { promise: Promise.resolve(), terminal }
+    this.#stopping = stopping
+    stopping.promise = Promise.resolve()
+      .then(() => run?.stop())
+      .finally(() => {
+        this.#publish(stopping.terminal)
+        if (this.#stopping === stopping) this.#stopping = undefined
+      })
+    return stopping.promise
   }
 
   #clearProductTimeout() {
