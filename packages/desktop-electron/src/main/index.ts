@@ -299,7 +299,7 @@ function launchDsh() {
     productHome: product.home,
     productPatch: product.patch,
     toolsDir: join(dirname(productResources.dsh), "tools"),
-    env: buildDshEnvironment(productResources.skills),
+    env: buildDshEnvironment(),
     timeoutMs: 30_000,
     spawn: (executable, args, options) => spawn(executable, args, options),
     onStdout: (chunk) => logger.log("DSH stdout", { chunk: chunk.trimEnd() }),

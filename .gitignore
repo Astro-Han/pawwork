@@ -33,6 +33,6 @@ logs/
 tsconfig.tsbuildinfo
 .superpowers/
 
-# Python bytecode (bundled skills under skills/ ship .py sources)
+# Python bytecode
 __pycache__/
 *.pyc

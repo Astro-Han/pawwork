@@ -77,7 +77,6 @@ export type CiSmokeProductSnapshot = {
   freeProviderActive: boolean
   v1SessionImported: boolean
   v1SessionVisibleInSidebar: boolean
-  skillNames: string[]
   sessionId: string
   sessionIdsBeforeRestart: string[]
 }
@@ -500,7 +499,6 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     }
     const providers = (await call("llm.providers", {})).providers
     const session = await call("session.create", { cwd: ${workspace} })
-    const skills = (await call("skill.list", { sessionId: session.sessionId })).skills
     const sessionIdsBeforeRestart = (await call("session.list", {})).items.map((item) => item.sessionId)
     const freeProvider = providers.find((provider) => provider.provider === "opencode")
     return JSON.stringify({
@@ -539,7 +537,6 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       freeProviderActive: freeProvider?.active === true && freeProvider?.displayName === "OpenCode Free",
       v1SessionImported,
       v1SessionVisibleInSidebar,
-      skillNames: skills.map((skill) => skill.name).sort(),
       sessionId: session.sessionId,
       sessionIdsBeforeRestart,
     })
@@ -710,9 +707,6 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.freeProviderActive ? null : "OpenCode Free provider is not active",
     snapshot.v1SessionImported ? null : "V1 session was not imported into DSH",
     snapshot.v1SessionVisibleInSidebar ? null : "Imported V1 session never appeared in the sidebar without a reload",
-    ["office-docx", "office-pdf", "office-pptx", "office-xlsx"].every((name) => snapshot.skillNames.includes(name))
-      ? null
-      : `bundled Office skills are incomplete: ${snapshot.skillNames.join(", ")}`,
   ].filter((failure): failure is string => failure !== null)
 
   if (failures.length) throw new Error(`DSH product smoke failed:\n- ${failures.join("\n- ")}`)
@@ -886,7 +880,7 @@ async function main() {
       cdpTarget = await probeCiSmokeCdpTarget(cdpPort)
       product = await inspectCiSmokeProduct(cdpTarget, homeDir)
       assertCiSmokeProduct(product)
-      console.log("CI smoke verified DSH product UI, free model, and bundled skills")
+      console.log("CI smoke verified DSH product UI and free model")
       await waitForSessionOnDisk(dshHome, product.sessionId)
       console.log(`CI smoke sessions before shutdown: ${product.sessionIdsBeforeRestart.join(", ") || "(none)"}`)
       console.log(`CI smoke session files before shutdown:\n${describeDirectory(join(dshHome, "sessions"))}`)

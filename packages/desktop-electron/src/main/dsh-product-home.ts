@@ -33,9 +33,6 @@ export function resolveProductResources(options: ResolveProductResourcesOptions)
     dsh: options.isPackaged
       ? join(options.resourcesPath, "dsh")
       : join(options.appPath, "resources", "dsh"),
-    skills: options.isPackaged
-      ? join(options.resourcesPath, "skills")
-      : join(options.appPath, "..", "..", "skills"),
   }
 }
 
@@ -77,13 +74,9 @@ export function prepareDshProductHome(options: PrepareDshProductHomeOptions) {
   }
 }
 
-export function buildDshEnvironment(
-  bundledSkillDir: string,
-  source: NodeJS.ProcessEnv = process.env,
-) {
+export function buildDshEnvironment(source: NodeJS.ProcessEnv = process.env) {
   const environment: NodeJS.ProcessEnv = {
     ...source,
-    DSH_BUNDLED_SKILL_DIR: bundledSkillDir,
   }
   delete environment.DSH_HOME
   for (const name of DROPPED_MODEL_ENVIRONMENT) delete environment[name]

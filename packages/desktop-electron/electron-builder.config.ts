@@ -67,11 +67,6 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
       filter: ["dock.png", "icon.png", "icon.ico"],
     },
     {
-      from: path.join(rootDir, "skills"),
-      to: "skills",
-      filter: ["**/*"],
-    },
-    {
       from: path.join(rootDir, "THIRD_PARTY_NOTICES.md"),
       to: "THIRD_PARTY_NOTICES.md",
     },

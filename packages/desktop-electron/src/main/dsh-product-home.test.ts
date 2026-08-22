@@ -49,7 +49,6 @@ describe("DSH product home", () => {
       }),
     ).toEqual({
       dsh: join("/Applications/PawWork.app/Contents/Resources", "dsh"),
-      skills: join("/Applications/PawWork.app/Contents/Resources", "skills"),
     })
     expect(
       resolveProductResources({
@@ -59,7 +58,6 @@ describe("DSH product home", () => {
       }),
     ).toEqual({
       dsh: join("/repo/packages/desktop-electron", "resources", "dsh"),
-      skills: join("/repo/packages/desktop-electron", "..", "..", "skills"),
     })
   })
 
@@ -177,7 +175,7 @@ describe("DSH product home", () => {
   })
 
   test("isolates DSH from ambient model credentials", () => {
-    const environment = buildDshEnvironment("/app/skills", {
+    const environment = buildDshEnvironment({
       PATH: "/usr/bin",
       DSH_HOME: "/ambient/dsh",
       OPENCODE_API_KEY: "ambient",
@@ -188,7 +186,6 @@ describe("DSH product home", () => {
 
     expect(environment).toEqual({
       PATH: "/usr/bin",
-      DSH_BUNDLED_SKILL_DIR: "/app/skills",
     })
   })
 })

@@ -245,7 +245,6 @@ describe("ci smoke helpers", () => {
     freeProviderActive: true,
     v1SessionImported: true,
     v1SessionVisibleInSidebar: true,
-    skillNames: ["office-docx", "office-pdf", "office-pptx", "office-xlsx"],
     sessionId: "session-1",
     sessionIdsBeforeRestart: ["session-1"],
   }
@@ -285,7 +284,6 @@ describe("ci smoke helpers", () => {
     freeProviderActive: false,
     v1SessionImported: false,
     v1SessionVisibleInSidebar: false,
-    skillNames: ["office-docx"],
   }
 
   test("accepts a snapshot where every product capability is present", () => {

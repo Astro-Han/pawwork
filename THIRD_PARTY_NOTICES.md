@@ -2,7 +2,7 @@
 
 ## uv
 
-PawWork bundles `uv` by Astral to supply a Python runtime for Excel/Word/PowerPoint skills that generate or edit Office files via Python libraries.
+PawWork bundles `uv` by Astral to supply a Python runtime for generating or editing Office documents via Python libraries.
 
 - Project: https://github.com/astral-sh/uv
 - Version: 0.11.28
