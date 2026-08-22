@@ -109,6 +109,9 @@ describe("DSH product home", () => {
     expect(
       JSON.parse(readFileSync(join(productHome, "node_modules/@pawwork/dsh-automations/package.json"), "utf8")).name,
     ).toBe("@pawwork/dsh-automations")
+    expect(
+      JSON.parse(readFileSync(join(productHome, "node_modules/@pawwork/dsh-identity/package.json"), "utf8")).name,
+    ).toBe("@pawwork/dsh-identity")
     expect(prepared.sidecarPreload).toBe(join(resources, "sidecar-preload.mjs"))
   })
 

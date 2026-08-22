@@ -58,14 +58,12 @@ export function prepareDshProductHome(options: PrepareDshProductHomeOptions) {
   cpSync(join(options.resources, "home"), options.productHome, { force: true, recursive: true })
   const productPackageParent = join(options.productHome, "node_modules", "@pawwork")
   mkdirSync(productPackageParent, { recursive: true })
-  cpSync(join(options.resources, "product"), join(productPackageParent, "dsh-product"), {
-    force: true,
-    recursive: true,
-  })
-  cpSync(join(options.resources, "automations"), join(productPackageParent, "dsh-automations"), {
-    force: true,
-    recursive: true,
-  })
+  for (const plugin of ["product", "automations", "identity"] as const) {
+    cpSync(join(options.resources, plugin), join(productPackageParent, `dsh-${plugin}`), {
+      force: true,
+      recursive: true,
+    })
+  }
 
   const credentials = join(options.productHome, ".credentials.yaml")
   if (!existsSync(credentials)) writeFileSync(credentials, PUBLIC_CREDENTIAL, { mode: 0o600 })
