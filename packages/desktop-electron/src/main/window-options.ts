@@ -19,9 +19,9 @@ export function dshWebPreferences(preload: string) {
   }
 }
 
-export function dshTitleBarOptions(platform: NodeJS.Platform, colorScheme: TitlebarColorScheme = "light") {
+export function dshTitleBarOptions(platform: NodeJS.Platform) {
   if (platform === "win32") {
-    return { titleBarOverlay: titleBarOverlayStyle(colorScheme), titleBarStyle: "hidden" as const }
+    return { titleBarOverlay: { height: TITLEBAR_HEIGHT }, titleBarStyle: "hidden" as const }
   }
   if (platform === "darwin") return { titleBarStyle: "hidden" as const }
   return {}

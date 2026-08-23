@@ -14,17 +14,10 @@ describe("desktop windows security", () => {
   })
 
   test("Windows uses system caption buttons over the frameless DSH shell", () => {
-    expect(dshTitleBarOptions("win32", "light")).toEqual({
-      titleBarOverlay: { color: "transparent", height: 32, symbolColor: "#1f2328" },
+    expect(dshTitleBarOptions("win32")).toEqual({
+      titleBarOverlay: { height: 32 },
       titleBarStyle: "hidden",
     })
     expect(dshTitleBarOptions("darwin")).toEqual({ titleBarStyle: "hidden" })
-  })
-
-  test("Windows caption symbols follow the resolved dark theme", () => {
-    expect(dshTitleBarOptions("win32", "dark")).toEqual({
-      titleBarOverlay: { color: "transparent", height: 32, symbolColor: "#f0f0f0" },
-      titleBarStyle: "hidden",
-    })
   })
 })

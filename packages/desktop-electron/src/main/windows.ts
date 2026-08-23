@@ -1,6 +1,6 @@
 import windowState from "electron-window-state"
 import log from "electron-log/main.js"
-import { app, BrowserWindow, nativeImage, nativeTheme, shell } from "electron"
+import { app, BrowserWindow, nativeImage, shell } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { macTrafficLightPosition, pawworkWindowTitle, titlebarInsetCss } from "./window-chrome"
@@ -70,7 +70,7 @@ export function createMainWindow(options: MainWindowOptions) {
     show: false,
     title: "PawWork",
     icon: iconPath(),
-    ...dshTitleBarOptions(process.platform, nativeTheme.shouldUseDarkColors ? "dark" : "light"),
+    ...dshTitleBarOptions(process.platform),
     ...(process.platform === "darwin" ? { trafficLightPosition: macTrafficLightPosition() } : {}),
     webPreferences: dshWebPreferences(options.preload),
   })
