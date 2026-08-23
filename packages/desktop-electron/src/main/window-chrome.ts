@@ -13,6 +13,9 @@ const TRAFFIC_LIGHT_DIAMETER = 12
 const SIDEBAR_HEADER_CENTER = 36
 // Measured from the window edge through the trailing edge of the native cluster.
 const MAC_TRAFFIC_LIGHT_INSET = 72
+// Keep the collapsed-rail divider clear of the native cluster (bottom 42px)
+// with one 6px visual breathing gap.
+const MAC_SIDEBAR_DIVIDER_START = 48
 
 export function macTrafficLightPosition() {
   return { x: 12, y: Math.round(SIDEBAR_HEADER_CENTER - TRAFFIC_LIGHT_DIAMETER / 2) }
@@ -22,7 +25,7 @@ export function macTrafficLightPosition() {
 // strip height collapse with them.
 export function titlebarInsetCss(platform: NodeJS.Platform, options: { fullscreen: boolean }) {
   if (platform !== "darwin" || options.fullscreen) return ""
-  return `:root { --pawwork-titlebar-host-height: ${TITLEBAR_HEIGHT}px; --pawwork-titlebar-host-inset-left: ${MAC_TRAFFIC_LIGHT_INSET}px; }`
+  return `:root { --pawwork-titlebar-host-height: ${TITLEBAR_HEIGHT}px; --pawwork-titlebar-host-inset-left: ${MAC_TRAFFIC_LIGHT_INSET}px; --pawwork-titlebar-host-control-center-y: ${SIDEBAR_HEADER_CENTER}px; --pawwork-sidebar-host-divider-start: ${MAC_SIDEBAR_DIVIDER_START}px; }`
 }
 
 const DSH_TITLE = "DeepSeek Harness"

@@ -2,6 +2,7 @@ window.__ModuleLoader__.load({
   id: "@pawwork/dsh-product",
   factory: (require) => {
     const { createElement, useEffect, useRef } = require("react")
+    const { IconPanelLeftOutline16 } = require("@deepseek-ai/dsh-client-ui-primitives")
     const h = createElement
 
     const productCss = `
@@ -12,29 +13,50 @@ window.__ModuleLoader__.load({
   --pawwork-titlebar-height: var(--pawwork-titlebar-host-height, env(titlebar-area-height, 0px));
   --pawwork-titlebar-inset-left: var(--pawwork-titlebar-host-inset-left, env(titlebar-area-x, 0px));
   --pawwork-titlebar-inset-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+  --pawwork-titlebar-control-center-y: var(--pawwork-titlebar-host-control-center-y, calc(max(var(--pawwork-titlebar-height), 32px) / 2));
+  --pawwork-sidebar-divider-start: var(--pawwork-sidebar-host-divider-start, min(var(--pawwork-titlebar-inset-left), var(--pawwork-titlebar-height)));
 }
-.pawwork-titlebar {
-  -webkit-app-region: drag;
-  height: var(--pawwork-titlebar-height, 0px);
+.pawwork-window-chrome {
+  height: max(var(--pawwork-titlebar-height), 32px);
   left: 0; pointer-events: none; position: fixed; right: 0; top: 0;
 }
-html body :is(button, a, input, textarea, select, [role="button"], [role="tab"], [contenteditable="true"]) { -webkit-app-region: no-drag; }
-/* The expanded brand duplicates the hero and its New Session action exists directly below. Keep
-   the slot mounted for PawReadyMark, but hide only the button that also contains the name. In the
-   collapsed rail DSH omits the name and reuses the mark inside the expand control. */
-button:has([data-slot="sidebar.brand.name"]) { display: none; }
-div:has(> button [data-slot="sidebar.brand.name"]) {
+.pawwork-window-drag-region {
   -webkit-app-region: drag;
-  padding-left: var(--pawwork-titlebar-inset-left, 0px);
+  height: var(--pawwork-titlebar-height, 0px);
+  left: 0; pointer-events: none; position: absolute; right: 0; top: 0;
 }
-div:has(> button [data-slot="sidebar.brand.mark"]):not(:has([data-slot="sidebar.brand.name"])) {
-  margin-top: min(var(--pawwork-titlebar-inset-left, 0px), var(--pawwork-titlebar-height, 0px));
+.pawwork-sidebar-toggle {
+  -webkit-app-region: no-drag;
+  align-items: center; background: transparent; border: 0; border-radius: 50%;
+  color: var(--dsw-alias-label-secondary); display: inline-flex; height: 28px;
+  justify-content: center; left: calc(var(--pawwork-titlebar-inset-left) + 8px);
+  padding: 0; pointer-events: auto; position: absolute;
+  top: calc(var(--pawwork-titlebar-control-center-y) - 14px); width: 28px;
+}
+.pawwork-sidebar-toggle:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.pawwork-sidebar-toggle:focus-visible { outline: 2px solid #fc5c14; outline-offset: 1px; }
+html body :is(button, a, input, textarea, select, [role="button"], [role="tab"], [contenteditable="true"]) { -webkit-app-region: no-drag; }
+/* DSH owns the sidebar layout seat and PawReadyMark remains mounted as the ready signal, but its
+   expanded brand action and collapsed toggle are hidden. PawWork exposes one stable window-chrome
+   toggle through shell.overlay instead of styling either stateful DSH control. */
+div:has(> button [data-slot="sidebar.brand.name"]) > button,
+div:has(> button [data-slot="sidebar.brand.mark"]):not(:has([data-slot="sidebar.brand.name"])) > button {
+  pointer-events: none;
+  visibility: hidden;
+}
+/* In the collapsed 56px rail the native macOS cluster crosses the original full-height divider.
+   Preserve DSH's sidebar boundary, but start its visual divider below the native controls. */
+html body div:has(> [data-slot="sidebar"]) { border-right: 0; position: relative; }
+html body div:has(> [data-slot="sidebar"])::after {
+  background: var(--dsw-alias-border-l1); bottom: 0; content: "";
+  pointer-events: none; position: absolute; right: 0;
+  top: var(--pawwork-sidebar-divider-start); width: 1px;
 }
 /* Stable slot boundaries consume the right inset, so current and future header controls naturally
-   sit before the Windows caption buttons. Preserve DSH's existing 20px edge spacing. */
+   sit before the Windows caption buttons. Preserve DSH's existing 28px edge spacing. */
 [data-slot="conversation.session.header"] > * {
   box-sizing: border-box;
-  padding-right: calc(20px + var(--pawwork-titlebar-inset-right, 0px));
+  padding-right: calc(28px + var(--pawwork-titlebar-inset-right, 0px));
 }
 /* DSH's details slot renders a panel root followed by its 55px header. Preserve the header's native
    12px breathing room, then put its close/collapse action before the same Windows inset. */
@@ -95,15 +117,6 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       style.textContent = productCss
       document.head.appendChild(style)
     }
-    function mountTitlebar() {
-      if (!document.body || document.querySelector(".pawwork-titlebar") !== null) return
-      const bar = document.createElement("div")
-      bar.className = "pawwork-titlebar"
-      document.body.appendChild(bar)
-    }
-    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountTitlebar, { once: true })
-    else mountTitlebar()
-
     function isChinese() { return document.documentElement.lang.startsWith("zh") }
     function text(chinese, english) { return isChinese() ? chinese : english }
     function icon(paths, size = 16) {
@@ -133,6 +146,14 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       const label = text("添加文件", "Add files")
       return h("button", { "aria-label": label, className: "pawwork-file-action", disabled: input.phase !== "plain", onClick: chooseFiles, title: label, type: "button" },
         icon(["M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"]))
+    }
+
+    function WindowChrome({ toggleSidebar }) {
+      const label = text("切换侧边栏", "Toggle sidebar")
+      return h("div", { className: "pawwork-window-chrome" },
+        h("div", { className: "pawwork-window-drag-region" }),
+        h("button", { "aria-label": label, className: "pawwork-sidebar-toggle", onClick: toggleSidebar, title: label, type: "button" },
+          h(IconPanelLeftOutline16, { size: 16 })))
     }
 
     // --- PawWork glove mark --------------------------------------------------
@@ -206,7 +227,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       return PawGloveMark(props)
     }
 
-    const inject = ["slots", "connection", "sessions"]
+    const inject = ["slots", "connection", "sessions", "layout"]
 
     function BrandName() { return text("爪印", "PawWork") }
 
@@ -275,6 +296,8 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     }
 
     function apply(ctx) {
+      ctx.slots.inject("shell.overlay", () => ctx.slots.register({ name: "shell.overlay", id: "pawwork-window-chrome", order: -100 },
+        () => WindowChrome({ toggleSidebar: () => ctx.layout.toggleSidebar() })))
       ctx.slots.inject("sidebar.brand.mark", () => ctx.slots.register({ name: "sidebar.brand.mark", priority: -100 }, PawReadyMark))
       ctx.slots.inject("sidebar.brand.name", () => ctx.slots.register({ name: "sidebar.brand.name", priority: -100 }, BrandName))
       ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawGloveMark))

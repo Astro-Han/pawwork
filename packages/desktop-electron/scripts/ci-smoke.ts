@@ -67,6 +67,7 @@ export type CiSmokeProductSnapshot = {
   contentInsetHeight: number
   titlebarInsetLeft: number
   titlebarInsetRight: number
+  sidebarDividerStart: number
   expandedNativeControlOverlaps: string[]
   collapsedNativeControlOverlaps: string[]
   sidebarToggleCount: number
@@ -331,7 +332,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     })
     const sidebarBrandButton = document.querySelector('[data-slot="sidebar.brand.name"]')?.closest("button")
     const sidebarExpandedBrandHidden = Boolean(sidebarBrandButton) && !visible(sidebarBrandButton)
-    const titlebarStrip = document.querySelector(".pawwork-titlebar")
+    const titlebarStrip = document.querySelector(".pawwork-window-drag-region")
     const titlebarStripHeight = titlebarStrip ? titlebarStrip.getBoundingClientRect().height : -1
     const titlebarStripDraggable = Boolean(titlebarStrip)
       && getComputedStyle(titlebarStrip).getPropertyValue("-webkit-app-region").trim() === "drag"
@@ -342,6 +343,10 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const titlebarInsetLeft = Number.parseFloat(insetStyle.paddingLeft)
     const titlebarInsetRight = Number.parseFloat(insetStyle.paddingRight)
     insetProbe.remove()
+    const sidebarRoot = document.querySelector('[data-slot="sidebar"]')?.parentElement
+    const sidebarDividerStart = sidebarRoot
+      ? Number.parseFloat(getComputedStyle(sidebarRoot, "::after").top)
+      : -1
     const nativeControlOverlaps = () => {
       const leftBottom = titlebarStripHeight + 16
       const rightStart = innerWidth - titlebarInsetRight
@@ -476,9 +481,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const settledCursorMismatches = cursorMismatches()
     const collapseToggles = sidebarToggles()
     collapseToggles[0]?.click()
-    // The collapsed rail remounts, and data-sidebar-collapsed lands before the button does, so a
-    // slower machine would measure the transition. An empty shell button still has a 36x36 box, so
-    // waiting cannot mask the defect hasContent catches.
+    // The DSH rail remounts, while PawWork's shell.overlay toggle stays stable. Wait for both the
+    // collapsed state and the one visible PawWork control before measuring the new state.
     let expandToggles = []
     for (let frame = 0; frame < 60; frame += 1) {
       await new Promise((resolve) => setTimeout(resolve, 16))
@@ -487,8 +491,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     }
     const sidebarCollapsed = Boolean(document.querySelector("[data-sidebar-collapsed]"))
     const sidebarExpandToggleUsable = usable(expandToggles[0])
-    // Collapsed, DSH uses the brand mark as the expand button's icon, so an empty brand slot
-    // leaves a button that is present and clickable but invisible.
+    // The PawWork-owned toggle retains its icon across both sidebar states.
     const sidebarExpandToggleHasContent = Boolean(expandToggles[0])
       && Array.from(expandToggles[0].querySelectorAll("*")).some(visible)
     const collapsedNativeControlOverlaps = nativeControlOverlaps()
@@ -549,6 +552,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       contentInsetHeight,
       titlebarInsetLeft,
       titlebarInsetRight,
+      sidebarDividerStart,
       expandedNativeControlOverlaps,
       collapsedNativeControlOverlaps,
       sidebarToggleCount: collapseToggles.length,
@@ -692,6 +696,11 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     : platform === "win32"
       ? snapshot.titlebarInsetLeft + snapshot.titlebarInsetRight > 0
       : snapshot.titlebarInsetLeft === 0 && snapshot.titlebarInsetRight === 0
+  const sidebarDividerClearsNativeControls = platform === "darwin"
+    ? snapshot.sidebarDividerStart >= 48
+    : platform === "win32" && snapshot.titlebarInsetLeft > 0
+      ? snapshot.sidebarDividerStart >= snapshot.titlebarStripHeight
+      : snapshot.sidebarDividerStart >= 0
   const failures = [
     snapshot.sidebarExpandedBrandHidden ? null : "expanded sidebar still renders the duplicate PawWork brand action",
     frameless === snapshot.titlebarStripHeight > 0
@@ -702,6 +711,9 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     titlebarInsetsMatchPlatform
       ? null
       : `titlebar edge insets do not match ${platform}: left=${snapshot.titlebarInsetLeft}px right=${snapshot.titlebarInsetRight}px`,
+    sidebarDividerClearsNativeControls
+      ? null
+      : `sidebar divider starts at ${snapshot.sidebarDividerStart}px inside the native-control area`,
     snapshot.expandedNativeControlOverlaps.length === 0
       ? null
       : `expanded controls overlap native window controls: ${snapshot.expandedNativeControlOverlaps.join(", ")}`,
@@ -731,12 +743,12 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.automationDeleteDialogWorks ? null : "Automation delete confirmation is not a cancellable dialog",
     snapshot.automationDirtyPauseBlocked ? null : "Automation pause can discard unsaved edits",
     snapshot.automationMetadataPlain ? null : "Automation immutable metadata is not plain read-only text",
-    snapshot.sidebarToggleCount === 1 ? null : `expected one DSH collapse control, found ${snapshot.sidebarToggleCount}`,
-    snapshot.sidebarCollapsed ? null : "DSH collapse control did not collapse the sidebar",
-    snapshot.sidebarExpandToggleCount === 1 ? null : `expected one DSH expand control, found ${snapshot.sidebarExpandToggleCount}`,
-    snapshot.sidebarExpandToggleUsable ? null : "DSH expand control is not visibly clickable",
-    snapshot.sidebarExpandToggleHasContent ? null : "collapsed sidebar expand control renders empty",
-    snapshot.sidebarExpandedAgain ? null : "DSH expand control did not reopen the sidebar",
+    snapshot.sidebarToggleCount === 1 ? null : `expected one PawWork sidebar toggle, found ${snapshot.sidebarToggleCount}`,
+    snapshot.sidebarCollapsed ? null : "PawWork sidebar toggle did not collapse the sidebar",
+    snapshot.sidebarExpandToggleCount === 1 ? null : `expected the same single PawWork toggle after collapse, found ${snapshot.sidebarExpandToggleCount}`,
+    snapshot.sidebarExpandToggleUsable ? null : "PawWork sidebar toggle is not visibly clickable",
+    snapshot.sidebarExpandToggleHasContent ? null : "PawWork sidebar toggle renders without its icon",
+    snapshot.sidebarExpandedAgain ? null : "PawWork sidebar toggle did not reopen the sidebar",
     snapshot.freeProviderActive ? null : "OpenCode Free provider is not active",
     snapshot.v1SessionImported ? null : "V1 session was not imported into DSH",
     snapshot.v1SessionVisibleInSidebar ? null : "Imported V1 session never appeared in the sidebar without a reload",
