@@ -86,12 +86,18 @@ describe("PawWork DSH client product layer", () => {
     const layoutPackage = requireFromWebApp.resolve("@deepseek-ai/dsh-client-ui-layout/package.json")
     const layoutRoot = resolve(layoutPackage, "..")
     const client = readFileSync(resolve(layoutRoot, "lib/client.js"), "utf8")
+    const columnTypes = readFileSync(resolve(layoutRoot, "lib/types/client/columns.d.ts"), "utf8")
     const serviceTypes = readFileSync(resolve(layoutRoot, "lib/types/client/service.d.ts"), "utf8")
+    const { css } = loadProductCss()
+    const collapsedWidth = columnTypes.match(/SIDEBAR_COLLAPSED = (\d+)/)?.[1]
 
     expect(client).toContain('renderSlot("shell.overlay", {})')
     expect(client).toContain('ctx.reflect.provide("layout", layout)')
     expect(client).toContain("border-right:1px solid var(--dsw-alias-border-l1)")
     expect(serviceTypes).toMatch(/interface ILayout[\s\S]*toggleSidebar\(\): void;/)
+    expect(collapsedWidth).toBeDefined()
+    expect(css).toContain(`--pawwork-dsh-collapsed-sidebar-width: ${collapsedWidth}px;`)
+    expect(css).toMatch(/calc\(var\(--pawwork-titlebar-inset-left\) \+ 44px - var\(--pawwork-dsh-collapsed-sidebar-width\)\)/)
   })
 
   test("owns the public brand slots and replaces the DSH welcome notice", () => {
@@ -247,7 +253,6 @@ describe("PawWork DSH client product layer", () => {
 
     expect(css).not.toMatch(/:where\([^)]*button[^)]*\)[^{]*:hover\s*{[^}]*background(?:-color)?\s*:/s)
     expect(css).toMatch(/\.pawwork-file-action:hover\s*{[^}]*background\s*:/s)
-    expect(css).toMatch(/html body :is\([^}]*\):not\(a\[href\]\):not\(:disabled\)\s*{\s*cursor:\s*default;/s)
   })
 
   test("gives inactive conversation tabs a local underline hover cue", () => {

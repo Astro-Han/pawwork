@@ -14,7 +14,9 @@ window.__ModuleLoader__.load({
   --pawwork-titlebar-inset-left: var(--pawwork-titlebar-host-inset-left, env(titlebar-area-x, 0px));
   --pawwork-titlebar-inset-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
   --pawwork-titlebar-control-center-y: var(--pawwork-titlebar-host-control-center-y, calc(max(var(--pawwork-titlebar-height), 32px) / 2));
-  --pawwork-collapsed-sidebar-width: 56px;
+  /* DSH exposes this as SIDEBAR_COLLAPSED in its typed layout contract, but not as a CSS token.
+     Mirror it only to translate the window-global native inset into the center column's coordinates. */
+  --pawwork-dsh-collapsed-sidebar-width: 56px;
 }
 .pawwork-window-chrome {
   height: max(var(--pawwork-titlebar-height), 32px);
@@ -74,8 +76,7 @@ html body [data-slot="sidebar"] > * {
 [data-sidebar-collapsed] > div:has(> [data-slot="sidebar"]) { border-right-color: transparent; }
 /* A live conversation is one content column: title, tabs and utilities share DSH's composer width
    instead of following the sidebar edge. This keeps their visual center stable while the sidebar
-   animates. On narrow windows the same column yields only as much as native controls and the
-   collapsed 56px rail actually require. */
+   animates. On narrow windows the same column yields only as much as native controls require. */
 [data-slot="conversation.session.header"] > header {
   --pawwork-session-column-gutter: var(--dsh-composer-side-clearance, 16px);
   --pawwork-session-column-safe-left: var(--pawwork-session-column-gutter);
@@ -101,8 +102,7 @@ html body [data-slot="sidebar"] > * {
 [data-sidebar-collapsed] [data-slot="conversation.session.header"] > header {
   --pawwork-session-column-safe-left: max(
     var(--pawwork-session-column-gutter),
-    var(--pawwork-collapsed-sidebar-width),
-    calc(var(--pawwork-titlebar-inset-left) + 44px)
+    calc(var(--pawwork-titlebar-inset-left) + 44px - var(--pawwork-dsh-collapsed-sidebar-width))
   );
 }
 [data-slot="conversation.session.header"] > header > :is(:first-child, [role="tablist"]) {

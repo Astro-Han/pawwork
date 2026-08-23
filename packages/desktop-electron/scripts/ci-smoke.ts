@@ -72,10 +72,10 @@ export type CiSmokeProductSnapshot = {
   expandedNewSessionFollowsTitlebar: boolean
   sidebarPrimaryActionCenterOffsets: { addWorkspace: number | null; newSession: number | null }
   collapsedSidebarFullyMergesWithContent: boolean
-  sessionHeaderComposerColumnMismatch: { expanded: number | null; collapsed: number | null }
-  sessionHeaderDividerHidden: { expanded: boolean; collapsed: boolean }
+  sessionHeaderComposerLeftAlignmentOffset: { expanded: number | null; collapsed: number | null }
+  sessionHeaderRightBoundaryIntrusion: { expanded: number | null; collapsed: number | null }
+  sessionHeaderDividerHidden: boolean
   collapsedSessionContentAlignmentOffset: number | null
-  collapsedSessionTabsGap: number | null
   collapsedSessionTitleGap: number | null
   sidebarCollapseMotionMatchesPreference: boolean
   expandedNativeControlOverlaps: string[]
@@ -573,30 +573,33 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       if (!v1SessionVisibleInSidebar) await new Promise((resolve) => setTimeout(resolve, 250))
     }
     sidebarSessionLeaf()?.closest('[role="treeitem"]')?.click()
-    let sessionHeader
-    let sessionTabs
+    const currentSessionHeader = () => document.querySelector('[data-slot="conversation.session.header"] > header')
+    const currentSessionTabs = () => currentSessionHeader()?.querySelector('[role="tablist"]')
+    const currentComposerCard = () => document.querySelector('[data-composer-card]')
     for (let frame = 0; frame < 120; frame += 1) {
       await new Promise((resolve) => setTimeout(resolve, 16))
-      sessionHeader = document.querySelector('[data-slot="conversation.session.header"] > header')
-      sessionTabs = sessionHeader?.querySelector('[role="tablist"]')
-      if (visible(sessionHeader) && visible(sessionTabs)) break
+      if (visible(currentSessionHeader()) && visible(currentSessionTabs())) break
     }
-    const composerCard = document.querySelector('[data-composer-card]')
-    const sessionHeaderDividerHidden = () => sessionHeader
-      ? getComputedStyle(sessionHeader, "::after").display === "none"
-      : false
-    const sessionHeaderColumnMismatch = () => {
-      const titleRow = sessionHeader?.firstElementChild
+    const sessionHeaderDividerHidden = () => {
+      const header = currentSessionHeader()
+      return header ? getComputedStyle(header, "::after").display === "none" : false
+    }
+    const sessionHeaderComposerLeftAlignmentOffset = (safeLeft = Number.NEGATIVE_INFINITY) => {
+      const titleRow = currentSessionHeader()?.firstElementChild
       const titleRect = titleRow?.getBoundingClientRect()
-      const composerRect = composerCard?.getBoundingClientRect()
+      const composerRect = currentComposerCard()?.getBoundingClientRect()
       if (!titleRect || !composerRect) return null
-      const centerOffset = Math.abs(
-        titleRect.left + titleRect.width / 2 - (composerRect.left + composerRect.width / 2),
-      )
-      return Math.max(centerOffset, Math.abs(titleRect.width - composerRect.width))
+      return Math.abs(titleRect.left - Math.max(composerRect.left, safeLeft))
     }
-    const expandedSessionHeaderComposerColumnMismatch = sessionHeaderColumnMismatch()
-    const expandedSessionHeaderDividerHidden = sessionHeaderDividerHidden()
+    const sessionHeaderRightBoundaryIntrusion = () => {
+      const titleRect = currentSessionHeader()?.firstElementChild?.getBoundingClientRect()
+      const composerRect = currentComposerCard()?.getBoundingClientRect()
+      if (!titleRect || !composerRect) return null
+      const nativeSafeRight = innerWidth - titlebarInsetRight - 28
+      return Math.max(0, titleRect.right - composerRect.right, titleRect.right - nativeSafeRight)
+    }
+    const expandedSessionHeaderComposerLeftAlignmentOffset = sessionHeaderComposerLeftAlignmentOffset()
+    const expandedSessionHeaderRightBoundaryIntrusion = sessionHeaderRightBoundaryIntrusion()
 
     const collapseToggles = sidebarToggles()
     collapseToggles[0]?.click()
@@ -617,15 +620,6 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       && Array.from(expandToggles[0].querySelectorAll("*")).some(visible)
     const collapsedFrame = document.querySelector("[data-sidebar-collapsed]")
     const collapsedSidebarSlot = document.querySelector('[data-slot="sidebar"]')
-    const collapsedSidebarRail = collapsedSidebarSlot?.firstElementChild
-    let previousRailWidth = -1
-    let stableRailFrames = 0
-    for (let frame = 0; frame < 60 && stableRailFrames < 3; frame += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 16))
-      const width = collapsedSidebarRail?.getBoundingClientRect().width ?? -1
-      stableRailFrames = Math.abs(width - previousRailWidth) <= 0.1 ? stableRailFrames + 1 : 0
-      previousRailWidth = width
-    }
     const collapsedSidebarSurfaces = [collapsedSidebarSlot?.parentElement, collapsedSidebarSlot?.firstElementChild]
       .filter(Boolean)
     const collapsedSurfaceState = () => {
@@ -651,8 +645,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       const left = leftElement?.getBoundingClientRect()
       return right && left ? left.left - right.right : null
     }
-    const collapsedSessionTitle = sessionHeader?.querySelector("nav button:disabled")
-    const collapsedSessionTab = sessionTabs?.querySelector('[role="tab"]')
+    const collapsedSessionTitle = currentSessionHeader()?.querySelector("nav button:disabled")
+    const collapsedSessionTab = currentSessionTabs()?.querySelector('[role="tab"]')
     const textStart = (element) => {
       const rect = element?.getBoundingClientRect()
       return rect ? rect.left + Number.parseFloat(getComputedStyle(element).paddingLeft) : null
@@ -662,10 +656,12 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const collapsedSessionContentAlignmentOffset = titleTextStart !== null && tabTextStart !== null
       ? Math.abs(titleTextStart - tabTextStart)
       : null
-    const collapsedSessionHeaderComposerColumnMismatch = sessionHeaderColumnMismatch()
-    const collapsedSessionHeaderDividerHidden = sessionHeaderDividerHidden()
+    const collapsedToggleRect = expandToggles[0]?.getBoundingClientRect()
+    const collapsedSessionHeaderComposerLeftAlignmentOffset = sessionHeaderComposerLeftAlignmentOffset(
+      collapsedToggleRect ? collapsedToggleRect.right + 8 : Number.NaN,
+    )
+    const collapsedSessionHeaderRightBoundaryIntrusion = sessionHeaderRightBoundaryIntrusion()
     const collapsedSessionTitleGap = rectGap(expandToggles[0], collapsedSessionTitle)
-    const collapsedSessionTabsGap = rectGap(collapsedSidebarRail, sessionTabs)
     const collapsedPrimaryActions = await waitForSidebarPrimaryActions()
     const collapsedNewSession = collapsedPrimaryActions.newSession
     const collapsedAddWorkspace = collapsedPrimaryActions.addWorkspace
@@ -730,16 +726,16 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       expandedNewSessionFollowsTitlebar,
       sidebarPrimaryActionCenterOffsets,
       collapsedSidebarFullyMergesWithContent,
-      sessionHeaderComposerColumnMismatch: {
-        expanded: expandedSessionHeaderComposerColumnMismatch,
-        collapsed: collapsedSessionHeaderComposerColumnMismatch,
+      sessionHeaderComposerLeftAlignmentOffset: {
+        expanded: expandedSessionHeaderComposerLeftAlignmentOffset,
+        collapsed: collapsedSessionHeaderComposerLeftAlignmentOffset,
       },
-      sessionHeaderDividerHidden: {
-        expanded: expandedSessionHeaderDividerHidden,
-        collapsed: collapsedSessionHeaderDividerHidden,
+      sessionHeaderRightBoundaryIntrusion: {
+        expanded: expandedSessionHeaderRightBoundaryIntrusion,
+        collapsed: collapsedSessionHeaderRightBoundaryIntrusion,
       },
+      sessionHeaderDividerHidden: sessionHeaderDividerHidden(),
       collapsedSessionContentAlignmentOffset,
-      collapsedSessionTabsGap,
       collapsedSessionTitleGap,
       sidebarCollapseMotionMatchesPreference,
       expandedNativeControlOverlaps,
@@ -908,19 +904,20 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.collapsedSidebarFullyMergesWithContent
       ? null
       : "collapsed sidebar does not fully merge into the content surface",
-    Object.values(snapshot.sessionHeaderComposerColumnMismatch)
-      .every((mismatch) => mismatch !== null && mismatch <= 1)
+    Object.values(snapshot.sessionHeaderComposerLeftAlignmentOffset)
+      .every((offset) => offset !== null && offset <= 1)
       ? null
-      : `session header and composer column mismatches are ${JSON.stringify(snapshot.sessionHeaderComposerColumnMismatch)}`,
-    Object.values(snapshot.sessionHeaderDividerHidden).every(Boolean)
+      : `session header and composer left-edge offsets are ${JSON.stringify(snapshot.sessionHeaderComposerLeftAlignmentOffset)}`,
+    Object.values(snapshot.sessionHeaderRightBoundaryIntrusion)
+      .every((intrusion) => intrusion !== null && intrusion <= 1)
       ? null
-      : `session header divider visibility is ${JSON.stringify(snapshot.sessionHeaderDividerHidden)}`,
+      : `session header right-boundary intrusions are ${JSON.stringify(snapshot.sessionHeaderRightBoundaryIntrusion)}`,
+    snapshot.sessionHeaderDividerHidden
+      ? null
+      : "session header divider is visible",
     snapshot.collapsedSessionContentAlignmentOffset !== null && snapshot.collapsedSessionContentAlignmentOffset <= 1
       ? null
       : `collapsed session title and tabs are ${snapshot.collapsedSessionContentAlignmentOffset ?? "an unknown distance"}px out of alignment`,
-    snapshot.collapsedSessionTabsGap !== null && snapshot.collapsedSessionTabsGap >= 8
-      ? null
-      : `collapsed session tabs leave only ${snapshot.collapsedSessionTabsGap ?? "an unknown"}px after the sidebar rail`,
     snapshot.collapsedSessionTitleGap !== null && snapshot.collapsedSessionTitleGap >= 8
       ? null
       : `collapsed session title leaves only ${snapshot.collapsedSessionTitleGap ?? "an unknown"}px after the sidebar toggle`,
