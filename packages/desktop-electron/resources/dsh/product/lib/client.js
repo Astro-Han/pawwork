@@ -43,6 +43,19 @@ div:has(> button [data-slot="sidebar.brand.mark"]):not(:has([data-slot="sidebar.
   pointer-events: none;
   visibility: hidden;
 }
+/* The expanded DSH logo row normally owns a 60px brand header. PawWork keeps its ready mark mounted
+   but presents the native controls and one overlay toggle instead, so the empty row owns only the
+   cross-platform titlebar safe band. DSH's following 8px component spacing remains authoritative. */
+div:has(> button [data-slot="sidebar.brand.name"]) {
+  height: max(var(--pawwork-titlebar-height), 32px);
+  padding-bottom: 0;
+  padding-top: 0;
+}
+/* DSH's collapsed root already contributes 18px above and 12px below this hidden row. A 16px
+   local seat puts New session and Add workspace on the same centers as their expanded controls. */
+[data-sidebar-collapsed] div:has(> button [data-slot="sidebar.brand.mark"]):not(:has([data-slot="sidebar.brand.name"])) {
+  height: 16px;
+}
 /* The layout already animates its sidebar grid track. Move the surface through the same state
    change: a collapsed rail belongs to the content canvas, while the expanded sidebar keeps DSH's
    own fill. Stable layout/slot attributes survive DSH's per-release CSS-module hashes. */

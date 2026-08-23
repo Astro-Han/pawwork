@@ -68,6 +68,8 @@ export type CiSmokeProductSnapshot = {
   titlebarInsetLeft: number
   titlebarInsetRight: number
   windowsInsetMatchesDocumentDirection: boolean
+  expandedNewSessionFollowsTitlebar: boolean
+  sidebarPrimaryActionsStayAligned: boolean
   collapsedSidebarFullyMergesWithContent: boolean
   sidebarCollapseMotionMatchesPreference: boolean
   expandedNativeControlOverlaps: string[]
@@ -350,6 +352,25 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       || (documentDirection === "rtl"
         ? titlebarInsetLeft > 0 && titlebarInsetRight === 0
         : titlebarInsetLeft === 0 && titlebarInsetRight > 0)
+    const expandedNewSession = Array.from(document.querySelectorAll("button")).find((button) => {
+      const label = button.getAttribute("aria-label") || ""
+      return visible(button) && /^(新建会话|New session)$/i.test(label)
+    })
+    const expandedNewSessionGap = expandedNewSession
+      ? expandedNewSession.getBoundingClientRect().top - titlebarStripHeight
+      : -1
+    const expandedNewSessionFollowsTitlebar = titlebarInsetLeft === 0
+      || (expandedNewSessionGap >= 8 && expandedNewSessionGap <= 16)
+    const expandedAddWorkspace = Array.from(document.querySelectorAll("button")).find((button) => {
+      const label = button.getAttribute("aria-label") || ""
+      return visible(button) && /^(添加工作区|Add workspace)$/i.test(label)
+    })
+    const centerY = (element) => {
+      const rect = element?.getBoundingClientRect()
+      return rect ? rect.top + rect.height / 2 : -1
+    }
+    const expandedNewSessionCenter = centerY(expandedNewSession)
+    const expandedAddWorkspaceCenter = centerY(expandedAddWorkspace)
     const nativeControlOverlaps = () => {
       const leftBottom = titlebarStripHeight + 16
       const rightStart = innerWidth - titlebarInsetRight
@@ -513,6 +534,16 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       ? Number.parseFloat(getComputedStyle(collapsedSidebarSlot.parentElement, "::after").opacity) === 0
       : false
     const collapsedSidebarFullyMergesWithContent = collapsedSidebarSurfaceMatchesContent && collapsedSidebarDividerHidden
+    const collapsedNewSession = Array.from(document.querySelectorAll("button")).find((button) => {
+      const label = button.getAttribute("aria-label") || ""
+      return visible(button) && /^(新建会话|New session)$/i.test(label)
+    })
+    const collapsedAddWorkspace = Array.from(document.querySelectorAll("button")).find((button) => {
+      const label = button.getAttribute("aria-label") || ""
+      return visible(button) && /^(添加工作区|Add workspace)$/i.test(label)
+    })
+    const sidebarPrimaryActionsStayAligned = Math.abs(centerY(collapsedNewSession) - expandedNewSessionCenter) <= 1
+      && Math.abs(centerY(collapsedAddWorkspace) - expandedAddWorkspaceCenter) <= 1
     const maxTransitionMs = (element) => Math.max(...getComputedStyle(element).transitionDuration.split(",").map((value) => {
       const duration = Number.parseFloat(value)
       return value.trim().endsWith("ms") ? duration : duration * 1000
@@ -585,6 +616,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       titlebarInsetLeft,
       titlebarInsetRight,
       windowsInsetMatchesDocumentDirection,
+      expandedNewSessionFollowsTitlebar,
+      sidebarPrimaryActionsStayAligned,
       collapsedSidebarFullyMergesWithContent,
       sidebarCollapseMotionMatchesPreference,
       expandedNativeControlOverlaps,
@@ -743,6 +776,12 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.windowsInsetMatchesDocumentDirection
       ? null
       : `Windows titlebar inset is on the wrong edge for the document direction`,
+    snapshot.expandedNewSessionFollowsTitlebar
+      ? null
+      : "expanded New session action leaves an empty brand-row gap below the titlebar",
+    snapshot.sidebarPrimaryActionsStayAligned
+      ? null
+      : "expanded and collapsed sidebar primary actions do not share their vertical centers",
     snapshot.collapsedSidebarFullyMergesWithContent
       ? null
       : "collapsed sidebar does not fully merge into the content surface",
