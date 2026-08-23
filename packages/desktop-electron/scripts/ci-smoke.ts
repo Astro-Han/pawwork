@@ -67,6 +67,7 @@ export type CiSmokeProductSnapshot = {
   contentInsetHeight: number
   titlebarInsetLeft: number
   titlebarInsetRight: number
+  windowsInsetMatchesDocumentDirection: boolean
   sidebarDividerStart: number
   expandedNativeControlOverlaps: string[]
   collapsedNativeControlOverlaps: string[]
@@ -343,6 +344,11 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const titlebarInsetLeft = Number.parseFloat(insetStyle.paddingLeft)
     const titlebarInsetRight = Number.parseFloat(insetStyle.paddingRight)
     insetProbe.remove()
+    const documentDirection = getComputedStyle(document.documentElement).direction
+    const windowsInsetMatchesDocumentDirection = !/^Win/i.test(navigator.platform)
+      || (documentDirection === "rtl"
+        ? titlebarInsetLeft > 0 && titlebarInsetRight === 0
+        : titlebarInsetLeft === 0 && titlebarInsetRight > 0)
     const sidebarRoot = document.querySelector('[data-slot="sidebar"]')?.parentElement
     const sidebarDividerStart = sidebarRoot
       ? Number.parseFloat(getComputedStyle(sidebarRoot, "::after").top)
@@ -552,6 +558,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       contentInsetHeight,
       titlebarInsetLeft,
       titlebarInsetRight,
+      windowsInsetMatchesDocumentDirection,
       sidebarDividerStart,
       expandedNativeControlOverlaps,
       collapsedNativeControlOverlaps,
@@ -711,6 +718,9 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     titlebarInsetsMatchPlatform
       ? null
       : `titlebar edge insets do not match ${platform}: left=${snapshot.titlebarInsetLeft}px right=${snapshot.titlebarInsetRight}px`,
+    snapshot.windowsInsetMatchesDocumentDirection
+      ? null
+      : `Windows titlebar inset is on the wrong edge for the document direction`,
     sidebarDividerClearsNativeControls
       ? null
       : `sidebar divider starts at ${snapshot.sidebarDividerStart}px inside the native-control area`,
