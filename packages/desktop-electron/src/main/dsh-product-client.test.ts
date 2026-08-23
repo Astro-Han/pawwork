@@ -242,6 +242,42 @@ describe("PawWork DSH client product layer", () => {
     expect(css).toMatch(/\.pawwork-sidebar-toggle\s*{[^}]*-webkit-app-region:\s*no-drag[^}]*pointer-events:\s*auto/s)
   })
 
+  test("does not restore universal control hover styling", () => {
+    const { css } = loadProductCss()
+
+    expect(css).not.toMatch(/:where\([^)]*button[^)]*\)[^{]*:hover\s*{[^}]*background(?:-color)?\s*:/s)
+    expect(css).toMatch(/\.pawwork-file-action:hover\s*{[^}]*background\s*:/s)
+    expect(css).toMatch(/html body :is\([^}]*\):not\(a\[href\]\):not\(:disabled\)\s*{\s*cursor:\s*default;/s)
+  })
+
+  test("gives inactive conversation tabs a local underline hover cue", () => {
+    const { css } = loadProductCss()
+
+    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] \[role="tab"\]\[aria-selected="false"\]:hover\s*{[^}]*color:\s*var\(--dsw-alias-label-primary\)/s)
+    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] \[role="tab"\]\[aria-selected="false"\]:hover::after\s*{[^}]*background:\s*var\(--dsw-alias-label-caption\)/s)
+    expect(css).not.toMatch(/\[data-slot="conversation\.session\.header"\] \[role="tab"\][^{]*:hover\s*{[^}]*background/s)
+  })
+
+  test("centers trajectory in a bounded wide data column", () => {
+    const { css } = loadProductCss()
+
+    expect(css).toMatch(/\[data-conversation-composer-overlay\]:has\(\[data-trajectory-scroll\]\)\s*{[^}]*align-self:\s*center/s)
+    expect(css).toMatch(/\[data-conversation-composer-overlay\]:has\(\[data-trajectory-scroll\]\)\s*{[^}]*width:\s*calc\(100% - 48px\)[^}]*max-width:\s*1200px/s)
+  })
+
+  test("places session actions at the trailing edge of the title cluster", () => {
+    const { css } = loadProductCss()
+
+    expect(css).toMatch(/:has\(> \[data-slot="conversation\.session\.header\.actions"\]\)\s*{[^}]*margin-left:\s*auto/s)
+  })
+
+  test("lets the current session title use the space before header actions", () => {
+    const { css } = loadProductCss()
+
+    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] nav:has\(button:disabled\)\s*{[^}]*flex:\s*1/s)
+    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] nav button:disabled\s*{[^}]*max-width:\s*100%/s)
+  })
+
   test("hides both DSH sidebar controls while preserving their layout seat and ready mark", () => {
     const { css } = loadProductCss()
 
@@ -260,8 +296,8 @@ describe("PawWork DSH client product layer", () => {
   test("keeps app header controls to the left of the Windows caption buttons", () => {
     const { css } = loadProductCss()
 
-    expect(css).toContain('[data-slot="conversation.session.header"] > *')
-    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] > \*\s*{[^}]*padding-right:\s*calc\(28px \+ var\(--pawwork-titlebar-inset-right/s)
+    expect(css).toMatch(/--pawwork-session-column-safe-right:\s*max\([^;]*calc\(28px \+ var\(--pawwork-titlebar-inset-right/s)
+    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] > header > :is\([^}]*{[^}]*width:\s*min\([^;]*var\(--pawwork-session-column-safe-right/s)
     expect(css).toMatch(/\[data-slot="details"\] > \* > :first-child\s*{[^}]*padding-right:\s*calc\(12px \+ var\(--pawwork-titlebar-inset-right/s)
     expect(css).toMatch(/body > \[class\*="_banner_"\]\s*{[^}]*top:\s*0[^}]*padding-right:\s*var\(--pawwork-titlebar-inset-right/s)
   })
