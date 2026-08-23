@@ -43,7 +43,6 @@ export function apply(ctx) {
 		home: requiredEnvironment('DSH_HOME'),
 		nodeExecutable: requiredEnvironment('PAWWORK_NODE_EXECUTABLE'),
 		subprocess: ctx.subprocess,
-		environment: process.env,
 	});
 	ctx.provide('desktopProfiles', desktopHost.desktopProfiles);
 	ctx.provide('desktopPnpm', desktopHost.desktopPnpm);

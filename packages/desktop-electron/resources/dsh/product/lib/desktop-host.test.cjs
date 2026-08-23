@@ -88,11 +88,6 @@ test('runs plugin commands through the DSH managed subprocess tree', async () =>
     home,
     nodeExecutable: '/app/PawWork',
     subprocess: managed.subprocess,
-    environment: {
-      PATH: '/data/dsh/.tools:/app/tools:/usr/bin',
-      PAWWORK_NODE_EXECUTABLE: '/app/PawWork',
-      PAWWORK_PNPM_CLI: '/app/pnpm/bin/pnpm.mjs',
-    },
   });
 
   const operation = host.desktopPnpm.runPlugin(['remove', 'example-plugin'], '/caller');
@@ -102,13 +97,7 @@ test('runs plugin commands through the DSH managed subprocess tree', async () =>
   assert.deepEqual(managed.spawns, [{
     argv: ['/app/PawWork', '/app/dsh/bin.js', 'plugin', '--profile', 'web', 'remove', 'example-plugin'],
     cwd: '/caller',
-    env: {
-      PATH: '/data/dsh/.tools:/app/tools:/usr/bin',
-      PAWWORK_NODE_EXECUTABLE: '/app/PawWork',
-      PAWWORK_PNPM_CLI: '/app/pnpm/bin/pnpm.mjs',
-      DSH_HOME: home,
-      ELECTRON_RUN_AS_NODE: '1',
-    },
+    env: { DSH_HOME: home, ELECTRON_RUN_AS_NODE: '1' },
     graceMs: 3000,
     stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
     signal: undefined,

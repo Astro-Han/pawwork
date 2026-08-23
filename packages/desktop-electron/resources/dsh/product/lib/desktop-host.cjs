@@ -95,11 +95,7 @@ function createDesktopPnpm(options) {
         ...args,
       ],
       cwd: invokingDir,
-      env: {
-        ...(options.environment ?? {}),
-        DSH_HOME: options.home,
-        ELECTRON_RUN_AS_NODE: '1',
-      },
+      env: { DSH_HOME: options.home, ELECTRON_RUN_AS_NODE: '1' },
       graceMs: 3000,
       stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
       signal,
