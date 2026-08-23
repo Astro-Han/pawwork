@@ -329,7 +329,25 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       return envelope.result.value
     }
     await call("workspace.create", { path: ${workspace} })
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    const sidebarPrimaryActions = () => {
+      const find = (pattern) => Array.from(document.querySelectorAll("button")).find((button) => {
+        const label = button.getAttribute("aria-label") || ""
+        return visible(button) && pattern.test(label)
+      })
+      return {
+        addWorkspace: find(/^(添加工作区|Add workspace)$/i),
+        newSession: find(/^(新建会话|New session)$/i),
+      }
+    }
+    const waitForSidebarPrimaryActions = async () => {
+      let actions = sidebarPrimaryActions()
+      for (let frame = 0; frame < 60 && !(actions.addWorkspace && actions.newSession); frame += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 16))
+        actions = sidebarPrimaryActions()
+      }
+      return actions
+    }
+    const expandedPrimaryActions = await waitForSidebarPrimaryActions()
     const sidebarToggles = () => Array.from(document.querySelectorAll("button.pawwork-sidebar-toggle")).filter(visible)
     const sidebarBrandButton = document.querySelector('[data-slot="sidebar.brand.name"]')?.closest("button")
     const sidebarExpandedBrandHidden = Boolean(sidebarBrandButton) && !visible(sidebarBrandButton)
@@ -349,19 +367,13 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       || (documentDirection === "rtl"
         ? titlebarInsetLeft > 0 && titlebarInsetRight === 0
         : titlebarInsetLeft === 0 && titlebarInsetRight > 0)
-    const expandedNewSession = Array.from(document.querySelectorAll("button")).find((button) => {
-      const label = button.getAttribute("aria-label") || ""
-      return visible(button) && /^(新建会话|New session)$/i.test(label)
-    })
+    const expandedNewSession = expandedPrimaryActions.newSession
     const expandedNewSessionGap = expandedNewSession
       ? expandedNewSession.getBoundingClientRect().top - titlebarStripHeight
       : -1
     const expandedNewSessionFollowsTitlebar = titlebarInsetLeft === 0
       || (expandedNewSessionGap >= 8 && expandedNewSessionGap <= 16)
-    const expandedAddWorkspace = Array.from(document.querySelectorAll("button")).find((button) => {
-      const label = button.getAttribute("aria-label") || ""
-      return visible(button) && /^(添加工作区|Add workspace)$/i.test(label)
-    })
+    const expandedAddWorkspace = expandedPrimaryActions.addWorkspace
     const centerY = (element) => {
       const rect = element?.getBoundingClientRect()
       return rect ? rect.top + rect.height / 2 : Number.NaN
@@ -536,14 +548,9 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const collapsedSidebarSurfaceMatchesContent = collapsedSurfaceStateValue.surfacesMatch
     const collapsedSidebarDividerHidden = collapsedSurfaceStateValue.dividerHidden
     const collapsedSidebarFullyMergesWithContent = collapsedSidebarSurfaceMatchesContent && collapsedSidebarDividerHidden
-    const collapsedNewSession = Array.from(document.querySelectorAll("button")).find((button) => {
-      const label = button.getAttribute("aria-label") || ""
-      return visible(button) && /^(新建会话|New session)$/i.test(label)
-    })
-    const collapsedAddWorkspace = Array.from(document.querySelectorAll("button")).find((button) => {
-      const label = button.getAttribute("aria-label") || ""
-      return visible(button) && /^(添加工作区|Add workspace)$/i.test(label)
-    })
+    const collapsedPrimaryActions = await waitForSidebarPrimaryActions()
+    const collapsedNewSession = collapsedPrimaryActions.newSession
+    const collapsedAddWorkspace = collapsedPrimaryActions.addWorkspace
     const centerOffset = (collapsed, expandedCenter) => {
       const offset = centerY(collapsed) - expandedCenter
       return Number.isFinite(offset) ? offset : null
