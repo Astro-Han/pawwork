@@ -210,9 +210,7 @@ describe("ci smoke helpers", () => {
   // clause that stopped being evaluated stayed green. What matters is that every
   // field the snapshot carries is actually consulted.
   const healthy: CiSmokeProductSnapshot = {
-    sidebarBrandVisible: true,
-    sidebarBrandName: "PawWork",
-    sidebarBrandTop: 40,
+    sidebarExpandedBrandHidden: true,
     heroMarkVisible: true,
     heroHeadlineOverridden: true,
     heroPreviewBadgeHidden: true,
@@ -234,7 +232,11 @@ describe("ci smoke helpers", () => {
     cursorProbeCaught: ["a.pawwork-cursor-probe", "button.pawwork-cursor-probe"],
     titlebarStripHeight: 32,
     titlebarStripDraggable: true,
-    contentInsetHeight: 32,
+    contentInsetHeight: 0,
+    titlebarInsetLeft: 72,
+    titlebarInsetRight: 0,
+    expandedNativeControlOverlaps: [],
+    collapsedNativeControlOverlaps: [],
     sidebarToggleCount: 1,
     sidebarCollapsed: true,
     sidebarExpandToggleCount: 1,
@@ -251,9 +253,7 @@ describe("ci smoke helpers", () => {
   }
 
   const broken: Partial<Record<keyof CiSmokeProductSnapshot, unknown>> = {
-    sidebarBrandVisible: false,
-    sidebarBrandName: "",
-    sidebarBrandTop: 8,
+    sidebarExpandedBrandHidden: false,
     heroMarkVisible: false,
     heroHeadlineOverridden: false,
     heroPreviewBadgeHidden: false,
@@ -276,6 +276,10 @@ describe("ci smoke helpers", () => {
     titlebarStripHeight: 0,
     titlebarStripDraggable: false,
     contentInsetHeight: 8,
+    titlebarInsetLeft: 0,
+    titlebarInsetRight: 12,
+    expandedNativeControlOverlaps: ["button.collapse"],
+    collapsedNativeControlOverlaps: ["button.expand"],
     sidebarToggleCount: 2,
     sidebarCollapsed: false,
     sidebarExpandToggleCount: 0,
@@ -312,7 +316,7 @@ describe("ci smoke helpers", () => {
     // failure would hide the rest until the next run.
     let message = ""
     try {
-      assertCiSmokeProduct({ ...healthy, sidebarBrandVisible: false, freeProviderActive: false }, "darwin")
+      assertCiSmokeProduct({ ...healthy, sidebarExpandedBrandHidden: false, freeProviderActive: false }, "darwin")
     } catch (error) {
       message = error instanceof Error ? error.message : String(error)
     }

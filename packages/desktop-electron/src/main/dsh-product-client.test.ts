@@ -43,6 +43,26 @@ describe("PawWork DSH client product layer", () => {
     }
   }
 
+  function loadProductCss() {
+    const appended: Array<{ className: string }> = []
+    const style = { dataset: {} as Record<string, string>, textContent: "" }
+    const document = {
+      title: "DeepSeek Harness",
+      documentElement: { lang: "zh-CN" },
+      readyState: "complete",
+      querySelector: () => null,
+      createElement: (tag: string) => (tag === "style" ? style : { className: "" }),
+      head: { appendChild: () => {} },
+      body: { appendChild: (node: { className: string }) => appended.push(node) },
+    }
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), { document })
+    definition.factory((name) => {
+      if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
+      throw new Error(`unexpected product client dependency: ${name}`)
+    })
+    return { appended, css: style.textContent }
+  }
+
   test("is a packaged DSH web plugin", () => {
     const productPackage = JSON.parse(readFileSync(resolve(productRoot, "package.json"), "utf8"))
 
@@ -124,32 +144,40 @@ describe("PawWork DSH client product layer", () => {
     expect(ready).toHaveBeenCalledTimes(1)
   })
 
-  test("mounts the drag strip that reserves the native window chrome", () => {
-    const appended: Array<{ className: string }> = []
-    const style = { dataset: {} as Record<string, string>, textContent: "" }
-    const document = {
-      title: "DeepSeek Harness",
-      documentElement: { lang: "zh-CN", dataset: {} },
-      readyState: "complete",
-      querySelector: () => null,
-      createElement: (tag: string) => (tag === "style" ? style : { className: "" }),
-      head: { appendChild: () => {} },
-      body: { appendChild: (node: { className: string }) => appended.push(node) },
-    }
-
-    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), { document, navigator: { platform: "MacIntel" } })
-    definition.factory((name) => {
-      if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
-      throw new Error(`unexpected product client dependency: ${name}`)
-    })
+  test("reserves only the native-control edges without pushing the whole shell down", () => {
+    const { appended, css } = loadProductCss()
 
     // The strip must be a real element: -webkit-app-region does nothing on pseudo-elements.
     expect(appended.map((node) => node.className)).toEqual(["pawwork-titlebar"])
-    expect(style.textContent).toContain("-webkit-app-region: drag")
-    expect(style.textContent).toContain("padding-top: var(--pawwork-titlebar-height, 0px)")
-    expect(style.textContent).toContain('[class*="_banner_"] { top: var(--pawwork-titlebar-height, 0px); }')
-    expect(style.textContent).toContain("var(--pawwork-titlebar-host-height, env(titlebar-area-height, 0px))")
-    expect(style.textContent).not.toMatch(/--pawwork-titlebar-height:\s*\d/)
+    expect(css).toContain("--pawwork-titlebar-inset-left: var(--pawwork-titlebar-host-inset-left, env(titlebar-area-x, 0px))")
+    expect(css).toContain("--pawwork-titlebar-inset-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw))")
+    expect(css).toContain("var(--pawwork-titlebar-host-height, env(titlebar-area-height, 0px))")
+    expect(css).not.toContain("#root { box-sizing: border-box; padding-top:")
+    expect(css).not.toMatch(/--pawwork-titlebar-height:\s*\d/)
+  })
+
+  test("keeps the top background draggable while leaving its controls clickable", () => {
+    const { css } = loadProductCss()
+
+    expect(css).toMatch(/\.pawwork-titlebar\s*{[^}]*-webkit-app-region:\s*drag[^}]*pointer-events:\s*none/s)
+    expect(css).toMatch(/:is\(button, a, input, textarea, select[^}]*-webkit-app-region:\s*no-drag/s)
+  })
+
+  test("removes the expanded brand action without hiding the collapsed expand mark", () => {
+    const { css } = loadProductCss()
+
+    expect(css).toContain('button:has([data-slot="sidebar.brand.name"]) { display: none; }')
+    expect(css).toContain('div:has(> button [data-slot="sidebar.brand.mark"]):not(:has([data-slot="sidebar.brand.name"]))')
+    expect(css).not.toContain('[data-slot="sidebar.brand.mark"] { display: none; }')
+  })
+
+  test("keeps app header controls to the left of the Windows caption buttons", () => {
+    const { css } = loadProductCss()
+
+    expect(css).toContain('[data-slot="conversation.session.header"] > *')
+    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] > \*\s*{[^}]*padding-right:\s*calc\(20px \+ var\(--pawwork-titlebar-inset-right/s)
+    expect(css).toMatch(/\[data-slot="details"\] > \* > :first-child\s*{[^}]*padding-right:\s*calc\(12px \+ var\(--pawwork-titlebar-inset-right/s)
+    expect(css).toMatch(/body > \[class\*="_banner_"\]\s*{[^}]*top:\s*0[^}]*padding-right:\s*var\(--pawwork-titlebar-inset-right/s)
   })
 
 

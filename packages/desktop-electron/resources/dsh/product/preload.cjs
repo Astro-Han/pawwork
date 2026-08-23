@@ -15,13 +15,37 @@ function installBootStyle() {
   return true
 }
 
-function installBootStyleWhenReady() {
-  if (!installBootStyle()) return
-  document.removeEventListener("readystatechange", installBootStyleWhenReady)
+function installTitlebarThemeSync() {
+  if (typeof document === "undefined" || document.documentElement === null) return
+  const media = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : undefined
+  let published
+  const publish = () => {
+    const declared = document.documentElement.style?.colorScheme
+    const colorScheme = declared === "dark" || declared === "light" ? declared : media?.matches ? "dark" : "light"
+    if (colorScheme === published) return
+    published = colorScheme
+    ipcRenderer.send("pawwork:titlebar-color-scheme", colorScheme)
+  }
+  publish()
+  if (typeof MutationObserver !== "undefined") {
+    new MutationObserver(publish).observe(document.documentElement, { attributeFilter: ["style"] })
+  }
+  media?.addEventListener?.("change", publish)
 }
 
-if (!installBootStyle() && typeof document !== "undefined") {
-  document.addEventListener("readystatechange", installBootStyleWhenReady)
+function installDocumentFeatures() {
+  if (!installBootStyle()) return false
+  installTitlebarThemeSync()
+  return true
+}
+
+function installDocumentFeaturesWhenReady() {
+  if (!installDocumentFeatures()) return
+  document.removeEventListener("readystatechange", installDocumentFeaturesWhenReady)
+}
+
+if (!installDocumentFeatures() && typeof document !== "undefined") {
+  document.addEventListener("readystatechange", installDocumentFeaturesWhenReady)
 }
 
 contextBridge.exposeInMainWorld("pawworkLifecycle", {

@@ -1,28 +1,28 @@
 // A frameless window paints the native window controls into the content's own
 // coordinate space: traffic lights top-left on macOS, the overlay buttons
-// top-right on Windows. The web content has to keep that band clear, and the
-// band is also the window's only drag region — without it the renderer declares
-// no -webkit-app-region at all and the window cannot be moved except by its
-// edges.
+// top-right on Windows. Only those corners need layout space; a transparent
+// renderer strip supplies the drag region without pushing all content down.
 //
 // Windows publishes the real geometry to CSS itself through
 // env(titlebar-area-*), so the renderer reads it there and gets fullscreen and
 // DPI handling for free. macOS has no equivalent: titleBarOverlay is ignored
-// there (navigator.windowControlsOverlay stays invisible and the env variables
-// resolve to 0px), and we position the traffic lights ourselves anyway — so
-// macOS is the one platform whose number we own and must publish.
+// there and the env variables are unset, and we position the traffic lights
+// ourselves anyway — so macOS is the one platform whose geometry we publish.
 export const TITLEBAR_HEIGHT = 32
 const TRAFFIC_LIGHT_DIAMETER = 12
+const SIDEBAR_HEADER_CENTER = 36
+// Measured from the window edge through the trailing edge of the native cluster.
+const MAC_TRAFFIC_LIGHT_INSET = 72
 
 export function macTrafficLightPosition() {
-  return { x: 12, y: Math.round((TITLEBAR_HEIGHT - TRAFFIC_LIGHT_DIAMETER) / 2) }
+  return { x: 12, y: Math.round(SIDEBAR_HEADER_CENTER - TRAFFIC_LIGHT_DIAMETER / 2) }
 }
 
-// Fullscreen hides the traffic lights, so the band must collapse with them or
-// the app keeps a dead strip and a drag region that swallows clicks.
+// Fullscreen hides the traffic lights, so both their corner inset and the drag
+// strip height collapse with them.
 export function titlebarInsetCss(platform: NodeJS.Platform, options: { fullscreen: boolean }) {
   if (platform !== "darwin" || options.fullscreen) return ""
-  return `:root { --pawwork-titlebar-host-height: ${TITLEBAR_HEIGHT}px; }`
+  return `:root { --pawwork-titlebar-host-height: ${TITLEBAR_HEIGHT}px; --pawwork-titlebar-host-inset-left: ${MAC_TRAFFIC_LIGHT_INSET}px; }`
 }
 
 const DSH_TITLE = "DeepSeek Harness"

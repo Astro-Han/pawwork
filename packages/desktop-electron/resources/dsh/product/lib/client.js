@@ -5,31 +5,54 @@ window.__ModuleLoader__.load({
     const h = createElement
 
     const productCss = `
-/* A frameless window has nothing to grab, and the native controls paint into the content
-   coordinate system, so this strip is both the only drag region and the reservation for them.
-   Chromium publishes the overlay geometry in env(titlebar-area-*) on Windows; macOS has no such
-   primitive, so the main process publishes --pawwork-titlebar-host-height instead. Resolving them
-   through a var() fallback chain rather than competing rules keeps injection order irrelevant, and
-   Linux, which supplies neither, falls back to 0px. */
-:root { --pawwork-titlebar-height: var(--pawwork-titlebar-host-height, env(titlebar-area-height, 0px)); }
-#root { box-sizing: border-box; padding-top: var(--pawwork-titlebar-height, 0px); }
+/* Native controls occupy only one corner. Chromium publishes their geometry on Windows; macOS has
+   no equivalent, so the main process publishes the left inset it owns. Keeping one fallback chain
+   makes Linux resolve both edges to zero without a platform branch in the web layer. */
+:root {
+  --pawwork-titlebar-height: var(--pawwork-titlebar-host-height, env(titlebar-area-height, 0px));
+  --pawwork-titlebar-inset-left: var(--pawwork-titlebar-host-inset-left, env(titlebar-area-x, 0px));
+  --pawwork-titlebar-inset-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+}
 .pawwork-titlebar {
   -webkit-app-region: drag;
   height: var(--pawwork-titlebar-height, 0px);
-  left: 0; position: fixed; right: 0; top: 0;
+  left: 0; pointer-events: none; position: fixed; right: 0; top: 0;
 }
-/* The DSH reconnect banner is fixed and outside #root, so #root's padding cannot push it clear of
-   the control row. The selector anchors on the CSS-modules prefix because the hash after it changes
-   per version; the code block banner matches too but is not positioned, so top is inert there. */
-[class*="_banner_"] { top: var(--pawwork-titlebar-height, 0px); }
+html body :is(button, a, input, textarea, select, [role="button"], [role="tab"], [contenteditable="true"]) { -webkit-app-region: no-drag; }
+/* The expanded brand duplicates the hero and its New Session action exists directly below. Keep
+   the slot mounted for PawReadyMark, but hide only the button that also contains the name. In the
+   collapsed rail DSH omits the name and reuses the mark inside the expand control. */
+button:has([data-slot="sidebar.brand.name"]) { display: none; }
+div:has(> button [data-slot="sidebar.brand.name"]) {
+  -webkit-app-region: drag;
+  padding-left: var(--pawwork-titlebar-inset-left, 0px);
+}
+div:has(> button [data-slot="sidebar.brand.mark"]):not(:has([data-slot="sidebar.brand.name"])) {
+  margin-top: min(var(--pawwork-titlebar-inset-left, 0px), var(--pawwork-titlebar-height, 0px));
+}
+/* Stable slot boundaries consume the right inset, so current and future header controls naturally
+   sit before the Windows caption buttons. Preserve DSH's existing 20px edge spacing. */
+[data-slot="conversation.session.header"] > * {
+  box-sizing: border-box;
+  padding-right: calc(20px + var(--pawwork-titlebar-inset-right, 0px));
+}
+/* DSH's details slot renders a panel root followed by its 55px header. Preserve the header's native
+   12px breathing room, then put its close/collapse action before the same Windows inset. */
+[data-slot="details"] > * > :first-child {
+  box-sizing: border-box;
+  padding-right: calc(12px + var(--pawwork-titlebar-inset-right, 0px));
+}
+/* The reconnect banner is the body-level banner. Scoping there avoids adding Windows padding to
+   code-block banners that share DSH's CSS-module basename. */
+body > [class*="_banner_"] { box-sizing: border-box; top: 0; padding-right: var(--pawwork-titlebar-inset-right, 0px); }
 /* The shell keeps the hand cursor for links and gives DSH's buttons, rows and tabs the arrow.
    PawWork's preference, not a platform rule, so it stays in the shell instead of going upstream.
    :not(:disabled) is a specificity lever rather than a filter: it beats DSH's [data-expandable]
    rules at (0,2,0) behind tool cards, skill cards and trajectory rows, which the hero page cannot
    reveal. Known gap: trajectory's collapsed-summary row is a bare <tr> with no role to match. */
 html body :is(button, [role="button"], [role="treeitem"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="option"], [aria-haspopup], label, summary, select):not(a[href]):not(:disabled) { cursor: default; }
-/* Taking the hand away leaves nothing behind on controls DSH ships without a hover state (sidebar
-   brand row, copyable card, search-result file header). :where() drops this below DSH's own
+/* Taking the hand away leaves nothing behind on controls DSH ships without a hover state (copyable
+   card and search-result file header). :where() drops this below DSH's own
    .cls:hover at (0,2,0), making it a fallback rather than an override. Background only: a shared
    border-radius would replace each control's own for as long as the hover lasts. */
 html body :where(button, [role="button"], [role="treeitem"]):where(:not(:disabled)):hover { background-color: var(--dsw-alias-interactive-bg-hover); }

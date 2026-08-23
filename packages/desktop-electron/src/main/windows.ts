@@ -1,11 +1,11 @@
 import windowState from "electron-window-state"
 import log from "electron-log/main.js"
-import { app, BrowserWindow, nativeImage, shell } from "electron"
+import { app, BrowserWindow, nativeImage, nativeTheme, shell } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { macTrafficLightPosition, pawworkWindowTitle, titlebarInsetCss } from "./window-chrome"
 import { decideDshNavigation, guardDshNavigation, handleDshWindowOpen } from "./window-navigation"
-import { dshTitleBarOptions, dshWebPreferences } from "./window-options"
+import { dshTitleBarOptions, dshWebPreferences, titleBarOverlayStyle } from "./window-options"
 
 const root = dirname(fileURLToPath(import.meta.url))
 const STARTUP_HTML = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>PawWork</title><style>
@@ -41,6 +41,15 @@ type MainWindowOptions = {
   dshUrl: () => string | undefined
 }
 
+export function setTitlebarColorScheme(
+  win: Pick<BrowserWindow, "setTitleBarOverlay">,
+  platform: NodeJS.Platform,
+  colorScheme: unknown,
+) {
+  if (platform !== "win32" || (colorScheme !== "light" && colorScheme !== "dark")) return
+  win.setTitleBarOverlay(titleBarOverlayStyle(colorScheme))
+}
+
 // A load that is superseded rejects with ERR_ABORTED, and an unhandled rejection
 // in the main process is a crash. Superseding one is ordinary now: the startup
 // page is replaced by DSH's own URL the moment DSH is ready, and a failed run
@@ -61,7 +70,7 @@ export function createMainWindow(options: MainWindowOptions) {
     show: false,
     title: "PawWork",
     icon: iconPath(),
-    ...dshTitleBarOptions(process.platform),
+    ...dshTitleBarOptions(process.platform, nativeTheme.shouldUseDarkColors ? "dark" : "light"),
     ...(process.platform === "darwin" ? { trafficLightPosition: macTrafficLightPosition() } : {}),
     webPreferences: dshWebPreferences(options.preload),
   })
@@ -82,8 +91,8 @@ export function createMainWindow(options: MainWindowOptions) {
   // insertCSS is scoped to one navigation and returns a key we have to hand back,
   // or a reload just stacks another copy of the same sheet. Publishes are chained
   // rather than run concurrently: two overlapping calls would both observe no key,
-  // both insert, and the untracked sheet would survive the next removal as a dead
-  // 32px strip that still swallows clicks.
+  // both insert, and the untracked sheet would survive the next removal as stale
+  // native-control geometry.
   let insetKey: string | undefined
   let publishing = Promise.resolve()
   const publishTitlebarInset = (navigated = false) => {

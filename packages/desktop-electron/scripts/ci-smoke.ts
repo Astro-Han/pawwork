@@ -42,7 +42,7 @@ type CdpTarget = {
 }
 
 export type CiSmokeProductSnapshot = {
-  sidebarBrandVisible: boolean
+  sidebarExpandedBrandHidden: boolean
   heroMarkVisible: boolean
   heroHeadlineOverridden: boolean
   heroPreviewBadgeHidden: boolean
@@ -65,8 +65,10 @@ export type CiSmokeProductSnapshot = {
   titlebarStripHeight: number
   titlebarStripDraggable: boolean
   contentInsetHeight: number
-  sidebarBrandName: string
-  sidebarBrandTop: number
+  titlebarInsetLeft: number
+  titlebarInsetRight: number
+  expandedNativeControlOverlaps: string[]
+  collapsedNativeControlOverlaps: string[]
   sidebarToggleCount: number
   sidebarCollapsed: boolean
   sidebarExpandToggleCount: number
@@ -323,23 +325,40 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     }
     await call("workspace.create", { path: ${workspace} })
     await new Promise((resolve) => setTimeout(resolve, 100))
-    const slotContent = (slot) => Array.from(document.querySelectorAll('[data-slot="' + slot + '"] *'))
     const sidebarToggles = () => Array.from(document.querySelectorAll("button")).filter((button) => {
       const label = button.getAttribute("aria-label") || button.getAttribute("title") || ""
       return visible(button) && /^(收起侧边栏|打开侧边栏|切换侧边栏|Collapse sidebar|Open sidebar|Toggle sidebar)$/i.test(label)
     })
-    const brandNodes = ["sidebar.brand.mark", "sidebar.brand.name"].flatMap(slotContent).filter(visible)
-    const sidebarBrandVisible = brandNodes.length > 0
-    // Math.min of an empty array is Infinity, which JSON-serialises to null and lets >= pass silently.
-    const sidebarBrandTop = brandNodes.length
-      ? Math.min(...brandNodes.map((node) => node.getBoundingClientRect().top))
-      : -1
-    // The slot renders a bare string, so slotContent — element descendants only — misses it.
-    const sidebarBrandName = (document.querySelector('[data-slot="sidebar.brand.name"]')?.textContent || "").trim()
+    const sidebarBrandButton = document.querySelector('[data-slot="sidebar.brand.name"]')?.closest("button")
+    const sidebarExpandedBrandHidden = Boolean(sidebarBrandButton) && !visible(sidebarBrandButton)
     const titlebarStrip = document.querySelector(".pawwork-titlebar")
     const titlebarStripHeight = titlebarStrip ? titlebarStrip.getBoundingClientRect().height : -1
     const titlebarStripDraggable = Boolean(titlebarStrip)
       && getComputedStyle(titlebarStrip).getPropertyValue("-webkit-app-region").trim() === "drag"
+    const insetProbe = document.createElement("div")
+    insetProbe.style.cssText = 'box-sizing:border-box;height:0;padding-left:var(--pawwork-titlebar-inset-left,0px);padding-right:var(--pawwork-titlebar-inset-right,0px);position:fixed;visibility:hidden;width:100vw'
+    document.body.appendChild(insetProbe)
+    const insetStyle = getComputedStyle(insetProbe)
+    const titlebarInsetLeft = Number.parseFloat(insetStyle.paddingLeft)
+    const titlebarInsetRight = Number.parseFloat(insetStyle.paddingRight)
+    insetProbe.remove()
+    const nativeControlOverlaps = () => {
+      const leftBottom = titlebarStripHeight + 16
+      const rightStart = innerWidth - titlebarInsetRight
+      return Array.from(document.querySelectorAll('button, a, input, textarea, select, [role="button"], [role="tab"], [contenteditable="true"]'))
+        .filter(visible)
+        .filter((element) => {
+          const rect = element.getBoundingClientRect()
+          const overlapsLeft = titlebarInsetLeft > 0 && rect.left < titlebarInsetLeft && rect.right > 0 && rect.top < leftBottom && rect.bottom > 0
+          const overlapsRight = titlebarInsetRight > 0 && rect.left < innerWidth && rect.right > rightStart && rect.top < titlebarStripHeight && rect.bottom > 0
+          return overlapsLeft || overlapsRight
+        })
+        .map((element) => {
+          const label = (element.getAttribute("aria-label") || element.textContent || "").trim().slice(0, 40)
+          return element.tagName.toLowerCase() + (label ? '[' + label + ']' : '')
+        })
+    }
+    const expandedNativeControlOverlaps = nativeControlOverlaps()
     const cursorProbeCaught = cursorProbeDetects()
     const heroCursorMismatches = cursorMismatches()
     const appRoot = document.getElementById("root")
@@ -472,6 +491,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     // leaves a button that is present and clickable but invisible.
     const sidebarExpandToggleHasContent = Boolean(expandToggles[0])
       && Array.from(expandToggles[0].querySelectorAll("*")).some(visible)
+    const collapsedNativeControlOverlaps = nativeControlOverlaps()
     expandToggles[0]?.click()
     await new Promise((resolve) => setTimeout(resolve, 200))
 
@@ -504,7 +524,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const sessionIdsBeforeRestart = (await call("session.list", {})).items.map((item) => item.sessionId)
     const freeProvider = providers.find((provider) => provider.provider === "opencode")
     return JSON.stringify({
-      sidebarBrandVisible,
+      sidebarExpandedBrandHidden,
       heroMarkVisible,
       heroHeadlineOverridden,
       heroPreviewBadgeHidden,
@@ -527,8 +547,10 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       titlebarStripHeight,
       titlebarStripDraggable,
       contentInsetHeight,
-      sidebarBrandName,
-      sidebarBrandTop,
+      titlebarInsetLeft,
+      titlebarInsetRight,
+      expandedNativeControlOverlaps,
+      collapsedNativeControlOverlaps,
       sidebarToggleCount: collapseToggles.length,
       sidebarCollapsed,
       sidebarExpandToggleCount: expandToggles.length,
@@ -662,22 +684,30 @@ function describeDirectory(dir: string, prefix = "  "): string {
 
 export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform: NodeJS.Platform = process.platform) {
   // Assert relationships, never a height: that number is owned by Chromium on Windows and by the
-  // main process on macOS, and restating it here would add a third authority. frameless is read
-  // from window-options, a different source than the height, so the two diverging goes red.
+  // main process on macOS. frameless is read from window-options, a different source than the
+  // rendered drag strip, so the two diverging goes red.
   const frameless = "titleBarStyle" in dshTitleBarOptions(platform)
+  const titlebarInsetsMatchPlatform = platform === "darwin"
+    ? snapshot.titlebarInsetLeft > 0 && snapshot.titlebarInsetRight === 0
+    : platform === "win32"
+      ? snapshot.titlebarInsetLeft + snapshot.titlebarInsetRight > 0
+      : snapshot.titlebarInsetLeft === 0 && snapshot.titlebarInsetRight === 0
   const failures = [
-    snapshot.sidebarBrandVisible ? null : "PawWork sidebar brand is not rendered",
-    snapshot.sidebarBrandName ? null : "PawWork sidebar brand name is not rendered",
+    snapshot.sidebarExpandedBrandHidden ? null : "expanded sidebar still renders the duplicate PawWork brand action",
     frameless === snapshot.titlebarStripHeight > 0
       ? null
-      : `frameless=${frameless} but the reserved titlebar strip is ${snapshot.titlebarStripHeight}px`,
+      : `frameless=${frameless} but the titlebar drag strip is ${snapshot.titlebarStripHeight}px`,
     snapshot.titlebarStripDraggable ? null : "titlebar strip is not a drag region",
-    snapshot.contentInsetHeight === snapshot.titlebarStripHeight
+    snapshot.contentInsetHeight === 0 ? null : `web content still has a ${snapshot.contentInsetHeight}px full-width titlebar inset`,
+    titlebarInsetsMatchPlatform
       ? null
-      : `web content is inset ${snapshot.contentInsetHeight}px against a ${snapshot.titlebarStripHeight}px strip`,
-    snapshot.sidebarBrandTop >= snapshot.titlebarStripHeight
+      : `titlebar edge insets do not match ${platform}: left=${snapshot.titlebarInsetLeft}px right=${snapshot.titlebarInsetRight}px`,
+    snapshot.expandedNativeControlOverlaps.length === 0
       ? null
-      : `sidebar brand starts at ${snapshot.sidebarBrandTop}px, inside the native window controls`,
+      : `expanded controls overlap native window controls: ${snapshot.expandedNativeControlOverlaps.join(", ")}`,
+    snapshot.collapsedNativeControlOverlaps.length === 0
+      ? null
+      : `collapsed controls overlap native window controls: ${snapshot.collapsedNativeControlOverlaps.join(", ")}`,
     snapshot.cursorProbeCaught.length === 2
       ? null
       : `the cursor probe caught ${snapshot.cursorProbeCaught.length}/2 planted mismatches (${snapshot.cursorProbeCaught.join(", ") || "nothing"}) and cannot be trusted`,

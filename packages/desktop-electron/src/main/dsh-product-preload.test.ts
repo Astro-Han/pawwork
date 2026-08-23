@@ -64,6 +64,43 @@ describe("PawWork DSH product preload", () => {
     expect(send).toHaveBeenCalledWith("pawwork:product-ready")
   })
 
+  test("reports the web app color scheme whenever its theme changes", () => {
+    const send = vi.fn(() => {})
+    let colorScheme = "light"
+    let changed: (() => void) | undefined
+    const document = {
+      documentElement: {
+        appendChild: () => {},
+        style: { get colorScheme() { return colorScheme } },
+      },
+      createElement: () => ({ textContent: "" }),
+    }
+    class MutationObserver {
+      constructor(callback: () => void) { changed = callback }
+      observe() {}
+    }
+
+    vm.runInNewContext(readFileSync(preloadPath, "utf8"), {
+      document,
+      matchMedia: () => ({ matches: false }),
+      MutationObserver,
+      require: (name: string) => {
+        if (name === "electron") {
+          return {
+            contextBridge: { exposeInMainWorld: () => {} },
+            ipcRenderer: { invoke: () => {}, send },
+          }
+        }
+        throw new Error(`unexpected preload dependency: ${name}`)
+      },
+    })
+
+    expect(send).toHaveBeenCalledWith("pawwork:titlebar-color-scheme", "light")
+    colorScheme = "dark"
+    changed!()
+    expect(send).toHaveBeenLastCalledWith("pawwork:titlebar-color-scheme", "dark")
+  })
+
   test("exposes only a no-argument native file picker", async () => {
     const pickerResult = { status: "selected", paths: ["/outside/report.txt"] }
     const invoke = vi.fn(async () => pickerResult)
