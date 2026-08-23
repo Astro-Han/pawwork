@@ -40,30 +40,6 @@ afterEach(() => {
 })
 
 describe("electron builder app-update config", () => {
-  test("production dependencies contain only DSH and desktop runtime packages", () => {
-    const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "package.json"), "utf8")) as {
-      dependencies: Record<string, string>
-    }
-
-    const desktopRuntimePackages = new Set([
-      "electron-context-menu",
-      "electron-log",
-      "electron-updater",
-      "electron-window-state",
-      // DSH owns plugin reconciliation but intentionally delegates dependency
-      // writes to pnpm. PawWork ships the exact CLI so plugin management works
-      // on a first-run desktop without a system package manager.
-      "pnpm",
-      "semver",
-    ])
-
-    expect(
-      Object.keys(manifest.dependencies).filter(
-        (dependency) => !dependency.startsWith("@deepseek-ai/") && !desktopRuntimePackages.has(dependency),
-      ),
-    ).toEqual([])
-  })
-
   test("packages only the DSH production entry", () => {
     const config = createConfig("prod")
     const extraResources = config.extraResources

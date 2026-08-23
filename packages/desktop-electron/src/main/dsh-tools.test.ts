@@ -30,7 +30,6 @@ test("keeps one Windows Path authority with bundled pnpm and Node commands", () 
     DSH_HOME: home,
     ELECTRON_RUN_AS_NODE: "1",
     PAWWORK_DSH_BIN: "C:\\PawWork\\dsh\\bin.js",
-    PAWWORK_DSH_PROFILE_DIR: join(home, "profiles", "web"),
     PAWWORK_HOST_TOKEN: "host-token",
     PAWWORK_NODE_EXECUTABLE: "C:\\PawWork\\PawWork.exe",
     PAWWORK_PNPM_CLI: "C:\\PawWork\\node_modules\\pnpm\\bin\\pnpm.mjs",

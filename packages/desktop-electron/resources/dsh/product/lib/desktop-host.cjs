@@ -11,6 +11,19 @@ function readProfile(profileDir) {
   return JSON.parse(fs.readFileSync(path.join(profileDir, 'package.json'), 'utf8'));
 }
 
+function installedMarketVersion(profileDir) {
+  try {
+    const manifest = JSON.parse(fs.readFileSync(
+      path.join(profileDir, 'node_modules', MARKET_NAME, 'package.json'),
+      'utf8',
+    ));
+    return typeof manifest.version === 'string' ? manifest.version : null;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
 function versionAtLeast(version, minimum) {
   const parse = (value) => {
     const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(value);
@@ -31,10 +44,11 @@ function versionAtLeast(version, minimum) {
 
 function marketStatus(profileDir) {
   const manifest = readProfile(profileDir);
-  const version = manifest.dependencies?.[MARKET_NAME] ?? null;
+  const declared = typeof manifest.dependencies?.[MARKET_NAME] === 'string';
+  const version = installedMarketVersion(profileDir);
   const active = (manifest.dsh?.profile?.bundles ?? []).includes(MARKET_NAME);
   return {
-    enabled: active && version !== null && versionAtLeast(version, MARKET_MINIMUM_VERSION),
+    enabled: declared && active && version !== null && versionAtLeast(version, MARKET_MINIMUM_VERSION),
     version,
   };
 }
@@ -81,7 +95,11 @@ function createDesktopPnpm(options) {
         ...args,
       ],
       cwd: invokingDir,
-      env: { DSH_HOME: options.home, ELECTRON_RUN_AS_NODE: '1' },
+      env: {
+        ...(options.environment ?? {}),
+        DSH_HOME: options.home,
+        ELECTRON_RUN_AS_NODE: '1',
+      },
       graceMs: 3000,
       stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
       signal,
@@ -116,10 +134,11 @@ function createDesktopPnpm(options) {
 }
 
 function createDesktopHost(options) {
+  const profileDir = path.join(options.home, 'profiles', 'web');
   const pnpm = createDesktopPnpm(options);
-  const bootMarket = marketStatus(options.profileDir);
+  const bootMarket = marketStatus(profileDir);
   const status = async () => {
-    const current = marketStatus(options.profileDir);
+    const current = marketStatus(profileDir);
     return {
       ...current,
       restartRequired: current.enabled && (
@@ -128,7 +147,7 @@ function createDesktopHost(options) {
     };
   };
   return {
-    desktopProfiles: createDesktopProfiles(options.profileDir),
+    desktopProfiles: createDesktopProfiles(profileDir),
     desktopPnpm: pnpm.service,
     communityMarket: {
       status,
@@ -137,7 +156,7 @@ function createDesktopHost(options) {
         if (current.enabled) return current;
         const operation = pnpm.service.runPlugin(
           ['add', MARKET_TARGET, '--save-exact'],
-          options.profileDir,
+          profileDir,
           AbortSignal.timeout(options.operationTimeoutMs ?? MARKET_OPERATION_TIMEOUT_MS),
         );
         let stderr = '';

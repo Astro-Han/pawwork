@@ -262,17 +262,18 @@ test('refresh leaves a non-opencode default untouched', async () => {
 
 test('product lifecycle immediately refreshes the runtime catalog through settings', { timeout: 2000 }, async (t) => {
 	const originalFetch = globalThis.fetch;
-	const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-product-lifecycle-'));
-	t.after(() => fs.rmSync(profileDir, { recursive: true, force: true }));
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-product-lifecycle-'));
+	const profileDir = path.join(home, 'profiles', 'web');
+	fs.mkdirSync(profileDir, { recursive: true });
+	t.after(() => fs.rmSync(home, { recursive: true, force: true }));
 	fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
 		dependencies: {},
 		dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } },
 	}));
 	const hostEnvironment = {
 		PAWWORK_DSH_BIN: '/app/dsh/bin.js',
-		DSH_HOME: path.dirname(profileDir),
+		DSH_HOME: home,
 		PAWWORK_NODE_EXECUTABLE: '/app/PawWork',
-		PAWWORK_DSH_PROFILE_DIR: profileDir,
 		PAWWORK_HOST_TOKEN: 'test-host-token',
 	};
 	const previousEnvironment = Object.fromEntries(

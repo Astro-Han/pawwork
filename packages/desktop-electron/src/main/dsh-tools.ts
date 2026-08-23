@@ -52,7 +52,6 @@ export function prepareDshToolsEnvironment(options: PrepareDshToolsEnvironmentOp
     DSH_HOME: options.home,
     ELECTRON_RUN_AS_NODE: "1",
     PAWWORK_DSH_BIN: options.dshBin,
-    PAWWORK_DSH_PROFILE_DIR: join(options.home, "profiles", "web"),
     PAWWORK_HOST_TOKEN: options.hostToken,
     PAWWORK_NODE_EXECUTABLE: options.executable,
     PAWWORK_PNPM_CLI: options.pnpmBin,

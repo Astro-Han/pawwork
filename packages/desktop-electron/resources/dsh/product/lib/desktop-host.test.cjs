@@ -7,7 +7,13 @@ const path = require('node:path');
 const { PassThrough } = require('node:stream');
 const { createDesktopHost, registerCommunityMarketRoutes } = require('./desktop-host.cjs');
 
-function profileHome(version = undefined) {
+function writeInstalledMarket(profileDir, version) {
+  const packageDir = path.join(profileDir, 'node_modules', 'dshmarket');
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: 'dshmarket', version }));
+}
+
+function profileHome(version = undefined, installedVersion = version) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-desktop-host-'));
   const profileDir = path.join(home, 'profiles', 'web');
   fs.mkdirSync(profileDir, { recursive: true });
@@ -15,6 +21,7 @@ function profileHome(version = undefined) {
     dependencies: version === undefined ? {} : { dshmarket: version },
     dsh: { profile: { bundles: version === undefined ? ['@deepseek-ai/dsh-base'] : ['@deepseek-ai/dsh-base', 'dshmarket'] } },
   }));
+  if (typeof installedVersion === 'string') writeInstalledMarket(profileDir, installedVersion);
   return { home, profileDir };
 }
 
@@ -57,7 +64,6 @@ test('publishes the immutable PawWork web profile through the Desktop host contr
     dshBin: '/app/dsh/bin.js',
     home,
     nodeExecutable: '/app/PawWork',
-    profileDir,
     subprocess: fakeSubprocess(),
   });
 
@@ -81,8 +87,12 @@ test('runs plugin commands through the DSH managed subprocess tree', async () =>
     dshBin: '/app/dsh/bin.js',
     home,
     nodeExecutable: '/app/PawWork',
-    profileDir,
     subprocess: managed.subprocess,
+    environment: {
+      PATH: '/data/dsh/.tools:/app/tools:/usr/bin',
+      PAWWORK_NODE_EXECUTABLE: '/app/PawWork',
+      PAWWORK_PNPM_CLI: '/app/pnpm/bin/pnpm.mjs',
+    },
   });
 
   const operation = host.desktopPnpm.runPlugin(['remove', 'example-plugin'], '/caller');
@@ -92,7 +102,13 @@ test('runs plugin commands through the DSH managed subprocess tree', async () =>
   assert.deepEqual(managed.spawns, [{
     argv: ['/app/PawWork', '/app/dsh/bin.js', 'plugin', '--profile', 'web', 'remove', 'example-plugin'],
     cwd: '/caller',
-    env: { DSH_HOME: home, ELECTRON_RUN_AS_NODE: '1' },
+    env: {
+      PATH: '/data/dsh/.tools:/app/tools:/usr/bin',
+      PAWWORK_NODE_EXECUTABLE: '/app/PawWork',
+      PAWWORK_PNPM_CLI: '/app/pnpm/bin/pnpm.mjs',
+      DSH_HOME: home,
+      ELECTRON_RUN_AS_NODE: '1',
+    },
     graceMs: 3000,
     stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
     signal: undefined,
@@ -110,7 +126,6 @@ test('cancels and awaits the active package tree before the host disposes', asyn
     dshBin: '/app/dsh/bin.js',
     home,
     nodeExecutable: '/app/PawWork',
-    profileDir,
     subprocess: managed.subprocess,
   });
   host.desktopPnpm.runPlugin(['install'], profileDir);
@@ -136,7 +151,6 @@ test('requires the minimum market version and derives restart from the boot gene
     dshBin: '/app/dsh/bin.js',
     home,
     nodeExecutable: '/app/PawWork',
-    profileDir,
     subprocess: fakeSubprocess(),
   });
 
@@ -150,6 +164,7 @@ test('requires the minimum market version and derives restart from the boot gene
     dependencies: { dshmarket: '1.21.0' },
     dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dshmarket'] } },
   }));
+  writeInstalledMarket(profileDir, '1.21.0');
   assert.deepEqual(await host.communityMarket.status(), {
     enabled: true,
     restartRequired: true,
@@ -164,7 +179,6 @@ test('installs only the pinned compatible market through the managed service', a
     dshBin: '/app/dsh/bin.js',
     home,
     nodeExecutable: '/app/PawWork',
-    profileDir,
     subprocess: managed.subprocess,
   });
 
@@ -185,6 +199,7 @@ test('installs only the pinned compatible market through the managed service', a
     dependencies: { dshmarket: '1.21.0' },
     dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dshmarket'] } },
   }));
+  writeInstalledMarket(profileDir, '1.21.0');
   managed.settle({ exitCode: 0, signal: null });
 
   assert.deepEqual(await enabling, {
@@ -195,12 +210,11 @@ test('installs only the pinned compatible market through the managed service', a
 })
 
 test('keeps a newer compatible market without spawning a downgrade', async () => {
-  const { home, profileDir } = profileHome('1.24.0');
+  const { home } = profileHome('1.24.0');
   const host = createDesktopHost({
     dshBin: '/app/dsh/bin.js',
     home,
     nodeExecutable: '/app/PawWork',
-    profileDir,
     subprocess: fakeSubprocess(),
   });
 
@@ -211,14 +225,45 @@ test('keeps a newer compatible market without spawning a downgrade', async () =>
   });
 })
 
+test('uses the installed package version instead of downgrading a newer dependency range', async () => {
+  const { home } = profileHome('^1.24.0', '1.24.3');
+  const host = createDesktopHost({
+    dshBin: '/app/dsh/bin.js',
+    home,
+    nodeExecutable: '/app/PawWork',
+    subprocess: fakeSubprocess(),
+  });
+
+  assert.deepEqual(await host.communityMarket.enable(), {
+    enabled: true,
+    restartRequired: false,
+    version: '1.24.3',
+  });
+})
+
+test('does not report a manifest-only market as installed', async () => {
+  const { home } = profileHome('^1.24.0', null);
+  const host = createDesktopHost({
+    dshBin: '/app/dsh/bin.js',
+    home,
+    nodeExecutable: '/app/PawWork',
+    subprocess: fakeSubprocess(),
+  });
+
+  assert.deepEqual(await host.communityMarket.status(), {
+    enabled: false,
+    restartRequired: false,
+    version: null,
+  });
+})
+
 test('rejects a successful command that did not activate the market', async () => {
-  const { home, profileDir } = profileHome();
+  const { home } = profileHome();
   const managed = managedSubprocess();
   const host = createDesktopHost({
     dshBin: '/app/dsh/bin.js',
     home,
     nodeExecutable: '/app/PawWork',
-    profileDir,
     subprocess: managed.subprocess,
   });
 
