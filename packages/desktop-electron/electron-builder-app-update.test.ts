@@ -50,6 +50,10 @@ describe("electron builder app-update config", () => {
       "electron-log",
       "electron-updater",
       "electron-window-state",
+      // DSH owns plugin reconciliation but intentionally delegates dependency
+      // writes to pnpm. PawWork ships the exact CLI so plugin management works
+      // on a first-run desktop without a system package manager.
+      "pnpm",
       "semver",
     ])
 

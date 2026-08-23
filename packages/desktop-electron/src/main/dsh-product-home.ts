@@ -28,6 +28,8 @@ type ResolveDshPackagePathOptions = {
   resolveDevelopmentPackage: () => string
 }
 
+type ResolvePnpmPackagePathOptions = ResolveDshPackagePathOptions
+
 export function resolveProductResources(options: ResolveProductResourcesOptions) {
   return {
     dsh: options.isPackaged
@@ -49,6 +51,11 @@ export function resolveDshPackagePath(options: ResolveDshPackagePathOptions) {
     "dsh",
     "package.json",
   )
+}
+
+export function resolvePnpmPackagePath(options: ResolvePnpmPackagePathOptions) {
+  if (!options.isPackaged) return options.resolveDevelopmentPackage()
+  return join(options.resourcesPath, "app.asar.unpacked", "node_modules", "pnpm", "package.json")
 }
 
 export function prepareDshProductHome(options: PrepareDshProductHomeOptions) {

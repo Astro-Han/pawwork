@@ -18,13 +18,16 @@ import {
   UPDATER_ACTIVE,
 } from "./constants"
 import { ciSmokeCdpSwitches } from "./ci-smoke-cdp"
+import { createDshCommandRuntime } from "./dsh-command"
 import { pickConversationFiles } from "./dsh-file-input"
 import { DshLifecycle, type DshLifecycleState } from "./dsh-lifecycle"
 import { createDshMenu } from "./dsh-menu"
+import { assertDshPluginRequest, createDshCommunityMarketManager } from "./dsh-plugins"
 import {
   buildDshEnvironment,
   prepareDshProductHome,
   resolveDshPackagePath,
+  resolvePnpmPackagePath,
   resolveProductResources,
 } from "./dsh-product-home"
 import { launchDshSidecar } from "./dsh-sidecar"
@@ -80,6 +83,7 @@ const productPreload = join(productResources.dsh, "product", "preload.cjs")
 const DSH_OUTPUT_TAIL_CHARS = 4_000
 let dshOutputTail = ""
 let currentProgress: number | null = null
+let communityMarketManager: ReturnType<typeof createDshCommunityMarketManager> | undefined
 
 const lifecycle = new DshLifecycle({ launch: launchDsh, onChange: handleLifecycleChange })
 
@@ -134,6 +138,20 @@ function setupApp() {
       owner ? dialog.showOpenDialog(owner, options) : dialog.showOpenDialog(options),
     )
   })
+  ipcMain.handle("pawwork:dsh-community-market:status", (event) => communityMarketManagerFor(event).status())
+  ipcMain.handle("pawwork:dsh-community-market:enable", (event) => communityMarketManagerFor(event).enable())
+  ipcMain.on("pawwork:dsh-restart", (event) => {
+    try {
+      communityMarketManagerFor(event)
+    } catch (error) {
+      logger.warn("rejected DSH restart request", error)
+      return
+    }
+    showStartupPage()
+    void lifecycle.stop()
+      .then(() => lifecycle.start())
+      .catch((error) => logger.error("DSH restart failed", error))
+  })
   ipcMain.on("pawwork:product-ready", (event) => {
     if (event.senderFrame !== event.sender.mainFrame) return
     lifecycle.productReady(event.senderFrame?.url ?? "")
@@ -184,6 +202,19 @@ function setupApp() {
       logger.error("app initialization failed", error)
       app.exit(1)
     })
+}
+
+function communityMarketManagerFor(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) {
+  const state = lifecycle.state
+  const frame = event.senderFrame
+  if (state.phase !== "ready") throw new Error("DSH plugin requests require a ready product")
+  assertDshPluginRequest({
+    dshUrl: state.url,
+    isMainFrame: frame === event.sender.mainFrame,
+    senderUrl: frame?.url ?? "",
+  })
+  if (!communityMarketManager) throw new Error("DSH community market manager is unavailable")
+  return communityMarketManager
 }
 
 function liveWindows() {
@@ -295,16 +326,33 @@ function launchDsh() {
     resourcesPath: process.resourcesPath,
     resolveDevelopmentPackage: () => require.resolve("@deepseek-ai/dsh/package.json"),
   })
+  const pnpmPackage = resolvePnpmPackagePath({
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    resolveDevelopmentPackage: () => require.resolve("pnpm"),
+  })
+  const dshBin = join(dirname(dshPackage), "lib", "bin.js")
+  const commandRuntime = createDshCommandRuntime({
+    dshBin,
+    env: buildDshEnvironment(productResources.skills),
+    executable: process.execPath,
+    home: product.home,
+    pnpmBin: join(dirname(pnpmPackage), "bin", "pnpm.mjs"),
+  })
+  communityMarketManager = createDshCommunityMarketManager({
+    home: product.home,
+    run: commandRuntime.run,
+  })
 
   logger.log("spawning DSH sidecar")
   return launchDshSidecar({
     executable: process.execPath,
-    dshBin: join(dirname(dshPackage), "lib", "bin.js"),
+    dshBin,
     sidecarPreload: pathToFileURL(product.sidecarPreload).href,
     productHome: product.home,
     productPatch: product.patch,
     toolsDir: join(dirname(productResources.dsh), "tools"),
-    env: buildDshEnvironment(productResources.skills),
+    env: commandRuntime.environment,
     timeoutMs: 30_000,
     spawn: (executable, args, options) => spawn(executable, args, options),
     onStdout: (chunk) => logger.log("DSH stdout", { chunk: chunk.trimEnd() }),

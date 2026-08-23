@@ -9,6 +9,7 @@ import {
   buildDshEnvironment,
   prepareDshProductHome,
   resolveDshPackagePath,
+  resolvePnpmPackagePath,
   resolveProductResources,
 } from "./dsh-product-home"
 
@@ -88,6 +89,29 @@ describe("DSH product home", () => {
         resolveDevelopmentPackage: () => "/repo/node_modules/@deepseek-ai/dsh/package.json",
       }),
     ).toBe("/repo/node_modules/@deepseek-ai/dsh/package.json")
+  })
+
+  test("runs the packaged plugin manager from the real unpacked dependency tree", () => {
+    expect(
+      resolvePnpmPackagePath({
+        isPackaged: true,
+        resourcesPath: "/Applications/PawWork.app/Contents/Resources",
+        resolveDevelopmentPackage: () => "/unused",
+      }),
+    ).toBe(join(
+      "/Applications/PawWork.app/Contents/Resources",
+      "app.asar.unpacked",
+      "node_modules",
+      "pnpm",
+      "package.json",
+    ))
+    expect(
+      resolvePnpmPackagePath({
+        isPackaged: false,
+        resourcesPath: "/unused",
+        resolveDevelopmentPackage: () => "/repo/node_modules/pnpm/package.json",
+      }),
+    ).toBe("/repo/node_modules/pnpm/package.json")
   })
 
   test("installs the product overlay without replacing an existing credential", () => {
@@ -177,6 +201,16 @@ describe("DSH product home", () => {
     }>
 
     expect(patch.find((entry) => entry.id === "llm-deepseek")?.disabled).toBe(true)
+  })
+
+  test("keeps community-market restart under the PawWork lifecycle", () => {
+    const resources = join(import.meta.dirname, "../../resources/dsh")
+    const patch = load(readFileSync(join(resources, "home/product.cordis.patch.yml"), "utf8")) as Array<{
+      id?: string
+      config?: Record<string, unknown>
+    }>
+
+    expect(patch.find((entry) => entry.id === "dsh-market")?.config).toEqual({ allowRestart: false })
   })
 
   test("isolates DSH from ambient model credentials", () => {

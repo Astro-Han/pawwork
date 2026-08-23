@@ -24,6 +24,11 @@
     maxBytes: 65536
 - id: llm-deepseek
   disabled: true
+# The market can otherwise spawn a replacement DSH process outside PawWork's
+# single lifecycle authority. PawWork exposes the restart action in its host tab.
+- id: dsh-market
+  config:
+    allowRestart: false
 - insert:
     - id: pawwork-identity
       name: '@pawwork/dsh-identity'
