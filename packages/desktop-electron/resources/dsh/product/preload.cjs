@@ -17,20 +17,17 @@ function installBootStyle() {
 
 function installTitlebarThemeSync() {
   if (typeof document === "undefined" || document.documentElement === null) return
-  const media = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : undefined
   let published
   const publish = () => {
     const declared = document.documentElement.style?.colorScheme
-    const colorScheme = declared === "dark" || declared === "light" ? declared : media?.matches ? "dark" : "light"
-    if (colorScheme === published) return
-    published = colorScheme
-    ipcRenderer.send("pawwork:titlebar-color-scheme", colorScheme)
+    if ((declared !== "dark" && declared !== "light") || declared === published) return
+    published = declared
+    ipcRenderer.send("pawwork:titlebar-color-scheme", declared)
   }
   publish()
   if (typeof MutationObserver !== "undefined") {
     new MutationObserver(publish).observe(document.documentElement, { attributeFilter: ["style"] })
   }
-  media?.addEventListener?.("change", publish)
 }
 
 function installDocumentFeatures() {
