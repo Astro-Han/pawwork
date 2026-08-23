@@ -4,7 +4,7 @@
   "description": "Desktop AI workstation for knowledge workers",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.7.0",
+  "packageManager": "pnpm@11.23.0",
   "scripts": {
     "dev": "pnpm run dev:desktop",
     "dev:desktop": "pnpm --filter @pawwork/desktop dev",

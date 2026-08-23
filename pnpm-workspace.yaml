@@ -16,6 +16,7 @@ allowBuilds:
 
 minimumReleaseAgeExclude:
   - '@deepseek-ai/*'
+  - pnpm@11.23.0
 
 overrides:
   '@xmldom/xmldom': 0.8.13
