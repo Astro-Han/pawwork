@@ -66,6 +66,7 @@ describe("PawWork DSH product preload", () => {
 
   test("reports the web app color scheme whenever its theme changes", () => {
     const send = vi.fn(() => {})
+    const exposed = new Map<string, Record<string, () => unknown>>()
     let colorScheme = "light"
     let changed: (() => void) | undefined
     const document = {
@@ -87,7 +88,7 @@ describe("PawWork DSH product preload", () => {
       require: (name: string) => {
         if (name === "electron") {
           return {
-            contextBridge: { exposeInMainWorld: () => {} },
+            contextBridge: { exposeInMainWorld: (key: string, api: Record<string, () => unknown>) => exposed.set(key, api) },
             ipcRenderer: { invoke: () => {}, send },
           }
         }
@@ -95,7 +96,12 @@ describe("PawWork DSH product preload", () => {
       },
     })
 
-    expect(send).toHaveBeenCalledWith("pawwork:titlebar-color-scheme", "light")
+    expect(send).not.toHaveBeenCalledWith("pawwork:titlebar-color-scheme", expect.anything())
+    exposed.get("pawworkLifecycle")!.ready()
+    expect(send.mock.calls).toEqual([
+      ["pawwork:product-ready"],
+      ["pawwork:titlebar-color-scheme", "light"],
+    ])
     colorScheme = "dark"
     changed!()
     expect(send).toHaveBeenLastCalledWith("pawwork:titlebar-color-scheme", "dark")

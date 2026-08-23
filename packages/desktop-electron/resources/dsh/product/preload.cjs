@@ -1,5 +1,8 @@
 const { contextBridge, ipcRenderer } = require("electron")
 
+let productReady = false
+let publishTitlebarTheme = () => {}
+
 function installBootStyle() {
   if (typeof document === "undefined" || document.documentElement === null) return false
   const style = document.createElement("style")
@@ -19,11 +22,13 @@ function installTitlebarThemeSync() {
   if (typeof document === "undefined" || document.documentElement === null) return
   let published
   const publish = () => {
+    if (!productReady) return
     const declared = document.documentElement.style?.colorScheme
     if ((declared !== "dark" && declared !== "light") || declared === published) return
     published = declared
     ipcRenderer.send("pawwork:titlebar-color-scheme", declared)
   }
+  publishTitlebarTheme = publish
   publish()
   if (typeof MutationObserver !== "undefined") {
     new MutationObserver(publish).observe(document.documentElement, { attributeFilter: ["style"] })
@@ -46,7 +51,11 @@ if (!installDocumentFeatures() && typeof document !== "undefined") {
 }
 
 contextBridge.exposeInMainWorld("pawworkLifecycle", {
-  ready: () => ipcRenderer.send("pawwork:product-ready"),
+  ready: () => {
+    ipcRenderer.send("pawwork:product-ready")
+    productReady = true
+    publishTitlebarTheme()
+  },
 })
 
 contextBridge.exposeInMainWorld("pawworkFiles", {
