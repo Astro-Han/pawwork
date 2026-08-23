@@ -11,7 +11,7 @@ test("macOS traffic lights keep the standard top-chrome position", () => {
 // macOS is the only platform whose titlebar height we publish ourselves: Windows
 // reads Chromium's env(titlebar-area-*) and Linux keeps its system title bar.
 test.each([
-  ["darwin", false, `:root { --pawwork-titlebar-host-height: ${TITLEBAR_HEIGHT}px; --pawwork-titlebar-host-inset-left: 72px; --pawwork-titlebar-host-control-center-y: 18px; --pawwork-sidebar-host-divider-start: 32px; }`],
+  ["darwin", false, `:root { --pawwork-titlebar-host-height: ${TITLEBAR_HEIGHT}px; --pawwork-titlebar-host-inset-left: 72px; --pawwork-titlebar-host-control-center-y: 18px; }`],
   ["darwin", true, ""],
   ["win32", false, ""],
   ["linux", false, ""],

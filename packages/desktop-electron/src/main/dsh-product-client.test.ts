@@ -230,7 +230,6 @@ describe("PawWork DSH client product layer", () => {
     expect(css).toContain("--pawwork-titlebar-inset-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw))")
     expect(css).toContain("var(--pawwork-titlebar-host-height, env(titlebar-area-height, 0px))")
     expect(css).toContain("--pawwork-titlebar-control-center-y")
-    expect(css).toContain("--pawwork-sidebar-divider-start")
     expect(css).not.toContain("#root { box-sizing: border-box; padding-top:")
     expect(css).not.toMatch(/--pawwork-titlebar-height:\s*\d/)
   })
@@ -248,7 +247,6 @@ describe("PawWork DSH client product layer", () => {
     expect(css).toMatch(/div:has\(> button \[data-slot="sidebar\.brand\.name"\]\) > button[^{]*{[^}]*visibility:\s*hidden/s)
     expect(css).toMatch(/div:has\(> button \[data-slot="sidebar\.brand\.mark"\]\):not\(:has\(\[data-slot="sidebar\.brand\.name"\]\)\) > button[^{]*{[^}]*visibility:\s*hidden/s)
     expect(css).not.toContain('[data-slot="sidebar.brand.mark"] { display: none; }')
-    expect(css).toMatch(/div:has\(> \[data-slot="sidebar"\]\)::after\s*{[^}]*top:\s*var\(--pawwork-sidebar-divider-start/s)
   })
 
   test("keeps app header controls to the left of the Windows caption buttons", () => {

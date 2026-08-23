@@ -68,8 +68,8 @@ export type CiSmokeProductSnapshot = {
   titlebarInsetLeft: number
   titlebarInsetRight: number
   windowsInsetMatchesDocumentDirection: boolean
-  sidebarDividerStart: number
-  collapsedSidebarTitlebarSurfaceMatchesContent: boolean
+  collapsedSidebarFullyMergesWithContent: boolean
+  sidebarCollapseMotionMatchesPreference: boolean
   expandedNativeControlOverlaps: string[]
   collapsedNativeControlOverlaps: string[]
   sidebarToggleCount: number
@@ -350,10 +350,6 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       || (documentDirection === "rtl"
         ? titlebarInsetLeft > 0 && titlebarInsetRight === 0
         : titlebarInsetLeft === 0 && titlebarInsetRight > 0)
-    const sidebarRoot = document.querySelector('[data-slot="sidebar"]')?.parentElement
-    const sidebarDividerStart = sidebarRoot
-      ? Number.parseFloat(getComputedStyle(sidebarRoot, "::after").top)
-      : -1
     const nativeControlOverlaps = () => {
       const leftBottom = titlebarStripHeight + 16
       const rightStart = innerWidth - titlebarInsetRight
@@ -505,10 +501,31 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const collapsedSidebarSlot = document.querySelector('[data-slot="sidebar"]')
     const collapsedSidebarSurfaces = [collapsedSidebarSlot?.parentElement, collapsedSidebarSlot?.firstElementChild]
       .filter(Boolean)
+    await Promise.race([
+      Promise.all(collapsedFrame ? collapsedFrame.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => undefined)) : []),
+      new Promise((resolve) => setTimeout(resolve, 500)),
+    ])
     const contentSurface = collapsedFrame ? getComputedStyle(collapsedFrame).backgroundColor : ""
-    const collapsedSidebarTitlebarSurfaceMatchesContent = contentSurface !== ""
+    const collapsedSidebarSurfaceMatchesContent = contentSurface !== ""
       && collapsedSidebarSurfaces.length === 2
-      && collapsedSidebarSurfaces.every((surface) => getComputedStyle(surface).backgroundImage.includes(contentSurface))
+      && collapsedSidebarSurfaces.every((surface) => getComputedStyle(surface).backgroundColor === contentSurface)
+    const collapsedSidebarDividerHidden = collapsedSidebarSlot?.parentElement
+      ? Number.parseFloat(getComputedStyle(collapsedSidebarSlot.parentElement, "::after").opacity) === 0
+      : false
+    const collapsedSidebarFullyMergesWithContent = collapsedSidebarSurfaceMatchesContent && collapsedSidebarDividerHidden
+    const maxTransitionMs = (element) => Math.max(...getComputedStyle(element).transitionDuration.split(",").map((value) => {
+      const duration = Number.parseFloat(value)
+      return value.trim().endsWith("ms") ? duration : duration * 1000
+    }))
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches
+    const frameTransitionMs = collapsedFrame ? maxTransitionMs(collapsedFrame) : 0
+    const surfaceTransitionMs = collapsedSidebarSurfaces.length === 2
+      ? Math.min(...collapsedSidebarSurfaces.map(maxTransitionMs))
+      : 0
+    const sidebarCollapseMotionMatchesPreference = reducedMotion
+      ? frameTransitionMs <= 1 && surfaceTransitionMs <= 1
+      : frameTransitionMs >= 200 && frameTransitionMs <= 500
+        && surfaceTransitionMs >= 200 && surfaceTransitionMs <= 500
     const collapsedNativeControlOverlaps = nativeControlOverlaps()
     expandToggles[0]?.click()
     await new Promise((resolve) => setTimeout(resolve, 200))
@@ -568,8 +585,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       titlebarInsetLeft,
       titlebarInsetRight,
       windowsInsetMatchesDocumentDirection,
-      sidebarDividerStart,
-      collapsedSidebarTitlebarSurfaceMatchesContent,
+      collapsedSidebarFullyMergesWithContent,
+      sidebarCollapseMotionMatchesPreference,
       expandedNativeControlOverlaps,
       collapsedNativeControlOverlaps,
       sidebarToggleCount: collapseToggles.length,
@@ -713,11 +730,6 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     : platform === "win32"
       ? snapshot.titlebarInsetLeft + snapshot.titlebarInsetRight > 0
       : snapshot.titlebarInsetLeft === 0 && snapshot.titlebarInsetRight === 0
-  const sidebarDividerClearsNativeControls = platform === "darwin"
-    ? snapshot.sidebarDividerStart >= snapshot.titlebarStripHeight
-    : platform === "win32" && snapshot.titlebarInsetLeft > 0
-      ? snapshot.sidebarDividerStart >= snapshot.titlebarStripHeight
-      : snapshot.sidebarDividerStart >= 0
   const failures = [
     snapshot.sidebarExpandedBrandHidden ? null : "expanded sidebar still renders the duplicate PawWork brand action",
     frameless === snapshot.titlebarStripHeight > 0
@@ -731,12 +743,12 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.windowsInsetMatchesDocumentDirection
       ? null
       : `Windows titlebar inset is on the wrong edge for the document direction`,
-    sidebarDividerClearsNativeControls
+    snapshot.collapsedSidebarFullyMergesWithContent
       ? null
-      : `sidebar divider starts at ${snapshot.sidebarDividerStart}px inside the native-control area`,
-    snapshot.collapsedSidebarTitlebarSurfaceMatchesContent
+      : "collapsed sidebar does not fully merge into the content surface",
+    snapshot.sidebarCollapseMotionMatchesPreference
       ? null
-      : "collapsed sidebar color seam crosses the native-control band",
+      : "sidebar collapse motion does not match the user's motion preference",
     snapshot.expandedNativeControlOverlaps.length === 0
       ? null
       : `expanded controls overlap native window controls: ${snapshot.expandedNativeControlOverlaps.join(", ")}`,

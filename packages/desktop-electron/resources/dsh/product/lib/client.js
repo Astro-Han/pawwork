@@ -14,7 +14,6 @@ window.__ModuleLoader__.load({
   --pawwork-titlebar-inset-left: var(--pawwork-titlebar-host-inset-left, env(titlebar-area-x, 0px));
   --pawwork-titlebar-inset-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
   --pawwork-titlebar-control-center-y: var(--pawwork-titlebar-host-control-center-y, calc(max(var(--pawwork-titlebar-height), 32px) / 2));
-  --pawwork-sidebar-divider-start: var(--pawwork-sidebar-host-divider-start, min(var(--pawwork-titlebar-inset-left), var(--pawwork-titlebar-height)));
 }
 .pawwork-window-chrome {
   height: max(var(--pawwork-titlebar-height), 32px);
@@ -44,21 +43,28 @@ div:has(> button [data-slot="sidebar.brand.mark"]):not(:has([data-slot="sidebar.
   pointer-events: none;
   visibility: hidden;
 }
-/* In the collapsed 56px rail the native macOS cluster crosses the original full-height divider.
-   The sidebar fill itself also creates a full-height color seam even without a border, so keep the
-   native-control band on the content surface and start both the fill transition and divider below
-   it. Stable layout/slot attributes survive DSH's per-release CSS-module hashes. */
+/* The layout already animates its sidebar grid track. Move the surface through the same state
+   change: a collapsed rail belongs to the content canvas, while the expanded sidebar keeps DSH's
+   own fill. Stable layout/slot attributes survive DSH's per-release CSS-module hashes. */
+html body div:has(> [data-slot="sidebar"]),
+html body [data-slot="sidebar"] > * {
+  transition: background-color var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
 [data-sidebar-collapsed] > div:has(> [data-slot="sidebar"]),
 [data-sidebar-collapsed] > div:has(> [data-slot="sidebar"]) > [data-slot="sidebar"] > * {
-  background: linear-gradient(to bottom,
-    var(--dsw-alias-bg-base) 0 var(--pawwork-sidebar-divider-start),
-    var(--dsw-specific-sidebar-fill) var(--pawwork-sidebar-divider-start));
+  background: var(--dsw-alias-bg-base);
 }
 html body div:has(> [data-slot="sidebar"]) { border-right: 0; position: relative; }
 html body div:has(> [data-slot="sidebar"])::after {
   background: var(--dsw-alias-border-l1); bottom: 0; content: "";
-  pointer-events: none; position: absolute; right: 0;
-  top: var(--pawwork-sidebar-divider-start); width: 1px;
+  opacity: 1; pointer-events: none; position: absolute; right: 0; top: 0;
+  transition: opacity var(--ds-transition-duration-fast) var(--ds-ease-in-out); width: 1px;
+}
+[data-sidebar-collapsed] > div:has(> [data-slot="sidebar"])::after { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  html body div:has(> [data-slot="sidebar"]),
+  html body [data-slot="sidebar"] > *,
+  html body div:has(> [data-slot="sidebar"])::after { transition-duration: 0.01ms; }
 }
 /* Stable slot boundaries consume the right inset, so current and future header controls naturally
    sit before the Windows caption buttons. Preserve DSH's existing 28px edge spacing. */
