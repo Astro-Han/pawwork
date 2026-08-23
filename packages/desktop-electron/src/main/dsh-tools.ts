@@ -39,7 +39,7 @@ function prepareCommandShims(home: string, windows: boolean) {
   return tools
 }
 
-export function prepareDshToolsEnvironment(options: PrepareDshToolsEnvironmentOptions) {
+export function prepareDshToolsEnvironment(options: PrepareDshToolsEnvironmentOptions): NodeJS.ProcessEnv {
   const windows = (options.platform ?? process.platform) === "win32"
   const privateTools = prepareCommandShims(options.home, windows)
   const environment = withToolsPath(
