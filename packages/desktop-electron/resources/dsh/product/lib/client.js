@@ -59,7 +59,10 @@ div:has(> button [data-slot="sidebar.brand.name"]) {
 /* The layout already animates its sidebar grid track. Move the surface through the same state
    change: a collapsed rail belongs to the content canvas, while the expanded sidebar keeps DSH's
    own fill. Stable layout/slot attributes survive DSH's per-release CSS-module hashes. */
-html body div:has(> [data-slot="sidebar"]),
+html body div:has(> [data-slot="sidebar"]) {
+  transition: background-color var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    border-right-color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
 html body [data-slot="sidebar"] > * {
   transition: background-color var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
@@ -67,17 +70,10 @@ html body [data-slot="sidebar"] > * {
 [data-sidebar-collapsed] > div:has(> [data-slot="sidebar"]) > [data-slot="sidebar"] > * {
   background: var(--dsw-alias-bg-base);
 }
-html body div:has(> [data-slot="sidebar"]) { border-right: 0; position: relative; }
-html body div:has(> [data-slot="sidebar"])::after {
-  background: var(--dsw-alias-border-l1); bottom: 0; content: "";
-  opacity: 1; pointer-events: none; position: absolute; right: 0; top: 0;
-  transition: opacity var(--ds-transition-duration-fast) var(--ds-ease-in-out); width: 1px;
-}
-[data-sidebar-collapsed] > div:has(> [data-slot="sidebar"])::after { opacity: 0; }
+[data-sidebar-collapsed] > div:has(> [data-slot="sidebar"]) { border-right-color: transparent; }
 @media (prefers-reduced-motion: reduce) {
   html body div:has(> [data-slot="sidebar"]),
-  html body [data-slot="sidebar"] > *,
-  html body div:has(> [data-slot="sidebar"])::after { transition-duration: 0.01ms; }
+  html body [data-slot="sidebar"] > * { transition-duration: 0.01ms; }
 }
 /* Stable slot boundaries consume the right inset, so current and future header controls naturally
    sit before the Windows caption buttons. Preserve DSH's existing 28px edge spacing. */

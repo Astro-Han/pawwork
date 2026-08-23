@@ -90,6 +90,7 @@ describe("PawWork DSH client product layer", () => {
 
     expect(client).toContain('renderSlot("shell.overlay", {})')
     expect(client).toContain('ctx.reflect.provide("layout", layout)')
+    expect(client).toContain("border-right:1px solid var(--dsw-alias-border-l1)")
     expect(serviceTypes).toMatch(/interface ILayout[\s\S]*toggleSidebar\(\): void;/)
   })
 
@@ -247,6 +248,13 @@ describe("PawWork DSH client product layer", () => {
     expect(css).toMatch(/div:has\(> button \[data-slot="sidebar\.brand\.name"\]\) > button[^{]*{[^}]*visibility:\s*hidden/s)
     expect(css).toMatch(/div:has\(> button \[data-slot="sidebar\.brand\.mark"\]\):not\(:has\(\[data-slot="sidebar\.brand\.name"\]\)\) > button[^{]*{[^}]*visibility:\s*hidden/s)
     expect(css).not.toContain('[data-slot="sidebar.brand.mark"] { display: none; }')
+  })
+
+  test("fades DSH's sidebar border instead of drawing a second divider", () => {
+    const { css } = loadProductCss()
+
+    expect(css).toMatch(/\[data-sidebar-collapsed\][^{]*div:has\(> \[data-slot="sidebar"\]\)[^{]*{[^}]*border-right-color:\s*transparent/s)
+    expect(css).not.toContain('div:has(> [data-slot="sidebar"])::after')
   })
 
   test("keeps app header controls to the left of the Windows caption buttons", () => {

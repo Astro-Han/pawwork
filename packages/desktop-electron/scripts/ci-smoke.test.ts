@@ -237,7 +237,7 @@ describe("ci smoke helpers", () => {
     titlebarInsetRight: 0,
     windowsInsetMatchesDocumentDirection: true,
     expandedNewSessionFollowsTitlebar: true,
-    sidebarPrimaryActionsStayAligned: true,
+    sidebarPrimaryActionCenterOffsets: { addWorkspace: 0, newSession: 0 },
     collapsedSidebarFullyMergesWithContent: true,
     sidebarCollapseMotionMatchesPreference: true,
     expandedNativeControlOverlaps: [],
@@ -285,7 +285,7 @@ describe("ci smoke helpers", () => {
     titlebarInsetRight: 12,
     windowsInsetMatchesDocumentDirection: false,
     expandedNewSessionFollowsTitlebar: false,
-    sidebarPrimaryActionsStayAligned: false,
+    sidebarPrimaryActionCenterOffsets: { addWorkspace: null, newSession: 2 },
     collapsedSidebarFullyMergesWithContent: false,
     sidebarCollapseMotionMatchesPreference: false,
     expandedNativeControlOverlaps: ["button.collapse"],
@@ -304,6 +304,15 @@ describe("ci smoke helpers", () => {
 
   test("accepts a snapshot where every product capability is present", () => {
     expect(() => assertCiSmokeProduct(healthy, "darwin")).not.toThrow()
+  })
+
+  test("rejects a Windows snapshot that reserves the left edge instead of the caption-button edge", () => {
+    expect(() => assertCiSmokeProduct({
+      ...healthy,
+      titlebarInsetLeft: 72,
+      titlebarInsetRight: 0,
+      platform: "Win32",
+    }, "win32")).toThrow(/titlebar edge insets do not match win32/)
   })
 
   test.each(Object.keys(broken))("rejects a snapshot whose %s is wrong", (field) => {

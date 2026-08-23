@@ -69,7 +69,7 @@ export type CiSmokeProductSnapshot = {
   titlebarInsetRight: number
   windowsInsetMatchesDocumentDirection: boolean
   expandedNewSessionFollowsTitlebar: boolean
-  sidebarPrimaryActionsStayAligned: boolean
+  sidebarPrimaryActionCenterOffsets: { addWorkspace: number | null; newSession: number | null }
   collapsedSidebarFullyMergesWithContent: boolean
   sidebarCollapseMotionMatchesPreference: boolean
   expandedNativeControlOverlaps: string[]
@@ -330,10 +330,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     }
     await call("workspace.create", { path: ${workspace} })
     await new Promise((resolve) => setTimeout(resolve, 100))
-    const sidebarToggles = () => Array.from(document.querySelectorAll("button")).filter((button) => {
-      const label = button.getAttribute("aria-label") || button.getAttribute("title") || ""
-      return visible(button) && /^(收起侧边栏|打开侧边栏|切换侧边栏|Collapse sidebar|Open sidebar|Toggle sidebar)$/i.test(label)
-    })
+    const sidebarToggles = () => Array.from(document.querySelectorAll("button.pawwork-sidebar-toggle")).filter(visible)
     const sidebarBrandButton = document.querySelector('[data-slot="sidebar.brand.name"]')?.closest("button")
     const sidebarExpandedBrandHidden = Boolean(sidebarBrandButton) && !visible(sidebarBrandButton)
     const titlebarStrip = document.querySelector(".pawwork-window-drag-region")
@@ -367,18 +364,17 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     })
     const centerY = (element) => {
       const rect = element?.getBoundingClientRect()
-      return rect ? rect.top + rect.height / 2 : -1
+      return rect ? rect.top + rect.height / 2 : Number.NaN
     }
     const expandedNewSessionCenter = centerY(expandedNewSession)
     const expandedAddWorkspaceCenter = centerY(expandedAddWorkspace)
     const nativeControlOverlaps = () => {
-      const leftBottom = titlebarStripHeight + 16
       const rightStart = innerWidth - titlebarInsetRight
       return Array.from(document.querySelectorAll('button, a, input, textarea, select, [role="button"], [role="tab"], [contenteditable="true"]'))
         .filter(visible)
         .filter((element) => {
           const rect = element.getBoundingClientRect()
-          const overlapsLeft = titlebarInsetLeft > 0 && rect.left < titlebarInsetLeft && rect.right > 0 && rect.top < leftBottom && rect.bottom > 0
+          const overlapsLeft = titlebarInsetLeft > 0 && rect.left < titlebarInsetLeft && rect.right > 0 && rect.top < titlebarStripHeight && rect.bottom > 0
           const overlapsRight = titlebarInsetRight > 0 && rect.left < innerWidth && rect.right > rightStart && rect.top < titlebarStripHeight && rect.bottom > 0
           return overlapsLeft || overlapsRight
         })
@@ -522,17 +518,23 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const collapsedSidebarSlot = document.querySelector('[data-slot="sidebar"]')
     const collapsedSidebarSurfaces = [collapsedSidebarSlot?.parentElement, collapsedSidebarSlot?.firstElementChild]
       .filter(Boolean)
-    await Promise.race([
-      Promise.all(collapsedFrame ? collapsedFrame.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => undefined)) : []),
-      new Promise((resolve) => setTimeout(resolve, 500)),
-    ])
-    const contentSurface = collapsedFrame ? getComputedStyle(collapsedFrame).backgroundColor : ""
-    const collapsedSidebarSurfaceMatchesContent = contentSurface !== ""
-      && collapsedSidebarSurfaces.length === 2
-      && collapsedSidebarSurfaces.every((surface) => getComputedStyle(surface).backgroundColor === contentSurface)
-    const collapsedSidebarDividerHidden = collapsedSidebarSlot?.parentElement
-      ? Number.parseFloat(getComputedStyle(collapsedSidebarSlot.parentElement, "::after").opacity) === 0
-      : false
+    const collapsedSurfaceState = () => {
+      const contentSurface = collapsedFrame ? getComputedStyle(collapsedFrame).backgroundColor : ""
+      const surfacesMatch = contentSurface !== ""
+        && collapsedSidebarSurfaces.length === 2
+        && collapsedSidebarSurfaces.every((surface) => getComputedStyle(surface).backgroundColor === contentSurface)
+      const dividerHidden = collapsedSidebarSlot?.parentElement
+        ? getComputedStyle(collapsedSidebarSlot.parentElement).borderRightColor === "rgba(0, 0, 0, 0)"
+        : false
+      return { dividerHidden, surfacesMatch }
+    }
+    let collapsedSurfaceStateValue = collapsedSurfaceState()
+    for (let frame = 0; frame < 90 && !(collapsedSurfaceStateValue.surfacesMatch && collapsedSurfaceStateValue.dividerHidden); frame += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 16))
+      collapsedSurfaceStateValue = collapsedSurfaceState()
+    }
+    const collapsedSidebarSurfaceMatchesContent = collapsedSurfaceStateValue.surfacesMatch
+    const collapsedSidebarDividerHidden = collapsedSurfaceStateValue.dividerHidden
     const collapsedSidebarFullyMergesWithContent = collapsedSidebarSurfaceMatchesContent && collapsedSidebarDividerHidden
     const collapsedNewSession = Array.from(document.querySelectorAll("button")).find((button) => {
       const label = button.getAttribute("aria-label") || ""
@@ -542,8 +544,14 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       const label = button.getAttribute("aria-label") || ""
       return visible(button) && /^(添加工作区|Add workspace)$/i.test(label)
     })
-    const sidebarPrimaryActionsStayAligned = Math.abs(centerY(collapsedNewSession) - expandedNewSessionCenter) <= 1
-      && Math.abs(centerY(collapsedAddWorkspace) - expandedAddWorkspaceCenter) <= 1
+    const centerOffset = (collapsed, expandedCenter) => {
+      const offset = centerY(collapsed) - expandedCenter
+      return Number.isFinite(offset) ? offset : null
+    }
+    const sidebarPrimaryActionCenterOffsets = {
+      addWorkspace: centerOffset(collapsedAddWorkspace, expandedAddWorkspaceCenter),
+      newSession: centerOffset(collapsedNewSession, expandedNewSessionCenter),
+    }
     const maxTransitionMs = (element) => Math.max(...getComputedStyle(element).transitionDuration.split(",").map((value) => {
       const duration = Number.parseFloat(value)
       return value.trim().endsWith("ms") ? duration : duration * 1000
@@ -617,7 +625,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       titlebarInsetRight,
       windowsInsetMatchesDocumentDirection,
       expandedNewSessionFollowsTitlebar,
-      sidebarPrimaryActionsStayAligned,
+      sidebarPrimaryActionCenterOffsets,
       collapsedSidebarFullyMergesWithContent,
       sidebarCollapseMotionMatchesPreference,
       expandedNativeControlOverlaps,
@@ -761,7 +769,7 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
   const titlebarInsetsMatchPlatform = platform === "darwin"
     ? snapshot.titlebarInsetLeft > 0 && snapshot.titlebarInsetRight === 0
     : platform === "win32"
-      ? snapshot.titlebarInsetLeft + snapshot.titlebarInsetRight > 0
+      ? snapshot.titlebarInsetLeft === 0 && snapshot.titlebarInsetRight > 0
       : snapshot.titlebarInsetLeft === 0 && snapshot.titlebarInsetRight === 0
   const failures = [
     snapshot.sidebarExpandedBrandHidden ? null : "expanded sidebar still renders the duplicate PawWork brand action",
@@ -779,9 +787,9 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.expandedNewSessionFollowsTitlebar
       ? null
       : "expanded New session action leaves an empty brand-row gap below the titlebar",
-    snapshot.sidebarPrimaryActionsStayAligned
+    Object.values(snapshot.sidebarPrimaryActionCenterOffsets).every((offset) => offset !== null && Math.abs(offset) <= 1)
       ? null
-      : "expanded and collapsed sidebar primary actions do not share their vertical centers",
+      : `expanded and collapsed sidebar primary-action center offsets are ${JSON.stringify(snapshot.sidebarPrimaryActionCenterOffsets)}`,
     snapshot.collapsedSidebarFullyMergesWithContent
       ? null
       : "collapsed sidebar does not fully merge into the content surface",
