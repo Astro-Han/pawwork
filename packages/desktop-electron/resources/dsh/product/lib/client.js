@@ -45,7 +45,15 @@ div:has(> button [data-slot="sidebar.brand.mark"]):not(:has([data-slot="sidebar.
   visibility: hidden;
 }
 /* In the collapsed 56px rail the native macOS cluster crosses the original full-height divider.
-   Preserve DSH's sidebar boundary, but start its visual divider below the native controls. */
+   The sidebar fill itself also creates a full-height color seam even without a border, so keep the
+   native-control band on the content surface and start both the fill transition and divider below
+   it. Stable layout/slot attributes survive DSH's per-release CSS-module hashes. */
+[data-sidebar-collapsed] > div:has(> [data-slot="sidebar"]),
+[data-sidebar-collapsed] > div:has(> [data-slot="sidebar"]) > [data-slot="sidebar"] > * {
+  background: linear-gradient(to bottom,
+    var(--dsw-alias-bg-base) 0 var(--pawwork-sidebar-divider-start),
+    var(--dsw-specific-sidebar-fill) var(--pawwork-sidebar-divider-start));
+}
 html body div:has(> [data-slot="sidebar"]) { border-right: 0; position: relative; }
 html body div:has(> [data-slot="sidebar"])::after {
   background: var(--dsw-alias-border-l1); bottom: 0; content: "";

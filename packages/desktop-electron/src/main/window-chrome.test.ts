@@ -1,17 +1,17 @@
 import { expect, test } from "vitest"
 import { TITLEBAR_HEIGHT, macTrafficLightPosition, pawworkWindowTitle, titlebarInsetCss } from "./window-chrome"
 
-test("macOS traffic lights align with the sidebar header after the full-width inset is removed", () => {
+test("macOS traffic lights keep the standard top-chrome position", () => {
   expect(macTrafficLightPosition()).toEqual({
     x: 12,
-    y: 30,
+    y: 12,
   })
 })
 
 // macOS is the only platform whose titlebar height we publish ourselves: Windows
 // reads Chromium's env(titlebar-area-*) and Linux keeps its system title bar.
 test.each([
-  ["darwin", false, `:root { --pawwork-titlebar-host-height: ${TITLEBAR_HEIGHT}px; --pawwork-titlebar-host-inset-left: 72px; --pawwork-titlebar-host-control-center-y: 36px; --pawwork-sidebar-host-divider-start: 48px; }`],
+  ["darwin", false, `:root { --pawwork-titlebar-host-height: ${TITLEBAR_HEIGHT}px; --pawwork-titlebar-host-inset-left: 72px; --pawwork-titlebar-host-control-center-y: 18px; --pawwork-sidebar-host-divider-start: 32px; }`],
   ["darwin", true, ""],
   ["win32", false, ""],
   ["linux", false, ""],

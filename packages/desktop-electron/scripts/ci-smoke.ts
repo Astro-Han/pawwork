@@ -69,6 +69,7 @@ export type CiSmokeProductSnapshot = {
   titlebarInsetRight: number
   windowsInsetMatchesDocumentDirection: boolean
   sidebarDividerStart: number
+  collapsedSidebarTitlebarSurfaceMatchesContent: boolean
   expandedNativeControlOverlaps: string[]
   collapsedNativeControlOverlaps: string[]
   sidebarToggleCount: number
@@ -500,6 +501,14 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     // The PawWork-owned toggle retains its icon across both sidebar states.
     const sidebarExpandToggleHasContent = Boolean(expandToggles[0])
       && Array.from(expandToggles[0].querySelectorAll("*")).some(visible)
+    const collapsedFrame = document.querySelector("[data-sidebar-collapsed]")
+    const collapsedSidebarSlot = document.querySelector('[data-slot="sidebar"]')
+    const collapsedSidebarSurfaces = [collapsedSidebarSlot?.parentElement, collapsedSidebarSlot?.firstElementChild]
+      .filter(Boolean)
+    const contentSurface = collapsedFrame ? getComputedStyle(collapsedFrame).backgroundColor : ""
+    const collapsedSidebarTitlebarSurfaceMatchesContent = contentSurface !== ""
+      && collapsedSidebarSurfaces.length === 2
+      && collapsedSidebarSurfaces.every((surface) => getComputedStyle(surface).backgroundImage.includes(contentSurface))
     const collapsedNativeControlOverlaps = nativeControlOverlaps()
     expandToggles[0]?.click()
     await new Promise((resolve) => setTimeout(resolve, 200))
@@ -560,6 +569,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       titlebarInsetRight,
       windowsInsetMatchesDocumentDirection,
       sidebarDividerStart,
+      collapsedSidebarTitlebarSurfaceMatchesContent,
       expandedNativeControlOverlaps,
       collapsedNativeControlOverlaps,
       sidebarToggleCount: collapseToggles.length,
@@ -704,7 +714,7 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
       ? snapshot.titlebarInsetLeft + snapshot.titlebarInsetRight > 0
       : snapshot.titlebarInsetLeft === 0 && snapshot.titlebarInsetRight === 0
   const sidebarDividerClearsNativeControls = platform === "darwin"
-    ? snapshot.sidebarDividerStart >= 48
+    ? snapshot.sidebarDividerStart >= snapshot.titlebarStripHeight
     : platform === "win32" && snapshot.titlebarInsetLeft > 0
       ? snapshot.sidebarDividerStart >= snapshot.titlebarStripHeight
       : snapshot.sidebarDividerStart >= 0
@@ -724,6 +734,9 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     sidebarDividerClearsNativeControls
       ? null
       : `sidebar divider starts at ${snapshot.sidebarDividerStart}px inside the native-control area`,
+    snapshot.collapsedSidebarTitlebarSurfaceMatchesContent
+      ? null
+      : "collapsed sidebar color seam crosses the native-control band",
     snapshot.expandedNativeControlOverlaps.length === 0
       ? null
       : `expanded controls overlap native window controls: ${snapshot.expandedNativeControlOverlaps.join(", ")}`,
