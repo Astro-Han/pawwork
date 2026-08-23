@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest"
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { load } from "js-yaml"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import process from "node:process"
@@ -10,6 +11,7 @@ import {
   dshHomeForSmoke,
   assertCiSmokeProduct,
   buildSmokeEnv,
+  captureWindowsAppScreenshot,
   isCiSmokeDshTarget,
   parseSmokeArgs,
   parseSmokeCdpPort,
@@ -24,6 +26,57 @@ import { packagedAppEnv } from "./packaged-app-env.ts"
 import type { PawWorkChannel } from "../src/main/app-identity.ts"
 
 describe("ci smoke helpers", () => {
+  test("captures the running Windows app into the requested PNG", () => {
+    const calls: Array<{ command: string; args: string[] }> = []
+
+    captureWindowsAppScreenshot("win32", 4312, "D:\\artifacts\\pawwork-windows.png", (command, args) => {
+      calls.push({ command, args })
+      return { status: 0 }
+    })
+
+    expect(calls).toEqual([{
+      command: "powershell.exe",
+      args: expect.arrayContaining([
+        "-File",
+        expect.stringMatching(/capture-windows-window\.ps1$/),
+        "-TargetProcessId",
+        "4312",
+        "-OutputPath",
+        "D:\\artifacts\\pawwork-windows.png",
+      ]),
+    }])
+  })
+
+  test("does not request a native screenshot on other platforms", () => {
+    captureWindowsAppScreenshot("darwin", 4312, "/tmp/pawwork.png", () => {
+      throw new Error("PowerShell should not run")
+    })
+  })
+
+  test("publishes the Windows smoke screenshot as a short-lived artifact", () => {
+    const workflow = load(readFileSync(path.join(import.meta.dirname, "../../../.github/workflows/ci.yml"), "utf8")) as {
+      jobs: { package_smoke: { steps: Array<Record<string, unknown>> } }
+    }
+    const steps = workflow.jobs.package_smoke.steps
+    const smoke = steps.find((step) => step.name === "Smoke packaged desktop through CDP") as {
+      env?: Record<string, string>
+    }
+    const upload = steps.find((step) => step.name === "Upload Windows smoke screenshot") as {
+      if?: string
+      uses?: string
+      with?: Record<string, unknown>
+    }
+
+    expect(smoke.env?.PAWWORK_CI_SCREENSHOT_PATH).toContain("runner.temp")
+    expect(upload.if).toContain("matrix.platform == 'win32'")
+    expect(upload.uses).toContain("actions/upload-artifact@")
+    expect(upload.with).toMatchObject({
+      "if-no-files-found": "error",
+      "retention-days": 7,
+    })
+    expect(upload.with?.path).toBe(smoke.env?.PAWWORK_CI_SCREENSHOT_PATH)
+  })
+
   test("resolveMainEntry points at the built Electron main process bundle", () => {
     expect(resolveMainEntry().endsWith(path.join("packages", "desktop-electron", "out", "main", "index.js"))).toBe(true)
   })
@@ -210,9 +263,8 @@ describe("ci smoke helpers", () => {
   // clause that stopped being evaluated stayed green. What matters is that every
   // field the snapshot carries is actually consulted.
   const healthy: CiSmokeProductSnapshot = {
-    sidebarBrandVisible: true,
-    sidebarBrandName: "PawWork",
-    sidebarBrandTop: 40,
+    sidebarExpandedBrandHidden: true,
+    sidebarCollapsedBrandHidden: true,
     heroMarkVisible: true,
     heroHeadlineOverridden: true,
     heroPreviewBadgeHidden: true,
@@ -234,7 +286,16 @@ describe("ci smoke helpers", () => {
     cursorProbeCaught: ["a.pawwork-cursor-probe", "button.pawwork-cursor-probe"],
     titlebarStripHeight: 32,
     titlebarStripDraggable: true,
-    contentInsetHeight: 32,
+    contentInsetHeight: 0,
+    titlebarInsetLeft: 72,
+    titlebarInsetRight: 0,
+    windowsInsetMatchesDocumentDirection: true,
+    expandedNewSessionFollowsTitlebar: true,
+    sidebarPrimaryActionCenterOffsets: { addWorkspace: 0, newSession: 0 },
+    collapsedSidebarFullyMergesWithContent: true,
+    sidebarCollapseMotionMatchesPreference: true,
+    expandedNativeControlOverlaps: [],
+    collapsedNativeControlOverlaps: [],
     sidebarToggleCount: 1,
     sidebarCollapsed: true,
     sidebarExpandToggleCount: 1,
@@ -251,9 +312,8 @@ describe("ci smoke helpers", () => {
   }
 
   const broken: Partial<Record<keyof CiSmokeProductSnapshot, unknown>> = {
-    sidebarBrandVisible: false,
-    sidebarBrandName: "",
-    sidebarBrandTop: 8,
+    sidebarExpandedBrandHidden: false,
+    sidebarCollapsedBrandHidden: false,
     heroMarkVisible: false,
     heroHeadlineOverridden: false,
     heroPreviewBadgeHidden: false,
@@ -276,6 +336,15 @@ describe("ci smoke helpers", () => {
     titlebarStripHeight: 0,
     titlebarStripDraggable: false,
     contentInsetHeight: 8,
+    titlebarInsetLeft: 0,
+    titlebarInsetRight: 12,
+    windowsInsetMatchesDocumentDirection: false,
+    expandedNewSessionFollowsTitlebar: false,
+    sidebarPrimaryActionCenterOffsets: { addWorkspace: null, newSession: 2 },
+    collapsedSidebarFullyMergesWithContent: false,
+    sidebarCollapseMotionMatchesPreference: false,
+    expandedNativeControlOverlaps: ["button.collapse"],
+    collapsedNativeControlOverlaps: ["button.expand"],
     sidebarToggleCount: 2,
     sidebarCollapsed: false,
     sidebarExpandToggleCount: 0,
@@ -290,6 +359,25 @@ describe("ci smoke helpers", () => {
 
   test("accepts a snapshot where every product capability is present", () => {
     expect(() => assertCiSmokeProduct(healthy, "darwin")).not.toThrow()
+  })
+
+  test("rejects a Windows inset on the wrong edge for the document direction", () => {
+    expect(() => assertCiSmokeProduct({
+      ...healthy,
+      titlebarInsetLeft: 72,
+      titlebarInsetRight: 0,
+      windowsInsetMatchesDocumentDirection: false,
+      platform: "Win32",
+    }, "win32")).toThrow(/Windows titlebar inset is on the wrong edge/)
+  })
+
+  test("accepts the Windows caption inset on the left for an RTL document", () => {
+    expect(() => assertCiSmokeProduct({
+      ...healthy,
+      titlebarInsetLeft: 72,
+      titlebarInsetRight: 0,
+      platform: "Win32",
+    }, "win32")).not.toThrow()
   })
 
   test.each(Object.keys(broken))("rejects a snapshot whose %s is wrong", (field) => {
@@ -312,7 +400,7 @@ describe("ci smoke helpers", () => {
     // failure would hide the rest until the next run.
     let message = ""
     try {
-      assertCiSmokeProduct({ ...healthy, sidebarBrandVisible: false, freeProviderActive: false }, "darwin")
+      assertCiSmokeProduct({ ...healthy, sidebarExpandedBrandHidden: false, freeProviderActive: false }, "darwin")
     } catch (error) {
       message = error instanceof Error ? error.message : String(error)
     }

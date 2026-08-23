@@ -5,7 +5,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { macTrafficLightPosition, pawworkWindowTitle, titlebarInsetCss } from "./window-chrome"
 import { decideDshNavigation, guardDshNavigation, handleDshWindowOpen } from "./window-navigation"
-import { dshTitleBarOptions, dshWebPreferences } from "./window-options"
+import { dshTitleBarOptions, dshWebPreferences, titleBarOverlayStyle } from "./window-options"
 
 const root = dirname(fileURLToPath(import.meta.url))
 const STARTUP_HTML = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>PawWork</title><style>
@@ -39,6 +39,15 @@ type MainWindowOptions = {
   // Read on every navigation rather than captured: the window is created before
   // DSH has an origin, and outlives the one it eventually gets.
   dshUrl: () => string | undefined
+}
+
+export function setTitlebarColorScheme(
+  win: Pick<BrowserWindow, "setTitleBarOverlay">,
+  platform: NodeJS.Platform,
+  colorScheme: unknown,
+) {
+  if (platform !== "win32" || (colorScheme !== "light" && colorScheme !== "dark")) return
+  win.setTitleBarOverlay(titleBarOverlayStyle(colorScheme))
 }
 
 // A load that is superseded rejects with ERR_ABORTED, and an unhandled rejection
@@ -82,8 +91,8 @@ export function createMainWindow(options: MainWindowOptions) {
   // insertCSS is scoped to one navigation and returns a key we have to hand back,
   // or a reload just stacks another copy of the same sheet. Publishes are chained
   // rather than run concurrently: two overlapping calls would both observe no key,
-  // both insert, and the untracked sheet would survive the next removal as a dead
-  // 32px strip that still swallows clicks.
+  // both insert, and the untracked sheet would survive the next removal as stale
+  // native-control geometry.
   let insetKey: string | undefined
   let publishing = Promise.resolve()
   const publishTitlebarInset = (navigated = false) => {

@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessByStdio } from "node:child_process"
+import { spawn, spawnSync, type ChildProcessByStdio } from "node:child_process"
 import { once } from "node:events"
 import type { Readable } from "node:stream"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
@@ -42,7 +42,8 @@ type CdpTarget = {
 }
 
 export type CiSmokeProductSnapshot = {
-  sidebarBrandVisible: boolean
+  sidebarExpandedBrandHidden: boolean
+  sidebarCollapsedBrandHidden: boolean
   heroMarkVisible: boolean
   heroHeadlineOverridden: boolean
   heroPreviewBadgeHidden: boolean
@@ -65,8 +66,15 @@ export type CiSmokeProductSnapshot = {
   titlebarStripHeight: number
   titlebarStripDraggable: boolean
   contentInsetHeight: number
-  sidebarBrandName: string
-  sidebarBrandTop: number
+  titlebarInsetLeft: number
+  titlebarInsetRight: number
+  windowsInsetMatchesDocumentDirection: boolean
+  expandedNewSessionFollowsTitlebar: boolean
+  sidebarPrimaryActionCenterOffsets: { addWorkspace: number | null; newSession: number | null }
+  collapsedSidebarFullyMergesWithContent: boolean
+  sidebarCollapseMotionMatchesPreference: boolean
+  expandedNativeControlOverlaps: string[]
+  collapsedNativeControlOverlaps: string[]
   sidebarToggleCount: number
   sidebarCollapsed: boolean
   sidebarExpandToggleCount: number
@@ -98,6 +106,40 @@ type BuildSmokeEnvOptions = {
 type LaunchAppOptions = {
   cdpPort?: number
   v1Database?: string
+}
+
+type ScreenshotRunner = (command: string, args: string[]) => {
+  error?: Error
+  status: number | null
+  stderr?: Buffer | string | null
+}
+
+export function captureWindowsAppScreenshot(
+  platform: NodeJS.Platform,
+  processId: number,
+  outputPath: string | undefined,
+  run: ScreenshotRunner = (command, args) => spawnSync(command, args, { encoding: "utf8" }),
+) {
+  if (platform !== "win32" || outputPath === undefined) return
+  const script = resolve(import.meta.dirname, "capture-windows-window.ps1")
+  const args = [
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    script,
+    "-TargetProcessId",
+    String(processId),
+    "-OutputPath",
+    outputPath,
+  ]
+  const result = run("powershell.exe", args)
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    throw new Error(`Windows screenshot failed with exit code ${result.status}: ${String(result.stderr ?? "").trim()}`)
+  }
+  console.log(`CI smoke captured Windows window: ${outputPath}`)
 }
 
 function parseChannel(raw: string | undefined): PawWorkChannel {
@@ -322,24 +364,74 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       return envelope.result.value
     }
     await call("workspace.create", { path: ${workspace} })
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    const slotContent = (slot) => Array.from(document.querySelectorAll('[data-slot="' + slot + '"] *'))
-    const sidebarToggles = () => Array.from(document.querySelectorAll("button")).filter((button) => {
-      const label = button.getAttribute("aria-label") || button.getAttribute("title") || ""
-      return visible(button) && /^(收起侧边栏|打开侧边栏|切换侧边栏|Collapse sidebar|Open sidebar|Toggle sidebar)$/i.test(label)
-    })
-    const brandNodes = ["sidebar.brand.mark", "sidebar.brand.name"].flatMap(slotContent).filter(visible)
-    const sidebarBrandVisible = brandNodes.length > 0
-    // Math.min of an empty array is Infinity, which JSON-serialises to null and lets >= pass silently.
-    const sidebarBrandTop = brandNodes.length
-      ? Math.min(...brandNodes.map((node) => node.getBoundingClientRect().top))
-      : -1
-    // The slot renders a bare string, so slotContent — element descendants only — misses it.
-    const sidebarBrandName = (document.querySelector('[data-slot="sidebar.brand.name"]')?.textContent || "").trim()
-    const titlebarStrip = document.querySelector(".pawwork-titlebar")
+    const sidebarPrimaryActions = () => {
+      const find = (pattern) => Array.from(document.querySelectorAll("button")).find((button) => {
+        const label = button.getAttribute("aria-label") || ""
+        return visible(button) && pattern.test(label)
+      })
+      return {
+        addWorkspace: find(/^(添加工作区|Add workspace)$/i),
+        newSession: find(/^(新建会话|New session)$/i),
+      }
+    }
+    const waitForSidebarPrimaryActions = async () => {
+      let actions = sidebarPrimaryActions()
+      for (let frame = 0; frame < 60 && !(actions.addWorkspace && actions.newSession); frame += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 16))
+        actions = sidebarPrimaryActions()
+      }
+      return actions
+    }
+    const expandedPrimaryActions = await waitForSidebarPrimaryActions()
+    const sidebarToggles = () => Array.from(document.querySelectorAll("button.pawwork-sidebar-toggle")).filter(visible)
+    const sidebarBrandButton = document.querySelector('[data-slot="sidebar.brand.name"]')?.closest("button")
+    const sidebarExpandedBrandHidden = Boolean(sidebarBrandButton) && !visible(sidebarBrandButton)
+    const titlebarStrip = document.querySelector(".pawwork-window-drag-region")
     const titlebarStripHeight = titlebarStrip ? titlebarStrip.getBoundingClientRect().height : -1
     const titlebarStripDraggable = Boolean(titlebarStrip)
       && getComputedStyle(titlebarStrip).getPropertyValue("-webkit-app-region").trim() === "drag"
+    const insetProbe = document.createElement("div")
+    insetProbe.style.cssText = 'box-sizing:border-box;height:0;padding-left:var(--pawwork-titlebar-inset-left,0px);padding-right:var(--pawwork-titlebar-inset-right,0px);position:fixed;visibility:hidden;width:100vw'
+    document.body.appendChild(insetProbe)
+    const insetStyle = getComputedStyle(insetProbe)
+    const titlebarInsetLeft = Number.parseFloat(insetStyle.paddingLeft)
+    const titlebarInsetRight = Number.parseFloat(insetStyle.paddingRight)
+    insetProbe.remove()
+    const documentDirection = getComputedStyle(document.documentElement).direction
+    const windowsInsetMatchesDocumentDirection = !/^Win/i.test(navigator.platform)
+      || (documentDirection === "rtl"
+        ? titlebarInsetLeft > 0 && titlebarInsetRight === 0
+        : titlebarInsetLeft === 0 && titlebarInsetRight > 0)
+    const expandedNewSession = expandedPrimaryActions.newSession
+    const expandedNewSessionGap = expandedNewSession
+      ? expandedNewSession.getBoundingClientRect().top - titlebarStripHeight
+      : -1
+    const expandedNewSessionFollowsTitlebar = !/^Mac/i.test(navigator.platform)
+      || titlebarInsetLeft === 0
+      || (expandedNewSessionGap >= 8 && expandedNewSessionGap <= 16)
+    const expandedAddWorkspace = expandedPrimaryActions.addWorkspace
+    const centerY = (element) => {
+      const rect = element?.getBoundingClientRect()
+      return rect ? rect.top + rect.height / 2 : Number.NaN
+    }
+    const expandedNewSessionCenter = centerY(expandedNewSession)
+    const expandedAddWorkspaceCenter = centerY(expandedAddWorkspace)
+    const nativeControlOverlaps = () => {
+      const rightStart = innerWidth - titlebarInsetRight
+      return Array.from(document.querySelectorAll('button, a, input, textarea, select, [role="button"], [role="tab"], [contenteditable="true"]'))
+        .filter(visible)
+        .filter((element) => {
+          const rect = element.getBoundingClientRect()
+          const overlapsLeft = titlebarInsetLeft > 0 && rect.left < titlebarInsetLeft && rect.right > 0 && rect.top < titlebarStripHeight && rect.bottom > 0
+          const overlapsRight = titlebarInsetRight > 0 && rect.left < innerWidth && rect.right > rightStart && rect.top < titlebarStripHeight && rect.bottom > 0
+          return overlapsLeft || overlapsRight
+        })
+        .map((element) => {
+          const label = (element.getAttribute("aria-label") || element.textContent || "").trim().slice(0, 40)
+          return element.tagName.toLowerCase() + (label ? '[' + label + ']' : '')
+        })
+    }
+    const expandedNativeControlOverlaps = nativeControlOverlaps()
     const cursorProbeCaught = cursorProbeDetects()
     const heroCursorMismatches = cursorMismatches()
     const appRoot = document.getElementById("root")
@@ -457,9 +549,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const settledCursorMismatches = cursorMismatches()
     const collapseToggles = sidebarToggles()
     collapseToggles[0]?.click()
-    // The collapsed rail remounts, and data-sidebar-collapsed lands before the button does, so a
-    // slower machine would measure the transition. An empty shell button still has a 36x36 box, so
-    // waiting cannot mask the defect hasContent catches.
+    // The DSH rail remounts, while PawWork's shell.overlay toggle stays stable. Wait for both the
+    // collapsed state and the one visible PawWork control before measuring the new state.
     let expandToggles = []
     for (let frame = 0; frame < 60; frame += 1) {
       await new Promise((resolve) => setTimeout(resolve, 16))
@@ -467,11 +558,59 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       if (document.querySelector("[data-sidebar-collapsed]") && expandToggles.length > 0) break
     }
     const sidebarCollapsed = Boolean(document.querySelector("[data-sidebar-collapsed]"))
+    const collapsedBrandButton = document.querySelector('[data-sidebar-collapsed] [data-slot="sidebar.brand.mark"]')?.closest("button")
+    const sidebarCollapsedBrandHidden = Boolean(collapsedBrandButton) && !visible(collapsedBrandButton)
     const sidebarExpandToggleUsable = usable(expandToggles[0])
-    // Collapsed, DSH uses the brand mark as the expand button's icon, so an empty brand slot
-    // leaves a button that is present and clickable but invisible.
+    // The PawWork-owned toggle retains its icon across both sidebar states.
     const sidebarExpandToggleHasContent = Boolean(expandToggles[0])
       && Array.from(expandToggles[0].querySelectorAll("*")).some(visible)
+    const collapsedFrame = document.querySelector("[data-sidebar-collapsed]")
+    const collapsedSidebarSlot = document.querySelector('[data-slot="sidebar"]')
+    const collapsedSidebarSurfaces = [collapsedSidebarSlot?.parentElement, collapsedSidebarSlot?.firstElementChild]
+      .filter(Boolean)
+    const collapsedSurfaceState = () => {
+      const contentSurface = collapsedFrame ? getComputedStyle(collapsedFrame).backgroundColor : ""
+      const surfacesMatch = contentSurface !== ""
+        && collapsedSidebarSurfaces.length === 2
+        && collapsedSidebarSurfaces.every((surface) => getComputedStyle(surface).backgroundColor === contentSurface)
+      const dividerHidden = collapsedSidebarSlot?.parentElement
+        ? getComputedStyle(collapsedSidebarSlot.parentElement).borderRightColor === "rgba(0, 0, 0, 0)"
+        : false
+      return { dividerHidden, surfacesMatch }
+    }
+    let collapsedSurfaceStateValue = collapsedSurfaceState()
+    for (let frame = 0; frame < 90 && !(collapsedSurfaceStateValue.surfacesMatch && collapsedSurfaceStateValue.dividerHidden); frame += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 16))
+      collapsedSurfaceStateValue = collapsedSurfaceState()
+    }
+    const collapsedSidebarSurfaceMatchesContent = collapsedSurfaceStateValue.surfacesMatch
+    const collapsedSidebarDividerHidden = collapsedSurfaceStateValue.dividerHidden
+    const collapsedSidebarFullyMergesWithContent = collapsedSidebarSurfaceMatchesContent && collapsedSidebarDividerHidden
+    const collapsedPrimaryActions = await waitForSidebarPrimaryActions()
+    const collapsedNewSession = collapsedPrimaryActions.newSession
+    const collapsedAddWorkspace = collapsedPrimaryActions.addWorkspace
+    const centerOffset = (collapsed, expandedCenter) => {
+      const offset = centerY(collapsed) - expandedCenter
+      return Number.isFinite(offset) ? offset : null
+    }
+    const sidebarPrimaryActionCenterOffsets = {
+      addWorkspace: centerOffset(collapsedAddWorkspace, expandedAddWorkspaceCenter),
+      newSession: centerOffset(collapsedNewSession, expandedNewSessionCenter),
+    }
+    const maxTransitionMs = (element) => Math.max(...getComputedStyle(element).transitionDuration.split(",").map((value) => {
+      const duration = Number.parseFloat(value)
+      return value.trim().endsWith("ms") ? duration : duration * 1000
+    }))
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches
+    const frameTransitionMs = collapsedFrame ? maxTransitionMs(collapsedFrame) : 0
+    const surfaceTransitionMs = collapsedSidebarSurfaces.length === 2
+      ? Math.min(...collapsedSidebarSurfaces.map(maxTransitionMs))
+      : 0
+    const sidebarCollapseMotionMatchesPreference = reducedMotion
+      ? frameTransitionMs <= 1 && surfaceTransitionMs <= 1
+      : frameTransitionMs >= 200 && frameTransitionMs <= 500
+        && surfaceTransitionMs >= 200 && surfaceTransitionMs <= 500
+    const collapsedNativeControlOverlaps = nativeControlOverlaps()
     expandToggles[0]?.click()
     await new Promise((resolve) => setTimeout(resolve, 200))
 
@@ -504,7 +643,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const sessionIdsBeforeRestart = (await call("session.list", {})).items.map((item) => item.sessionId)
     const freeProvider = providers.find((provider) => provider.provider === "opencode")
     return JSON.stringify({
-      sidebarBrandVisible,
+      sidebarExpandedBrandHidden,
+      sidebarCollapsedBrandHidden,
       heroMarkVisible,
       heroHeadlineOverridden,
       heroPreviewBadgeHidden,
@@ -527,8 +667,15 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       titlebarStripHeight,
       titlebarStripDraggable,
       contentInsetHeight,
-      sidebarBrandName,
-      sidebarBrandTop,
+      titlebarInsetLeft,
+      titlebarInsetRight,
+      windowsInsetMatchesDocumentDirection,
+      expandedNewSessionFollowsTitlebar,
+      sidebarPrimaryActionCenterOffsets,
+      collapsedSidebarFullyMergesWithContent,
+      sidebarCollapseMotionMatchesPreference,
+      expandedNativeControlOverlaps,
+      collapsedNativeControlOverlaps,
       sidebarToggleCount: collapseToggles.length,
       sidebarCollapsed,
       sidebarExpandToggleCount: expandToggles.length,
@@ -662,22 +809,46 @@ function describeDirectory(dir: string, prefix = "  "): string {
 
 export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform: NodeJS.Platform = process.platform) {
   // Assert relationships, never a height: that number is owned by Chromium on Windows and by the
-  // main process on macOS, and restating it here would add a third authority. frameless is read
-  // from window-options, a different source than the height, so the two diverging goes red.
+  // main process on macOS. frameless is read from window-options, a different source than the
+  // rendered drag strip, so the two diverging goes red.
   const frameless = "titleBarStyle" in dshTitleBarOptions(platform)
+  const titlebarInsetsMatchPlatform = platform === "darwin"
+    ? snapshot.titlebarInsetLeft > 0 && snapshot.titlebarInsetRight === 0
+    : platform === "win32"
+      ? snapshot.titlebarInsetLeft + snapshot.titlebarInsetRight > 0
+      : snapshot.titlebarInsetLeft === 0 && snapshot.titlebarInsetRight === 0
   const failures = [
-    snapshot.sidebarBrandVisible ? null : "PawWork sidebar brand is not rendered",
-    snapshot.sidebarBrandName ? null : "PawWork sidebar brand name is not rendered",
+    snapshot.sidebarExpandedBrandHidden ? null : "expanded sidebar still renders the duplicate PawWork brand action",
+    snapshot.sidebarCollapsedBrandHidden ? null : "collapsed sidebar still renders the duplicate DSH brand action",
     frameless === snapshot.titlebarStripHeight > 0
       ? null
-      : `frameless=${frameless} but the reserved titlebar strip is ${snapshot.titlebarStripHeight}px`,
+      : `frameless=${frameless} but the titlebar drag strip is ${snapshot.titlebarStripHeight}px`,
     snapshot.titlebarStripDraggable ? null : "titlebar strip is not a drag region",
-    snapshot.contentInsetHeight === snapshot.titlebarStripHeight
+    snapshot.contentInsetHeight === 0 ? null : `web content still has a ${snapshot.contentInsetHeight}px full-width titlebar inset`,
+    titlebarInsetsMatchPlatform
       ? null
-      : `web content is inset ${snapshot.contentInsetHeight}px against a ${snapshot.titlebarStripHeight}px strip`,
-    snapshot.sidebarBrandTop >= snapshot.titlebarStripHeight
+      : `titlebar edge insets do not match ${platform}: left=${snapshot.titlebarInsetLeft}px right=${snapshot.titlebarInsetRight}px`,
+    snapshot.windowsInsetMatchesDocumentDirection
       ? null
-      : `sidebar brand starts at ${snapshot.sidebarBrandTop}px, inside the native window controls`,
+      : `Windows titlebar inset is on the wrong edge for the document direction`,
+    snapshot.expandedNewSessionFollowsTitlebar
+      ? null
+      : "expanded New session action leaves an empty brand-row gap below the titlebar",
+    Object.values(snapshot.sidebarPrimaryActionCenterOffsets).every((offset) => offset !== null && Math.abs(offset) <= 1)
+      ? null
+      : `expanded and collapsed sidebar primary-action center offsets are ${JSON.stringify(snapshot.sidebarPrimaryActionCenterOffsets)}`,
+    snapshot.collapsedSidebarFullyMergesWithContent
+      ? null
+      : "collapsed sidebar does not fully merge into the content surface",
+    snapshot.sidebarCollapseMotionMatchesPreference
+      ? null
+      : "sidebar collapse motion does not match the user's motion preference",
+    snapshot.expandedNativeControlOverlaps.length === 0
+      ? null
+      : `expanded controls overlap native window controls: ${snapshot.expandedNativeControlOverlaps.join(", ")}`,
+    snapshot.collapsedNativeControlOverlaps.length === 0
+      ? null
+      : `collapsed controls overlap native window controls: ${snapshot.collapsedNativeControlOverlaps.join(", ")}`,
     snapshot.cursorProbeCaught.length === 2
       ? null
       : `the cursor probe caught ${snapshot.cursorProbeCaught.length}/2 planted mismatches (${snapshot.cursorProbeCaught.join(", ") || "nothing"}) and cannot be trusted`,
@@ -701,12 +872,12 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.automationDeleteDialogWorks ? null : "Automation delete confirmation is not a cancellable dialog",
     snapshot.automationDirtyPauseBlocked ? null : "Automation pause can discard unsaved edits",
     snapshot.automationMetadataPlain ? null : "Automation immutable metadata is not plain read-only text",
-    snapshot.sidebarToggleCount === 1 ? null : `expected one DSH collapse control, found ${snapshot.sidebarToggleCount}`,
-    snapshot.sidebarCollapsed ? null : "DSH collapse control did not collapse the sidebar",
-    snapshot.sidebarExpandToggleCount === 1 ? null : `expected one DSH expand control, found ${snapshot.sidebarExpandToggleCount}`,
-    snapshot.sidebarExpandToggleUsable ? null : "DSH expand control is not visibly clickable",
-    snapshot.sidebarExpandToggleHasContent ? null : "collapsed sidebar expand control renders empty",
-    snapshot.sidebarExpandedAgain ? null : "DSH expand control did not reopen the sidebar",
+    snapshot.sidebarToggleCount === 1 ? null : `expected one PawWork sidebar toggle, found ${snapshot.sidebarToggleCount}`,
+    snapshot.sidebarCollapsed ? null : "PawWork sidebar toggle did not collapse the sidebar",
+    snapshot.sidebarExpandToggleCount === 1 ? null : `expected the same single PawWork toggle after collapse, found ${snapshot.sidebarExpandToggleCount}`,
+    snapshot.sidebarExpandToggleUsable ? null : "PawWork sidebar toggle is not visibly clickable",
+    snapshot.sidebarExpandToggleHasContent ? null : "PawWork sidebar toggle renders without its icon",
+    snapshot.sidebarExpandedAgain ? null : "PawWork sidebar toggle did not reopen the sidebar",
     snapshot.freeProviderActive ? null : "OpenCode Free provider is not active",
     snapshot.v1SessionImported ? null : "V1 session was not imported into DSH",
     snapshot.v1SessionVisibleInSidebar ? null : "Imported V1 session never appeared in the sidebar without a reload",
@@ -885,6 +1056,12 @@ async function main() {
     if (cdpPort !== undefined) {
       cdpTarget = await probeCiSmokeCdpTarget(cdpPort)
       product = await inspectCiSmokeProduct(cdpTarget, homeDir)
+      if (child.pid === undefined && process.env.PAWWORK_CI_SCREENSHOT_PATH !== undefined) {
+        throw new Error("Cannot capture the Windows app without its process ID")
+      }
+      if (child.pid !== undefined) {
+        captureWindowsAppScreenshot(process.platform, child.pid, process.env.PAWWORK_CI_SCREENSHOT_PATH)
+      }
       assertCiSmokeProduct(product)
       console.log("CI smoke verified DSH product UI, free model, and bundled skills")
       await waitForSessionOnDisk(dshHome, product.sessionId)

@@ -52,6 +52,7 @@ const win = vi.hoisted(() => ({
   },
   isFullScreen: () => win.fullscreen,
   setTitle: () => {},
+  setTitleBarOverlay: vi.fn(() => {}),
   show: () => {},
   loaded: [] as string[],
   async loadURL(url: string) {
@@ -69,10 +70,12 @@ vi.mock("electron", () => ({
     once = win.once
     isFullScreen = win.isFullScreen
     setTitle = win.setTitle
+    setTitleBarOverlay = win.setTitleBarOverlay
     show = win.show
     loadURL = win.loadURL
   },
   nativeImage: { createFromPath: () => ({ isEmpty: () => true }) },
+  nativeTheme: { shouldUseDarkColors: false },
   shell: { openExternal },
 }))
 vi.mock("electron-log/main.js", () => ({ default: { error: () => {} } }))
@@ -80,7 +83,7 @@ vi.mock("electron-window-state", () => ({
   default: () => ({ x: 0, y: 0, width: 1280, height: 800, manage: () => {} }),
 }))
 
-const { createMainWindow, STARTUP_URL } = await import("./windows")
+const { createMainWindow, setTitlebarColorScheme, STARTUP_URL } = await import("./windows")
 
 const DSH = "http://127.0.0.1:4321/"
 
@@ -101,6 +104,7 @@ beforeEach(() => {
   win.fullscreen = false
   webContents.url = ""
   win.loaded.length = 0
+  win.setTitleBarOverlay.mockClear()
   openExternal.mockClear()
 })
 
@@ -111,6 +115,18 @@ function navigate(url: string, isMainFrame: boolean) {
 }
 
 describe("main window wiring", () => {
+  test("updates Windows caption symbols from the web app theme", () => {
+    setTitlebarColorScheme(win, "win32", "dark")
+
+    expect(win.setTitleBarOverlay).toHaveBeenCalledWith({
+      height: 32,
+      symbolColor: "#f0f0f0",
+    })
+    setTitlebarColorScheme(win, "darwin", "light")
+    setTitlebarColorScheme(win, "win32", "sepia")
+    expect(win.setTitleBarOverlay).toHaveBeenCalledTimes(1)
+  })
+
   test("holds a subframe to the DSH origin", () => {
     openWindow(DSH)
 

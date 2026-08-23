@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs"
+import { createRequire } from "node:module"
 import { loadDshClientModule } from "./dsh-client-module.testing"
 import { resolve } from "node:path"
 import { describe, expect, vi, test } from "vitest"
@@ -25,6 +26,7 @@ describe("PawWork DSH client product layer", () => {
     })
     return definition.factory((name) => {
       if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
   }
@@ -43,6 +45,27 @@ describe("PawWork DSH client product layer", () => {
     }
   }
 
+  function loadProductCss() {
+    const appended: Array<{ className: string }> = []
+    const style = { dataset: {} as Record<string, string>, textContent: "" }
+    const document = {
+      title: "DeepSeek Harness",
+      documentElement: { lang: "zh-CN" },
+      readyState: "complete",
+      querySelector: () => null,
+      createElement: (tag: string) => (tag === "style" ? style : { className: "" }),
+      head: { appendChild: () => {} },
+      body: { appendChild: (node: { className: string }) => appended.push(node) },
+    }
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), { document })
+    definition.factory((name) => {
+      if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
+      throw new Error(`unexpected product client dependency: ${name}`)
+    })
+    return { appended, css: style.textContent }
+  }
+
   test("is a packaged DSH web plugin", () => {
     const productPackage = JSON.parse(readFileSync(resolve(productRoot, "package.json"), "utf8"))
 
@@ -52,6 +75,23 @@ describe("PawWork DSH client product layer", () => {
       inject: ["@deepseek-ai/dsh-client-runtime"],
       platform: "web",
     })
+  })
+
+  test("pins the public DSH layout contracts consumed by the window chrome", () => {
+    const requireFromTest = createRequire(import.meta.url)
+    const dshPackage = requireFromTest.resolve("@deepseek-ai/dsh/package.json")
+    const requireFromDsh = createRequire(dshPackage)
+    const webAppPackage = requireFromDsh.resolve("@deepseek-ai/dsh-web-app/package.json")
+    const requireFromWebApp = createRequire(webAppPackage)
+    const layoutPackage = requireFromWebApp.resolve("@deepseek-ai/dsh-client-ui-layout/package.json")
+    const layoutRoot = resolve(layoutPackage, "..")
+    const client = readFileSync(resolve(layoutRoot, "lib/client.js"), "utf8")
+    const serviceTypes = readFileSync(resolve(layoutRoot, "lib/types/client/service.d.ts"), "utf8")
+
+    expect(client).toContain('renderSlot("shell.overlay", {})')
+    expect(client).toContain('ctx.reflect.provide("layout", layout)')
+    expect(client).toContain("border-right:1px solid var(--dsw-alias-border-l1)")
+    expect(serviceTypes).toMatch(/interface ILayout[\s\S]*toggleSidebar\(\): void;/)
   })
 
   test("owns the public brand slots and replaces the DSH welcome notice", () => {
@@ -98,7 +138,7 @@ describe("PawWork DSH client product layer", () => {
     }
 
     plugin.apply(ctx)
-    expect(plugin.inject).toEqual(["slots", "connection", "sessions"])
+    expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout"])
     const welcome = registrations.find((entry) => entry.options.id === "welcome-notice")
     expect(welcome).toBeDefined()
     expect(welcome!.options.priority).toBe(-1)
@@ -124,32 +164,106 @@ describe("PawWork DSH client product layer", () => {
     expect(ready).toHaveBeenCalledTimes(1)
   })
 
-  test("mounts the drag strip that reserves the native window chrome", () => {
-    const appended: Array<{ className: string }> = []
-    const style = { dataset: {} as Record<string, string>, textContent: "" }
+  test("owns one shell overlay sidebar toggle through the public layout service", () => {
     const document = {
       title: "DeepSeek Harness",
-      documentElement: { lang: "zh-CN", dataset: {} },
-      readyState: "complete",
+      documentElement: { lang: "zh-CN" },
       querySelector: () => null,
-      createElement: (tag: string) => (tag === "style" ? style : { className: "" }),
+      createElement: () => ({ dataset: {}, textContent: "" }),
       head: { appendChild: () => {} },
-      body: { appendChild: (node: { className: string }) => appended.push(node) },
     }
-
-    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), { document, navigator: { platform: "MacIntel" } })
-    definition.factory((name) => {
-      if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), { document })
+    const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
+      type,
+      props: { ...props, children },
+    })
+    const PanelLeftIcon = () => null
+    const plugin = definition.factory((name) => {
+      if (name === "react") return { createElement, useEffect: () => {}, useRef: () => ({ current: null }) }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: PanelLeftIcon }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
+    const registrations: Array<{
+      options: { id?: string; inject?: () => unknown; name?: string }
+      component: (props: unknown) => unknown
+    }> = []
+    const toggleSidebar = vi.fn()
+    const ctx = {
+      connection: { rpc: { call: vi.fn(async () => ({ ok: true, value: { phase: "done" } })) } },
+      effect: (fn: () => unknown) => fn(),
+      layout: { toggleSidebar },
+      sessions: { refresh: vi.fn(async () => {}) },
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (options: { id?: string; inject?: () => unknown; name?: string }, component: (props: unknown) => unknown) => {
+          registrations.push({ options, component })
+        },
+      },
+    }
 
-    // The strip must be a real element: -webkit-app-region does nothing on pseudo-elements.
-    expect(appended.map((node) => node.className)).toEqual(["pawwork-titlebar"])
-    expect(style.textContent).toContain("-webkit-app-region: drag")
-    expect(style.textContent).toContain("padding-top: var(--pawwork-titlebar-height, 0px)")
-    expect(style.textContent).toContain('[class*="_banner_"] { top: var(--pawwork-titlebar-height, 0px); }')
-    expect(style.textContent).toContain("var(--pawwork-titlebar-host-height, env(titlebar-area-height, 0px))")
-    expect(style.textContent).not.toMatch(/--pawwork-titlebar-height:\s*\d/)
+    plugin.apply(ctx)
+
+    expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout"])
+    const overlay = registrations.filter((entry) => entry.options.name === "shell.overlay")
+    expect(overlay).toHaveLength(1)
+    expect(overlay[0].options.id).toBe("pawwork-window-chrome")
+    const tree = overlay[0].component(overlay[0].options.inject?.()) as {
+      props: { children: Array<{ type: unknown; props: Record<string, unknown> }> }
+    }
+    const button = tree.props.children[1]
+    expect(button.props).toMatchObject({
+      "aria-label": "切换侧边栏",
+      className: "pawwork-sidebar-toggle",
+      title: "切换侧边栏",
+      type: "button",
+    })
+    expect((button.props.children as Array<{ type: unknown }>)[0].type).toBe(PanelLeftIcon)
+    ;(button.props.onClick as () => void)()
+    expect(toggleSidebar).toHaveBeenCalledTimes(1)
+  })
+
+  test("reserves only the native-control edges without pushing the whole shell down", () => {
+    const { appended, css } = loadProductCss()
+
+    // The real drag strip is owned by shell.overlay; the plugin must not append parallel DOM.
+    expect(appended).toEqual([])
+    expect(css).toContain("--pawwork-titlebar-inset-left: var(--pawwork-titlebar-host-inset-left, env(titlebar-area-x, 0px))")
+    expect(css).toContain("--pawwork-titlebar-inset-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw))")
+    expect(css).toContain("var(--pawwork-titlebar-host-height, env(titlebar-area-height, 0px))")
+    expect(css).toContain("--pawwork-titlebar-control-center-y")
+    expect(css).not.toContain("#root { box-sizing: border-box; padding-top:")
+    expect(css).not.toMatch(/--pawwork-titlebar-height:\s*\d/)
+  })
+
+  test("keeps the top background draggable while leaving its controls clickable", () => {
+    const { css } = loadProductCss()
+
+    expect(css).toMatch(/\.pawwork-window-drag-region\s*{[^}]*-webkit-app-region:\s*drag[^}]*pointer-events:\s*none/s)
+    expect(css).toMatch(/\.pawwork-sidebar-toggle\s*{[^}]*-webkit-app-region:\s*no-drag[^}]*pointer-events:\s*auto/s)
+  })
+
+  test("hides both DSH sidebar controls while preserving their layout seat and ready mark", () => {
+    const { css } = loadProductCss()
+
+    expect(css).toMatch(/div:has\(> button \[data-slot="sidebar\.brand\.name"\]\) > button[^{]*{[^}]*visibility:\s*hidden/s)
+    expect(css).toMatch(/div:has\(> button \[data-slot="sidebar\.brand\.mark"\]\):not\(:has\(\[data-slot="sidebar\.brand\.name"\]\)\) > button[^{]*{[^}]*visibility:\s*hidden/s)
+    expect(css).not.toContain('[data-slot="sidebar.brand.mark"] { display: none; }')
+  })
+
+  test("fades DSH's sidebar border instead of drawing a second divider", () => {
+    const { css } = loadProductCss()
+
+    expect(css).toMatch(/\[data-sidebar-collapsed\][^{]*div:has\(> \[data-slot="sidebar"\]\)[^{]*{[^}]*border-right-color:\s*transparent/s)
+    expect(css).not.toContain('div:has(> [data-slot="sidebar"])::after')
+  })
+
+  test("keeps app header controls to the left of the Windows caption buttons", () => {
+    const { css } = loadProductCss()
+
+    expect(css).toContain('[data-slot="conversation.session.header"] > *')
+    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] > \*\s*{[^}]*padding-right:\s*calc\(28px \+ var\(--pawwork-titlebar-inset-right/s)
+    expect(css).toMatch(/\[data-slot="details"\] > \* > :first-child\s*{[^}]*padding-right:\s*calc\(12px \+ var\(--pawwork-titlebar-inset-right/s)
+    expect(css).toMatch(/body > \[class\*="_banner_"\]\s*{[^}]*top:\s*0[^}]*padding-right:\s*var\(--pawwork-titlebar-inset-right/s)
   })
 
 

@@ -36,7 +36,7 @@ import { PAWWORK_GITHUB_ISSUE_URL } from "./support-links"
 import { createUpdaterController } from "./updater"
 import { pendingUpdateCacheDir } from "./updater-cache"
 import { updaterDialogLabels } from "./updater-dialog-labels"
-import { createMainWindow, navigateWindow, setDockIcon, STARTUP_URL } from "./windows"
+import { createMainWindow, navigateWindow, setDockIcon, setTitlebarColorScheme, STARTUP_URL } from "./windows"
 
 contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false })
 
@@ -137,6 +137,11 @@ function setupApp() {
   ipcMain.on("pawwork:product-ready", (event) => {
     if (event.senderFrame !== event.sender.mainFrame) return
     lifecycle.productReady(event.senderFrame?.url ?? "")
+  })
+  ipcMain.on("pawwork:titlebar-color-scheme", (event, colorScheme) => {
+    if (event.senderFrame !== event.sender.mainFrame) return
+    const owner = BrowserWindow.fromWebContents(event.sender)
+    if (owner) setTitlebarColorScheme(owner, process.platform, colorScheme)
   })
 
   app.on("second-instance", () => focusMainWindow(true))
