@@ -43,6 +43,7 @@ type CdpTarget = {
 
 export type CiSmokeProductSnapshot = {
   sidebarExpandedBrandHidden: boolean
+  sidebarCollapsedBrandHidden: boolean
   heroMarkVisible: boolean
   heroHeadlineOverridden: boolean
   heroPreviewBadgeHidden: boolean
@@ -371,7 +372,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const expandedNewSessionGap = expandedNewSession
       ? expandedNewSession.getBoundingClientRect().top - titlebarStripHeight
       : -1
-    const expandedNewSessionFollowsTitlebar = titlebarInsetLeft === 0
+    const expandedNewSessionFollowsTitlebar = !/^Mac/i.test(navigator.platform)
+      || titlebarInsetLeft === 0
       || (expandedNewSessionGap >= 8 && expandedNewSessionGap <= 16)
     const expandedAddWorkspace = expandedPrimaryActions.addWorkspace
     const centerY = (element) => {
@@ -522,6 +524,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       if (document.querySelector("[data-sidebar-collapsed]") && expandToggles.length > 0) break
     }
     const sidebarCollapsed = Boolean(document.querySelector("[data-sidebar-collapsed]"))
+    const collapsedBrandButton = document.querySelector('[data-sidebar-collapsed] [data-slot="sidebar.brand.mark"]')?.closest("button")
+    const sidebarCollapsedBrandHidden = Boolean(collapsedBrandButton) && !visible(collapsedBrandButton)
     const sidebarExpandToggleUsable = usable(expandToggles[0])
     // The PawWork-owned toggle retains its icon across both sidebar states.
     const sidebarExpandToggleHasContent = Boolean(expandToggles[0])
@@ -606,6 +610,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const freeProvider = providers.find((provider) => provider.provider === "opencode")
     return JSON.stringify({
       sidebarExpandedBrandHidden,
+      sidebarCollapsedBrandHidden,
       heroMarkVisible,
       heroHeadlineOverridden,
       heroPreviewBadgeHidden,
@@ -776,10 +781,11 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
   const titlebarInsetsMatchPlatform = platform === "darwin"
     ? snapshot.titlebarInsetLeft > 0 && snapshot.titlebarInsetRight === 0
     : platform === "win32"
-      ? snapshot.titlebarInsetLeft === 0 && snapshot.titlebarInsetRight > 0
+      ? snapshot.titlebarInsetLeft + snapshot.titlebarInsetRight > 0
       : snapshot.titlebarInsetLeft === 0 && snapshot.titlebarInsetRight === 0
   const failures = [
     snapshot.sidebarExpandedBrandHidden ? null : "expanded sidebar still renders the duplicate PawWork brand action",
+    snapshot.sidebarCollapsedBrandHidden ? null : "collapsed sidebar still renders the duplicate DSH brand action",
     frameless === snapshot.titlebarStripHeight > 0
       ? null
       : `frameless=${frameless} but the titlebar drag strip is ${snapshot.titlebarStripHeight}px`,

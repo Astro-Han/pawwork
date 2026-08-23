@@ -133,6 +133,7 @@ describe("PawWork DSH product preload", () => {
     })
 
     expect(send).not.toHaveBeenCalledWith("pawwork:titlebar-color-scheme", expect.anything())
+    expect(document.documentElement.style.colorScheme).toBe("")
   })
 
   test("exposes only a no-argument native file picker", async () => {

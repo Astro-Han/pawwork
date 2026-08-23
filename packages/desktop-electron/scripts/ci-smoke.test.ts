@@ -211,6 +211,7 @@ describe("ci smoke helpers", () => {
   // field the snapshot carries is actually consulted.
   const healthy: CiSmokeProductSnapshot = {
     sidebarExpandedBrandHidden: true,
+    sidebarCollapsedBrandHidden: true,
     heroMarkVisible: true,
     heroHeadlineOverridden: true,
     heroPreviewBadgeHidden: true,
@@ -259,6 +260,7 @@ describe("ci smoke helpers", () => {
 
   const broken: Partial<Record<keyof CiSmokeProductSnapshot, unknown>> = {
     sidebarExpandedBrandHidden: false,
+    sidebarCollapsedBrandHidden: false,
     heroMarkVisible: false,
     heroHeadlineOverridden: false,
     heroPreviewBadgeHidden: false,
@@ -306,13 +308,23 @@ describe("ci smoke helpers", () => {
     expect(() => assertCiSmokeProduct(healthy, "darwin")).not.toThrow()
   })
 
-  test("rejects a Windows snapshot that reserves the left edge instead of the caption-button edge", () => {
+  test("rejects a Windows inset on the wrong edge for the document direction", () => {
+    expect(() => assertCiSmokeProduct({
+      ...healthy,
+      titlebarInsetLeft: 72,
+      titlebarInsetRight: 0,
+      windowsInsetMatchesDocumentDirection: false,
+      platform: "Win32",
+    }, "win32")).toThrow(/Windows titlebar inset is on the wrong edge/)
+  })
+
+  test("accepts the Windows caption inset on the left for an RTL document", () => {
     expect(() => assertCiSmokeProduct({
       ...healthy,
       titlebarInsetLeft: 72,
       titlebarInsetRight: 0,
       platform: "Win32",
-    }, "win32")).toThrow(/titlebar edge insets do not match win32/)
+    }, "win32")).not.toThrow()
   })
 
   test.each(Object.keys(broken))("rejects a snapshot whose %s is wrong", (field) => {
