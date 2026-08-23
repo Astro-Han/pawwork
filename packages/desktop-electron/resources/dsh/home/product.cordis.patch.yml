@@ -18,6 +18,10 @@
           - id: mimo-v2.5-free
           - id: nemotron-3-ultra-free
           - id: north-mini-code-free
+- id: agent-instructions
+  config:
+    dshHome: "~/.pawwork"
+    maxBytes: 65536
 - id: llm-deepseek
   disabled: true
 - insert:
