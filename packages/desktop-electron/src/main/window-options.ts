@@ -4,7 +4,6 @@ export type TitlebarColorScheme = "light" | "dark"
 
 export function titleBarOverlayStyle(colorScheme: TitlebarColorScheme) {
   return {
-    color: "transparent",
     height: TITLEBAR_HEIGHT,
     symbolColor: colorScheme === "dark" ? "#f0f0f0" : "#1f2328",
   }

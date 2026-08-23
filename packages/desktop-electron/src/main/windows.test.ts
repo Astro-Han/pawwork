@@ -119,7 +119,6 @@ describe("main window wiring", () => {
     setTitlebarColorScheme(win, "win32", "dark")
 
     expect(win.setTitleBarOverlay).toHaveBeenCalledWith({
-      color: "transparent",
       height: 32,
       symbolColor: "#f0f0f0",
     })
