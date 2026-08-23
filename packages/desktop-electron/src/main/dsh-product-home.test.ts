@@ -203,14 +203,18 @@ describe("DSH product home", () => {
     expect(patch.find((entry) => entry.id === "llm-deepseek")?.disabled).toBe(true)
   })
 
-  test("keeps community-market restart under the PawWork lifecycle", () => {
+  test("makes the community market wait for PawWork-owned Desktop services", () => {
     const resources = join(import.meta.dirname, "../../resources/dsh")
     const patch = load(readFileSync(join(resources, "home/product.cordis.patch.yml"), "utf8")) as Array<{
       id?: string
       config?: Record<string, unknown>
+      inject?: string[]
     }>
 
-    expect(patch.find((entry) => entry.id === "dsh-market")?.config).toEqual({ allowRestart: false })
+    expect(patch.find((entry) => entry.id === "dsh-market")).toEqual({
+      id: "dsh-market",
+      inject: ["desktopProfiles", "desktopPnpm"],
+    })
   })
 
   test("isolates DSH from ambient model credentials", () => {

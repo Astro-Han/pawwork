@@ -1,5 +1,3 @@
-import { delimiter } from "node:path"
-
 type DshReadableStream = {
   on(event: "data", listener: (data: Buffer | string) => void): unknown
   off(event: "data", listener: (data: Buffer | string) => void): unknown
@@ -31,9 +29,7 @@ type LaunchDshSidecarOptions = {
   executable: string
   dshBin: string
   sidecarPreload: string
-  productHome: string
   productPatch: string
-  toolsDir: string
   env: NodeJS.ProcessEnv
   timeoutMs: number
   stopTimeoutMs?: number
@@ -58,16 +54,6 @@ export function describeExit(code: number | null) {
 const READY_LINE = /^dsh web: (http:\/\/127\.0\.0\.1:\d+)(?: \(|$)/
 const DEFAULT_STOP_TIMEOUT_MS = 5_000
 
-export function withBundledToolsPath(env: NodeJS.ProcessEnv, toolsDir: string, separator = delimiter) {
-  const result = { ...env }
-  const pathKeys = Object.keys(result).filter((key) => key.toLowerCase() === "path")
-  const pathKey = pathKeys[0] ?? "PATH"
-  const current = result[pathKey]
-  for (const duplicate of pathKeys.slice(1)) delete result[duplicate]
-  result[pathKey] = current ? `${toolsDir}${separator}${current}` : toolsDir
-  return result
-}
-
 export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   const child = options.spawn(
     options.executable,
@@ -86,11 +72,7 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
       "--no-open",
     ],
     {
-      env: {
-        ...withBundledToolsPath(options.env, options.toolsDir),
-        DSH_HOME: options.productHome,
-        ELECTRON_RUN_AS_NODE: "1",
-      },
+      env: options.env,
       stdio: ["ignore", "pipe", "pipe", "ipc"],
     },
   )

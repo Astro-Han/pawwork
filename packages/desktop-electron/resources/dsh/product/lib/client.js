@@ -251,18 +251,19 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
 
     function CommunityMarketTab() {
       const api = window.pawworkCommunityMarket
-      const [state, setState] = useState({ status: "loading", market: { enabled: false, version: null }, error: "", restartRequired: false })
+      const unavailable = { enabled: false, restartRequired: false, version: null }
+      const [state, setState] = useState({ status: "loading", market: unavailable, error: "" })
       const busy = state.status === "working"
 
       useEffect(() => {
         let current = true
         if (!api) {
-          setState({ status: "ready", market: { enabled: false, version: null }, error: text("社区市场接入暂不可用。请重新启动爪印。", "Community market setup is unavailable. Restart PawWork."), restartRequired: false })
+          setState({ status: "ready", market: unavailable, error: text("社区市场接入暂不可用。请重新启动爪印。", "Community market setup is unavailable. Restart PawWork.") })
           return () => { current = false }
         }
         api.status().then(
-          (market) => { if (current) setState({ status: "ready", market, error: "", restartRequired: false }) },
-          (error) => { if (current) setState({ status: "ready", market: { enabled: false, version: null }, error: error instanceof Error ? error.message : String(error), restartRequired: false }) },
+          (market) => { if (current) setState({ status: "ready", market, error: "" }) },
+          (error) => { if (current) setState({ status: "ready", market: unavailable, error: error instanceof Error ? error.message : String(error) }) },
         )
         return () => { current = false }
       }, [api])
@@ -272,7 +273,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
         setState((current) => ({ ...current, status: "working", error: "" }))
         try {
           const market = await api.enable()
-          setState({ status: "ready", market, error: "", restartRequired: true })
+          setState({ status: "ready", market, error: "" })
         } catch (error) {
           setState((current) => ({ ...current, status: "ready", error: error instanceof Error ? error.message : String(error) }))
         }
@@ -285,8 +286,8 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
         h("p", { className: "pawwork-market-trust" }, text("社区市场及其中插件均由第三方维护，并会以爪印的权限运行。", "The community market and its plugins are third-party software and run with PawWork's permissions.")),
         state.error ? h("p", { className: "pawwork-market-error", role: "alert" }, state.error) : null,
         state.status === "loading" ? h("p", { className: "pawwork-market-copy" }, text("正在检查社区市场…", "Checking community market…")) : null,
-        state.market.enabled || state.restartRequired ? h("div", { className: "pawwork-market-status", role: "status" },
-          h("p", null, state.restartRequired
+        state.market.enabled || state.market.restartRequired ? h("div", { className: "pawwork-market-status", role: "status" },
+          h("p", null, state.market.restartRequired
             ? text("社区市场已安装。重新启动 DSH 后即可在设置中使用。", "Community market installed. Restart DSH to use it in Settings.")
             : text(`社区市场 ${state.market.version ?? ""} 已启用。`, `Community market ${state.market.version ?? ""} is enabled.`)),
           h(Button, { onClick: () => api?.restart(), size: "sm" }, text("重新启动 DSH", "Restart DSH")))

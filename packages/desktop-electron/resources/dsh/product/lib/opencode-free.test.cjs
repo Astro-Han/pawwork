@@ -1,6 +1,9 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const {
 	isZeroCost,
@@ -257,8 +260,25 @@ test('refresh leaves a non-opencode default untouched', async () => {
 	assert.deepEqual(saves, []);
 });
 
-test('product lifecycle immediately refreshes the runtime catalog through settings', { timeout: 2000 }, async () => {
+test('product lifecycle immediately refreshes the runtime catalog through settings', { timeout: 2000 }, async (t) => {
 	const originalFetch = globalThis.fetch;
+	const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-product-lifecycle-'));
+	t.after(() => fs.rmSync(profileDir, { recursive: true, force: true }));
+	fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
+		dependencies: {},
+		dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } },
+	}));
+	const hostEnvironment = {
+		PAWWORK_DSH_BIN: '/app/dsh/bin.js',
+		DSH_HOME: path.dirname(profileDir),
+		PAWWORK_NODE_EXECUTABLE: '/app/PawWork',
+		PAWWORK_DSH_PROFILE_DIR: profileDir,
+		PAWWORK_HOST_TOKEN: 'test-host-token',
+	};
+	const previousEnvironment = Object.fromEntries(
+		Object.keys(hostEnvironment).map((name) => [name, process.env[name]]),
+	);
+	Object.assign(process.env, hostEnvironment);
 	const writes = [];
 	let dispose;
 	let resolveWrite;
@@ -282,6 +302,9 @@ test('product lifecycle immediately refreshes the runtime catalog through settin
 				},
 			},
 			agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'live-free' }) },
+			provide() {},
+			subprocess: { spawn() { throw new Error('unexpected plugin operation'); } },
+			webServer: { register() { return () => {}; } },
 			logger: { info() {}, warn() {} },
 			interval(callback, milliseconds) {
 				assert.equal(typeof callback, 'function');
@@ -296,5 +319,9 @@ test('product lifecycle immediately refreshes the runtime catalog through settin
 	} finally {
 		dispose?.();
 		globalThis.fetch = originalFetch;
+		for (const [name, value] of Object.entries(previousEnvironment)) {
+			if (value === undefined) delete process.env[name];
+			else process.env[name] = value;
+		}
 	}
 });

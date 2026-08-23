@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const { refreshOpenCodeFreeModels } = require('./opencode-free.cjs');
+const { createDesktopHost, registerCommunityMarketRoutes } = require('./desktop-host.cjs');
 
 export const name = "pawwork-product"
 
@@ -9,7 +10,7 @@ export const name = "pawwork-product"
 // timer service (to re-run that refresh periodically), and the default-model
 // service (so a refresh that retires the opencode default can move it to a
 // surviving model). Activation waits for all three.
-export const inject = ['settings', 'timer', 'agentDefaultModel'];
+export const inject = ['settings', 'timer', 'agentDefaultModel', 'subprocess', 'webServer'];
 
 // How often to re-discover the OpenCode Free catalog. New free models appear
 // without a PawWork release; the cadence balances freshness against the one
@@ -32,6 +33,32 @@ function runRefresh(ctx, controller) {
 }
 
 export function apply(ctx) {
+	const requiredEnvironment = (name) => {
+		const value = process.env[name];
+		if (!value) throw new Error(`PawWork Desktop host requires ${name}`);
+		return value;
+	};
+	const desktopHost = createDesktopHost({
+		dshBin: requiredEnvironment('PAWWORK_DSH_BIN'),
+		home: requiredEnvironment('DSH_HOME'),
+		nodeExecutable: requiredEnvironment('PAWWORK_NODE_EXECUTABLE'),
+		profileDir: requiredEnvironment('PAWWORK_DSH_PROFILE_DIR'),
+		subprocess: ctx.subprocess,
+	});
+	ctx.provide('desktopProfiles', desktopHost.desktopProfiles);
+	ctx.provide('desktopPnpm', desktopHost.desktopPnpm);
+	ctx.effect(() => {
+		const unregister = registerCommunityMarketRoutes(
+			ctx.webServer,
+			desktopHost.communityMarket,
+			requiredEnvironment('PAWWORK_HOST_TOKEN'),
+		);
+		return async () => {
+			unregister();
+			await desktopHost.dispose();
+		};
+	});
+
 	const controller = new AbortController();
 	// Immediate refresh so a fresh launch picks up the current catalog right
 	// away, then periodic sweeps to follow upstream as it changes.

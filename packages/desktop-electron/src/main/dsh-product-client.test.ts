@@ -129,7 +129,7 @@ describe("PawWork DSH client product layer", () => {
   })
 
   test("enables the pinned community market from a trust-explicit Settings card", async () => {
-    const enable = vi.fn(async () => ({ enabled: true, version: "1.21.0" }))
+    const enable = vi.fn(async () => ({ enabled: true, restartRequired: true, version: "1.21.0" }))
     const document = {
       documentElement: { lang: "zh-CN" },
       querySelector: () => null,
@@ -144,7 +144,7 @@ describe("PawWork DSH client product layer", () => {
       const nextProps = { ...props, children }
       return typeof type === "function" ? type(nextProps) : { type, props: nextProps }
     }
-    const states: unknown[] = [{ status: "ready", market: { enabled: false, version: null }, error: "", restartRequired: false }]
+    const states: unknown[] = [{ status: "ready", market: { enabled: false, restartRequired: false, version: null }, error: "" }]
     let stateIndex = 0
     const plugin = definition.factory((name) => {
       if (name === "react") {

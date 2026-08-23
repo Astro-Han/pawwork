@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+import { randomUUID } from "node:crypto"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { createRequire } from "node:module"
@@ -18,11 +19,10 @@ import {
   UPDATER_ACTIVE,
 } from "./constants"
 import { ciSmokeCdpSwitches } from "./ci-smoke-cdp"
-import { createDshCommandRuntime } from "./dsh-command"
 import { pickConversationFiles } from "./dsh-file-input"
 import { DshLifecycle, type DshLifecycleState } from "./dsh-lifecycle"
 import { createDshMenu } from "./dsh-menu"
-import { assertDshPluginRequest, createDshCommunityMarketManager } from "./dsh-plugins"
+import { assertDshPluginRequest, requestDshCommunityMarket } from "./dsh-plugins"
 import {
   buildDshEnvironment,
   prepareDshProductHome,
@@ -31,6 +31,7 @@ import {
   resolveProductResources,
 } from "./dsh-product-home"
 import { launchDshSidecar } from "./dsh-sidecar"
+import { prepareDshToolsEnvironment } from "./dsh-tools"
 import { migrateDshHome, resolveDshHome } from "./pawwork-home"
 import { initLogging } from "./logging"
 import { detectSystemMenuLocale } from "./menu-labels"
@@ -83,7 +84,7 @@ const productPreload = join(productResources.dsh, "product", "preload.cjs")
 const DSH_OUTPUT_TAIL_CHARS = 4_000
 let dshOutputTail = ""
 let currentProgress: number | null = null
-let communityMarketManager: ReturnType<typeof createDshCommunityMarketManager> | undefined
+const dshHostToken = randomUUID()
 
 const lifecycle = new DshLifecycle({ launch: launchDsh, onChange: handleLifecycleChange })
 
@@ -138,11 +139,19 @@ function setupApp() {
       owner ? dialog.showOpenDialog(owner, options) : dialog.showOpenDialog(options),
     )
   })
-  ipcMain.handle("pawwork:dsh-community-market:status", (event) => communityMarketManagerFor(event).status())
-  ipcMain.handle("pawwork:dsh-community-market:enable", (event) => communityMarketManagerFor(event).enable())
+  ipcMain.handle("pawwork:dsh-community-market:status", (event) => requestDshCommunityMarket({
+    action: "status",
+    dshUrl: communityMarketUrlFor(event),
+    hostToken: dshHostToken,
+  }))
+  ipcMain.handle("pawwork:dsh-community-market:enable", (event) => requestDshCommunityMarket({
+    action: "enable",
+    dshUrl: communityMarketUrlFor(event),
+    hostToken: dshHostToken,
+  }))
   ipcMain.on("pawwork:dsh-restart", (event) => {
     try {
-      communityMarketManagerFor(event)
+      communityMarketUrlFor(event)
     } catch (error) {
       logger.warn("rejected DSH restart request", error)
       return
@@ -204,7 +213,7 @@ function setupApp() {
     })
 }
 
-function communityMarketManagerFor(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) {
+function communityMarketUrlFor(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) {
   const state = lifecycle.state
   const frame = event.senderFrame
   if (state.phase !== "ready") throw new Error("DSH plugin requests require a ready product")
@@ -213,8 +222,7 @@ function communityMarketManagerFor(event: Electron.IpcMainEvent | Electron.IpcMa
     isMainFrame: frame === event.sender.mainFrame,
     senderUrl: frame?.url ?? "",
   })
-  if (!communityMarketManager) throw new Error("DSH community market manager is unavailable")
-  return communityMarketManager
+  return state.url
 }
 
 function liveWindows() {
@@ -332,16 +340,14 @@ function launchDsh() {
     resolveDevelopmentPackage: () => require.resolve("pnpm"),
   })
   const dshBin = join(dirname(dshPackage), "lib", "bin.js")
-  const commandRuntime = createDshCommandRuntime({
+  const environment = prepareDshToolsEnvironment({
     dshBin,
     env: buildDshEnvironment(productResources.skills),
     executable: process.execPath,
     home: product.home,
+    hostToken: dshHostToken,
     pnpmBin: join(dirname(pnpmPackage), "bin", "pnpm.mjs"),
-  })
-  communityMarketManager = createDshCommunityMarketManager({
-    home: product.home,
-    run: commandRuntime.run,
+    productToolsDir: join(dirname(productResources.dsh), "tools"),
   })
 
   logger.log("spawning DSH sidecar")
@@ -349,10 +355,8 @@ function launchDsh() {
     executable: process.execPath,
     dshBin,
     sidecarPreload: pathToFileURL(product.sidecarPreload).href,
-    productHome: product.home,
     productPatch: product.patch,
-    toolsDir: join(dirname(productResources.dsh), "tools"),
-    env: commandRuntime.environment,
+    env: environment,
     timeoutMs: 30_000,
     spawn: (executable, args, options) => spawn(executable, args, options),
     onStdout: (chunk) => logger.log("DSH stdout", { chunk: chunk.trimEnd() }),

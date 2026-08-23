@@ -1,20 +1,12 @@
-import { readFile } from "node:fs/promises"
-import { join } from "node:path"
 import { decideDshNavigation } from "./window-navigation"
 
-export const DSH_COMMUNITY_MARKET_TARGET = "dshmarket@1.21.0"
+type CommunityMarketAction = "enable" | "status"
 
-type DshCommand = {
-  run(args: string[]): Promise<{ stderr: string; stdout: string }>
-}
-
-type ProfileManifest = {
-  dependencies?: Record<string, string>
-  dsh?: { profile?: { bundles?: string[] } }
-}
-
-type CreateDshCommunityMarketManagerOptions = DshCommand & {
-  home: string
+type RequestDshCommunityMarketOptions = {
+  action: CommunityMarketAction
+  dshUrl: string
+  fetchImpl?: typeof fetch
+  hostToken: string
 }
 
 export function assertDshPluginRequest(options: {
@@ -27,30 +19,17 @@ export function assertDshPluginRequest(options: {
   }
 }
 
-async function readCommunityMarketStatus(home: string) {
-  const manifest = JSON.parse(
-    await readFile(join(home, "profiles", "web", "package.json"), "utf8"),
-  ) as ProfileManifest
-  const active = new Set(manifest.dsh?.profile?.bundles ?? [])
-  const version = manifest.dependencies?.dshmarket ?? null
-  return { enabled: version !== null && active.has("dshmarket"), version }
-}
-
-export function createDshCommunityMarketManager(options: CreateDshCommunityMarketManagerOptions) {
-  let mutating = false
-
-  return {
-    status: () => readCommunityMarketStatus(options.home),
-    async enable() {
-      if (mutating) throw new Error("Another plugin operation is already running")
-      mutating = true
-      try {
-        if ((await readCommunityMarketStatus(options.home)).enabled) return readCommunityMarketStatus(options.home)
-        await options.run(["plugin", "--profile", "web", "add", DSH_COMMUNITY_MARKET_TARGET, "--save-exact"])
-        return await readCommunityMarketStatus(options.home)
-      } finally {
-        mutating = false
-      }
+export async function requestDshCommunityMarket(options: RequestDshCommunityMarketOptions) {
+  const response = await (options.fetchImpl ?? fetch)(
+    new URL(`/pawwork/community-market/${options.action}`, options.dshUrl).href,
+    {
+      headers: { "x-pawwork-host-token": options.hostToken },
+      method: options.action === "status" ? "GET" : "POST",
     },
+  )
+  const body = await response.json() as { error?: unknown }
+  if (!response.ok) {
+    throw new Error(typeof body.error === "string" ? body.error : `DSH community market request failed (${response.status})`)
   }
+  return body
 }
