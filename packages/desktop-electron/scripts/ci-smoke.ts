@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessByStdio } from "node:child_process"
+import { spawn, spawnSync, type ChildProcessByStdio } from "node:child_process"
 import { once } from "node:events"
 import type { Readable } from "node:stream"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
@@ -106,6 +106,40 @@ type BuildSmokeEnvOptions = {
 type LaunchAppOptions = {
   cdpPort?: number
   v1Database?: string
+}
+
+type ScreenshotRunner = (command: string, args: string[]) => {
+  error?: Error
+  status: number | null
+  stderr?: Buffer | string | null
+}
+
+export function captureWindowsAppScreenshot(
+  platform: NodeJS.Platform,
+  processId: number,
+  outputPath: string | undefined,
+  run: ScreenshotRunner = (command, args) => spawnSync(command, args, { encoding: "utf8" }),
+) {
+  if (platform !== "win32" || outputPath === undefined) return
+  const script = resolve(import.meta.dirname, "capture-windows-window.ps1")
+  const args = [
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    script,
+    "-TargetProcessId",
+    String(processId),
+    "-OutputPath",
+    outputPath,
+  ]
+  const result = run("powershell.exe", args)
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    throw new Error(`Windows screenshot failed with exit code ${result.status}: ${String(result.stderr ?? "").trim()}`)
+  }
+  console.log(`CI smoke captured Windows window: ${outputPath}`)
 }
 
 function parseChannel(raw: string | undefined): PawWorkChannel {
@@ -1022,6 +1056,12 @@ async function main() {
     if (cdpPort !== undefined) {
       cdpTarget = await probeCiSmokeCdpTarget(cdpPort)
       product = await inspectCiSmokeProduct(cdpTarget, homeDir)
+      if (child.pid === undefined && process.env.PAWWORK_CI_SCREENSHOT_PATH !== undefined) {
+        throw new Error("Cannot capture the Windows app without its process ID")
+      }
+      if (child.pid !== undefined) {
+        captureWindowsAppScreenshot(process.platform, child.pid, process.env.PAWWORK_CI_SCREENSHOT_PATH)
+      }
       assertCiSmokeProduct(product)
       console.log("CI smoke verified DSH product UI, free model, and bundled skills")
       await waitForSessionOnDisk(dshHome, product.sessionId)

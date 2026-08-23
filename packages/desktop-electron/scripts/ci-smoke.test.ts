@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest"
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { load } from "js-yaml"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import process from "node:process"
@@ -10,6 +11,7 @@ import {
   dshHomeForSmoke,
   assertCiSmokeProduct,
   buildSmokeEnv,
+  captureWindowsAppScreenshot,
   isCiSmokeDshTarget,
   parseSmokeArgs,
   parseSmokeCdpPort,
@@ -24,6 +26,57 @@ import { packagedAppEnv } from "./packaged-app-env.ts"
 import type { PawWorkChannel } from "../src/main/app-identity.ts"
 
 describe("ci smoke helpers", () => {
+  test("captures the running Windows app into the requested PNG", () => {
+    const calls: Array<{ command: string; args: string[] }> = []
+
+    captureWindowsAppScreenshot("win32", 4312, "D:\\artifacts\\pawwork-windows.png", (command, args) => {
+      calls.push({ command, args })
+      return { status: 0 }
+    })
+
+    expect(calls).toEqual([{
+      command: "powershell.exe",
+      args: expect.arrayContaining([
+        "-File",
+        expect.stringMatching(/capture-windows-window\.ps1$/),
+        "-TargetProcessId",
+        "4312",
+        "-OutputPath",
+        "D:\\artifacts\\pawwork-windows.png",
+      ]),
+    }])
+  })
+
+  test("does not request a native screenshot on other platforms", () => {
+    captureWindowsAppScreenshot("darwin", 4312, "/tmp/pawwork.png", () => {
+      throw new Error("PowerShell should not run")
+    })
+  })
+
+  test("publishes the Windows smoke screenshot as a short-lived artifact", () => {
+    const workflow = load(readFileSync(path.join(import.meta.dirname, "../../../.github/workflows/ci.yml"), "utf8")) as {
+      jobs: { package_smoke: { steps: Array<Record<string, unknown>> } }
+    }
+    const steps = workflow.jobs.package_smoke.steps
+    const smoke = steps.find((step) => step.name === "Smoke packaged desktop through CDP") as {
+      env?: Record<string, string>
+    }
+    const upload = steps.find((step) => step.name === "Upload Windows smoke screenshot") as {
+      if?: string
+      uses?: string
+      with?: Record<string, unknown>
+    }
+
+    expect(smoke.env?.PAWWORK_CI_SCREENSHOT_PATH).toContain("runner.temp")
+    expect(upload.if).toContain("matrix.platform == 'win32'")
+    expect(upload.uses).toContain("actions/upload-artifact@")
+    expect(upload.with).toMatchObject({
+      "if-no-files-found": "error",
+      "retention-days": 7,
+    })
+    expect(upload.with?.path).toBe(smoke.env?.PAWWORK_CI_SCREENSHOT_PATH)
+  })
+
   test("resolveMainEntry points at the built Electron main process bundle", () => {
     expect(resolveMainEntry().endsWith(path.join("packages", "desktop-electron", "out", "main", "index.js"))).toBe(true)
   })

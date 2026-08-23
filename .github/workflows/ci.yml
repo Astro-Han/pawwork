@@ -106,6 +106,16 @@ jobs:
         working-directory: packages/desktop-electron
         env:
           PAWWORK_CI_SMOKE_CDP: "true"
+          PAWWORK_CI_SCREENSHOT_PATH: ${{ runner.temp }}/pawwork-windows-smoke.png
+
+      - name: Upload Windows smoke screenshot
+        if: ${{ always() && matrix.platform == 'win32' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pawwork-windows-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pawwork-windows-smoke.png
+          if-no-files-found: error
+          retention-days: 7
 
   desktop_smoke:
     name: desktop-smoke
