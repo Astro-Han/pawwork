@@ -23,7 +23,7 @@ window.__ModuleLoader__.load({
     const automationCss = `
 .pawwork-automations-surface {
   color: var(--dsw-alias-label-primary); display: flex; flex-direction: column;
-  gap: 12px; max-width: 720px; min-width: 0; width: 100%;
+  gap: 12px; min-width: 0; width: 100%;
 }
 /* One page head per settings page, matching the DSH Plugins section (18/600 title, 13px intro).
    The section owns no header actions: the panel header above it already carries the shell's own
@@ -38,7 +38,7 @@ window.__ModuleLoader__.load({
 .pawwork-automations-search input { width: 100%; }
 .pawwork-automations-tabs { display: flex; flex: none; gap: 6px; }
 .pawwork-automations-create { flex: none; }
-.pawwork-automations-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.pawwork-automations-list { display: flex; flex-direction: column; gap: 8px; }
 .pawwork-automation-row {
   align-items: center; background: transparent; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
   color: inherit; display: grid; font: inherit; gap: 12px;
@@ -113,13 +113,6 @@ window.__ModuleLoader__.load({
 .pawwork-automation-run-time { margin-left: 8px; }
 .pawwork-automation-run-summary {
   display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-@media (max-width: 680px) {
-  .pawwork-automation-panel-head { flex-direction: column; }
-  .pawwork-automations-toolbar { flex-wrap: wrap; }
-  .pawwork-automations-search { flex: 1 1 100%; }
-  .pawwork-automation-actions { flex-wrap: wrap; }
-  .pawwork-automation-grid, .pawwork-automation-advanced-content { grid-template-columns: 1fr; }
 }
 `
 

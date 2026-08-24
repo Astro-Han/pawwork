@@ -95,7 +95,10 @@ describe("PawWork DSH Automations client", () => {
     expect(registrations[0].label?.()).toBe("Automations")
   })
 
-  test("creates through chat and closes Settings", async () => {
+  // The settings panel header already carries the shell's own actions and Close, so the section's
+  // primary action lives in the toolbar with the controls it acts on — not in a second cluster
+  // 8px below them. Where it sits and what it does are one fact about one button.
+  test("creates through chat from the toolbar", async () => {
     const document = fakeDocument("zh-CN")
     const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
 
@@ -108,14 +111,7 @@ describe("PawWork DSH Automations client", () => {
           useState: <T>(value: T) => [value, () => {}],
         }
       }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") {
-        return {
-          Button: primitive("button"),
-          Input: primitive("input"),
-          Pill: primitive("button"),
-          IconSearchOutline16: "IconSearchOutline16",
-        }
-      }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
       throw new Error(`unexpected Automations client dependency: ${name}`)
     })
     let settingsSection: ((props: unknown) => unknown) | undefined
@@ -144,61 +140,20 @@ describe("PawWork DSH Automations client", () => {
         recentWorkspaceId: "workspace-1",
       }),
     })
-    const createButton = visit(tree).find((element) =>
+    const head = visit(tree).find((element) => element.props.className === "pawwork-automations-page-head")
+    const toolbar = visit(tree).find((element) => element.props.className === "pawwork-automations-toolbar")
+    const createButton = visit(toolbar).find((element) =>
       element.type === "button" && (element.props.children as unknown[] | undefined)?.includes("新建自动化"),
     )
 
+    expect(head).toBeDefined()
+    expect(visit(head).some((element) => element.type === "button")).toBe(false)
     expect(createButton).toBeDefined()
     await (createButton!.props.onClick as () => Promise<void>)()
     expect(connectWorkspace).toHaveBeenCalledWith("workspace-1")
     expect(setDraft).toHaveBeenCalledWith("帮我创建一个自动化。先问我它要做什么、什么时候运行，再帮我创建。")
     expect(open).toHaveBeenCalledWith("session-1")
     expect(close).toHaveBeenCalledTimes(1)
-  })
-
-  // The settings panel header already owns the shell's actions and Close. A second action cluster
-  // in the section's own page head lands 8px under them and competes for the same corner, so the
-  // primary action belongs in the toolbar with the controls it acts on.
-  test("keeps the primary action in the toolbar, not the page head", () => {
-    const document = fakeDocument("zh-CN")
-    const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
-
-    const plugin = definition.factory((name) => {
-      if (name === "react") {
-        return {
-          createElement,
-          useEffect: () => {},
-          useRef: <T>(value: T) => ({ current: value }),
-          useState: <T>(value: T) => [value, () => {}],
-        }
-      }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
-      throw new Error(`unexpected Automations client dependency: ${name}`)
-    })
-    let settingsSection: ((props: unknown) => unknown) | undefined
-    plugin.apply({
-      connection: {}, conversation: {}, sessions: {}, workspaces: {},
-      slots: {
-        inject: (_name: string, register: () => void) => register(),
-        register: (_options: unknown, component: typeof settingsSection) => { settingsSection = component },
-      },
-    })
-
-    const tree = settingsSection!({
-      close: () => {},
-      useWorkspaces: (select: (state: unknown) => unknown) => select({
-        items: [{ workspaceId: "workspace-1" }],
-        recentWorkspaceId: "workspace-1",
-      }),
-    })
-    const head = visit(tree).find((element) => element.props.className === "pawwork-automations-page-head")
-    const toolbar = visit(tree).find((element) => element.props.className === "pawwork-automations-toolbar")
-    const isCreate = (element: Element) =>
-      (element.props.children as unknown[] | undefined)?.includes("新建自动化") === true
-
-    expect(head).toBeDefined()
-    expect(visit(head).some((element) => element.type === "button")).toBe(false)
-    expect(visit(toolbar).some(isCreate)).toBe(true)
   })
 
   // The list label, the editor form and the save path each read this mapping.
