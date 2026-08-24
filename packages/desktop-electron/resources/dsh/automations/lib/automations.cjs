@@ -663,11 +663,14 @@ function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }
         return rpcSuccess({
           definitions: definitions.map((definition) => {
             const runs = store.listRuns(definition.id);
+            const activeRun = runs.find((run) => run.state === 'running') || null;
             return {
               ...definition,
-              activeRun: runs.find((run) => run.state === 'running') || null,
+              activeRun,
               recentRuns: runs.filter((run) => run.state !== 'running').slice(0, 5),
-              terminalReason: store.terminalReason(definition),
+              // A claimed run clears nextFireAt before it lands, so a definition is only
+              // terminal once nothing is still running for it.
+              terminalReason: activeRun ? null : store.terminalReason(definition),
             };
           }),
         });

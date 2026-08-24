@@ -633,6 +633,10 @@ test('automation RPC says why a definition has no next run', async () => {
   }, 1_000);
   const limitedRun = store.beginRun(limited.id, 1_200);
   store.completeRun(limitedRun.id, { state: 'succeeded', completedAt: 1_300, sessionId: 'session-1', result: 'done' });
+  // Claiming a one-shot clears its next run before the attempt lands, so this one is
+  // running, not finished.
+  const running = oneShot(store, cwd, 3_000);
+  store.claimDue(running.id, 3_000, 3_000, { state: 'running', completedAt: null, stopReason: null });
   const response = await rpc('list', {});
   const reasonOf = (id) => response.value.definitions.find((entry) => entry.id === id).terminalReason;
 
@@ -641,6 +645,7 @@ test('automation RPC says why a definition has no next run', async () => {
   assert.equal(reasonOf(paused.id), null);
   assert.equal(reasonOf(finished.id), 'completed');
   assert.equal(reasonOf(limited.id), 'run-limit');
+  assert.equal(reasonOf(running.id), null);
 });
 
 // The reason above never has to describe a schedule that cannot resolve, because
