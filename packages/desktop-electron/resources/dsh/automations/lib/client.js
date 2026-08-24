@@ -26,9 +26,8 @@ window.__ModuleLoader__.load({
   color: var(--dsw-alias-label-primary); display: flex; flex-direction: column;
   gap: 12px; min-width: 0; width: 100%;
 }
-/* One page head per settings page, matching the DSH Plugins section (18/600 title, 13px intro).
-   The section owns no header actions: the panel header above it already carries the shell's own
-   actions and Close, and a second action cluster 8px below them competes for the same corner. */
+/* One page head per settings page: the panel header above already carries the shell's actions and
+   Close, so a second action cluster 8px below them competes for the same corner. */
 .pawwork-automations-page-head {
   display: flex; flex-direction: column; gap: 2px; padding: 2px 0 14px;
 }
@@ -53,12 +52,10 @@ window.__ModuleLoader__.load({
   display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .pawwork-automation-row-title { font-size: 14px; font-weight: 500; line-height: 22px; }
-.pawwork-automation-row-meta { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; }
-/* Schedule and next run are two facts, not one sentence: the schedule stays with the title and the
-   next run is right-aligned, so a column of rows can be compared down either edge. */
-.pawwork-automation-row-trail {
-  color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; white-space: nowrap;
+.pawwork-automation-row-meta, .pawwork-automation-row-trail {
+  color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px;
 }
+.pawwork-automation-row-trail { white-space: nowrap; }
 .pawwork-automation-row[data-state="stopped"] .pawwork-automation-row-trail { color: var(--dsw-alias-label-secondary); }
 .pawwork-automations-empty, .pawwork-automations-loading {
   border: 1px dashed var(--dsw-alias-border-l3); border-radius: 8px;
@@ -156,18 +153,15 @@ window.__ModuleLoader__.load({
       return connection.rpc.call("/pawwork-automations", endpoint, payload, signal).then((result) => {
         if (!result.ok) {
           const failure = new Error(result.error.message)
-          failure.issues = result.error.details?.issues || []
+          failure.issues = result.error.details?.issues
           throw failure
         }
         return result.value
       })
     }
 
-    // What the user reads when a call fails. The store owns cron validity — repeating its rule here
-    // would mean copying its parser — so the editor carries copy for the codes it can explain and
-    // falls back to the store's own sentence for everything else. The interval floor above is the
-    // other half of the same bargain: a rule small enough to mirror is mirrored, a rule this size
-    // stays where it is enforced.
+    // The store owns cron validity, so the editor localizes the codes it can explain and falls back
+    // to the store's own sentence for the rest.
     function errorText(error) {
       if (error?.issues?.some((issue) => issue?.code === "invalid-cron")) {
         return text("Cron 表达式无效，或它指定的时间永远不会到来", "This cron expression is invalid, or the time it names never comes")
@@ -199,10 +193,7 @@ window.__ModuleLoader__.load({
       }
       return `Cron ${definition.rhythm.expression}`
     }
-    // One statement of what a definition's schedule is doing; the row's glyph and its trailing text
-    // are two renderings of it, the way runDotState and runState already pair for a run record.
-    // Split, they drifted apart on the definitions that had stopped: the glyph still said running
-    // while the text said "next —", and a schedule that had ended looked like one still waiting.
+    // One statement of what a schedule is doing; the row's glyph and trailing text both render it.
     function definitionState(definition) {
       if (definition.paused) return { icon: IconPauseOutline16, label: text("已暂停", "Paused"), state: "stopped" }
       if (definition.terminalReason === "completed") return { icon: IconCheckOutline16, label: text("已完成", "Completed"), state: "stopped" }
@@ -461,8 +452,7 @@ window.__ModuleLoader__.load({
       const definitions = data?.definitions || []
       const selected = definitions.find((definition) => definition.id === selectedId) || null
       const visible = definitions.filter((definition) => {
-        // Active means it still has a next run: neither paused nor finished. Without the second
-        // half, a definition that had stopped for good kept showing up under Active.
+        // Active means it still has a next run: neither paused nor finished.
         if (filter === "active" && (definition.paused || definition.terminalReason)) return false
         if (filter === "paused" && !definition.paused) return false
         if (filter === "ended" && (definition.paused || !definition.terminalReason)) return false

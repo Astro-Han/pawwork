@@ -73,9 +73,7 @@ function normalizeRhythm(rhythm) {
   if (rhythm?.kind === 'cron') {
     const expression = assertText(rhythm.expression, 'rhythm.expression');
     if (!isValidCronExpression(expression)) {
-      // Coded, because the Settings editor cannot repeat this rule without
-      // copying the cron parser: it maps the code to localized copy instead of
-      // showing the user this sentence.
+      // Coded so the editor can localize it without copying the cron parser.
       const invalid = new Error(`invalid cron expression: ${expression}`);
       invalid.code = 'invalid-cron';
       throw invalid;
@@ -381,13 +379,9 @@ class AutomationStore {
     });
   }
 
-  // Why a definition has no next run, so the list can say "completed" or "run
-  // limit reached" instead of one dash standing for both. Paused is excluded
-  // because the list states it on its own, and an imported definition is
-  // activated inside the same import call that wrote it, so no reader observes
-  // that window. An unschedulable expression is not a case here: every write
-  // path runs it through isValidCronExpression first, and the resolver looks
-  // five years ahead, which covers even a Feb 29 schedule.
+  // Why a definition has no next run, so the list can say "completed" or "run limit reached"
+  // instead of one dash for both. Paused is excluded: the list states that on its own. An
+  // unschedulable expression is not a case — every write path validates the cron first.
   terminalReason(definition) {
     if (definition.paused || definition.nextFireAt !== null) return null;
     if (definition.kind === 'oneshot') return 'completed';
@@ -711,9 +705,6 @@ function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }
     } catch (error) {
       if (signal?.aborted) return rpcFailure('cancelled', 'automation request cancelled');
       if (error?.code === 'conflict') return rpcFailure('conflict', error.message);
-      // DSH validates the wire error against its own `code` enum, so a code of our
-      // own reaches the renderer as a schema violation instead of a message. The
-      // reason travels in `issues`, which the enum leaves to us.
       if (error?.code === 'invalid-cron') {
         return rpcFailure('bad-request', error.message, { issues: [{ code: 'invalid-cron' }] });
       }
