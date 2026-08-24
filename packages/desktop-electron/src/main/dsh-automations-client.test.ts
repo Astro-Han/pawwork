@@ -48,6 +48,21 @@ const primitives = {
   IconTrashOutline16: "IconTrashOutline16",
 }
 
+function settingsSectionOf(
+  plugin: { apply: (ctx: Record<string, unknown>) => void },
+  ctx: Record<string, unknown> = {},
+) {
+  let section: ((props: unknown) => unknown) | undefined
+  plugin.apply({
+    connection: {}, conversation: {}, sessions: {}, workspaces: {}, ...ctx,
+    slots: {
+      inject: (_name: string, register: () => void) => register(),
+      register: (_options: unknown, component: typeof section) => { section = component; return () => {} },
+    },
+  })
+  return section!
+}
+
 describe("PawWork DSH Automations client", () => {
   test("declares one packaged DSH plugin", () => {
     const automationsPackage = JSON.parse(readFileSync(resolve(automationsRoot, "package.json"), "utf8"))
@@ -96,9 +111,8 @@ describe("PawWork DSH Automations client", () => {
     expect(registrations[0].label?.()).toBe("Automations")
   })
 
-  // The settings panel header already carries the shell's own actions and Close, so the section's
-  // primary action lives in the toolbar with the controls it acts on — not in a second cluster
-  // 8px below them. Where it sits and what it does are one fact about one button.
+  // The panel header above already carries the shell's actions and Close, so the section's primary
+  // action lives in the toolbar with the controls it acts on, not in a second cluster below them.
   test("creates through chat from the toolbar", async () => {
     const document = fakeDocument("zh-CN")
     const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
@@ -115,26 +129,17 @@ describe("PawWork DSH Automations client", () => {
       if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
       throw new Error(`unexpected Automations client dependency: ${name}`)
     })
-    let settingsSection: ((props: unknown) => unknown) | undefined
     const connectWorkspace = vi.fn(async () => "session-1")
     const setDraft = vi.fn(() => {})
     const open = vi.fn(() => {})
-    plugin.apply({
-      connection: {},
+    const settingsSection = settingsSectionOf(plugin, {
       conversation: { input: { for: () => ({ setDraft }) } },
       sessions: { binding: () => ({ ctx: {} }), open },
-      slots: {
-        inject: (_name: string, register: () => void) => register(),
-        register: (_options: unknown, component: typeof settingsSection) => {
-          settingsSection = component
-          return () => {}
-        },
-      },
       workspaces: { connectWorkspace },
     })
 
     const close = vi.fn(() => {})
-    const tree = settingsSection!({
+    const tree = settingsSection({
       close,
       useWorkspaces: (select: (state: unknown) => unknown) => select({
         items: [{ workspaceId: "workspace-1" }],
@@ -157,9 +162,8 @@ describe("PawWork DSH Automations client", () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 
-  // A definition that has stopped for good used to render as a play glyph next to "Next —", which
-  // reads as one still waiting its turn. The glyph and the trailing text now come from one
-  // derivation, so they cannot disagree about whether a schedule is still live.
+  // Glyph and trailing text come from one derivation, so they cannot disagree about whether a
+  // schedule is still live: a stopped one used to render a play glyph next to "Next —".
   test.each([
     [{ id: "live", paused: false, nextFireAt: 4_000, terminalReason: null }, "下次", "IconPlayOutline16"],
     [{ id: "paused", paused: true, nextFireAt: null, terminalReason: null }, "已暂停", "IconPauseOutline16"],
@@ -200,16 +204,9 @@ describe("PawWork DSH Automations client", () => {
       if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
       throw new Error(`unexpected Automations client dependency: ${name}`)
     })
-    let settingsSection: ((props: unknown) => unknown) | undefined
-    plugin.apply({
-      connection: {}, conversation: {}, sessions: {}, workspaces: {},
-      slots: {
-        inject: (_name: string, register: () => void) => register(),
-        register: (_options: unknown, component: typeof settingsSection) => { settingsSection = component },
-      },
-    })
+    const settingsSection = settingsSectionOf(plugin)
 
-    const tree = settingsSection!({
+    const tree = settingsSection({
       close: () => {},
       useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
     })
@@ -268,16 +265,9 @@ describe("PawWork DSH Automations client", () => {
       if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
       throw new Error(`unexpected Automations client dependency: ${name}`)
     })
-    let settingsSection: ((props: unknown) => unknown) | undefined
-    plugin.apply({
-      connection: {}, conversation: {}, sessions: {}, workspaces: {},
-      slots: {
-        inject: (_name: string, register: () => void) => register(),
-        register: (_options: unknown, component: typeof settingsSection) => { settingsSection = component },
-      },
-    })
+    const settingsSection = settingsSectionOf(plugin)
 
-    const tree = settingsSection!({
+    const tree = settingsSection({
       close: () => {},
       useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
     })
@@ -333,17 +323,10 @@ describe("PawWork DSH Automations client", () => {
         if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
         throw new Error(`unexpected Automations client dependency: ${name}`)
       })
-      let settingsSection: ((props: unknown) => unknown) | undefined
       const call = vi.fn(async () => ({ ok: true, value: definitionData }))
-      plugin.apply({
-        connection: { rpc: { call } }, conversation: {}, sessions: {}, workspaces: {},
-        slots: {
-          inject: (_name: string, register: () => void) => register(),
-          register: (_options: unknown, component: typeof settingsSection) => { settingsSection = component },
-        },
-      })
+      const settingsSection = settingsSectionOf(plugin, { connection: { rpc: { call } } })
 
-      const tree = settingsSection!({
+      const tree = settingsSection({
         close: () => {},
         useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
       })
@@ -364,9 +347,8 @@ describe("PawWork DSH Automations client", () => {
     },
   )
 
-  // The cron rule is too big to mirror in the renderer — that would mean copying the parser — so
-  // the store codes its refusal and the editor carries the copy. Untyped, a Chinese UI showed the
-  // store's English sentence, the same failure the interval floor was mirrored to avoid.
+  // The cron rule is too big to mirror in the renderer, so the store codes its refusal and the
+  // editor carries the copy: untyped, a Chinese UI showed the store's English sentence.
   test("localizes a refused cron expression instead of showing the store's sentence", async () => {
     const document = fakeDocument("zh-CN")
     const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
@@ -397,7 +379,6 @@ describe("PawWork DSH Automations client", () => {
       if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
       throw new Error(`unexpected Automations client dependency: ${name}`)
     })
-    let settingsSection: ((props: unknown) => unknown) | undefined
     const call = vi.fn(async () => ({
       ok: false,
       error: {
@@ -406,15 +387,9 @@ describe("PawWork DSH Automations client", () => {
         details: { issues: [{ code: "invalid-cron" }] },
       },
     }))
-    plugin.apply({
-      connection: { rpc: { call } }, conversation: {}, sessions: {}, workspaces: {},
-      slots: {
-        inject: (_name: string, register: () => void) => register(),
-        register: (_options: unknown, component: typeof settingsSection) => { settingsSection = component },
-      },
-    })
+    const settingsSection = settingsSectionOf(plugin, { connection: { rpc: { call } } })
 
-    const tree = settingsSection!({
+    const tree = settingsSection({
       close: () => {},
       useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
     })
@@ -458,17 +433,10 @@ describe("PawWork DSH Automations client", () => {
       if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
       throw new Error(`unexpected Automations client dependency: ${name}`)
     })
-    let settingsSection: ((props: unknown) => unknown) | undefined
     const call = vi.fn(async () => ({ ok: true, value: definitionData }))
-    plugin.apply({
-      connection: { rpc: { call } }, conversation: {}, sessions: {}, workspaces: {},
-      slots: {
-        inject: (_name: string, register: () => void) => register(),
-        register: (_options: unknown, component: typeof settingsSection) => { settingsSection = component },
-      },
-    })
+    const settingsSection = settingsSectionOf(plugin, { connection: { rpc: { call } } })
 
-    const tree = settingsSection!({
+    const tree = settingsSection({
       close: () => {},
       useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
     })
@@ -530,21 +498,14 @@ describe("PawWork DSH Automations client", () => {
       if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
       throw new Error(`unexpected Automations client dependency: ${name}`)
     })
-    let settingsSection: ((props: unknown) => unknown) | undefined
     let sessionsRefreshed = false
     const open = vi.fn(() => {
       if (!sessionsRefreshed) throw new Error("session registry is stale")
     })
     const refresh = vi.fn(async () => { sessionsRefreshed = true })
-    plugin.apply({
-      connection: {}, conversation: {}, sessions: { open, refresh }, workspaces: {},
-      slots: {
-        inject: (_name: string, register: () => void) => register(),
-        register: (_options: unknown, component: typeof settingsSection) => { settingsSection = component },
-      },
-    })
+    const settingsSection = settingsSectionOf(plugin, { sessions: { open, refresh } })
     const close = vi.fn(() => {})
-    const tree = settingsSection!({
+    const tree = settingsSection({
       close,
       useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
     })
