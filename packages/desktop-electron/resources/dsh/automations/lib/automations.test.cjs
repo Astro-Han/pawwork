@@ -621,7 +621,8 @@ test('automation RPC says why a definition has no next run', async () => {
   const paused = interval(store, cwd, 300_000);
   store.setPaused(paused.id, true, 2_000);
   const finished = oneShot(store, cwd, 2_000);
-  store.claimDue(finished.id, 2_000, 2_000, { state: 'stopped', completedAt: 2_100, stopReason: 'previous_run_active' });
+  const finishedRun = store.claimDue(finished.id, 2_000, 2_000, { state: 'running', completedAt: null, stopReason: null });
+  store.completeRun(finishedRun.run.id, { state: 'succeeded', completedAt: 2_100, sessionId: 'session-0', result: 'done' });
   const limited = store.createDefinition({
     kind: 'recurring',
     title: 'Twice only',
@@ -637,6 +638,10 @@ test('automation RPC says why a definition has no next run', async () => {
   // running, not finished.
   const running = oneShot(store, cwd, 3_000);
   store.claimDue(running.id, 3_000, 3_000, { state: 'running', completedAt: null, stopReason: null });
+  // Resuming a one-shot after its moment drops its next run without ever attempting one.
+  const missed = oneShot(store, cwd, 4_000);
+  store.setPaused(missed.id, true, 3_500);
+  store.setPaused(missed.id, false, 9_000);
   const response = await rpc('list', {});
   const reasonOf = (id) => response.value.definitions.find((entry) => entry.id === id).terminalReason;
 
@@ -646,6 +651,7 @@ test('automation RPC says why a definition has no next run', async () => {
   assert.equal(reasonOf(finished.id), 'completed');
   assert.equal(reasonOf(limited.id), 'run-limit');
   assert.equal(reasonOf(running.id), null);
+  assert.equal(reasonOf(missed.id), 'missed');
 });
 
 // The reason above never has to describe a schedule that cannot resolve, because
@@ -672,6 +678,24 @@ test('every write path refuses a cron expression whose date never comes', () => 
     /invalid cron expression/,
   );
   assert.equal(store.getDefinition(existing.id).rhythm.kind, 'interval');
+
+  assert.throws(() => store.importDefinition({
+    id: 'pawwork-v1-automation_never',
+    title: 'Never resolves',
+    prompt: 'Clean up.',
+    revision: 1,
+    paused: false,
+    context: 'fresh',
+    cwd,
+    model: { provider: 'opencode', model: 'big-pickle' },
+    timezone: 'UTC',
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    kind: 'recurring',
+    rhythm: input.rhythm,
+    stop: { kind: 'never' },
+    migration: { source: 'pawwork-v1', sourceId: 'automation_never', warnings: [] },
+  }), /invalid cron expression/);
 });
 
 // The editor cannot repeat the cron rule without copying the parser, so it reads

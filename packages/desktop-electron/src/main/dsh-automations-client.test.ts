@@ -169,6 +169,7 @@ describe("PawWork DSH Automations client", () => {
     [{ id: "paused", paused: true, nextFireAt: null, terminalReason: null }, "已暂停", "IconPauseOutline16"],
     [{ id: "done", paused: false, nextFireAt: null, terminalReason: "completed" }, "已完成", "IconCheckOutline16"],
     [{ id: "limit", paused: false, nextFireAt: null, terminalReason: "run-limit" }, "已跑满", "IconCheckOutline16"],
+    [{ id: "missed", paused: false, nextFireAt: null, terminalReason: "missed" }, "已错过", "IconCheckOutline16"],
   ])("states $id in the row's glyph and its trailing text alike", (state, label, glyph) => {
     const document = fakeDocument("zh-CN")
     const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
@@ -212,7 +213,8 @@ describe("PawWork DSH Automations client", () => {
     })
     const row = visit(tree).find((element) => element.props.className === "pawwork-automation-row")
 
-    expect(textOf(tree).join(" ")).toContain(label)
+    expect(row).toBeDefined()
+    expect(textOf(row).join(" ")).toContain(label)
     expect(visit(row).some((element) => element.type === glyph)).toBe(true)
   })
 

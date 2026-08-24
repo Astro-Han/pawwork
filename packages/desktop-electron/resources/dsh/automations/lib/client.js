@@ -195,6 +195,7 @@ window.__ModuleLoader__.load({
     function definitionState(definition) {
       if (definition.paused) return { icon: IconPauseOutline16, label: text("已暂停", "Paused") }
       if (definition.terminalReason === "completed") return { icon: IconCheckOutline16, label: text("已完成", "Completed") }
+      if (definition.terminalReason === "missed") return { icon: IconCheckOutline16, label: text("已错过", "Missed") }
       if (definition.terminalReason === "run-limit") return { icon: IconCheckOutline16, label: text("已跑满", "Run limit reached") }
       return { icon: IconPlayOutline16, label: `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}` }
     }

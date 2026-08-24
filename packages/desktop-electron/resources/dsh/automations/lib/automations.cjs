@@ -385,7 +385,11 @@ class AutomationStore {
   // unschedulable expression is not a case — every write path validates the cron first.
   terminalReason(definition) {
     if (definition.paused || definition.nextFireAt !== null) return null;
-    if (definition.kind === 'oneshot') return 'completed';
+    // A one-shot resumed after its moment, or seen again after a missed startup, loses its
+    // next run without ever attempting one: that is missed, not completed.
+    if (definition.kind === 'oneshot') {
+      return this.completedRunCount(definition.id) > 0 ? 'completed' : 'missed';
+    }
     return this.runLimitReached(definition) ? 'run-limit' : null;
   }
 
