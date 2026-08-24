@@ -669,6 +669,28 @@ test('every write path refuses a cron expression whose date never comes', () => 
   assert.equal(store.getDefinition(existing.id).rhythm.kind, 'interval');
 });
 
+// The editor cannot repeat the cron rule without copying the parser, so it reads
+// this issue to know it may say so in the user's language. Plain, the user met
+// the store's own English sentence in a Chinese UI. The reason travels in
+// `issues` rather than `code` because DSH validates `code` against its own enum
+// and rejects the whole response for one it does not know.
+test('a refused cron expression reaches the editor as an issue it can localize', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const definition = interval(store, cwd, 300_000);
+  const rpc = createAutomationRpcHandler({ store, scheduler: { refresh: () => {} }, now: () => 10_000 });
+
+  const response = await rpc('update', {
+    id: definition.id,
+    expectedRevision: definition.revision,
+    rhythm: { kind: 'cron', expression: '0 9 30 2 *' },
+  });
+
+  assert.equal(response.ok, false);
+  assert.equal(response.error.code, 'bad-request');
+  assert.deepEqual(response.error.details.issues, [{ code: 'invalid-cron' }]);
+});
+
 test('automation RPC validates mutations and returns immediately when running now', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);

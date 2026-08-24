@@ -364,6 +364,69 @@ describe("PawWork DSH Automations client", () => {
     },
   )
 
+  // The cron rule is too big to mirror in the renderer — that would mean copying the parser — so
+  // the store codes its refusal and the editor carries the copy. Untyped, a Chinese UI showed the
+  // store's English sentence, the same failure the interval floor was mirrored to avoid.
+  test("localizes a refused cron expression instead of showing the store's sentence", async () => {
+    const document = fakeDocument("zh-CN")
+    const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
+    const definitionData = {
+      id: "automation-1", title: "Weekly digest", prompt: "Summarize the week", revision: 4,
+      paused: false, context: "fresh", cwd: "/tmp/workspace",
+      model: { provider: "opencode", model: "deepseek-v4-flash-free" }, timezone: "UTC",
+      kind: "recurring", rhythm: { kind: "cron", expression: "0 9 * * *" },
+      stop: { kind: "never" }, recentRuns: [],
+    }
+    const written: unknown[] = []
+    let stateCall = 0
+    const plugin = definition.factory((name) => {
+      if (name === "react") {
+        return {
+          createElement,
+          useEffect: () => {},
+          useRef: <T>(value: T) => ({ current: value }),
+          useState: <T>(value: T) => {
+            stateCall += 1
+            const write = (next: unknown) => { written.push(next) }
+            if (stateCall === 1) return [{ definitions: [definitionData] }, write]
+            if (stateCall === 2) return [definitionData.id, write]
+            return [value, write]
+          },
+        }
+      }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
+      throw new Error(`unexpected Automations client dependency: ${name}`)
+    })
+    let settingsSection: ((props: unknown) => unknown) | undefined
+    const call = vi.fn(async () => ({
+      ok: false,
+      error: {
+        code: "bad-request",
+        message: "invalid cron expression: 0 9 30 2 *",
+        details: { issues: [{ code: "invalid-cron" }] },
+      },
+    }))
+    plugin.apply({
+      connection: { rpc: { call } }, conversation: {}, sessions: {}, workspaces: {},
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (_options: unknown, component: typeof settingsSection) => { settingsSection = component },
+      },
+    })
+
+    const tree = settingsSection!({
+      close: () => {},
+      useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
+    })
+    const form = visit(tree).find((element) => typeof element.props.onSubmit === "function")
+    await (form!.props.onSubmit as (event: { preventDefault: () => void }) => Promise<void>)({
+      preventDefault: () => {},
+    })
+
+    expect(written).toContain("Cron 表达式无效，或它指定的时间永远不会到来")
+    expect(written.some((entry) => typeof entry === "string" && entry.includes("invalid cron expression"))).toBe(false)
+  })
+
   // "0" is truthy as a string, so an emptiness check sent stop.count = 0 and the
   // user met the backend's untranslated rejection instead of the editor's.
   test("refuses a run limit of zero instead of sending it to the backend", async () => {

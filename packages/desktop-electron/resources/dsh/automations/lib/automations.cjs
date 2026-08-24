@@ -72,7 +72,14 @@ function normalizeRhythm(rhythm) {
   }
   if (rhythm?.kind === 'cron') {
     const expression = assertText(rhythm.expression, 'rhythm.expression');
-    if (!isValidCronExpression(expression)) throw new Error(`invalid cron expression: ${expression}`);
+    if (!isValidCronExpression(expression)) {
+      // Coded, because the Settings editor cannot repeat this rule without
+      // copying the cron parser: it maps the code to localized copy instead of
+      // showing the user this sentence.
+      const invalid = new Error(`invalid cron expression: ${expression}`);
+      invalid.code = 'invalid-cron';
+      throw invalid;
+    }
     return { kind: 'cron', expression };
   }
   throw new Error('recurring rhythm must be interval or cron');
@@ -642,6 +649,9 @@ function rpcSuccess(value) {
   return { ok: true, value };
 }
 
+// `code` must come from DSH's enum: it validates the whole response, so an invented
+// code fails validation entirely and the user sees that instead of the message.
+// Our own reasons go in `details.issues`.
 function rpcFailure(code, message, details = {}) {
   return { ok: false, error: { code, message, details } };
 }
@@ -701,6 +711,12 @@ function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }
     } catch (error) {
       if (signal?.aborted) return rpcFailure('cancelled', 'automation request cancelled');
       if (error?.code === 'conflict') return rpcFailure('conflict', error.message);
+      // DSH validates the wire error against its own `code` enum, so a code of our
+      // own reaches the renderer as a schema violation instead of a message. The
+      // reason travels in `issues`, which the enum leaves to us.
+      if (error?.code === 'invalid-cron') {
+        return rpcFailure('bad-request', error.message, { issues: [{ code: 'invalid-cron' }] });
+      }
       return rpcFailure('internal', error instanceof Error ? error.message : String(error));
     }
   };

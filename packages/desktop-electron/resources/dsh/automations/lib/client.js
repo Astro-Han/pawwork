@@ -154,9 +154,25 @@ window.__ModuleLoader__.load({
 
     function automationCall(connection, endpoint, payload = {}, signal) {
       return connection.rpc.call("/pawwork-automations", endpoint, payload, signal).then((result) => {
-        if (!result.ok) throw new Error(result.error.message)
+        if (!result.ok) {
+          const failure = new Error(result.error.message)
+          failure.issues = result.error.details?.issues || []
+          throw failure
+        }
         return result.value
       })
+    }
+
+    // What the user reads when a call fails. The store owns cron validity — repeating its rule here
+    // would mean copying its parser — so the editor carries copy for the codes it can explain and
+    // falls back to the store's own sentence for everything else. The interval floor above is the
+    // other half of the same bargain: a rule small enough to mirror is mirrored, a rule this size
+    // stays where it is enforced.
+    function errorText(error) {
+      if (error?.issues?.some((issue) => issue?.code === "invalid-cron")) {
+        return text("Cron 表达式无效，或它指定的时间永远不会到来", "This cron expression is invalid, or the time it names never comes")
+      }
+      return error instanceof Error ? error.message : String(error)
     }
 
     function workspaceName(cwd) {
@@ -324,7 +340,7 @@ window.__ModuleLoader__.load({
           const result = await automationCall(connection, "update", { id: definition.id, expectedRevision: definition.revision, ...common, ...(schedule.kind === "oneshot" ? { fireAt: schedule.fireAt } : { rhythm: schedule.rhythm }) })
           onSaved(result)
         } catch (saveError) {
-          setError(saveError instanceof Error ? saveError.message : String(saveError))
+          setError(errorText(saveError))
         } finally { setBusy("") }
       }
       function requestClose() {
@@ -338,7 +354,7 @@ window.__ModuleLoader__.load({
           const result = await automationCall(connection, endpoint, payload)
           onSaved(endpoint === "run-now" ? definition : result)
         }
-        catch (mutationError) { setError(mutationError instanceof Error ? mutationError.message : String(mutationError)) }
+        catch (mutationError) { setError(errorText(mutationError)) }
         finally { setBusy("") }
       }
       async function remove() {
@@ -346,7 +362,7 @@ window.__ModuleLoader__.load({
         try { await automationCall(connection, "delete", { id: definition.id }); onDeleted() }
         catch (deleteError) {
           setDeleting(false)
-          setError(deleteError instanceof Error ? deleteError.message : String(deleteError))
+          setError(errorText(deleteError))
         }
         finally { setBusy("") }
       }
@@ -425,7 +441,7 @@ window.__ModuleLoader__.load({
           setData(list)
           setSelectedId((current) => list.definitions.some((item) => item.id === current) ? current : null)
         } catch (loadError) {
-          if (!signal?.aborted) setError(loadError instanceof Error ? loadError.message : String(loadError))
+          if (!signal?.aborted) setError(errorText(loadError))
         } finally { if (!signal?.aborted) setLoading(false) }
       }
       useEffect(() => {
@@ -460,7 +476,7 @@ window.__ModuleLoader__.load({
         if (!preferredWorkspace) return
         setError("")
         try { await createViaChat(preferredWorkspace.workspaceId) }
-        catch (createError) { setError(createError instanceof Error ? createError.message : String(createError)) }
+        catch (createError) { setError(errorText(createError)) }
       }
 
       if (selected) return h("main", { className: "pawwork-automations-surface" },
