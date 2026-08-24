@@ -609,6 +609,117 @@ test('automation RPC keeps the active run separate from bounded terminal history
   assert.equal(response.value.definitions[0].recentRuns.every((run) => run.state !== 'running'), true);
 });
 
+// One dash stood for "finished", "ran out of runs" and "paused" alike, so the
+// list could not say which. Paused it already states on its own; the other two
+// are what this reason carries.
+test('automation RPC says why a definition has no next run', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const rpc = createAutomationRpcHandler({ store, scheduler: {}, now: () => 10_000 });
+
+  const live = interval(store, cwd, 300_000);
+  const paused = interval(store, cwd, 300_000);
+  store.setPaused(paused.id, true, 2_000);
+  const finished = oneShot(store, cwd, 2_000);
+  const finishedRun = store.claimDue(finished.id, 2_000, 2_000, { state: 'running', completedAt: null, stopReason: null });
+  store.completeRun(finishedRun.run.id, { state: 'succeeded', completedAt: 2_100, sessionId: 'session-0', result: 'done' });
+  const limited = store.createDefinition({
+    kind: 'recurring',
+    title: 'Twice only',
+    prompt: 'Run twice.',
+    cwd,
+    rhythm: { kind: 'interval', everyMs: 300_000 },
+    stop: { kind: 'count', count: 1 },
+    model: { provider: 'opencode', model: 'big-pickle' },
+  }, 1_000);
+  const limitedRun = store.beginRun(limited.id, 1_200);
+  store.completeRun(limitedRun.id, { state: 'succeeded', completedAt: 1_300, sessionId: 'session-1', result: 'done' });
+  // Claiming a one-shot clears its next run before the attempt lands, so this one is
+  // running, not finished.
+  const running = oneShot(store, cwd, 3_000);
+  store.claimDue(running.id, 3_000, 3_000, { state: 'running', completedAt: null, stopReason: null });
+  // Resuming a one-shot after its moment drops its next run without ever attempting one.
+  const missed = oneShot(store, cwd, 4_000);
+  store.setPaused(missed.id, true, 3_500);
+  store.setPaused(missed.id, false, 9_000);
+  const response = await rpc('list', {});
+  const reasonOf = (id) => response.value.definitions.find((entry) => entry.id === id).terminalReason;
+
+  assert.equal(response.ok, true);
+  assert.equal(reasonOf(live.id), null);
+  assert.equal(reasonOf(paused.id), null);
+  assert.equal(reasonOf(finished.id), 'completed');
+  assert.equal(reasonOf(limited.id), 'run-limit');
+  assert.equal(reasonOf(running.id), null);
+  assert.equal(reasonOf(missed.id), 'missed');
+});
+
+// The reason above never has to describe a schedule that cannot resolve, because
+// no write path accepts one. Said here so the guarantee survives a change to
+// either side: a cron whose date never comes is refused where it is written.
+test('every write path refuses a cron expression whose date never comes', () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  // February 30th: syntactically valid, never a real date.
+  const input = {
+    kind: 'recurring',
+    title: 'Never resolves',
+    prompt: 'Clean up.',
+    cwd,
+    rhythm: { kind: 'cron', expression: '0 9 30 2 *' },
+    model: { provider: 'opencode', model: 'big-pickle' },
+  };
+
+  assert.throws(() => store.createDefinition(input, 1_000), /invalid cron expression/);
+
+  const existing = interval(store, cwd, 300_000);
+  assert.throws(
+    () => store.updateDefinition(existing.id, { rhythm: input.rhythm }, 2_000),
+    /invalid cron expression/,
+  );
+  assert.equal(store.getDefinition(existing.id).rhythm.kind, 'interval');
+
+  assert.throws(() => store.importDefinition({
+    id: 'pawwork-v1-automation_never',
+    title: 'Never resolves',
+    prompt: 'Clean up.',
+    revision: 1,
+    paused: false,
+    context: 'fresh',
+    cwd,
+    model: { provider: 'opencode', model: 'big-pickle' },
+    timezone: 'UTC',
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    kind: 'recurring',
+    rhythm: input.rhythm,
+    stop: { kind: 'never' },
+    migration: { source: 'pawwork-v1', sourceId: 'automation_never', warnings: [] },
+  }), /invalid cron expression/);
+});
+
+// The editor cannot repeat the cron rule without copying the parser, so it reads
+// this issue to know it may say so in the user's language. Plain, the user met
+// the store's own English sentence in a Chinese UI. The reason travels in
+// `issues` rather than `code` because DSH validates `code` against its own enum
+// and rejects the whole response for one it does not know.
+test('a refused cron expression reaches the editor as an issue it can localize', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const definition = interval(store, cwd, 300_000);
+  const rpc = createAutomationRpcHandler({ store, scheduler: { refresh: () => {} }, now: () => 10_000 });
+
+  const response = await rpc('update', {
+    id: definition.id,
+    expectedRevision: definition.revision,
+    rhythm: { kind: 'cron', expression: '0 9 30 2 *' },
+  });
+
+  assert.equal(response.ok, false);
+  assert.equal(response.error.code, 'bad-request');
+  assert.deepEqual(response.error.details.issues, [{ code: 'invalid-cron' }]);
+});
+
 test('automation RPC validates mutations and returns immediately when running now', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);

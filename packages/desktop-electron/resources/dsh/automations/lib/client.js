@@ -12,6 +12,7 @@ window.__ModuleLoader__.load({
       StateDot,
       IconChevronLeftOutline14,
       IconChevronDownOutline14,
+      IconCheckOutline16,
       IconPauseOutline16,
       IconPlayOutline16,
       IconSearchOutline16,
@@ -23,25 +24,24 @@ window.__ModuleLoader__.load({
     const automationCss = `
 .pawwork-automations-surface {
   color: var(--dsw-alias-label-primary); display: flex; flex-direction: column;
-  gap: 12px; max-width: 720px; min-width: 0; width: 100%;
+  gap: 12px; min-width: 0; width: 100%;
 }
-.pawwork-automations-titlebar {
-  align-items: flex-start; display: flex; gap: 20px; justify-content: space-between; margin-bottom: 20px;
+/* One page head per settings page: the panel header above already carries the shell's actions and
+   Close, so a second action cluster 8px below them competes for the same corner. */
+.pawwork-automations-page-head {
+  display: flex; flex-direction: column; gap: 2px; padding: 2px 0 14px;
 }
-.pawwork-automations-titlebar h1 {
-  font-size: 16px; font-weight: 500; line-height: 24px; margin: 0;
-}
-.pawwork-automations-titlebar p {
-  color: var(--dsw-alias-label-tertiary); font-size: 14px; line-height: 22px; margin: 0;
-}
-.pawwork-automations-title-actions { align-items: center; display: flex; flex: none; gap: 8px; }
-.pawwork-automations-search, .pawwork-automations-search input { width: 100%; }
-.pawwork-automations-tabs { display: flex; gap: 6px; }
-.pawwork-automations-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.pawwork-automations-page-head h2 { font-size: 18px; font-weight: 600; line-height: 26px; margin: 0; }
+.pawwork-automations-page-head p { color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xs-13); margin: 0; }
+.pawwork-automations-toolbar { align-items: center; display: flex; gap: 10px; }
+.pawwork-automations-search { flex: 1; }
+.pawwork-automations-search input { width: 100%; }
+.pawwork-automations-tabs { display: flex; flex: none; gap: 6px; }
+.pawwork-automations-list { display: flex; flex-direction: column; gap: 8px; }
 .pawwork-automation-row {
   align-items: center; background: transparent; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
-  color: inherit; display: grid; font: inherit; gap: 10px;
-  grid-template-columns: 20px minmax(0, 1fr); min-height: 62px;
+  color: inherit; display: grid; font: inherit; gap: 12px;
+  grid-template-columns: 16px minmax(0, 1fr) auto; min-height: 56px;
   padding: 10px 14px; text-align: left; width: 100%;
 }
 .pawwork-automation-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
@@ -51,7 +51,10 @@ window.__ModuleLoader__.load({
   display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .pawwork-automation-row-title { font-size: 14px; font-weight: 500; line-height: 22px; }
-.pawwork-automation-row-meta { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; }
+.pawwork-automation-row-meta, .pawwork-automation-row-trail {
+  color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px;
+}
+.pawwork-automation-row-trail { white-space: nowrap; }
 .pawwork-automations-empty, .pawwork-automations-loading {
   border: 1px dashed var(--dsw-alias-border-l3); border-radius: 8px;
   color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 20px; padding: 20px; text-align: center;
@@ -108,11 +111,6 @@ window.__ModuleLoader__.load({
 .pawwork-automation-run-summary {
   display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-@media (max-width: 680px) {
-  .pawwork-automations-titlebar, .pawwork-automation-panel-head { flex-direction: column; }
-  .pawwork-automation-actions { flex-wrap: wrap; }
-  .pawwork-automation-grid, .pawwork-automation-advanced-content { grid-template-columns: 1fr; }
-}
 `
 
     const styleId = "@pawwork/dsh-automations"
@@ -151,9 +149,22 @@ window.__ModuleLoader__.load({
 
     function automationCall(connection, endpoint, payload = {}, signal) {
       return connection.rpc.call("/pawwork-automations", endpoint, payload, signal).then((result) => {
-        if (!result.ok) throw new Error(result.error.message)
+        if (!result.ok) {
+          const failure = new Error(result.error.message)
+          failure.issues = result.error.details?.issues
+          throw failure
+        }
         return result.value
       })
+    }
+
+    // The store owns cron validity, so the editor localizes the codes it can explain and falls back
+    // to the store's own sentence for the rest.
+    function errorText(error) {
+      if (error?.issues?.some((issue) => issue?.code === "invalid-cron")) {
+        return text("Cron 表达式无效，或它指定的时间永远不会到来", "This cron expression is invalid, or the time it names never comes")
+      }
+      return error instanceof Error ? error.message : String(error)
     }
 
     function workspaceName(cwd) {
@@ -180,6 +191,15 @@ window.__ModuleLoader__.load({
       }
       return `Cron ${definition.rhythm.expression}`
     }
+    // One statement of what a schedule is doing; the row's glyph and trailing text both render it.
+    function definitionState(definition) {
+      if (definition.paused) return { icon: IconPauseOutline16, label: text("已暂停", "Paused") }
+      if (definition.terminalReason === "completed") return { icon: IconCheckOutline16, label: text("已完成", "Completed") }
+      if (definition.terminalReason === "missed") return { icon: IconCheckOutline16, label: text("已错过", "Missed") }
+      if (definition.terminalReason === "run-limit") return { icon: IconCheckOutline16, label: text("已跑满", "Run limit reached") }
+      return { icon: IconPlayOutline16, label: `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}` }
+    }
+
     function runState(run) {
       const labels = isChinese()
         ? { failed: "失败", running: "运行中", stopped: "已停止", succeeded: "已完成" }
@@ -310,7 +330,7 @@ window.__ModuleLoader__.load({
           const result = await automationCall(connection, "update", { id: definition.id, expectedRevision: definition.revision, ...common, ...(schedule.kind === "oneshot" ? { fireAt: schedule.fireAt } : { rhythm: schedule.rhythm }) })
           onSaved(result)
         } catch (saveError) {
-          setError(saveError instanceof Error ? saveError.message : String(saveError))
+          setError(errorText(saveError))
         } finally { setBusy("") }
       }
       function requestClose() {
@@ -324,7 +344,7 @@ window.__ModuleLoader__.load({
           const result = await automationCall(connection, endpoint, payload)
           onSaved(endpoint === "run-now" ? definition : result)
         }
-        catch (mutationError) { setError(mutationError instanceof Error ? mutationError.message : String(mutationError)) }
+        catch (mutationError) { setError(errorText(mutationError)) }
         finally { setBusy("") }
       }
       async function remove() {
@@ -332,7 +352,7 @@ window.__ModuleLoader__.load({
         try { await automationCall(connection, "delete", { id: definition.id }); onDeleted() }
         catch (deleteError) {
           setDeleting(false)
-          setError(deleteError instanceof Error ? deleteError.message : String(deleteError))
+          setError(errorText(deleteError))
         }
         finally { setBusy("") }
       }
@@ -411,7 +431,7 @@ window.__ModuleLoader__.load({
           setData(list)
           setSelectedId((current) => list.definitions.some((item) => item.id === current) ? current : null)
         } catch (loadError) {
-          if (!signal?.aborted) setError(loadError instanceof Error ? loadError.message : String(loadError))
+          if (!signal?.aborted) setError(errorText(loadError))
         } finally { if (!signal?.aborted) setLoading(false) }
       }
       useEffect(() => {
@@ -431,8 +451,10 @@ window.__ModuleLoader__.load({
       const definitions = data?.definitions || []
       const selected = definitions.find((definition) => definition.id === selectedId) || null
       const visible = definitions.filter((definition) => {
-        if (filter === "active" && definition.paused) return false
+        // Active means it still has a next run: neither paused nor finished.
+        if (filter === "active" && (definition.paused || definition.terminalReason)) return false
         if (filter === "paused" && !definition.paused) return false
+        if (filter === "ended" && (definition.paused || !definition.terminalReason)) return false
         const needle = query.trim().toLocaleLowerCase()
         return !needle || definition.title.toLocaleLowerCase().includes(needle) || workspaceName(definition.cwd).toLocaleLowerCase().includes(needle)
       })
@@ -443,25 +465,30 @@ window.__ModuleLoader__.load({
         if (!preferredWorkspace) return
         setError("")
         try { await createViaChat(preferredWorkspace.workspaceId) }
-        catch (createError) { setError(createError instanceof Error ? createError.message : String(createError)) }
+        catch (createError) { setError(errorText(createError)) }
       }
 
       if (selected) return h("main", { className: "pawwork-automations-surface" },
         h(AutomationEditor, { closeSettings: close, connection, definition: selected, key: `${selected.id}:${selected.revision}`, onClose: closePanel, onDeleted: async () => { closePanel(); await load() }, onSaved: reloadAfter, sessions }))
 
       return h("main", { className: "pawwork-automations-surface" },
-          h("div", { className: "pawwork-automations-titlebar" },
-            h("div", null, h("h1", null, text("自动化", "Automations")), h("p", null, text("让 PawWork 按计划处理重复工作", "Let PawWork handle recurring work on a schedule"))),
-            h("div", { className: "pawwork-automations-title-actions" },
-              h(Button, { disabled: !preferredWorkspace, onClick: createAutomation, size: "sm", variant: "primary" }, text("在对话中创建", "Create in chat")))),
-          h(Input, { "aria-label": text("搜索自动化", "Search automations"), className: "pawwork-automations-search", icon: h(IconSearchOutline16, { size: 16 }), onChange: (event) => setQuery(event.target.value), placeholder: text("搜索自动化", "Search automations"), value: query }),
-          h("div", { className: "pawwork-automations-tabs", role: "tablist" }, [["all", text("全部", "All")], ["active", text("启用", "Active")], ["paused", text("暂停", "Paused")]].map(([value, label]) => h(Pill, { active: filter === value, key: value, onClick: () => setFilter(value), role: "tab" }, label))),
+          h("div", { className: "pawwork-automations-page-head" },
+            h("h2", null, text("自动化", "Automations")),
+            h("p", null, text("让 PawWork 按计划处理重复工作，创建过程在对话里完成。", "Let PawWork handle recurring work on a schedule; you create one in chat."))),
+          h("div", { className: "pawwork-automations-toolbar" },
+            h(Input, { "aria-label": text("搜索自动化", "Search automations"), className: "pawwork-automations-search", icon: h(IconSearchOutline16, { size: 16 }), onChange: (event) => setQuery(event.target.value), placeholder: text("搜索自动化", "Search automations"), value: query }),
+            h("div", { className: "pawwork-automations-tabs", role: "tablist" }, [["all", text("全部", "All")], ["active", text("启用", "Active")], ["paused", text("暂停", "Paused")], ["ended", text("已结束", "Ended")]].map(([value, label]) => h(Pill, { active: filter === value, key: value, onClick: () => setFilter(value), role: "tab" }, label))),
+            h(Button, { className: "pawwork-automations-create", disabled: !preferredWorkspace, onClick: createAutomation, size: "sm", variant: "primary" }, text("新建自动化", "New automation"))),
           error ? h("div", { className: "pawwork-automations-error", role: "alert" }, error) : null,
           loading && data === null ? h("div", { className: "pawwork-automations-loading" }, text("正在加载…", "Loading…")) : null,
           h("div", { className: "pawwork-automations-list" },
-            visible.map((definition) => h("button", { className: "pawwork-automation-row", key: definition.id, onClick: () => setSelectedId(definition.id), type: "button" },
-              h("span", { className: "pawwork-automation-row-icon" }, h(definition.paused ? IconPauseOutline16 : IconPlayOutline16, { size: 16 })),
-              h("span", null, h("span", { className: "pawwork-automation-row-title" }, definition.title), h("span", { className: "pawwork-automation-row-meta" }, `${formatSchedule(definition)}  ${definition.paused ? text("已暂停", "Paused") : `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}`}`)))),
+            visible.map((definition) => {
+              const state = definitionState(definition)
+              return h("button", { className: "pawwork-automation-row", key: definition.id, onClick: () => setSelectedId(definition.id), type: "button" },
+                h("span", { className: "pawwork-automation-row-icon" }, h(state.icon, { size: 16 })),
+                h("span", null, h("span", { className: "pawwork-automation-row-title" }, definition.title), h("span", { className: "pawwork-automation-row-meta" }, formatSchedule(definition))),
+                h("span", { className: "pawwork-automation-row-trail" }, state.label))
+            }),
             visible.length === 0 && !loading ? h("div", { className: "pawwork-automations-empty" }, query ? text("没有匹配的自动化", "No matching automations") : text("还没有自动化。在对话中描述任务和运行时间即可创建。", "No automations yet. Describe a task and schedule in chat to create one.")) : null))
     }
 

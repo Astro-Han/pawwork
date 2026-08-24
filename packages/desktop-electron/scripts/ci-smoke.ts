@@ -470,7 +470,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
     const automationSurfaceVisible = visible(document.querySelector(".pawwork-automations-surface"))
-    visibleButton(/^(在对话中创建|Create in chat)$/i)?.click()
+    document.querySelector(".pawwork-automations-create")?.click()
     let automationCreateViaChatWorked = false
     for (let attempt = 0; attempt < 40 && !automationCreateViaChatWorked; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 50))

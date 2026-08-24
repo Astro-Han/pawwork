@@ -72,7 +72,12 @@ function normalizeRhythm(rhythm) {
   }
   if (rhythm?.kind === 'cron') {
     const expression = assertText(rhythm.expression, 'rhythm.expression');
-    if (!isValidCronExpression(expression)) throw new Error(`invalid cron expression: ${expression}`);
+    if (!isValidCronExpression(expression)) {
+      // Coded so the editor can localize it without copying the cron parser.
+      const invalid = new Error(`invalid cron expression: ${expression}`);
+      invalid.code = 'invalid-cron';
+      throw invalid;
+    }
     return { kind: 'cron', expression };
   }
   throw new Error('recurring rhythm must be interval or cron');
@@ -251,11 +256,7 @@ class AutomationStore {
     if (input.startedAt !== null) assertTimestamp(input.startedAt, 'startedAt');
     this.document.runs.push(structuredClone(input));
     const definition = this.document.definitions.find((entry) => entry.id === input.automationId);
-    if (definition?.kind === 'recurring'
-      && definition.stop?.kind === 'count'
-      && this.completedRunCount(definition.id) >= definition.stop.count) {
-      definition.nextFireAt = null;
-    }
+    if (definition?.kind === 'recurring' && this.runLimitReached(definition)) definition.nextFireAt = null;
     this.save();
     return 'imported';
   }
@@ -374,6 +375,24 @@ class AutomationStore {
     });
   }
 
+  runLimitReached(definition) {
+    return definition.stop?.kind === 'count'
+      && this.completedRunCount(definition.id) >= definition.stop.count;
+  }
+
+  // Why a definition has no next run, so the list can say "completed" or "run limit reached"
+  // instead of one dash for both. Paused is excluded: the list states that on its own. An
+  // unschedulable expression is not a case — every write path validates the cron first.
+  terminalReason(definition) {
+    if (definition.paused || definition.nextFireAt !== null) return null;
+    // A one-shot resumed after its moment, or seen again after a missed startup, loses its
+    // next run without ever attempting one: that is missed, not completed.
+    if (definition.kind === 'oneshot') {
+      return this.completedRunCount(definition.id) > 0 ? 'completed' : 'missed';
+    }
+    return this.runLimitReached(definition) ? 'run-limit' : null;
+  }
+
   completedRunCount(automationId) {
     return this.document.runs.filter((run) => (
       run.automationId === automationId && (run.state === 'succeeded' || run.state === 'failed')
@@ -438,9 +457,7 @@ class AutomationStore {
     };
     Object.assign(run, completed);
     const definition = this.document.definitions.find((entry) => entry.id === run.automationId);
-    if (definition?.kind === 'recurring' && definition.stop?.kind === 'count') {
-      if (this.completedRunCount(definition.id) >= definition.stop.count) definition.nextFireAt = null;
-    }
+    if (definition?.kind === 'recurring' && this.runLimitReached(definition)) definition.nextFireAt = null;
     this.save();
     return structuredClone(run);
   }
@@ -627,6 +644,9 @@ function rpcSuccess(value) {
   return { ok: true, value };
 }
 
+// `code` must come from DSH's enum: it validates the whole response, so an invented
+// code fails validation entirely and the user sees that instead of the message.
+// Our own reasons go in `details.issues`.
 function rpcFailure(code, message, details = {}) {
   return { ok: false, error: { code, message, details } };
 }
@@ -647,10 +667,14 @@ function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }
         return rpcSuccess({
           definitions: definitions.map((definition) => {
             const runs = store.listRuns(definition.id);
+            const activeRun = runs.find((run) => run.state === 'running') || null;
             return {
               ...definition,
-              activeRun: runs.find((run) => run.state === 'running') || null,
+              activeRun,
               recentRuns: runs.filter((run) => run.state !== 'running').slice(0, 5),
+              // A claimed run clears nextFireAt before it lands, so a definition is only
+              // terminal once nothing is still running for it.
+              terminalReason: activeRun ? null : store.terminalReason(definition),
             };
           }),
         });
@@ -685,6 +709,9 @@ function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }
     } catch (error) {
       if (signal?.aborted) return rpcFailure('cancelled', 'automation request cancelled');
       if (error?.code === 'conflict') return rpcFailure('conflict', error.message);
+      if (error?.code === 'invalid-cron') {
+        return rpcFailure('bad-request', error.message, { issues: [{ code: 'invalid-cron' }] });
+      }
       return rpcFailure('internal', error instanceof Error ? error.message : String(error));
     }
   };
