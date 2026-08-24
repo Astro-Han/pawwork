@@ -25,23 +25,24 @@ window.__ModuleLoader__.load({
   color: var(--dsw-alias-label-primary); display: flex; flex-direction: column;
   gap: 12px; max-width: 720px; min-width: 0; width: 100%;
 }
-.pawwork-automations-titlebar {
-  align-items: flex-start; display: flex; gap: 20px; justify-content: space-between; margin-bottom: 20px;
+/* One page head per settings page, matching the DSH Plugins section (18/600 title, 13px intro).
+   The section owns no header actions: the panel header above it already carries the shell's own
+   actions and Close, and a second action cluster 8px below them competes for the same corner. */
+.pawwork-automations-page-head {
+  display: flex; flex-direction: column; gap: 2px; padding: 2px 0 14px;
 }
-.pawwork-automations-titlebar h1 {
-  font-size: 16px; font-weight: 500; line-height: 24px; margin: 0;
-}
-.pawwork-automations-titlebar p {
-  color: var(--dsw-alias-label-tertiary); font-size: 14px; line-height: 22px; margin: 0;
-}
-.pawwork-automations-title-actions { align-items: center; display: flex; flex: none; gap: 8px; }
-.pawwork-automations-search, .pawwork-automations-search input { width: 100%; }
-.pawwork-automations-tabs { display: flex; gap: 6px; }
+.pawwork-automations-page-head h2 { font-size: 18px; font-weight: 600; line-height: 26px; margin: 0; }
+.pawwork-automations-page-head p { color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xs-13); margin: 0; }
+.pawwork-automations-toolbar { align-items: center; display: flex; gap: 10px; }
+.pawwork-automations-search { flex: 1; min-width: 160px; }
+.pawwork-automations-search input { width: 100%; }
+.pawwork-automations-tabs { display: flex; flex: none; gap: 6px; }
+.pawwork-automations-create { flex: none; }
 .pawwork-automations-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
 .pawwork-automation-row {
   align-items: center; background: transparent; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
-  color: inherit; display: grid; font: inherit; gap: 10px;
-  grid-template-columns: 20px minmax(0, 1fr); min-height: 62px;
+  color: inherit; display: grid; font: inherit; gap: 12px;
+  grid-template-columns: 16px minmax(0, 1fr) auto; min-height: 56px;
   padding: 10px 14px; text-align: left; width: 100%;
 }
 .pawwork-automation-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
@@ -52,6 +53,11 @@ window.__ModuleLoader__.load({
 }
 .pawwork-automation-row-title { font-size: 14px; font-weight: 500; line-height: 22px; }
 .pawwork-automation-row-meta { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; }
+/* Schedule and next run are two facts, not one sentence: the schedule stays with the title and the
+   next run is right-aligned, so a column of rows can be compared down either edge. */
+.pawwork-automation-row-trail {
+  color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; white-space: nowrap;
+}
 .pawwork-automations-empty, .pawwork-automations-loading {
   border: 1px dashed var(--dsw-alias-border-l3); border-radius: 8px;
   color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 20px; padding: 20px; text-align: center;
@@ -109,7 +115,9 @@ window.__ModuleLoader__.load({
   display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 @media (max-width: 680px) {
-  .pawwork-automations-titlebar, .pawwork-automation-panel-head { flex-direction: column; }
+  .pawwork-automation-panel-head { flex-direction: column; }
+  .pawwork-automations-toolbar { flex-wrap: wrap; }
+  .pawwork-automations-search { flex: 1 1 100%; }
   .pawwork-automation-actions { flex-wrap: wrap; }
   .pawwork-automation-grid, .pawwork-automation-advanced-content { grid-template-columns: 1fr; }
 }
@@ -450,18 +458,20 @@ window.__ModuleLoader__.load({
         h(AutomationEditor, { closeSettings: close, connection, definition: selected, key: `${selected.id}:${selected.revision}`, onClose: closePanel, onDeleted: async () => { closePanel(); await load() }, onSaved: reloadAfter, sessions }))
 
       return h("main", { className: "pawwork-automations-surface" },
-          h("div", { className: "pawwork-automations-titlebar" },
-            h("div", null, h("h1", null, text("自动化", "Automations")), h("p", null, text("让 PawWork 按计划处理重复工作", "Let PawWork handle recurring work on a schedule"))),
-            h("div", { className: "pawwork-automations-title-actions" },
-              h(Button, { disabled: !preferredWorkspace, onClick: createAutomation, size: "sm", variant: "primary" }, text("在对话中创建", "Create in chat")))),
-          h(Input, { "aria-label": text("搜索自动化", "Search automations"), className: "pawwork-automations-search", icon: h(IconSearchOutline16, { size: 16 }), onChange: (event) => setQuery(event.target.value), placeholder: text("搜索自动化", "Search automations"), value: query }),
-          h("div", { className: "pawwork-automations-tabs", role: "tablist" }, [["all", text("全部", "All")], ["active", text("启用", "Active")], ["paused", text("暂停", "Paused")]].map(([value, label]) => h(Pill, { active: filter === value, key: value, onClick: () => setFilter(value), role: "tab" }, label))),
+          h("div", { className: "pawwork-automations-page-head" },
+            h("h2", null, text("自动化", "Automations")),
+            h("p", null, text("让 PawWork 按计划处理重复工作，创建过程在对话里完成。", "Let PawWork handle recurring work on a schedule; you create one in chat."))),
+          h("div", { className: "pawwork-automations-toolbar" },
+            h(Input, { "aria-label": text("搜索自动化", "Search automations"), className: "pawwork-automations-search", icon: h(IconSearchOutline16, { size: 16 }), onChange: (event) => setQuery(event.target.value), placeholder: text("搜索自动化", "Search automations"), value: query }),
+            h("div", { className: "pawwork-automations-tabs", role: "tablist" }, [["all", text("全部", "All")], ["active", text("启用", "Active")], ["paused", text("暂停", "Paused")]].map(([value, label]) => h(Pill, { active: filter === value, key: value, onClick: () => setFilter(value), role: "tab" }, label))),
+            h(Button, { className: "pawwork-automations-create", disabled: !preferredWorkspace, onClick: createAutomation, size: "sm", variant: "primary" }, text("新建自动化", "New automation"))),
           error ? h("div", { className: "pawwork-automations-error", role: "alert" }, error) : null,
           loading && data === null ? h("div", { className: "pawwork-automations-loading" }, text("正在加载…", "Loading…")) : null,
           h("div", { className: "pawwork-automations-list" },
             visible.map((definition) => h("button", { className: "pawwork-automation-row", key: definition.id, onClick: () => setSelectedId(definition.id), type: "button" },
               h("span", { className: "pawwork-automation-row-icon" }, h(definition.paused ? IconPauseOutline16 : IconPlayOutline16, { size: 16 })),
-              h("span", null, h("span", { className: "pawwork-automation-row-title" }, definition.title), h("span", { className: "pawwork-automation-row-meta" }, `${formatSchedule(definition)}  ${definition.paused ? text("已暂停", "Paused") : `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}`}`)))),
+              h("span", null, h("span", { className: "pawwork-automation-row-title" }, definition.title), h("span", { className: "pawwork-automation-row-meta" }, formatSchedule(definition))),
+              h("span", { className: "pawwork-automation-row-trail" }, definition.paused ? text("已暂停", "Paused") : `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}`))),
             visible.length === 0 && !loading ? h("div", { className: "pawwork-automations-empty" }, query ? text("没有匹配的自动化", "No matching automations") : text("还没有自动化。在对话中描述任务和运行时间即可创建。", "No automations yet. Describe a task and schedule in chat to create one.")) : null))
     }
 

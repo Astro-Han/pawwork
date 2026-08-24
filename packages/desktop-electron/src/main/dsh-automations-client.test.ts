@@ -145,7 +145,7 @@ describe("PawWork DSH Automations client", () => {
       }),
     })
     const createButton = visit(tree).find((element) =>
-      element.type === "button" && (element.props.children as unknown[] | undefined)?.includes("在对话中创建"),
+      element.type === "button" && (element.props.children as unknown[] | undefined)?.includes("新建自动化"),
     )
 
     expect(createButton).toBeDefined()
@@ -154,6 +154,51 @@ describe("PawWork DSH Automations client", () => {
     expect(setDraft).toHaveBeenCalledWith("帮我创建一个自动化。先问我它要做什么、什么时候运行，再帮我创建。")
     expect(open).toHaveBeenCalledWith("session-1")
     expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  // The settings panel header already owns the shell's actions and Close. A second action cluster
+  // in the section's own page head lands 8px under them and competes for the same corner, so the
+  // primary action belongs in the toolbar with the controls it acts on.
+  test("keeps the primary action in the toolbar, not the page head", () => {
+    const document = fakeDocument("zh-CN")
+    const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
+
+    const plugin = definition.factory((name) => {
+      if (name === "react") {
+        return {
+          createElement,
+          useEffect: () => {},
+          useRef: <T>(value: T) => ({ current: value }),
+          useState: <T>(value: T) => [value, () => {}],
+        }
+      }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
+      throw new Error(`unexpected Automations client dependency: ${name}`)
+    })
+    let settingsSection: ((props: unknown) => unknown) | undefined
+    plugin.apply({
+      connection: {}, conversation: {}, sessions: {}, workspaces: {},
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (_options: unknown, component: typeof settingsSection) => { settingsSection = component },
+      },
+    })
+
+    const tree = settingsSection!({
+      close: () => {},
+      useWorkspaces: (select: (state: unknown) => unknown) => select({
+        items: [{ workspaceId: "workspace-1" }],
+        recentWorkspaceId: "workspace-1",
+      }),
+    })
+    const head = visit(tree).find((element) => element.props.className === "pawwork-automations-page-head")
+    const toolbar = visit(tree).find((element) => element.props.className === "pawwork-automations-toolbar")
+    const isCreate = (element: Element) =>
+      (element.props.children as unknown[] | undefined)?.includes("新建自动化") === true
+
+    expect(head).toBeDefined()
+    expect(visit(head).some((element) => element.type === "button")).toBe(false)
+    expect(visit(toolbar).some(isCreate)).toBe(true)
   })
 
   // The list label, the editor form and the save path each read this mapping.
@@ -219,7 +264,7 @@ describe("PawWork DSH Automations client", () => {
       useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
     })
 
-    // The row renders the schedule and the next fire time as one run of text.
+    // The row renders the schedule beside the title and the next fire time in its own column.
     expect(textOf(tree).join(" ")).toContain(label)
   })
 
