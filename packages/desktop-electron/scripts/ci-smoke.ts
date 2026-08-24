@@ -72,6 +72,11 @@ export type CiSmokeProductSnapshot = {
   expandedNewSessionFollowsTitlebar: boolean
   sidebarPrimaryActionCenterOffsets: { addWorkspace: number | null; newSession: number | null }
   collapsedSidebarFullyMergesWithContent: boolean
+  sessionHeaderComposerLeftAlignmentOffset: { expanded: number | null; collapsed: number | null }
+  sessionHeaderRightBoundaryIntrusion: { expanded: number | null; collapsed: number | null }
+  sessionHeaderDividerHidden: boolean
+  collapsedSessionContentAlignmentOffset: number | null
+  collapsedSessionTitleGap: number | null
   sidebarCollapseMotionMatchesPreference: boolean
   expandedNativeControlOverlaps: string[]
   collapsedNativeControlOverlaps: string[]
@@ -547,6 +552,55 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     // Sample again here: the hero page carries no [data-expandable] rows, so measuring only the
     // first screen would miss the conversation surface entirely.
     const settledCursorMismatches = cursorMismatches()
+    // The title and view tabs do not exist on the blank hero. Open the imported
+    // non-empty session before collapsing so this probe exercises the same
+    // session chrome a user sees while an agent is running.
+    const sidebarSessionLeaf = () => Array.from(document.querySelectorAll("*"))
+      .find((element) => element.childElementCount === 0
+        && visible(element)
+        && (element.textContent || "").trim() === "Imported V1 session")
+    let v1SessionImported = false
+    let v1SessionVisibleInSidebar = false
+    const importDeadline = Date.now() + 120_000
+    while (!v1SessionVisibleInSidebar && Date.now() < importDeadline) {
+      const sessionLeaf = sidebarSessionLeaf()
+      const sessions = (await call("session.list", {})).items
+      v1SessionImported = sessions.some((item) => item.sessionId === ${expectedSession})
+      if (sessionLeaf) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        v1SessionVisibleInSidebar = Boolean(sidebarSessionLeaf())
+      }
+      if (!v1SessionVisibleInSidebar) await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    sidebarSessionLeaf()?.closest('[role="treeitem"]')?.click()
+    const currentSessionHeader = () => document.querySelector('[data-slot="conversation.session.header"] > header')
+    const currentSessionTabs = () => currentSessionHeader()?.querySelector('[role="tablist"]')
+    const currentComposerCard = () => document.querySelector('[data-composer-card]')
+    for (let frame = 0; frame < 120; frame += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 16))
+      if (visible(currentSessionHeader()) && visible(currentSessionTabs())) break
+    }
+    const sessionHeaderDividerHidden = () => {
+      const header = currentSessionHeader()
+      return header ? getComputedStyle(header, "::after").display === "none" : false
+    }
+    const sessionHeaderComposerLeftAlignmentOffset = (safeLeft = Number.NEGATIVE_INFINITY) => {
+      const titleRow = currentSessionHeader()?.firstElementChild
+      const titleRect = titleRow?.getBoundingClientRect()
+      const composerRect = currentComposerCard()?.getBoundingClientRect()
+      if (!titleRect || !composerRect) return null
+      return Math.abs(titleRect.left - Math.max(composerRect.left, safeLeft))
+    }
+    const sessionHeaderRightBoundaryIntrusion = () => {
+      const titleRect = currentSessionHeader()?.firstElementChild?.getBoundingClientRect()
+      const composerRect = currentComposerCard()?.getBoundingClientRect()
+      if (!titleRect || !composerRect) return null
+      const nativeSafeRight = innerWidth - titlebarInsetRight - 28
+      return Math.max(0, titleRect.right - composerRect.right, titleRect.right - nativeSafeRight)
+    }
+    const expandedSessionHeaderComposerLeftAlignmentOffset = sessionHeaderComposerLeftAlignmentOffset()
+    const expandedSessionHeaderRightBoundaryIntrusion = sessionHeaderRightBoundaryIntrusion()
+
     const collapseToggles = sidebarToggles()
     collapseToggles[0]?.click()
     // The DSH rail remounts, while PawWork's shell.overlay toggle stays stable. Wait for both the
@@ -586,6 +640,28 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const collapsedSidebarSurfaceMatchesContent = collapsedSurfaceStateValue.surfacesMatch
     const collapsedSidebarDividerHidden = collapsedSurfaceStateValue.dividerHidden
     const collapsedSidebarFullyMergesWithContent = collapsedSidebarSurfaceMatchesContent && collapsedSidebarDividerHidden
+    const rectGap = (rightElement, leftElement) => {
+      const right = rightElement?.getBoundingClientRect()
+      const left = leftElement?.getBoundingClientRect()
+      return right && left ? left.left - right.right : null
+    }
+    const collapsedSessionTitle = currentSessionHeader()?.querySelector("nav button:disabled")
+    const collapsedSessionTab = currentSessionTabs()?.querySelector('[role="tab"]')
+    const textStart = (element) => {
+      const rect = element?.getBoundingClientRect()
+      return rect ? rect.left + Number.parseFloat(getComputedStyle(element).paddingLeft) : null
+    }
+    const titleTextStart = textStart(collapsedSessionTitle)
+    const tabTextStart = textStart(collapsedSessionTab)
+    const collapsedSessionContentAlignmentOffset = titleTextStart !== null && tabTextStart !== null
+      ? Math.abs(titleTextStart - tabTextStart)
+      : null
+    const collapsedToggleRect = expandToggles[0]?.getBoundingClientRect()
+    const collapsedSessionHeaderComposerLeftAlignmentOffset = sessionHeaderComposerLeftAlignmentOffset(
+      collapsedToggleRect ? collapsedToggleRect.right + 8 : Number.NaN,
+    )
+    const collapsedSessionHeaderRightBoundaryIntrusion = sessionHeaderRightBoundaryIntrusion()
+    const collapsedSessionTitleGap = rectGap(expandToggles[0], collapsedSessionTitle)
     const collapsedPrimaryActions = await waitForSidebarPrimaryActions()
     const collapsedNewSession = collapsedPrimaryActions.newSession
     const collapsedAddWorkspace = collapsedPrimaryActions.addWorkspace
@@ -614,29 +690,6 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     expandToggles[0]?.click()
     await new Promise((resolve) => setTimeout(resolve, 200))
 
-    // Assert the real user outcome without a reload. The bulk fixture makes a
-    // post-connect completion likely, but machine speed is not a synchronization
-    // barrier, so a healthy run must not fail merely because its first sample
-    // already contains the imported title. Repeat the visible sample to exclude
-    // the old announce/dispose flicker.
-    const sidebarHasV1Session = () => Array.from(document.querySelectorAll("*"))
-      .filter((element) => element.childElementCount === 0)
-      .some((element) => visible(element) && (element.textContent || "").trim() === "Imported V1 session")
-    let v1SessionImported = false
-    let v1SessionVisibleInSidebar = false
-    // The fixture's target session imports last (bulk sessions keep the run
-    // going), so this wait spans the whole migration on a slow runner.
-    const importDeadline = Date.now() + 120_000
-    while (!v1SessionVisibleInSidebar && Date.now() < importDeadline) {
-      const sidebarHas = sidebarHasV1Session()
-      const sessions = (await call("session.list", {})).items
-      v1SessionImported = sessions.some((item) => item.sessionId === ${expectedSession})
-      if (sidebarHas) {
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        v1SessionVisibleInSidebar = sidebarHasV1Session()
-      }
-      if (!v1SessionVisibleInSidebar) await new Promise((resolve) => setTimeout(resolve, 250))
-    }
     const providers = (await call("llm.providers", {})).providers
     const session = await call("session.create", { cwd: ${workspace} })
     const skills = (await call("skill.list", { sessionId: session.sessionId })).skills
@@ -673,6 +726,17 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       expandedNewSessionFollowsTitlebar,
       sidebarPrimaryActionCenterOffsets,
       collapsedSidebarFullyMergesWithContent,
+      sessionHeaderComposerLeftAlignmentOffset: {
+        expanded: expandedSessionHeaderComposerLeftAlignmentOffset,
+        collapsed: collapsedSessionHeaderComposerLeftAlignmentOffset,
+      },
+      sessionHeaderRightBoundaryIntrusion: {
+        expanded: expandedSessionHeaderRightBoundaryIntrusion,
+        collapsed: collapsedSessionHeaderRightBoundaryIntrusion,
+      },
+      sessionHeaderDividerHidden: sessionHeaderDividerHidden(),
+      collapsedSessionContentAlignmentOffset,
+      collapsedSessionTitleGap,
       sidebarCollapseMotionMatchesPreference,
       expandedNativeControlOverlaps,
       collapsedNativeControlOverlaps,
@@ -840,6 +904,23 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.collapsedSidebarFullyMergesWithContent
       ? null
       : "collapsed sidebar does not fully merge into the content surface",
+    Object.values(snapshot.sessionHeaderComposerLeftAlignmentOffset)
+      .every((offset) => offset !== null && offset <= 1)
+      ? null
+      : `session header and composer left-edge offsets are ${JSON.stringify(snapshot.sessionHeaderComposerLeftAlignmentOffset)}`,
+    Object.values(snapshot.sessionHeaderRightBoundaryIntrusion)
+      .every((intrusion) => intrusion !== null && intrusion <= 1)
+      ? null
+      : `session header right-boundary intrusions are ${JSON.stringify(snapshot.sessionHeaderRightBoundaryIntrusion)}`,
+    snapshot.sessionHeaderDividerHidden
+      ? null
+      : "session header divider is visible",
+    snapshot.collapsedSessionContentAlignmentOffset !== null && snapshot.collapsedSessionContentAlignmentOffset <= 1
+      ? null
+      : `collapsed session title and tabs are ${snapshot.collapsedSessionContentAlignmentOffset ?? "an unknown distance"}px out of alignment`,
+    snapshot.collapsedSessionTitleGap !== null && snapshot.collapsedSessionTitleGap >= 8
+      ? null
+      : `collapsed session title leaves only ${snapshot.collapsedSessionTitleGap ?? "an unknown"}px after the sidebar toggle`,
     snapshot.sidebarCollapseMotionMatchesPreference
       ? null
       : "sidebar collapse motion does not match the user's motion preference",

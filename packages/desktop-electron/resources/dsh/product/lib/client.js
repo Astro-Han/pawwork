@@ -14,6 +14,9 @@ window.__ModuleLoader__.load({
   --pawwork-titlebar-inset-left: var(--pawwork-titlebar-host-inset-left, env(titlebar-area-x, 0px));
   --pawwork-titlebar-inset-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
   --pawwork-titlebar-control-center-y: var(--pawwork-titlebar-host-control-center-y, calc(max(var(--pawwork-titlebar-height), 32px) / 2));
+  /* DSH exposes this as SIDEBAR_COLLAPSED in its typed layout contract, but not as a CSS token.
+     Mirror it only to translate the window-global native inset into the center column's coordinates. */
+  --pawwork-dsh-collapsed-sidebar-width: 56px;
 }
 .pawwork-window-chrome {
   height: max(var(--pawwork-titlebar-height), 32px);
@@ -71,16 +74,70 @@ html body [data-slot="sidebar"] > * {
   background: var(--dsw-alias-bg-base);
 }
 [data-sidebar-collapsed] > div:has(> [data-slot="sidebar"]) { border-right-color: transparent; }
+/* A live conversation is one content column: title, tabs and utilities share DSH's composer width
+   instead of following the sidebar edge. This keeps their visual center stable while the sidebar
+   animates. On narrow windows the same column yields only as much as native controls require. */
+[data-slot="conversation.session.header"] > header {
+  --pawwork-session-column-gutter: var(--dsh-composer-side-clearance, 16px);
+  --pawwork-session-column-safe-left: var(--pawwork-session-column-gutter);
+  --pawwork-session-column-safe-right: max(
+    var(--pawwork-session-column-gutter),
+    calc(28px + var(--pawwork-titlebar-inset-right, 0px))
+  );
+  --pawwork-session-column-width: min(
+    var(--dsh-composer-card-max-width, 780px),
+    calc(100% - 2 * var(--pawwork-session-column-gutter))
+  );
+  --pawwork-session-column-center-left: calc(
+    (100% - var(--dsh-scrollbar-width, 8px) - var(--pawwork-session-column-width)) / 2
+  );
+  --pawwork-session-column-left: max(
+    var(--pawwork-session-column-center-left),
+    var(--pawwork-session-column-safe-left)
+  );
+  box-sizing: border-box;
+  padding-left: 0;
+  padding-right: 0;
+}
+[data-sidebar-collapsed] [data-slot="conversation.session.header"] > header {
+  --pawwork-session-column-safe-left: max(
+    var(--pawwork-session-column-gutter),
+    calc(var(--pawwork-titlebar-inset-left) + 44px - var(--pawwork-dsh-collapsed-sidebar-width))
+  );
+}
+[data-slot="conversation.session.header"] > header > :is(:first-child, [role="tablist"]) {
+  box-sizing: border-box;
+  margin-left: var(--pawwork-session-column-left);
+  margin-right: 0;
+  width: min(
+    var(--pawwork-session-column-width),
+    calc(100% - var(--pawwork-session-column-left) - var(--pawwork-session-column-safe-right))
+  );
+}
+/* The public action seat belongs at the trailing edge, leaving the title the available middle. */
+[data-slot="conversation.session.header"] :has(> [data-slot="conversation.session.header.actions"]) { margin-left: auto; }
+/* DSH caps every breadcrumb at 220px. Let the current title consume the remaining title cluster;
+   its existing overflow and ellipsis still take over when actions genuinely leave less room. */
+[data-slot="conversation.session.header"] nav:has(button:disabled) { flex: 1; }
+[data-slot="conversation.session.header"] nav button:disabled { max-width: 100%; }
+/* The selected tab already supplies the local state cue; a full-width rule adds a competing grid. */
+[data-slot="conversation.session.header"] > header::after { display: none; }
+/* Echo the selected underline at lower contrast without bringing back a shared control background. */
+[data-slot="conversation.session.header"] [role="tab"][aria-selected="false"]:hover { color: var(--dsw-alias-label-primary); }
+[data-slot="conversation.session.header"] [role="tab"][aria-selected="false"]:hover::after { background: var(--dsw-alias-label-caption); }
+/* Trajectory is a wide data surface, but full bleed makes its timeline and ledger lose the page
+   grid. Constrain its single public overlay root so toolbar, timeline, table and details keep one
+   width and their existing internal scroll ownership. */
+[data-conversation-composer-overlay]:has([data-trajectory-scroll]) {
+  align-self: center;
+  width: calc(100% - 48px);
+  max-width: 1200px;
+}
 @media (prefers-reduced-motion: reduce) {
   html body div:has(> [data-slot="sidebar"]),
   html body [data-slot="sidebar"] > * { transition-duration: 0.01ms; }
 }
-/* Stable slot boundaries consume the right inset, so current and future header controls naturally
-   sit before the Windows caption buttons. Preserve DSH's existing 28px edge spacing. */
-[data-slot="conversation.session.header"] > * {
-  box-sizing: border-box;
-  padding-right: calc(28px + var(--pawwork-titlebar-inset-right, 0px));
-}
+/* The session column above reserves the Windows caption inset at its own right edge. */
 /* DSH's details slot renders a panel root followed by its 55px header. Preserve the header's native
    12px breathing room, then put its close/collapse action before the same Windows inset. */
 [data-slot="details"] > * > :first-child {
@@ -96,11 +153,6 @@ body > [class*="_banner_"] { box-sizing: border-box; top: 0; padding-right: var(
    rules at (0,2,0) behind tool cards, skill cards and trajectory rows, which the hero page cannot
    reveal. Known gap: trajectory's collapsed-summary row is a bare <tr> with no role to match. */
 html body :is(button, [role="button"], [role="treeitem"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="option"], [aria-haspopup], label, summary, select):not(a[href]):not(:disabled) { cursor: default; }
-/* Taking the hand away leaves nothing behind on controls DSH ships without a hover state (copyable
-   card and search-result file header). :where() drops this below DSH's own
-   .cls:hover at (0,2,0), making it a fallback rather than an override. Background only: a shared
-   border-radius would replace each control's own for as long as the hover lasts. */
-html body :where(button, [role="button"], [role="treeitem"]):where(:not(:disabled)):hover { background-color: var(--dsw-alias-interactive-bg-hover); }
 .pawwork-file-action {
   align-items: center; background: transparent; border: 0; border-radius: 6px;
   color: var(--dsw-alias-label-secondary); display: inline-flex;
