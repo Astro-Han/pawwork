@@ -137,9 +137,8 @@ function createDesktopHost(options) {
     const current = marketStatus(profileDir);
     return {
       ...current,
-      restartRequired: current.enabled && (
-        !bootMarket.enabled || current.version !== bootMarket.version
-      ),
+      restartRequired: current.enabled !== bootMarket.enabled
+        || (current.enabled && current.version !== bootMarket.version),
     };
   };
   return {

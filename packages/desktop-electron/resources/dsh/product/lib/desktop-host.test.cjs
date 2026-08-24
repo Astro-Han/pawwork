@@ -161,6 +161,27 @@ test('requires the minimum market version and derives restart from the boot gene
   });
 })
 
+test('requires restart when the running market is removed from the profile', async () => {
+  const { home, profileDir } = profileHome('1.21.0');
+  const host = createDesktopHost({
+    dshBin: '/app/dsh/bin.js',
+    home,
+    nodeExecutable: '/app/PawWork',
+    subprocess: fakeSubprocess(),
+  });
+
+  fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
+    dependencies: {},
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } },
+  }));
+
+  assert.deepEqual(await host.communityMarket.status(), {
+    enabled: false,
+    restartRequired: true,
+    version: '1.21.0',
+  });
+})
+
 test('installs only the pinned compatible market through the managed service', async () => {
   const { home, profileDir } = profileHome();
   const managed = managedSubprocess();
