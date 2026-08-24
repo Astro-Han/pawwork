@@ -12,6 +12,7 @@ window.__ModuleLoader__.load({
       StateDot,
       IconChevronLeftOutline14,
       IconChevronDownOutline14,
+      IconCheckOutline16,
       IconPauseOutline16,
       IconPlayOutline16,
       IconSearchOutline16,
@@ -58,6 +59,7 @@ window.__ModuleLoader__.load({
 .pawwork-automation-row-trail {
   color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; white-space: nowrap;
 }
+.pawwork-automation-row[data-state="stopped"] .pawwork-automation-row-trail { color: var(--dsw-alias-label-secondary); }
 .pawwork-automations-empty, .pawwork-automations-loading {
   border: 1px dashed var(--dsw-alias-border-l3); border-radius: 8px;
   color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 20px; padding: 20px; text-align: center;
@@ -181,6 +183,17 @@ window.__ModuleLoader__.load({
       }
       return `Cron ${definition.rhythm.expression}`
     }
+    // One statement of what a definition's schedule is doing; the row's glyph and its trailing text
+    // are two renderings of it, the way runDotState and runState already pair for a run record.
+    // Split, they drifted apart on the definitions that had stopped: the glyph still said running
+    // while the text said "next —", and a schedule that had ended looked like one still waiting.
+    function definitionState(definition) {
+      if (definition.paused) return { icon: IconPauseOutline16, label: text("已暂停", "Paused"), state: "stopped" }
+      if (definition.terminalReason === "completed") return { icon: IconCheckOutline16, label: text("已完成", "Completed"), state: "stopped" }
+      if (definition.terminalReason === "run-limit") return { icon: IconCheckOutline16, label: text("已跑满", "Run limit reached"), state: "stopped" }
+      return { icon: IconPlayOutline16, label: `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}`, state: "live" }
+    }
+
     function runState(run) {
       const labels = isChinese()
         ? { failed: "失败", running: "运行中", stopped: "已停止", succeeded: "已完成" }
@@ -432,8 +445,11 @@ window.__ModuleLoader__.load({
       const definitions = data?.definitions || []
       const selected = definitions.find((definition) => definition.id === selectedId) || null
       const visible = definitions.filter((definition) => {
-        if (filter === "active" && definition.paused) return false
+        // Active means it still has a next run: neither paused nor finished. Without the second
+        // half, a definition that had stopped for good kept showing up under Active.
+        if (filter === "active" && (definition.paused || definition.terminalReason)) return false
         if (filter === "paused" && !definition.paused) return false
+        if (filter === "ended" && (definition.paused || !definition.terminalReason)) return false
         const needle = query.trim().toLocaleLowerCase()
         return !needle || definition.title.toLocaleLowerCase().includes(needle) || workspaceName(definition.cwd).toLocaleLowerCase().includes(needle)
       })
@@ -456,15 +472,18 @@ window.__ModuleLoader__.load({
             h("p", null, text("让 PawWork 按计划处理重复工作，创建过程在对话里完成。", "Let PawWork handle recurring work on a schedule; you create one in chat."))),
           h("div", { className: "pawwork-automations-toolbar" },
             h(Input, { "aria-label": text("搜索自动化", "Search automations"), className: "pawwork-automations-search", icon: h(IconSearchOutline16, { size: 16 }), onChange: (event) => setQuery(event.target.value), placeholder: text("搜索自动化", "Search automations"), value: query }),
-            h("div", { className: "pawwork-automations-tabs", role: "tablist" }, [["all", text("全部", "All")], ["active", text("启用", "Active")], ["paused", text("暂停", "Paused")]].map(([value, label]) => h(Pill, { active: filter === value, key: value, onClick: () => setFilter(value), role: "tab" }, label))),
+            h("div", { className: "pawwork-automations-tabs", role: "tablist" }, [["all", text("全部", "All")], ["active", text("启用", "Active")], ["paused", text("暂停", "Paused")], ["ended", text("已结束", "Ended")]].map(([value, label]) => h(Pill, { active: filter === value, key: value, onClick: () => setFilter(value), role: "tab" }, label))),
             h(Button, { className: "pawwork-automations-create", disabled: !preferredWorkspace, onClick: createAutomation, size: "sm", variant: "primary" }, text("新建自动化", "New automation"))),
           error ? h("div", { className: "pawwork-automations-error", role: "alert" }, error) : null,
           loading && data === null ? h("div", { className: "pawwork-automations-loading" }, text("正在加载…", "Loading…")) : null,
           h("div", { className: "pawwork-automations-list" },
-            visible.map((definition) => h("button", { className: "pawwork-automation-row", key: definition.id, onClick: () => setSelectedId(definition.id), type: "button" },
-              h("span", { className: "pawwork-automation-row-icon" }, h(definition.paused ? IconPauseOutline16 : IconPlayOutline16, { size: 16 })),
-              h("span", null, h("span", { className: "pawwork-automation-row-title" }, definition.title), h("span", { className: "pawwork-automation-row-meta" }, formatSchedule(definition))),
-              h("span", { className: "pawwork-automation-row-trail" }, definition.paused ? text("已暂停", "Paused") : `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}`))),
+            visible.map((definition) => {
+              const state = definitionState(definition)
+              return h("button", { className: "pawwork-automation-row", "data-state": state.state, key: definition.id, onClick: () => setSelectedId(definition.id), type: "button" },
+                h("span", { className: "pawwork-automation-row-icon" }, h(state.icon, { size: 16 })),
+                h("span", null, h("span", { className: "pawwork-automation-row-title" }, definition.title), h("span", { className: "pawwork-automation-row-meta" }, formatSchedule(definition))),
+                h("span", { className: "pawwork-automation-row-trail" }, state.label))
+            }),
             visible.length === 0 && !loading ? h("div", { className: "pawwork-automations-empty" }, query ? text("没有匹配的自动化", "No matching automations") : text("还没有自动化。在对话中描述任务和运行时间即可创建。", "No automations yet. Describe a task and schedule in chat to create one.")) : null))
     }
 

@@ -374,6 +374,21 @@ class AutomationStore {
     });
   }
 
+  // Why a definition has no next run, so the list can say "completed" or "run
+  // limit reached" instead of one dash standing for both. Paused is excluded
+  // because the list states it on its own, and an imported definition is
+  // activated inside the same import call that wrote it, so no reader observes
+  // that window. An unschedulable expression is not a case here: every write
+  // path runs it through isValidCronExpression first, and the resolver looks
+  // five years ahead, which covers even a Feb 29 schedule.
+  terminalReason(definition) {
+    if (definition.paused || definition.nextFireAt !== null) return null;
+    if (definition.kind === 'oneshot') return 'completed';
+    if (definition.stop?.kind === 'count'
+      && this.completedRunCount(definition.id) >= definition.stop.count) return 'run-limit';
+    return null;
+  }
+
   completedRunCount(automationId) {
     return this.document.runs.filter((run) => (
       run.automationId === automationId && (run.state === 'succeeded' || run.state === 'failed')
@@ -651,6 +666,7 @@ function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }
               ...definition,
               activeRun: runs.find((run) => run.state === 'running') || null,
               recentRuns: runs.filter((run) => run.state !== 'running').slice(0, 5),
+              terminalReason: store.terminalReason(definition),
             };
           }),
         });

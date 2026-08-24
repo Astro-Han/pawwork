@@ -42,6 +42,7 @@ const primitives = {
   Button: primitive("button"), DisclosureRow: primitive("div"), Input: primitive("input"),
   Menu: primitive("div"), Modal: primitive("div"), Pill: primitive("button"), StateDot: primitive("span"),
   IconChevronLeftOutline14: "IconChevronLeftOutline14", IconChevronDownOutline14: "IconChevronDownOutline14",
+  IconCheckOutline16: "IconCheckOutline16",
   IconPauseOutline16: "IconPauseOutline16", IconPlayOutline16: "IconPlayOutline16",
   IconSearchOutline16: "IconSearchOutline16", IconSettingsOutline16: "IconSettingsOutline16",
   IconTrashOutline16: "IconTrashOutline16",
@@ -154,6 +155,68 @@ describe("PawWork DSH Automations client", () => {
     expect(setDraft).toHaveBeenCalledWith("帮我创建一个自动化。先问我它要做什么、什么时候运行，再帮我创建。")
     expect(open).toHaveBeenCalledWith("session-1")
     expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  // A definition that has stopped for good used to render as a play glyph next to "Next —", which
+  // reads as one still waiting its turn. The glyph and the trailing text now come from one
+  // derivation, so they cannot disagree about whether a schedule is still live.
+  test.each([
+    [{ id: "live", paused: false, nextFireAt: 4_000, terminalReason: null }, "下次", "IconPlayOutline16"],
+    [{ id: "paused", paused: true, nextFireAt: null, terminalReason: null }, "已暂停", "IconPauseOutline16"],
+    [{ id: "done", paused: false, nextFireAt: null, terminalReason: "completed" }, "已完成", "IconCheckOutline16"],
+    [{ id: "limit", paused: false, nextFireAt: null, terminalReason: "run-limit" }, "已跑满", "IconCheckOutline16"],
+  ])("states $id in the row's glyph and its trailing text alike", (state, label, glyph) => {
+    const document = fakeDocument("zh-CN")
+    const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
+    let stateCall = 0
+    const plugin = definition.factory((name) => {
+      if (name === "react") {
+        return {
+          createElement,
+          useEffect: () => {},
+          useRef: <T>(value: T) => ({ current: value }),
+          useState: <T>(value: T) => {
+            stateCall += 1
+            if (stateCall === 1) {
+              return [{ definitions: [{
+                ...state,
+                title: "Weekly digest",
+                prompt: "Summarize the week",
+                revision: 1,
+                context: "fresh",
+                cwd: "/tmp/workspace",
+                model: { provider: "opencode", model: "deepseek-v4-flash-free" },
+                timezone: "UTC",
+                kind: "recurring",
+                rhythm: { kind: "cron", expression: "0 9 * * *" },
+                stop: { kind: "never" },
+                recentRuns: [],
+              }] }, () => {}]
+            }
+            return [value, () => {}]
+          },
+        }
+      }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
+      throw new Error(`unexpected Automations client dependency: ${name}`)
+    })
+    let settingsSection: ((props: unknown) => unknown) | undefined
+    plugin.apply({
+      connection: {}, conversation: {}, sessions: {}, workspaces: {},
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (_options: unknown, component: typeof settingsSection) => { settingsSection = component },
+      },
+    })
+
+    const tree = settingsSection!({
+      close: () => {},
+      useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
+    })
+    const row = visit(tree).find((element) => element.props.className === "pawwork-automation-row")
+
+    expect(textOf(tree).join(" ")).toContain(label)
+    expect(visit(row).some((element) => element.type === glyph)).toBe(true)
   })
 
   // The list label, the editor form and the save path each read this mapping.
