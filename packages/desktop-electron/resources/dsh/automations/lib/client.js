@@ -34,10 +34,9 @@ window.__ModuleLoader__.load({
 .pawwork-automations-page-head h2 { font-size: 18px; font-weight: 600; line-height: 26px; margin: 0; }
 .pawwork-automations-page-head p { color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xs-13); margin: 0; }
 .pawwork-automations-toolbar { align-items: center; display: flex; gap: 10px; }
-.pawwork-automations-search { flex: 1; min-width: 160px; }
+.pawwork-automations-search { flex: 1; }
 .pawwork-automations-search input { width: 100%; }
 .pawwork-automations-tabs { display: flex; flex: none; gap: 6px; }
-.pawwork-automations-create { flex: none; }
 .pawwork-automations-list { display: flex; flex-direction: column; gap: 8px; }
 .pawwork-automation-row {
   align-items: center; background: transparent; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
@@ -56,7 +55,6 @@ window.__ModuleLoader__.load({
   color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px;
 }
 .pawwork-automation-row-trail { white-space: nowrap; }
-.pawwork-automation-row[data-state="stopped"] .pawwork-automation-row-trail { color: var(--dsw-alias-label-secondary); }
 .pawwork-automations-empty, .pawwork-automations-loading {
   border: 1px dashed var(--dsw-alias-border-l3); border-radius: 8px;
   color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 20px; padding: 20px; text-align: center;
@@ -195,10 +193,10 @@ window.__ModuleLoader__.load({
     }
     // One statement of what a schedule is doing; the row's glyph and trailing text both render it.
     function definitionState(definition) {
-      if (definition.paused) return { icon: IconPauseOutline16, label: text("已暂停", "Paused"), state: "stopped" }
-      if (definition.terminalReason === "completed") return { icon: IconCheckOutline16, label: text("已完成", "Completed"), state: "stopped" }
-      if (definition.terminalReason === "run-limit") return { icon: IconCheckOutline16, label: text("已跑满", "Run limit reached"), state: "stopped" }
-      return { icon: IconPlayOutline16, label: `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}`, state: "live" }
+      if (definition.paused) return { icon: IconPauseOutline16, label: text("已暂停", "Paused") }
+      if (definition.terminalReason === "completed") return { icon: IconCheckOutline16, label: text("已完成", "Completed") }
+      if (definition.terminalReason === "run-limit") return { icon: IconCheckOutline16, label: text("已跑满", "Run limit reached") }
+      return { icon: IconPlayOutline16, label: `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}` }
     }
 
     function runState(run) {
@@ -485,7 +483,7 @@ window.__ModuleLoader__.load({
           h("div", { className: "pawwork-automations-list" },
             visible.map((definition) => {
               const state = definitionState(definition)
-              return h("button", { className: "pawwork-automation-row", "data-state": state.state, key: definition.id, onClick: () => setSelectedId(definition.id), type: "button" },
+              return h("button", { className: "pawwork-automation-row", key: definition.id, onClick: () => setSelectedId(definition.id), type: "button" },
                 h("span", { className: "pawwork-automation-row-icon" }, h(state.icon, { size: 16 })),
                 h("span", null, h("span", { className: "pawwork-automation-row-title" }, definition.title), h("span", { className: "pawwork-automation-row-meta" }, formatSchedule(definition))),
                 h("span", { className: "pawwork-automation-row-trail" }, state.label))

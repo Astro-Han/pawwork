@@ -256,11 +256,7 @@ class AutomationStore {
     if (input.startedAt !== null) assertTimestamp(input.startedAt, 'startedAt');
     this.document.runs.push(structuredClone(input));
     const definition = this.document.definitions.find((entry) => entry.id === input.automationId);
-    if (definition?.kind === 'recurring'
-      && definition.stop?.kind === 'count'
-      && this.completedRunCount(definition.id) >= definition.stop.count) {
-      definition.nextFireAt = null;
-    }
+    if (definition?.kind === 'recurring' && this.runLimitReached(definition)) definition.nextFireAt = null;
     this.save();
     return 'imported';
   }
@@ -379,15 +375,18 @@ class AutomationStore {
     });
   }
 
+  runLimitReached(definition) {
+    return definition.stop?.kind === 'count'
+      && this.completedRunCount(definition.id) >= definition.stop.count;
+  }
+
   // Why a definition has no next run, so the list can say "completed" or "run limit reached"
   // instead of one dash for both. Paused is excluded: the list states that on its own. An
   // unschedulable expression is not a case — every write path validates the cron first.
   terminalReason(definition) {
     if (definition.paused || definition.nextFireAt !== null) return null;
     if (definition.kind === 'oneshot') return 'completed';
-    if (definition.stop?.kind === 'count'
-      && this.completedRunCount(definition.id) >= definition.stop.count) return 'run-limit';
-    return null;
+    return this.runLimitReached(definition) ? 'run-limit' : null;
   }
 
   completedRunCount(automationId) {
@@ -454,9 +453,7 @@ class AutomationStore {
     };
     Object.assign(run, completed);
     const definition = this.document.definitions.find((entry) => entry.id === run.automationId);
-    if (definition?.kind === 'recurring' && definition.stop?.kind === 'count') {
-      if (this.completedRunCount(definition.id) >= definition.stop.count) definition.nextFireAt = null;
-    }
+    if (definition?.kind === 'recurring' && this.runLimitReached(definition)) definition.nextFireAt = null;
     this.save();
     return structuredClone(run);
   }
