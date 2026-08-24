@@ -7,6 +7,20 @@ import { describe, expect, vi, test } from "vitest"
 const repositoryRoot = resolve(import.meta.dirname, "../../../..")
 const productRoot = resolve(repositoryRoot, "packages/desktop-electron/resources/dsh/product")
 
+type Element = { type: unknown; props: Record<string, unknown> }
+
+function visit(node: unknown): Element[] {
+  if (Array.isArray(node)) return node.flatMap(visit)
+  if (!node || typeof node !== "object") return []
+  const element = node as Element
+  return [element, ...((element.props?.children as unknown[]) || []).flatMap(visit)]
+}
+
+function textOf(tree: unknown) {
+  return visit(tree).flatMap((element) => (element.props.children as unknown[] | undefined) ?? [])
+    .filter((child): child is string => typeof child === "string")
+}
+
 describe("PawWork DSH client product layer", () => {
   function loadPlugin(timers: Array<() => void>, delays: number[] = []) {
     const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
@@ -75,6 +89,103 @@ describe("PawWork DSH client product layer", () => {
       inject: ["@deepseek-ai/dsh-client-runtime"],
       platform: "web",
     })
+  })
+
+  test("registers one community-market connector tab in DSH Plugins settings", () => {
+    const document = {
+      documentElement: { lang: "zh-CN" },
+      querySelector: () => null,
+      createElement: () => ({ dataset: {}, textContent: "" }),
+      head: { appendChild: () => {} },
+    }
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
+      document,
+      window: { pawworkCommunityMarket: { status: vi.fn(), enable: vi.fn(), restart: vi.fn() } },
+    })
+    const plugin = definition.factory((name) => {
+      if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
+      throw new Error(`unexpected product client dependency: ${name}`)
+    })
+    const registrations: Array<{ id?: string; label?: () => string; name?: string; order?: number }> = []
+    plugin.apply({
+      connection: { rpc: { call: vi.fn(async () => ({ ok: true, value: { phase: "done" } })) } },
+      effect: (fn: () => unknown) => fn(),
+      sessions: { refresh: vi.fn(async () => {}) },
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (options: { id?: string; label?: () => string; name?: string; order?: number }) => {
+          registrations.push(options)
+          return () => {}
+        },
+      },
+    })
+
+    const management = registrations.find((entry) => entry.id === "pawwork-community-market")
+    expect(management).toMatchObject({ name: "settings.plugins.tab", order: 20 })
+    expect(management?.label?.()).toBe("社区市场")
+    document.documentElement.lang = "en"
+    expect(management?.label?.()).toBe("Community market")
+  })
+
+  test("enables the pinned community market from a trust-explicit Settings card", async () => {
+    const enable = vi.fn(async () => ({ enabled: true, restartRequired: true, version: "1.21.0" }))
+    const document = {
+      documentElement: { lang: "zh-CN" },
+      querySelector: () => null,
+      createElement: () => ({ dataset: {}, textContent: "" }),
+      head: { appendChild: () => {} },
+    }
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
+      document,
+      window: { pawworkCommunityMarket: { status: vi.fn(), enable, restart: vi.fn() } },
+    })
+    const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]): unknown => {
+      const nextProps = { ...props, children }
+      return typeof type === "function" ? type(nextProps) : { type, props: nextProps }
+    }
+    const states: unknown[] = [{ status: "ready", market: { enabled: false, restartRequired: false, version: null }, error: "" }]
+    let stateIndex = 0
+    const plugin = definition.factory((name) => {
+      if (name === "react") {
+        return {
+          createElement,
+          useEffect: () => {},
+          useRef: <T>(value: T) => ({ current: value }),
+          useState: (initial: unknown) => {
+            const value = stateIndex < states.length ? states[stateIndex] : initial
+            stateIndex += 1
+            return [value, vi.fn()]
+          },
+        }
+      }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") {
+        return {
+          Button: (props: Record<string, unknown>) => ({ type: "button", props }),
+          IconPanelLeftOutline16: () => null,
+        }
+      }
+      throw new Error(`unexpected product client dependency: ${name}`)
+    })
+    let managementTab: ((props: unknown) => unknown) | undefined
+    plugin.apply({
+      connection: { rpc: { call: vi.fn(async () => ({ ok: true, value: { phase: "done" } })) } },
+      effect: (fn: () => unknown) => fn(),
+      sessions: { refresh: vi.fn(async () => {}) },
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (options: { id?: string }, component: typeof managementTab) => {
+          if (options.id === "pawwork-community-market") managementTab = component
+          return () => {}
+        },
+      },
+    })
+
+    const tree = managementTab!({})
+    expect(textOf(tree)).toContain("社区市场及其中插件均由第三方维护，并会以爪印的权限运行。")
+    const button = visit(tree).find((element) => element.type === "button")!
+    await (button.props.onClick as () => Promise<void>)()
+    expect(enable).toHaveBeenCalledWith()
   })
 
   test("pins the public DSH layout contracts consumed by the window chrome", () => {

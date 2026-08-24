@@ -24,6 +24,12 @@
     maxBytes: 65536
 - id: llm-deepseek
   disabled: true
+# The market must wait for PawWork's generation-scoped Desktop services. Their
+# presence selects its managed package runtime and makes self-restart unavailable.
+- id: dsh-market
+  inject:
+    - desktopProfiles
+    - desktopPnpm
 - insert:
     - id: pawwork-identity
       name: '@pawwork/dsh-identity'

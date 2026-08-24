@@ -1,8 +1,7 @@
 import { describe, expect, test } from "vitest"
 import { EventEmitter } from "node:events"
-import { delimiter } from "node:path"
 import { PassThrough } from "node:stream"
-import { launchDshSidecar, type DshChildProcess, withBundledToolsPath } from "./dsh-sidecar"
+import { launchDshSidecar, type DshChildProcess } from "./dsh-sidecar"
 
 class FakeChildProcess extends EventEmitter implements DshChildProcess {
   readonly stdout = new PassThrough()
@@ -44,37 +43,6 @@ class FakeChildProcess extends EventEmitter implements DshChildProcess {
 }
 
 describe("DSH sidecar lifecycle", () => {
-  test("prepends bundled tools to the existing PATH spelling", () => {
-    expect(withBundledToolsPath({ PATH: "/usr/bin" }, "/app/tools", ":")).toEqual({
-      PATH: "/app/tools:/usr/bin",
-    })
-    expect(withBundledToolsPath({ Path: "C:\\Windows" }, "C:\\PawWork\\tools", ";")).toEqual({
-      Path: "C:\\PawWork\\tools;C:\\Windows",
-    })
-  })
-
-  // Node's process.env is case-insensitive on Windows, but an env object built by
-  // hand is not, and a child that inherits both Path and PATH resolves tools from
-  // whichever the process block happens to list. Only one may survive: the first,
-  // with the tools directory in front of it.
-  test("collapses a duplicated Windows path variable to one entry", () => {
-    expect(withBundledToolsPath(
-      { Path: "C:\\Windows", PATH: "C:\\Other", SHELL: "cmd" },
-      "C:\\PawWork\\tools",
-      ";",
-    )).toEqual({
-      Path: "C:\\PawWork\\tools;C:\\Windows",
-      SHELL: "cmd",
-    })
-  })
-
-  test("adds the tools directory when the environment has no path at all", () => {
-    expect(withBundledToolsPath({ SHELL: "zsh" }, "/app/tools", ":")).toEqual({
-      PATH: "/app/tools",
-      SHELL: "zsh",
-    })
-  })
-
   test("loads the URL announced by the owned child process", async () => {
     const child = new FakeChildProcess()
     let invocation:
@@ -88,10 +56,8 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/node_modules/@deepseek-ai/dsh/lib/bin.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
-      toolsDir: "/app/tools",
-      env: { PATH: "/usr/bin" },
+      env: { PATH: "/app/tools:/usr/bin", DSH_HOME: "/data/dsh", ELECTRON_RUN_AS_NODE: "1" },
       timeoutMs: 100,
       spawn: (executable, args, options) => {
         invocation = { executable, args, options }
@@ -120,7 +86,7 @@ describe("DSH sidecar lifecycle", () => {
         "--no-open",
       ],
       options: {
-        env: { PATH: `/app/tools${delimiter}/usr/bin`, DSH_HOME: "/data/dsh", ELECTRON_RUN_AS_NODE: "1" },
+        env: { PATH: "/app/tools:/usr/bin", DSH_HOME: "/data/dsh", ELECTRON_RUN_AS_NODE: "1" },
         stdio: ["ignore", "pipe", "pipe", "ipc"],
       },
     })
@@ -135,9 +101,7 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/preload.mjs",
-      productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
-      toolsDir: "/app/tools",
       env: {},
       timeoutMs: 100,
       spawn: () => child,
@@ -160,9 +124,7 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/bin.js",
       sidecarPreload: "file:///app/preload.mjs",
-      productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
-      toolsDir: "/app/tools",
       env: { PATH: "/usr/bin" },
       timeoutMs: 500,
       spawn: () => child,
@@ -185,9 +147,7 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
-      toolsDir: "/app/tools",
       env: {},
       timeoutMs: 100,
       spawn: () => child,
@@ -204,9 +164,7 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
-      toolsDir: "/app/tools",
       env: {},
       timeoutMs: 100,
       spawn: () => child,
@@ -227,9 +185,7 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
-      toolsDir: "/app/tools",
       env: {},
       timeoutMs: 100,
       spawn: () => child,
@@ -253,9 +209,7 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
-      toolsDir: "/app/tools",
       env: {},
       timeoutMs: 1,
       stopTimeoutMs: 1,
@@ -274,9 +228,7 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
-      toolsDir: "/app/tools",
       env: {},
       timeoutMs: 1,
       spawn: () => child,
@@ -297,9 +249,7 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
-      toolsDir: "/app/tools",
       env: {},
       timeoutMs: 100,
       spawn: () => child,
@@ -325,9 +275,7 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productHome: "/data/dsh",
       productPatch: "/data/dsh/product.cordis.patch.yml",
-      toolsDir: "/app/tools",
       env: {},
       timeoutMs: 100,
       stopTimeoutMs: 1,

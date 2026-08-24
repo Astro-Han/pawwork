@@ -36,7 +36,7 @@ describe("PawWork DSH product preload", () => {
     })
 
     expect(listeners).toHaveLength(1)
-    expect(exposed).toEqual(["pawworkLifecycle", "pawworkFiles"])
+    expect(exposed).toEqual(["pawworkLifecycle", "pawworkFiles", "pawworkCommunityMarket"])
     document.documentElement = { appendChild: (style: { textContent: string }) => void styles.push(style) }
     listeners[0]()
     expect(styles).toHaveLength(1)
@@ -59,7 +59,7 @@ describe("PawWork DSH product preload", () => {
       },
     })
 
-    expect([...exposed.keys()]).toEqual(["pawworkLifecycle", "pawworkFiles"])
+    expect([...exposed.keys()]).toEqual(["pawworkLifecycle", "pawworkFiles", "pawworkCommunityMarket"])
     exposed.get("pawworkLifecycle")!.ready()
     expect(send).toHaveBeenCalledWith("pawwork:product-ready")
   })
@@ -139,10 +139,10 @@ describe("PawWork DSH product preload", () => {
   test("exposes only a no-argument native file picker", async () => {
     const pickerResult = { status: "selected", paths: ["/outside/report.txt"] }
     const invoke = vi.fn(async () => pickerResult)
-    let exposed: { name: string; api: Record<string, () => Promise<unknown>> } | undefined
+    const exposed = new Map<string, Record<string, () => Promise<unknown>>>()
     const contextBridge = {
       exposeInMainWorld: (name: string, api: Record<string, () => Promise<unknown>>) => {
-        exposed = { name, api }
+        exposed.set(name, api)
       },
     }
 
@@ -153,10 +153,39 @@ describe("PawWork DSH product preload", () => {
       },
     })
 
-    expect(exposed?.name).toBe("pawworkFiles")
-    expect(Object.keys(exposed?.api ?? {})).toEqual(["pick"])
-    await expect(exposed!.api.pick()).resolves.toBe(pickerResult)
+    const files = exposed.get("pawworkFiles")!
+    expect(Object.keys(files)).toEqual(["pick"])
+    await expect(files.pick()).resolves.toBe(pickerResult)
     expect(invoke).toHaveBeenCalledWith("pawwork:pick-conversation-files")
+  })
+
+  test("exposes only the bounded community-market operations", async () => {
+    const invoke = vi.fn(async () => ({ enabled: false, version: null }))
+    const send = vi.fn(() => {})
+    const exposed = new Map<string, Record<string, (...args: unknown[]) => unknown>>()
+
+    vm.runInNewContext(readFileSync(preloadPath, "utf8"), {
+      require: (name: string) => {
+        if (name === "electron") {
+          return {
+            contextBridge: { exposeInMainWorld: (key: string, api: Record<string, (...args: unknown[]) => unknown>) => exposed.set(key, api) },
+            ipcRenderer: { invoke, send },
+          }
+        }
+        throw new Error(`unexpected preload dependency: ${name}`)
+      },
+    })
+
+    const api = exposed.get("pawworkCommunityMarket")!
+    expect(Object.keys(api)).toEqual(["status", "enable", "restart"])
+    await api.status()
+    await api.enable()
+    api.restart()
+    expect(invoke.mock.calls).toEqual([
+      ["pawwork:dsh-community-market:status"],
+      ["pawwork:dsh-community-market:enable"],
+    ])
+    expect(send).toHaveBeenCalledWith("pawwork:dsh-restart")
   })
 
 })

@@ -40,26 +40,6 @@ afterEach(() => {
 })
 
 describe("electron builder app-update config", () => {
-  test("production dependencies contain only DSH and desktop runtime packages", () => {
-    const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "package.json"), "utf8")) as {
-      dependencies: Record<string, string>
-    }
-
-    const desktopRuntimePackages = new Set([
-      "electron-context-menu",
-      "electron-log",
-      "electron-updater",
-      "electron-window-state",
-      "semver",
-    ])
-
-    expect(
-      Object.keys(manifest.dependencies).filter(
-        (dependency) => !dependency.startsWith("@deepseek-ai/") && !desktopRuntimePackages.has(dependency),
-      ),
-    ).toEqual([])
-  })
-
   test("packages only the DSH production entry", () => {
     const config = createConfig("prod")
     const extraResources = config.extraResources

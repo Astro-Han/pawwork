@@ -1,8 +1,8 @@
 window.__ModuleLoader__.load({
   id: "@pawwork/dsh-product",
   factory: (require) => {
-    const { createElement, useEffect, useRef } = require("react")
-    const { IconPanelLeftOutline16 } = require("@deepseek-ai/dsh-client-ui-primitives")
+    const { createElement, useEffect, useRef, useState } = require("react")
+    const { Button, IconPanelLeftOutline16 } = require("@deepseek-ai/dsh-client-ui-primitives")
     const h = createElement
 
     const productCss = `
@@ -161,6 +161,24 @@ html body :is(button, [role="button"], [role="treeitem"], [role="tab"], [role="m
 .pawwork-file-action:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .pawwork-file-action:focus-visible { outline: 2px solid #fc5c14; outline-offset: 1px; }
 .pawwork-file-action:disabled { opacity: 0.45; }
+.pawwork-market-connector {
+  color: var(--dsw-alias-label-primary); display: flex; flex-direction: column;
+  gap: 16px; max-width: 680px; width: 100%;
+}
+.pawwork-market-connector h3 { font-size: 15px; font-weight: 600; line-height: 22px; margin: 0; }
+.pawwork-market-connector p { margin: 0; }
+.pawwork-market-copy { color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 20px; }
+.pawwork-market-trust {
+  border-left: 3px solid var(--dsw-alias-label-tertiary); color: var(--dsw-alias-label-tertiary);
+  font-size: 12px; line-height: 19px; padding-left: 10px;
+}
+.pawwork-market-status {
+  align-items: center; background: var(--dsw-alias-bg-module-platform); border-radius: 8px;
+  display: flex; gap: 12px; justify-content: space-between; padding: 10px 12px;
+}
+.pawwork-market-status p { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 19px; }
+.pawwork-market-action { align-self: flex-start; }
+.pawwork-market-error { color: var(--dsw-alias-state-error-primary); font-size: 12px; line-height: 19px; }
 /* The rc.8 locale registry throws on a duplicate namespace and offers no override point, so DSH's
    own headline and preview badge are replaced visually, anchored on data-slot rather than on class
    names that carry a per-version hash. Zeroing font-size alone leaves a 32px line box that lifts
@@ -229,6 +247,53 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
         h("div", { className: "pawwork-window-drag-region" }),
         h("button", { "aria-label": label, className: "pawwork-sidebar-toggle", onClick: toggleSidebar, title: label, type: "button" },
           h(IconPanelLeftOutline16, { size: 16 })))
+    }
+
+    function CommunityMarketTab() {
+      const api = window.pawworkCommunityMarket
+      const unavailable = { enabled: false, restartRequired: false, version: null }
+      const [state, setState] = useState({ status: "loading", market: unavailable, error: "" })
+      const busy = state.status === "working"
+
+      useEffect(() => {
+        let current = true
+        if (!api) {
+          setState({ status: "ready", market: unavailable, error: text("社区市场接入暂不可用。请重新启动爪印。", "Community market setup is unavailable. Restart PawWork.") })
+          return () => { current = false }
+        }
+        api.status().then(
+          (market) => { if (current) setState({ status: "ready", market, error: "" }) },
+          (error) => { if (current) setState({ status: "ready", market: unavailable, error: error instanceof Error ? error.message : String(error) }) },
+        )
+        return () => { current = false }
+      }, [api])
+
+      async function enable() {
+        if (!api || busy) return
+        setState((current) => ({ ...current, status: "working", error: "" }))
+        try {
+          const market = await api.enable()
+          setState({ status: "ready", market, error: "" })
+        } catch (error) {
+          setState((current) => ({ ...current, status: "ready", error: error instanceof Error ? error.message : String(error) }))
+        }
+      }
+
+      return h("section", { "aria-busy": busy, className: "pawwork-market-connector" },
+        h("div", null,
+          h("h3", null, text("DSH 社区插件市场", "DSH community plugin market")),
+          h("p", { className: "pawwork-market-copy" }, text("启用后，插件浏览、安装和卸载都由社区市场提供；仅影响爪印自己的 DSH 环境。", "Once enabled, the community market owns plugin discovery, installation, and removal inside PawWork's isolated DSH environment."))),
+        h("p", { className: "pawwork-market-trust" }, text("社区市场及其中插件均由第三方维护，并会以爪印的权限运行。", "The community market and its plugins are third-party software and run with PawWork's permissions.")),
+        state.error ? h("p", { className: "pawwork-market-error", role: "alert" }, state.error) : null,
+        state.status === "loading" ? h("p", { className: "pawwork-market-copy" }, text("正在检查社区市场…", "Checking community market…")) : null,
+        state.market.enabled || state.market.restartRequired ? h("div", { className: "pawwork-market-status", role: "status" },
+          h("p", null, state.market.restartRequired
+            ? text("社区市场已安装。重新启动 DSH 后即可在设置中使用。", "Community market installed. Restart DSH to use it in Settings.")
+            : text(`社区市场 ${state.market.version ?? ""} 已启用。`, `Community market ${state.market.version ?? ""} is enabled.`)),
+          h(Button, { onClick: () => api?.restart(), size: "sm" }, text("重新启动 DSH", "Restart DSH")))
+          : state.status !== "loading" ? h(Button, {
+            className: "pawwork-market-action", disabled: busy || !api, onClick: enable, size: "sm", variant: "primary",
+          }, text(busy ? "正在启用…" : "启用社区市场", busy ? "Enabling…" : "Enable community market")) : null)
     }
 
     // --- PawWork glove mark --------------------------------------------------
@@ -377,6 +442,10 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       ctx.slots.inject("sidebar.brand.name", () => ctx.slots.register({ name: "sidebar.brand.name", priority: -100 }, BrandName))
       ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawGloveMark))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))
+      ctx.slots.inject("settings.plugins.tab", () => ctx.slots.register({
+        name: "settings.plugins.tab", id: "pawwork-community-market", order: 20,
+        label: () => text("社区市场", "Community market"),
+      }, CommunityMarketTab))
       ctx.slots.inject("conversation.input.left", () => ctx.slots.register({ name: "conversation.input.left", id: "pawwork-files", order: -100 }, FileAction))
       ctx.effect(() => watchV1Import(ctx))
     }
