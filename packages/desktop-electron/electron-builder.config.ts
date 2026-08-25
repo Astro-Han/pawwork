@@ -41,7 +41,19 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
     output: "dist",
     buildResources: "resources",
   },
-  files: ["out/main/**/*"],
+  // The DSH dependency closure ships ~20k files, a fifth of which nothing loads
+  // at runtime: declaration files, source maps (no source-map-support is
+  // installed, so nothing reads them) and package docs. Dropping them cuts the
+  // installed footprint and, more usefully, the file count that signing and
+  // notarization have to walk. LICENSE files are extensionless and stay.
+  files: [
+    "out/main/**/*",
+    "!node_modules/**/*.map",
+    "!node_modules/**/*.d.ts",
+    "!node_modules/**/*.d.mts",
+    "!node_modules/**/*.d.cts",
+    "!node_modules/**/*.md",
+  ],
   // electron-builder reads .git/config for repository info, which fails on
   // CI runners with persist-credentials: false. Set explicitly via
   // extraMetadata to avoid "Cannot detect repository by .git/config".
@@ -82,6 +94,13 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
     },
   ],
   mac: {
+    // Chromium's own native strings (context menus, file dialogs, media
+    // controls) — unrelated to anything DSH renders, and PawWork only ships
+    // English and Simplified Chinese. electron-builder matches these against
+    // the locale file names on disk, which differ per platform: macOS has
+    // en.lproj and zh_CN.lproj, Windows has en-US.pak and zh-CN.pak. Using the
+    // wrong spelling silently deletes the locale it was meant to keep.
+    electronLanguages: ["en", "zh_CN"],
     category: "public.app-category.developer-tools",
     icon: `resources/icons/icon.icns`,
     hardenedRuntime: true,
@@ -103,6 +122,7 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
     schemes: ["pawwork"],
   },
   win: {
+    electronLanguages: ["en-US", "zh-CN"],
     icon: `resources/icons/icon.ico`,
     target: [{ target: "nsis", arch: ["x64"] }],
   },
