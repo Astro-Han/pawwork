@@ -42,24 +42,22 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
     buildResources: "resources",
   },
   // The DSH dependency closure ships ~20k files, a fifth of which nothing loads
-  // at runtime: declaration files, source maps (no source-map-support is
-  // installed, so nothing reads them) and package docs. Dropping them cuts the
-  // installed footprint and, more usefully, the file count that signing and
-  // notarization have to walk.
+  // at runtime: declaration files and source maps (no source-map-support is
+  // installed, so nothing reads them). Dropping them cuts the installed
+  // footprint and, more usefully, the file count that signing and notarization
+  // have to walk.
   //
-  // Markdown is named file by file rather than excluded wholesale: `**/*.md`
-  // also takes out every LICENSE.md in the closure, which we have to ship, and
-  // the SKILL.md files under dsh/config/agent-presets, which are agent presets
-  // DSH loads at runtime, not documentation.
+  // Documentation is deliberately NOT excluded. Markdown is only ~1.8M here,
+  // but the closure uses .md for real payload too — the SKILL.md agent presets
+  // under dsh/config/agent-presets and every LICENSE.md we are obliged to ship
+  // — so any doc rule has to be maintained against whatever the next DSH
+  // release adds. Not worth it for 0.4MB of DMG.
   files: [
     "out/main/**/*",
     "!node_modules/**/*.map",
     "!node_modules/**/*.d.ts",
     "!node_modules/**/*.d.mts",
     "!node_modules/**/*.d.cts",
-    "!node_modules/**/README*.md",
-    "!node_modules/**/CHANGELOG*.md",
-    "!node_modules/**/HISTORY*.md",
     // pnpm ships its CLI twice: dist/ and a near-identical copy under
     // artifacts/exe/dist/ that only its own standalone-executable build reads.
     // We invoke bin/pnpm.mjs (see dsh-tools.ts), so the second copy is 14M of
