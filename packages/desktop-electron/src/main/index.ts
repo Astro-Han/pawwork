@@ -100,7 +100,7 @@ let dshOutputTail = ""
 // Set by launchDsh: the recovery path needs the profile directory, and the home
 // is only settled once the migration inside launchDsh has run.
 let dshHome: string | undefined
-let startupColorScheme: StartupColorScheme | undefined = readStartupColorScheme({ path: STARTUP_THEME_FILE })
+let startupColorScheme: StartupColorScheme | undefined = readStartupColorScheme(STARTUP_THEME_FILE)
 let currentProgress: number | null = null
 const dshHostToken = randomUUID()
 
@@ -203,7 +203,7 @@ function setupApp() {
     if (colorScheme !== "dark" && colorScheme !== "light") return
     if (colorScheme === startupColorScheme) return
     startupColorScheme = colorScheme
-    writeStartupColorScheme({ path: STARTUP_THEME_FILE }, colorScheme)
+    writeStartupColorScheme(STARTUP_THEME_FILE, colorScheme)
   })
 
   app.on("second-instance", () => focusMainWindow(true))
@@ -366,7 +366,14 @@ async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed
       type: "error" as const,
       title: copy.title,
       message: copy.message,
-      detail: [note, bundle === undefined ? error : copy.pluginCause(bundle), `${copy.log}: ${logPath}`]
+      // The runtime output only earns its space when nothing else explains the
+      // failure: once the bundle is named, the tail is the same stack the
+      // sentence already summarizes.
+      detail: [
+        note,
+        ...(bundle === undefined ? [error, dshOutputTail.trim()] : [copy.pluginCause(bundle)]),
+        `${copy.log}: ${logPath}`,
+      ]
         .filter(Boolean)
         .join("\n\n"),
       buttons,

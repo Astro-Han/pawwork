@@ -302,3 +302,52 @@ test('rejects market mutations that do not carry the per-launch host token', asy
   assert.deepEqual(JSON.parse(response.body), { error: 'PawWork host authorization failed' });
   assert.equal(enables, 0);
 })
+
+test('finishes a removal DSH left half-done, without touching the rest of the profile', async () => {
+  const { home, profileDir } = profileHome('1.21.0');
+  fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
+    dependencies: { dshmarket: '1.21.0', 'dsh-notifier': '^2.0.0' },
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dshmarket', 'dsh-notifier'] } },
+  }));
+  const managed = managedSubprocess();
+  const host = createDesktopHost({
+    dshBin: '/app/dsh/bin.js',
+    home,
+    nodeExecutable: '/app/PawWork',
+    subprocess: managed.subprocess,
+  });
+
+  const disabling = host.communityMarket.disable();
+  await Promise.resolve();
+  assert.deepEqual(managed.spawns[0].argv.slice(-2), ['remove', 'dshmarket']);
+  // What DSH leaves behind when the remove aborts after unlinking the package:
+  // the dependency is gone, the bundle row is not — and that row alone is what
+  // stops the next boot.
+  fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
+    dependencies: { 'dsh-notifier': '^2.0.0' },
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dshmarket', 'dsh-notifier'] } },
+  }));
+  fs.rmSync(path.join(profileDir, 'node_modules', 'dshmarket'), { recursive: true });
+  managed.settle({ exitCode: 0, signal: null });
+
+  assert.deepEqual(await disabling, { enabled: false, restartRequired: true, version: null });
+  const manifest = JSON.parse(fs.readFileSync(path.join(profileDir, 'package.json'), 'utf8'));
+  assert.deepEqual(manifest.dsh.profile.bundles, ['@deepseek-ai/dsh-base', 'dsh-notifier']);
+  assert.deepEqual(manifest.dependencies, { 'dsh-notifier': '^2.0.0' });
+})
+
+test('does not spawn a removal when the market is already gone from both lists', async () => {
+  const { home } = profileHome();
+  const host = createDesktopHost({
+    dshBin: '/app/dsh/bin.js',
+    home,
+    nodeExecutable: '/app/PawWork',
+    subprocess: fakeSubprocess(),
+  });
+
+  assert.deepEqual(await host.communityMarket.disable(), {
+    enabled: false,
+    restartRequired: false,
+    version: null,
+  });
+})

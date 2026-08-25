@@ -16,8 +16,6 @@ export function unresolvedProfileBundle(output: string) {
 type RemoveProfileBundleOptions = {
   profileDir: string
   bundle: string
-  read?: (path: string) => string
-  write?: (path: string, contents: string) => void
 }
 
 /**
@@ -30,11 +28,9 @@ type RemoveProfileBundleOptions = {
  * @returns whether the manifest changed.
  */
 export function removeProfileBundle(options: RemoveProfileBundleOptions) {
-  const read = options.read ?? ((path: string) => readFileSync(path, "utf8"))
-  const write = options.write ?? ((path: string, contents: string) => writeFileSync(path, contents, "utf8"))
   const manifestPath = join(options.profileDir, "package.json")
 
-  const manifest = JSON.parse(read(manifestPath)) as {
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
     dsh?: { profile?: { bundles?: unknown } }
   }
   const bundles = manifest.dsh?.profile?.bundles
@@ -44,6 +40,6 @@ export function removeProfileBundle(options: RemoveProfileBundleOptions) {
   if (kept.length === bundles.length) return false
 
   manifest.dsh!.profile!.bundles = kept
-  write(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8")
   return true
 }

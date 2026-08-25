@@ -1,7 +1,7 @@
 import { localizedPawWorkName } from "./app-identity"
 import { app, BrowserWindow, Menu, shell } from "electron"
 import log from "electron-log/main.js"
-import { detectSystemMenuLocale, menuLabel, menuRoleLabel, type MenuLocale } from "./menu-labels"
+import { menuLabel, menuRoleLabel, type MenuLocale } from "./menu-labels"
 import { PAWWORK_GITHUB_ISSUE_URL, PAWWORK_GITHUB_URL } from "./support-links"
 
 type DshMenuOptions = {
@@ -10,7 +10,7 @@ type DshMenuOptions = {
   relaunch: () => void
 }
 
-export function createDshMenu(options: DshMenuOptions, locale: MenuLocale = detectSystemMenuLocale(app.getLocale())) {
+export function createDshMenu(options: DshMenuOptions, locale: MenuLocale) {
   if (process.platform !== "darwin" && process.platform !== "win32") return
 
   const appName = locale === "zh" ? localizedPawWorkName(app.getName()) : app.getName()

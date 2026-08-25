@@ -296,7 +296,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
               : text("社区市场已停用。重新启动后台服务后生效。", "Community market disabled. Restart the background service to apply it.")
             : text(`社区市场 ${state.market.version ?? ""} 已启用。`, `Community market ${state.market.version ?? ""} is enabled.`)),
           h("div", { className: "pawwork-market-actions" },
-            h(Button, { onClick: () => api?.restart(), size: "sm" }, text("重新启动后台服务", "Restart Background Service")),
+            h(Button, { disabled: busy || !api, onClick: () => api?.restart(), size: "sm" }, text("重新启动后台服务", "Restart Background Service")),
             state.market.enabled ? h(Button, {
               disabled: busy || !api, onClick: () => run(() => api.disable()), size: "sm",
             }, text(busy ? "正在停用…" : "停用社区市场", busy ? "Disabling…" : "Disable community market")) : null))
