@@ -141,6 +141,22 @@ function createDesktopHost(options) {
         || (current.enabled && current.version !== bootMarket.version),
     };
   };
+  const runMarketPlugin = async (args, failureLabel) => {
+    const operation = pnpm.service.runPlugin(
+      args,
+      profileDir,
+      AbortSignal.timeout(options.operationTimeoutMs ?? MARKET_OPERATION_TIMEOUT_MS),
+    );
+    let stderr = '';
+    operation.stdout.on('data', () => {});
+    operation.stderr.on('data', (chunk) => {
+      stderr = (stderr + chunk.toString()).slice(-64 * 1024);
+    });
+    const outcome = await operation.done;
+    if (outcome.exitCode !== 0 || outcome.signal !== null) {
+      throw new Error(stderr.trim() || `${failureLabel} failed with code ${String(outcome.exitCode)}`);
+    }
+  };
   return {
     desktopProfiles: createDesktopProfiles(profileDir),
     desktopPnpm: pnpm.service,
@@ -149,23 +165,25 @@ function createDesktopHost(options) {
       async enable() {
         const current = await status();
         if (current.enabled) return current;
-        const operation = pnpm.service.runPlugin(
-          ['add', MARKET_TARGET, '--save-exact'],
-          profileDir,
-          AbortSignal.timeout(options.operationTimeoutMs ?? MARKET_OPERATION_TIMEOUT_MS),
-        );
-        let stderr = '';
-        operation.stdout.on('data', () => {});
-        operation.stderr.on('data', (chunk) => {
-          stderr = (stderr + chunk.toString()).slice(-64 * 1024);
-        });
-        const outcome = await operation.done;
-        if (outcome.exitCode !== 0 || outcome.signal !== null) {
-          throw new Error(stderr.trim() || `DSH plugin install failed with code ${String(outcome.exitCode)}`);
-        }
+        await runMarketPlugin(['add', MARKET_TARGET, '--save-exact'], 'DSH plugin install');
         const installed = await status();
         if (!installed.enabled) throw new Error('DSH did not activate a compatible community market');
         return installed;
+      },
+      async disable() {
+        const current = await status();
+        if (!current.enabled && !readProfile(profileDir).dsh?.profile?.bundles?.includes(MARKET_NAME)) return current;
+        await runMarketPlugin(['remove', MARKET_NAME], 'DSH plugin removal');
+        // A bundle left declared but not installed is what stops DSH from
+        // booting at all, so turning the market off must not be able to leave
+        // one behind — the removal is only complete once the row is gone too.
+        const manifest = readProfile(profileDir);
+        const bundles = manifest.dsh?.profile?.bundles;
+        if (Array.isArray(bundles) && bundles.includes(MARKET_NAME)) {
+          manifest.dsh.profile.bundles = bundles.filter((bundle) => bundle !== MARKET_NAME);
+          fs.writeFileSync(path.join(profileDir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+        }
+        return status();
       },
     },
     dispose: pnpm.dispose,
@@ -181,6 +199,7 @@ function registerCommunityMarketRoutes(webServer, market, hostToken) {
   const routes = [
     { path: '/pawwork/community-market/status', method: 'GET', invoke: () => market.status() },
     { path: '/pawwork/community-market/enable', method: 'POST', invoke: () => market.enable() },
+    { path: '/pawwork/community-market/disable', method: 'POST', invoke: () => market.disable() },
   ];
   const dispose = routes.map((route) => webServer.register({
     kind: 'exact',

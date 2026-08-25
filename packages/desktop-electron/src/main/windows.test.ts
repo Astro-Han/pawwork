@@ -83,12 +83,12 @@ vi.mock("electron-window-state", () => ({
   default: () => ({ x: 0, y: 0, width: 1280, height: 800, manage: () => {} }),
 }))
 
-const { createMainWindow, setTitlebarColorScheme, STARTUP_URL } = await import("./windows")
+const { createMainWindow, setTitlebarColorScheme, startupUrl } = await import("./windows")
 
 const DSH = "http://127.0.0.1:4321/"
 
 function openWindow(dshUrl?: string) {
-  webContents.url = dshUrl ?? STARTUP_URL
+  webContents.url = dshUrl ?? startupUrl()
   return createMainWindow({
     preload: "/preload.cjs",
     dshUrl: () => dshUrl,
@@ -160,7 +160,7 @@ describe("main window wiring", () => {
   // the meantime; loading nothing is what the 30-second blank start used to be.
   test("opens on the local startup page until DSH has a URL", () => {
     openWindow()
-    expect(win.loaded).toEqual([STARTUP_URL])
+    expect(win.loaded).toEqual([startupUrl()])
 
     win.loaded.length = 0
     openWindow(DSH)
@@ -171,7 +171,7 @@ describe("main window wiring", () => {
   // was showing a moment before it died.
   test("denies every DSH-origin navigation once the runtime is gone", () => {
     openWindow()
-    webContents.url = STARTUP_URL
+    webContents.url = startupUrl()
 
     expect(navigate("http://127.0.0.1:4321/settings", true).preventDefault).toHaveBeenCalled()
     expect(navigate("http://127.0.0.1:4321/settings", false).preventDefault).toHaveBeenCalled()

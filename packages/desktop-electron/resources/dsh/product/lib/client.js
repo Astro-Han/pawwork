@@ -176,7 +176,10 @@ html body :is(button, [role="button"], [role="treeitem"], [role="tab"], [role="m
   align-items: center; background: var(--dsw-alias-bg-module-platform); border-radius: 8px;
   display: flex; gap: 12px; justify-content: space-between; padding: 10px 12px;
 }
-.pawwork-market-status p { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 19px; }
+.pawwork-market-status p { color: var(--dsw-alias-label-secondary); flex: 1; font-size: 12px; line-height: 19px; }
+/* The buttons share the row with a sentence that grows in every locale; without
+   a group of their own the flex line divides evenly and wraps their labels. */
+.pawwork-market-actions { display: flex; flex-shrink: 0; gap: 8px; white-space: nowrap; }
 .pawwork-market-action { align-self: flex-start; }
 .pawwork-market-error { color: var(--dsw-alias-state-error-primary); font-size: 12px; line-height: 19px; }
 /* The rc.8 locale registry throws on a duplicate namespace and offers no override point, so DSH's
@@ -268,11 +271,11 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
         return () => { current = false }
       }, [api])
 
-      async function enable() {
+      async function run(operation) {
         if (!api || busy) return
         setState((current) => ({ ...current, status: "working", error: "" }))
         try {
-          const market = await api.enable()
+          const market = await operation()
           setState({ status: "ready", market, error: "" })
         } catch (error) {
           setState((current) => ({ ...current, status: "ready", error: error instanceof Error ? error.message : String(error) }))
@@ -288,11 +291,17 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
         state.status === "loading" ? h("p", { className: "pawwork-market-copy" }, text("正在检查社区市场…", "Checking community market…")) : null,
         state.market.enabled || state.market.restartRequired ? h("div", { className: "pawwork-market-status", role: "status" },
           h("p", null, state.market.restartRequired
-            ? text("社区市场已安装。重新启动 DSH 后即可在设置中使用。", "Community market installed. Restart DSH to use it in Settings.")
+            ? state.market.enabled
+              ? text("社区市场已安装。重新启动后台服务后即可在设置中使用。", "Community market installed. Restart the background service to use it in Settings.")
+              : text("社区市场已停用。重新启动后台服务后生效。", "Community market disabled. Restart the background service to apply it.")
             : text(`社区市场 ${state.market.version ?? ""} 已启用。`, `Community market ${state.market.version ?? ""} is enabled.`)),
-          h(Button, { onClick: () => api?.restart(), size: "sm" }, text("重新启动 DSH", "Restart DSH")))
+          h("div", { className: "pawwork-market-actions" },
+            h(Button, { onClick: () => api?.restart(), size: "sm" }, text("重新启动后台服务", "Restart Background Service")),
+            state.market.enabled ? h(Button, {
+              disabled: busy || !api, onClick: () => run(() => api.disable()), size: "sm",
+            }, text(busy ? "正在停用…" : "停用社区市场", busy ? "Disabling…" : "Disable community market")) : null))
           : state.status !== "loading" ? h(Button, {
-            className: "pawwork-market-action", disabled: busy || !api, onClick: enable, size: "sm", variant: "primary",
+            className: "pawwork-market-action", disabled: busy || !api, onClick: () => run(() => api.enable()), size: "sm", variant: "primary",
           }, text(busy ? "正在启用…" : "启用社区市场", busy ? "Enabling…" : "Enable community market")) : null)
     }
 

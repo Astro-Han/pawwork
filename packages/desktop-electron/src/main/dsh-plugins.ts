@@ -1,6 +1,6 @@
 import { decideDshNavigation } from "./window-navigation"
 
-type CommunityMarketAction = "enable" | "status"
+type CommunityMarketAction = "disable" | "enable" | "status"
 
 type RequestDshCommunityMarketOptions = {
   action: CommunityMarketAction

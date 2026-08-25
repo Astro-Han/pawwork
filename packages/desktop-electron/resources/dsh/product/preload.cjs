@@ -65,5 +65,6 @@ contextBridge.exposeInMainWorld("pawworkFiles", {
 contextBridge.exposeInMainWorld("pawworkCommunityMarket", {
   status: () => ipcRenderer.invoke("pawwork:dsh-community-market:status"),
   enable: () => ipcRenderer.invoke("pawwork:dsh-community-market:enable"),
+  disable: () => ipcRenderer.invoke("pawwork:dsh-community-market:disable"),
   restart: () => ipcRenderer.send("pawwork:dsh-restart"),
 })
