@@ -53,6 +53,11 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
     "!node_modules/**/*.d.mts",
     "!node_modules/**/*.d.cts",
     "!node_modules/**/*.md",
+    // pnpm ships its CLI twice: dist/ and a byte-identical copy under
+    // artifacts/exe/dist/ that only its own standalone-executable build reads.
+    // We invoke bin/pnpm.mjs (see dsh-tools.ts), so the second copy is 14M of
+    // nothing.
+    "!node_modules/pnpm/artifacts/**/*",
   ],
   // electron-builder reads .git/config for repository info, which fails on
   // CI runners with persist-credentials: false. Set explicitly via
