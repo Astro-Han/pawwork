@@ -378,10 +378,19 @@ async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed
     const chosen = buttons[result.response]
 
     if (chosen === copy.removePlugin && bundle !== undefined && dshHome !== undefined) {
+      let removed: boolean
       try {
-        removeProfileBundle({ profileDir: join(dshHome, "profiles", "web"), bundle })
+        removed = removeProfileBundle({ profileDir: join(dshHome, "profiles", "web"), bundle })
       } catch (failure) {
         logger.error("failed to remove unresolved profile bundle", failure)
+        note = copy.removeFailed(bundle)
+        continue
+      }
+      // Nothing removed means the row was never in this manifest — the bundle
+      // comes from somewhere we do not own, so restarting would hit the same
+      // failure. Say so rather than reporting a repair that did not happen.
+      if (!removed) {
+        logger.error("unresolved profile bundle was not declared in the profile", { bundle })
         note = copy.removeFailed(bundle)
         continue
       }
