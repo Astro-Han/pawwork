@@ -32,15 +32,24 @@ import {
 } from "./dsh-product-home"
 import { launchDshSidecar } from "./dsh-sidecar"
 import { prepareDshToolsEnvironment } from "./dsh-tools"
+import { removeProfileBundle, unresolvedProfileBundle } from "./dsh-profile-repair"
 import { migrateDshHome, resolveDshHome } from "./pawwork-home"
 import { initLogging } from "./logging"
-import { detectSystemMenuLocale } from "./menu-labels"
+import { detectSystemMenuLocale, type MenuLocale } from "./menu-labels"
 import { createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./update-feed"
 import { PAWWORK_GITHUB_ISSUE_URL } from "./support-links"
 import { createUpdaterController } from "./updater"
 import { pendingUpdateCacheDir } from "./updater-cache"
 import { updaterDialogLabels } from "./updater-dialog-labels"
-import { createMainWindow, navigateWindow, setDockIcon, setTitlebarColorScheme, STARTUP_URL } from "./windows"
+import { readStartupColorScheme, writeStartupColorScheme } from "./startup-theme"
+import {
+  createMainWindow,
+  navigateWindow,
+  setDockIcon,
+  setTitlebarColorScheme,
+  startupUrl,
+  type StartupColorScheme,
+} from "./windows"
 
 contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false })
 
@@ -65,9 +74,14 @@ app.setPath("userData", join(userDataRoot, appIdentity.id))
 if (CI_SMOKE_HOME) app.setPath("logs", join(app.getPath("userData"), "logs"))
 
 const CI_SMOKE_READY_FILE = join(app.getPath("userData"), "ci-smoke-ready.json")
+const STARTUP_THEME_FILE = join(app.getPath("userData"), "startup-theme.json")
 const { autoUpdater } = pkg
 const logger = initLogging()
-const menuLocale = detectSystemMenuLocale(app.getLocale())
+// Both the value and the reading of it have to wait for `ready`: before it,
+// getLocale() answers "" and getSystemLocale() throws. getLocale() is also the
+// wrong question — it reports the locale Electron's own UI was built for, which
+// is en-US on a zh-CN machine. Everything that reads this runs after ready.
+let menuLocale: MenuLocale = "en"
 
 // Pure path work over values that never change for the life of the process, so
 // there is nothing to sequence and nothing that can be read before it is set.
@@ -83,6 +97,10 @@ const productPreload = join(productResources.dsh, "product", "preload.cjs")
 // Keeping the tail costs a few kilobytes.
 const DSH_OUTPUT_TAIL_CHARS = 4_000
 let dshOutputTail = ""
+// Set by launchDsh: the recovery path needs the profile directory, and the home
+// is only settled once the migration inside launchDsh has run.
+let dshHome: string | undefined
+let startupColorScheme: StartupColorScheme | undefined = readStartupColorScheme(STARTUP_THEME_FILE)
 let currentProgress: number | null = null
 const dshHostToken = randomUUID()
 
@@ -144,11 +162,24 @@ function setupApp() {
     dshUrl: communityMarketUrlFor(event),
     hostToken: dshHostToken,
   }))
-  ipcMain.handle("pawwork:dsh-community-market:enable", (event) => requestDshCommunityMarket({
-    action: "enable",
-    dshUrl: communityMarketUrlFor(event),
-    hostToken: dshHostToken,
-  }))
+  ipcMain.handle("pawwork:dsh-community-market:enable", async (event) => {
+    // Anything running in the product frame can reach this channel, plugins
+    // included, and the frame check cannot tell them apart from the settings
+    // page. The confirmation is native so the decision to hand third-party code
+    // PawWork's permissions is always the user's, made outside the page.
+    const dshUrl = communityMarketUrlFor(event)
+    if (!(await confirmCommunityMarket(event, "enable"))) {
+      return requestDshCommunityMarket({ action: "status", dshUrl, hostToken: dshHostToken })
+    }
+    return requestDshCommunityMarket({ action: "enable", dshUrl, hostToken: dshHostToken })
+  })
+  ipcMain.handle("pawwork:dsh-community-market:disable", async (event) => {
+    const dshUrl = communityMarketUrlFor(event)
+    if (!(await confirmCommunityMarket(event, "disable"))) {
+      return requestDshCommunityMarket({ action: "status", dshUrl, hostToken: dshHostToken })
+    }
+    return requestDshCommunityMarket({ action: "disable", dshUrl, hostToken: dshHostToken })
+  })
   ipcMain.on("pawwork:dsh-restart", (event) => {
     try {
       communityMarketUrlFor(event)
@@ -169,6 +200,10 @@ function setupApp() {
     if (event.senderFrame !== event.sender.mainFrame) return
     const owner = BrowserWindow.fromWebContents(event.sender)
     if (owner) setTitlebarColorScheme(owner, process.platform, colorScheme)
+    if (colorScheme !== "dark" && colorScheme !== "light") return
+    if (colorScheme === startupColorScheme) return
+    startupColorScheme = colorScheme
+    writeStartupColorScheme(STARTUP_THEME_FILE, colorScheme)
   })
 
   app.on("second-instance", () => focusMainWindow(true))
@@ -194,6 +229,7 @@ function setupApp() {
   void app
     .whenReady()
     .then(() => {
+      menuLocale = detectSystemMenuLocale(app.getSystemLocale())
       app.setAsDefaultProtocolClient("pawwork")
       setDockIcon()
       setupAutoUpdater()
@@ -211,6 +247,50 @@ function setupApp() {
       logger.error("app initialization failed", error)
       app.exit(1)
     })
+}
+
+async function confirmCommunityMarket(event: Electron.IpcMainInvokeEvent, action: "disable" | "enable") {
+  const copy = menuLocale === "zh"
+    ? {
+        enable: {
+          message: "启用 DSH 社区插件市场？",
+          detail: "市场及其中的插件由第三方维护，安装后会以爪印的权限运行。你可以随时在设置里停用市场。",
+          confirm: "启用",
+        },
+        disable: {
+          message: "停用 DSH 社区插件市场？",
+          detail: "市场会从爪印的 DSH 环境中移除，已安装的社区插件将不再加载。设置里可以重新启用。",
+          confirm: "停用",
+        },
+        cancel: "取消",
+      }
+    : {
+        enable: {
+          message: "Enable the DSH community plugin market?",
+          detail: "The market and its plugins are maintained by third parties and run with PawWork's permissions."
+            + " You can turn the market off again from Settings at any time.",
+          confirm: "Enable",
+        },
+        disable: {
+          message: "Disable the DSH community plugin market?",
+          detail: "The market is removed from PawWork's DSH environment and installed community plugins stop loading."
+            + " You can enable it again from Settings.",
+          confirm: "Disable",
+        },
+        cancel: "Cancel",
+      }
+  const prompt = copy[action]
+  const owner = BrowserWindow.fromWebContents(event.sender)
+  const options = {
+    type: "question" as const,
+    message: prompt.message,
+    detail: prompt.detail,
+    buttons: [prompt.confirm, copy.cancel],
+    defaultId: 0,
+    cancelId: 1,
+  }
+  const result = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options)
+  return result.response === 0
 }
 
 function communityMarketUrlFor(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) {
@@ -234,7 +314,7 @@ function dshUrl() {
 }
 
 function showStartupPage() {
-  for (const win of liveWindows()) navigateWindow(win, STARTUP_URL)
+  for (const win of liveWindows()) navigateWindow(win, startupUrl(startupColorScheme))
 }
 
 async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed" }>) {
@@ -242,41 +322,100 @@ async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed
     ? {
         title: state.reason === "startup" ? "爪印无法启动" : "爪印已停止",
         message: state.reason === "startup" ? "智能体运行时未能启动。" : "智能体运行时意外退出。",
-        buttons: ["重试", "显示日志", "反馈问题", "退出"],
+        pluginCause: (bundle: string) =>
+          `插件「${bundle}」没有安装完整，运行时因此起不来。移除它就能重新打开爪印，之后可以在设置里重新安装。`,
+        removePlugin: "移除该插件并重试",
+        removeFailed: (bundle: string) => `没能移除插件「${bundle}」，请查看日志。`,
+        retry: "重试",
+        showLog: "显示日志",
+        report: "反馈问题",
+        quit: "退出",
         log: "完整日志",
       }
     : {
         title: state.reason === "startup" ? "PawWork Could Not Start" : "PawWork Stopped",
         message: state.reason === "startup" ? "The agent runtime did not start." : "The agent runtime stopped unexpectedly.",
-        buttons: ["Try Again", "Show Log", "Report a Problem", "Quit"],
+        pluginCause: (bundle: string) =>
+          `The plugin "${bundle}" is not fully installed, which stops the runtime from starting.`
+          + " Removing it lets PawWork open again; you can reinstall it from Settings afterwards.",
+        removePlugin: "Remove Plugin and Retry",
+        removeFailed: (bundle: string) => `Could not remove the plugin "${bundle}". See the log for details.`,
+        retry: "Try Again",
+        showLog: "Show Log",
+        report: "Report a Problem",
+        quit: "Quit",
         log: "Full log",
       }
   const logPath = logger.transports.file.getFile().path
   const error = state.error instanceof Error ? state.error.message : String(state.error ?? "")
-  const detail = [error, dshOutputTail.trim(), `${copy.log}: ${logPath}`].filter(Boolean).join("\n\n")
+  // The runtime's own stderr is a Node stack over DSH's internals; it belongs in
+  // the log, not in front of someone who just wants their app back. Only the one
+  // fact they can act on is lifted out of it.
+  const bundle = dshHome === undefined ? undefined : unresolvedProfileBundle(`${error}\n${dshOutputTail}`)
+  let note = ""
 
   for (;;) {
+    const buttons = [
+      ...(bundle === undefined ? [] : [copy.removePlugin]),
+      copy.retry,
+      copy.showLog,
+      copy.report,
+      copy.quit,
+    ]
     const options = {
       type: "error" as const,
       title: copy.title,
       message: copy.message,
-      detail,
-      buttons: copy.buttons,
+      // The runtime output only earns its space when nothing else explains the
+      // failure: once the bundle is named, the tail is the same stack the
+      // sentence already summarizes.
+      detail: [
+        note,
+        ...(bundle === undefined ? [error, dshOutputTail.trim()] : [copy.pluginCause(bundle)]),
+        `${copy.log}: ${logPath}`,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      buttons,
       defaultId: 0,
-      cancelId: 3,
+      cancelId: buttons.length - 1,
     }
     const owner = BrowserWindow.getFocusedWindow() ?? liveWindows()[0]
     const result = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options)
-    if (result.response === 0) {
+    const chosen = buttons[result.response]
+
+    if (chosen === copy.removePlugin && bundle !== undefined && dshHome !== undefined) {
+      let removed: boolean
+      try {
+        removed = removeProfileBundle({ profileDir: join(dshHome, "profiles", "web"), bundle })
+      } catch (failure) {
+        logger.error("failed to remove unresolved profile bundle", failure)
+        note = copy.removeFailed(bundle)
+        continue
+      }
+      // Nothing removed means the row was never in this manifest — the bundle
+      // comes from somewhere we do not own, so restarting would hit the same
+      // failure. Say so rather than reporting a repair that did not happen.
+      if (!removed) {
+        logger.error("unresolved profile bundle was not declared in the profile", { bundle })
+        note = copy.removeFailed(bundle)
+        continue
+      }
+      logger.log("removed unresolved profile bundle", { bundle })
       focusMainWindow(true)
       lifecycle.start()
       return
     }
-    if (result.response === 1) {
+    if (chosen === copy.retry) {
+      focusMainWindow(true)
+      lifecycle.start()
+      return
+    }
+    if (chosen === copy.showLog) {
       shell.showItemInFolder(logPath)
       continue
     }
-    if (result.response === 2) {
+    if (chosen === copy.report) {
       await shell.openExternal(PAWWORK_GITHUB_ISSUE_URL).catch((failure) => logger.error("failed to open issue form", failure))
       continue
     }
@@ -328,6 +467,7 @@ function launchDsh() {
     }),
     resources: productResources.dsh,
   })
+  dshHome = product.home
   const require = createRequire(import.meta.url)
   const dshPackage = resolveDshPackagePath({
     isPackaged: app.isPackaged,
@@ -372,6 +512,7 @@ function openMainWindow() {
   const win = createMainWindow({
     preload: productPreload,
     dshUrl,
+    startupColorScheme,
   })
   if (currentProgress !== null) win.setProgressBar(currentProgress)
   return win

@@ -8,8 +8,15 @@ import { decideDshNavigation, guardDshNavigation, handleDshWindowOpen } from "./
 import { dshTitleBarOptions, dshWebPreferences, titleBarOverlayStyle } from "./window-options"
 
 const root = dirname(fileURLToPath(import.meta.url))
-const STARTUP_HTML = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>PawWork</title><style>
-:root{--bg:#fff;--line:#e3e3e7;--accent:#fc5c14}@media(prefers-color-scheme:dark){:root{--bg:#191919;--line:#2d2d31}}
+// The startup page is shown before DSH can say which appearance the user chose,
+// so a system-only default flashes the wrong one at anybody whose app setting
+// disagrees with their OS. `scheme` is the last appearance the product
+// published; the media query stays as the answer for the very first launch,
+// when there is nothing remembered yet.
+const startupHtml = (scheme?: StartupColorScheme) => `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>PawWork</title><style>
+:root{--bg:#fff;--line:#e3e3e7;--accent:#fc5c14}${scheme === undefined
+  ? "@media(prefers-color-scheme:dark){:root{--bg:#191919;--line:#2d2d31}}"
+  : scheme === "dark" ? ":root{--bg:#191919;--line:#2d2d31}" : ""}
 html,body{height:100%;margin:0}body{align-items:center;background:var(--bg);display:flex;justify-content:center}
 .titlebar{-webkit-app-region:drag;height:var(--pawwork-titlebar-host-height,env(titlebar-area-height,0px));left:0;position:fixed;right:0;top:0}
 .spinner{animation:spin .8s linear infinite;border:2px solid var(--line);border-radius:50%;box-sizing:border-box;height:20px;position:relative;width:20px}
@@ -17,7 +24,11 @@ html,body{height:100%;margin:0}body{align-items:center;background:var(--bg);disp
 @keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spinner{animation:none}}
 </style></head><body><div class="titlebar"></div><div aria-label="PawWork is starting" class="spinner" role="progressbar"></div></body></html>`
 
-export const STARTUP_URL = `data:text/html;charset=utf-8,${encodeURIComponent(STARTUP_HTML)}`
+export type StartupColorScheme = "dark" | "light"
+
+export function startupUrl(scheme?: StartupColorScheme) {
+  return `data:text/html;charset=utf-8,${encodeURIComponent(startupHtml(scheme))}`
+}
 
 function iconsDir() {
   return app.isPackaged ? join(process.resourcesPath, "icons") : join(root, "../../resources/icons")
@@ -36,6 +47,7 @@ export function setDockIcon() {
 
 type MainWindowOptions = {
   preload: string
+  startupColorScheme?: StartupColorScheme
   // Read on every navigation rather than captured: the window is created before
   // DSH has an origin, and outlives the one it eventually gets.
   dshUrl: () => string | undefined
@@ -118,7 +130,7 @@ export function createMainWindow(options: MainWindowOptions) {
     event.preventDefault()
     win.setTitle(pawworkWindowTitle(title))
   })
-  navigateWindow(win, options.dshUrl() ?? STARTUP_URL)
+  navigateWindow(win, options.dshUrl() ?? startupUrl(options.startupColorScheme))
   win.once("ready-to-show", () => win.show())
 
   return win

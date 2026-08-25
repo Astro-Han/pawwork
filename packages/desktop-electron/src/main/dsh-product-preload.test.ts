@@ -177,13 +177,15 @@ describe("PawWork DSH product preload", () => {
     })
 
     const api = exposed.get("pawworkCommunityMarket")!
-    expect(Object.keys(api)).toEqual(["status", "enable", "restart"])
+    expect(Object.keys(api)).toEqual(["status", "enable", "disable", "restart"])
     await api.status()
     await api.enable()
+    await api.disable()
     api.restart()
     expect(invoke.mock.calls).toEqual([
       ["pawwork:dsh-community-market:status"],
       ["pawwork:dsh-community-market:enable"],
+      ["pawwork:dsh-community-market:disable"],
     ])
     expect(send).toHaveBeenCalledWith("pawwork:dsh-restart")
   })
