@@ -46,7 +46,14 @@ describe("electron builder app-update config", () => {
     if (!Array.isArray(extraResources)) throw new Error("extraResources must be a list")
     const dshResources = extraResources.find((resource) => typeof resource === "object" && resource.to === "dsh/")
 
-    expect(config.files).toEqual(["out/main/**/*"])
+    expect(config.files).toEqual([
+      "out/main/**/*",
+      "!node_modules/**/*.map",
+      "!node_modules/**/*.d.ts",
+      "!node_modules/**/*.d.mts",
+      "!node_modules/**/*.d.cts",
+      "!node_modules/pnpm/artifacts/**/*",
+    ])
     expect(dshResources).toMatchObject({ filter: ["**/*", "!**/*.test.cjs"] })
     expect(config.extraResources).toEqual([
       expect.objectContaining({ to: "dsh/" }),
@@ -55,6 +62,17 @@ describe("electron builder app-update config", () => {
       expect.objectContaining({ to: "THIRD_PARTY_NOTICES.md" }),
       expect.objectContaining({ to: "tools/" }),
     ])
+  })
+
+  // electron-builder deletes every locale that does not match this list, and it
+  // matches against the file names Electron ships: en.lproj / zh_CN.lproj on
+  // macOS, en-US.pak / zh-CN.pak on Windows. Spelling both platforms the same
+  // way looks tidier and deletes Chinese from one of them.
+  test("bundled locales are spelled the way each platform names them", () => {
+    const config = createConfig("prod")
+    expect(config.mac?.electronLanguages).toEqual(["en", "zh_CN"])
+    expect(config.win?.electronLanguages).toEqual(["en-US", "zh-CN"])
+    expect(config.electronLanguages).toBeUndefined()
   })
 
   test("only the production build publishes to the PawWork repository", () => {
