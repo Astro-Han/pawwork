@@ -45,15 +45,22 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
   // at runtime: declaration files, source maps (no source-map-support is
   // installed, so nothing reads them) and package docs. Dropping them cuts the
   // installed footprint and, more usefully, the file count that signing and
-  // notarization have to walk. LICENSE files are extensionless and stay.
+  // notarization have to walk.
+  //
+  // Markdown is named file by file rather than excluded wholesale: `**/*.md`
+  // also takes out every LICENSE.md in the closure, which we have to ship, and
+  // the SKILL.md files under dsh/config/agent-presets, which are agent presets
+  // DSH loads at runtime, not documentation.
   files: [
     "out/main/**/*",
     "!node_modules/**/*.map",
     "!node_modules/**/*.d.ts",
     "!node_modules/**/*.d.mts",
     "!node_modules/**/*.d.cts",
-    "!node_modules/**/*.md",
-    // pnpm ships its CLI twice: dist/ and a byte-identical copy under
+    "!node_modules/**/README*.md",
+    "!node_modules/**/CHANGELOG*.md",
+    "!node_modules/**/HISTORY*.md",
+    // pnpm ships its CLI twice: dist/ and a near-identical copy under
     // artifacts/exe/dist/ that only its own standalone-executable build reads.
     // We invoke bin/pnpm.mjs (see dsh-tools.ts), so the second copy is 14M of
     // nothing.

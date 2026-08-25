@@ -52,7 +52,9 @@ describe("electron builder app-update config", () => {
       "!node_modules/**/*.d.ts",
       "!node_modules/**/*.d.mts",
       "!node_modules/**/*.d.cts",
-      "!node_modules/**/*.md",
+      "!node_modules/**/README*.md",
+      "!node_modules/**/CHANGELOG*.md",
+      "!node_modules/**/HISTORY*.md",
       "!node_modules/pnpm/artifacts/**/*",
     ])
     expect(dshResources).toMatchObject({ filter: ["**/*", "!**/*.test.cjs"] })
