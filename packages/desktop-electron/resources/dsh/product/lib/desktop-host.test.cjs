@@ -182,7 +182,7 @@ test('requires restart when the running market is removed from the profile', asy
   });
 })
 
-test('installs only the pinned compatible market through the managed service', async () => {
+test('installs the latest market through the managed service', async () => {
   const { home, profileDir } = profileHome();
   const managed = managedSubprocess();
   const host = createDesktopHost({
@@ -201,22 +201,74 @@ test('installs only the pinned compatible market through the managed service', a
     '--profile',
     'web',
     'add',
-    'dshmarket@1.21.0',
-    '--save-exact',
+    'dshmarket',
   ]);
   assert.equal(managed.spawns[0].signal instanceof AbortSignal, true);
   fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
-    dependencies: { dshmarket: '1.21.0' },
+    dependencies: { dshmarket: '^1.29.2' },
     dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dshmarket'] } },
   }));
-  writeInstalledMarket(profileDir, '1.21.0');
+  writeInstalledMarket(profileDir, '1.29.2');
   managed.settle({ exitCode: 0, signal: null });
 
   assert.deepEqual(await enabling, {
     enabled: true,
     restartRequired: true,
-    version: '1.21.0',
+    version: '1.29.2',
   });
+})
+
+test('reports the installed version when it is below the compatibility floor', async () => {
+  const { home, profileDir } = profileHome();
+  const managed = managedSubprocess();
+  const host = createDesktopHost({
+    dshBin: '/app/dsh/bin.js',
+    home,
+    nodeExecutable: '/app/PawWork',
+    subprocess: managed.subprocess,
+  });
+
+  const enabling = host.communityMarket.enable();
+  await Promise.resolve();
+  fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
+    dependencies: { dshmarket: '1.20.4' },
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dshmarket'] } },
+  }));
+  writeInstalledMarket(profileDir, '1.20.4');
+  managed.settle({ exitCode: 0, signal: null });
+
+  await assert.rejects(enabling, /requires 1\.21\.0 or newer, but 1\.20\.4 was installed/);
+  // The row resolves, so it is the user's to keep — pruning it would break a
+  // profile that still boots fine.
+  const manifest = JSON.parse(fs.readFileSync(path.join(profileDir, 'package.json'), 'utf8'));
+  assert.deepEqual(manifest.dsh.profile.bundles, ['@deepseek-ai/dsh-base', 'dshmarket']);
+})
+
+test('prunes the orphan bundle row when the install fails', async () => {
+  const { home, profileDir } = profileHome();
+  const managed = managedSubprocess();
+  const host = createDesktopHost({
+    dshBin: '/app/dsh/bin.js',
+    home,
+    nodeExecutable: '/app/PawWork',
+    subprocess: managed.subprocess,
+  });
+
+  const enabling = host.communityMarket.enable();
+  await Promise.resolve();
+  // `dsh plugin add` writes the bundle row before the install can fail, and
+  // neither it nor the market rolls it back (dsh-market/dsh-market#339). Left
+  // behind, it makes the next DSH boot fail to resolve the bundle.
+  fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
+    dependencies: {},
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dshmarket'] } },
+  }));
+  managed.child.stderr.write('build scripts are blocked by pnpm by default');
+  managed.settle({ exitCode: 1, signal: null });
+
+  await assert.rejects(enabling, /build scripts are blocked/);
+  const manifest = JSON.parse(fs.readFileSync(path.join(profileDir, 'package.json'), 'utf8'));
+  assert.deepEqual(manifest.dsh.profile.bundles, ['@deepseek-ai/dsh-base']);
 })
 
 test('keeps a newer compatible market without spawning a downgrade', async () => {

@@ -3,8 +3,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const MARKET_NAME = 'dshmarket';
+// The floor is a compatibility contract, not a pin: it is the first market
+// release that works with the Desktop services we inject in place of its own
+// profile and package runtime. Installing targets the latest release, per the
+// market's own install instructions, and the market updates itself from there.
 const MARKET_MINIMUM_VERSION = '1.21.0';
-const MARKET_TARGET = `${MARKET_NAME}@${MARKET_MINIMUM_VERSION}`;
 const MARKET_OPERATION_TIMEOUT_MS = 15 * 60 * 1000;
 
 function readProfile(profileDir) {
@@ -51,6 +54,26 @@ function marketStatus(profileDir) {
     enabled: declared && active && version !== null && versionAtLeast(version, MARKET_MINIMUM_VERSION),
     version,
   };
+}
+
+function dropMarketBundle(profileDir) {
+  const manifest = readProfile(profileDir);
+  const bundles = manifest.dsh?.profile?.bundles;
+  if (!Array.isArray(bundles) || !bundles.includes(MARKET_NAME)) return;
+  manifest.dsh.profile.bundles = bundles.filter((bundle) => bundle !== MARKET_NAME);
+  fs.writeFileSync(path.join(profileDir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+}
+
+// A bundle row left declared but not installable is what stops DSH from booting
+// at all, and neither `dsh plugin add` nor the market rolls it back on failure
+// (dsh-market/dsh-market#339, still open against 1.29.2). A failed install drops
+// only such a row: one that resolves is the user's to keep, even when it is too
+// old for us to drive.
+function pruneUnresolvableMarketBundle(profileDir) {
+  const manifest = readProfile(profileDir);
+  const declared = typeof manifest.dependencies?.[MARKET_NAME] === 'string';
+  if (declared && installedMarketVersion(profileDir) !== null) return;
+  dropMarketBundle(profileDir);
 }
 
 function createDesktopProfiles(profileDir) {
@@ -165,24 +188,28 @@ function createDesktopHost(options) {
       async enable() {
         const current = await status();
         if (current.enabled) return current;
-        await runMarketPlugin(['add', MARKET_TARGET, '--save-exact'], 'DSH plugin install');
-        const installed = await status();
-        if (!installed.enabled) throw new Error('DSH did not activate a compatible community market');
-        return installed;
+        try {
+          await runMarketPlugin(['add', MARKET_NAME], 'DSH plugin install');
+          const installed = await status();
+          if (!installed.enabled) {
+            throw new Error(installed.version === null
+              ? 'DSH did not activate a compatible community market'
+              : `The community market requires ${MARKET_MINIMUM_VERSION} or newer, but ${installed.version} was installed`);
+          }
+          return installed;
+        } catch (error) {
+          pruneUnresolvableMarketBundle(profileDir);
+          throw error;
+        }
       },
       async disable() {
         const current = await status();
         if (!current.enabled && !readProfile(profileDir).dsh?.profile?.bundles?.includes(MARKET_NAME)) return current;
         await runMarketPlugin(['remove', MARKET_NAME], 'DSH plugin removal');
-        // A bundle left declared but not installed is what stops DSH from
-        // booting at all, so turning the market off must not be able to leave
-        // one behind — the removal is only complete once the row is gone too.
-        const manifest = readProfile(profileDir);
-        const bundles = manifest.dsh?.profile?.bundles;
-        if (Array.isArray(bundles) && bundles.includes(MARKET_NAME)) {
-          manifest.dsh.profile.bundles = bundles.filter((bundle) => bundle !== MARKET_NAME);
-          fs.writeFileSync(path.join(profileDir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-        }
+        // Turning the market off must not be able to leave a row behind: the
+        // removal is only complete once the bundle row is gone too, whatever
+        // state DSH left the rest of the manifest in.
+        dropMarketBundle(profileDir);
         return status();
       },
     },
@@ -229,7 +256,6 @@ function registerCommunityMarketRoutes(webServer, market, hostToken) {
 module.exports = {
   MARKET_MINIMUM_VERSION,
   MARKET_NAME,
-  MARKET_TARGET,
   createDesktopHost,
   registerCommunityMarketRoutes,
 };
