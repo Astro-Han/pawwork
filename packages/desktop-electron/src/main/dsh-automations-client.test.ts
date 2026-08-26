@@ -41,7 +41,8 @@ function textOf(tree: unknown) {
 const primitives = {
   Button: primitive("button"), DisclosureRow: primitive("div"), Input: primitive("input"),
   Menu: primitive("div"), Modal: primitive("div"), Pill: primitive("button"), StateDot: primitive("span"),
-  IconChevronLeftOutline14: "IconChevronLeftOutline14", IconChevronDownOutline14: "IconChevronDownOutline14",
+  IconChevronLeftOutline14: "IconChevronLeftOutline14", IconChevronRightOutline14: "IconChevronRightOutline14",
+  IconChevronDownOutline14: "IconChevronDownOutline14",
   IconCheckOutline16: "IconCheckOutline16",
   IconPauseOutline16: "IconPauseOutline16", IconPlayOutline16: "IconPlayOutline16",
   IconSearchOutline16: "IconSearchOutline16", IconSettingsOutline16: "IconSettingsOutline16",
@@ -526,5 +527,59 @@ describe("PawWork DSH Automations client", () => {
     await expect((openSession!.props.onClick as () => Promise<void>)()).resolves.toBeUndefined()
     expect(close).not.toHaveBeenCalled()
     expect(stateWrites).toContainEqual(expect.stringContaining("session registry is stale"))
+  })
+
+  // The browser's own datetime picker is neither themed nor placed inside the settings panel, so a
+  // one-shot schedule is edited as a themed date field plus a time field. Splitting the value is
+  // where it can silently drift: half the timestamp is written by each control.
+  test("edits a one-shot schedule without the browser's datetime picker, and saves the same instant", async () => {
+    const document = fakeDocument("zh-CN")
+    const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
+    // The editor refuses a one-shot time in the past, so this instant has to stay ahead of the run.
+    const fireAt = new Date(Date.now() + 86_400_000).setSeconds(0, 0)
+    const definitionData = {
+      id: "automation-1", title: "复查 PR", prompt: "Check the PR", revision: 4,
+      paused: true, context: "fresh", cwd: "/tmp/workspace",
+      model: { provider: "opencode", model: "deepseek-v4-flash-free" }, timezone: "Asia/Shanghai",
+      kind: "oneshot", fireAt, recentRuns: [],
+    }
+    let stateCall = 0
+    const plugin = definition.factory((name) => {
+      if (name === "react") {
+        return {
+          createElement,
+          useEffect: () => {},
+          useRef: <T>(value: T) => ({ current: value }),
+          useState: <T>(value: T) => {
+            stateCall += 1
+            if (stateCall === 1) return [{ definitions: [definitionData] }, () => {}]
+            if (stateCall === 2) return [definitionData.id, () => {}]
+            return [value, () => {}]
+          },
+        }
+      }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
+      throw new Error(`unexpected Automations client dependency: ${name}`)
+    })
+    const call = vi.fn(async () => ({ ok: true, value: definitionData }))
+    const settingsSection = settingsSectionOf(plugin, { connection: { rpc: { call } } })
+
+    const tree = settingsSection({
+      close: () => {},
+      useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
+    })
+    const inputs = visit(tree).filter((element) => element.type === "input")
+
+    expect(inputs.some((element) => element.props.type === "datetime-local")).toBe(false)
+    expect(inputs.some((element) => element.props.type === "time")).toBe(true)
+
+    const form = visit(tree).find((element) => typeof element.props.onSubmit === "function")
+    await (form!.props.onSubmit as (event: { preventDefault: () => void }) => Promise<void>)({
+      preventDefault: () => {},
+    })
+
+    expect(call).toHaveBeenCalledWith(
+      "/pawwork-automations", "update", expect.objectContaining({ fireAt }), undefined,
+    )
   })
 })

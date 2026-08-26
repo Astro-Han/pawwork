@@ -11,6 +11,7 @@ window.__ModuleLoader__.load({
       Pill,
       StateDot,
       IconChevronLeftOutline14,
+      IconChevronRightOutline14,
       IconChevronDownOutline14,
       IconCheckOutline16,
       IconPauseOutline16,
@@ -34,8 +35,7 @@ window.__ModuleLoader__.load({
 .pawwork-automations-page-head h2 { font-size: 18px; font-weight: 600; line-height: 26px; margin: 0; }
 .pawwork-automations-page-head p { color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xs-13); margin: 0; }
 .pawwork-automations-toolbar { align-items: center; display: flex; gap: 10px; }
-.pawwork-automations-search { flex: 1; }
-.pawwork-automations-search input { width: 100%; }
+.pawwork-automations-search { box-sizing: border-box; flex: 1; min-width: 0; }
 .pawwork-automations-tabs { display: flex; flex: none; gap: 6px; }
 .pawwork-automations-list { display: flex; flex-direction: column; gap: 8px; }
 .pawwork-automation-row {
@@ -80,7 +80,12 @@ window.__ModuleLoader__.load({
   display: flex; flex-direction: column; gap: 6px; min-width: 0;
 }
 .pawwork-automation-group-label { color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 500; line-height: 18px; }
-.pawwork-automation-input, .pawwork-automation-input input { width: 100%; }
+/* The Input primitive is an inline-flex content box with its own padding and border, so a bare
+   width: 100% resolved to the column width *plus* that chrome and every field spilled 18px over
+   its neighbour. Sizing its border box is the whole fix; the inner input is already flex: 1. */
+.pawwork-automation-input { box-sizing: border-box; display: flex; width: 100%; }
+/* Date and time fields carry the browser's own picker, which is neither themed nor placed by us. */
+.pawwork-automation-input input::-webkit-calendar-picker-indicator { display: none; }
 .pawwork-automation-readonly { color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
 .pawwork-automation-textarea {
   background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l2);
@@ -89,8 +94,46 @@ window.__ModuleLoader__.load({
 }
 .pawwork-automation-textarea:focus { border-color: var(--dsw-alias-brand-primary); outline: none; }
 .pawwork-automation-textarea::placeholder { color: var(--dsw-alias-label-dimmed); }
-.pawwork-automation-select-trigger { justify-content: space-between; max-width: 100%; min-width: 148px; }
-.pawwork-automation-select-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Selects and the date picker are fields, not buttons: they sit in the same column grid as the
+   Input primitive, so they copy its box exactly instead of reading as a pill dropped into a form. */
+.pawwork-automation-field {
+  align-items: center; background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px; box-sizing: border-box; color: var(--dsw-alias-label-primary); cursor: pointer;
+  display: flex; font: inherit; font-size: 14px; gap: 6px; height: 32px; line-height: 22px;
+  padding: 0 9px; text-align: left; width: 100%;
+}
+.pawwork-automation-field:hover { border-color: var(--dsw-alias-border-l1); }
+.pawwork-automation-field[aria-expanded="true"] { border-color: var(--dsw-alias-brand-primary); }
+.pawwork-automation-field:focus-visible { border-color: var(--dsw-alias-brand-primary); outline: none; }
+.pawwork-automation-field-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pawwork-automation-field-caret { color: var(--dsw-alias-label-tertiary); display: inline-flex; flex: none; }
+.pawwork-automation-select { display: block; min-width: 0; }
+/* Opening the calendar in flow rather than over the form keeps it inside the settings panel's own
+   scroller, which clips anything absolutely positioned past its edge. */
+.pawwork-automation-calendar {
+  background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
+  display: flex; flex-direction: column; gap: 4px; margin-top: 6px; padding: 8px;
+}
+.pawwork-automation-calendar-head { align-items: center; display: flex; gap: 4px; justify-content: space-between; }
+.pawwork-automation-calendar-title { font-size: 13px; font-weight: 500; line-height: 20px; }
+.pawwork-automation-calendar-nav {
+  align-items: center; background: transparent; border: none; border-radius: 6px; color: var(--dsw-alias-label-secondary);
+  cursor: pointer; display: inline-flex; flex: none; height: 24px; justify-content: center; padding: 0; width: 24px;
+}
+.pawwork-automation-calendar-nav:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.pawwork-automation-calendar-grid { display: grid; gap: 2px; grid-template-columns: repeat(7, 1fr); }
+.pawwork-automation-calendar-weekday {
+  color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 20px; text-align: center;
+}
+.pawwork-automation-day {
+  background: transparent; border: none; border-radius: 8px; color: var(--dsw-alias-label-primary); cursor: pointer;
+  font: inherit; font-size: 12px; height: 28px; line-height: 28px; padding: 0;
+}
+.pawwork-automation-day:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.pawwork-automation-day-today { color: var(--dsw-alias-brand-text); font-weight: 600; }
+.pawwork-automation-day-selected, .pawwork-automation-day-selected:hover {
+  background: var(--dsw-alias-button-primary-fill); color: var(--dsw-alias-label-primary-foreground); font-weight: 500;
+}
 .pawwork-automation-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 .pawwork-automation-advanced { border-top: 1px solid var(--dsw-alias-border-l2); padding-top: 4px; }
 .pawwork-automation-advanced-content { border-top: 1px solid var(--dsw-alias-border-l2); display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top: 10px; padding-top: 12px; }
@@ -265,6 +308,7 @@ window.__ModuleLoader__.load({
 
     function schedulePayload(form) {
       if (form.frequency === "once") {
+        if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(form.at)) throw new Error(text("请选择运行日期和时间", "Choose a run date and time"))
         const fireAt = new Date(form.at).getTime()
         if (!Number.isFinite(fireAt) || fireAt <= Date.now()) throw new Error(text("运行时间必须在未来", "Run time must be in the future"))
         return { kind: "oneshot", fireAt }
@@ -287,18 +331,75 @@ window.__ModuleLoader__.load({
     function Field({ label, children }) {
       return h("div", { className: "pawwork-automation-group" }, h("span", { className: "pawwork-automation-group-label" }, label), children)
     }
+    function FieldTrigger({ label, onClick, open, value }) {
+      return h("button", {
+        "aria-expanded": open, "aria-haspopup": "listbox", "aria-label": label,
+        className: "pawwork-automation-field", onClick, type: "button",
+      },
+        h("span", { className: "pawwork-automation-field-value" }, value),
+        h("span", { className: "pawwork-automation-field-caret" }, h(IconChevronDownOutline14, { size: 14 })))
+    }
+
     function SelectControl({ label, onChange, options, value }) {
       const [open, setOpen] = useState(false)
       const selected = options.find((option) => option[0] === value)
-      const anchor = h(Button, {
-        "aria-label": label, className: "pawwork-automation-select-trigger",
-        onClick: () => setOpen((current) => !current), size: "md", type: "button", variant: "ghost",
-      }, h("span", null, selected?.[1] || value), h(IconChevronDownOutline14, { size: 14 }))
+      const anchor = h(FieldTrigger, { label, onClick: () => setOpen((current) => !current), open, value: selected?.[1] || value })
       return h(Menu, {
-        align: "end", anchor, compact: true, items: options.map(([id, optionLabel]) => ({ id, label: optionLabel })),
+        align: "start", anchor, className: "pawwork-automation-select", compact: true,
+        items: options.map(([id, optionLabel]) => ({ id, label: optionLabel })),
         onClose: () => setOpen(false), onSelect: (id) => { onChange(id); setOpen(false) }, open,
         portal: true, selectedId: value,
       })
+    }
+
+    const WEEKDAY_INITIALS = { zh: ["日", "一", "二", "三", "四", "五", "六"], en: ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] }
+    function isoDate(year, month, day) {
+      return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+    }
+    function monthTitle(year, month) {
+      if (isChinese()) return `${year}年${month}月`
+      return new Intl.DateTimeFormat("en", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1))
+    }
+    function formatDate(value) {
+      const [year, month, day] = String(value).split("-").map(Number)
+      if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return value
+      return new Intl.DateTimeFormat(isChinese() ? "zh-CN" : "en", { dateStyle: "medium" }).format(new Date(year, month - 1, day))
+    }
+    // The browser's own date picker is neither themed nor placed by the app: inside a settings modal
+    // it opened as an OS-blue panel hanging off the field. This is the same calendar in dsw tokens.
+    function DateField({ label, onChange, value }) {
+      const [open, setOpen] = useState(false)
+      const [view, setView] = useState(String(value).slice(0, 7))
+      const [year, month] = view.split("-").map(Number)
+      const today = isoDate(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate())
+      const dayCount = new Date(Date.UTC(year, month, 0)).getUTCDate()
+      const lead = new Date(Date.UTC(year, month - 1, 1)).getUTCDay()
+      function shift(delta) {
+        const shifted = new Date(Date.UTC(year, month - 1 + delta, 1))
+        setView(`${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}`)
+      }
+      const cells = []
+      for (let index = 0; index < lead; index += 1) cells.push(h("span", { key: `lead-${index}` }))
+      for (let day = 1; day <= dayCount; day += 1) {
+        const date = isoDate(year, month, day)
+        cells.push(h("button", {
+          className: `pawwork-automation-day${date === value ? " pawwork-automation-day-selected" : date === today ? " pawwork-automation-day-today" : ""}`,
+          key: date, onClick: () => { onChange(date); setOpen(false) }, type: "button",
+        }, String(day)))
+      }
+      return h("div", null,
+        h(FieldTrigger, {
+          label, onClick: () => { setView(String(value).slice(0, 7)); setOpen((current) => !current) },
+          open, value: formatDate(value),
+        }),
+        open ? h("div", { className: "pawwork-automation-calendar" },
+          h("div", { className: "pawwork-automation-calendar-head" },
+            h("button", { "aria-label": text("上个月", "Previous month"), className: "pawwork-automation-calendar-nav", onClick: () => shift(-1), type: "button" }, h(IconChevronLeftOutline14, { size: 14 })),
+            h("span", { className: "pawwork-automation-calendar-title" }, monthTitle(year, month)),
+            h("button", { "aria-label": text("下个月", "Next month"), className: "pawwork-automation-calendar-nav", onClick: () => shift(1), type: "button" }, h(IconChevronRightOutline14, { size: 14 }))),
+          h("div", { className: "pawwork-automation-calendar-grid" },
+            WEEKDAY_INITIALS[isChinese() ? "zh" : "en"].map((initial) => h("span", { className: "pawwork-automation-calendar-weekday", key: initial }, initial)),
+            cells)) : null)
     }
 
     function AutomationEditor({ closeSettings, connection, definition, onClose, onDeleted, onSaved, sessions }) {
@@ -377,7 +478,8 @@ window.__ModuleLoader__.load({
           h(Field, { label: text("工作区", "Workspace") }, h("span", { className: "pawwork-automation-readonly", title: definition.cwd }, workspaceName(definition.cwd))),
           h("div", { className: "pawwork-automation-grid" },
             h(Field, { label: text("重复", "Repeat") }, h(SelectControl, { label: text("重复", "Repeat"), onChange: choose("frequency"), options: scheduleOptions, value: form.frequency })),
-            form.frequency === "once" ? h(Field, { label: text("运行时间", "Run time") }, h(Input, { "aria-label": text("运行时间", "Run time"), className: "pawwork-automation-input", onChange: update("at"), type: "datetime-local", value: form.at })) : null,
+            form.frequency === "once" ? h(Field, { label: text("运行日期", "Run date") }, h(DateField, { label: text("运行日期", "Run date"), onChange: (date) => setForm((current) => ({ ...current, at: `${date}T${current.at.slice(11, 16)}` })), value: form.at.slice(0, 10) })) : null,
+            form.frequency === "once" ? h(Field, { label: text("运行时间", "Run time") }, h(Input, { "aria-label": text("运行时间", "Run time"), className: "pawwork-automation-input", onChange: (event) => setForm((current) => ({ ...current, at: `${current.at.slice(0, 10)}T${event.target.value}` })), type: "time", value: form.at.slice(11, 16) })) : null,
             ["daily", "weekdays", "weekly"].includes(form.frequency) ? h(Field, { label: text("时间", "Time") }, h(Input, { "aria-label": text("时间", "Time"), className: "pawwork-automation-input", onChange: update("time"), type: "time", value: form.time })) : null,
             form.frequency === "weekly" ? h(Field, { label: text("星期", "Weekday") }, h(SelectControl, { label: text("星期", "Weekday"), onChange: choose("weekday"), options: weekdayOptions, value: form.weekday })) : null,
             form.frequency === "interval" ? h(Field, { label: text("间隔分钟", "Interval minutes") }, h(Input, { "aria-label": text("间隔分钟", "Interval minutes"), className: "pawwork-automation-input", min: "0.5", onChange: update("intervalMinutes"), step: "0.5", type: "number", value: form.intervalMinutes })) : null,
