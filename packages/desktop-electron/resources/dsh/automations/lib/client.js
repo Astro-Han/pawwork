@@ -8,6 +8,8 @@ window.__ModuleLoader__.load({
       Modal,
       Pill,
       StateDot,
+      useAnchoredPosition,
+      useDismissOnOutsidePointer,
       IconChevronLeftOutline14,
       IconChevronRightOutline14,
       IconChevronDownOutline14,
@@ -95,7 +97,7 @@ window.__ModuleLoader__.load({
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-position: right 12px center; background-repeat: no-repeat; background-size: 12px 12px;
-  cursor: pointer; padding-right: 32px; text-align: left;
+  padding-right: 32px; text-align: left;
 }
 /* Values the editor shows but cannot change still occupy a field's line box, so a label beside them
    does not sit 6px higher than the one next to a real field. */
@@ -116,13 +118,13 @@ window.__ModuleLoader__.load({
 .pawwork-automation-calendar {
   background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
   box-shadow: var(--dsw-shadow-lv2); box-sizing: border-box; display: flex; flex-direction: column;
-  gap: 4px; overflow-y: auto; padding: 8px; position: fixed; width: 260px; z-index: 1100;
+  gap: 4px; padding: 8px; position: fixed; width: 260px; z-index: 1100;
 }
 .pawwork-automation-calendar-head { align-items: center; display: flex; gap: 4px; justify-content: space-between; }
 .pawwork-automation-calendar-title { font-size: 13px; font-weight: 500; line-height: 20px; }
 .pawwork-automation-calendar-nav {
   align-items: center; background: transparent; border: none; border-radius: 6px; color: var(--dsw-alias-label-secondary);
-  cursor: pointer; display: inline-flex; flex: none; height: 24px; justify-content: center; padding: 0; width: 24px;
+  display: inline-flex; flex: none; height: 24px; justify-content: center; padding: 0; width: 24px;
 }
 .pawwork-automation-calendar-nav:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .pawwork-automation-calendar-grid { display: grid; gap: 2px; grid-template-columns: repeat(7, 1fr); }
@@ -130,7 +132,7 @@ window.__ModuleLoader__.load({
   color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 20px; text-align: center;
 }
 .pawwork-automation-day {
-  background: transparent; border: none; border-radius: 8px; color: var(--dsw-alias-label-primary); cursor: pointer;
+  background: transparent; border: none; border-radius: 8px; color: var(--dsw-alias-label-primary);
   font: inherit; font-size: 12px; height: 28px; line-height: 28px; padding: 0;
 }
 .pawwork-automation-day:hover { background: var(--dsw-alias-interactive-bg-hover); }
@@ -142,7 +144,7 @@ window.__ModuleLoader__.load({
 .pawwork-automation-advanced { border-top: 1px solid var(--dsw-alias-border-l2); padding-top: 10px; }
 .pawwork-automation-advanced-summary {
   align-items: center; background: transparent; border: none; border-radius: 6px; color: var(--dsw-alias-label-secondary);
-  cursor: pointer; display: flex; font: inherit; font-size: 12px; font-weight: 500; gap: 6px; line-height: 18px;
+  display: flex; font: inherit; font-size: 12px; font-weight: 500; gap: 6px; line-height: 18px;
   margin-left: -4px; padding: 2px 4px; width: fit-content;
 }
 .pawwork-automation-advanced-summary:hover { color: var(--dsw-alias-label-primary); }
@@ -352,73 +354,64 @@ window.__ModuleLoader__.load({
     }
 
     const WEEKDAY_INITIALS = { zh: ["日", "一", "二", "三", "四", "五", "六"], en: ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] }
-    const CALENDAR_WIDTH = 260
-    const CALENDAR_HEIGHT = 268
+    // The panel is measured before it is placed, so it renders once with nothing to place it by.
+    const PLACEMENT_PENDING = { left: 0, top: 0, visibility: "hidden" }
     function isoDate(year, month, day) {
       return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
     }
     function monthTitle(year, month) {
-      if (isChinese()) return `${year}年${month}月`
-      return new Intl.DateTimeFormat("en", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1))
+      return new Intl.DateTimeFormat(isChinese() ? "zh-CN" : "en", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1))
     }
     function formatDate(value) {
       const [year, month, day] = String(value).split("-").map(Number)
       if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return value
       return new Intl.DateTimeFormat(isChinese() ? "zh-CN" : "en", { dateStyle: "medium" }).format(new Date(year, month - 1, day))
     }
-    // Place the panel under the field, flipped above when the viewport's bottom is closer than the
-    // panel is tall. A flip anchors the panel's bottom edge rather than its top, so a five-row month
-    // does not float away from the field a six-row one would fill. The window can be 480px tall and
-    // the panel travels with the field while Settings scrolls, so when neither side fits the panel
-    // stays on screen next to the field instead of hanging off it, and never grows past the
-    // viewport: the same clamp DSH's own Menu applies to its list.
-    function calendarPlacement(box) {
-      const margin = 12
-      const left = `${Math.round(Math.max(margin, Math.min(box.left, window.innerWidth - CALENDAR_WIDTH - margin)))}px`
-      const room = window.innerHeight - margin * 2
-      const maxHeight = `${Math.round(room)}px`
-      const height = Math.min(CALENDAR_HEIGHT, room)
-      const below = box.bottom + 4
-      if (box.bottom >= 0 && below + height + margin <= window.innerHeight) return { left, maxHeight, top: `${Math.round(below)}px` }
-      if (box.top - 4 - height >= margin) return { bottom: `${Math.round(window.innerHeight - box.top + 4)}px`, left, maxHeight }
-      return { left, maxHeight, top: `${Math.round(Math.min(Math.max(below, margin), window.innerHeight - height - margin))}px` }
-    }
-    // The browser's own date picker is an OS panel the app can neither theme nor place, and DSH has
-    // no date control to reuse, so this is the editor's one original: the same field box as the
-    // selects, opening a calendar in dsw tokens.
+    // The browser's own date picker is an OS panel the app can neither theme nor place, and DSH
+    // exports no date control, so the calendar itself is the editor's one original. Where it opens
+    // is not: DSH already anchors its own popovers, and this uses that rather than a second copy of
+    // the same measuring, clamping and scroll tracking.
     function DateField({ label, onChange, value }) {
       const anchor = useRef(null)
+      const panel = useRef(null)
       const [open, setOpen] = useState(false)
-      const [placement, setPlacement] = useState(null)
       const [view, setView] = useState(String(value).slice(0, 7))
       const [year, month] = view.split("-").map(Number)
       const today = isoDate(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate())
       const dayCount = new Date(Date.UTC(year, month, 0)).getUTCDate()
       const lead = new Date(Date.UTC(year, month - 1, 1)).getUTCDay()
+      const placement = useAnchoredPosition({ anchorRef: anchor, gap: 4, margin: 12, open, panelRef: panel })
+      useDismissOnOutsidePointer(anchor, open, setOpen)
       useEffect(() => {
         if (!open) return undefined
-        const trigger = anchor.current
-        const reposition = () => {
-          const box = trigger?.getBoundingClientRect()
-          if (box !== undefined) setPlacement(calendarPlacement(box))
-        }
-        // Escape closes the calendar, not the Settings panel behind it.
-        const dismiss = (event) => { if (trigger?.contains(event.target) !== true) setOpen(false) }
+        // Escape closes the calendar, not the Settings panel behind it. Tabbing out closes it too, so
+        // the capture-phase handler is only installed while the focus is actually inside the calendar.
         const cancel = (event) => { if (event.key === "Escape") { event.stopPropagation(); setOpen(false) } }
-        window.addEventListener("scroll", reposition, true)
-        window.addEventListener("resize", reposition)
-        document.addEventListener("pointerdown", dismiss, true)
+        const leave = (event) => { if (!anchor.current?.contains(event.relatedTarget)) setOpen(false) }
         document.addEventListener("keydown", cancel, true)
+        anchor.current?.addEventListener("focusout", leave)
+        const node = anchor.current
         return () => {
-          window.removeEventListener("scroll", reposition, true)
-          window.removeEventListener("resize", reposition)
-          document.removeEventListener("pointerdown", dismiss, true)
           document.removeEventListener("keydown", cancel, true)
+          node?.removeEventListener("focusout", leave)
         }
       }, [open])
+      // Arrow keys need somewhere to start, and the panel is invisible until it has been placed.
+      const placed = open && placement !== null
+      useEffect(() => {
+        if (!placed) return
+        const grid = panel.current
+        ;(grid?.querySelector(".pawwork-automation-day-selected") ?? grid?.querySelector(".pawwork-automation-day"))?.focus()
+      }, [placed])
+      function moveFocus(event) {
+        const step = { ArrowDown: 7, ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7 }[event.key]
+        if (step === undefined) return
+        event.preventDefault()
+        const days = Array.from(panel.current?.querySelectorAll(".pawwork-automation-day") ?? [])
+        const next = days.indexOf(document.activeElement) + step
+        days[Math.min(Math.max(next, 0), days.length - 1)]?.focus()
+      }
       function toggle() {
-        const box = anchor.current?.getBoundingClientRect()
-        if (box !== undefined) setPlacement(calendarPlacement(box))
         setView(String(value).slice(0, 7))
         setOpen((current) => !current)
       }
@@ -431,21 +424,22 @@ window.__ModuleLoader__.load({
       for (let day = 1; day <= dayCount; day += 1) {
         const date = isoDate(year, month, day)
         cells.push(h("button", {
+          "aria-current": date === today ? "date" : undefined, "aria-label": formatDate(date), "aria-pressed": date === value,
           className: `pawwork-automation-day${date === value ? " pawwork-automation-day-selected" : date === today ? " pawwork-automation-day-today" : ""}`,
           key: date, onClick: () => { onChange(date); setOpen(false) }, type: "button",
         }, String(day)))
       }
       return h("div", { ref: anchor },
         h("button", {
-          "aria-expanded": open, "aria-haspopup": "dialog", "aria-label": label,
+          "aria-expanded": open, "aria-haspopup": "dialog", "aria-label": `${label}: ${formatDate(value)}`,
           className: "pawwork-automation-select", onClick: toggle, type: "button",
         }, formatDate(value)),
-        open ? h("div", { className: "pawwork-automation-calendar", role: "dialog", style: placement ?? undefined },
+        open ? h("div", { "aria-label": label, className: "pawwork-automation-calendar", ref: panel, role: "dialog", style: placement ?? PLACEMENT_PENDING },
           h("div", { className: "pawwork-automation-calendar-head" },
             h("button", { "aria-label": text("上个月", "Previous month"), className: "pawwork-automation-calendar-nav", onClick: () => shift(-1), type: "button" }, h(IconChevronLeftOutline14, { size: 14 })),
             h("span", { className: "pawwork-automation-calendar-title" }, monthTitle(year, month)),
             h("button", { "aria-label": text("下个月", "Next month"), className: "pawwork-automation-calendar-nav", onClick: () => shift(1), type: "button" }, h(IconChevronRightOutline14, { size: 14 }))),
-          h("div", { className: "pawwork-automation-calendar-grid" },
+          h("div", { className: "pawwork-automation-calendar-grid", onKeyDown: moveFocus },
             WEEKDAY_INITIALS[isChinese() ? "zh" : "en"].map((initial) => h("span", { className: "pawwork-automation-calendar-weekday", key: initial }, initial)),
             cells)) : null)
     }
@@ -533,11 +527,15 @@ window.__ModuleLoader__.load({
             form.frequency === "interval" ? h(Field, { label: text("间隔分钟", "Interval minutes") }, h("input", { "aria-label": text("间隔分钟", "Interval minutes"), className: "pawwork-automation-input", min: "0.5", onChange: update("intervalMinutes"), step: "0.5", type: "number", value: form.intervalMinutes })) : null,
             form.frequency === "cron" ? h(Field, { label: "Cron" }, h("input", { "aria-label": "Cron", className: "pawwork-automation-input", onChange: update("cron"), value: form.cron })) : null),
           h("div", { className: "pawwork-automation-advanced" },
+            // Not the DisclosureRow primitive: it is a list row, and its icon column pushes the
+            // title out of the label column the fields below it line up on. This is the summary row
+            // DSH's own settings editor collapses its optional half behind.
             h("button", {
-              "aria-expanded": advanced, className: "pawwork-automation-advanced-summary",
+              "aria-controls": "pawwork-automation-advanced-content", "aria-expanded": advanced,
+              className: "pawwork-automation-advanced-summary",
               onClick: () => setAdvanced((current) => !current), type: "button",
             }, h(advanced ? IconChevronDownOutline14 : IconChevronRightOutline14, { size: 14 }), text("高级设置", "Advanced settings")),
-            advanced ? h("div", { className: "pawwork-automation-advanced-content" },
+            advanced ? h("div", { className: "pawwork-automation-advanced-content", id: "pawwork-automation-advanced-content" },
               h(Field, { label: text("模型来源", "Provider") }, h("input", { "aria-label": text("模型来源", "Provider"), className: "pawwork-automation-input", onChange: update("provider"), value: form.provider })),
               h(Field, { label: text("模型", "Model") }, h("input", { "aria-label": text("模型", "Model"), className: "pawwork-automation-input", onChange: update("model"), value: form.model })),
               h(Field, { label: text("时区", "Timezone") }, h("input", { "aria-label": text("时区", "Timezone"), className: "pawwork-automation-input", onChange: update("timezone"), value: form.timezone })),
@@ -573,11 +571,9 @@ window.__ModuleLoader__.load({
       const [selectedId, setSelectedId] = useState(null)
       const [query, setQuery] = useState("")
       const [filter, setFilter] = useState("all")
-      const [loading, setLoading] = useState(true)
       const [error, setError] = useState("")
 
       async function load(signal) {
-        setLoading(true)
         setError("")
         try {
           const list = await automationCall(connection, "list", {}, signal)
@@ -585,7 +581,7 @@ window.__ModuleLoader__.load({
           setSelectedId((current) => list.definitions.some((item) => item.id === current) ? current : null)
         } catch (loadError) {
           if (!signal?.aborted) setError(errorText(loadError))
-        } finally { if (!signal?.aborted) setLoading(false) }
+        }
       }
       useEffect(() => {
         const abort = new AbortController()
@@ -633,7 +629,7 @@ window.__ModuleLoader__.load({
             h("div", { className: "pawwork-automations-tabs", role: "tablist" }, [["all", text("全部", "All")], ["active", text("启用", "Active")], ["paused", text("暂停", "Paused")], ["ended", text("已结束", "Ended")]].map(([value, label]) => h(Pill, { active: filter === value, key: value, onClick: () => setFilter(value), role: "tab" }, label))),
             h(Button, { className: "pawwork-automations-create", disabled: !preferredWorkspace, onClick: createAutomation, size: "sm", variant: "primary" }, text("新建自动化", "New automation"))),
           error ? h("div", { className: "pawwork-automations-error", role: "alert" }, error) : null,
-          loading && data === null ? h("div", { className: "pawwork-automations-loading" }, text("正在加载…", "Loading…")) : null,
+          data === null ? h("div", { className: "pawwork-automations-loading" }, text("正在加载…", "Loading…")) : null,
           h("div", { className: "pawwork-automations-list" },
             visible.map((definition) => {
               const state = definitionState(definition)
@@ -642,7 +638,7 @@ window.__ModuleLoader__.load({
                 h("span", null, h("span", { className: "pawwork-automation-row-title" }, definition.title), h("span", { className: "pawwork-automation-row-meta" }, formatSchedule(definition))),
                 h("span", { className: "pawwork-automation-row-trail" }, state.label))
             }),
-            visible.length === 0 && !loading ? h("div", { className: "pawwork-automations-empty" }, query ? text("没有匹配的自动化", "No matching automations") : text("还没有自动化。在对话中描述任务和运行时间即可创建。", "No automations yet. Describe a task and schedule in chat to create one.")) : null))
+            visible.length === 0 && data !== null ? h("div", { className: "pawwork-automations-empty" }, query ? text("没有匹配的自动化", "No matching automations") : text("还没有自动化。在对话中描述任务和运行时间即可创建。", "No automations yet. Describe a task and schedule in chat to create one.")) : null))
     }
 
     const inject = ["slots", "connection", "conversation", "sessions", "workspaces"]

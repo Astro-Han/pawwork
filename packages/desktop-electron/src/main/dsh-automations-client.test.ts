@@ -41,6 +41,7 @@ function textOf(tree: unknown) {
 const primitives = {
   Button: primitive("button"), Input: primitive("PrimitiveInput"),
   Modal: primitive("div"), Pill: primitive("button"), StateDot: primitive("span"),
+  useAnchoredPosition: () => null, useDismissOnOutsidePointer: () => {},
   IconChevronLeftOutline14: "IconChevronLeftOutline14", IconChevronRightOutline14: "IconChevronRightOutline14",
   IconChevronDownOutline14: "IconChevronDownOutline14",
   IconCheckOutline16: "IconCheckOutline16",
@@ -535,7 +536,10 @@ describe("PawWork DSH Automations client", () => {
     const document = fakeDocument("zh-CN")
     const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
     // The editor refuses a one-shot time in the past, so this instant has to stay ahead of the run.
-    const fireAt = new Date(Date.now() + 86_400_000).setSeconds(0, 0)
+    // Local noon, because the round trip goes through a local date and a local time: an instant near
+    // a DST transition would come back as a different one, or as one that does not exist.
+    const week = new Date(Date.now() + 7 * 86_400_000)
+    const fireAt = new Date(week.getFullYear(), week.getMonth(), week.getDate(), 12).getTime()
     const definitionData = {
       id: "automation-1", title: "复查 PR", prompt: "Check the PR", revision: 4,
       paused: true, context: "fresh", cwd: "/tmp/workspace",

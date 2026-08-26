@@ -61,6 +61,8 @@ export type CiSmokeProductSnapshot = {
   automationDeleteDialogWorks: boolean
   automationDirtyPauseBlocked: boolean
   automationMetadataPlain: boolean
+  automationDatePopoutWorks: boolean
+  automationDateEscapeCloses: boolean
   cursorMismatches: string[]
   cursorProbeCaught: string[]
   titlebarStripHeight: number
@@ -171,6 +173,7 @@ export function dshHomeForSmoke(homeDir: string, target: SmokeTarget) {
 // Seeded into the legacy home and asserted in the new one, so it is only ever
 // present because the one-time migration ran.
 export const CI_SMOKE_MIGRATED_AUTOMATION_ID = "automation-smoke"
+export const CI_SMOKE_ONESHOT_AUTOMATION_ID = "automation-smoke-oneshot"
 
 export function parseSmokeArgs(argv: string[]): SmokeTarget {
   const mode = argv[0] as SmokeMode | undefined
@@ -513,9 +516,11 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       && visible(automationTextarea)
       && textareaRect.width >= surfaceRect.width - 64,
     )
-    // Workspace and Session are shown, never edited: a disabled field would say they are editable.
+    // Workspace and Session are shown, never edited: each carries its value as text, with no
+    // control inside it that would invite an edit the editor cannot make.
     const automationMetadataPlain = readonlyMetadata.length === 2
-      && document.querySelector(".pawwork-automation-input[disabled], .pawwork-automation-select[disabled]") === null
+      && readonlyMetadata.every((node) => (node.textContent || "").trim() !== ""
+        && node.querySelector("input, select, textarea, button") === null)
     const titleInput = document.querySelector('input.pawwork-automation-input')
     if (titleInput) {
       const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
@@ -544,6 +549,33 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     await new Promise((resolve) => setTimeout(resolve, 50))
     const automationBackNavigationWorks = !visible(document.querySelector(".pawwork-automation-panel"))
       && visible(document.querySelector(".pawwork-automation-row"))
+    // A one-shot schedule is edited through the editor's own calendar, the one control DSH does not
+    // supply. It has to open over the form and inside the window, not push the fields below it down.
+    const oneshotRow = Array.from(document.querySelectorAll(".pawwork-automation-row"))
+      .find((row) => (row.textContent || "").includes("Smoke one-shot automation"))
+    oneshotRow?.click()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    const dateTrigger = document.querySelector("button.pawwork-automation-select")
+    const formBeforeCalendar = document.querySelector(".pawwork-automation-form")?.getBoundingClientRect().height
+    dateTrigger?.click()
+    for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-automation-calendar")); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    const calendar = document.querySelector(".pawwork-automation-calendar")
+    const calendarRect = calendar?.getBoundingClientRect()
+    const automationDatePopoutWorks = Boolean(
+      visible(calendar) && calendarRect
+      && calendarRect.top >= 0 && calendarRect.left >= 0
+      && calendarRect.bottom <= window.innerHeight && calendarRect.right <= window.innerWidth
+      && document.querySelector(".pawwork-automation-form")?.getBoundingClientRect().height === formBeforeCalendar,
+    )
+    document.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }))
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    const automationDateEscapeCloses = automationDatePopoutWorks
+      && !visible(document.querySelector(".pawwork-automation-calendar"))
+      && visible(document.querySelector(".pawwork-automation-panel"))
+    visibleButton(/^(返回自动化|Back to Automations)$/i)?.click()
+    await new Promise((resolve) => setTimeout(resolve, 50))
     const settingsClose = Array.from(document.querySelectorAll("button")).find((button) => {
       const label = (button.getAttribute("aria-label") || button.textContent || "").trim()
       return visible(button) && /^(关闭|Close)$/i.test(label) && !button.closest(".pawwork-automation-panel")
@@ -716,6 +748,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       automationDeleteDialogWorks,
       automationDirtyPauseBlocked,
       automationMetadataPlain,
+      automationDatePopoutWorks,
+      automationDateEscapeCloses,
       cursorMismatches: Array.from(new Set([...heroCursorMismatches, ...settledCursorMismatches])),
       cursorProbeCaught,
       titlebarStripHeight,
@@ -954,6 +988,8 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.automationDeleteDialogWorks ? null : "Automation delete confirmation is not a cancellable dialog",
     snapshot.automationDirtyPauseBlocked ? null : "Automation pause can discard unsaved edits",
     snapshot.automationMetadataPlain ? null : "Automation immutable metadata is not plain read-only text",
+    snapshot.automationDatePopoutWorks ? null : "Automation date picker is not a popout inside the window",
+    snapshot.automationDateEscapeCloses ? null : "Automation date picker does not close on Escape",
     snapshot.sidebarToggleCount === 1 ? null : `expected one PawWork sidebar toggle, found ${snapshot.sidebarToggleCount}`,
     snapshot.sidebarCollapsed ? null : "PawWork sidebar toggle did not collapse the sidebar",
     snapshot.sidebarExpandToggleCount === 1 ? null : `expected the same single PawWork toggle after collapse, found ${snapshot.sidebarExpandToggleCount}`,
@@ -1123,6 +1159,22 @@ async function main() {
       rhythm: { kind: "interval", everyMs: 60_000 },
       stop: { kind: "never" },
       nextFireAt: null,
+    }, {
+      // A recurring automation cannot become a one-shot, so the date field only exists on an
+      // automation that was created as one. It stays second: the probes above open the first row.
+      id: CI_SMOKE_ONESHOT_AUTOMATION_ID,
+      title: "Smoke one-shot automation",
+      prompt: "Verify the Automation date field.",
+      revision: 1,
+      paused: true,
+      context: "fresh",
+      cwd: homeDir,
+      model: { provider: "opencode", model: "deepseek-v4-flash-free" },
+      timezone: "UTC",
+      createdAt: 2,
+      updatedAt: 2,
+      kind: "oneshot",
+      fireAt: Date.now() + 30 * 86_400_000,
     }],
     runs: [],
   }, null, 2)}\n`, { mode: 0o600 })
