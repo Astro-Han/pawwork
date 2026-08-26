@@ -116,7 +116,7 @@ window.__ModuleLoader__.load({
 .pawwork-automation-calendar {
   background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
   box-shadow: var(--dsw-shadow-lv2); box-sizing: border-box; display: flex; flex-direction: column;
-  gap: 4px; padding: 8px; position: fixed; width: 260px; z-index: 1100;
+  gap: 4px; overflow-y: auto; padding: 8px; position: fixed; width: 260px; z-index: 1100;
 }
 .pawwork-automation-calendar-head { align-items: center; display: flex; gap: 4px; justify-content: space-between; }
 .pawwork-automation-calendar-title { font-size: 13px; font-weight: 500; line-height: 20px; }
@@ -367,15 +367,21 @@ window.__ModuleLoader__.load({
       return new Intl.DateTimeFormat(isChinese() ? "zh-CN" : "en", { dateStyle: "medium" }).format(new Date(year, month - 1, day))
     }
     // Place the panel under the field, flipped above when the viewport's bottom is closer than the
-    // panel is tall, and never past either edge. A flip anchors the panel's bottom edge rather than
-    // its top, so a five-row month does not float away from the field a six-row one would fill.
+    // panel is tall. A flip anchors the panel's bottom edge rather than its top, so a five-row month
+    // does not float away from the field a six-row one would fill. The window can be 480px tall and
+    // the panel travels with the field while Settings scrolls, so when neither side fits the panel
+    // stays on screen next to the field instead of hanging off it, and never grows past the
+    // viewport: the same clamp DSH's own Menu applies to its list.
     function calendarPlacement(box) {
       const margin = 12
-      const left = Math.max(margin, Math.min(box.left, window.innerWidth - CALENDAR_WIDTH - margin))
-      if (box.bottom + 4 + CALENDAR_HEIGHT + margin > window.innerHeight && box.top - CALENDAR_HEIGHT - 4 > margin) {
-        return { bottom: `${Math.round(window.innerHeight - box.top + 4)}px`, left: `${Math.round(left)}px` }
-      }
-      return { left: `${Math.round(left)}px`, top: `${Math.round(box.bottom + 4)}px` }
+      const left = `${Math.round(Math.max(margin, Math.min(box.left, window.innerWidth - CALENDAR_WIDTH - margin)))}px`
+      const room = window.innerHeight - margin * 2
+      const maxHeight = `${Math.round(room)}px`
+      const height = Math.min(CALENDAR_HEIGHT, room)
+      const below = box.bottom + 4
+      if (box.bottom >= 0 && below + height + margin <= window.innerHeight) return { left, maxHeight, top: `${Math.round(below)}px` }
+      if (box.top - 4 - height >= margin) return { bottom: `${Math.round(window.innerHeight - box.top + 4)}px`, left, maxHeight }
+      return { left, maxHeight, top: `${Math.round(Math.min(Math.max(below, margin), window.innerHeight - height - margin))}px` }
     }
     // The browser's own date picker is an OS panel the app can neither theme nor place, and DSH has
     // no date control to reuse, so this is the editor's one original: the same field box as the

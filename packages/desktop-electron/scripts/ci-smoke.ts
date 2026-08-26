@@ -513,9 +513,10 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       && visible(automationTextarea)
       && textareaRect.width >= surfaceRect.width - 64,
     )
+    // Workspace and Session are shown, never edited: a disabled field would say they are editable.
     const automationMetadataPlain = readonlyMetadata.length === 2
-      && document.querySelector(".pawwork-automation-select-trigger[disabled]") === null
-    const titleInput = document.querySelector('.pawwork-automation-input input')
+      && document.querySelector(".pawwork-automation-input[disabled], .pawwork-automation-select[disabled]") === null
+    const titleInput = document.querySelector('input.pawwork-automation-input')
     if (titleInput) {
       const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
       valueSetter?.call(titleInput, 'Smoke automation updated')
