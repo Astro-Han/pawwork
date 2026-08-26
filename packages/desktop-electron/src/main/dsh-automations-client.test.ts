@@ -39,14 +39,13 @@ function textOf(tree: unknown) {
 }
 
 const primitives = {
-  Button: primitive("button"), DisclosureRow: primitive("div"), Input: primitive("input"),
-  Menu: primitive("div"), Modal: primitive("div"), Pill: primitive("button"), StateDot: primitive("span"),
+  Button: primitive("button"), Input: primitive("PrimitiveInput"),
+  Modal: primitive("div"), Pill: primitive("button"), StateDot: primitive("span"),
   IconChevronLeftOutline14: "IconChevronLeftOutline14", IconChevronRightOutline14: "IconChevronRightOutline14",
   IconChevronDownOutline14: "IconChevronDownOutline14",
   IconCheckOutline16: "IconCheckOutline16",
   IconPauseOutline16: "IconPauseOutline16", IconPlayOutline16: "IconPlayOutline16",
-  IconSearchOutline16: "IconSearchOutline16", IconSettingsOutline16: "IconSettingsOutline16",
-  IconTrashOutline16: "IconTrashOutline16",
+  IconSearchOutline16: "IconSearchOutline16", IconTrashOutline16: "IconTrashOutline16",
 }
 
 function settingsSectionOf(
@@ -568,12 +567,17 @@ describe("PawWork DSH Automations client", () => {
       close: () => {},
       useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
     })
-    const inputs = visit(tree).filter((element) => element.type === "input")
-
-    expect(inputs.some((element) => element.props.type === "datetime-local")).toBe(false)
-    expect(inputs.some((element) => element.props.type === "time")).toBe(true)
-
     const form = visit(tree).find((element) => typeof element.props.onSubmit === "function")
+    const fields = visit(form)
+
+    // The Input primitive is an inline-flex content box; sizing one to a form column pushes its own
+    // padding and border past that column, so the editor's fields are the plain boxes DSH's own
+    // settings editor uses, and the primitive stays on the toolbar search that needs its icon slot.
+    expect(fields.some((element) => element.type === "PrimitiveInput")).toBe(false)
+    expect(fields.some((element) => element.type === "input" && element.props.type === "datetime-local")).toBe(false)
+    expect(fields.some((element) => element.type === "input" && element.props.type === "time")).toBe(true)
+    expect(fields.some((element) => element.type === "select")).toBe(true)
+
     await (form!.props.onSubmit as (event: { preventDefault: () => void }) => Promise<void>)({
       preventDefault: () => {},
     })
