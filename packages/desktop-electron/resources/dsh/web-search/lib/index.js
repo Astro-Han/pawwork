@@ -62,6 +62,18 @@ const EXHAUSTED_MESSAGE =
   'Open Settings → Plugins → Web search and enter your own Exa API key, or ' +
   'switch the engine to DeepSeek and enter a DeepSeek key.';
 
+/**
+ * What to tell a user who selected DeepSeek and holds no DeepSeek key.
+ *
+ * The upstream class names its own entry's `apiKey` config as the remedy, and
+ * this product disables that entry — so its advice sends the user to a row that
+ * is not mounted. The card is where the key actually goes.
+ */
+const DEEPSEEK_KEY_MESSAGE =
+  'The DeepSeek search engine needs a DeepSeek API key. ' +
+  'Open Settings → Plugins → Web search to enter one, ' +
+  'or switch the engine to Exa, which searches without a key.';
+
 export const Config = z.object({
   backend: z.union(['exa', 'deepseek']).default('exa'),
   exaApiKeyEnv: z.string().role('credential-ref').default(DEFAULT_EXA_API_KEY_ENV),
@@ -82,7 +94,11 @@ async function resolveKey(ctx, ref) {
   const credentials = ctx.get('credentials');
   if (credentials === undefined) return '';
   const held = await credentials.resolve(credentialRef(ref));
-  return held?.value !== undefined && held.value.length > 0 ? held.value : '';
+  // Trimmed because a held value decides which path runs at all: a trailing
+  // newline from an editor or a shell export would otherwise count as a key and
+  // send the search to a vendor endpoint that rejects it, instead of to the
+  // keyless allowance that would have answered.
+  return held?.value?.trim() ?? '';
 }
 
 /**
@@ -135,7 +151,7 @@ async function searchExa(ctx, config, request, signal) {
  */
 async function searchDeepSeek(ctx, config, request, signal) {
   const ref = config.deepseekApiKeyEnv ?? DEFAULT_DEEPSEEK_API_KEY_ENV;
-  return new DeepSeekSearchProvider(() => ({
+  const provider = new DeepSeekSearchProvider(() => ({
     resolveApiKey: async () => {
       const key = await resolveKey(ctx, ref);
       return key.length > 0 ? key : undefined;
@@ -149,7 +165,13 @@ async function searchDeepSeek(ctx, config, request, signal) {
     recordRequest: (entry) => {
       ctx.get('agents')?.currentInitiator()?.session.append('web/deepseek-search-llm-request', entry);
     },
-  })).search(request, signal);
+  }));
+  try {
+    return await provider.search(request, signal);
+  } catch (error) {
+    if (error?.code !== 'WEB_PROVIDER_CREDENTIAL_MISSING') throw error;
+    throw new WebError(DEEPSEEK_KEY_MESSAGE, error.code, { cause: error });
+  }
 }
 
 /** The engine dispatch table; the section's `backend` selects one per search. */

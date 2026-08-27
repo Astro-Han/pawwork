@@ -15,45 +15,104 @@ import { WebError } from '@deepseek-ai/dsh-web';
 export const ENDPOINT = 'https://mcp.exa.ai/mcp';
 const SEARCH_TOOL = 'web_search_exa';
 
-/** Result blocks Exa renders per hit, in the order it emits them. */
-const BLOCK_SEPARATOR = /\n\s*\n(?=Title:\s)/;
+// The rule Exa renders between two results. Splitting on the rule rather than on
+// a lookahead for the next `Title:` is a boundary decision, not a tidiness one:
+// highlight text is verbatim third-party page content, so a page carrying a
+// blank line and then its own `Title:`/`URL:` pair — a citation example, a
+// bibliography, a fenced snippet — would otherwise become an extra block and
+// enter `sources` as a result Exa never ranked, with the real result's snippet
+// truncated at the injection point.
+const BLOCK_SEPARATOR = /\n\s*\n-{3,}\n\s*\n/;
+
+/** Schemes a source may carry; the rendered report is not a trusted origin. */
+const ALLOWED_SCHEME = /^https?:\/\//i;
 
 /** Statuses that mean Exa declined to serve this caller at all. */
-const REFUSAL_STATUS = new Set([401, 402, 403, 429]);
+const REFUSAL_STATUS = new Set([401, 402, 403]);
+
+/** Statuses that mean Exa wants this caller to come back later. */
+const TRANSIENT_STATUS = new Set([429, 503]);
+
+/**
+ * The prefix of a failure text that decides its classification.
+ *
+ * Exa's errors lead with the reason and may go on to quote the request, so
+ * classifying the whole text lets a query about rate limits or API keys decide
+ * how its own failure is reported.
+ */
+const CLASSIFIED_PREFIX_CHARS = 240;
+
+/**
+ * The part of a failure text that describes the failure.
+ *
+ * Quoted spans are dropped before classification because that is where Exa
+ * echoes the request: `Search failed for query: "rotate an openai api key"`
+ * describes a broken search, not a missing credential, and the words that would
+ * say otherwise are the user's own.
+ * @param text - the error text Exa returned.
+ * @returns the classifiable prose, lowercased.
+ */
+function classifiable(text) {
+  return text.slice(0, CLASSIFIED_PREFIX_CHARS).replace(/"[^"]*"|'[^']*'/g, ' ').toLowerCase();
+}
 
 /**
  * Whether Exa is refusing to serve this caller rather than failing to answer.
  *
  * The hosted MCP reports a spent allowance as `isError` prose rather than a
  * status code, so the distinction that decides what a user should do — spend
- * your own key versus try again — only exists in that text.
+ * your own key versus wait — exists only in that text.
  * @param text - the error text Exa returned.
  * @returns true when the text describes a refusal.
  */
 function isRefusal(text) {
-  return /quota|rate.?limit|too many requests|usage limit|payment|unauthorized|forbidden|api key/.test(
-    text.toLowerCase(),
+  return /quota|usage limit|allowance|free tier|credit|exhausted|expired|suspended|payment|unauthorized|forbidden|api key/.test(
+    classifiable(text),
   );
 }
 
 /**
- * @param refused - whether Exa declined to serve the caller.
- * @returns the seam code to surface.
+ * Whether Exa is asking this caller to come back later.
+ *
+ * Kept apart from a refusal because the two demand opposite actions: sending a
+ * user to buy a key because a burst was throttled costs them money that waiting
+ * ten seconds would have saved.
+ * @param text - the error text Exa returned.
+ * @returns true when the text describes a transient limit.
  */
-function codeFor(refused) {
-  return refused ? 'WEB_PROVIDER_CREDENTIAL_MISSING' : 'WEB_PROVIDER_ERROR';
+function isTransient(text) {
+  return /rate.?limit|too many requests|temporarily|try again|overloaded|timed? ?out/.test(
+    classifiable(text),
+  );
 }
 
 /**
- * Pull the first complete SSE event's JSON-RPC payload out of a response body.
+ * Classify one failure text into a seam code.
  *
- * Exa answers one call with one event, but the framing still allows comment and
- * keep-alive lines, so this walks events rather than assuming the body is JSON.
+ * Three outcomes, not two — refused, throttled, broken — with throttling read
+ * first so a message that names both a rate limit and an API key is treated as
+ * the retryable one.
+ * @param text - the error text Exa returned.
+ * @returns the seam code to surface.
+ */
+function codeForText(text) {
+  if (isTransient(text)) return 'WEB_PROVIDER_ERROR';
+  return isRefusal(text) ? 'WEB_PROVIDER_CREDENTIAL_MISSING' : 'WEB_PROVIDER_ERROR';
+}
+
+/**
+ * Pull the JSON-RPC envelope out of a response body.
+ *
+ * Streamable HTTP lets the server answer one call as either SSE or plain JSON,
+ * and this request declares it accepts both, so both are decoded. Exa answers
+ * with one SSE event today; the framing still allows comment and keep-alive
+ * lines, so this walks events rather than assuming a single frame.
  * @param body - the raw response text.
  * @returns the decoded JSON-RPC envelope.
  * @throws {WebError} when no event carries a decodable payload.
  */
 function parseSse(body) {
+  if (body.trimStart().startsWith('{')) return decodeEvent(body);
   const data = [];
   for (const line of body.split(/\r?\n/)) {
     if (line === '') {
@@ -84,17 +143,41 @@ function decodeEvent(payload) {
  * Parse one rendered result block into a seam source.
  *
  * `Title`, `URL` and `Published` are single lines; everything after
- * `Highlights:` is excerpt prose whose leading `>`, `...` elisions and `---`
- * rules are Exa's rendering, not content. The rule is what Exa puts between
- * two results, and it lands inside the preceding block because the split above
- * happens at the blank line before the next `Title:` — so it has to be dropped
- * here or it rides out on that result's snippet.
- * A block without a URL is dropped: the seam's
- * source vocabulary is URL-keyed, and a snippet with nothing to attribute it to
- * would read to the model as an unsourced claim.
+ * `Highlights:` is excerpt prose. The `...` between excerpts is Exa's mark for
+ * "a stretch of the page is missing here", so it is kept rather than dropped —
+ * joining the excerpts on a bare space would splice text from opposite ends of
+ * a page into one sentence nobody wrote.
+ *
+ * A block is dropped unless it carries an `http(s)` URL. The seam's source
+ * vocabulary is URL-keyed, so a snippet with nothing to attribute it to reads to
+ * the model as an unsourced claim; and the URL arrives inside third-party page
+ * text, so the scheme is checked rather than assumed.
  * @param block - one block of the rendered report.
- * @returns the source, or undefined when the block carries no URL.
+ * @returns the source, or undefined when the block carries no usable URL.
  */
+/**
+ * Join a block's excerpt lines into one snippet, keeping the elisions.
+ *
+ * Exa separates excerpts with a `...` line. Collapsing consecutive blank and
+ * `...` lines into a single ellipsis keeps the seam value one line while still
+ * telling the model where the page was cut.
+ * @param lines - the raw lines following `Highlights:`.
+ * @returns the joined snippet.
+ */
+function joinExcerpts(lines) {
+  const parts = [];
+  for (const line of lines) {
+    const text = line.trim();
+    if (text.length === 0 || text === '...') {
+      if (parts.length > 0 && parts.at(-1) !== '…') parts.push('…');
+      continue;
+    }
+    parts.push(text);
+  }
+  if (parts.at(-1) === '…') parts.pop();
+  return parts.join(' ');
+}
+
 function parseBlock(block) {
   const fields = new Map();
   const highlights = [];
@@ -112,14 +195,10 @@ function parseBlock(block) {
     if (match) fields.set(match[1], match[2].trim());
   }
   const url = fields.get('URL');
-  if (url === undefined || url.length === 0) return undefined;
+  if (url === undefined || !ALLOWED_SCHEME.test(url)) return undefined;
   const title = fields.get('Title');
   const published = fields.get('Published');
-  const snippet = highlights
-    .map((line) => line.replace(/^>\s?/, '').trim())
-    .filter((line) => line.length > 0 && !/^(?:\.{3}|-{3,})$/.test(line))
-    .join(' ')
-    .trim();
+  const snippet = joinExcerpts(highlights);
   return {
     url,
     ...(title !== undefined && title.length > 0 ? { title } : {}),
@@ -186,7 +265,11 @@ export async function searchViaMcp(options) {
     throw new WebError(message, 'WEB_PROVIDER_ERROR', { cause });
   }
   if (!response.ok) {
-    throw new WebError(`Exa answered HTTP ${response.status}`, codeFor(REFUSAL_STATUS.has(response.status)));
+    if (TRANSIENT_STATUS.has(response.status)) {
+      throw new WebError(`Exa is throttling this deployment (HTTP ${response.status}); try again shortly`, 'WEB_PROVIDER_ERROR');
+    }
+    const code = REFUSAL_STATUS.has(response.status) ? 'WEB_PROVIDER_CREDENTIAL_MISSING' : 'WEB_PROVIDER_ERROR';
+    throw new WebError(`Exa answered HTTP ${response.status}`, code);
   }
   // The body streams after the headers resolve, so an abort can land here just
   // as easily as on the request itself, and has to be classified the same way.
@@ -203,9 +286,21 @@ export async function searchViaMcp(options) {
     throw new WebError(`Exa reported ${envelope.error.message ?? 'an MCP error'}`, 'WEB_PROVIDER_ERROR');
   }
   const blocks = envelope.result?.content ?? [];
-  const text = blocks.find((block) => block.type === 'text')?.text ?? '';
+  const text = blocks
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text ?? '')
+    .join('\n\n');
   if (envelope.result?.isError === true) {
-    throw new WebError(text.length > 0 ? text : 'Exa reported a tool error', codeFor(isRefusal(text)));
+    throw new WebError(text.length > 0 ? text : 'Exa reported a tool error', codeForText(text));
+  }
+  // An answer we cannot read is a failure, not an empty result set. The seam
+  // renders zero sources as "No results found.", so returning `[]` here would
+  // have the model tell the user the web holds nothing on the subject — the one
+  // outcome on this path that is confidently wrong rather than merely broken.
+  // A genuine zero-hit search still arrives as a report Exa rendered, which
+  // parses to `[]` further down and is left alone.
+  if (envelope.result === undefined || text.length === 0) {
+    throw new WebError('Exa returned no readable result', 'WEB_PROVIDER_ERROR');
   }
   return { sources: parseReport(text), truncated: false };
 }
