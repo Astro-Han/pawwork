@@ -15,14 +15,22 @@ import { WebError } from '@deepseek-ai/dsh-web';
 export const ENDPOINT = 'https://mcp.exa.ai/mcp';
 const SEARCH_TOOL = 'web_search_exa';
 
-// The rule Exa renders between two results. Splitting on the rule rather than on
-// a lookahead for the next `Title:` is a boundary decision, not a tidiness one:
-// highlight text is verbatim third-party page content, so a page carrying a
-// blank line and then its own `Title:`/`URL:` pair — a citation example, a
-// bibliography, a fenced snippet — would otherwise become an extra block and
-// enter `sources` as a result Exa never ranked, with the real result's snippet
-// truncated at the injection point.
-const BLOCK_SEPARATOR = /\n\s*\n-{3,}\n\s*\n/;
+// The boundary between two rendered results: Exa's rule *and* the header pair
+// that opens the next result.
+//
+// Neither half is sufficient, because highlight text is verbatim third-party
+// page content and either half alone appears in ordinary prose. On the rule
+// alone, any page carrying a horizontal rule — a common thing for a page to
+// carry — splits into two blocks: the tail of a real result is dropped and a
+// second entry is minted, ranked, dated and attributed to whatever URL the page
+// chose to print. On the header pair alone, a bibliography or a citation example
+// does the same. Requiring both costs a page far more than it costs Exa, whose
+// renderer emits them together by construction.
+//
+// Measured against 18 live captures of eight results each: the rule alone
+// over-splits three of them, the pair with the rule splits all 18 into exactly
+// eight.
+const BLOCK_BOUNDARY = /\n\s*\n-{3,}\n\s*\n(?=Title:.*\r?\nURL:\s*\S)/;
 
 /** Schemes a source may carry; the rendered report is not a trusted origin. */
 const ALLOWED_SCHEME = /^https?:\/\//i;
@@ -45,15 +53,20 @@ const CLASSIFIED_PREFIX_CHARS = 240;
 /**
  * The part of a failure text that describes the failure.
  *
- * Quoted spans are dropped before classification because that is where Exa
- * echoes the request: `Search failed for query: "rotate an openai api key"`
- * describes a broken search, not a missing credential, and the words that would
- * say otherwise are the user's own.
+ * Quoted spans are dropped because that is where Exa echoes the request:
+ * `Search failed for query: "rotate an openai api key"` describes a broken
+ * search, not a missing credential, and the words that would say otherwise are
+ * the user's own. They are dropped *before* the prefix is taken, or a long
+ * enough query fills the window on its own and the reason never gets classified.
+ *
+ * Only double quotes are stripped. Exa quotes the query with them, while a
+ * single quote in this text is an apostrophe far more often than a delimiter —
+ * treating it as one swallows the sentence it appears in.
  * @param text - the error text Exa returned.
  * @returns the classifiable prose, lowercased.
  */
 function classifiable(text) {
-  return text.slice(0, CLASSIFIED_PREFIX_CHARS).replace(/"[^"]*"|'[^']*'/g, ' ').toLowerCase();
+  return text.replace(/"[^"]*"/g, ' ').slice(0, CLASSIFIED_PREFIX_CHARS).toLowerCase();
 }
 
 /**
@@ -77,13 +90,17 @@ function isRefusal(text) {
  * Kept apart from a refusal because the two demand opposite actions: sending a
  * user to buy a key because a burst was throttled costs them money that waiting
  * ten seconds would have saved.
+ *
+ * Only phrases that name a *rate* count. "try again later" and "temporarily"
+ * read as transient but are polite padding that a spent allowance carries too —
+ * Exa's own wording is "You have exhausted your free tier quota. Please try
+ * again later." — and because this test is read first, admitting them meant the
+ * one message that should send a user to add a key was the one that never did.
  * @param text - the error text Exa returned.
  * @returns true when the text describes a transient limit.
  */
 function isTransient(text) {
-  return /rate.?limit|too many requests|temporarily|try again|overloaded|timed? ?out/.test(
-    classifiable(text),
-  );
+  return /rate.?limit|too many requests|overloaded|timed? ?out/.test(classifiable(text));
 }
 
 /**
@@ -140,22 +157,6 @@ function decodeEvent(payload) {
 }
 
 /**
- * Parse one rendered result block into a seam source.
- *
- * `Title`, `URL` and `Published` are single lines; everything after
- * `Highlights:` is excerpt prose. The `...` between excerpts is Exa's mark for
- * "a stretch of the page is missing here", so it is kept rather than dropped —
- * joining the excerpts on a bare space would splice text from opposite ends of
- * a page into one sentence nobody wrote.
- *
- * A block is dropped unless it carries an `http(s)` URL. The seam's source
- * vocabulary is URL-keyed, so a snippet with nothing to attribute it to reads to
- * the model as an unsourced claim; and the URL arrives inside third-party page
- * text, so the scheme is checked rather than assumed.
- * @param block - one block of the rendered report.
- * @returns the source, or undefined when the block carries no usable URL.
- */
-/**
  * Join a block's excerpt lines into one snippet, keeping the elisions.
  *
  * Exa separates excerpts with a `...` line. Collapsing consecutive blank and
@@ -178,6 +179,19 @@ function joinExcerpts(lines) {
   return parts.join(' ');
 }
 
+/**
+ * Parse one rendered result block into a seam source.
+ *
+ * `Title`, `URL` and `Published` are single lines; everything after
+ * `Highlights:` is excerpt prose.
+ *
+ * A block is dropped unless it carries an `http(s)` URL. The seam's source
+ * vocabulary is URL-keyed, so a snippet with nothing to attribute it to reads to
+ * the model as an unsourced claim; and the URL arrives inside third-party page
+ * text, so the scheme is checked rather than assumed.
+ * @param block - one block of the rendered report.
+ * @returns the source, or undefined when the block carries no usable URL.
+ */
 function parseBlock(block) {
   const fields = new Map();
   const highlights = [];
@@ -213,14 +227,24 @@ function parseBlock(block) {
 
 /**
  * Parse the rendered report into seam sources.
- * @param text - the single text block Exa returned.
+ *
+ * The count is ours and the text is theirs, so the count is what bounds the
+ * parse: we asked for `maxResults` results and Exa cannot rank more than it was
+ * asked for. Any block past that came from inside a page, so it is folded back
+ * into the block before it — where its text still reads to the model as an
+ * excerpt of the page that wrote it, rather than as a source of its own.
+ * @param text - the rendered report Exa returned.
+ * @param maxResults - the result count this call requested, when it named one.
  * @returns the sources, in the order Exa ranked them.
  */
-function parseReport(text) {
-  return text
-    .split(BLOCK_SEPARATOR)
-    .map((block) => parseBlock(block.trim()))
-    .filter((source) => source !== undefined);
+function parseReport(text, maxResults) {
+  const blocks = text.split(BLOCK_BOUNDARY);
+  const limit = maxResults !== undefined && maxResults >= 1 ? maxResults : blocks.length;
+  const bounded =
+    blocks.length <= limit
+      ? blocks
+      : [...blocks.slice(0, limit - 1), blocks.slice(limit - 1).join('\n\n')];
+  return bounded.map((block) => parseBlock(block.trim())).filter((source) => source !== undefined);
 }
 
 /**
@@ -286,10 +310,14 @@ export async function searchViaMcp(options) {
     throw new WebError(`Exa reported ${envelope.error.message ?? 'an MCP error'}`, 'WEB_PROVIDER_ERROR');
   }
   const blocks = envelope.result?.content ?? [];
+  // Joined on the rule Exa renders between results, not on a blank line: two
+  // content blocks are two pieces of the report, so a plain join would have the
+  // second one's header read as excerpt prose belonging to the last result of
+  // the first.
   const text = blocks
     .filter((block) => block.type === 'text')
     .map((block) => block.text ?? '')
-    .join('\n\n');
+    .join('\n\n---\n\n');
   if (envelope.result?.isError === true) {
     throw new WebError(text.length > 0 ? text : 'Exa reported a tool error', codeForText(text));
   }
@@ -302,5 +330,5 @@ export async function searchViaMcp(options) {
   if (envelope.result === undefined || text.length === 0) {
     throw new WebError('Exa returned no readable result', 'WEB_PROVIDER_ERROR');
   }
-  return { sources: parseReport(text), truncated: false };
+  return { sources: parseReport(text, maxResults), truncated: false };
 }

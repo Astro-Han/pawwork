@@ -57,6 +57,7 @@
     "semver": "^7.6.0"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-base": "0.1.1-rc.2",
     "@deepseek-ai/dsh-credentials-local": "0.1.1-rc.2",
     "@types/js-yaml": "4.0.9",
     "@types/node": "24.13.3",

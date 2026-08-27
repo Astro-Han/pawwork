@@ -42,6 +42,24 @@ const DEFAULT_EXA_API_KEY_ENV = 'EXA_API_KEY';
 const DEFAULT_DEEPSEEK_API_KEY_ENV = 'DEEPSEEK_API_KEY';
 
 /**
+ * Read a configured credential reference, falling back when it names nothing.
+ *
+ * A settings file is hand-editable, and `credentialRef` answers a blank or
+ * padded name with a bare `TypeError` — which is not a config error the seam can
+ * report but an unhandled throw, taking down even the Exa path that needs no key
+ * at all. Blank means "not set", so it reads as the default. The card resolves
+ * the same field the same way; the two disagreeing would have it call a key
+ * configured that no search would ever find.
+ * @param declared - the reference named in the section, if any.
+ * @param fallback - the reference to use when none is named.
+ * @returns the reference to resolve.
+ */
+function resolveRef(declared, fallback) {
+  const named = declared?.trim() ?? '';
+  return named.length > 0 ? named : fallback;
+}
+
+/**
  * How long one anonymous search may take before it is abandoned.
  *
  * A resource backstop for the one transport this plugin owns:
@@ -115,7 +133,7 @@ async function resolveKey(ctx, ref) {
  * @returns the normalized search result.
  */
 async function searchExa(ctx, config, request, signal) {
-  const apiKey = await resolveKey(ctx, config.exaApiKeyEnv ?? DEFAULT_EXA_API_KEY_ENV);
+  const apiKey = await resolveKey(ctx, resolveRef(config.exaApiKeyEnv, DEFAULT_EXA_API_KEY_ENV));
   if (apiKey.length > 0) {
     return new ExaSearchProvider({
       apiKey,
@@ -150,7 +168,7 @@ async function searchExa(ctx, config, request, signal) {
  * @returns the normalized search result.
  */
 async function searchDeepSeek(ctx, config, request, signal) {
-  const ref = config.deepseekApiKeyEnv ?? DEFAULT_DEEPSEEK_API_KEY_ENV;
+  const ref = resolveRef(config.deepseekApiKeyEnv, DEFAULT_DEEPSEEK_API_KEY_ENV);
   const provider = new DeepSeekSearchProvider(() => ({
     resolveApiKey: async () => {
       const key = await resolveKey(ctx, ref);
