@@ -26,6 +26,7 @@ import { assertDshPluginRequest, requestDshCommunityMarket } from "./dsh-plugins
 import {
   buildDshEnvironment,
   prepareDshProductHome,
+  resolveHostModules,
   resolveDshPackagePath,
   resolvePnpmPackagePath,
   resolveProductResources,
@@ -85,11 +86,12 @@ let menuLocale: MenuLocale = "en"
 
 // Pure path work over values that never change for the life of the process, so
 // there is nothing to sequence and nothing that can be read before it is set.
-const productResources = resolveProductResources({
+const productPaths = {
   appPath: app.isPackaged ? app.getAppPath() : join(dirname(fileURLToPath(import.meta.url)), "../.."),
   isPackaged: app.isPackaged,
   resourcesPath: process.resourcesPath,
-})
+}
+const productResources = resolveProductResources(productPaths)
 const productPreload = join(productResources.dsh, "product", "preload.cjs")
 
 // DSH states the cause and the fix on its own stderr before it exits, and the
@@ -466,6 +468,7 @@ function launchDsh() {
       onEvent: (message, detail) => logger.log(message, detail),
     }),
     resources: productResources.dsh,
+    hostModules: resolveHostModules(productPaths),
   })
   dshHome = product.home
   const require = createRequire(import.meta.url)
