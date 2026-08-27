@@ -60,6 +60,7 @@ type CardActions = {
   discard: () => void
   editKey: (text: string) => void
   hooks: { webSearchCard: { getSnapshot: () => Record<string, unknown> } }
+  resetBackend: () => Promise<void> | void
   save: () => Promise<void>
   selectBackend: (id: string) => void
 }
@@ -69,6 +70,7 @@ type CardOptions = {
   describe?: unknown
   set?: () => Promise<unknown>
   setCredential?: () => Promise<unknown>
+  unset?: () => Promise<unknown>
 }
 
 /** Mount the plugin and return the registered card plus the wires behind it. */
@@ -92,7 +94,9 @@ function cardOf(options: CardOptions = {}) {
       snapshot.user = { ...(snapshot.user as object), [key]: value }
       snapshot.value = { ...(snapshot.value as object), [key]: value }
     }),
-    unset: vi.fn(async () => {}),
+    unset: vi.fn(async () => {
+      if (options.unset !== undefined) await options.unset()
+    }),
   }
   const credentials = {
     describe: vi.fn(async () => options.describe ?? { result: { ok: true, value: { credentials: {} } } }),
@@ -168,31 +172,68 @@ describe("PawWork DSH web search card", () => {
     expect(menu?.props.selectedId).toBe("exa")
   })
 
-  // An API key means nothing apart from the engine it authenticates. Staging one
-  // draft beside a separate engine selection let the two drift, and `save` wrote
-  // the key to whichever reference the engine held *at write time* — so typing an
-  // Exa key and then switching to DeepSeek sent one vendor's secret to another.
-  test("a key follows the engine it was typed for, not the one selected later", async () => {
+  // An API key means nothing apart from the engine it authenticates, and a key
+  // the card is not showing is one nobody can review before it is written. This
+  // went wrong twice: first `save` wrote every staged key to whichever reference
+  // the engine held at write time, then it wrote the abandoned draft to that
+  // draft's own vendor. Both are the same defect — the card could stage more than
+  // it displayed — so what this pins is the invariant, not either symptom: a save
+  // writes what is on screen and nothing else.
+  test("a save writes only the key the card is showing", async () => {
     const { credentials, injected } = cardOf()
 
     injected.editKey("exa-secret")
     injected.selectBackend("deepseek")
+    injected.editKey("deepseek-secret")
     await injected.save()
 
     expect(credentials.set).toHaveBeenCalledTimes(1)
-    expect(credentials.set).toHaveBeenCalledWith({ ref: "EXA_API_KEY", value: "exa-secret" })
+    expect(credentials.set).toHaveBeenCalledWith({ ref: "DEEPSEEK_API_KEY", value: "deepseek-secret" })
   })
 
-  test("switching away and back keeps each engine's staged key", () => {
-    const { injected } = cardOf()
+  test("changing the engine drops the key staged under the old one", async () => {
+    const { credentials, injected } = cardOf()
 
     injected.editKey("exa-secret")
     injected.selectBackend("deepseek")
     expect(stateOf(injected).keyText).toBe("")
 
-    injected.editKey("deepseek-secret")
     injected.selectBackend("exa")
-    expect(stateOf(injected).keyText).toBe("exa-secret")
+    expect(stateOf(injected).keyText).toBe("")
+
+    await injected.save()
+    expect(credentials.set).not.toHaveBeenCalled()
+  })
+
+  // The Save button and the writes have to agree on what counts as a change. They
+  // did not: the button asked whether any draft held characters, `save` asked
+  // whether any held characters after trimming, so a stray space left the button
+  // lit on a save that would never write anything and never clear the draft.
+  test("a whitespace-only key is not something to save", async () => {
+    const { credentials, injected } = cardOf()
+
+    injected.editKey("   ")
+
+    expect(stateOf(injected).dirty).toBe(false)
+    await injected.save()
+    expect(credentials.set).not.toHaveBeenCalled()
+    expect(stateOf(injected).saving).toBe(false)
+  })
+
+  // Nor is an engine the deployment already runs. Leaving the picker and coming
+  // back is how a user reads their options, and it left the card claiming an
+  // unsaved change with a Save that would write the value already in force.
+  test("selecting the engine already in force is not something to save", async () => {
+    const { credentials, injected } = cardOf()
+
+    injected.selectBackend("deepseek")
+    expect(stateOf(injected).dirty).toBe(true)
+
+    injected.selectBackend("exa")
+    expect(stateOf(injected).dirty).toBe(false)
+
+    await injected.save()
+    expect(credentials.set).not.toHaveBeenCalled()
   })
 
   // A write that threw used to escape `save` before it could clear `saving`,
@@ -260,6 +301,24 @@ describe("PawWork DSH web search card", () => {
 
     expect(stateOf(injected).dirty).toBe(false)
     expect(stateOf(injected).keyText).toBe("")
+  })
+
+  // Recording a failure and announcing it are one step. `resetBackend` clears the
+  // control before awaiting its write — so the user sees the reset take — and a
+  // failure that only landed in the state left the card claiming success until
+  // some later, unrelated edit published it and blamed that edit instead.
+  test("a reset the deployment refuses is reported when it fails", async () => {
+    const { injected } = cardOf({
+      section: { value: { backend: "deepseek" }, user: { backend: "deepseek" } },
+      unset: async () => {
+        throw new Error("read-only deployment")
+      },
+    })
+
+    await injected.resetBackend()
+
+    expect(stateOf(injected).failed).toBe(true)
+    expect(stateOf(injected).failedFields).toEqual(["backend"])
   })
 
   // The Host half falls back to the default reference for a blank one; a card

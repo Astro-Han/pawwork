@@ -135,12 +135,10 @@ window.__ModuleLoader__.load({
       deepseek: "DeepSeek",
       apiKey: "API key",
       apiKeyHint: "Stored outside the settings file. Leave blank to keep the current key.",
-      apiKeySet: "A key is configured.",
       apiKeyUnsetFree: "No key needed — searches use PawWork's included allowance. Add one to search on your own quota.",
       apiKeyUnsetRequired: "No key is configured; search is unavailable until one is.",
       keylessBadge: "Included allowance",
       configuredBadge: "Key configured",
-      overridden: "Overridden",
       reset: "Reset to default",
       readOnly: "This deployment stores settings read-only.",
       save: "Save",
@@ -163,12 +161,10 @@ window.__ModuleLoader__.load({
       deepseek: "DeepSeek",
       apiKey: "API Key",
       apiKeyHint: "不写入设置文件。留空表示保持当前密钥。",
-      apiKeySet: "已配置密钥。",
       apiKeyUnsetFree: "无需密钥，搜索走爪印自带额度。填入密钥则改用你自己的额度。",
       apiKeyUnsetRequired: "未配置密钥；配置之前搜索不可用。",
       keylessBadge: "自带额度",
       configuredBadge: "已配置密钥",
-      overridden: "已覆盖",
       reset: "恢复默认",
       readOnly: "本部署的设置为只读。",
       save: "保存",
@@ -190,17 +186,22 @@ window.__ModuleLoader__.load({
      * does not — a secret never rides a settings response, so the card learns only
      * whether one is configured and writes it through the credentials domain.
      *
-     * Key drafts are held per backend rather than as one field. An API key has no
-     * meaning apart from the engine it authenticates, so a single draft plus a
-     * separate backend selection lets the two drift: type an Exa key, switch the
-     * engine, save, and the key is written to the reference the *new* engine
-     * resolves — sending one vendor's secret to another. Keying the draft by
-     * engine makes that unrepresentable, and switching back and forth stops
-     * throwing away what was typed.
+     * One key draft, and it belongs to the engine on screen. An API key has no
+     * meaning apart from the engine it authenticates, so any staged key the card
+     * is not currently showing is a key nobody can review before it is written:
+     * type an Exa key, switch the engine, save, and a secret the user believes
+     * they abandoned reaches a second vendor. Holding at most one draft and
+     * dropping it the moment the selection moves off it (`alignDraft`) keeps what
+     * a save can write equal to what the card displays.
+     *
+     * For the same reason `pendingWrites` is the single description of the work a
+     * save has to do: the button's enabled state and the writes themselves read
+     * it, so "there is something to save" cannot mean one thing to the user and
+     * another to the code.
      */
     class CardController {
       backendDraft = undefined
-      keyDrafts = new Map()
+      keyDraft = undefined
       saving = false
       failures = new Set()
       credential = { ref: "", configured: false, writable: true }
@@ -239,22 +240,58 @@ window.__ModuleLoader__.load({
       ref(backend = this.backend()) {
         const spec = BACKENDS.find((entry) => entry.id === backend) ?? BACKENDS[0]
         const declared = this.scope.getSnapshot().value?.[spec.refField]
-        // A blank reference falls back to the default, matching how the Host half
-        // reads the same field. Divergence here would have the card report a key
-        // as configured while the search resolves a reference holding nothing.
+        // A blank or padded reference falls back to the default, the same reading
+        // `resolveRef` in the Host half applies. Divergence here would have the
+        // card report a key as configured while the search resolves a reference
+        // holding nothing.
         return declared !== undefined && declared.trim().length > 0 ? declared.trim() : spec.defaultRef
+      }
+
+      /**
+       * Drop a staged key once the selection has moved off the engine it was
+       * typed under.
+       *
+       * The selection moves for three reasons — the picker, a reset, and the Host
+       * changing the section underneath the card — so the draft is aligned where
+       * it is read rather than at each of those call sites, which is what keeps
+       * "staged" and "shown" from parting company again.
+       */
+      alignDraft() {
+        if (this.keyDraft !== undefined && this.keyDraft.backend !== this.backend()) {
+          this.keyDraft = undefined
+        }
       }
 
       /** @returns the key staged for the backend the card is showing. */
       keyText() {
-        return this.keyDrafts.get(this.backend()) ?? ""
+        this.alignDraft()
+        return this.keyDraft?.text ?? ""
       }
 
-      /** @returns whether anything is staged, key drafts for other engines included. */
+      /**
+       * Describe every write a save would perform, in the order it performs them.
+       *
+       * The engine goes first because the key's reference follows it. What counts
+       * as a write is decided once, here, and "staged" is not it: a key that is
+       * only whitespace and an engine already in force are both nothing to save,
+       * and the Save button agrees because it asks this rather than deciding for
+       * itself.
+       * @returns the staged writes, empty when there is nothing to save.
+       */
+      pendingWrites() {
+        this.alignDraft()
+        const writes = []
+        if (this.backendDraft !== undefined && this.backendDraft !== this.scope.getSnapshot().value?.backend) {
+          writes.push({ field: "backend", backend: this.backendDraft })
+        }
+        const value = this.keyDraft?.text.trim() ?? ""
+        if (value.length > 0) writes.push({ field: "key", ref: this.ref(), value })
+        return writes
+      }
+
+      /** @returns whether a save would write anything. */
       dirty() {
-        if (this.backendDraft !== undefined) return true
-        for (const value of this.keyDrafts.values()) if (value.length > 0) return true
-        return false
+        return this.pendingWrites().length > 0
       }
 
       /** @returns the state the card component renders. */
@@ -329,7 +366,7 @@ window.__ModuleLoader__.load({
           },
           editKey: (text) => {
             if (this.saving) return
-            this.keyDrafts.set(this.backend(), text)
+            this.keyDraft = { backend: this.backend(), text }
             this.failures.delete("key")
             this.publish()
           },
@@ -347,9 +384,9 @@ window.__ModuleLoader__.load({
           save: () => this.save(),
           discard: () => {
             if (this.saving) return
-            if (this.backendDraft === undefined && this.keyDrafts.size === 0 && this.failures.size === 0) return
+            if (this.backendDraft === undefined && this.keyDraft === undefined && this.failures.size === 0) return
             this.backendDraft = undefined
-            this.keyDrafts.clear()
+            this.keyDraft = undefined
             this.failures.clear()
             this.publish()
             this.readCredential()
@@ -364,6 +401,12 @@ window.__ModuleLoader__.load({
        * rejected promise cannot leave the card wedged: an unhandled throw from a
        * write used to escape `save`, stranding `saving` at true and disabling
        * both buttons until the app was restarted.
+       *
+       * Recording the failure and announcing it are one step, not two. A caller
+       * that publishes before awaiting its write — `resetBackend` does, so the
+       * control clears the instant it is used — would otherwise leave the card
+       * saying the write succeeded, and hand the blame to whatever the user
+       * edited next.
        * @param field - the field this write belongs to, for the failure report.
        * @param write - performs the write; its resolved value is not inspected.
        * @returns whether the write completed without throwing.
@@ -374,6 +417,7 @@ window.__ModuleLoader__.load({
           return true
         } catch (_writeFailure) {
           this.failures.add(field)
+          this.publish()
           return false
         }
       }
@@ -392,34 +436,33 @@ window.__ModuleLoader__.load({
        */
       async save() {
         if (this.saving) return
-        const backendDraft = this.backendDraft
-        // Captured with the backend they were typed under: `ref()` follows the
-        // selection, and the selection can be part of this very save.
-        const keyWrites = [...this.keyDrafts]
-          .map(([backend, value]) => ({ backend, value: value.trim(), ref: this.ref(backend) }))
-          .filter((entry) => entry.value.length > 0)
-        if (backendDraft === undefined && keyWrites.length === 0) return
+        // The writes are resolved once, before anything lands: the key's
+        // reference follows the selection, and the selection can be part of this
+        // very save.
+        const writes = this.pendingWrites()
+        if (writes.length === 0) return
         this.saving = true
         this.failures.clear()
         this.publish()
         try {
-          if (backendDraft !== undefined) {
-            const wrote =
-              (await this.commit("backend", () => this.scope.set("backend", backendDraft))) &&
-              this.scope.getSnapshot().user?.backend === backendDraft
-            if (wrote) this.backendDraft = undefined
-            else this.failures.add("backend")
-          }
-          for (const entry of keyWrites) {
+          for (const write of writes) {
+            if (write.field === "backend") {
+              const wrote =
+                (await this.commit("backend", () => this.scope.set("backend", write.backend))) &&
+                this.scope.getSnapshot().user?.backend === write.backend
+              if (wrote) this.backendDraft = undefined
+              else this.failures.add("backend")
+              continue
+            }
             // The deployment answers in the response envelope as well as by
             // throwing, and `configured` cannot stand in for either: it is
             // already true whenever a key was set before, so a rejected rotation
             // would read as a successful one.
             const wrote = await this.commit("key", async () => {
-              const response = await this.api.credentials.set({ ref: entry.ref, value: entry.value })
+              const response = await this.api.credentials.set({ ref: write.ref, value: write.value })
               if (response?.result?.ok === false) throw new Error("credential write rejected")
             })
-            if (wrote) this.keyDrafts.delete(entry.backend)
+            if (wrote) this.keyDraft = undefined
           }
           await this.readCredential()
         } finally {
