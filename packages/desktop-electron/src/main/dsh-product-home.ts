@@ -77,7 +77,15 @@ export function resolveHostModules(options: ResolveProductResourcesOptions) {
 // loaded, so the plugin cannot bind a second copy at a different version.
 function linkHostScope(productHome: string, hostModules: string) {
   const target = join(hostModules, "@deepseek-ai")
-  if (!existsSync(target)) return
+  // Loud, not silent. Without this link every bundled plugin fails to resolve
+  // its harness imports, and the product patch points `web.searchProvider` at
+  // one of them — so a missing scope is not a degraded feature but every
+  // `web_search` answering `configured web provider "pawwork" is not
+  // registered`. Returning quietly would ship that as a mystery; throwing puts
+  // the real cause on the startup-failure page the lifecycle already renders.
+  if (!existsSync(target)) {
+    throw new Error(`DSH host module scope is missing at ${target}`)
+  }
   const link = join(productHome, "node_modules", "@deepseek-ai")
   // `lstatSync`, not `existsSync`: the link this replaces is usually dangling —
   // "run once from Downloads, then drag to /Applications" moves the host tree

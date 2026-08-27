@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs"
+import { createRequire } from "node:module"
 import { resolve } from "node:path"
 import { describe, expect, test, vi } from "vitest"
 import { load } from "js-yaml"
@@ -95,6 +96,30 @@ describe("PawWork DSH web search plugin", () => {
   // "web search" next to ours, editing a provider the seam will never select.
   test("displaces the upstream DeepSeek row rather than sitting beside it", () => {
     expect(readProductPatch().find((row) => row.id === "web-search-deepseek")?.disabled).toBe(true)
+  })
+
+  // Both rows above address entries by id, and an id that matches nothing is a
+  // warning on the sidecar's stderr, not an error. Silence there is expensive:
+  // an unmatched `web` leaves the base value selected, so the promise this
+  // whole change exists for — search before anyone configures a key — reverts
+  // to a credential error on a user's first search, and an unmatched
+  // `web-search-deepseek` puts upstream's card back beside ours. Versions are
+  // pinned exactly, so this can only arrive through a deliberate bump; asserting
+  // the ids against the base profile turns that bump red here instead of quiet
+  // there.
+  test("addresses entries the pinned dsh-base actually declares", () => {
+    // Scanned rather than parsed: the base profile carries `!!js` tags that no
+    // plain YAML loader accepts, and the only thing asserted here is that an id
+    // is declared at all.
+    const baseProfile = createRequire(import.meta.url).resolve("@deepseek-ai/dsh-base/cordis.patch.yml")
+    const declared = new Set(
+      [...readFileSync(baseProfile, "utf8").matchAll(/^\s*-\s+id:\s*(\S+)\s*$/gm)].map((match) => match[1]),
+    )
+
+    for (const id of ["web", "web-search-deepseek"]) {
+      expect(readProductPatch().some((row) => row.id === id)).toBe(true)
+      expect(declared).toContain(id)
+    }
   })
 
   test("defaults to the Exa engine, which is the one that needs no key", () => {
