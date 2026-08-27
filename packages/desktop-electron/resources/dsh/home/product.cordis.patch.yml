@@ -76,3 +76,12 @@
       name: '@pawwork/dsh-automations'
     - id: pawwork-web-search
       name: '@pawwork/dsh-web-search'
+    # Not in the default composition upstream. Without it the model has no clock:
+    # it cannot date "the latest release" or read "next Tuesday" in the user's own
+    # zone, which is exactly what a desktop user asking about current events
+    # expects. The interval keeps a long session from carrying one reading per
+    # step; a turn that spans it gets a fresh one.
+    - id: time-context
+      name: '@deepseek-ai/dsh-time-context'
+      config:
+        refreshIntervalMs: 60000
