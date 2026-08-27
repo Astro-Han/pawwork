@@ -84,12 +84,7 @@ function linkHostScope(productHome: string, hostModules: string) {
   // out from under it — and `existsSync` follows symlinks, so it reports a
   // dangling link as absent and the `symlinkSync` below then fails `EEXIST`
   // on every launch thereafter.
-  let existing: ReturnType<typeof lstatSync> | undefined
-  try {
-    existing = lstatSync(link)
-  } catch {
-    existing = undefined
-  }
+  const existing = lstatSync(link, { throwIfNoEntry: false })
   // An upgrade moves the host tree, so a link surviving from an older install
   // would resolve to packages that are no longer there.
   if (existing?.isSymbolicLink() === true && readlinkSync(link) === target) return

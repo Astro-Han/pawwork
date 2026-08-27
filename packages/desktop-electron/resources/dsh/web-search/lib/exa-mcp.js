@@ -1,4 +1,4 @@
-'use strict';
+import { WebError } from '@deepseek-ai/dsh-web';
 
 // Exa's hosted MCP endpoint, reached over Streamable HTTP.
 //
@@ -12,29 +12,36 @@
 // report, not structured data — Exa exposes no `structuredContent` here. Parsing
 // that report is this module's job; everything else defers to the seam.
 
-const ENDPOINT = 'https://mcp.exa.ai/mcp';
+export const ENDPOINT = 'https://mcp.exa.ai/mcp';
 const SEARCH_TOOL = 'web_search_exa';
 
 /** Result blocks Exa renders per hit, in the order it emits them. */
 const BLOCK_SEPARATOR = /\n\s*\n(?=Title:\s)/;
 
+/** Statuses that mean Exa declined to serve this caller at all. */
+const REFUSAL_STATUS = new Set([401, 402, 403, 429]);
+
 /**
- * An error carrying the seam code the caller should surface.
+ * Whether Exa is refusing to serve this caller rather than failing to answer.
  *
- * The module throws these rather than `WebError` so it stays a plain CommonJS
- * unit the host half can test without loading the ESM seam.
+ * The hosted MCP reports a spent allowance as `isError` prose rather than a
+ * status code, so the distinction that decides what a user should do — spend
+ * your own key versus try again — only exists in that text.
+ * @param text - the error text Exa returned.
+ * @returns true when the text describes a refusal.
  */
-class ExaMcpError extends Error {
-  /**
-   * @param code - the `WebError` code this failure maps to.
-   * @param message - operator-facing detail.
-   * @param options - standard error options (`cause`).
-   */
-  constructor(code, message, options) {
-    super(message, options);
-    this.name = 'ExaMcpError';
-    this.code = code;
-  }
+function isRefusal(text) {
+  return /quota|rate.?limit|too many requests|usage limit|payment|unauthorized|forbidden|api key/.test(
+    text.toLowerCase(),
+  );
+}
+
+/**
+ * @param refused - whether Exa declined to serve the caller.
+ * @returns the seam code to surface.
+ */
+function codeFor(refused) {
+  return refused ? 'WEB_PROVIDER_CREDENTIAL_MISSING' : 'WEB_PROVIDER_ERROR';
 }
 
 /**
@@ -44,73 +51,55 @@ class ExaMcpError extends Error {
  * keep-alive lines, so this walks events rather than assuming the body is JSON.
  * @param body - the raw response text.
  * @returns the decoded JSON-RPC envelope.
- * @throws {ExaMcpError} when no event carries a decodable payload.
+ * @throws {WebError} when no event carries a decodable payload.
  */
 function parseSse(body) {
-  let data = [];
-  let sawData = false;
+  const data = [];
   for (const line of body.split(/\r?\n/)) {
     if (line === '') {
       if (data.length > 0) return decodeEvent(data.join('\n'));
       continue;
     }
     if (!line.startsWith('data:')) continue;
-    sawData = true;
     data.push(line.startsWith('data: ') ? line.slice(6) : line.slice(5));
   }
   if (data.length > 0) return decodeEvent(data.join('\n'));
-  throw new ExaMcpError(
-    'WEB_PROVIDER_ERROR',
-    sawData ? 'Exa returned an empty MCP response' : 'Exa returned no MCP event',
-  );
+  throw new WebError('Exa returned no MCP event', 'WEB_PROVIDER_ERROR');
 }
 
 /**
  * @param payload - one SSE event's concatenated data lines.
  * @returns the decoded JSON-RPC envelope.
- * @throws {ExaMcpError} when the payload is not JSON.
+ * @throws {WebError} when the payload is not JSON.
  */
 function decodeEvent(payload) {
   try {
     return JSON.parse(payload);
   } catch (cause) {
-    throw new ExaMcpError('WEB_PROVIDER_ERROR', 'Exa returned a malformed MCP payload', { cause });
+    throw new WebError('Exa returned a malformed MCP payload', 'WEB_PROVIDER_ERROR', { cause });
   }
-}
-
-/**
- * Classify a failure Exa reports in prose.
- *
- * The hosted MCP reports a spent allowance as `isError` text rather than a
- * status code, so the one distinction that matters to a user — "the free
- * allowance ran out, configure your own provider" versus "something else went
- * wrong" — only exists in that text.
- * @param text - the error text Exa returned.
- * @returns the seam code to surface.
- */
-function classify(text) {
-  const exhausted =
-    /quota|rate.?limit|too many requests|usage limit|payment|402|429|unauthorized|forbidden|api key|401|403/;
-  return exhausted.test(text.toLowerCase()) ? 'WEB_PROVIDER_CREDENTIAL_MISSING' : 'WEB_PROVIDER_ERROR';
 }
 
 /**
  * Parse one rendered result block into a seam source.
  *
- * `Title`, `URL`, `Published` and `Author` are single lines; everything after
- * `Highlights:` is excerpt prose whose leading `>` and `...` separators are
- * Exa's rendering, not content. A block without a URL is dropped: the seam's
+ * `Title`, `URL` and `Published` are single lines; everything after
+ * `Highlights:` is excerpt prose whose leading `>`, `...` elisions and `---`
+ * rules are Exa's rendering, not content. The rule is what Exa puts between
+ * two results, and it lands inside the preceding block because the split above
+ * happens at the blank line before the next `Title:` — so it has to be dropped
+ * here or it rides out on that result's snippet.
+ * A block without a URL is dropped: the seam's
  * source vocabulary is URL-keyed, and a snippet with nothing to attribute it to
  * would read to the model as an unsourced claim.
  * @param block - one block of the rendered report.
  * @returns the source, or undefined when the block carries no URL.
  */
 function parseBlock(block) {
-  const lines = block.split(/\r?\n/);
   const fields = new Map();
-  let highlights = [];
+  const highlights = [];
   let inHighlights = false;
-  for (const line of lines) {
+  for (const line of block.split(/\r?\n/)) {
     if (inHighlights) {
       highlights.push(line);
       continue;
@@ -119,7 +108,7 @@ function parseBlock(block) {
       inHighlights = true;
       continue;
     }
-    const match = /^(Title|URL|Published|Author):\s*(.*)$/.exec(line);
+    const match = /^(Title|URL|Published):\s*(.*)$/.exec(line);
     if (match) fields.set(match[1], match[2].trim());
   }
   const url = fields.get('URL');
@@ -128,7 +117,7 @@ function parseBlock(block) {
   const published = fields.get('Published');
   const snippet = highlights
     .map((line) => line.replace(/^>\s?/, '').trim())
-    .filter((line) => line.length > 0 && line !== '...')
+    .filter((line) => line.length > 0 && !/^(?:\.{3}|-{3,})$/.test(line))
     .join(' ')
     .trim();
   return {
@@ -156,7 +145,7 @@ function parseReport(text) {
 }
 
 /**
- * Run one search against Exa's hosted MCP.
+ * Run one search against Exa's hosted MCP on its anonymous allowance.
  *
  * `content` is deliberately omitted: Exa returns retrieved page excerpts, not a
  * generated answer, which is the same choice `@deepseek-ai/dsh-web-search-exa`
@@ -164,9 +153,11 @@ function parseReport(text) {
  * the final `maxResults` cap.
  * @param options - the query, transport, and budgets for one call.
  * @returns the normalized search result.
- * @throws {ExaMcpError} when the call cannot be made or its answer represented.
+ * @throws {WebError} `WEB_PROVIDER_CREDENTIAL_MISSING` when the allowance will
+ *   not serve this caller, `WEB_ABORTED` on the caller's abort, and
+ *   `WEB_PROVIDER_ERROR` for everything else.
  */
-async function searchViaMcp(options) {
+export async function searchViaMcp(options) {
   const { query, maxResults, fetchImpl = fetch, signal, timeoutMs } = options;
   const timeout = AbortSignal.timeout(timeoutMs);
   const composed = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
@@ -190,23 +181,21 @@ async function searchViaMcp(options) {
   } catch (cause) {
     // A caller's abort and our own deadline both surface as AbortError here;
     // only the caller's is the seam's `WEB_ABORTED`.
-    if (signal?.aborted === true) throw new ExaMcpError('WEB_ABORTED', 'the search was aborted', { cause });
-    if (timeout.aborted) throw new ExaMcpError('WEB_PROVIDER_ERROR', 'Exa did not answer in time', { cause });
-    throw new ExaMcpError('WEB_PROVIDER_ERROR', 'could not reach Exa', { cause });
+    if (signal?.aborted === true) throw new WebError('the search was aborted', 'WEB_ABORTED', { cause });
+    const message = timeout.aborted ? 'Exa did not answer in time' : 'could not reach Exa';
+    throw new WebError(message, 'WEB_PROVIDER_ERROR', { cause });
   }
   if (!response.ok) {
-    throw new ExaMcpError(classify(`${response.status}`), `Exa answered HTTP ${response.status}`);
+    throw new WebError(`Exa answered HTTP ${response.status}`, codeFor(REFUSAL_STATUS.has(response.status)));
   }
   const envelope = parseSse(await response.text());
   if (envelope.error !== undefined) {
-    throw new ExaMcpError('WEB_PROVIDER_ERROR', `Exa reported ${envelope.error.message ?? 'an MCP error'}`);
+    throw new WebError(`Exa reported ${envelope.error.message ?? 'an MCP error'}`, 'WEB_PROVIDER_ERROR');
   }
   const blocks = envelope.result?.content ?? [];
   const text = blocks.find((block) => block.type === 'text')?.text ?? '';
   if (envelope.result?.isError === true) {
-    throw new ExaMcpError(classify(text), text.length > 0 ? text : 'Exa reported a tool error');
+    throw new WebError(text.length > 0 ? text : 'Exa reported a tool error', codeFor(isRefusal(text)));
   }
   return { sources: parseReport(text), truncated: false };
 }
-
-module.exports = { ENDPOINT, ExaMcpError, searchViaMcp };
