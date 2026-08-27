@@ -44,6 +44,21 @@
 # "web search" that edits a provider the seam will never select.
 - id: web-search-deepseek
   disabled: true
+# dsh-base indexes into `:memory:` and never opens it, so the sidebar can only
+# match session titles and workspace names. A durable file behind `first-search`
+# makes searching what was said possible without paying for SQLite at startup:
+# the module and handle load on the first search, and a user who never searches
+# never opens the database at all.
+#
+# The cost is a privacy one, and it is real: the FTS5 table is not contentless,
+# so message text — including tool-call arguments and tool results — lives in
+# this file at rest, where before it only lived in the session log. The file is
+# owner-only and never shrinks; deleting a session removes its rows but does not
+# reclaim the pages.
+- id: session-query-sqlite
+  config:
+    path: !!js dshHomePath('session-query.sqlite')
+    openAt: first-search
 # The market must wait for PawWork's generation-scoped Desktop services. Their
 # presence selects its managed package runtime and makes self-restart unavailable.
 - id: dsh-market

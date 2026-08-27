@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { resolve } from "node:path"
 import { describe, expect, test, vi } from "vitest"
-import { DEFAULT_SCHEMA, Type, load } from "js-yaml"
+import { readEntryList, readProductPatch } from "./dsh-product-patch.testing"
 import {
   Config,
   PAWWORK_SEARCH_PROVIDER_ID,
@@ -13,18 +13,6 @@ import {
 } from "../../resources/dsh/web-search/lib/index.js"
 
 const webSearchRoot = resolve(import.meta.dirname, "../../resources/dsh/web-search")
-const patchFile = resolve(import.meta.dirname, "../../resources/dsh/home/product.cordis.patch.yml")
-
-type PatchRow = {
-  id?: string
-  disabled?: boolean
-  config?: Record<string, unknown>
-  insert?: Array<{ id: string; name: string }>
-}
-
-function readProductPatch() {
-  return load(readFileSync(patchFile, "utf8")) as PatchRow[]
-}
 
 /** A context exposing only the plane the provider reads: the credentials service. */
 function contextWith(credential?: string) {
@@ -113,19 +101,10 @@ describe("PawWork DSH web search plugin", () => {
     // Parsed, not scanned. A line scan reads an id out of a block scalar that
     // merely looks like one and misses a quoted or commented one, which is the
     // wrong way round for a guard: it would pass on a bump that renamed the row
-    // and fail on one that only reformatted it. The base profile serializes
-    // JavaScript expressions as `!!js`, so the loader is given a type for them
-    // rather than the whole document being given up on.
+    // and fail on one that only reformatted it. `readEntryList` is the same
+    // reader the product overlay goes through, `!!js` rows included.
     const baseProfile = createRequire(import.meta.url).resolve("@deepseek-ai/dsh-base/cordis.patch.yml")
-    const jsExpression = new Type("tag:yaml.org,2002:js", {
-      kind: "scalar",
-      resolve: () => true,
-      construct: (source: string) => source,
-    })
-    const patches = load(readFileSync(baseProfile, "utf8"), {
-      schema: DEFAULT_SCHEMA.extend([jsExpression]),
-    }) as Array<{ insert?: Array<{ id?: string; config?: Record<string, unknown> }> }>
-    const rows = patches.flatMap((patch) => patch.insert ?? [])
+    const rows = readEntryList(baseProfile).flatMap((patch) => patch.insert ?? [])
     const declared = new Set(rows.map((row) => row.id))
 
     expect(declared.size).toBeGreaterThan(1)
