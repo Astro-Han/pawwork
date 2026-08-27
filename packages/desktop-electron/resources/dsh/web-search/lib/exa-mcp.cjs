@@ -6,8 +6,7 @@
 // published provider requires a key, while `mcp.exa.ai` answers unauthenticated
 // requests against Exa's own free allowance. v1 shipped exactly this endpoint
 // under the "爪印免费额度" label, so a first-run user with no key still gets
-// search. A personal key rides the same endpoint as `?exaApiKey=`, which is how
-// Exa scopes the call to that key's quota rather than the shared one.
+// search.
 //
 // The response is SSE-framed JSON-RPC whose single text block is a rendered
 // report, not structured data — Exa exposes no `structuredContent` here. Parsing
@@ -18,22 +17,6 @@ const SEARCH_TOOL = 'web_search_exa';
 
 /** Result blocks Exa renders per hit, in the order it emits them. */
 const BLOCK_SEPARATOR = /\n\s*\n(?=Title:\s)/;
-
-/**
- * Address the endpoint for one credential.
- *
- * The key travels as a query parameter because that is the only channel Exa's
- * hosted MCP accepts it on; an absent key is not an error but the anonymous
- * allowance, so this returns the bare URL rather than failing.
- * @param apiKey - the caller's Exa key, or undefined for the free allowance.
- * @returns the URL to POST the JSON-RPC call to.
- */
-function endpointFor(apiKey) {
-  if (apiKey === undefined || apiKey.length === 0) return ENDPOINT;
-  const url = new URL(ENDPOINT);
-  url.searchParams.set('exaApiKey', apiKey);
-  return url.toString();
-}
 
 /**
  * An error carrying the seam code the caller should surface.
@@ -98,22 +81,17 @@ function decodeEvent(payload) {
 /**
  * Classify a failure Exa reports in prose.
  *
- * The hosted MCP reports quota and key problems as `isError` text rather than a
- * status code, so the distinction that matters to a user — "the free allowance
- * ran out" versus "the key you saved is wrong" — only exists in that text.
+ * The hosted MCP reports a spent allowance as `isError` text rather than a
+ * status code, so the one distinction that matters to a user — "the free
+ * allowance ran out, configure your own provider" versus "something else went
+ * wrong" — only exists in that text.
  * @param text - the error text Exa returned.
- * @param authenticated - whether the call carried a key.
  * @returns the seam code to surface.
  */
-function classify(text, authenticated) {
-  const lowered = text.toLowerCase();
-  if (/quota|rate.?limit|too many requests|usage limit|payment|402|429/.test(lowered)) {
-    return authenticated ? 'WEB_PROVIDER_ERROR' : 'WEB_PROVIDER_CREDENTIAL_MISSING';
-  }
-  if (/invalid|unauthorized|forbidden|api key|401|403/.test(lowered)) {
-    return 'WEB_PROVIDER_CREDENTIAL_MISSING';
-  }
-  return 'WEB_PROVIDER_ERROR';
+function classify(text) {
+  const exhausted =
+    /quota|rate.?limit|too many requests|usage limit|payment|402|429|unauthorized|forbidden|api key|401|403/;
+  return exhausted.test(text.toLowerCase()) ? 'WEB_PROVIDER_CREDENTIAL_MISSING' : 'WEB_PROVIDER_ERROR';
 }
 
 /**
@@ -184,18 +162,17 @@ function parseReport(text) {
  * generated answer, which is the same choice `@deepseek-ai/dsh-web-search-exa`
  * makes for the official endpoint. `truncated` stays false because the seam owns
  * the final `maxResults` cap.
- * @param options - the query, credential, transport, and budgets for one call.
+ * @param options - the query, transport, and budgets for one call.
  * @returns the normalized search result.
  * @throws {ExaMcpError} when the call cannot be made or its answer represented.
  */
 async function searchViaMcp(options) {
-  const { query, maxResults, apiKey, fetchImpl = fetch, signal, timeoutMs } = options;
-  const authenticated = apiKey !== undefined && apiKey.length > 0;
+  const { query, maxResults, fetchImpl = fetch, signal, timeoutMs } = options;
   const timeout = AbortSignal.timeout(timeoutMs);
   const composed = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
   let response;
   try {
-    response = await fetchImpl(endpointFor(apiKey), {
+    response = await fetchImpl(ENDPOINT, {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
       body: JSON.stringify({
@@ -218,10 +195,7 @@ async function searchViaMcp(options) {
     throw new ExaMcpError('WEB_PROVIDER_ERROR', 'could not reach Exa', { cause });
   }
   if (!response.ok) {
-    throw new ExaMcpError(
-      classify(`${response.status}`, authenticated),
-      `Exa answered HTTP ${response.status}`,
-    );
+    throw new ExaMcpError(classify(`${response.status}`), `Exa answered HTTP ${response.status}`);
   }
   const envelope = parseSse(await response.text());
   if (envelope.error !== undefined) {
@@ -230,9 +204,9 @@ async function searchViaMcp(options) {
   const blocks = envelope.result?.content ?? [];
   const text = blocks.find((block) => block.type === 'text')?.text ?? '';
   if (envelope.result?.isError === true) {
-    throw new ExaMcpError(classify(text, authenticated), text.length > 0 ? text : 'Exa reported a tool error');
+    throw new ExaMcpError(classify(text), text.length > 0 ? text : 'Exa reported a tool error');
   }
   return { sources: parseReport(text), truncated: false };
 }
 
-module.exports = { ENDPOINT, ExaMcpError, endpointFor, parseReport, parseSse, searchViaMcp };
+module.exports = { ENDPOINT, ExaMcpError, searchViaMcp };

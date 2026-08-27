@@ -79,7 +79,17 @@ function linkHostScope(productHome: string, hostModules: string) {
   const target = join(hostModules, "@deepseek-ai")
   if (!existsSync(target)) return
   const link = join(productHome, "node_modules", "@deepseek-ai")
-  const existing = existsSync(link) ? lstatSync(link) : undefined
+  // `lstatSync`, not `existsSync`: the link this replaces is usually dangling —
+  // "run once from Downloads, then drag to /Applications" moves the host tree
+  // out from under it — and `existsSync` follows symlinks, so it reports a
+  // dangling link as absent and the `symlinkSync` below then fails `EEXIST`
+  // on every launch thereafter.
+  let existing: ReturnType<typeof lstatSync> | undefined
+  try {
+    existing = lstatSync(link)
+  } catch {
+    existing = undefined
+  }
   // An upgrade moves the host tree, so a link surviving from an older install
   // would resolve to packages that are no longer there.
   if (existing?.isSymbolicLink() === true && readlinkSync(link) === target) return

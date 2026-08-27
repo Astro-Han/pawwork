@@ -24,20 +24,16 @@
     maxBytes: 65536
 - id: llm-deepseek
   disabled: true
-# Web search runs through the PawWork provider, which picks its backend from
-# settings rather than from this file. The seam resolves `searchProvider` once at
-# construction, so a per-vendor mount could only be re-pointed by editing here and
-# restarting; one provider that switches internally makes the choice a setting.
+# Every provider dsh-base mounts needs a vendor key, and PawWork ships OpenCode
+# Free as its default model, so most installs hold none and the first search
+# fails. Pointing the seam at the PawWork provider — Exa's anonymous allowance —
+# is what makes search work before anyone configures anything. The keyed
+# providers stay mounted behind their own settings cards; letting the user pick
+# between them needs a settings surface the seam does not have yet, since
+# `searchProvider` is resolved once at construction.
 - id: web
   config:
     searchProvider: pawwork
-# dsh-base mounts the DeepSeek provider with `DEEPSEEK_API_KEY`. PawWork ships
-# OpenCode Free as its default model, so most installs hold no such key and that
-# provider fails on the first search. It stays available as a backend of the row
-# below — which resolves the same credential — so disabling the standalone mount
-# removes a duplicate settings card, not the capability.
-- id: web-search-deepseek
-  disabled: true
 # The market must wait for PawWork's generation-scoped Desktop services. Their
 # presence selects its managed package runtime and makes self-restart unavailable.
 - id: dsh-market

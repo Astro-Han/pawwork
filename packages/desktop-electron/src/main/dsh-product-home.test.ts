@@ -199,6 +199,25 @@ describe("DSH product home", () => {
     expect(readlinkSync(join(productHome, "node_modules/@deepseek-ai"))).toBe(join(hostModules, "@deepseek-ai"))
   })
 
+  // The ordinary shape of a moved host tree: run once from Downloads, drag the
+  // app to /Applications, run again. The surviving link now points at nothing,
+  // and `existsSync` follows symlinks — so a check written with it calls the
+  // link absent and every launch after the move dies on `EEXIST`.
+  test("repoints a harness link left dangling by the move", () => {
+    const productHome = join(temporaryDirectory(), "fresh")
+    const resources = join(import.meta.dirname, "../../resources/dsh")
+    mkdirSync(join(productHome, "node_modules"), { recursive: true })
+    symlinkSync(
+      join(temporaryDirectory(), "gone", "@deepseek-ai"),
+      join(productHome, "node_modules/@deepseek-ai"),
+      "junction",
+    )
+
+    prepareDshProductHome({ productHome, resources, hostModules })
+
+    expect(readlinkSync(join(productHome, "node_modules/@deepseek-ai"))).toBe(join(hostModules, "@deepseek-ai"))
+  })
+
   test("creates the public free-model credential for a fresh product home", () => {
     const productHome = join(temporaryDirectory(), "fresh")
     const resources = join(import.meta.dirname, "../../resources/dsh")
