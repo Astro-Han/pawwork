@@ -147,7 +147,9 @@ window.__ModuleLoader__.load({
       saving: "Saving…",
       discard: "Discard",
       unsaved: "Unsaved",
-      saveFailed: "The deployment did not accept these values; they were left for you to correct.",
+      saveFailedBackend: "The deployment did not accept the search source; it was left for you to correct.",
+      saveFailedKey: "The deployment did not accept the API key; it was left for you to correct.",
+      saveFailedBoth: "The deployment accepted neither value; both were left for you to correct.",
       expand: "Show settings",
       collapse: "Hide settings",
     }
@@ -173,7 +175,9 @@ window.__ModuleLoader__.load({
       saving: "保存中…",
       discard: "放弃修改",
       unsaved: "未保存",
-      saveFailed: "本部署没有接受这些值，已保留供你修改。",
+      saveFailedBackend: "本部署没有接受搜索源，已保留供你修改。",
+      saveFailedKey: "本部署没有接受 API Key，已保留供你修改。",
+      saveFailedBoth: "本部署两个值都没有接受，已保留供你修改。",
       expand: "展开设置",
       collapse: "收起设置",
     }
@@ -185,12 +189,20 @@ window.__ModuleLoader__.load({
      * lives in the section, and the key for whichever backend is selected, which
      * does not — a secret never rides a settings response, so the card learns only
      * whether one is configured and writes it through the credentials domain.
+     *
+     * Key drafts are held per backend rather than as one field. An API key has no
+     * meaning apart from the engine it authenticates, so a single draft plus a
+     * separate backend selection lets the two drift: type an Exa key, switch the
+     * engine, save, and the key is written to the reference the *new* engine
+     * resolves — sending one vendor's secret to another. Keying the draft by
+     * engine makes that unrepresentable, and switching back and forth stops
+     * throwing away what was typed.
      */
     class CardController {
       backendDraft = undefined
-      keyDraft = undefined
+      keyDrafts = new Map()
       saving = false
-      failed = false
+      failures = new Set()
       credential = { ref: "", configured: false, writable: true }
       listeners = new Set()
 
@@ -220,11 +232,29 @@ window.__ModuleLoader__.load({
         return BACKENDS.find((entry) => entry.id === this.backend()) ?? BACKENDS[0]
       }
 
-      /** @returns the credential reference the selected backend resolves. */
-      ref() {
-        const spec = this.spec()
+      /**
+       * @param backend - the backend to resolve for; defaults to the selected one.
+       * @returns the credential reference that backend resolves.
+       */
+      ref(backend = this.backend()) {
+        const spec = BACKENDS.find((entry) => entry.id === backend) ?? BACKENDS[0]
         const declared = this.scope.getSnapshot().value?.[spec.refField]
-        return declared !== undefined && declared.length > 0 ? declared : spec.defaultRef
+        // A blank reference falls back to the default, matching how the Host half
+        // reads the same field. Divergence here would have the card report a key
+        // as configured while the search resolves a reference holding nothing.
+        return declared !== undefined && declared.trim().length > 0 ? declared.trim() : spec.defaultRef
+      }
+
+      /** @returns the key staged for the backend the card is showing. */
+      keyText() {
+        return this.keyDrafts.get(this.backend()) ?? ""
+      }
+
+      /** @returns whether anything is staged, key drafts for other engines included. */
+      dirty() {
+        if (this.backendDraft !== undefined) return true
+        for (const value of this.keyDrafts.values()) if (value.length > 0) return true
+        return false
       }
 
       /** @returns the state the card component renders. */
@@ -235,13 +265,14 @@ window.__ModuleLoader__.load({
         return {
           available: snapshot.status === "ready",
           writable: snapshot.writable,
-          dirty: this.backendDraft !== undefined || (this.keyDraft ?? "").trim() !== "",
+          dirty: this.dirty(),
           saving: this.saving,
-          failed: this.failed,
+          failed: this.failures.size > 0,
+          failedFields: [...this.failures],
           backend: this.backend(),
           backendOverridden: user !== undefined && Object.hasOwn(user, "backend"),
           keyless: spec.keyless,
-          keyText: this.keyDraft ?? "",
+          keyText: this.keyText(),
           keyConfigured: this.credential.configured,
           keyWritable: this.credential.writable,
         }
@@ -266,8 +297,8 @@ window.__ModuleLoader__.load({
         } catch (_credentialReadFailure) {
           return
         }
-        if (!response.result.ok || ref !== this.ref()) return
-        const view = response.result.value.credentials[ref]
+        if (response?.result?.ok !== true || ref !== this.ref()) return
+        const view = response.result.value?.credentials?.[ref]
         const next = { ref, configured: view?.configured ?? false, writable: view?.writable ?? true }
         if (next.configured === this.credential.configured && next.writable === this.credential.writable) return
         this.credential = next
@@ -288,23 +319,26 @@ window.__ModuleLoader__.load({
         return {
           hooks: { webSearchCard: this.store },
           selectBackend: (value) => {
+            if (this.saving) return
             this.backendDraft = value
-            this.failed = false
+            this.failures.clear()
             this.publish()
             // The reference follows the backend, so the badge must re-resolve
             // before the user decides whether a key is still needed.
             this.readCredential()
           },
           editKey: (text) => {
-            this.keyDraft = text
-            this.failed = false
+            if (this.saving) return
+            this.keyDrafts.set(this.backend(), text)
+            this.failures.delete("key")
             this.publish()
           },
           resetBackend: () => {
+            if (this.saving) return
             this.backendDraft = undefined
-            this.failed = false
+            this.failures.clear()
             this.publish()
-            this.scope.unset("backend").then(() => this.readCredential())
+            return this.commit("backend", () => this.scope.unset("backend")).then(() => this.readCredential())
           },
           // Returns its settlement rather than firing and forgetting: the card
           // reads progress from the store, but a caller that has to know the
@@ -312,13 +346,35 @@ window.__ModuleLoader__.load({
           // otherwise has nothing to wait on.
           save: () => this.save(),
           discard: () => {
-            if (this.backendDraft === undefined && this.keyDraft === undefined && !this.failed) return
+            if (this.saving) return
+            if (this.backendDraft === undefined && this.keyDrafts.size === 0 && this.failures.size === 0) return
             this.backendDraft = undefined
-            this.keyDraft = undefined
-            this.failed = false
+            this.keyDrafts.clear()
+            this.failures.clear()
             this.publish()
             this.readCredential()
           },
+        }
+      }
+
+      /**
+       * Run one write and record which field failed.
+       *
+       * Every path that changes the deployment goes through here so that a
+       * rejected promise cannot leave the card wedged: an unhandled throw from a
+       * write used to escape `save`, stranding `saving` at true and disabling
+       * both buttons until the app was restarted.
+       * @param field - the field this write belongs to, for the failure report.
+       * @param write - performs the write; its resolved value is not inspected.
+       * @returns whether the write completed without throwing.
+       */
+      async commit(field, write) {
+        try {
+          await write()
+          return true
+        } catch (_writeFailure) {
+          this.failures.add(field)
+          return false
         }
       }
 
@@ -327,47 +383,49 @@ window.__ModuleLoader__.load({
        *
        * The Host decides whether a value landed — its validators own constraints
        * no schema expresses — so the outcome is read back rather than predicted.
-       * A save that did not land keeps its drafts for the user to correct. The
-       * two writes settle independently, so each draft is cleared on its own
-       * write landing: rolling the engine back because the key failed would
-       * mean a third write that can fail too, and would contradict the Host,
-       * which by then already holds the new engine.
+       * A save that did not land keeps that field's draft for the user to
+       * correct. The two writes settle independently and are reported
+       * independently: rolling the engine back because the key failed would mean
+       * a third write that can fail too, and would contradict the Host, which by
+       * then already holds the new engine. So the card names the field that did
+       * not land instead of claiming nothing did.
        */
       async save() {
         if (this.saving) return
         const backendDraft = this.backendDraft
-        const keyDraft = (this.keyDraft ?? "").trim()
-        if (backendDraft === undefined && keyDraft === "") return
+        // Captured with the backend they were typed under: `ref()` follows the
+        // selection, and the selection can be part of this very save.
+        const keyWrites = [...this.keyDrafts]
+          .map(([backend, value]) => ({ backend, value: value.trim(), ref: this.ref(backend) }))
+          .filter((entry) => entry.value.length > 0)
+        if (backendDraft === undefined && keyWrites.length === 0) return
         this.saving = true
-        this.failed = false
+        this.failures.clear()
         this.publish()
-        let landed = true
-        if (backendDraft !== undefined) {
-          let wrote = true
-          try {
-            await this.scope.set("backend", backendDraft)
-          } catch (_writeFailure) {
-            wrote = false
+        try {
+          if (backendDraft !== undefined) {
+            const wrote =
+              (await this.commit("backend", () => this.scope.set("backend", backendDraft))) &&
+              this.scope.getSnapshot().user?.backend === backendDraft
+            if (wrote) this.backendDraft = undefined
+            else this.failures.add("backend")
           }
-          wrote = this.scope.getSnapshot().user?.backend === backendDraft && wrote
-          if (wrote) this.backendDraft = undefined
-          landed = wrote && landed
-        }
-        if (keyDraft !== "") {
-          let wrote = true
-          try {
-            await this.api.credentials.set({ ref: this.ref(), value: keyDraft })
-          } catch (_credentialWriteFailure) {
-            wrote = false
+          for (const entry of keyWrites) {
+            // The deployment answers in the response envelope as well as by
+            // throwing, and `configured` cannot stand in for either: it is
+            // already true whenever a key was set before, so a rejected rotation
+            // would read as a successful one.
+            const wrote = await this.commit("key", async () => {
+              const response = await this.api.credentials.set({ ref: entry.ref, value: entry.value })
+              if (response?.result?.ok === false) throw new Error("credential write rejected")
+            })
+            if (wrote) this.keyDrafts.delete(entry.backend)
           }
           await this.readCredential()
-          wrote = this.credential.configured && wrote
-          if (wrote) this.keyDraft = undefined
-          landed = wrote && landed
+        } finally {
+          this.saving = false
+          this.publish()
         }
-        this.saving = false
-        this.failed = !landed
-        this.publish()
       }
 
       publish() {
@@ -380,10 +438,35 @@ window.__ModuleLoader__.load({
      * @param props - label, badges, hint, and the control to render.
      * @returns the field row.
      */
+    /**
+     * Name the fields a save did not land, rather than the save as a whole.
+     *
+     * The two writes settle independently, so "the deployment did not accept
+     * these values" can be false about one of them — and when the engine landed
+     * and the key did not, that phrasing tells the user nothing changed while
+     * the deployment has in fact switched engines.
+     * @param fields - the fields whose writes failed.
+     * @returns the locale key for the failure line.
+     */
+    function saveFailureKey(fields) {
+      const failed = new Set(fields ?? [])
+      if (failed.has("backend") && failed.has("key")) return "saveFailedBoth"
+      return failed.has("backend") ? "saveFailedBackend" : "saveFailedKey"
+    }
+
+    // A `<button>` is not a labelable element, so `htmlFor` pointing at one is
+    // ignored: the browser makes no association and clicking the label does
+    // nothing. Fields whose control is a button carry their label the other way
+    // round, through `aria-labelledby` on the control.
     function Field(props) {
+      const labelTag = props.labelledControl === true ? "span" : "label"
       return h("div", { className: "pawwork-websearch-field" },
         h("div", { className: "pawwork-websearch-field-head" },
-          h("label", { className: "pawwork-websearch-label", htmlFor: props.id }, props.label),
+          h(labelTag, {
+            className: "pawwork-websearch-label",
+            id: `${props.id}-label`,
+            ...(props.labelledControl === true ? {} : { htmlFor: props.id }),
+          }, props.label),
           props.badges ? h("span", { className: "pawwork-websearch-badges" }, props.badges) : null),
         props.control,
         props.hint ? h("p", { className: "pawwork-websearch-hint" }, props.hint) : null)
@@ -438,6 +521,7 @@ window.__ModuleLoader__.load({
               anchor: h("button", {
                 "aria-expanded": menuOpen,
                 "aria-haspopup": "menu",
+                "aria-labelledby": "pawwork-websearch-backend-label pawwork-websearch-backend",
                 className: "pawwork-websearch-selector",
                 disabled,
                 id: "pawwork-websearch-backend",
@@ -453,12 +537,19 @@ window.__ModuleLoader__.load({
                 props.selectBackend(id)
               },
               open: menuOpen,
-              portal: true,
+              // Rendered in place rather than portalled to the document body:
+              // the primitive does not move focus into the portal or restore it
+              // on close, so a portalled menu leaves keyboard users able to open
+              // the list and unable to reach any item in it. In flow, tab order
+              // follows the DOM and the items are the next stops after the
+              // trigger.
+              portal: false,
               selectedId: state.backend,
             }),
             hint: t("backendHint"),
             id: "pawwork-websearch-backend",
             label: t("backend"),
+            labelledControl: true,
           }),
           h(Field, {
             badges: keyBadge,
@@ -479,7 +570,9 @@ window.__ModuleLoader__.load({
             label: t("apiKey"),
           }),
           h("div", { className: "pawwork-websearch-footer" },
-            state.failed ? h("p", { className: "pawwork-websearch-failed", role: "status" }, t("saveFailed")) : null,
+            state.failed
+              ? h("p", { className: "pawwork-websearch-failed", role: "status" }, t(saveFailureKey(state.failedFields)))
+              : null,
             h("button", {
               className: "pawwork-websearch-discard",
               disabled: !state.dirty || state.saving,

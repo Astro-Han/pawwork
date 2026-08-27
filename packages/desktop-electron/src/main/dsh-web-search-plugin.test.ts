@@ -293,7 +293,7 @@ describe("Exa rendered-report parsing", () => {
       ),
     )
 
-    expect(sources.map((source) => source.url)).toEqual(["https://example.com/docs"])
+    expect(sources.map((source) => (source as { url: string }).url)).toEqual(["https://example.com/docs"])
   })
 
   // A URL arrives inside page text, so the scheme is checked rather than
