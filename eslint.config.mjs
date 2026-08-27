@@ -61,4 +61,32 @@ export default tseslint.config([
       "@typescript-eslint/no-array-delete": "error",
     },
   },
+  {
+    // The bundled DSH plugins. They are plain JavaScript, shipped verbatim into
+    // the product home and loaded by the sidecar and the renderer, so nothing
+    // else looks at them: they are outside `tsconfig.json`, and until this block
+    // existed the lint script walked them under an empty rule set and always
+    // passed. The typed rules above need a program these files are not part of,
+    // so this is the untyped subset that still finds real defects.
+    name: "pawwork/bundled-plugin-js-bug-rules",
+    files: ["packages/desktop-electron/resources/**/*.{js,mjs,cjs}"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+    },
+    linterOptions: {
+      reportUnusedDisableDirectives: "error",
+    },
+    rules: {
+      "no-constant-binary-expression": "error",
+      "no-unsafe-optional-chaining": "error",
+      "no-dupe-class-members": "error",
+      "no-dupe-keys": "error",
+      "no-fallthrough": "error",
+      "no-self-compare": "error",
+      "no-unreachable": "error",
+      "no-unused-private-class-members": "error",
+      "no-unused-vars": ["error", { argsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
+    },
+  },
 ])
