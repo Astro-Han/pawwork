@@ -2,7 +2,7 @@ window.__ModuleLoader__.load({
   id: "@pawwork/dsh-web-search",
   factory: (require) => {
     const { createElement, useState } = require("react")
-    const { IconChevronDownOutline14 } = require("@deepseek-ai/dsh-client-ui-primitives")
+    const { IconChevronDownOutline14, Menu } = require("@deepseek-ai/dsh-client-ui-primitives")
     const { createSnapshotStore } = require("@deepseek-ai/dsh-client-runtime/client")
     const h = createElement
 
@@ -84,13 +84,20 @@ window.__ModuleLoader__.load({
 }
 .pawwork-websearch-input:focus-visible { border-color: var(--dsw-alias-brand-primary); outline: none; }
 .pawwork-websearch-input:disabled { color: var(--dsw-alias-label-tertiary); cursor: default; }
-/* The native control, matching the Models page: primitives ship no Select, and a
-   hand-rolled listbox would drift from the platform menu the rest of settings uses. */
-select.pawwork-websearch-input {
-  appearance: none; cursor: pointer; max-width: 240px; padding-right: 32px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-position: right 12px center; background-repeat: no-repeat; background-size: 12px 12px;
+/* The engine picker is the same pill-shaped menu trigger every other
+   single-choice control in settings uses — agent preset, permission mode,
+   language. A native select element would be the only one in the app, and its
+   popup is drawn by the OS: outside the theme, unable to follow dark mode. */
+.pawwork-websearch-selector {
+  align-items: center; align-self: flex-start; background: var(--dsw-alias-bg-module-platform);
+  border: none; border-radius: 18px; color: var(--dsw-alias-label-primary); cursor: pointer;
+  display: inline-flex; font: inherit; font-size: 14px; gap: 12px; height: 36px;
+  line-height: 22px; padding: 0 14px;
 }
+.pawwork-websearch-selector:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.pawwork-websearch-selector:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
+.pawwork-websearch-selector:disabled { cursor: default; }
+.pawwork-websearch-selector-chevron { color: var(--dsw-alias-label-tertiary); flex: none; }
 .pawwork-websearch-hint { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 1.5; margin: 0; }
 .pawwork-websearch-footer {
   align-items: center; border-top: 1px solid var(--dsw-alias-border-l2); display: flex; gap: 8px;
@@ -384,6 +391,7 @@ select.pawwork-websearch-input {
     function WebSearchCard(props) {
       const { t } = props
       const [open, setOpen] = useState(false)
+      const [menuOpen, setMenuOpen] = useState(false)
       const state = props.useWebSearchCard((snapshot) => snapshot)
       if (!state.available) return null
       const disabled = !state.writable
@@ -419,13 +427,29 @@ select.pawwork-websearch-input {
                 type: "button",
               }, t("reset"))
               : null,
-            control: h("select", {
-              className: "pawwork-websearch-input",
-              disabled,
-              id: "pawwork-websearch-backend",
-              onChange: (event) => props.selectBackend(event.target.value),
-              value: state.backend,
-            }, BACKENDS.map((entry) => h("option", { key: entry.id, value: entry.id }, t(entry.id)))),
+            control: h(Menu, {
+              align: "start",
+              anchor: h("button", {
+                "aria-expanded": menuOpen,
+                "aria-haspopup": "menu",
+                className: "pawwork-websearch-selector",
+                disabled,
+                id: "pawwork-websearch-backend",
+                onClick: () => setMenuOpen(!menuOpen),
+                type: "button",
+              },
+                t(state.backend),
+                h(IconChevronDownOutline14, { className: "pawwork-websearch-selector-chevron" })),
+              items: BACKENDS.map((entry) => ({ id: entry.id, label: t(entry.id) })),
+              onClose: () => setMenuOpen(false),
+              onSelect: (id) => {
+                setMenuOpen(false)
+                props.selectBackend(id)
+              },
+              open: menuOpen,
+              portal: true,
+              selectedId: state.backend,
+            }),
             hint: t("backendHint"),
             id: "pawwork-websearch-backend",
             label: t("backend"),
