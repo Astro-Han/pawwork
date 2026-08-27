@@ -41,44 +41,28 @@ export const PAWWORK_WEB_SEARCH_SETTINGS_NAMESPACE = settingsNamespace('pawwork-
 const DEFAULT_EXA_API_KEY_ENV = 'EXA_API_KEY';
 const DEFAULT_DEEPSEEK_API_KEY_ENV = 'DEEPSEEK_API_KEY';
 
+/** The names a credential reference may take; anything else cannot be resolved. */
+const CREDENTIAL_REF = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 /**
- * Read a configured credential reference, falling back when it names nothing.
+ * Read a configured credential reference, falling back when it names nothing
+ * this deployment could resolve.
  *
- * A settings file is hand-editable, and `credentialRef` answers a blank or
- * padded name with a bare `TypeError` — which is not a config error the seam can
- * report but an unhandled throw, taking down even the Exa path that needs no key
- * at all. Blank means "not set", so it reads as the default. The card resolves
- * the same field the same way; the two disagreeing would have it call a key
- * configured that no search would ever find.
+ * A settings file is hand-editable, and `credentialRef` answers a name outside
+ * its grammar with a bare `TypeError` — not a config error the seam can report
+ * but an unhandled throw, taking down even the Exa path that needs no key at
+ * all. A name nobody can resolve is a name nobody set, so it reads as the
+ * default: blank, padded, `my-key`, `1KEY` alike. The card resolves the same
+ * field the same way; the two disagreeing would have it call a key configured
+ * that no search would ever find.
  * @param declared - the reference named in the section, if any.
- * @param fallback - the reference to use when none is named.
+ * @param fallback - the reference to use when none is usable.
  * @returns the reference to resolve.
  */
 function resolveRef(declared, fallback) {
   const named = declared?.trim() ?? '';
-  return named.length > 0 ? named : fallback;
+  return CREDENTIAL_REF.test(named) ? named : fallback;
 }
-
-/**
- * How long one anonymous search may take before it is abandoned.
- *
- * A resource backstop for the one transport this plugin owns:
- * `dsh-tool-call-timeout-policy` owns the model-facing budget, and the upstream
- * provider classes carry their own.
- */
-const ANONYMOUS_TIMEOUT_MS = 30_000;
-
-/**
- * What to tell a user whom the shared allowance will no longer serve.
- *
- * Exa's own prose describes a quota the user has no relationship with and
- * cannot raise. The action that resolves it is entering their own key, so that
- * is what reaches the model — and through it, the user.
- */
-const EXHAUSTED_MESSAGE =
-  "PawWork's shared free search allowance is not serving this request. " +
-  'Open Settings → Plugins → Web search and enter your own Exa API key, or ' +
-  'switch the engine to DeepSeek and enter a DeepSeek key.';
 
 /**
  * What to tell a user who selected DeepSeek and holds no DeepSeek key.
@@ -123,9 +107,11 @@ async function resolveKey(ctx, ref) {
  * Search through Exa.
  *
  * With a key the call goes to Exa's official `/search`, which returns
- * structured results the upstream class maps. Without one it falls back to
- * Exa's hosted MCP and its shared allowance — the same vendor, a different
- * endpoint, and the only keyless search that exists.
+ * structured results the upstream class maps into attributed sources. Without
+ * one it falls back to Exa's hosted MCP and its shared allowance — the same
+ * vendor, a different endpoint, and the only keyless search that exists. That
+ * endpoint answers in prose rather than structure, so the keyless result
+ * carries the report as content and no sources; see `exa-mcp.js`.
  * @param ctx - the plugin context.
  * @param config - the authoritative section for this search.
  * @param request - the seam's search request.
@@ -142,17 +128,11 @@ async function searchExa(ctx, config, request, signal) {
       highlightsPerResult: 1,
     }).search(request, signal);
   }
-  try {
-    return await searchViaMcp({
-      query: request.query,
-      maxResults: request.maxResults,
-      signal,
-      timeoutMs: ANONYMOUS_TIMEOUT_MS,
-    });
-  } catch (error) {
-    if (error?.code !== 'WEB_PROVIDER_CREDENTIAL_MISSING') throw error;
-    throw new WebError(EXHAUSTED_MESSAGE, error.code, { cause: error });
-  }
+  // No deadline of this plugin's own: `dsh-tool-web` owns the search budget as
+  // deployment policy and forwards the resulting signal, and the profile sets it
+  // to 60s. A second deadline here was half that, so it silently overrode the
+  // deployment for the one path it covered.
+  return searchViaMcp({ query: request.query, maxResults: request.maxResults, signal });
 }
 
 /**
@@ -234,8 +214,9 @@ export class PawWorkSearchProvider {
    */
   async search(request, signal) {
     const config = this.current();
-    const backend = BACKENDS[config.backend ?? 'exa'] ?? searchExa;
-    return backend(this.ctx, config, request, signal);
+    // No fallback: `Config` resolves `backend` as a defaulted union, so the
+    // section can only name an engine this table has.
+    return BACKENDS[config.backend](this.ctx, config, request, signal);
   }
 }
 
