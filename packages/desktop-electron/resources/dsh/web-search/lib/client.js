@@ -201,6 +201,7 @@ window.__ModuleLoader__.load({
      */
     class CardController {
       backendDraft = undefined
+      resetDraft = false
       keyDraft = undefined
       saving = false
       failures = new Set()
@@ -225,7 +226,10 @@ window.__ModuleLoader__.load({
 
       /** @returns the backend the card is editing, staged draft included. */
       backend() {
-        return this.backendDraft ?? this.scope.getSnapshot().value?.backend ?? "exa"
+        const snapshot = this.scope.getSnapshot()
+        if (this.backendDraft !== undefined) return this.backendDraft
+        if (this.resetDraft) return snapshot.base?.backend ?? "exa"
+        return snapshot.value?.backend ?? "exa"
       }
 
       /** @returns the descriptor of the backend currently selected. */
@@ -271,21 +275,35 @@ window.__ModuleLoader__.load({
       /**
        * Describe every write a save would perform, in the order it performs them.
        *
-       * The engine goes first because the key's reference follows it. What counts
-       * as a write is decided once, here, and "staged" is not it: a key that is
-       * only whitespace and an engine already in force are both nothing to save,
-       * and the Save button agrees because it asks this rather than deciding for
-       * itself.
+       * The key goes first. The two stores cannot commit together — the section
+       * and the credential are separate authorities — so the order decides what a
+       * half-finished save leaves behind, and a key written before the engine
+       * moves means the engine never runs a moment without the credential it was
+       * chosen for. Should the engine write then fail, the key is still filed
+       * under the vendor the user was looking at when they typed it.
+       *
+       * Its reference comes from the draft's own engine, not from the selection:
+       * the two agree today because `alignDraft` drops a draft the card stopped
+       * showing, but deriving the destination from anything mutable is exactly
+       * what sent one vendor's secret to another three times.
+       *
+       * What counts as a write is decided once, here, and "staged" is not it: a
+       * key that is only whitespace and an engine already in force are both
+       * nothing to save, and the Save button agrees because it asks this rather
+       * than deciding for itself.
        * @returns the staged writes, empty when there is nothing to save.
        */
       pendingWrites() {
         this.alignDraft()
         const writes = []
+        const value = this.keyDraft?.text.trim() ?? ""
+        if (value.length > 0) writes.push({ field: "key", ref: this.ref(this.keyDraft.backend), value })
         if (this.backendDraft !== undefined && this.backendDraft !== this.scope.getSnapshot().value?.backend) {
           writes.push({ field: "backend", backend: this.backendDraft })
         }
-        const value = this.keyDraft?.text.trim() ?? ""
-        if (value.length > 0) writes.push({ field: "key", ref: this.ref(), value })
+        if (this.resetDraft && Object.hasOwn(this.scope.getSnapshot().user ?? {}, "backend")) {
+          writes.push({ field: "backend", reset: true })
+        }
         return writes
       }
 
@@ -307,7 +325,10 @@ window.__ModuleLoader__.load({
           failed: this.failures.size > 0,
           failedFields: [...this.failures],
           backend: this.backend(),
-          backendOverridden: user !== undefined && Object.hasOwn(user, "backend"),
+          // Offered while there is an override to remove and removing it is not
+          // already staged — the control is how you stage it, so leaving it up
+          // afterwards would invite pressing it twice for one effect.
+          backendOverridden: Object.hasOwn(user ?? {}, "backend") && !this.resetDraft,
           keyless: spec.keyless,
           keyText: this.keyText(),
           keyConfigured: this.credential.configured,
@@ -358,6 +379,7 @@ window.__ModuleLoader__.load({
           selectBackend: (value) => {
             if (this.saving) return
             this.backendDraft = value
+            this.resetDraft = false
             this.failures.clear()
             this.publish()
             // The reference follows the backend, so the badge must re-resolve
@@ -370,12 +392,20 @@ window.__ModuleLoader__.load({
             this.failures.delete("key")
             this.publish()
           },
+          // Stages the reset; it does not perform it. Reset used to write on its
+          // own, which made it a second writer racing `save` over the same
+          // section and the same failure set: a key typed while its `unset` was
+          // in flight was filed under the engine being left, and a refused reset
+          // landed its failure on whatever the user did next. Restoring the
+          // default is not a different kind of act from choosing an engine, so
+          // it stages like one and `save` stays the only path to the deployment.
           resetBackend: () => {
             if (this.saving) return
             this.backendDraft = undefined
+            this.resetDraft = true
             this.failures.clear()
             this.publish()
-            return this.commit("backend", () => this.scope.unset("backend")).then(() => this.readCredential())
+            this.readCredential()
           },
           // Returns its settlement rather than firing and forgetting: the card
           // reads progress from the store, but a caller that has to know the
@@ -384,8 +414,8 @@ window.__ModuleLoader__.load({
           save: () => this.save(),
           discard: () => {
             if (this.saving) return
-            if (this.backendDraft === undefined && this.keyDraft === undefined && this.failures.size === 0) return
             this.backendDraft = undefined
+            this.resetDraft = false
             this.keyDraft = undefined
             this.failures.clear()
             this.publish()
@@ -401,12 +431,6 @@ window.__ModuleLoader__.load({
        * rejected promise cannot leave the card wedged: an unhandled throw from a
        * write used to escape `save`, stranding `saving` at true and disabling
        * both buttons until the app was restarted.
-       *
-       * Recording the failure and announcing it are one step, not two. A caller
-       * that publishes before awaiting its write — `resetBackend` does, so the
-       * control clears the instant it is used — would otherwise leave the card
-       * saying the write succeeded, and hand the blame to whatever the user
-       * edited next.
        * @param field - the field this write belongs to, for the failure report.
        * @param write - performs the write; its resolved value is not inspected.
        * @returns whether the write completed without throwing.
@@ -417,28 +441,29 @@ window.__ModuleLoader__.load({
           return true
         } catch (_writeFailure) {
           this.failures.add(field)
-          this.publish()
           return false
         }
       }
 
       /**
-       * Write both staged edits, then re-seed from what the Host accepted.
+       * The card's only path to the deployment.
+       *
+       * Every control stages; this writes. That is what keeps the section from
+       * having two writers who can disagree about which one the user meant, and
+       * it is why `saving` alone is enough to serialize the card — there is no
+       * second operation to serialize against.
        *
        * The Host decides whether a value landed — its validators own constraints
        * no schema expresses — so the outcome is read back rather than predicted.
        * A save that did not land keeps that field's draft for the user to
-       * correct. The two writes settle independently and are reported
-       * independently: rolling the engine back because the key failed would mean
-       * a third write that can fail too, and would contradict the Host, which by
-       * then already holds the new engine. So the card names the field that did
-       * not land instead of claiming nothing did.
+       * correct. The writes settle independently and are reported independently:
+       * rolling the engine back because the key failed would mean a third write
+       * that can fail too, and would contradict the Host, which by then already
+       * holds the new engine. The two stores cannot commit together, so the card
+       * names the field that did not land rather than claiming nothing did.
        */
       async save() {
         if (this.saving) return
-        // The writes are resolved once, before anything lands: the key's
-        // reference follows the selection, and the selection can be part of this
-        // very save.
         const writes = this.pendingWrites()
         if (writes.length === 0) return
         this.saving = true
@@ -446,23 +471,27 @@ window.__ModuleLoader__.load({
         this.publish()
         try {
           for (const write of writes) {
-            if (write.field === "backend") {
-              const wrote =
-                (await this.commit("backend", () => this.scope.set("backend", write.backend))) &&
-                this.scope.getSnapshot().user?.backend === write.backend
-              if (wrote) this.backendDraft = undefined
-              else this.failures.add("backend")
+            if (write.field === "key") {
+              // The deployment answers in the response envelope as well as by
+              // throwing, and `configured` cannot stand in for either: it is
+              // already true whenever a key was set before, so a rejected
+              // rotation would read as a successful one.
+              const wrote = await this.commit("key", async () => {
+                const response = await this.api.credentials.set({ ref: write.ref, value: write.value })
+                if (response?.result?.ok === false) throw new Error("credential write rejected")
+              })
+              if (wrote) this.keyDraft = undefined
               continue
             }
-            // The deployment answers in the response envelope as well as by
-            // throwing, and `configured` cannot stand in for either: it is
-            // already true whenever a key was set before, so a rejected rotation
-            // would read as a successful one.
-            const wrote = await this.commit("key", async () => {
-              const response = await this.api.credentials.set({ ref: write.ref, value: write.value })
-              if (response?.result?.ok === false) throw new Error("credential write rejected")
-            })
-            if (wrote) this.keyDraft = undefined
+            if (write.reset === true) {
+              if (await this.commit("backend", () => this.scope.unset("backend"))) this.resetDraft = false
+              continue
+            }
+            const wrote =
+              (await this.commit("backend", () => this.scope.set("backend", write.backend))) &&
+              this.scope.getSnapshot().user?.backend === write.backend
+            if (wrote) this.backendDraft = undefined
+            else this.failures.add("backend")
           }
           await this.readCredential()
         } finally {
@@ -554,7 +583,7 @@ window.__ModuleLoader__.load({
             badges: state.backendOverridden
               ? h("button", {
                 className: "pawwork-websearch-reset",
-                disabled,
+                disabled: disabled || state.saving,
                 onClick: () => props.resetBackend(),
                 type: "button",
               }, t("reset"))
@@ -566,7 +595,10 @@ window.__ModuleLoader__.load({
                 "aria-haspopup": "menu",
                 "aria-labelledby": "pawwork-websearch-backend-label pawwork-websearch-backend",
                 className: "pawwork-websearch-selector",
-                disabled,
+                // Every editing control is disabled while a save runs, because
+                // the actions refuse input then anyway: rendering them live made
+                // a correction typed during a slow save vanish without a trace.
+                disabled: disabled || state.saving,
                 id: "pawwork-websearch-backend",
                 onClick: () => setMenuOpen(!menuOpen),
                 type: "button",
@@ -599,7 +631,7 @@ window.__ModuleLoader__.load({
             control: h("input", {
               autoComplete: "off",
               className: "pawwork-websearch-input",
-              disabled: disabled || !state.keyWritable,
+              disabled: disabled || state.saving || !state.keyWritable,
               id: "pawwork-websearch-key",
               onChange: (event) => props.editKey(event.target.value),
               placeholder: state.keyConfigured ? "••••••••" : "",
@@ -616,9 +648,13 @@ window.__ModuleLoader__.load({
             state.failed
               ? h("p", { className: "pawwork-websearch-failed", role: "status" }, t(saveFailureKey(state.failedFields)))
               : null,
+            // Enabled by a failure as well as by a draft: a write that failed
+            // without leaving a draft behind — a refused reset — otherwise
+            // rendered a message with every control that could clear it
+            // disabled, and the only way out was to type into the key field.
             h("button", {
               className: "pawwork-websearch-discard",
-              disabled: !state.dirty || state.saving,
+              disabled: (!state.dirty && !state.failed) || state.saving,
               onClick: props.discard,
               type: "button",
             }, t("discard")),

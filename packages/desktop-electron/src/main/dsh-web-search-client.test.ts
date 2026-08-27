@@ -303,22 +303,69 @@ describe("PawWork DSH web search card", () => {
     expect(stateOf(injected).keyText).toBe("")
   })
 
-  // Recording a failure and announcing it are one step. `resetBackend` clears the
-  // control before awaiting its write — so the user sees the reset take — and a
-  // failure that only landed in the state left the card claiming success until
-  // some later, unrelated edit published it and blamed that edit instead.
-  test("a reset the deployment refuses is reported when it fails", async () => {
+  // Reset stages; it does not write. It used to write on its own, which made it
+  // a second writer racing `save` over the same section and the same failure
+  // set: a key typed while its `unset` was in flight was filed under the engine
+  // being left, and a refused reset landed its failure on whatever the user did
+  // next. Restoring the default is not a different kind of act from choosing an
+  // engine, so it stages like one.
+  test("a reset stages the default and writes nothing until saved", async () => {
+    const { scope, injected } = cardOf({
+      section: { base: { backend: "exa" }, value: { backend: "deepseek" }, user: { backend: "deepseek" } },
+    })
+
+    injected.resetBackend()
+
+    expect(scope.unset).not.toHaveBeenCalled()
+    expect(stateOf(injected)).toMatchObject({ backend: "exa", dirty: true, backendOverridden: false })
+
+    await injected.save()
+
+    expect(scope.unset).toHaveBeenCalledWith("backend")
+  })
+
+  // The staged reset and a staged key are one save, and the key goes first: the
+  // two stores cannot commit together, so the engine never runs a moment without
+  // the credential it was chosen for, and an engine write that fails still
+  // leaves the key under the vendor the user was looking at.
+  test("a save writes the key before the engine it was typed under", async () => {
+    const { credentials, scope, injected } = cardOf()
+    const order: string[] = []
+    credentials.set.mockImplementation(async () => {
+      order.push("key")
+      return { result: { ok: true } }
+    })
+    scope.set.mockImplementation(async () => {
+      order.push("backend")
+    })
+
+    injected.selectBackend("deepseek")
+    injected.editKey("deepseek-secret")
+    await injected.save()
+
+    expect(order).toEqual(["key", "backend"])
+    expect(credentials.set).toHaveBeenCalledWith({ ref: "DEEPSEEK_API_KEY", value: "deepseek-secret" })
+  })
+
+  // A write that failed without leaving a draft behind used to render a message
+  // with every control that could clear it disabled, and the only way out was to
+  // type into the key field.
+  test("a failure can be dismissed even when it left no draft", async () => {
     const { injected } = cardOf({
-      section: { value: { backend: "deepseek" }, user: { backend: "deepseek" } },
+      section: { base: { backend: "exa" }, value: { backend: "deepseek" }, user: { backend: "deepseek" } },
       unset: async () => {
         throw new Error("read-only deployment")
       },
     })
 
-    await injected.resetBackend()
+    injected.resetBackend()
+    await injected.save()
 
-    expect(stateOf(injected).failed).toBe(true)
-    expect(stateOf(injected).failedFields).toEqual(["backend"])
+    expect(stateOf(injected)).toMatchObject({ failed: true, failedFields: ["backend"] })
+
+    injected.discard()
+
+    expect(stateOf(injected)).toMatchObject({ failed: false, dirty: false, backend: "deepseek" })
   })
 
   // The Host half falls back to the default reference for a blank one; a card
