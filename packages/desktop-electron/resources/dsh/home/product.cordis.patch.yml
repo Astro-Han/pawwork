@@ -44,6 +44,25 @@
 # "web search" that edits a provider the seam will never select.
 - id: web-search-deepseek
   disabled: true
+# The model could search the web but never open a result, so it answered from
+# titles and snippets. Two halves are needed. This row is the model-facing one:
+# `dsh-web-app` disables the dsh-base `tool-web` outright because the agent
+# presets each mount their own, so re-enabling it here puts `web_fetch` in the
+# global tool layer, which every agent inherits regardless of preset. `search`
+# stays off — each preset's own scoped `tool-web` already provides `web_search`
+# and shadows this row for that name.
+#
+# `dsh-web-fetch-http` (inserted below) is the other half, and it does not guard
+# against SSRF: the model chooses the request target and private addresses are
+# not blocked. That is deliberate. A literal-IP denylist cannot be complete
+# without resolving DNS first, and network reachability is the runtime's or the
+# sandbox's policy to set — not something a content adapter should decide, where
+# it would also break a user on a VPN or a proxied network.
+- id: tool-web
+  disabled: false
+  config:
+    search: false
+    fetch: true
 # dsh-base indexes into `:memory:` and never opens it, so the sidebar can only
 # match session titles and workspace names. A durable file behind `first-search`
 # makes searching what was said possible without paying for SQLite at startup:
@@ -81,6 +100,11 @@
     # zone, which is exactly what a desktop user asking about current events
     # expects. The interval keeps a long session from carrying one reading per
     # step; a turn that spans it gets a fresh one.
+    # The fetch provider behind the `web_fetch` tool re-enabled above. dsh-base
+    # mounts none, so without this row the tool exists and every call answers
+    # `no usable web provider is registered`.
+    - id: web-fetch-http
+      name: '@deepseek-ai/dsh-web-fetch-http'
     - id: time-context
       name: '@deepseek-ai/dsh-time-context'
       config:

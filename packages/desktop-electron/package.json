@@ -46,6 +46,7 @@
     "@deepseek-ai/dsh-time-context": "0.1.1-rc.2",
     "@deepseek-ai/dsh-timeout": "0.1.1-rc.2",
     "@deepseek-ai/dsh-web": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-web-fetch-http": "0.1.1-rc.2",
     "@deepseek-ai/dsh-web-search-deepseek": "0.1.1-rc.2",
     "@deepseek-ai/dsh-web-search-exa": "0.1.1-rc.2",
     "@deepseek-ai/dsh-workflow": "0.1.1-rc.2",
