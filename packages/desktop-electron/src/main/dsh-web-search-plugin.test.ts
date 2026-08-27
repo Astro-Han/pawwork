@@ -199,6 +199,27 @@ describe("PawWork search engine selection", () => {
     vi.unstubAllGlobals()
   })
 
+  // The body streams after the headers resolve, so cancelling a search lands
+  // on the body read as often as on the request. Both have to reach the seam
+  // as `WEB_ABORTED`, or a cancelled search reads as a provider failure.
+  test("an abort while the body streams still reads as an abort", async () => {
+    const controller = new AbortController()
+    vi.stubGlobal("fetch", async () => ({
+      ok: true,
+      status: 200,
+      text: async () => {
+        controller.abort()
+        throw new DOMException("aborted", "AbortError")
+      },
+    }))
+
+    const provider = new PawWorkSearchProvider(contextWith(), () => Config({}))
+    await expect(provider.search({ query: "anything" }, controller.signal)).rejects.toMatchObject({
+      code: "WEB_ABORTED",
+    })
+    vi.unstubAllGlobals()
+  })
+
   // Selection happens per search, not at registration: a user who switches the
   // engine in the card must reach the new one on the next search.
   test("reads the engine on every search rather than at registration", async () => {

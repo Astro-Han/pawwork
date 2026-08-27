@@ -188,7 +188,17 @@ export async function searchViaMcp(options) {
   if (!response.ok) {
     throw new WebError(`Exa answered HTTP ${response.status}`, codeFor(REFUSAL_STATUS.has(response.status)));
   }
-  const envelope = parseSse(await response.text());
+  // The body streams after the headers resolve, so an abort can land here just
+  // as easily as on the request itself, and has to be classified the same way.
+  let body;
+  try {
+    body = await response.text();
+  } catch (cause) {
+    if (signal?.aborted === true) throw new WebError('the search was aborted', 'WEB_ABORTED', { cause });
+    const message = timeout.aborted ? 'Exa did not answer in time' : "could not read Exa's response";
+    throw new WebError(message, 'WEB_PROVIDER_ERROR', { cause });
+  }
+  const envelope = parseSse(body);
   if (envelope.error !== undefined) {
     throw new WebError(`Exa reported ${envelope.error.message ?? 'an MCP error'}`, 'WEB_PROVIDER_ERROR');
   }

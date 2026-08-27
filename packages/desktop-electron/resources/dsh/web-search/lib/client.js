@@ -154,7 +154,7 @@ window.__ModuleLoader__.load({
 
     const zh = {
       title: "网页搜索",
-      description: "由哪个引擎回答 agent 的搜索。",
+      description: "agent 搜索网页时用哪个引擎。",
       backend: "搜索源",
       backendHint: "下一次搜索即生效，无需重启。",
       exa: "Exa",
@@ -327,7 +327,11 @@ window.__ModuleLoader__.load({
        *
        * The Host decides whether a value landed — its validators own constraints
        * no schema expresses — so the outcome is read back rather than predicted.
-       * A save that did not land keeps its drafts for the user to correct.
+       * A save that did not land keeps its drafts for the user to correct. The
+       * two writes settle independently, so each draft is cleared on its own
+       * write landing: rolling the engine back because the key failed would
+       * mean a third write that can fail too, and would contradict the Host,
+       * which by then already holds the new engine.
        */
       async save() {
         if (this.saving) return
@@ -339,25 +343,27 @@ window.__ModuleLoader__.load({
         this.publish()
         let landed = true
         if (backendDraft !== undefined) {
+          let wrote = true
           try {
             await this.scope.set("backend", backendDraft)
           } catch (_writeFailure) {
-            landed = false
+            wrote = false
           }
-          landed = this.scope.getSnapshot().user?.backend === backendDraft && landed
+          wrote = this.scope.getSnapshot().user?.backend === backendDraft && wrote
+          if (wrote) this.backendDraft = undefined
+          landed = wrote && landed
         }
         if (keyDraft !== "") {
+          let wrote = true
           try {
             await this.api.credentials.set({ ref: this.ref(), value: keyDraft })
           } catch (_credentialWriteFailure) {
-            landed = false
+            wrote = false
           }
           await this.readCredential()
-          landed = this.credential.configured && landed
-        }
-        if (landed) {
-          this.backendDraft = undefined
-          this.keyDraft = undefined
+          wrote = this.credential.configured && wrote
+          if (wrote) this.keyDraft = undefined
+          landed = wrote && landed
         }
         this.saving = false
         this.failed = !landed
