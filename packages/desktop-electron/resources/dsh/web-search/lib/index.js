@@ -9,19 +9,11 @@ import { searchViaMcp } from './exa-mcp.js';
 // One search provider whose engine the user picks, and which works before they
 // pick anything.
 //
-// Every provider dsh-base mounts needs a vendor key, and PawWork ships OpenCode
-// Free as its default model, so a first-run user holds none and their first
-// `web_search` fails. Exa's hosted MCP answers unauthenticated requests against
-// a shared allowance, which is the floor this plugin guarantees.
-//
-// A floor is not enough on its own: a shared allowance runs out, and the user
-// then needs a way onto their own quota. `ctx.web` cannot offer that — it takes
-// one provider id from static entry config, with no settings namespace behind
-// it — so the choice has to live inside a single registered provider. This one.
-//
-// The upstream `web-search-deepseek` row is disabled in the product patch. Its
-// card edits a provider this seam will never select, and two cards titled "web
-// search" that disagree is worse than one that decides.
+// Both engines have to live inside one registered provider: `ctx.web` selects a
+// single provider id from static entry config, with no settings namespace behind
+// it, so a user-visible choice cannot be expressed as two entries. The upstream
+// `web-search-deepseek` row is disabled in the product patch for the same
+// reason — its card would edit a provider this seam never selects.
 
 export const name = 'pawwork-web-search';
 export const inject = ['web'];
@@ -41,8 +33,7 @@ const DEFAULT_DEEPSEEK_API_KEY_ENV = 'DEEPSEEK_API_KEY';
  *
  * The settings file is hand-editable and `credentialRef` answers a name outside
  * its grammar with a bare `TypeError`, which would take down even the keyless
- * path. The card reads the same field with the same predicate; the two
- * disagreeing would have it call a key configured that no search could find.
+ * path. The card applies the same predicate.
  * @param declared - the reference named in the section, if any.
  * @param fallback - the reference to use when none is usable.
  * @returns the reference to resolve.
@@ -73,9 +64,8 @@ export const Config = z.object({
 /**
  * Resolve one credential reference through the authoritative plane.
  *
- * The credentials service is where the card writes and where the Models page
- * rotates, and it is resolved per search rather than held, so a key entered now
- * reaches the next search without a restart.
+ * Resolved per search rather than held, so a key entered in the card or rotated
+ * on the Models page reaches the next search without a restart.
  * @param ctx - the plugin context supplying the credentials service.
  * @param ref - the reference the section names.
  * @returns the key, or an empty string when none is held.
@@ -103,9 +93,8 @@ async function resolveKey(ctx, ref) {
  * Search through Exa.
  *
  * With a key the call goes to Exa's official `/search`, which returns structured
- * results the upstream class maps into attributed sources. Without one it falls
- * back to Exa's hosted MCP, which answers in prose, so the keyless result
- * carries the report as content and no sources; see `exa-mcp.js`.
+ * results. Without one it falls back to Exa's hosted MCP, which answers in
+ * prose, so the keyless result carries the report as content and no sources.
  * @param ctx - the plugin context.
  * @param config - the authoritative section for this search.
  * @param request - the seam's search request.
