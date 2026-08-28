@@ -1,3 +1,4 @@
+import { LOCAL_FETCH_PROVIDER_ID } from "@deepseek-ai/dsh-web-fetch-http"
 import { describe, expect, test } from "vitest"
 import { readProductPatch } from "./dsh-product-patch.testing"
 
@@ -14,6 +15,12 @@ describe("PawWork web_fetch", () => {
     expect(tool?.disabled).toBe(false)
     expect(tool?.config?.fetch).toBe(true)
     expect(providers.some((row) => row.name === "@deepseek-ai/dsh-web-fetch-http")).toBe(true)
+    // The seam picks the sole registered provider when nothing names one, so an
+    // id that matches no provider fails only once a second one is mounted —
+    // which is also the moment it stops being obvious why fetches began failing.
+    expect(patch.find((entry) => entry.id === "web")?.config?.fetchProvider).toBe(
+      LOCAL_FETCH_PROVIDER_ID,
+    )
   })
 
   // The agent presets each mount their own scoped `tool-web`, and a scoped tool

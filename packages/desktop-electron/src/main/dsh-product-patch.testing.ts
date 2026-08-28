@@ -39,6 +39,6 @@ export function readEntryList(file: string): EntryRow[] {
 }
 
 /** The product overlay's rows. */
-export function readProductPatch(file = productPatchFile) {
-  return readEntryList(file)
+export function readProductPatch() {
+  return readEntryList(productPatchFile)
 }

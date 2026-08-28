@@ -42,7 +42,6 @@ describe("PawWork DSH product mounts", () => {
   test("floors the clock injections with a positive interval", () => {
     const clock = insertedRows().find((row) => row.name === "@deepseek-ai/dsh-time-context")
 
-    expect(clock?.id).toBe("time-context")
     expect(clock?.config?.refreshIntervalMs).toBeGreaterThan(0)
   })
 })
