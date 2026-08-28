@@ -49,31 +49,55 @@
 # `dsh-web-app` disables the dsh-base `tool-web` outright because the agent
 # presets each mount their own, so re-enabling it here puts `web_fetch` in the
 # global tool layer, which every agent inherits regardless of preset. `search`
-# stays off — each preset's own scoped `tool-web` already provides `web_search`
-# and shadows this row for that name.
+# stays off because each preset's own scoped `tool-web` registers `web_search`
+# and shadows this row for that name; a second registration would be dead weight
+# that also drops the preset's 60s search timeout.
 #
-# `dsh-web-fetch-http` (inserted below) is the other half, and it does not guard
-# against SSRF: the model chooses the request target and private addresses are
-# not blocked. That is deliberate. A literal-IP denylist cannot be complete
-# without resolving DNS first, and network reachability is the runtime's or the
-# sandbox's policy to set — not something a content adapter should decide, where
-# it would also break a user on a VPN or a proxied network.
+# Upstream tells deployments not to do this. `dsh-web-fetch-http` (inserted
+# below) implements no SSRF protection — the model picks the target and private,
+# loopback and link-local addresses are not blocked — so its README says it
+# "must not be enabled in a deployment that can reach sensitive internal network
+# targets", and dsh-base keeps `fetch: false` for that reason.
+#
+# PawWork accepts the risk rather than mitigating it here, on one ground: the
+# model already reaches the same addresses through `bash`, and this product's
+# sandbox is `(allow default)` with only file writes denied, so no layer below
+# constrains the network and adding a denylist to one tool would move nothing.
+# A literal-IP denylist could not be complete without resolving DNS first, and
+# would break users on a VPN or a proxied network.
+#
+# What the risk actually is, stated plainly: page text the model reads is
+# attacker-controlled, `web_fetch` is not behind the approval gate `bash` sits
+# behind, and a fetched URL can carry context out in its query string. The
+# app's own loopback API is reachable this way too — `isTrustedApiRequest`
+# admits a request with no `origin` and no `sec-fetch-site`, which is the shape
+# a server-side fetch has — though the sidecar's port is randomised. Mitigating
+# it belongs with the approval gate, not with a target denylist: gate a
+# `web_fetch` whose URL did not come from that turn's own `web_search` results.
 - id: tool-web
   disabled: false
   config:
     search: false
     fetch: true
 # dsh-base indexes into `:memory:` and never opens it, so the sidebar can only
-# match session titles and workspace names. A durable file behind `first-search`
-# makes searching what was said possible without paying for SQLite at startup:
-# the module and handle load on the first search, and a user who never searches
-# never opens the database at all.
+# match session titles and workspace names. A durable file makes searching what
+# was said possible, and `first-search` keeps a user who never searches from
+# opening the database at all.
 #
-# The cost is a privacy one, and it is real: the FTS5 table is not contentless,
-# so message text — including tool-call arguments and tool results — lives in
-# this file at rest, where before it only lived in the session log. The file is
-# owner-only and never shrinks; deleting a session removes its rows but does not
-# reclaim the pages.
+# `first-search` moves a real cost onto that first search rather than removing
+# it: the index starts empty, so the engine reads and indexes every existing
+# session before answering, serially and on a synchronous SQLite handle. It also
+# reconciles against a snapshot it re-reads afterwards, and a session being
+# appended to changes its revision mid-scan — with two attempts, searching while
+# an agent runs can fail outright. Both are upstream behaviours; the choice here
+# is only when to pay for them.
+#
+# The privacy cost is real. The FTS5 table is not contentless, so message text —
+# tool-call arguments and tool results included — lives in this file at rest,
+# where before it lived only in the session log. Same directory, same 0600, so
+# no new exposure class; what is new is that deleting a session does not clear
+# it. Rows go only during the next search's reconciliation, and with no
+# `secure_delete` and no `VACUUM` the freed pages keep the text recoverable.
 - id: session-query-sqlite
   config:
     path: !!js dshHomePath('session-query.sqlite')
@@ -95,16 +119,16 @@
       name: '@pawwork/dsh-automations'
     - id: pawwork-web-search
       name: '@pawwork/dsh-web-search'
-    # Not in the default composition upstream. Without it the model has no clock:
-    # it cannot date "the latest release" or read "next Tuesday" in the user's own
-    # zone, which is exactly what a desktop user asking about current events
-    # expects. The interval keeps a long session from carrying one reading per
-    # step; a turn that spans it gets a fresh one.
     # The fetch provider behind the `web_fetch` tool re-enabled above. dsh-base
     # mounts none, so without this row the tool exists and every call answers
     # `no usable web provider is registered`.
     - id: web-fetch-http
       name: '@deepseek-ai/dsh-web-fetch-http'
+    # Not in the default composition upstream. Without it the model has no clock:
+    # it cannot date "the latest release" or read "next Tuesday" in the user's own
+    # zone, which is exactly what a desktop user asking about current events
+    # expects. The interval is a floor between injections, not a refresh timer —
+    # without it every step carries its own reading.
     - id: time-context
       name: '@deepseek-ai/dsh-time-context'
       config:
