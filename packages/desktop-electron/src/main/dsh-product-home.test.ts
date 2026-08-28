@@ -218,6 +218,21 @@ describe("DSH product home", () => {
     expect(readlinkSync(join(productHome, "node_modules/@deepseek-ai"))).toBe(join(hostModules, "@deepseek-ai"))
   })
 
+  // Without the scope link every bundled plugin fails to resolve its harness
+  // imports, and the product patch points `web.searchProvider` at one of them —
+  // so a packaging change that stops shipping `@deepseek-ai` unpacked is not a
+  // degraded feature but every search answering "provider not registered". The
+  // lifecycle turns this throw into its startup-failure page; returning quietly
+  // would ship the mystery instead.
+  test("refuses to prepare a home whose harness scope is missing", () => {
+    const productHome = join(temporaryDirectory(), "fresh")
+    const resources = join(import.meta.dirname, "../../resources/dsh")
+
+    expect(() =>
+      prepareDshProductHome({ productHome, resources, hostModules: join(temporaryDirectory(), "unpacked") }),
+    ).toThrow(/host module scope is missing/)
+  })
+
   test("creates the public free-model credential for a fresh product home", () => {
     const productHome = join(temporaryDirectory(), "fresh")
     const resources = join(import.meta.dirname, "../../resources/dsh")

@@ -124,16 +124,20 @@ describe("PawWork DSH web search plugin", () => {
     })
     const patches = load(readFileSync(baseProfile, "utf8"), {
       schema: DEFAULT_SCHEMA.extend([jsExpression]),
-    }) as Array<{ insert?: Array<{ id?: string }> }>
-    const declared = new Set(patches.flatMap((patch) => patch.insert ?? []).map((row) => row.id))
+    }) as Array<{ insert?: Array<{ id?: string; config?: Record<string, unknown> }> }>
+    const rows = patches.flatMap((patch) => patch.insert ?? [])
+    const declared = new Set(rows.map((row) => row.id))
 
-    // The scan this replaces reported the same ids, so the guard is the same
-    // guard; what changed is that it now reports them for the right reason.
     expect(declared.size).toBeGreaterThan(1)
     for (const id of ["web", "web-search-deepseek"]) {
       expect(readProductPatch().some((row) => row.id === id)).toBe(true)
       expect(declared).toContain(id)
     }
+    // The id is only half of it. A bump that kept the row and renamed its
+    // config key would still match, still write, and still leave the seam on
+    // its base provider — the same first-search credential error, arrived at
+    // through a patch that looks applied.
+    expect(rows.find((row) => row.id === "web")?.config).toHaveProperty("searchProvider")
   })
 
   test("defaults to the Exa engine, which is the one that needs no key", () => {
