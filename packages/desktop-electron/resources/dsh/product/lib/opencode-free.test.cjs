@@ -311,12 +311,81 @@ test('product lifecycle immediately refreshes the runtime catalog through settin
 				assert.equal(typeof callback, 'function');
 				assert.equal(milliseconds, 60 * 60 * 1000);
 			},
+			setTimeout() { assert.fail('a successful startup refresh must not schedule a retry'); },
 			effect(register) { dispose = register(); },
 		});
 		await wrote;
 		assert.equal(writes.length, 1);
 		assert.equal(writes[0].revision, 0);
 		assert.deepEqual(writtenModels(writes[0]), [{ id: 'live-free', contextWindow: 190000, maxTokens: 64000 }]);
+	} finally {
+		dispose?.();
+		globalThis.fetch = originalFetch;
+		for (const [name, value] of Object.entries(previousEnvironment)) {
+			if (value === undefined) delete process.env[name];
+			else process.env[name] = value;
+		}
+	}
+});
+
+test('product lifecycle retries a failed startup refresh after one and five minutes', { timeout: 2000 }, async (t) => {
+	const originalFetch = globalThis.fetch;
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-product-retry-'));
+	const profileDir = path.join(home, 'profiles', 'web');
+	fs.mkdirSync(profileDir, { recursive: true });
+	t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+	fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
+		dependencies: {},
+		dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } },
+	}));
+	const hostEnvironment = {
+		PAWWORK_DSH_BIN: '/app/dsh/bin.js',
+		DSH_HOME: home,
+		PAWWORK_NODE_EXECUTABLE: '/app/PawWork',
+		PAWWORK_HOST_TOKEN: 'test-host-token',
+	};
+	const previousEnvironment = Object.fromEntries(
+		Object.keys(hostEnvironment).map((name) => [name, process.env[name]]),
+	);
+	Object.assign(process.env, hostEnvironment);
+	let attempts = 0;
+	let dispose;
+	const scheduled = [];
+	globalThis.fetch = async () => {
+		attempts += 1;
+		throw new Error('network down');
+	};
+	try {
+		const { apply } = await import('./index.js');
+		const value = { providers: { opencode: { models: [{ id: 'packaged-free' }] } } };
+		apply({
+			settings: {
+				get: (ns) => ns === 'llm-pi-ai' ? value : undefined,
+				describe: () => [{ ns: 'llm-pi-ai', value, revision: 0 }],
+				async mutate() { throw new Error('unexpected settings write'); },
+			},
+			agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'live-free' }) },
+			provide() {},
+			subprocess: { spawn() { throw new Error('unexpected plugin operation'); } },
+			webServer: { register() { return () => {}; } },
+			logger: { info() {}, warn() {} },
+			interval() {},
+			setTimeout(callback, milliseconds) { scheduled.push({ callback, milliseconds }); },
+			effect(register) { dispose = register(); },
+		});
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(attempts, 1);
+		assert.equal(scheduled[0]?.milliseconds, 60 * 1000);
+
+		scheduled[0].callback();
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(attempts, 2);
+		assert.equal(scheduled[1]?.milliseconds, 5 * 60 * 1000);
+
+		scheduled[1].callback();
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(attempts, 3);
+		assert.equal(scheduled.length, 2);
 	} finally {
 		dispose?.();
 		globalThis.fetch = originalFetch;
