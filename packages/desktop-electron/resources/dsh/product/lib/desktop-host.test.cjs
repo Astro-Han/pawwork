@@ -81,7 +81,7 @@ test('publishes the immutable PawWork web profile through the Desktop host contr
 })
 
 test('runs plugin commands through the DSH managed subprocess tree', async () => {
-  const { home, profileDir } = profileHome();
+  const { home } = profileHome();
   const managed = managedSubprocess();
   const host = createDesktopHost({
     dshBin: '/app/dsh/bin.js',

@@ -80,7 +80,7 @@ export function createDshExecutor(ctx) {
             signal.throwIfAborted();
             agent.followup(followup);
           });
-        } catch (error) {
+        } catch (_maintenanceFailure) {
           signal.throwIfAborted();
           continue;
         }

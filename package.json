@@ -9,7 +9,7 @@
     "dev": "pnpm run dev:desktop",
     "dev:desktop": "pnpm --filter @pawwork/desktop dev",
     "typecheck": "pnpm --filter @pawwork/desktop typecheck",
-    "lint": "eslint \"packages/desktop-electron/{src,scripts}/**/*.ts\" \"packages/desktop-electron/*.ts\"",
+    "lint": "eslint \"packages/desktop-electron/{src,scripts}/**/*.ts\" \"packages/desktop-electron/*.ts\" \"packages/desktop-electron/resources/**/*.{js,mjs,cjs}\"",
     "lint:ci": "pnpm run lint",
     "test": "pnpm --filter @pawwork/desktop test && node --test .github/scripts/label-policy-check.test.js"
   },

@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, test } from "vitest"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -9,9 +19,13 @@ import {
   buildDshEnvironment,
   prepareDshProductHome,
   resolveDshPackagePath,
+  resolveHostModules,
   resolvePnpmPackagePath,
   resolveProductResources,
 } from "./dsh-product-home"
+
+const appPath = join(import.meta.dirname, "../..")
+const hostModules = resolveHostModules({ appPath, isPackaged: false, resourcesPath: "/unused" })
 
 const temporaryDirectories: string[] = []
 
@@ -122,7 +136,7 @@ describe("DSH product home", () => {
     writeFileSync(join(productHome, "automations.json"), '{"definitions":[]}')
     writeFileSync(credentials, 'DEEPSEEK_API_KEY: "user-key"\n')
 
-    const prepared = prepareDshProductHome({ productHome, resources })
+    const prepared = prepareDshProductHome({ productHome, resources, hostModules })
 
     expect(readFileSync(credentials, "utf8")).toBe('DEEPSEEK_API_KEY: "user-key"\n')
     expect(readFileSync(join(productHome, "automations.json"), "utf8")).toBe('{"definitions":[]}')
@@ -136,14 +150,94 @@ describe("DSH product home", () => {
     expect(
       JSON.parse(readFileSync(join(productHome, "node_modules/@pawwork/dsh-identity/package.json"), "utf8")).name,
     ).toBe("@pawwork/dsh-identity")
+    expect(
+      JSON.parse(readFileSync(join(productHome, "node_modules/@pawwork/dsh-web-search/package.json"), "utf8")).name,
+    ).toBe("@pawwork/dsh-web-search")
     expect(prepared.sidecarPreload).toBe(join(resources, "sidecar-preload.mjs"))
+  })
+
+  // Under pnpm the installed `dsh` package sits in its own store directory that
+  // holds only what that package declared, so deriving the tree from it would
+  // hide everything this package declared for its own plugins.
+  test("resolves the app's own module tree, packaged and not", () => {
+    expect(resolveHostModules({ appPath: "/repo/app", isPackaged: false, resourcesPath: "/r" })).toBe(
+      "/repo/app/node_modules",
+    )
+    expect(resolveHostModules({ appPath: "/ignored", isPackaged: true, resourcesPath: "/r" })).toBe(
+      "/r/app.asar.unpacked/node_modules",
+    )
+  })
+
+  // Product plugins are copied under the home, so without this link Node walks
+  // up from `<home>/node_modules/@pawwork/...` and never sees the harness
+  // packages the app ships — the web-search plugin's imports would fail at load.
+  test("lets a product plugin resolve the host's harness packages", () => {
+    const productHome = join(temporaryDirectory(), "fresh")
+    const resources = join(import.meta.dirname, "../../resources/dsh")
+
+    prepareDshProductHome({ productHome, resources, hostModules })
+
+    // Compared against the host's own resolution rather than a literal path:
+    // both sides realpath through pnpm's store, and what has to hold is that the
+    // plugin binds the very package the app loaded, not a second copy.
+    const plugin = join(productHome, "node_modules/@pawwork/dsh-web-search/lib/index.js")
+    expect(createRequire(plugin).resolve("@deepseek-ai/dsh-web/package.json")).toBe(
+      createRequire(join(hostModules, "index.js")).resolve("@deepseek-ai/dsh-web/package.json"),
+    )
+  })
+
+  test("repoints the harness link when the host tree moves", () => {
+    const productHome = join(temporaryDirectory(), "fresh")
+    const resources = join(import.meta.dirname, "../../resources/dsh")
+    const stale = temporaryDirectory()
+    mkdirSync(join(stale, "@deepseek-ai"), { recursive: true })
+    mkdirSync(join(productHome, "node_modules"), { recursive: true })
+    symlinkSync(join(stale, "@deepseek-ai"), join(productHome, "node_modules/@deepseek-ai"), "junction")
+
+    prepareDshProductHome({ productHome, resources, hostModules })
+
+    expect(readlinkSync(join(productHome, "node_modules/@deepseek-ai"))).toBe(join(hostModules, "@deepseek-ai"))
+  })
+
+  // The ordinary shape of a moved host tree: run once from Downloads, drag the
+  // app to /Applications, run again. The surviving link now points at nothing,
+  // and `existsSync` follows symlinks — so a check written with it calls the
+  // link absent and every launch after the move dies on `EEXIST`.
+  test("repoints a harness link left dangling by the move", () => {
+    const productHome = join(temporaryDirectory(), "fresh")
+    const resources = join(import.meta.dirname, "../../resources/dsh")
+    mkdirSync(join(productHome, "node_modules"), { recursive: true })
+    symlinkSync(
+      join(temporaryDirectory(), "gone", "@deepseek-ai"),
+      join(productHome, "node_modules/@deepseek-ai"),
+      "junction",
+    )
+
+    prepareDshProductHome({ productHome, resources, hostModules })
+
+    expect(readlinkSync(join(productHome, "node_modules/@deepseek-ai"))).toBe(join(hostModules, "@deepseek-ai"))
+  })
+
+  // Without the scope link every bundled plugin fails to resolve its harness
+  // imports, and the product patch points `web.searchProvider` at one of them —
+  // so a packaging change that stops shipping `@deepseek-ai` unpacked is not a
+  // degraded feature but every search answering "provider not registered". The
+  // lifecycle turns this throw into its startup-failure page; returning quietly
+  // would ship the mystery instead.
+  test("refuses to prepare a home whose harness scope is missing", () => {
+    const productHome = join(temporaryDirectory(), "fresh")
+    const resources = join(import.meta.dirname, "../../resources/dsh")
+
+    expect(() =>
+      prepareDshProductHome({ productHome, resources, hostModules: join(temporaryDirectory(), "unpacked") }),
+    ).toThrow(/host module scope is missing/)
   })
 
   test("creates the public free-model credential for a fresh product home", () => {
     const productHome = join(temporaryDirectory(), "fresh")
     const resources = join(import.meta.dirname, "../../resources/dsh")
 
-    prepareDshProductHome({ productHome, resources })
+    prepareDshProductHome({ productHome, resources, hostModules })
 
     expect(readFileSync(join(productHome, ".credentials.yaml"), "utf8")).toBe(
       'version: 1\nrefs:\n  OPENCODE_API_KEY: "public"\n',
@@ -163,7 +257,7 @@ describe("DSH product home", () => {
     const productHome = join(temporaryDirectory(), "fresh")
     const resources = join(import.meta.dirname, "../../resources/dsh")
 
-    prepareDshProductHome({ productHome, resources })
+    prepareDshProductHome({ productHome, resources, hostModules })
     const file = join(productHome, ".credentials.yaml")
     const seeded = readFileSync(file, "utf8")
 
