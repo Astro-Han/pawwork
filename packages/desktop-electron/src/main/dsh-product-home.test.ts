@@ -13,8 +13,8 @@ import {
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { load } from "js-yaml"
 import { DOCUMENT_VERSION, parseCredentialsDocument } from "@deepseek-ai/dsh-credentials-local"
+import { readProductPatch } from "./dsh-product-patch.testing"
 import {
   buildDshEnvironment,
   prepareDshProductHome,
@@ -267,11 +267,7 @@ describe("DSH product home", () => {
   })
 
   test("publishes the installed zero-cost OpenCode catalog as OpenCode Free", () => {
-    const resources = join(import.meta.dirname, "../../resources/dsh")
-    const patch = load(readFileSync(join(resources, "home/product.cordis.patch.yml"), "utf8")) as Array<{
-      id?: string
-      config?: Record<string, unknown>
-    }>
+    const patch = readProductPatch()
     const modelDefaults = patch.find((entry) => entry.id === "agent-default-model")?.config as {
       provider: string
       model: string
@@ -288,22 +284,13 @@ describe("DSH product home", () => {
   })
 
   test("does not publish the bundled paid DeepSeek route", () => {
-    const resources = join(import.meta.dirname, "../../resources/dsh")
-    const patch = load(readFileSync(join(resources, "home/product.cordis.patch.yml"), "utf8")) as Array<{
-      id?: string
-      disabled?: boolean
-    }>
+    const patch = readProductPatch()
 
     expect(patch.find((entry) => entry.id === "llm-deepseek")?.disabled).toBe(true)
   })
 
   test("makes the community market wait for PawWork-owned Desktop services", () => {
-    const resources = join(import.meta.dirname, "../../resources/dsh")
-    const patch = load(readFileSync(join(resources, "home/product.cordis.patch.yml"), "utf8")) as Array<{
-      id?: string
-      config?: Record<string, unknown>
-      inject?: string[]
-    }>
+    const patch = readProductPatch()
 
     expect(patch.find((entry) => entry.id === "dsh-market")).toEqual({
       id: "dsh-market",
