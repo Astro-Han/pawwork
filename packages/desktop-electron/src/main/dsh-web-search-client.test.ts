@@ -71,6 +71,7 @@ type CardOptions = {
   set?: () => Promise<unknown>
   setCredential?: () => Promise<unknown>
   unset?: () => Promise<unknown>
+  unsetIgnored?: boolean
 }
 
 /** Mount the plugin and return the registered card plus the wires behind it. */
@@ -94,8 +95,15 @@ function cardOf(options: CardOptions = {}) {
       snapshot.user = { ...(snapshot.user as object), [key]: value }
       snapshot.value = { ...(snapshot.value as object), [key]: value }
     }),
-    unset: vi.fn(async () => {
+    unset: vi.fn(async (key: string) => {
       if (options.unset !== undefined) await options.unset()
+      // A Host that resolves the call without removing the override is the case
+      // the read-back exists for, so the fake can be told to behave that way.
+      if (options.unsetIgnored === true) return
+      const user = { ...(snapshot.user as Record<string, unknown>) }
+      delete user[key]
+      snapshot.user = Object.keys(user).length > 0 ? user : undefined
+      snapshot.value = { ...(snapshot.value as object), [key]: (snapshot.base as Record<string, unknown>)?.[key] }
     }),
   }
   const credentials = {
@@ -138,10 +146,10 @@ function stateOf(injected: CardActions) {
 }
 
 describe("PawWork DSH web search card", () => {
-  // The card's whole surface is one module the Host evaluates. A throw at load
-  // removes it with nothing but a loader line in a console no user reads, and
-  // this file is the only thing that evaluates that module at all: it is outside
-  // the ESLint glob and outside the tsconfig `include`.
+  // The card's whole surface is one module the Host evaluates, and a throw at
+  // load removes it with nothing but a loader line in a console no user reads.
+  // This file is the only thing that evaluates it; lint parses it but does not
+  // run it, and it is outside the tsconfig `include`.
   test("registers one card, keyed to the namespace its plugin serves", () => {
     const { definition, plugin, registrations } = cardOf()
 
@@ -191,18 +199,25 @@ describe("PawWork DSH web search card", () => {
     expect(credentials.set).toHaveBeenCalledWith({ ref: "DEEPSEEK_API_KEY", value: "deepseek-secret" })
   })
 
-  test("changing the engine drops the key staged under the old one", async () => {
+  // A staged key is invisible and unwritable under any engine but the one it was
+  // typed under. It is not destroyed either: reading the card must not be what
+  // discards a secret, or a save that races an engine change elsewhere loses the
+  // user's typing while telling them it was kept for them to correct.
+  test("a key staged under one engine is neither shown nor written under another", async () => {
     const { credentials, injected } = cardOf()
 
     injected.editKey("exa-secret")
     injected.selectBackend("deepseek")
-    expect(stateOf(injected).keyText).toBe("")
 
-    injected.selectBackend("exa")
     expect(stateOf(injected).keyText).toBe("")
-
     await injected.save()
     expect(credentials.set).not.toHaveBeenCalled()
+
+    injected.selectBackend("exa")
+    expect(stateOf(injected).keyText).toBe("exa-secret")
+
+    await injected.save()
+    expect(credentials.set).toHaveBeenCalledWith({ ref: "EXA_API_KEY", value: "exa-secret" })
   })
 
   // The Save button and the writes have to agree on what counts as a change. They
@@ -303,12 +318,9 @@ describe("PawWork DSH web search card", () => {
     expect(stateOf(injected).keyText).toBe("")
   })
 
-  // Reset stages; it does not write. It used to write on its own, which made it
-  // a second writer racing `save` over the same section and the same failure
-  // set: a key typed while its `unset` was in flight was filed under the engine
-  // being left, and a refused reset landed its failure on whatever the user did
-  // next. Restoring the default is not a different kind of act from choosing an
-  // engine, so it stages like one.
+  // Reset stages; it does not write. A second writer would race `save` over the
+  // same section and the same failure set, and `saving` cannot serialize what it
+  // does not own.
   test("a reset stages the default and writes nothing until saved", async () => {
     const { scope, injected } = cardOf({
       section: { base: { backend: "exa" }, value: { backend: "deepseek" }, user: { backend: "deepseek" } },
@@ -322,6 +334,40 @@ describe("PawWork DSH web search card", () => {
     await injected.save()
 
     expect(scope.unset).toHaveBeenCalledWith("backend")
+    expect(stateOf(injected)).toMatchObject({ backend: "exa", dirty: false, failed: false })
+  })
+
+  // The Host's validators own constraints no schema expresses, so a call it
+  // resolves is not a value it kept. Predicting the outcome of the engine write
+  // and reading back the reset would let a pinned deployment answer a reset with
+  // "saved", the card clear its draft, and the engine quietly stay where it was.
+  test("a reset the deployment did not apply is reported, not assumed", async () => {
+    const { injected } = cardOf({
+      section: { base: { backend: "exa" }, value: { backend: "deepseek" }, user: { backend: "deepseek" } },
+      unsetIgnored: true,
+    })
+
+    injected.resetBackend()
+    await injected.save()
+
+    expect(stateOf(injected)).toMatchObject({ failed: true, failedFields: ["backend"], dirty: true })
+  })
+
+  // Choosing the engine already on screen is not an edit. Recorded as one, it
+  // turned a staged reset into an explicit override of the same value: the user
+  // pressed "restore default", glanced at the picker, and pinned themselves to
+  // the engine they had just stopped pinning.
+  test("re-picking the engine already shown leaves a staged reset staged", async () => {
+    const { scope, injected } = cardOf({
+      section: { base: { backend: "exa" }, value: { backend: "deepseek" }, user: { backend: "deepseek" } },
+    })
+
+    injected.resetBackend()
+    injected.selectBackend("exa")
+    await injected.save()
+
+    expect(scope.unset).toHaveBeenCalledWith("backend")
+    expect(scope.set).not.toHaveBeenCalled()
   })
 
   // The staged reset and a staged key are one save, and the key goes first: the
@@ -368,15 +414,34 @@ describe("PawWork DSH web search card", () => {
     expect(stateOf(injected)).toMatchObject({ failed: false, dirty: false, backend: "deepseek" })
   })
 
-  // The Host half falls back to the default reference for a blank one; a card
-  // that did not would report a key as configured while the search resolved a
-  // reference holding nothing.
-  test("a blank credential reference falls back the way the Host half does", async () => {
-    const { credentials, injected } = cardOf({ section: { value: { backend: "exa", exaApiKeyEnv: "   " } } })
+  // A reference the two halves read differently has the card describing and
+  // writing one name while the search resolves another, so the card applies the
+  // Host's whole grammar and not just its blank check.
+  test("an unresolvable credential reference falls back the way the Host half does", async () => {
+    for (const ref of ["", "   ", "my-key", "1KEY", "EXA.API.KEY"]) {
+      const { credentials, injected } = cardOf({ section: { value: { backend: "exa", exaApiKeyEnv: ref } } })
 
-    injected.editKey("exa-secret")
-    await injected.save()
+      injected.editKey("exa-secret")
+      await injected.save()
 
-    expect(credentials.set).toHaveBeenCalledWith({ ref: "EXA_API_KEY", value: "exa-secret" })
+      expect(credentials.set).toHaveBeenCalledWith({ ref: "EXA_API_KEY", value: "exa-secret" })
+    }
+  })
+
+  // A draft that would write nothing is still a draft the user can see, and
+  // Discard is the only control that clears it: asking `dirty` greyed out both
+  // buttons over a field with a space in it, leaving backspace as the way out.
+  test("a key that would write nothing can still be discarded", async () => {
+    const { card, injected } = cardOf()
+
+    injected.editKey("   ")
+
+    expect(stateOf(injected)).toMatchObject({ dirty: false, staged: true })
+    const discard = visit(render(card, injected)).find((node) => node.props.className === "pawwork-websearch-discard")
+    expect(discard?.props.disabled).toBe(false)
+
+    injected.discard()
+
+    expect(stateOf(injected).keyText).toBe("")
   })
 })
