@@ -428,6 +428,30 @@ describe("PawWork DSH web search card", () => {
     }
   })
 
+  // The key is written first so the engine never runs a moment without the
+  // credential it was chosen for. Carrying on past a refused key produced that
+  // exact state: DeepSeek needs one, so the deployment moved to an engine with
+  // nothing stored and every search failed, while the footer named only the key.
+  test("a refused key does not move the user onto the engine that needed it", async () => {
+    const { credentials, scope, injected } = cardOf({
+      setCredential: async () => ({ result: { ok: false } }),
+    })
+
+    injected.selectBackend("deepseek")
+    injected.editKey("deepseek-secret")
+    await injected.save()
+
+    expect(credentials.set).toHaveBeenCalledTimes(1)
+    expect(scope.set).not.toHaveBeenCalled()
+    expect(stateOf(injected)).toMatchObject({
+      backend: "deepseek",
+      dirty: true,
+      failed: true,
+      failedFields: ["key"],
+      keyText: "deepseek-secret",
+    })
+  })
+
   // A draft that would write nothing is still a draft the user can see, and
   // Discard is the only control that clears it: asking `dirty` greyed out both
   // buttons over a field with a space in it, leaving backspace as the way out.

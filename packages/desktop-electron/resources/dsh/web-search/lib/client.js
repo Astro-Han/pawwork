@@ -472,7 +472,16 @@ window.__ModuleLoader__.load({
                 const response = await this.api.credentials.set({ ref: write.ref, value: write.value })
                 if (response?.result?.ok === false) throw new Error("credential write rejected")
               })
-              if (wrote) this.keyDraft = undefined
+              if (!wrote) {
+                // The key goes first so the engine never runs a moment without
+                // the credential it was chosen for — which is exactly what
+                // carrying on would produce. Any pending engine write selects
+                // the engine this key was typed under, so it stays staged and
+                // Save retries both rather than moving the user onto an engine
+                // whose key the deployment just refused.
+                break
+              }
+              this.keyDraft = undefined
               continue
             }
             // Read back either way. A Host that accepts the call without moving
