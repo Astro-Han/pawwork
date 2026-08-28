@@ -405,7 +405,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     let windowsBrowseDirectoryPickerWorked = !isWindows
     if (isWindows) {
       if (!expandedPrimaryActions.addWorkspace) throw new Error("Windows smoke could not find Add workspace")
-      const sessionsBeforePicker = new Set((await call("session.list", {})).items.map((item) => item.sessionId))
+      const expectedPickedDirectory = (await call("host.listDirectory", {})).path
       expandedPrimaryActions.addWorkspace.click()
 
       const browseDialog = await waitFor(() => Array.from(document.querySelectorAll('[role="dialog"]')).find((dialog) => {
@@ -421,16 +421,11 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       if (!openDirectory) throw new Error("Windows browse directory picker never enabled Open")
       openDirectory.click()
 
-      const pickerSession = await waitFor(async () => {
-        const sessions = (await call("session.list", {})).items
-        return sessions.find((item) => !sessionsBeforePicker.has(item.sessionId))
-      })
-      if (!pickerSession?.cwd) throw new Error("Windows browse directory picker did not create a session for its workspace")
       const adoptedWorkspace = await waitFor(async () => {
         const workspaces = (await call("workspace.list", {})).items
-        return workspaces.find((item) => item.path === pickerSession.cwd && item.sessionIds.includes(pickerSession.sessionId))
+        return workspaces.find((item) => item.path === expectedPickedDirectory)
       })
-      if (!adoptedWorkspace) throw new Error("Windows browse directory picker did not attach its session to the selected workspace")
+      if (!adoptedWorkspace) throw new Error("Windows browse directory picker did not create the selected workspace")
 
       const browseDialogClosed = await waitFor(() => !visible(browseDialog))
       if (!browseDialogClosed) throw new Error("Windows browse directory picker stayed open after selection")
