@@ -45,6 +45,14 @@
 # "web search" that edits a provider the seam will never select.
 - id: web-search-deepseek
   disabled: true
+# Temporary Windows escape hatch for the native picker's out-of-process COM
+# worker: a worker crash is reported only as "exited before reporting a result"
+# and makes the normal workspace-selection path unusable. DSH documents direct
+# composition of the browse host/client pair as the supported way to pin this
+# interaction. Remove this override once PawWork upgrades to a DSH release whose
+# native Windows picker is fixed and verified on Windows 10.
+- id: directory-picker
+  disabled: !!js process.platform === 'win32'
 # `dsh-web-app` disables the dsh-base `tool-web` outright because the agent
 # presets each mount their own, so re-enabling it here puts `web_fetch` in the
 # global tool layer, which every agent inherits regardless of preset — including
@@ -107,6 +115,12 @@
     - desktopProfiles
     - desktopPnpm
 - insert:
+    - id: directory-picker-browse-host
+      name: '@deepseek-ai/dsh-host-directory-picker-browse'
+      disabled: !!js process.platform !== 'win32'
+    - id: directory-picker-browse-client
+      name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'
+      disabled: !!js process.platform !== 'win32'
     - id: pawwork-identity
       name: '@pawwork/dsh-identity'
     - id: pawwork-product
