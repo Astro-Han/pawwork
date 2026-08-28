@@ -71,6 +71,7 @@ export type CiSmokeProductSnapshot = {
   titlebarInsetLeft: number
   titlebarInsetRight: number
   windowsInsetMatchesDocumentDirection: boolean
+  windowsBrowseDirectoryPickerWorked: boolean
   expandedNewSessionFollowsTitlebar: boolean
   sidebarPrimaryActionCenterOffsets: { addWorkspace: number | null; newSession: number | null }
   collapsedSidebarFullyMergesWithContent: boolean
@@ -322,6 +323,14 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       const label = (button.getAttribute("aria-label") || button.textContent || "").trim()
       return visible(button) && pattern.test(label)
     })
+    const waitFor = async (read, attempts = 400, delayMs = 25) => {
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        const value = await read()
+        if (value) return value
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+      }
+      return null
+    }
     // The arrow rule's own selector, read back from the live stylesheet rather than copied here, so the
     // probe cannot drift from the rule it checks. A missing rule reports itself instead of passing.
     const arrowSelector = () => Array.from(document.styleSheets)
@@ -371,7 +380,6 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       if (!envelope?.result?.ok) throw new Error(method + ": " + (envelope?.result?.error?.message || "unknown failure"))
       return envelope.result.value
     }
-    await call("workspace.create", { path: ${workspace} })
     const sidebarPrimaryActions = () => {
       const find = (pattern) => Array.from(document.querySelectorAll("button")).find((button) => {
         const label = button.getAttribute("aria-label") || ""
@@ -390,7 +398,41 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       }
       return actions
     }
-    const expandedPrimaryActions = await waitForSidebarPrimaryActions()
+    const isWindows = /^Win/i.test(navigator.platform)
+    let selectedWorkspace = ${workspace}
+    if (!isWindows) await call("workspace.create", { path: ${workspace} })
+    let expandedPrimaryActions = await waitForSidebarPrimaryActions()
+    let windowsBrowseDirectoryPickerWorked = !isWindows
+    if (isWindows) {
+      if (!expandedPrimaryActions.addWorkspace) throw new Error("Windows smoke could not find Add workspace")
+      const expectedPickedDirectory = (await call("host.listDirectory", {})).path
+      expandedPrimaryActions.addWorkspace.click()
+
+      const browseDialog = await waitFor(() => Array.from(document.querySelectorAll('[role="dialog"]')).find((dialog) => {
+        const title = dialog.querySelector("h2")?.textContent?.trim() || ""
+        return visible(dialog) && /^(选择工作区目录|Select Workspace Directory)$/i.test(title)
+      }))
+      if (!browseDialog) throw new Error("Windows browse directory picker did not open")
+
+      const openDirectory = await waitFor(() => Array.from(browseDialog.querySelectorAll("button")).find((button) => {
+        const label = (button.getAttribute("aria-label") || button.textContent || "").trim()
+        return visible(button) && !button.disabled && /^(打开|Open)$/i.test(label)
+      }))
+      if (!openDirectory) throw new Error("Windows browse directory picker never enabled Open")
+      openDirectory.click()
+
+      const adoptedWorkspace = await waitFor(async () => {
+        const workspaces = (await call("workspace.list", {})).items
+        return workspaces.find((item) => item.path === expectedPickedDirectory)
+      })
+      if (!adoptedWorkspace) throw new Error("Windows browse directory picker did not create the selected workspace")
+
+      const browseDialogClosed = await waitFor(() => !visible(browseDialog))
+      if (!browseDialogClosed) throw new Error("Windows browse directory picker stayed open after selection")
+      selectedWorkspace = adoptedWorkspace.path
+      windowsBrowseDirectoryPickerWorked = true
+      expandedPrimaryActions = await waitForSidebarPrimaryActions()
+    }
     const sidebarToggles = () => Array.from(document.querySelectorAll("button.pawwork-sidebar-toggle")).filter(visible)
     const sidebarBrandButton = document.querySelector('[data-slot="sidebar.brand.name"]')?.closest("button")
     const sidebarExpandedBrandHidden = Boolean(sidebarBrandButton) && !visible(sidebarBrandButton)
@@ -724,7 +766,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     await new Promise((resolve) => setTimeout(resolve, 200))
 
     const providers = (await call("llm.providers", {})).providers
-    const session = await call("session.create", { cwd: ${workspace} })
+    const session = await call("session.create", { cwd: selectedWorkspace })
     const skills = (await call("skill.list", { sessionId: session.sessionId })).skills
     const sessionIdsBeforeRestart = (await call("session.list", {})).items.map((item) => item.sessionId)
     const freeProvider = providers.find((provider) => provider.provider === "opencode")
@@ -758,6 +800,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       titlebarInsetLeft,
       titlebarInsetRight,
       windowsInsetMatchesDocumentDirection,
+      windowsBrowseDirectoryPickerWorked,
       expandedNewSessionFollowsTitlebar,
       sidebarPrimaryActionCenterOffsets,
       collapsedSidebarFullyMergesWithContent,
@@ -930,6 +973,9 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.windowsInsetMatchesDocumentDirection
       ? null
       : `Windows titlebar inset is on the wrong edge for the document direction`,
+    snapshot.windowsBrowseDirectoryPickerWorked
+      ? null
+      : "Windows did not create the smoke workspace through the in-app browse directory picker",
     snapshot.expandedNewSessionFollowsTitlebar
       ? null
       : "expanded New session action leaves an empty brand-row gap below the titlebar",
