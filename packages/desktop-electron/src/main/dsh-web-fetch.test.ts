@@ -16,10 +16,10 @@ describe("PawWork web_fetch", () => {
     expect(providers.some((row) => row.name === "@deepseek-ai/dsh-web-fetch-http")).toBe(true)
   })
 
-  // The agent presets each mount their own scoped `tool-web` for `web_search`.
-  // Leaving search on here would register a second one into the global layer,
-  // resolved against whatever provider the host composition happens to hold
-  // rather than the preset's — a silently different search for the same name.
+  // The agent presets each mount their own scoped `tool-web`, and a scoped tool
+  // shadows a global one of the same name. Both resolve the same `web` service,
+  // so a second registration here would not search differently — it would be
+  // dead weight that also drops the preset's own 60s search timeout.
   test("leaves web_search to the preset that already owns it", () => {
     const tool = readProductPatch().find((entry) => entry.id === "tool-web")
 
