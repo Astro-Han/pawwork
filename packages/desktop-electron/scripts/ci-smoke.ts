@@ -1,7 +1,7 @@
 import { spawn, spawnSync, type ChildProcessByStdio } from "node:child_process"
 import { once } from "node:events"
 import type { Readable } from "node:stream"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
@@ -300,7 +300,6 @@ export async function probeCiSmokeCdpTarget(port: number, options: ProbeOptions 
 
 export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: string, expectedV1SessionId = CI_SMOKE_IMPORTED_SESSION_ID) {
   const workspace = JSON.stringify(workspacePath)
-  const canonicalWorkspace = JSON.stringify(realpathSync(workspacePath))
   const expectedSession = JSON.stringify(expectedV1SessionId)
   const expression = `(async () => {
     const visible = (element) => {
@@ -400,11 +399,13 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       return actions
     }
     const isWindows = /^Win/i.test(navigator.platform)
+    let selectedWorkspace = ${workspace}
     if (!isWindows) await call("workspace.create", { path: ${workspace} })
     let expandedPrimaryActions = await waitForSidebarPrimaryActions()
     let windowsBrowseDirectoryPickerWorked = !isWindows
     if (isWindows) {
       if (!expandedPrimaryActions.addWorkspace) throw new Error("Windows smoke could not find Add workspace")
+      const sessionsBeforePicker = new Set((await call("session.list", {})).items.map((item) => item.sessionId))
       expandedPrimaryActions.addWorkspace.click()
 
       const browseDialog = await waitFor(() => Array.from(document.querySelectorAll('[role="dialog"]')).find((dialog) => {
@@ -413,41 +414,27 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       }))
       if (!browseDialog) throw new Error("Windows browse directory picker did not open")
 
-      const editPath = await waitFor(() => Array.from(browseDialog.querySelectorAll("button")).find((button) => {
-        const label = (button.getAttribute("aria-label") || "").trim()
-        return visible(button) && !button.disabled && /^(编辑路径|Edit path)$/i.test(label)
-      }))
-      if (!editPath) throw new Error("Windows browse directory picker did not expose Edit path")
-      editPath.click()
-
-      const pathInput = await waitFor(() => Array.from(browseDialog.querySelectorAll("input")).find((input) => {
-        const label = (input.getAttribute("aria-label") || "").trim()
-        return visible(input) && !input.disabled && /^(编辑路径|Edit path)$/i.test(label)
-      }))
-      if (!pathInput) throw new Error("Windows browse directory picker did not open its path editor")
-      const setInputValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
-      if (!setInputValue) throw new Error("Windows browse directory picker path input has no native value setter")
-      setInputValue.call(pathInput, ${workspace})
-      pathInput.dispatchEvent(new Event("input", { bubbles: true }))
-      await new Promise((resolve) => setTimeout(resolve, 50))
-      pathInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }))
-
       const openDirectory = await waitFor(() => Array.from(browseDialog.querySelectorAll("button")).find((button) => {
         const label = (button.getAttribute("aria-label") || button.textContent || "").trim()
-        const editing = Array.from(browseDialog.querySelectorAll("input")).some(visible)
-        return !editing && visible(button) && !button.disabled && /^(打开|Open)$/i.test(label)
+        return visible(button) && !button.disabled && /^(打开|Open)$/i.test(label)
       }))
       if (!openDirectory) throw new Error("Windows browse directory picker never enabled Open")
       openDirectory.click()
 
+      const pickerSession = await waitFor(async () => {
+        const sessions = (await call("session.list", {})).items
+        return sessions.find((item) => !sessionsBeforePicker.has(item.sessionId))
+      })
+      if (!pickerSession?.cwd) throw new Error("Windows browse directory picker did not create a session for its workspace")
       const adoptedWorkspace = await waitFor(async () => {
         const workspaces = (await call("workspace.list", {})).items
-        return workspaces.find((item) => item.path === ${canonicalWorkspace})
+        return workspaces.find((item) => item.path === pickerSession.cwd && item.sessionIds.includes(pickerSession.sessionId))
       })
-      if (!adoptedWorkspace) throw new Error("Windows browse directory picker did not adopt the selected workspace")
+      if (!adoptedWorkspace) throw new Error("Windows browse directory picker did not attach its session to the selected workspace")
 
       const browseDialogClosed = await waitFor(() => !visible(browseDialog))
       if (!browseDialogClosed) throw new Error("Windows browse directory picker stayed open after selection")
+      selectedWorkspace = adoptedWorkspace.path
       windowsBrowseDirectoryPickerWorked = true
       expandedPrimaryActions = await waitForSidebarPrimaryActions()
     }
@@ -784,7 +771,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     await new Promise((resolve) => setTimeout(resolve, 200))
 
     const providers = (await call("llm.providers", {})).providers
-    const session = await call("session.create", { cwd: ${workspace} })
+    const session = await call("session.create", { cwd: selectedWorkspace })
     const skills = (await call("skill.list", { sessionId: session.sessionId })).skills
     const sessionIdsBeforeRestart = (await call("session.list", {})).items.map((item) => item.sessionId)
     const freeProvider = providers.find((provider) => provider.provider === "opencode")
