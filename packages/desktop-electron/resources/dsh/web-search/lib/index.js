@@ -1,5 +1,5 @@
 import z from '@deepseek-ai/schemastery';
-import { credentialRef } from '@deepseek-ai/dsh-credentials';
+import { credentialRef, isCredentialRefName } from '@deepseek-ai/dsh-credentials';
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings';
 import { WebError } from '@deepseek-ai/dsh-web';
 import { DeepSeekSearchProvider } from '@deepseek-ai/dsh-web-search-deepseek';
@@ -19,12 +19,6 @@ import { searchViaMcp } from './exa-mcp.js';
 // one provider id from static entry config, with no settings namespace behind
 // it — so the choice has to live inside a single registered provider. This one.
 //
-// What it deliberately does NOT do is restate vendor request shapes. Both keyed
-// backends are upstream provider classes, constructed per search from resolved
-// options: `ExaSearchProvider` for Exa's official `/search`, and
-// `DeepSeekSearchProvider` for DeepSeek's server-side native search. Only the
-// anonymous path is ours, because no upstream package implements it.
-//
 // The upstream `web-search-deepseek` row is disabled in the product patch. Its
 // card edits a provider this seam will never select, and two cards titled "web
 // search" that disagree is worse than one that decides.
@@ -41,27 +35,21 @@ export const PAWWORK_WEB_SEARCH_SETTINGS_NAMESPACE = settingsNamespace('pawwork-
 const DEFAULT_EXA_API_KEY_ENV = 'EXA_API_KEY';
 const DEFAULT_DEEPSEEK_API_KEY_ENV = 'DEEPSEEK_API_KEY';
 
-/** The names a credential reference may take; anything else cannot be resolved. */
-const CREDENTIAL_REF = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
 /**
  * Read a configured credential reference, falling back when it names nothing
  * this deployment could resolve.
  *
- * A settings file is hand-editable, and `credentialRef` answers a name outside
- * its grammar with a bare `TypeError` — not a config error the seam can report
- * but an unhandled throw, taking down even the Exa path that needs no key at
- * all. A name nobody can resolve is a name nobody set, so it reads as the
- * default: blank, padded, `my-key`, `1KEY` alike. The card resolves the same
- * field the same way; the two disagreeing would have it call a key configured
- * that no search would ever find.
+ * The settings file is hand-editable and `credentialRef` answers a name outside
+ * its grammar with a bare `TypeError`, which would take down even the keyless
+ * path. The card reads the same field with the same predicate; the two
+ * disagreeing would have it call a key configured that no search could find.
  * @param declared - the reference named in the section, if any.
  * @param fallback - the reference to use when none is usable.
  * @returns the reference to resolve.
  */
 function resolveRef(declared, fallback) {
   const named = declared?.trim() ?? '';
-  return CREDENTIAL_REF.test(named) ? named : fallback;
+  return isCredentialRefName(named) ? named : fallback;
 }
 
 /**
@@ -95,7 +83,15 @@ export const Config = z.object({
 async function resolveKey(ctx, ref) {
   const credentials = ctx.get('credentials');
   if (credentials === undefined) return '';
-  const held = await credentials.resolve(credentialRef(ref));
+  let held;
+  try {
+    held = await credentials.resolve(credentialRef(ref));
+  } catch (cause) {
+    // A locked keychain is a failure the seam can report; letting it escape as
+    // whatever the credentials plane threw would leave the tool with an error
+    // it has no vocabulary for.
+    throw new WebError(`could not resolve the search credential "${ref}"`, 'WEB_PROVIDER_ERROR', { cause });
+  }
   // Trimmed because a held value decides which path runs at all: a trailing
   // newline from an editor or a shell export would otherwise count as a key and
   // send the search to a vendor endpoint that rejects it, instead of to the
@@ -106,11 +102,9 @@ async function resolveKey(ctx, ref) {
 /**
  * Search through Exa.
  *
- * With a key the call goes to Exa's official `/search`, which returns
- * structured results the upstream class maps into attributed sources. Without
- * one it falls back to Exa's hosted MCP and its shared allowance — the same
- * vendor, a different endpoint, and the only keyless search that exists. That
- * endpoint answers in prose rather than structure, so the keyless result
+ * With a key the call goes to Exa's official `/search`, which returns structured
+ * results the upstream class maps into attributed sources. Without one it falls
+ * back to Exa's hosted MCP, which answers in prose, so the keyless result
  * carries the report as content and no sources; see `exa-mcp.js`.
  * @param ctx - the plugin context.
  * @param config - the authoritative section for this search.
@@ -129,9 +123,7 @@ async function searchExa(ctx, config, request, signal) {
     }).search(request, signal);
   }
   // No deadline of this plugin's own: `dsh-tool-web` owns the search budget as
-  // deployment policy and forwards the resulting signal, and the profile sets it
-  // to 60s. A second deadline here was half that, so it silently overrode the
-  // deployment for the one path it covered.
+  // deployment policy and forwards the resulting signal.
   return searchViaMcp({ query: request.query, maxResults: request.maxResults, signal });
 }
 
@@ -195,12 +187,9 @@ export class PawWorkSearchProvider {
   /**
    * Whether this provider can be selected.
    *
-   * Always true, and deliberately so: `available()` must be a cheap local check
-   * that makes no network call, and whether a key is held is neither — the
-   * credentials seam answers asynchronously. The Exa engine needs no key at
-   * all, so a default install is genuinely usable; a missing DeepSeek key
-   * surfaces at search time as `WEB_PROVIDER_CREDENTIAL_MISSING`, which names
-   * the real problem rather than reporting the provider as absent.
+   * `available()` must be a cheap local check that makes no network call, and
+   * whether a key is held is neither — the credentials seam answers
+   * asynchronously. So it cannot consult one.
    * @returns true.
    */
   available() {
@@ -214,8 +203,6 @@ export class PawWorkSearchProvider {
    */
   async search(request, signal) {
     const config = this.current();
-    // No fallback: `Config` resolves `backend` as a defaulted union, so the
-    // section can only name an engine this table has.
     return BACKENDS[config.backend](this.ctx, config, request, signal);
   }
 }
