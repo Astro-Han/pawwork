@@ -1,0 +1,21 @@
+{
+  "name": "@pawwork/dsh-updater",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./lib/client.js",
+  "exports": {
+    ".": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ],
+      "platform": "web"
+    }
+  }
+}
