@@ -57,6 +57,12 @@ window.__ModuleLoader__.load({
     // Normalizes the bridge payload plus local toast dismissal into one view
     // snapshot. The bridge is the authority for everything except `dismissed`,
     // which is window-session-local presentation state.
+    // The plugin boots before main's DSH lifecycle is ready, so the first
+    // getState can legitimately reject. Retry with a short backoff; only after
+    // the ladder is exhausted is the bridge honestly unavailable. A broadcast
+    // arriving mid-ladder is fine — it simply overwrites the snapshot first.
+    const RETRY_LADDER_MS = [200, 400, 800, 1600, 3200]
+
     function createUpdaterStore(bridge) {
       let snapshot = { status: bridge ? "loading" : "unavailable" }
       let dismissed = false
@@ -65,20 +71,27 @@ window.__ModuleLoader__.load({
       const emit = () => {
         for (const listener of listeners) listener()
       }
+      const adopt = (payload) => {
+        snapshot = { status: payload.state.status, ...payload.state, progress: payload.progress, currentVersion: payload.currentVersion }
+        emit()
+      }
       if (bridge) {
         bridge.subscribe((payload) => {
-          snapshot = { status: payload.state.status, ...payload.state, progress: payload.progress, currentVersion: payload.currentVersion }
           // A newer ready version than the dismissed one deserves the toast again.
           if (payload.state.status === "ready" && dismissed && payload.state.version !== dismissedVersion) dismissed = false
-          emit()
+          adopt(payload)
         })
-        bridge.getState().then((payload) => {
-          snapshot = { status: payload.state.status, ...payload.state, progress: payload.progress, currentVersion: payload.currentVersion }
-          emit()
-        }, () => {
-          snapshot = { status: "unavailable" }
-          emit()
-        })
+        const readState = (attempt) => {
+          bridge.getState().then(adopt, () => {
+            if (attempt >= RETRY_LADDER_MS.length) {
+              snapshot = { status: "unavailable" }
+              emit()
+              return
+            }
+            setTimeout(() => readState(attempt + 1), RETRY_LADDER_MS[attempt])
+          })
+        }
+        readState(0)
       }
       return {
         get: () => ({ ...snapshot, dismissed }),

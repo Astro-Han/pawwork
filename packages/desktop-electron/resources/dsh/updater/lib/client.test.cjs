@@ -61,6 +61,8 @@ function loadPlugin({ bridge, lang = 'zh' } = {}) {
   const appendedStyles = [];
   const sandbox = {
     window: {},
+    setTimeout,
+    clearTimeout,
     document: {
       documentElement: { lang },
       head: { appendChild: (style) => appendedStyles.push(style) },
@@ -227,6 +229,32 @@ test('sidebar indicator only appears for a ready update and resurfaces the toast
   assert.ok(rendersNull(toast.component({})));
   rendered(tree).find((element) => element.type === 'button').props.onClick();
   assert.ok(!rendersNull(toast.component({})));
+});
+
+test('recovers when the first state read lands before the main process is ready', async () => {
+  // At client boot the DSH lifecycle in main may not be ready yet, so the
+  // first getState rejects. The store must retry rather than latch
+  // 'unavailable' — in dev no broadcast ever arrives to correct it.
+  let attempts = 0;
+  const bridge = {
+    calls: { check: 0, install: 0, openDownloadPage: 0 },
+    getState: async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('DSH plugin requests require a ready product');
+      return { state: { status: 'disabled' }, progress: null, currentVersion: '2026.8.8' };
+    },
+    check: async () => {},
+    install: async () => {},
+    openDownloadPage: () => {},
+    subscribe: () => () => {},
+  };
+  const { plugin } = loadPlugin({ bridge });
+  const registered = [];
+  plugin.apply({ slots: { inject: (key, callback) => callback(), register: (spec, component) => registered.push({ spec, component }) } });
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const tree = componentFor(registered, 'settings.section').component({ close: () => {} });
+  assert.ok(attempts >= 2, `expected a retry, got ${attempts} attempt(s)`);
+  assert.match(texts(tree).join('\n'), /2026\.8\.8/);
 });
 
 test('settings section treats a gated-off updater as unavailable', async () => {
