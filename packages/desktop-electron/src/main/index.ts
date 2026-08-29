@@ -40,8 +40,8 @@ import { detectSystemMenuLocale, type MenuLocale } from "./menu-labels"
 import { createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./update-feed"
 import { PAWWORK_GITHUB_ISSUE_URL } from "./support-links"
 import { createUpdaterController } from "./updater"
+import { createUpdateScheduler } from "./updater-scheduler"
 import { pendingUpdateCacheDir } from "./updater-cache"
-import { updaterDialogLabels } from "./updater-dialog-labels"
 import { readStartupColorScheme, writeStartupColorScheme } from "./startup-theme"
 import {
   createMainWindow,
@@ -63,6 +63,9 @@ if (process.platform === "darwin") {
 const CI_SMOKE_HOME = process.env.PAWWORK_CI_SMOKE_HOME
 const CI_SMOKE_ENABLED = process.env.PAWWORK_CI_SMOKE === "true"
 const UPDATE_FEED_TIMEOUT_MS = 10_000
+// Silent re-check cadence while the app runs: frequent enough that users who
+// never quit pick up a release the same day, sparse enough to stay noise-free.
+const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
 const UPDATE_CHANNEL_FILE = process.platform === "win32" ? `${UPDATE_CHANNEL}.yml` : `${UPDATE_CHANNEL}-mac.yml`
 const LATEST_RELEASE_URL = `https://github.com/${UPDATE_GITHUB_OWNER}/${UPDATE_GITHUB_REPO}/releases/latest`
 
@@ -138,6 +141,31 @@ const updater = createUpdaterController({
   error: (message, error) => logger.error(message, error),
 })
 
+const updateScheduler = createUpdateScheduler({
+  check: () => updater.check(),
+  intervalMs: UPDATE_CHECK_INTERVAL_MS,
+  setTimer: (callback, ms) => setTimeout(callback, ms),
+  clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+})
+
+// The single push channel the renderer's update UI lives on: every controller
+// transition and every download-progress tick is mirrored to all windows.
+type UpdaterSnapshot = {
+  state: ReturnType<typeof updater.getState>
+  progress: number | null
+  currentVersion: string
+}
+
+function updaterSnapshot(): UpdaterSnapshot {
+  return { state: updater.getState(), progress: currentProgress, currentVersion: app.getVersion() }
+}
+
+function publishUpdaterState() {
+  for (const win of liveWindows()) win.webContents.send("pawwork:updater:state", updaterSnapshot())
+}
+
+updater.subscribe(publishUpdaterState)
+
 logger.log("app starting", { version: app.getVersion(), packaged: app.isPackaged })
 setupApp()
 
@@ -182,6 +210,27 @@ function setupApp() {
     }
     return requestDshCommunityMarket({ action: "disable", dshUrl, hostToken: dshHostToken })
   })
+  ipcMain.handle("pawwork:updater:get-state", (event) => {
+    readyProductStateFor(event)
+    return updaterSnapshot()
+  })
+  ipcMain.handle("pawwork:updater:check", (event) => {
+    readyProductStateFor(event)
+    return updater.check()
+  })
+  ipcMain.handle("pawwork:updater:install", (event) => {
+    readyProductStateFor(event)
+    return updater.install()
+  })
+  ipcMain.on("pawwork:updater:open-download-page", (event) => {
+    try {
+      readyProductStateFor(event)
+    } catch (error) {
+      logger.warn("rejected updater download page request", error)
+      return
+    }
+    void shell.openExternal(LATEST_RELEASE_URL)
+  })
   ipcMain.on("pawwork:dsh-restart", (event) => {
     try {
       communityMarketUrlFor(event)
@@ -197,6 +246,9 @@ function setupApp() {
   ipcMain.on("pawwork:product-ready", (event) => {
     if (event.senderFrame !== event.sender.mainFrame) return
     lifecycle.productReady(event.senderFrame?.url ?? "")
+    // The product UI is up: run the first silent check and start the cadence.
+    // start() is idempotent, so re-readies after a DSH restart are harmless.
+    if (UPDATER_ACTIVE) updateScheduler.start()
   })
   ipcMain.on("pawwork:titlebar-color-scheme", (event, colorScheme) => {
     if (event.senderFrame !== event.sender.mainFrame) return
@@ -220,6 +272,7 @@ function setupApp() {
     if (BrowserWindow.getAllWindows().length === 0) openMainWindow()
   })
   app.on("before-quit", (event) => {
+    updateScheduler.stop()
     if (lifecycle.state.phase === "stopped") return
     event.preventDefault()
     void lifecycle.stop()
@@ -295,7 +348,7 @@ async function confirmCommunityMarket(event: Electron.IpcMainInvokeEvent, action
   return result.response === 0
 }
 
-function communityMarketUrlFor(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) {
+function readyProductStateFor(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) {
   const state = lifecycle.state
   const frame = event.senderFrame
   if (state.phase !== "ready") throw new Error("DSH plugin requests require a ready product")
@@ -304,7 +357,11 @@ function communityMarketUrlFor(event: Electron.IpcMainEvent | Electron.IpcMainIn
     isMainFrame: frame === event.sender.mainFrame,
     senderUrl: frame?.url ?? "",
   })
-  return state.url
+  return state
+}
+
+function communityMarketUrlFor(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) {
+  return readyProductStateFor(event).url
 }
 
 function liveWindows() {
@@ -530,7 +587,7 @@ function focusMainWindow(openIfMissing = false) {
 
 function wireMenu() {
   createDshMenu({
-    checkForUpdates: () => void checkForUpdates(true),
+    checkForUpdates: () => void updater.check(),
     newWindow: openMainWindow,
     relaunch: () => {
       void lifecycle.stop().finally(() => {
@@ -548,6 +605,7 @@ function applyProgressBar(value: number) {
 function clearProgressBar() {
   currentProgress = null
   applyProgressBar(-1)
+  publishUpdaterState()
 }
 
 // No feed is configured here: every check runs through updateFeed, which probes
@@ -567,6 +625,7 @@ function setupAutoUpdater() {
   autoUpdater.on("download-progress", (info) => {
     currentProgress = info.percent / 100
     applyProgressBar(currentProgress)
+    publishUpdaterState()
   })
   autoUpdater.on("update-downloaded", clearProgressBar)
   autoUpdater.on("update-not-available", clearProgressBar)
@@ -575,66 +634,6 @@ function setupAutoUpdater() {
     logger.error("updater error", error)
     clearProgressBar()
   })
-}
-
-async function checkForUpdates(alertOnFail: boolean) {
-  const labels = updaterDialogLabels(menuLocale)
-  const result = await updater.check()
-  if (result.status === "busy" || result.status === "disabled") {
-    if (alertOnFail) await dialog.showMessageBox({ type: "info", ...labels[result.status] })
-    return
-  }
-  if (result.status === "failed") {
-    if (!alertOnFail) return
-    const response = await dialog.showMessageBox({
-      type: "error",
-      title: labels.failed.title,
-      message: labels.failed.reasonCopy[result.reason],
-      detail: [result.message, labels.failed.currentVersionUnaffected].filter(Boolean).join("\n\n"),
-      buttons: [labels.failed.buttons.retry, labels.failed.buttons.openDownloadPage, labels.failed.buttons.later],
-      defaultId: 0,
-      cancelId: 2,
-    })
-    if (response.response === 0) await checkForUpdates(alertOnFail)
-    if (response.response === 1) await shell.openExternal(LATEST_RELEASE_URL)
-    return
-  }
-  if (result.status === "none") {
-    if (alertOnFail) await dialog.showMessageBox({ type: "info", ...labels.none })
-    return
-  }
-
-  const response = await dialog.showMessageBox({
-    type: "info",
-    title: labels.ready.title,
-    message: labels.ready.message(result.version),
-    buttons: labels.ready.buttons,
-    defaultId: 0,
-    cancelId: 1,
-  })
-  if (response.response !== 0) {
-    updater.dismissReady()
-    return
-  }
-
-  try {
-    const started = updater.install()
-    if (!started) await dialog.showMessageBox({ type: "info", ...labels.none })
-  } catch (error) {
-    logger.error("install update failed", error)
-    const failure = await dialog.showMessageBox({
-      type: "error",
-      title: labels.failed.title,
-      message: labels.failed.installFailedMessage,
-      detail: [error instanceof Error ? error.message : "", labels.failed.currentVersionUnaffected]
-        .filter(Boolean)
-        .join("\n\n"),
-      buttons: [labels.failed.buttons.openDownloadPage, labels.failed.buttons.later],
-      defaultId: 0,
-      cancelId: 1,
-    })
-    if (failure.response === 0) await shell.openExternal(LATEST_RELEASE_URL)
-  }
 }
 
 async function clearPendingUpdate() {

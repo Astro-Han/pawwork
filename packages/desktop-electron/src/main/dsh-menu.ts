@@ -73,6 +73,11 @@ export function createDshMenu(options: DshMenuOptions, locale: MenuLocale) {
   const helpMenu: Electron.MenuItemConstructorOptions = {
     label: label("help"),
     submenu: [
+      // Windows has no app menu, so Help carries the update entry there; on
+      // macOS the same item already lives in the app menu above.
+      ...(process.platform === "win32"
+        ? [{ label: label("checkForUpdates"), click: options.checkForUpdates } as Electron.MenuItemConstructorOptions, { type: "separator" as const }]
+        : []),
       { label: label("pawworkOnGithub"), click: () => openExternal(PAWWORK_GITHUB_URL) },
       { label: label("openGithubIssue"), click: () => openExternal(PAWWORK_GITHUB_ISSUE_URL) },
     ],

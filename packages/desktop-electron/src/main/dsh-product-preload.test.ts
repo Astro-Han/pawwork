@@ -36,7 +36,7 @@ describe("PawWork DSH product preload", () => {
     })
 
     expect(listeners).toHaveLength(1)
-    expect(exposed).toEqual(["pawworkLifecycle", "pawworkFiles", "pawworkCommunityMarket"])
+    expect(exposed).toEqual(["pawworkLifecycle", "pawworkFiles", "pawworkCommunityMarket", "pawworkUpdater"])
     document.documentElement = { appendChild: (style: { textContent: string }) => void styles.push(style) }
     listeners[0]()
     expect(styles).toHaveLength(1)
@@ -59,7 +59,7 @@ describe("PawWork DSH product preload", () => {
       },
     })
 
-    expect([...exposed.keys()]).toEqual(["pawworkLifecycle", "pawworkFiles", "pawworkCommunityMarket"])
+    expect([...exposed.keys()]).toEqual(["pawworkLifecycle", "pawworkFiles", "pawworkCommunityMarket", "pawworkUpdater"])
     exposed.get("pawworkLifecycle")!.ready()
     expect(send).toHaveBeenCalledWith("pawwork:product-ready")
   })
@@ -188,6 +188,56 @@ describe("PawWork DSH product preload", () => {
       ["pawwork:dsh-community-market:disable"],
     ])
     expect(send).toHaveBeenCalledWith("pawwork:dsh-restart")
+  })
+  test("exposes the bounded updater bridge with a state subscription", async () => {
+    const snapshot = { state: { status: "ready", version: "0.2.5" }, progress: null, currentVersion: "0.2.4" }
+    const invoke = vi.fn(async () => snapshot)
+    const send = vi.fn(() => {})
+    const listeners = new Map<string, Array<(_event: unknown, payload: unknown) => void>>()
+    const ipcRenderer = {
+      invoke,
+      send,
+      on: (channel: string, listener: (_event: unknown, payload: unknown) => void) => {
+        listeners.set(channel, [...(listeners.get(channel) ?? []), listener])
+      },
+      removeListener: (channel: string, listener: (_event: unknown, payload: unknown) => void) => {
+        listeners.set(channel, (listeners.get(channel) ?? []).filter((candidate) => candidate !== listener))
+      },
+    }
+    const exposed = new Map<string, Record<string, (...args: unknown[]) => unknown>>()
+
+    vm.runInNewContext(readFileSync(preloadPath, "utf8"), {
+      require: (name: string) => {
+        if (name === "electron") {
+          return {
+            contextBridge: { exposeInMainWorld: (key: string, api: Record<string, (...args: unknown[]) => unknown>) => exposed.set(key, api) },
+            ipcRenderer,
+          }
+        }
+        throw new Error(`unexpected preload dependency: ${name}`)
+      },
+    })
+
+    const api = exposed.get("pawworkUpdater")!
+    expect(Object.keys(api).sort()).toEqual(["check", "getState", "install", "openDownloadPage", "subscribe"])
+    await expect(api.getState()).resolves.toBe(snapshot)
+    await api.check()
+    await api.install()
+    api.openDownloadPage()
+    expect(invoke.mock.calls).toEqual([
+      ["pawwork:updater:get-state"],
+      ["pawwork:updater:check"],
+      ["pawwork:updater:install"],
+    ])
+    expect(send).toHaveBeenCalledWith("pawwork:updater:open-download-page")
+
+    const received: unknown[] = []
+    const unsubscribe = api.subscribe((payload: unknown) => received.push(payload)) as () => void
+    for (const listener of listeners.get("pawwork:updater:state") ?? []) listener({}, snapshot)
+    expect(received).toEqual([snapshot])
+    unsubscribe()
+    for (const listener of listeners.get("pawwork:updater:state") ?? []) listener({}, snapshot)
+    expect(received).toEqual([snapshot])
   })
 
 })

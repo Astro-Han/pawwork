@@ -131,6 +131,11 @@
       name: '@pawwork/dsh-automations'
     - id: pawwork-web-search
       name: '@pawwork/dsh-web-search'
+    # The in-app update UI: settings section, ready toast, sidebar indicator.
+    # Pure presentation over the preload's pawworkUpdater bridge; the updater
+    # state machine stays in the Electron main process.
+    - id: pawwork-updater
+      name: '@pawwork/dsh-updater'
     # The fetch provider behind the `web_fetch` tool re-enabled above. dsh-base
     # mounts none, so without this row the tool exists and every call answers
     # `no usable web provider is registered`.

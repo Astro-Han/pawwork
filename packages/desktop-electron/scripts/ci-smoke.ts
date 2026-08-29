@@ -49,6 +49,9 @@ export type CiSmokeProductSnapshot = {
   heroPreviewBadgeHidden: boolean
   heroMarkHeadlineOffset: number
   automationSettingsEntryVisible: boolean
+  updateSettingsEntryVisible: boolean
+  updateSectionVisible: boolean
+  updateSectionReportsStatus: boolean
   automationSidebarEntryAbsent: boolean
   automationSurfaceVisible: boolean
   automationCreateViaChatWorked: boolean
@@ -515,6 +518,23 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
     const automationSurfaceVisible = visible(document.querySelector(".pawwork-automations-surface"))
+    const updateSettingsEntry = visibleButton(/^(软件更新|Software Update)$/i)
+    const updateSettingsEntryVisible = visible(updateSettingsEntry)
+    updateSettingsEntry?.click()
+    for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-update-section")); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    const updateSectionVisible = visible(document.querySelector(".pawwork-update-section"))
+    // The smoke runs an unpackaged or non-prod build, so the updater is gated off and the
+    // section must say so; a packaged prod smoke may instead be mid-check. Either way the
+    // status card must carry live text from the bridge, not an empty shell.
+    const updateStatusText = (document.querySelector(".pawwork-update-status")?.textContent || "").trim()
+    const updateSectionReportsStatus = updateStatusText.length > 0
+    // The automation flow below expects its own surface; navigate back first.
+    visibleButton(/^(自动化|Automations)$/i)?.click()
+    for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-automations-surface")); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
     document.querySelector(".pawwork-automations-create")?.click()
     let automationCreateViaChatWorked = false
     for (let attempt = 0; attempt < 40 && !automationCreateViaChatWorked; attempt += 1) {
@@ -778,6 +798,9 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       heroPreviewBadgeHidden,
       heroMarkHeadlineOffset,
       automationSettingsEntryVisible,
+      updateSettingsEntryVisible,
+      updateSectionVisible,
+      updateSectionReportsStatus,
       automationSidebarEntryAbsent,
       automationSurfaceVisible,
       automationCreateViaChatWorked,
@@ -1022,6 +1045,9 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.heroPreviewBadgeHidden ? null : "DSH preview badge is still visible on the hero",
     snapshot.heroMarkHeadlineOffset <= 1 ? null : `hero mark sits ${snapshot.heroMarkHeadlineOffset.toFixed(1)}px off the headline centre`,
     snapshot.automationSettingsEntryVisible ? null : "Automation Settings entry is not visible",
+    snapshot.updateSettingsEntryVisible ? null : "Software Update settings entry is not visible",
+    snapshot.updateSectionVisible ? null : "Software Update section did not open",
+    snapshot.updateSectionReportsStatus ? null : "Software Update section shows no status from the updater bridge",
     snapshot.automationSidebarEntryAbsent ? null : "Automation should not occupy the sidebar",
     snapshot.automationSurfaceVisible ? null : "Automation surface did not open",
     snapshot.automationCreateViaChatWorked ? null : "Automation did not create through the visible chat path",

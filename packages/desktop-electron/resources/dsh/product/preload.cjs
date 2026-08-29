@@ -68,3 +68,15 @@ contextBridge.exposeInMainWorld("pawworkCommunityMarket", {
   disable: () => ipcRenderer.invoke("pawwork:dsh-community-market:disable"),
   restart: () => ipcRenderer.send("pawwork:dsh-restart"),
 })
+
+contextBridge.exposeInMainWorld("pawworkUpdater", {
+  getState: () => ipcRenderer.invoke("pawwork:updater:get-state"),
+  check: () => ipcRenderer.invoke("pawwork:updater:check"),
+  install: () => ipcRenderer.invoke("pawwork:updater:install"),
+  openDownloadPage: () => ipcRenderer.send("pawwork:updater:open-download-page"),
+  subscribe: (listener) => {
+    const forward = (_event, payload) => listener(payload)
+    ipcRenderer.on("pawwork:updater:state", forward)
+    return () => ipcRenderer.removeListener("pawwork:updater:state", forward)
+  },
+})
