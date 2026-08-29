@@ -39,6 +39,62 @@ function controller(overrides: Partial<Parameters<typeof createUpdaterController
   }
 }
 
+describe("updater controller state", () => {
+  test("starts idle when enabled", () => {
+    const setup = controller()
+    expect(setup.updater.getState()).toEqual({ status: "idle" })
+  })
+
+  test("starts disabled when the updater is gated off", () => {
+    const setup = controller({ enabled: false })
+    expect(setup.updater.getState()).toEqual({ status: "disabled" })
+  })
+
+  test("moves through checking to none and notifies subscribers", async () => {
+    const setup = controller()
+    const seen: Array<unknown> = []
+    setup.updater.subscribe(() => seen.push(setup.updater.getState()))
+    await setup.updater.check()
+    expect(seen).toEqual([{ status: "checking" }, { status: "none" }])
+  })
+
+  test("observes downloading then ready with the update version", async () => {
+    const setup = controller({
+      checkForUpdates: async () => ({
+        isUpdateAvailable: true,
+        updateInfo: { version: "0.2.5", files: [{ url: "app.zip" }] },
+      }),
+    })
+    const seen: Array<unknown> = []
+    setup.updater.subscribe(() => seen.push(setup.updater.getState()))
+    await setup.updater.check()
+    expect(seen).toEqual([
+      { status: "checking" },
+      { status: "downloading", version: "0.2.5" },
+      { status: "ready", version: "0.2.5" },
+    ])
+  })
+
+  test("observes a failed check with its reason", async () => {
+    const setup = controller({
+      checkForUpdates: async () => {
+        throw new Error("offline")
+      },
+    })
+    await setup.updater.check()
+    expect(setup.updater.getState()).toEqual({ status: "failed", reason: "check", message: "offline" })
+  })
+
+  test("stops notifying an unsubscribed listener", async () => {
+    const setup = controller()
+    const seen: Array<unknown> = []
+    const unsubscribe = setup.updater.subscribe(() => seen.push(setup.updater.getState()))
+    unsubscribe()
+    await setup.updater.check()
+    expect(seen).toEqual([])
+  })
+})
+
 describe("updater controller", () => {
   test("reports disabled when updater is gated off", async () => {
     const setup = controller({ enabled: false })

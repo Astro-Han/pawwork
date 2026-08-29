@@ -8,6 +8,19 @@ function errorMessage(error: unknown): string {
 // updater-dialog-labels is typed against it.
 export type UpdateFailureReason = "check" | "download" | "metadata" | "cache"
 
+// The renderer-observable projection of the controller. `idle` is pre-first-check;
+// `none` is a settled check that found nothing newer. Unlike UpdateResult there is
+// no `busy`: a second check during an in-flight one leaves the observed state on the
+// in-flight phase, which already says what the UI needs.
+export type UpdaterState =
+  | { status: "idle" }
+  | { status: "disabled" }
+  | { status: "checking" }
+  | { status: "downloading"; version: string }
+  | { status: "none" }
+  | { status: "ready"; version: string }
+  | { status: "failed"; reason: UpdateFailureReason; message: string }
+
 export type UpdateResult =
   | { status: "disabled" }
   | { status: "none" }
@@ -45,6 +58,22 @@ function newerThanCurrent(version: string, currentVersion: string) {
 export function createUpdaterController(deps: Deps) {
   let inflight: Promise<UpdateResult> | undefined
   let readyVersion: string | undefined
+  let state: UpdaterState = deps.enabled ? { status: "idle" } : { status: "disabled" }
+  const listeners = new Set<() => void>()
+
+  const setState = (next: UpdaterState) => {
+    state = next
+    for (const listener of listeners) listener()
+  }
+
+  const fail = (reason: UpdateFailureReason, message: string): UpdateResult => {
+    setState({ status: "failed", reason, message })
+    return { status: "failed", reason, message }
+  }
+  const none = (): UpdateResult => {
+    setState({ status: "none" })
+    return { status: "none" }
+  }
 
   const run = async (): Promise<UpdateResult> => {
     if (!deps.enabled) return { status: "disabled" }
@@ -52,7 +81,7 @@ export function createUpdaterController(deps: Deps) {
     if (readyVersion !== undefined) {
       const comparison = newerThanCurrent(readyVersion, currentVersion)
       if (comparison === "invalid") {
-        return { status: "failed", reason: "metadata", message: "Update version is invalid" }
+        return fail("metadata", "Update version is invalid")
       }
       if (comparison) {
         deps.log("update already downloaded", { releaseVersion: readyVersion })
@@ -62,12 +91,13 @@ export function createUpdaterController(deps: Deps) {
         await deps.clearPendingUpdate()
       } catch (error) {
         deps.error("stale update cache cleanup failed", error)
-        return { status: "failed", reason: "cache", message: errorMessage(error) }
+        return fail("cache", errorMessage(error))
       }
       readyVersion = undefined
     }
     let clearedStalePendingMetadata = false
 
+    setState({ status: "checking" })
     while (true) {
       deps.log("checking for updates", { currentVersion })
 
@@ -77,12 +107,12 @@ export function createUpdaterController(deps: Deps) {
       } catch (error) {
         deps.error("update check failed", error)
         if (isInvalidVersionError(error)) {
-          return { status: "failed", reason: "metadata", message: errorMessage(error) }
+          return fail("metadata", errorMessage(error))
         }
-        return { status: "failed", reason: "check", message: errorMessage(error) }
+        return fail("check", errorMessage(error))
       }
 
-      if (!result) return { status: "none" }
+      if (!result) return none()
 
       const info = result.updateInfo
       deps.log("update metadata fetched", {
@@ -90,35 +120,37 @@ export function createUpdaterController(deps: Deps) {
         files: info?.files?.map((file) => file.url) ?? [],
       })
 
-      if (!result.isUpdateAvailable) return { status: "none" }
-      if (!info?.version) return { status: "failed", reason: "metadata", message: "Update metadata has no version" }
+      if (!result.isUpdateAvailable) return none()
+      if (!info?.version) return fail("metadata", "Update metadata has no version")
       if (!info.files || info.files.length === 0) {
-        return { status: "failed", reason: "metadata", message: "Update metadata has no files" }
+        return fail("metadata", "Update metadata has no files")
       }
       const comparison = newerThanCurrent(info.version, currentVersion)
       if (comparison === "invalid") {
-        return { status: "failed", reason: "metadata", message: "Update version is invalid" }
+        return fail("metadata", "Update version is invalid")
       }
       if (!comparison) {
-        if (clearedStalePendingMetadata) return { status: "none" }
+        if (clearedStalePendingMetadata) return none()
         try {
           await deps.clearPendingUpdate()
         } catch (error) {
           deps.error("stale update cache cleanup failed", error)
-          return { status: "failed", reason: "cache", message: errorMessage(error) }
+          return fail("cache", errorMessage(error))
         }
         clearedStalePendingMetadata = true
         continue
       }
 
+      setState({ status: "downloading", version: info.version })
       try {
         await deps.downloadUpdate()
       } catch (error) {
         deps.error("update download failed", error)
-        return { status: "failed", reason: "download", message: errorMessage(error) }
+        return fail("download", errorMessage(error))
       }
 
       readyVersion = info.version
+      setState({ status: "ready", version: info.version })
       return { status: "ready", version: info.version }
     }
   }
@@ -149,6 +181,13 @@ export function createUpdaterController(deps: Deps) {
       readyVersion = undefined
       deps.log("dismissed ready update")
       return true
+    },
+    getState() {
+      return state
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
     },
   }
 }
