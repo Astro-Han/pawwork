@@ -124,6 +124,15 @@ function componentFor(registered, slotName) {
   return entry;
 }
 
+test('host entry imports without browser globals and applies as a no-op', async () => {
+  // The cordis loader imports the package main inside the DSH sidecar (plain
+  // Node): a host entry that touches window at import time takes the whole
+  // profile down, which is exactly how this plugin first failed to boot.
+  const { apply } = await import('./index.js');
+  assert.equal(typeof apply, 'function');
+  apply();
+});
+
 test('registers the settings section, ready toast and sidebar indicator', async () => {
   const { registered } = await applyPlugin({ bridge: bridgeWith({ state: { status: 'none' }, progress: null, currentVersion: '1.0.0' }) });
   const names = registered.map(({ spec }) => spec.name).sort();
@@ -218,6 +227,15 @@ test('sidebar indicator only appears for a ready update and resurfaces the toast
   assert.ok(rendersNull(toast.component({})));
   rendered(tree).find((element) => element.type === 'button').props.onClick();
   assert.ok(!rendersNull(toast.component({})));
+});
+
+test('settings section treats a gated-off updater as unavailable', async () => {
+  const bridge = bridgeWith({ state: { status: 'disabled' }, progress: null, currentVersion: '1.0.0-dev' });
+  const { registered } = await applyPlugin({ bridge });
+  const tree = componentFor(registered, 'settings.section').component({ close: () => {} });
+  const text = texts(tree).join('\n');
+  assert.match(text, /不提供|unavailable/);
+  assert.ok(rendered(tree).some((element) => element.type === 'Button'));
 });
 
 test('surfaces an honest unavailable state when the preload bridge is missing', async () => {

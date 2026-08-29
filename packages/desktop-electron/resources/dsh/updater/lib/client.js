@@ -115,6 +115,9 @@ window.__ModuleLoader__.load({
       switch (state.status) {
         case "loading": return text("正在读取更新状态…", "Reading update status…")
         case "unavailable": return text("当前环境不提供自动更新。", "Automatic updates are unavailable in this environment.")
+        // Packaged non-prod channels and dev builds: the updater is gated off,
+        // which to the user is the same as unavailable.
+        case "disabled": return text("当前环境不提供自动更新。", "Automatic updates are unavailable in this environment.")
         case "idle": return text("尚未检查更新。", "Not checked yet.")
         case "checking": return text("正在检查更新…", "Checking for updates…")
         case "downloading": return downloadLabel(state)
@@ -145,7 +148,7 @@ window.__ModuleLoader__.load({
             state.status === "failed"
               ? h(Button, { size: "sm", variant: "primary", onClick: () => bridge?.check() }, text("重试", "Retry"))
               : null,
-            state.status === "failed" || state.status === "unavailable"
+            state.status === "failed" || state.status === "unavailable" || state.status === "disabled"
               ? h(Button, { size: "sm", onClick: () => bridge?.openDownloadPage() }, text("打开下载页", "Open Download Page"))
               : null,
             state.status === "idle" || state.status === "none"
