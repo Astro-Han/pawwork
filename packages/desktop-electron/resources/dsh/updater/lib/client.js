@@ -59,8 +59,9 @@ window.__ModuleLoader__.load({
     // which is window-session-local presentation state.
     // The plugin boots before main's DSH lifecycle is ready, so the first
     // getState can legitimately reject. Retry with a short backoff; only after
-    // the ladder is exhausted is the bridge honestly unavailable. A broadcast
-    // arriving mid-ladder is fine — it simply overwrites the snapshot first.
+    // the ladder is exhausted is the bridge honestly unavailable. Revision-
+    // guarded, so a subscription payload arriving mid-ladder is never clobbered
+    // by an older read settling late — succeeding or failing.
     const RETRY_LADDER_MS = [200, 400, 800, 1600, 3200]
 
     function createUpdaterStore(bridge) {
@@ -71,7 +72,12 @@ window.__ModuleLoader__.load({
       const emit = () => {
         for (const listener of listeners) listener()
       }
+      // Monotonic adoption counter. A getState read spans real time; a
+      // subscription payload that arrives mid-read is strictly newer, so a
+      // read that started before it must not adopt or fail into unavailable.
+      let revision = 0
       const adopt = (payload) => {
+        revision += 1
         snapshot = { status: payload.state.status, ...payload.state, progress: payload.progress, currentVersion: payload.currentVersion }
         emit()
       }
@@ -82,7 +88,12 @@ window.__ModuleLoader__.load({
           adopt(payload)
         })
         const readState = (attempt) => {
-          bridge.getState().then(adopt, () => {
+          const requestRevision = revision
+          bridge.getState().then((payload) => {
+            if (requestRevision !== revision) return
+            adopt(payload)
+          }, () => {
+            if (requestRevision !== revision) return
             if (attempt >= RETRY_LADDER_MS.length) {
               snapshot = { status: "unavailable" }
               emit()
@@ -162,7 +173,7 @@ window.__ModuleLoader__.load({
               ? h(Button, { size: "sm", variant: "primary", onClick: () => bridge?.check() }, text("重试", "Retry"))
               : null,
             state.status === "failed" || state.status === "unavailable" || state.status === "disabled"
-              ? h(Button, { size: "sm", onClick: () => bridge?.openDownloadPage() }, text("打开下载页", "Open Download Page"))
+              ? h(Button, { disabled: !bridge, size: "sm", onClick: () => bridge?.openDownloadPage() }, text("打开下载页", "Open Download Page"))
               : null,
             state.status === "idle" || state.status === "none"
               ? h(Button, { disabled: busy || !bridge, size: "sm", onClick: () => bridge?.check() }, text("检查更新", "Check for Updates"))

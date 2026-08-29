@@ -22,32 +22,38 @@ type Deps = {
 
 export function createUpdateScheduler(deps: Deps) {
   let running = false
+  // Retires in-flight cycles: stop() cannot cancel a check that is already
+  // awaited, so a restart would otherwise let the orphaned continuation pass
+  // the running guard and schedule a second, unstoppable timer chain.
+  let generation = 0
   let timer: unknown
 
-  const scheduleNext = () => {
-    timer = deps.setTimer(() => void cycle(), deps.intervalMs)
+  const scheduleNext = (cycleGeneration: number) => {
+    timer = deps.setTimer(() => void cycle(cycleGeneration), deps.intervalMs)
   }
 
-  const cycle = async () => {
+  const cycle = async (cycleGeneration: number) => {
     // A rejecting check is a failed check for scheduling purposes: the chain
     // must survive it, or one bad network blip would end all future checks.
     const result = await deps.check().catch(() => ({ status: "failed" }) as UpdateResult)
-    if (!running) return
+    if (!running || cycleGeneration !== generation) return
     if (result.status === "ready") {
       running = false
       return
     }
-    scheduleNext()
+    scheduleNext(cycleGeneration)
   }
 
   return {
     start() {
       if (running) return
       running = true
-      void cycle()
+      generation += 1
+      void cycle(generation)
     },
     stop() {
       running = false
+      generation += 1
       if (timer !== undefined) deps.clearTimer(timer)
       timer = undefined
     },

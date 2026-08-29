@@ -231,6 +231,27 @@ test('sidebar indicator only appears for a ready update and resurfaces the toast
   assert.ok(!rendersNull(toast.component({})));
 });
 
+test('a subscribed payload survives an earlier in-flight read resolving late', async () => {
+  // The read started before the broadcast, so its answer is older state;
+  // adopting it on settlement would clobber the newer subscribed snapshot.
+  let subscriber;
+  let resolveRead;
+  const bridge = {
+    calls: { check: 0, install: 0, openDownloadPage: 0 },
+    getState: () => new Promise((resolve) => { resolveRead = resolve; }),
+    check: async () => {},
+    install: async () => {},
+    openDownloadPage: () => {},
+    subscribe: (listener) => { subscriber = listener; return () => {}; },
+  };
+  const { registered } = await applyPlugin({ bridge });
+  subscriber({ state: { status: 'ready', version: '9.9.9' }, progress: null, currentVersion: '1.0.0' });
+  resolveRead({ state: { status: 'none' }, progress: null, currentVersion: '1.0.0' });
+  await new Promise((resolve) => setImmediate(resolve));
+  const tree = componentFor(registered, 'settings.section').component({ close: () => {} });
+  assert.match(texts(tree).join('\n'), /已就绪|is ready/);
+});
+
 test('recovers when the first state read lands before the main process is ready', async () => {
   // At client boot the DSH lifecycle in main may not be ready yet, so the
   // first getState rejects. The store must retry rather than latch
@@ -270,6 +291,9 @@ test('surfaces an honest unavailable state when the preload bridge is missing', 
   const { registered } = await applyPlugin({ bridge: undefined });
   const tree = componentFor(registered, 'settings.section').component({ close: () => {} });
   assert.match(texts(tree).join('\n'), /不提供|unavailable/);
+  // Without the bridge the download-page action would be a dead button.
+  const page = rendered(tree).find((element) => element.type === 'Button' && JSON.stringify(element.props.children).match(/下载页|Download Page/));
+  assert.equal(page.props.disabled, true);
   assert.ok(rendersNull(componentFor(registered, 'shell.overlay').component({})));
   assert.ok(rendersNull(componentFor(registered, 'sidebar.footer.action').component({ wide: false })));
 });

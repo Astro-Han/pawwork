@@ -118,6 +118,34 @@ describe("update scheduler", () => {
     scheduler.stop()
   })
 
+  test("a cycle orphaned by stop+start cannot schedule a second chain", async () => {
+    // stop() clears the pending timer but not an in-flight check; a start()
+    // during that window must retire the old cycle before it schedules again,
+    // or two timer chains run side by side and only the newest is stoppable.
+    const resolvers: Array<(result: UpdateResult) => void> = []
+    const { scheduler, liveCount } = harness(
+      () =>
+        new Promise<UpdateResult>((resolve) => {
+          resolvers.push(resolve)
+        }),
+    )
+    scheduler.start()
+    await flush()
+    scheduler.stop()
+    scheduler.start()
+    await flush()
+    expect(resolvers).toHaveLength(2)
+    resolvers[0]({ status: "none" })
+    await flush()
+    // The orphaned cycle must retire silently: nothing scheduled yet, and the
+    // still in-flight restart cycle has not resolved. Pre-fix this was 1.
+    expect(liveCount()).toBe(0)
+    resolvers[1]({ status: "none" })
+    await flush()
+    expect(liveCount()).toBe(1)
+    scheduler.stop()
+  })
+
   test("stop prevents the scheduled check from running", async () => {
     let checks = 0
     const { scheduler, tick } = harness(async () => {
