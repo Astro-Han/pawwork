@@ -176,12 +176,6 @@ export function createUpdaterController(deps: Deps) {
       readyVersion = undefined
       return true
     },
-    dismissReady() {
-      if (readyVersion === undefined) return false
-      readyVersion = undefined
-      deps.log("dismissed ready update")
-      return true
-    },
     getState() {
       return state
     },

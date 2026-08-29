@@ -160,23 +160,6 @@ describe("updater controller", () => {
     await expect(setup.updater.check()).resolves.toEqual({ status: "ready", version: "0.2.5" })
   })
 
-  test("can dismiss a ready update before checking again", async () => {
-    const setup = controller({
-      checkForUpdates: async () => {
-        setup.calls.check += 1
-        if (setup.calls.check === 1) {
-          return { isUpdateAvailable: true, updateInfo: { version: "0.2.5", files: [{ url: "app.zip" }] } }
-        }
-        return { isUpdateAvailable: false, updateInfo: { version: "0.2.4", files: [] } }
-      },
-    })
-
-    await expect(setup.updater.check()).resolves.toEqual({ status: "ready", version: "0.2.5" })
-    expect(setup.updater.dismissReady()).toBe(true)
-    await expect(setup.updater.check()).resolves.toEqual({ status: "none" })
-    expect(setup.calls.check).toBe(2)
-  })
-
   test("reports busy during inflight check", async () => {
     let release: (() => void) | undefined
     const setup = controller({
