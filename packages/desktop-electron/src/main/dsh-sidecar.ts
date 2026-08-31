@@ -31,12 +31,13 @@ type LaunchDshSidecarOptions = {
   sidecarPreload: string
   productPatch: string
   env: NodeJS.ProcessEnv
-  timeoutMs: number
+  slowAfterMs: number
   stopTimeoutMs?: number
   spawn: SpawnDshProcess
   onStdout?: (chunk: string) => void
   onStderr?: (chunk: string) => void
   onError?: (error: Error) => void
+  onSlow?: () => void
 }
 
 export type DshRun = {
@@ -88,7 +89,7 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   let stdoutBuffer = ""
   let settled = false
   let stopping: Promise<void> | undefined
-  let timeout: ReturnType<typeof setTimeout> | undefined
+  let slowTimer: ReturnType<typeof setTimeout> | undefined
   let rejectReady!: (error: Error) => void
   const stopTimeoutMs = options.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS
 
@@ -104,7 +105,7 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   }
 
   const cleanupReadiness = () => {
-    if (timeout !== undefined) clearTimeout(timeout)
+    if (slowTimer !== undefined) clearTimeout(slowTimer)
     child.stdout?.off("data", onStdout)
     child.off("exit", onEarlyExit)
   }
@@ -180,9 +181,14 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   child.once("exit", onEarlyExit)
   child.on("error", onSpawnError)
 
-  timeout = setTimeout(() => {
-    void fail(new Error(`DSH did not announce readiness within ${options.timeoutMs}ms`), true)
-  }, options.timeoutMs)
+  // DSH prints nothing at all until the ready line, so elapsed silence carries
+  // no information about whether it is wedged or merely slow — a first launch
+  // behind an antivirus scan of the freshly unpacked runtime looks exactly like
+  // a hang. Treating a deadline as failure here only ever killed installs that
+  // were about to succeed (#1614). The failures that are real announce
+  // themselves: the process exits, or the spawn errors. This timer just says
+  // "still going" so the window can stop pretending nothing is happening.
+  slowTimer = setTimeout(() => options.onSlow?.(), options.slowAfterMs)
 
   return { ready, exited, stop: stopProcess }
 }

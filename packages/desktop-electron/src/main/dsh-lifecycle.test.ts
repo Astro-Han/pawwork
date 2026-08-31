@@ -102,27 +102,34 @@ describe("DshLifecycle", () => {
     expect(states.map((state) => state.phase)).toEqual(["starting", "loading", "ready"])
   })
 
-  test("fails when the product tree never becomes ready", async () => {
+  // A product tree that is slow to commit is still loading, not broken: the
+  // window is already showing it, and giving up would close a session that was
+  // about to open. Report it and keep waiting (#1614).
+  test("keeps loading when the product tree is slow to become ready", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     const spawned = run()
+    let slowCalls = 0
     const lifecycle = new DshLifecycle({
       launch: () => spawned.sidecar,
       onChange: () => {},
+      onSlowProduct: () => {
+        slowCalls += 1
+      },
     })
 
     lifecycle.start()
     spawned.ready.resolve("http://127.0.0.1:43123")
     await vi.advanceTimersByTimeAsync(30_000)
 
-    expect(spawned.stop).toHaveBeenCalledTimes(1)
-    expect(lifecycle.state).toMatchObject({
-      phase: "failed",
-      reason: "startup",
-      error: new Error("DSH product did not become ready within 30000ms"),
-    })
+    expect(slowCalls).toBe(1)
+    expect(spawned.stop).not.toHaveBeenCalled()
+    expect(lifecycle.state.phase).toBe("loading")
+
+    lifecycle.productReady("http://127.0.0.1:43123/session/new")
+    expect(lifecycle.state.phase).toBe("ready")
   })
 
-  test("stopping product loading cancels its deadline", async () => {
+  test("stopping product loading cancels its slow report", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     const spawned = run()
     const lifecycle = new DshLifecycle({

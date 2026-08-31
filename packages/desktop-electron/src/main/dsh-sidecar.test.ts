@@ -58,7 +58,7 @@ describe("DSH sidecar lifecycle", () => {
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
       productPatch: "/data/dsh/product.cordis.patch.yml",
       env: { PATH: "/app/tools:/usr/bin", DSH_HOME: "/data/dsh", ELECTRON_RUN_AS_NODE: "1" },
-      timeoutMs: 100,
+      slowAfterMs: 100,
       spawn: (executable, args, options) => {
         invocation = { executable, args, options }
         return child
@@ -103,7 +103,7 @@ describe("DSH sidecar lifecycle", () => {
       sidecarPreload: "file:///app/preload.mjs",
       productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
-      timeoutMs: 100,
+      slowAfterMs: 100,
       spawn: () => child,
     })
 
@@ -126,7 +126,7 @@ describe("DSH sidecar lifecycle", () => {
       sidecarPreload: "file:///app/preload.mjs",
       productPatch: "/data/dsh/product.cordis.patch.yml",
       env: { PATH: "/usr/bin" },
-      timeoutMs: 500,
+      slowAfterMs: 500,
       spawn: () => child,
     })
 
@@ -149,7 +149,7 @@ describe("DSH sidecar lifecycle", () => {
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
       productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
-      timeoutMs: 100,
+      slowAfterMs: 100,
       spawn: () => child,
     })
 
@@ -166,7 +166,7 @@ describe("DSH sidecar lifecycle", () => {
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
       productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
-      timeoutMs: 100,
+      slowAfterMs: 100,
       spawn: () => child,
     })
 
@@ -187,7 +187,7 @@ describe("DSH sidecar lifecycle", () => {
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
       productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
-      timeoutMs: 100,
+      slowAfterMs: 100,
       spawn: () => child,
       onError: (error) => errors.push(error),
     })
@@ -202,45 +202,53 @@ describe("DSH sidecar lifecycle", () => {
     expect([child.messages, child.killSignals]).toEqual([[], []])
   })
 
-  test("force-terminates the owned child process when readiness times out", async () => {
+  // #1614: DSH is silent until its ready line, so a slow start is
+  // indistinguishable from a wedged one from the outside. Killing on a deadline
+  // turned installs that were merely slow into an app that could never open.
+  test("keeps waiting on a silent child instead of killing it, and says it is slow", async () => {
     const child = new FakeChildProcess()
-    child.gracefulExit = false
+    let slowCalls = 0
     const launched = launchDshSidecar({
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
       productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
-      timeoutMs: 1,
-      stopTimeoutMs: 1,
+      slowAfterMs: 1,
       spawn: () => child,
+      onSlow: () => {
+        slowCalls += 1
+      },
     })
 
-    await expect(launched.ready).rejects.toThrow("DSH did not announce readiness within 1ms")
-    await launched.exited
-    expect(child.messages).toEqual(["SIGTERM"])
-    expect(child.killSignals).toEqual(["SIGKILL"])
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(slowCalls).toBe(1)
+    expect([child.messages, child.killSignals]).toEqual([[], []])
+
+    child.stdout.write("dsh web: http://127.0.0.1:4321\n")
+    await expect(launched.ready).resolves.toBe("http://127.0.0.1:4321")
   })
 
-  test("reports a readiness timeout before the resulting process exit", async () => {
+  test("does not report slowness once the child is already ready", async () => {
     const child = new FakeChildProcess()
+    let slowCalls = 0
     const launched = launchDshSidecar({
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
       productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
-      timeoutMs: 1,
+      slowAfterMs: 10,
       spawn: () => child,
+      onSlow: () => {
+        slowCalls += 1
+      },
     })
-    const outcomes: string[] = []
 
-    await Promise.all([
-      launched.ready.catch((error: Error) => outcomes.push(error.message)),
-      launched.exited.then(() => outcomes.push("exited")),
-    ])
-
-    expect(outcomes).toEqual(["DSH did not announce readiness within 1ms", "exited"])
+    child.stdout.write("dsh web: http://127.0.0.1:4321\n")
+    await launched.ready
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(slowCalls).toBe(0)
   })
 
   test("stops the owned child process once across concurrent and repeated calls", async () => {
@@ -251,7 +259,7 @@ describe("DSH sidecar lifecycle", () => {
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
       productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
-      timeoutMs: 100,
+      slowAfterMs: 100,
       spawn: () => child,
     })
     child.stdout.write("dsh web: http://127.0.0.1:43123\n")
@@ -277,7 +285,7 @@ describe("DSH sidecar lifecycle", () => {
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
       productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
-      timeoutMs: 100,
+      slowAfterMs: 100,
       stopTimeoutMs: 1,
       spawn: () => child,
     })

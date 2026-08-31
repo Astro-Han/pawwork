@@ -63,6 +63,10 @@ if (process.platform === "darwin") {
 const CI_SMOKE_HOME = process.env.PAWWORK_CI_SMOKE_HOME
 const CI_SMOKE_ENABLED = process.env.PAWWORK_CI_SMOKE === "true"
 const UPDATE_FEED_TIMEOUT_MS = 10_000
+// How long a start may run before the window stops looking like a plain
+// spinner and says it is still working. Not a deadline: nothing is cancelled
+// when it passes.
+const DSH_SLOW_AFTER_MS = 30_000
 // Silent re-check cadence while the app runs: frequent enough that users who
 // never quit pick up a release the same day, sparse enough to stay noise-free.
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
@@ -109,7 +113,14 @@ let startupColorScheme: StartupColorScheme | undefined = readStartupColorScheme(
 let currentProgress: number | null = null
 const dshHostToken = randomUUID()
 
-const lifecycle = new DshLifecycle({ launch: launchDsh, onChange: handleLifecycleChange })
+const lifecycle = new DshLifecycle({
+  launch: launchDsh,
+  onChange: handleLifecycleChange,
+  // Log only. By this point the window is already loading the product page, and
+  // navigating it back to the startup page to show a note would abort the very
+  // load being waited on.
+  onSlowProduct: () => logger.warn("DSH product still loading"),
+})
 
 function buildUpdateFeeds(): FeedTarget[] {
   return [
@@ -372,8 +383,9 @@ function dshUrl() {
   return lifecycle.url
 }
 
-function showStartupPage() {
-  for (const win of liveWindows()) navigateWindow(win, startupUrl(startupColorScheme))
+function showStartupPage(slow = false) {
+  const locale = slow ? menuLocale : undefined
+  for (const win of liveWindows()) navigateWindow(win, startupUrl(startupColorScheme, locale))
 }
 
 async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed" }>) {
@@ -557,7 +569,11 @@ function launchDsh() {
     sidecarPreload: pathToFileURL(product.sidecarPreload).href,
     productPatch: product.patch,
     env: environment,
-    timeoutMs: 30_000,
+    slowAfterMs: DSH_SLOW_AFTER_MS,
+    onSlow: () => {
+      logger.warn("DSH runtime still starting", { afterMs: DSH_SLOW_AFTER_MS })
+      showStartupPage(true)
+    },
     spawn: (executable, args, options) => spawn(executable, args, options),
     onStdout: (chunk) => logger.log("DSH stdout", { chunk: chunk.trimEnd() }),
     onStderr: (chunk) => {

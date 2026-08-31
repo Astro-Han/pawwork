@@ -13,21 +13,36 @@ const root = dirname(fileURLToPath(import.meta.url))
 // disagrees with their OS. `scheme` is the last appearance the product
 // published; the media query stays as the answer for the very first launch,
 // when there is nothing remembered yet.
-const startupHtml = (scheme?: StartupColorScheme) => `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>PawWork</title><style>
-:root{--bg:#fff;--line:#e3e3e7;--accent:#fc5c14}${scheme === undefined
-  ? "@media(prefers-color-scheme:dark){:root{--bg:#191919;--line:#2d2d31}}"
-  : scheme === "dark" ? ":root{--bg:#191919;--line:#2d2d31}" : ""}
-html,body{height:100%;margin:0}body{align-items:center;background:var(--bg);display:flex;justify-content:center}
+// Shown once a start has already run long enough to look stuck. It is not an
+// error: a first launch after an update can spend minutes unpacking and being
+// scanned before the runtime says anything at all, and the app used to give up
+// on those installs (#1614). Saying so beats a spinner that reads as a hang.
+const SLOW_NOTE = {
+  en: "Still starting. The first launch after an update can take a few minutes.",
+  zh: "仍在启动。更新后的首次启动可能需要几分钟。",
+} as const
+
+export type StartupLocale = keyof typeof SLOW_NOTE
+
+const startupHtml = (scheme?: StartupColorScheme, slowNote?: string) => `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>PawWork</title><style>
+:root{--bg:#fff;--line:#e3e3e7;--accent:#fc5c14;--note:#6b6b70}${scheme === undefined
+  ? "@media(prefers-color-scheme:dark){:root{--bg:#191919;--line:#2d2d31;--note:#9a9aa0}}"
+  : scheme === "dark" ? ":root{--bg:#191919;--line:#2d2d31;--note:#9a9aa0}" : ""}
+html,body{height:100%;margin:0}body{align-items:center;background:var(--bg);display:flex;flex-direction:column;gap:16px;justify-content:center}
 .titlebar{-webkit-app-region:drag;height:var(--pawwork-titlebar-host-height,env(titlebar-area-height,0px));left:0;position:fixed;right:0;top:0}
 .spinner{animation:spin .8s linear infinite;border:2px solid var(--line);border-radius:50%;box-sizing:border-box;height:20px;position:relative;width:20px}
 .spinner:after{background:conic-gradient(var(--accent) 72deg,transparent 0);border-radius:inherit;content:"";inset:-2px;mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 0);position:absolute;-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 0)}
+.note{color:var(--note);font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;max-width:28em;padding:0 24px;text-align:center}
 @keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spinner{animation:none}}
-</style></head><body><div class="titlebar"></div><div aria-label="PawWork is starting" class="spinner" role="progressbar"></div></body></html>`
+</style></head><body><div class="titlebar"></div><div aria-label="PawWork is starting" class="spinner" role="progressbar"></div>${
+  slowNote === undefined ? "" : `<p class="note">${slowNote}</p>`
+}</body></html>`
 
 export type StartupColorScheme = "dark" | "light"
 
-export function startupUrl(scheme?: StartupColorScheme) {
-  return `data:text/html;charset=utf-8,${encodeURIComponent(startupHtml(scheme))}`
+export function startupUrl(scheme?: StartupColorScheme, slowLocale?: StartupLocale) {
+  const html = startupHtml(scheme, slowLocale === undefined ? undefined : SLOW_NOTE[slowLocale])
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
 }
 
 function iconsDir() {

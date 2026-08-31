@@ -15,15 +15,20 @@ type DshTerminalState = Extract<DshLifecycleState, { phase: "stopped" | "failed"
 type DshLifecycleOptions = {
   launch(): DshRun
   onChange(state: DshLifecycleState): void
+  // Fired once per start when the runtime is up but the product UI has not
+  // reported in yet. Informational, like the sidecar's own slow signal: a
+  // window that has to load the whole product plus its plugins can outlast any
+  // deadline worth guessing, and the guess is not worth an unusable app.
+  onSlowProduct?(): void
 }
 
-const PRODUCT_TIMEOUT_MS = 30_000
+const PRODUCT_SLOW_AFTER_MS = 30_000
 
 export class DshLifecycle {
   #state: DshLifecycleState = { phase: "stopped" }
   #run: DshRun | undefined
   #stopping: { promise: Promise<void>; terminal: DshTerminalState } | undefined
-  #productTimeout: ReturnType<typeof setTimeout> | undefined
+  #productSlowTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(private readonly options: DshLifecycleOptions) {}
 
@@ -53,9 +58,10 @@ export class DshLifecycle {
       (url) => {
         if (this.#run !== run) return
         this.#publish({ phase: "loading", url })
-        this.#productTimeout = setTimeout(() => {
-          void this.#fail(run, "startup", new Error(`DSH product did not become ready within ${PRODUCT_TIMEOUT_MS}ms`))
-        }, PRODUCT_TIMEOUT_MS)
+        this.#productSlowTimer = setTimeout(() => {
+          if (this.#run !== run) return
+          this.options.onSlowProduct?.()
+        }, PRODUCT_SLOW_AFTER_MS)
       },
       (error) => void this.#fail(run, "startup", error),
     )
@@ -72,7 +78,7 @@ export class DshLifecycle {
     } catch {
       return
     }
-    this.#clearProductTimeout()
+    this.#clearProductSlowTimer()
     this.#publish({ phase: "ready", url: this.#state.url })
   }
 
@@ -91,7 +97,7 @@ export class DshLifecycle {
 
   #finish(run: DshRun | undefined, terminal: DshTerminalState) {
     this.#run = undefined
-    this.#clearProductTimeout()
+    this.#clearProductSlowTimer()
     const stopping = { promise: Promise.resolve(), terminal }
     stopping.promise = Promise.resolve()
       .then(() => run?.stop())
@@ -104,10 +110,10 @@ export class DshLifecycle {
     return stopping.promise
   }
 
-  #clearProductTimeout() {
-    if (this.#productTimeout === undefined) return
-    clearTimeout(this.#productTimeout)
-    this.#productTimeout = undefined
+  #clearProductSlowTimer() {
+    if (this.#productSlowTimer === undefined) return
+    clearTimeout(this.#productSlowTimer)
+    this.#productSlowTimer = undefined
   }
 
   #publish(state: DshLifecycleState) {
