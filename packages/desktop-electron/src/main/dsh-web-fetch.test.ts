@@ -1,16 +1,11 @@
 import { createRequire } from "node:module"
 import { LOCAL_FETCH_PROVIDER_ID } from "@deepseek-ai/dsh-web-fetch-http"
 import { describe, expect, test } from "vitest"
-import { readEntryList, readProductPatch } from "./dsh-product-patch.testing"
+import { allRows, readEntryList, readProductPatch } from "./dsh-product-patch.testing"
 
 /** The dsh-base composition PawWork's product patch overlays. */
 function baseEntryList() {
   return readEntryList(createRequire(import.meta.url).resolve("@deepseek-ai/dsh-base/cordis.patch.yml"))
-}
-
-/** Every row a composition mounts, whether stated at top level or inserted. */
-function allRows(entries: ReturnType<typeof readEntryList>) {
-  return entries.flatMap((entry) => [entry, ...(entry.insert ?? [])])
 }
 
 describe("PawWork web_fetch", () => {
@@ -26,12 +21,15 @@ describe("PawWork web_fetch", () => {
 
     expect(tool?.disabled).toBe(false)
     expect(tool?.config?.fetch).toBe(true)
-    // Mounted and on: a composition row can name a plugin and still ship
-    // `disabled: true`, which registers no provider and reads identically to the
-    // row having been retired.
+    // Mounted and unconditionally on. A row can name a plugin and still ship
+    // `disabled:`, which registers no provider and reads identically to the row
+    // having been retired — and upstream already writes that field as a `!!js`
+    // expression on the sandbox rows, which loads as its source text. So the
+    // assertion is that the field is absent, not that it is not `true`: any
+    // value at all, string or boolean, is a gate this test must fail on.
     const provider = providers.find((row) => row.name === "@deepseek-ai/dsh-web-fetch-http")
     expect(provider).toBeDefined()
-    expect(provider?.disabled).not.toBe(true)
+    expect(provider?.disabled).toBeUndefined()
     // The seam picks the sole registered provider when nothing names one, so an
     // id that matches no provider fails only once a second one is mounted —
     // which is also the moment it stops being obvious why fetches began failing.

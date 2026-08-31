@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest"
-import { readFileSync, readdirSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { createRequire } from "node:module"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join } from "node:path"
+import { installedHarnessPackages } from "./dsh-product-patch.testing"
 import { pathToFileURL } from "node:url"
 
 /**
@@ -87,27 +88,16 @@ describe("pi-ai configurable-provider directory", () => {
  * have gone quietly stale through exactly that kind of split.
  */
 function wireNamespaces() {
-  const store = resolve(import.meta.dirname, "../../../../node_modules/.pnpm")
   const found = new Map<string, string>()
-  for (const entry of readdirSync(store)) {
-    if (!entry.startsWith("@deepseek-ai+")) continue
-    const scope = join(store, entry, "node_modules", "@deepseek-ai")
-    let members: string[]
+  for (const [name, directory] of installedHarnessPackages()) {
+    let table: string
     try {
-      members = readdirSync(scope)
+      table = readFileSync(join(directory, "lib", "typert.remote-client.js"), "utf8")
     } catch {
       continue
     }
-    for (const member of members) {
-      let table: string
-      try {
-        table = readFileSync(join(scope, member, "lib", "typert.remote-client.js"), "utf8")
-      } catch {
-        continue
-      }
-      for (const [, namespace] of table.matchAll(/namespace: *['"]([A-Za-z][A-Za-z0-9]*)['"]/g)) {
-        found.set(namespace, `@deepseek-ai/${member}`)
-      }
+    for (const [, namespace] of table.matchAll(/namespace: *['"]([A-Za-z][A-Za-z0-9]*)['"]/g)) {
+      found.set(namespace, name)
     }
   }
   return found

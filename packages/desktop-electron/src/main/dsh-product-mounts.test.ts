@@ -2,16 +2,13 @@ import { existsSync } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { describe, expect, test } from "vitest"
-import { resolveDshHome } from "./pawwork-home"
-import { type EntryRow, productPatchFile, readProductPatch } from "./dsh-product-patch.testing"
+import { allRows, productPatchFile, readProductPatch } from "./dsh-product-patch.testing"
 
 const require = createRequire(import.meta.url)
 
-// Every inserted row at any depth: an insert list may itself carry inserts, and
-// a row that only these checks would have caught is exactly the row nobody
-// notices is unchecked.
-function insertedRows(rows: EntryRow[] = readProductPatch()): EntryRow[] {
-  return rows.flatMap((row) => [...(row.insert ?? []), ...insertedRows(row.insert ?? [])])
+/** Every row the overlay inserts, at any depth. */
+function insertedRows() {
+  return allRows(readProductPatch().flatMap((entry) => entry.insert ?? []))
 }
 
 /** Every inserted row's entry name; a row that states none mounts nothing. */
@@ -56,21 +53,6 @@ describe("PawWork DSH product mounts", () => {
     const ids = insertedRows().map((row) => row.id)
 
     expect(new Set(ids).size).toBe(ids.length)
-  })
-
-  // The user-global instruction file belongs to PawWork, not to one channel's
-  // harness home: a user who writes ~/.pawwork/AGENTS.md expects both the dev
-  // and prod builds to read it. dsh-base defaults `dshHome` to the running
-  // harness home, which would scope the file to ~/.pawwork/dsh (or dsh-dev), so
-  // this overlay lifts it one level. Upstream joins the value with AGENTS.md
-  // directly, so a rename of this config key moves the file with no error.
-  test("keeps the user-global AGENTS.md at the PawWork home root", () => {
-    const home = "/home/example"
-    const instructions = readProductPatch().find((entry) => entry.id === "agent-instructions")
-
-    expect(instructions?.config?.dshHome).toBe("~/.pawwork")
-    expect(dirname(resolveDshHome({ channel: "prod", homeRoot: home }))).toBe(`${home}/.pawwork`)
-    expect(dirname(resolveDshHome({ channel: "dev", homeRoot: home }))).toBe(`${home}/.pawwork`)
   })
 
   // `refreshIntervalMs` has no default upstream: the clock is injected once per

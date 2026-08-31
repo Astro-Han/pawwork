@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
+import { readFileSync, readdirSync } from "node:fs"
+import { join, resolve } from "node:path"
 import { JSON_SCHEMA, Type, load } from "js-yaml"
 
 // Loader entry lists — the product patch, and the agent compositions presets
@@ -43,4 +43,38 @@ export function readEntryList(file: string): EntryRow[] {
 /** The product overlay's rows. */
 export function readProductPatch() {
   return readEntryList(productPatchFile)
+}
+
+/**
+ * Every row in an entry list, at any depth. An insert list is made of rows the
+ * loader reads exactly like the rows around it, inserts included, so a check
+ * that stops at the first level silently exempts anything below it.
+ */
+export function allRows(rows: EntryRow[]): EntryRow[] {
+  return rows.flatMap((row) => [row, ...allRows(row.insert ?? [])])
+}
+
+/**
+ * Every `@deepseek-ai` package pnpm installed, and where each one lives.
+ *
+ * The store's shape — one directory per resolution, each holding a `node_modules`
+ * with the package inside — is one fact, and the tests that read a package's own
+ * files (its imports, its Typert tables) all need it. Kept here so it stays one
+ * fact rather than one per test.
+ */
+export function installedHarnessPackages() {
+  const store = resolve(import.meta.dirname, "../../../../node_modules/.pnpm")
+  const found = new Map<string, string>()
+  for (const entry of readdirSync(store)) {
+    if (!entry.startsWith("@deepseek-ai+")) continue
+    const scope = join(store, entry, "node_modules", "@deepseek-ai")
+    let members: string[]
+    try {
+      members = readdirSync(scope)
+    } catch {
+      continue
+    }
+    for (const member of members) found.set(`@deepseek-ai/${member}`, join(scope, member))
+  }
+  return found
 }

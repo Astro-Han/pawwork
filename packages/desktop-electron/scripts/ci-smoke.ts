@@ -51,7 +51,6 @@ export type CiSmokeProductSnapshot = {
   automationSettingsEntryVisible: boolean
   updateSettingsEntryVisible: boolean
   webSearchCardVisible: boolean
-  webSearchCardBoundToItsNamespace: boolean
   updateSectionVisible: boolean
   updateSectionReportsStatus: boolean
   automationSidebarEntryAbsent: boolean
@@ -198,6 +197,29 @@ export function parseSmokeArgs(argv: string[]): SmokeTarget {
 
 export function resolveMainEntry() {
   return resolve(import.meta.dirname, "../out/main/index.js")
+}
+
+/**
+ * This script runs the built main bundle, and nothing in it builds. A run
+ * against a stale `out/` exercises whatever was last compiled while reporting
+ * on the source in front of you — it passes, and the pass means nothing. CI
+ * builds in the step before, so this only ever fires locally, which is where
+ * the mistake is silent.
+ * @returns the newest source file left out of the build, if any.
+ */
+export function staleMainEntry(mainEntry = resolveMainEntry(), sourceRoot = resolve(import.meta.dirname, "../src")) {
+  let built: number
+  try {
+    built = statSync(mainEntry).mtimeMs
+  } catch {
+    return mainEntry
+  }
+  const newer = (readdirSync(sourceRoot, { recursive: true }) as string[])
+    // Test files and their helpers are not in the bundle, so editing one is not
+    // a reason to rebuild — and a guard that cries wolf gets bypassed.
+    .filter((file) => /\.(?:ts|tsx|cjs|mjs|js)$/.test(file) && !/\.(?:test|testing)\.tsx?$/.test(file))
+    .find((file) => statSync(join(sourceRoot, file)).mtimeMs > built)
+  return newer === undefined ? undefined : join(sourceRoot, newer)
 }
 
 export function buildSmokeEnv(
@@ -430,13 +452,13 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       // cannot open, and every read-only replacement is a stream too. So this
       // asserts in two halves, neither of which passes alone.
       //
-      // First, the sidebar the picker writes into. A directory name is not an
-      // identity: the home directory the picker opens on can share its basename
-      // with a workspace already listed, and matching on text alone would then
-      // pass without the picker having added anything. So the DOM half is that a
-      // leaf carrying that name appears which was not there before Open.
+      // First, wait for the sidebar the picker writes into to carry a leaf with
+      // that name which was not there before Open. That wait is a
+      // synchronisation point, not evidence: the scan is document-wide, and a
+      // re-render replacing rather than reusing a node satisfies it. It is here
+      // so the call below runs after the picker has finished, not instead of it.
       //
-      // Then identity, through \`workspace/create\`'s idempotence: it answers
+      // The assertion itself is identity, through \`workspace/create\`'s idempotence: it answers
       // \`created: false\` for a path already registered. One call after adoption
       // therefore proves the workspace the picker made is over the directory the
       // picker reported — and \`created: true\` means the DOM leaf came from
@@ -560,22 +582,15 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     // A Host settings namespace renders nothing on its own: the card that draws
     // it is a client plugin, and the two halves fail independently. The Host
     // half surviving alone leaves a namespace no user can reach — which reads,
-    // from every wire probe, exactly like a working feature.
+    // from every wire probe, exactly like a working feature. The card renders
+    // only once its bound scope reports \`ready\`, so its presence is evidence
+    // for both halves at once.
     const pluginsSettingsEntry = visibleButton(/^(插件|Plugins)$/i)
     pluginsSettingsEntry?.click()
     for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-websearch-card")); attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
     const webSearchCardVisible = visible(document.querySelector(".pawwork-websearch-card"))
-    // Expanding is the half that reaches the Host: the body is drawn from the
-    // namespace the card binds, so a card that opens onto nothing is a card
-    // whose settings scope no longer resolves.
-    document.querySelector(".pawwork-websearch-header")?.click()
-    for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-websearch-body")); attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 50))
-    }
-    const webSearchCardBoundToItsNamespace = visible(document.querySelector(".pawwork-websearch-body"))
-      && (document.querySelector(".pawwork-websearch-body")?.textContent || "").trim().length > 0
     // The automation flow below expects its own surface; navigate back first.
     visibleButton(/^(自动化|Automations)$/i)?.click()
     for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-automations-surface")); attempt += 1) {
@@ -850,7 +865,6 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       automationSettingsEntryVisible,
       updateSettingsEntryVisible,
       webSearchCardVisible,
-      webSearchCardBoundToItsNamespace,
       updateSectionVisible,
       updateSectionReportsStatus,
       automationSidebarEntryAbsent,
@@ -1101,7 +1115,6 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.updateSectionVisible ? null : "Software Update section did not open",
     snapshot.updateSectionReportsStatus ? null : "Software Update section shows no status from the updater bridge",
     snapshot.webSearchCardVisible ? null : "PawWork web search settings card is not in the Plugins section",
-    snapshot.webSearchCardBoundToItsNamespace ? null : "PawWork web search card opens onto an empty body, so its settings scope did not resolve",
     snapshot.automationSidebarEntryAbsent ? null : "Automation should not occupy the sidebar",
     snapshot.automationSurfaceVisible ? null : "Automation surface did not open",
     snapshot.automationCreateViaChatWorked ? null : "Automation did not create through the visible chat path",
@@ -1256,6 +1269,13 @@ async function stopChild(child: SmokeChild, closeWindow?: () => Promise<void>) {
 
 async function main() {
   const target = parseSmokeArgs(process.argv.slice(2))
+  // Only the raw mode runs the built bundle; a packaged run carries its own.
+  if (target.mode === "raw") {
+    const stale = staleMainEntry()
+    if (stale !== undefined) {
+      throw new Error(`Build the desktop app first — ${stale} is newer than out/main/index.js. Run: pnpm run build`)
+    }
+  }
   const homeDir = mkdtempSync(join(tmpdir(), "pawwork-ci-smoke-"))
   const dshHome = dshHomeForSmoke(homeDir, target)
   // Seeded in the legacy home, asserted in the new one: the automation below has
