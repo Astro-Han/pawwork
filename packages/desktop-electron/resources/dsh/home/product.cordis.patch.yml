@@ -18,10 +18,6 @@
           - id: muse-spark-1.2-contributor-free
           - id: nemotron-3-ultra-free
           - id: nemotron-3.5-lightning-free
-- id: agent-instructions
-  config:
-    dshHome: "~/.pawwork"
-    maxBytes: 65536
 - id: llm-deepseek
   disabled: true
 # Silences the `dsh web:` URL line; `pawwork-web-ready` below reports the same

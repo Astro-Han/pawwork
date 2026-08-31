@@ -1,15 +1,13 @@
 import { existsSync } from "node:fs"
-import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { describe, expect, test } from "vitest"
 import {
   allRows,
   overlaidRows,
   productPatchFile,
+  productionClosure,
   readProductPatch,
 } from "./dsh-product-patch.testing"
-
-const require = createRequire(import.meta.url)
 
 /** Every row the overlay inserts, at any depth. */
 function insertedRows() {
@@ -23,18 +21,22 @@ function insertedNames() {
 
 describe("PawWork DSH product mounts", () => {
   // A row the overlay inserts by bare name is resolved by the harness from the
-  // DSH home, not from this package — so a name that is not a real installed
-  // package fails at boot with `Cannot find package`, taking the whole app down,
-  // and nothing before runtime says so. Resolving each one here is the check;
-  // asserting version literals instead would only restate package.json and go
-  // red on every routine bump.
-  test("mounts only harness packages that are actually installed", () => {
+  // DSH home, not from this package — so a name that is not there at runtime
+  // fails at boot with `Cannot find package`, taking the whole app down, and
+  // nothing before runtime says so.
+  //
+  // Membership in the production closure rather than `require.resolve`, which
+  // answers a weaker question than it looks like it does: under vitest it also
+  // searches pnpm's hidden hoist directory, which holds the whole store, so a
+  // dev-only package — one electron-builder prunes — resolves here and is
+  // missing from the packaged app. Asserting version literals instead would
+  // only restate package.json and go red on every routine bump.
+  test("mounts only harness packages the packaged app will actually have", () => {
+    const closure = productionClosure()
     const mounted = insertedNames().filter((name) => name.startsWith("@deepseek-ai/"))
 
     expect(mounted.length).toBeGreaterThan(0)
-    for (const name of mounted) {
-      expect(() => require.resolve(`${name}/package.json`)).not.toThrow()
-    }
+    for (const name of mounted) expect([name, closure.has(name)]).toEqual([name, true])
   })
 
   // A relative name resolves against the directory of the patch file stating it.

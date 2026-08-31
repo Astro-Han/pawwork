@@ -12,6 +12,13 @@ const PAWWORK_HOME_DIR_NAME = ".pawwork"
 // maint/v1 and owns ~/.pawwork directly, including a node_modules/ that would
 // collide with the product plugin overlay v2 writes into DSH_HOME. When v1 is
 // retired its files can move into ~/.pawwork/legacy/ without touching this.
+//
+// The nesting is visible to users in one place: dsh-agent-instructions reads
+// the user-global AGENTS.md from the DSH home, so it lives at
+// ~/.pawwork/dsh/AGENTS.md and a file left in ~/.pawwork/ is silently unread.
+// Retiring v1 and hoisting this to ~/.pawwork is what fixes that; configuring
+// the plugin cannot, because dsh-web-app disables the global entry and every
+// agent preset mounts its own.
 const DSH_HOME_DIR_NAME: Record<PawWorkChannel, string> = { dev: "dsh-dev", prod: "dsh" }
 
 const DSH_MOVED_MARKER_NAME = "dsh-moved.json"

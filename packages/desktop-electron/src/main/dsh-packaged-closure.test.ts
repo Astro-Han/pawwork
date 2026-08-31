@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs"
 import { createRequire } from "node:module"
 import { join, resolve } from "node:path"
 import { describe, expect, test } from "vitest"
-import { installedHarnessPackages } from "./dsh-product-patch.testing"
+import { installedHarnessPackages, productionClosure } from "./dsh-product-patch.testing"
 
 /**
  * electron-builder ships the production dependency closure — what `dependencies`
@@ -16,42 +16,6 @@ import { installedHarnessPackages } from "./dsh-product-patch.testing"
  * single line here. The packaged smoke does catch it — as a boot failure on
  * three CI runners, minutes into a build. This catches it in milliseconds.
  */
-
-const packageRoot = resolve(import.meta.dirname, "../..")
-
-/** Every package name reachable through `dependencies` from this package. */
-function productionClosure() {
-  const entry = join(packageRoot, "package.json")
-  const visited = new Set<string>()
-  const names = new Set<string>()
-
-  const visit = (packageJsonPath: string) => {
-    const manifest = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { dependencies?: Record<string, string> }
-    const require = createRequire(packageJsonPath)
-    for (const dependency of Object.keys(manifest.dependencies ?? {})) {
-      let resolved: string
-      // A package whose `exports` map omits `./package.json` cannot be read
-      // this way — 21 of them today — so the walk stops at its edge and never
-      // sees its own dependencies. That makes this closure a lower bound on
-      // what electron-builder ships, which is the safe direction: it can
-      // over-report a gap, never miss one. It holds as a bound only because no
-      // `@deepseek-ai` package is among those 21, so no truncated subtree can
-      // hide a harness package that packaging would in fact keep.
-      try {
-        resolved = require.resolve(`${dependency}/package.json`)
-      } catch {
-        continue
-      }
-      if (visited.has(resolved)) continue
-      visited.add(resolved)
-      names.add(dependency)
-      visit(resolved)
-    }
-  }
-
-  visit(entry)
-  return names
-}
 
 /** Bare and subpath imports of `@deepseek-ai/*` written into one package's code. */
 function harnessImportsOf(packageDirectory: string) {

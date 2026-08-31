@@ -73,6 +73,47 @@ export function overlaidRows() {
 }
 
 /**
+ * Every package name reachable through `dependencies` from this package —
+ * which is what electron-builder ships, and what a name mounted by the overlay
+ * has to be inside. pnpm's store is a wider set: it also holds packages
+ * installed only to satisfy a peer range, and dev dependencies, both of which
+ * resolve in development and are simply absent from the packaged app.
+ *
+ * A lower bound, not the exact set: a package whose `exports` map omits
+ * `./package.json` cannot be read this way — 21 of them today — so the walk
+ * stops at its edge and never sees its own dependencies. That is the safe
+ * direction, over-reporting a gap rather than missing one, and it is exact for
+ * `@deepseek-ai` names because none of those 21 is one.
+ */
+export function productionClosure() {
+  const entry = resolve(import.meta.dirname, "../../package.json")
+  const visited = new Set<string>()
+  const names = new Set<string>()
+
+  const visit = (packageJsonPath: string) => {
+    const manifest = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
+      dependencies?: Record<string, string>
+    }
+    const require = createRequire(packageJsonPath)
+    for (const dependency of Object.keys(manifest.dependencies ?? {})) {
+      let resolved: string
+      try {
+        resolved = require.resolve(`${dependency}/package.json`)
+      } catch {
+        continue
+      }
+      if (visited.has(resolved)) continue
+      visited.add(resolved)
+      names.add(dependency)
+      visit(resolved)
+    }
+  }
+
+  visit(entry)
+  return names
+}
+
+/**
  * Every `@deepseek-ai` package pnpm installed, and where each one lives.
  *
  * The store's shape — one directory per resolution, each holding a `node_modules`
