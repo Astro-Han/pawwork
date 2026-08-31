@@ -37,5 +37,5 @@ overrides:
   ws: 8.21.0
 
 patchedDependencies:
-  '@deepseek-ai/dsh-llm-pi-ai@0.1.2-alpha.2': patches/@deepseek-ai__dsh-llm-pi-ai@0.1.2-alpha.2.patch
+  '@deepseek-ai/dsh-llm-pi-ai@0.1.2-alpha.3': patches/@deepseek-ai__dsh-llm-pi-ai@0.1.2-alpha.3.patch
   brace-expansion@5.0.9: patches/brace-expansion@5.0.9.patch
