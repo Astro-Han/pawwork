@@ -73,24 +73,25 @@
 # `web_search` and shadows this row for that name; a second registration would
 # be dead weight that also drops the preset's 60s search timeout.
 #
-# Upstream tells deployments not to do this: `dsh-web-fetch-http` (mounted by
-# dsh-base since 0.1.2-alpha.2, so this file only flips the tool on) implements
-# no SSRF protection — the model picks the target and private,
-# loopback and link-local addresses are not blocked — so its README says it
-# "must not be enabled in a deployment that can reach sensitive internal network
-# targets", and dsh-base keeps `fetch: false` for that reason.
+# `dsh-web-fetch-http` (mounted by dsh-base since 0.1.2-alpha.2, so this file
+# only flips the tool on) does defend the destination: it validates one DNS
+# answer set, rejects non-public addresses including NAT64-translated ones,
+# hands that pinned address to the transport so the name cannot resolve again to
+# a private one, refuses credentials in the URL, and does not follow
+# cross-origin redirects. dsh-base still ships `fetch: false`, which is a
+# deployment default rather than a warning about the provider.
 #
-# PawWork accepts the risk rather than mitigating it here: the model already
-# reaches the same addresses through `bash`, whose approval gate covers only
-# `sandbox_permissions` escalation, so ordinary commands already egress
-# unprompted inside an `(allow default)` sandbox. Neither tool is gated on its
-# target today, and a literal-IP denylist could not be complete without
-# resolving DNS first.
+# What none of that addresses is the direction the risk actually runs. Page text
+# the model reads is attacker-controlled, and the next fetch URL is the model's
+# to choose, so context can leave in a query string to a perfectly public host.
+# Validating the address cannot see that.
 #
-# The exposure that leaves: page text the model reads is attacker-controlled,
-# and a fetched URL can carry context out in its query string. Mitigating it
-# belongs in `tools/pre-execute`, which no web tool registers — gate a
-# `web_fetch` whose URL did not come from that turn's own `web_search` results.
+# PawWork accepts it rather than mitigating it here, because `bash` already
+# egresses unprompted inside an `(allow default)` sandbox — its approval gate
+# covers only `sandbox_permissions` escalation — so this adds convenience, not a
+# channel. The mitigation belongs in `tools/pre-execute`, which no web tool
+# registers: gate a `web_fetch` whose URL did not come from that turn's own
+# `web_search` results.
 - id: tool-web
   disabled: false
   config:
