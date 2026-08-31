@@ -128,12 +128,37 @@ describe("DSH sidecar lifecycle", () => {
     })
 
     child.stdout.write("[assistant] dsh web: http://127.0.0.1:1\n")
-    child.stdout.write("dsh web: http://127.0.0.1:2suffix\n")
     child.stdout.write("dsh web: http://127.0.0.1:43123 (press h for help)\n")
 
     expect(await launched.ready).toBe("http://127.0.0.1:43123")
 
     await launched.stop()
+  })
+
+  // There is no readiness deadline (#1614): silence cannot tell a wedged runtime
+  // from a slow one. A line DSH announces readiness on and this cannot parse is
+  // not silence, and waiting on it forever leaves a healthy sidecar behind a
+  // window stuck in `starting` with nothing on screen to explain it. alpha.2
+  // moved this line once already, by adding the launch token to the URL.
+  test("fails fast on an announcement it cannot parse rather than waiting forever", async () => {
+    const child = new FakeChildProcess()
+    const launched = launchDshSidecar({
+      executable: "/app/PawWork",
+      dshBin: "/app/bin.js",
+      sidecarPreload: "file:///app/preload.mjs",
+      productPatch: "/data/dsh/product.cordis.patch.yml",
+      env: {},
+      spawn: () => child,
+    })
+
+    child.stdout.write("dsh web: https://dsh.example/?token=s3cr3t\n")
+
+    await expect(launched.ready).rejects.toThrow(
+      "DSH announced readiness in an unrecognized form: dsh web: https://dsh.example/?token=<redacted>",
+    )
+    // The runtime is still alive behind the failure, and leaving it running
+    // would outlive the app that owns it.
+    expect(child.messages).toEqual(["SIGTERM"])
   })
 
   // A signal kill has no exit code at all, and "code null" is not a status the

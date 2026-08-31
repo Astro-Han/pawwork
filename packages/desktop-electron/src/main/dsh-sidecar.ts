@@ -57,6 +57,9 @@ export function describeExit(code: number | null) {
 // 401. The optional trailing group is the `(LAN: …)` suffix DSH appends when the
 // server also bound a routable address.
 const READY_LINE = /^dsh web: (http:\/\/127\.0\.0\.1:\d+\/?(?:\?\S*)?)(?: \(|$)/
+// What makes a line an announcement rather than agent output, held to the same
+// start-of-line rule READY_LINE uses so nothing the model echoes can trip it.
+const READY_LINE_PREFIX = /^dsh web: /
 const DEFAULT_STOP_TIMEOUT_MS = 5_000
 
 /**
@@ -218,7 +221,21 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
     stdoutBuffer = lines.pop() ?? ""
     for (const line of lines) {
       const match = READY_LINE.exec(line)
-      if (!match) continue
+      if (!match) {
+        // There is no readiness deadline (#1614), because silence cannot tell a
+        // wedged runtime from a slow one. An announcement this cannot parse is
+        // not silence: DSH is up, it said so, and only the shape it said it in
+        // is unfamiliar. Waiting on that forever leaves the app in `starting`
+        // with a healthy sidecar behind it and nothing on screen to explain it,
+        // so it is reported as what it is — the one readiness failure that has
+        // evidence. 0.1.2-alpha.2 moved this line once already, by adding the
+        // launch token to the URL.
+        if (READY_LINE_PREFIX.test(line)) {
+          void fail(new Error(`DSH announced readiness in an unrecognized form: ${redactLaunchToken(line)}`), true)
+          return
+        }
+        continue
+      }
       settled = true
       cleanupReadiness()
       resolveReady(match[1])
