@@ -59,6 +59,18 @@ export function describeExit(code: number | null) {
 const READY_LINE = /^dsh web: (http:\/\/127\.0\.0\.1:\d+\/?(?:\?\S*)?)(?: \(|$)/
 const DEFAULT_STOP_TIMEOUT_MS = 5_000
 
+/**
+ * Keep the launch token out of anything that outlives the process. Since DSH
+ * started authenticating the root URL with a query token, its readiness line
+ * carries the one credential the whole session rests on — and the stdout stream
+ * this reads from is mirrored into the persistent application log. The token is
+ * useless without loopback access to the sidecar's port, but a log file is read
+ * by more things, and for longer, than a live socket.
+ */
+export function redactLaunchToken(text: string) {
+  return text.replace(/([?&]token=)[^\s&]+/g, "$1<redacted>")
+}
+
 export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   const child = options.spawn(
     options.executable,
@@ -163,7 +175,7 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
 
   const onStdout = (data: Buffer | string) => {
     const chunk = data.toString()
-    options.onStdout?.(chunk)
+    options.onStdout?.(redactLaunchToken(chunk))
     stdoutBuffer += chunk
 
     const lines = stdoutBuffer.split(/\r?\n/)
@@ -179,7 +191,10 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   }
 
   child.stdout?.on("data", onStdout)
-  child.stderr?.on("data", (data: Buffer | string) => options.onStderr?.(data.toString()))
+  // stderr is logged and shown in the startup-failure dialog. Nothing routinely
+  // prints the token there, but a stack trace or a request log carrying the URL
+  // would, and both paths persist what they receive.
+  child.stderr?.on("data", (data: Buffer | string) => options.onStderr?.(redactLaunchToken(data.toString())))
   child.once("exit", onEarlyExit)
   child.on("error", onSpawnError)
 

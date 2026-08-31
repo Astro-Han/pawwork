@@ -245,6 +245,35 @@ describe("DSH sidecar lifecycle", () => {
     expect(child.killCount).toBe(0)
   })
 
+  // The readiness line carries the launch token, and both output callbacks feed
+  // the persistent application log. The ready URL this resolves is the one the
+  // window loads, so redaction has to stop at the log and not reach it.
+  test("keeps the launch token out of the reported output but not out of the URL", async () => {
+    const child = new FakeChildProcess()
+    const stdout: string[] = []
+    const stderr: string[] = []
+    const launched = launchDshSidecar({
+      executable: "/app/PawWork",
+      dshBin: "/app/dsh.js",
+      sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
+      productPatch: "/data/dsh/product.cordis.patch.yml",
+      env: {},
+      spawn: () => child,
+      onStdout: (chunk) => stdout.push(chunk),
+      onStderr: (chunk) => stderr.push(chunk),
+    })
+
+    child.stdout.write("dsh web: http://127.0.0.1:43123/?token=s3cr3t-launch-token (LAN: …)\n")
+    child.stderr.write("GET /?token=s3cr3t-launch-token 200\n")
+    const url = await launched.ready
+    await launched.stop()
+
+    expect(url).toBe("http://127.0.0.1:43123/?token=s3cr3t-launch-token")
+    expect(stdout.join("")).toContain("http://127.0.0.1:43123/?token=<redacted>")
+    expect(stdout.join("")).not.toContain("s3cr3t-launch-token")
+    expect(stderr.join("")).not.toContain("s3cr3t-launch-token")
+  })
+
   test("escalates a non-exiting graceful stop to force termination within a bound", async () => {
     const child = new FakeChildProcess()
     child.gracefulExit = false
