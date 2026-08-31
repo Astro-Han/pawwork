@@ -3,12 +3,15 @@ import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { describe, expect, test } from "vitest"
 import { resolveDshHome } from "./pawwork-home"
-import { productPatchFile, readProductPatch } from "./dsh-product-patch.testing"
+import { type EntryRow, productPatchFile, readProductPatch } from "./dsh-product-patch.testing"
 
 const require = createRequire(import.meta.url)
 
-function insertedRows() {
-  return readProductPatch().flatMap((entry) => entry.insert ?? [])
+// Every inserted row at any depth: an insert list may itself carry inserts, and
+// a row that only these checks would have caught is exactly the row nobody
+// notices is unchecked.
+function insertedRows(rows: EntryRow[] = readProductPatch()): EntryRow[] {
+  return rows.flatMap((row) => [...(row.insert ?? []), ...insertedRows(row.insert ?? [])])
 }
 
 /** Every inserted row's entry name; a row that states none mounts nothing. */

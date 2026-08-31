@@ -263,7 +263,10 @@ describe("DSH sidecar lifecycle", () => {
       onStderr: (chunk) => stderr.push(chunk),
     })
 
-    child.stdout.write("dsh web: http://127.0.0.1:43123/?token=s3cr3t-launch-token (LAN: …)\n")
+    // A pipe splits where it fills, not where a line ends, so the token key can
+    // arrive in two writes. Both halves have to be redacted as one line.
+    child.stdout.write("dsh web: http://127.0.0.1:43123/?tok")
+    child.stdout.write("en=s3cr3t-launch-token (LAN: …)\n")
     child.stderr.write("GET /?token=s3cr3t-launch-token 200\n")
     const url = await launched.ready
     await launched.stop()
@@ -272,6 +275,30 @@ describe("DSH sidecar lifecycle", () => {
     expect(stdout.join("")).toContain("http://127.0.0.1:43123/?token=<redacted>")
     expect(stdout.join("")).not.toContain("s3cr3t-launch-token")
     expect(stderr.join("")).not.toContain("s3cr3t-launch-token")
+  })
+
+  // Held-back output is not dropped output: without the flush, a child that
+  // dies before its newline takes its last line — the one naming the cause —
+  // out of the log and out of the failure dialog.
+  test("reports the last unterminated line when the child exits", async () => {
+    const child = new FakeChildProcess()
+    const stderr: string[] = []
+    const launched = launchDshSidecar({
+      executable: "/app/PawWork",
+      dshBin: "/app/dsh.js",
+      sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
+      productPatch: "/data/dsh/product.cordis.patch.yml",
+      env: {},
+      spawn: () => child,
+      onStderr: (chunk) => stderr.push(chunk),
+    })
+
+    child.stderr.write("FATAL: profile bundle is unresolved at /?token=s3cr3t")
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    child.emit("exit", 1)
+    await expect(launched.ready).rejects.toThrow("DSH exited before readiness with code 1")
+
+    expect(stderr.join("")).toBe("FATAL: profile bundle is unresolved at /?token=<redacted>")
   })
 
   test("escalates a non-exiting graceful stop to force termination within a bound", async () => {

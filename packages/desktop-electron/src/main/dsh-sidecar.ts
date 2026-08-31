@@ -71,6 +71,35 @@ export function redactLaunchToken(text: string) {
   return text.replace(/([?&]token=)[^\s&]+/g, "$1<redacted>")
 }
 
+/**
+ * Redact a stream rather than a chunk. A pipe splits wherever it fills, not
+ * where a line ends, so `?token=abc` can arrive as `?tok` + `en=abc` and a
+ * per-chunk pattern matches neither half — the redaction would fail exactly
+ * once, unpredictably, and leak the whole token when it did. Reporting on line
+ * boundaries removes the split: a token never spans a newline.
+ *
+ * The tail left after the last newline is held until one arrives, and released
+ * by {@link flush} when the stream ends, so a process that dies mid-line still
+ * has its last words reported.
+ */
+export function createStreamRedactor(report: (text: string) => void) {
+  let pending = ""
+  return {
+    write(chunk: string) {
+      pending += chunk
+      const lines = pending.split(/\r?\n/)
+      pending = lines.pop() ?? ""
+      if (lines.length > 0) report(`${lines.map(redactLaunchToken).join("\n")}\n`)
+    },
+    flush() {
+      if (pending.length === 0) return
+      const tail = pending
+      pending = ""
+      report(redactLaunchToken(tail))
+    },
+  }
+}
+
 export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   const child = options.spawn(
     options.executable,
@@ -94,10 +123,17 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
     },
   )
 
+  const stdoutReporter = createStreamRedactor((text) => options.onStdout?.(text))
+  const stderrReporter = createStreamRedactor((text) => options.onStderr?.(text))
+
   let exitedAlready = false
   const exited = new Promise<number | null>((resolve) => {
     child.once("exit", (code) => {
       exitedAlready = true
+      // A process that dies mid-line still has its last words, and they are the
+      // ones worth reading: the failure dialog is built from this output.
+      stdoutReporter.flush()
+      stderrReporter.flush()
       resolve(code)
     })
   })
@@ -175,7 +211,7 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
 
   const onStdout = (data: Buffer | string) => {
     const chunk = data.toString()
-    options.onStdout?.(redactLaunchToken(chunk))
+    stdoutReporter.write(chunk)
     stdoutBuffer += chunk
 
     const lines = stdoutBuffer.split(/\r?\n/)
@@ -194,7 +230,7 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   // stderr is logged and shown in the startup-failure dialog. Nothing routinely
   // prints the token there, but a stack trace or a request log carrying the URL
   // would, and both paths persist what they receive.
-  child.stderr?.on("data", (data: Buffer | string) => options.onStderr?.(redactLaunchToken(data.toString())))
+  child.stderr?.on("data", (data: Buffer | string) => stderrReporter.write(data.toString()))
   child.once("exit", onEarlyExit)
   child.on("error", onSpawnError)
 
