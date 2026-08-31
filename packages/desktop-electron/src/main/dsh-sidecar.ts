@@ -74,35 +74,6 @@ export function redactLaunchToken(text: string) {
   return text.replace(/([?&]token=)[^\s&]+/g, "$1<redacted>")
 }
 
-/**
- * Redact a stream rather than a chunk. A pipe splits wherever it fills, not
- * where a line ends, so `?token=abc` can arrive as `?tok` + `en=abc` and a
- * per-chunk pattern matches neither half — the redaction would fail exactly
- * once, unpredictably, and leak the whole token when it did. Reporting on line
- * boundaries removes the split: a token never spans a newline.
- *
- * The tail left after the last newline is held until one arrives, and released
- * by {@link flush} when the stream ends, so a process that dies mid-line still
- * has its last words reported.
- */
-export function createStreamRedactor(report: (text: string) => void) {
-  let pending = ""
-  return {
-    write(chunk: string) {
-      pending += chunk
-      const lines = pending.split(/\r?\n/)
-      pending = lines.pop() ?? ""
-      if (lines.length > 0) report(`${lines.map(redactLaunchToken).join("\n")}\n`)
-    },
-    flush() {
-      if (pending.length === 0) return
-      const tail = pending
-      pending = ""
-      report(redactLaunchToken(tail))
-    },
-  }
-}
-
 export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   const child = options.spawn(
     options.executable,
@@ -126,17 +97,10 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
     },
   )
 
-  const stdoutReporter = createStreamRedactor((text) => options.onStdout?.(text))
-  const stderrReporter = createStreamRedactor((text) => options.onStderr?.(text))
-
   let exitedAlready = false
   const exited = new Promise<number | null>((resolve) => {
     child.once("exit", (code) => {
       exitedAlready = true
-      // A process that dies mid-line still has its last words, and they are the
-      // ones worth reading: the failure dialog is built from this output.
-      stdoutReporter.flush()
-      stderrReporter.flush()
       resolve(code)
     })
   })
@@ -159,6 +123,14 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   }
 
   const cleanupReadiness = () => {
+    // Every terminal path for readiness passes here — resolved, failed, or
+    // stopped — and it is the last moment stdout is read at all. Whatever the
+    // final chunk left after its last newline is reported now rather than being
+    // held for a newline that will never arrive.
+    if (stdoutBuffer.length > 0) {
+      options.onStdout?.(redactLaunchToken(stdoutBuffer))
+      stdoutBuffer = ""
+    }
     child.stdout?.off("data", onStdout)
     child.off("exit", onEarlyExit)
   }
@@ -213,12 +185,16 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   })
 
   const onStdout = (data: Buffer | string) => {
-    const chunk = data.toString()
-    stdoutReporter.write(chunk)
-    stdoutBuffer += chunk
+    stdoutBuffer += data.toString()
 
     const lines = stdoutBuffer.split(/\r?\n/)
     stdoutBuffer = lines.pop() ?? ""
+    // Reported from the same split the readiness scan uses, because a pipe
+    // breaks where it fills rather than where a line ends: `?token=abc` can
+    // arrive as `?tok` + `en=abc`, and a pattern applied to either chunk alone
+    // matches neither half. A token never spans a newline, so a whole line is
+    // the smallest unit that can be redacted at all.
+    if (lines.length > 0) options.onStdout?.(`${lines.map(redactLaunchToken).join("\n")}\n`)
     for (const line of lines) {
       const match = READY_LINE.exec(line)
       if (!match) {
@@ -244,10 +220,11 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   }
 
   child.stdout?.on("data", onStdout)
-  // stderr is logged and shown in the startup-failure dialog. Nothing routinely
-  // prints the token there, but a stack trace or a request log carrying the URL
-  // would, and both paths persist what they receive.
-  child.stderr?.on("data", (data: Buffer | string) => stderrReporter.write(data.toString()))
+  // stderr is forwarded whole and unbuffered: it is what the startup-failure
+  // dialog is built from, and holding a line back until its newline would hide
+  // the last thing a wedged or dying runtime said. DSH announces the token on
+  // stdout, so nothing here needs redacting.
+  child.stderr?.on("data", (data: Buffer | string) => options.onStderr?.(data.toString()))
   child.once("exit", onEarlyExit)
   child.on("error", onSpawnError)
 

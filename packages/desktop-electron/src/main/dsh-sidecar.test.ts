@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest"
 import { EventEmitter } from "node:events"
+import { readFileSync } from "node:fs"
+import { createRequire } from "node:module"
 import { PassThrough } from "node:stream"
 import { launchDshSidecar, type DshChildProcess } from "./dsh-sidecar"
 
@@ -270,13 +272,12 @@ describe("DSH sidecar lifecycle", () => {
     expect(child.killCount).toBe(0)
   })
 
-  // The readiness line carries the launch token, and both output callbacks feed
+  // The readiness line carries the launch token, and the stdout callback feeds
   // the persistent application log. The ready URL this resolves is the one the
   // window loads, so redaction has to stop at the log and not reach it.
   test("keeps the launch token out of the reported output but not out of the URL", async () => {
     const child = new FakeChildProcess()
     const stdout: string[] = []
-    const stderr: string[] = []
     const launched = launchDshSidecar({
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
@@ -285,27 +286,24 @@ describe("DSH sidecar lifecycle", () => {
       env: {},
       spawn: () => child,
       onStdout: (chunk) => stdout.push(chunk),
-      onStderr: (chunk) => stderr.push(chunk),
     })
 
     // A pipe splits where it fills, not where a line ends, so the token key can
     // arrive in two writes. Both halves have to be redacted as one line.
     child.stdout.write("dsh web: http://127.0.0.1:43123/?tok")
     child.stdout.write("en=s3cr3t-launch-token (LAN: …)\n")
-    child.stderr.write("GET /?token=s3cr3t-launch-token 200\n")
     const url = await launched.ready
     await launched.stop()
 
     expect(url).toBe("http://127.0.0.1:43123/?token=s3cr3t-launch-token")
     expect(stdout.join("")).toContain("http://127.0.0.1:43123/?token=<redacted>")
     expect(stdout.join("")).not.toContain("s3cr3t-launch-token")
-    expect(stderr.join("")).not.toContain("s3cr3t-launch-token")
   })
 
-  // Held-back output is not dropped output: without the flush, a child that
-  // dies before its newline takes its last line — the one naming the cause —
-  // out of the log and out of the failure dialog.
-  test("reports the last unterminated line when the child exits", async () => {
+  // The startup-failure dialog is built from stderr, so a line held back for a
+  // newline that never comes is a line the user never sees. DSH announces the
+  // token on stdout, so nothing on this stream needs holding back for it.
+  test("forwards stderr whole and unbuffered", async () => {
     const child = new FakeChildProcess()
     const stderr: string[] = []
     const launched = launchDshSidecar({
@@ -318,12 +316,23 @@ describe("DSH sidecar lifecycle", () => {
       onStderr: (chunk) => stderr.push(chunk),
     })
 
-    child.stderr.write("FATAL: profile bundle is unresolved at /?token=s3cr3t")
+    child.stderr.write("FATAL: profile bundle is unresolved")
     await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(stderr.join("")).toBe("FATAL: profile bundle is unresolved")
+
     child.emit("exit", 1)
     await expect(launched.ready).rejects.toThrow("DSH exited before readiness with code 1")
+  })
 
-    expect(stderr.join("")).toBe("FATAL: profile bundle is unresolved at /?token=<redacted>")
+  // The parameter this redacts is DSH's, not PawWork's: `redactLaunchToken` and
+  // both fixtures above spell `token` because dsh-client-connection does. An
+  // upstream rename turns redaction into a no-op that every test above still
+  // passes, so the coupling is asserted where it actually lives.
+  test("still redacts the query parameter DSH actually mints", () => {
+    const connection = createRequire(import.meta.url).resolve("@deepseek-ai/dsh-client-connection")
+
+    expect(readFileSync(connection, "utf8")).toContain('const TOKEN_QUERY = "token"')
   })
 
   test("escalates a non-exiting graceful stop to force termination within a bound", async () => {
