@@ -50,6 +50,8 @@ export type CiSmokeProductSnapshot = {
   heroMarkHeadlineOffset: number
   automationSettingsEntryVisible: boolean
   updateSettingsEntryVisible: boolean
+  webSearchCardVisible: boolean
+  webSearchCardBoundToItsNamespace: boolean
   updateSectionVisible: boolean
   updateSectionReportsStatus: boolean
   automationSidebarEntryAbsent: boolean
@@ -555,6 +557,25 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     // status card must carry live text from the bridge, not an empty shell.
     const updateStatusText = (document.querySelector(".pawwork-update-status")?.textContent || "").trim()
     const updateSectionReportsStatus = updateStatusText.length > 0
+    // A Host settings namespace renders nothing on its own: the card that draws
+    // it is a client plugin, and the two halves fail independently. The Host
+    // half surviving alone leaves a namespace no user can reach — which reads,
+    // from every wire probe, exactly like a working feature.
+    const pluginsSettingsEntry = visibleButton(/^(插件|Plugins)$/i)
+    pluginsSettingsEntry?.click()
+    for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-websearch-card")); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    const webSearchCardVisible = visible(document.querySelector(".pawwork-websearch-card"))
+    // Expanding is the half that reaches the Host: the body is drawn from the
+    // namespace the card binds, so a card that opens onto nothing is a card
+    // whose settings scope no longer resolves.
+    document.querySelector(".pawwork-websearch-header")?.click()
+    for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-websearch-body")); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    const webSearchCardBoundToItsNamespace = visible(document.querySelector(".pawwork-websearch-body"))
+      && (document.querySelector(".pawwork-websearch-body")?.textContent || "").trim().length > 0
     // The automation flow below expects its own surface; navigate back first.
     visibleButton(/^(自动化|Automations)$/i)?.click()
     for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-automations-surface")); attempt += 1) {
@@ -828,6 +849,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       heroMarkHeadlineOffset,
       automationSettingsEntryVisible,
       updateSettingsEntryVisible,
+      webSearchCardVisible,
+      webSearchCardBoundToItsNamespace,
       updateSectionVisible,
       updateSectionReportsStatus,
       automationSidebarEntryAbsent,
@@ -1077,6 +1100,8 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.updateSettingsEntryVisible ? null : "Software Update settings entry is not visible",
     snapshot.updateSectionVisible ? null : "Software Update section did not open",
     snapshot.updateSectionReportsStatus ? null : "Software Update section shows no status from the updater bridge",
+    snapshot.webSearchCardVisible ? null : "PawWork web search settings card is not in the Plugins section",
+    snapshot.webSearchCardBoundToItsNamespace ? null : "PawWork web search card opens onto an empty body, so its settings scope did not resolve",
     snapshot.automationSidebarEntryAbsent ? null : "Automation should not occupy the sidebar",
     snapshot.automationSurfaceVisible ? null : "Automation surface did not open",
     snapshot.automationCreateViaChatWorked ? null : "Automation did not create through the visible chat path",
