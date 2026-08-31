@@ -60,20 +60,19 @@ describe("PawWork DSH product mounts", () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 
-  // A patch replaces the targeted row's whole config, so this override owns
-  // every key upstream's `web-runtime` row sets — including the two it does not
-  // choose, one of which is a `!!js` expression reading the parsed CLI flags. A
-  // key upstream adds later is dropped by this row without any warning, and the
-  // only symptom is whatever it configured quietly reverting to its default.
+  // A patch replaces the targeted row's whole config, so this override owns all
+  // four keys upstream's `web-runtime` row sets, though it chooses only one of
+  // them — and two of the three it restates are `!!js` expressions reading the
+  // parsed CLI flags. A key upstream adds later is dropped by this row without
+  // any warning, and the only symptom is whatever it configured quietly
+  // reverting to its default. `pawwork-web-ready` is what reports the URL
+  // instead; see resources/dsh/product/lib/web-ready.js for why.
   test("restates every web-runtime key upstream owns while silencing the URL line", () => {
     const ours = readProductPatch().find((entry) => entry.id === "web-runtime")?.config
-    const upstream = overlaidRows().find((row) => row.id === "web-runtime")?.config
+    const upstream = overlaidRows().findLast((row) => row.id === "web-runtime")?.config
 
     expect(upstream).toBeDefined()
     expect({ ...ours, printUrl: undefined }).toEqual({ ...upstream, printUrl: undefined })
-    // The window is handed this URL over IPC instead. Printing it writes the
-    // launch token — the session's sole authentication input — to the
-    // application log, which outlives the process whose port it unlocks.
     expect(upstream?.printUrl).toBe(true)
     expect(ours?.printUrl).toBe(false)
   })

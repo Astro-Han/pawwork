@@ -11,6 +11,9 @@
     "./client": {
       "default": "./lib/client.js"
     },
+    "./web-ready": {
+      "default": "./lib/web-ready.js"
+    },
     "./package.json": "./package.json"
   },
   "dsh": {

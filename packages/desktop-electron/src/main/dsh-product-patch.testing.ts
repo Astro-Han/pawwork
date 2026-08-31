@@ -57,9 +57,13 @@ export function allRows(rows: EntryRow[]): EntryRow[] {
 
 /**
  * Every row the product overlay lands on: the dsh-base layer and the
- * dsh-web-app bundle patch stacked over it, in the order `dsh web` applies
- * them. An override row addresses one of these by id and replaces the fields it
- * names — so what this list contains is what an override can reach at all.
+ * dsh-web-app bundle patch stacked over it, in application order.
+ *
+ * These are the source rows, not the composed tree — no patch semantics are
+ * applied, so one id can appear more than once and a later row states only the
+ * fields it overrides. Read every row carrying an id rather than the first, or
+ * a bare `- id: x / disabled: true` from the upper layer goes unseen behind the
+ * lower layer's row that names the plugin.
  */
 export function overlaidRows() {
   const require = createRequire(import.meta.url)

@@ -205,14 +205,17 @@ export function resolveMainEntry() {
  * on the source in front of you — it passes, and the pass means nothing. CI
  * builds in the step before, so this only ever fires locally, which is where
  * the mistake is silent.
- * @returns the newest source file left out of the build, if any.
+ * @returns the newest source file left out of the build, or null when there is
+ * no build at all; undefined when the build is current.
  */
 export function staleMainEntry(mainEntry = resolveMainEntry(), sourceRoot = resolve(import.meta.dirname, "../src")) {
   let built: number
   try {
     built = statSync(mainEntry).mtimeMs
   } catch {
-    return mainEntry
+    // Nothing built at all. Reporting the entry as its own offender reads as
+    // "index.js is newer than index.js"; the caller says the useful thing.
+    return null
   }
   const newer = (readdirSync(sourceRoot, { recursive: true }) as string[])
     // Test files and their helpers are not in the bundle, so editing one is not
@@ -1273,7 +1276,11 @@ async function main() {
   if (target.mode === "raw") {
     const stale = staleMainEntry()
     if (stale !== undefined) {
-      throw new Error(`Build the desktop app first — ${stale} is newer than out/main/index.js. Run: pnpm run build`)
+      throw new Error(
+        stale === null
+          ? "Build the desktop app first — there is no out/main/index.js. Run: pnpm run build"
+          : `Build the desktop app first — ${stale} is newer than out/main/index.js. Run: pnpm run build`,
+      )
     }
   }
   const homeDir = mkdtempSync(join(tmpdir(), "pawwork-ci-smoke-"))

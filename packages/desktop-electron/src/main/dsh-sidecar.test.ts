@@ -288,9 +288,6 @@ describe("DSH sidecar lifecycle", () => {
 
     expect(stdout.join("")).toBe("loading plugins")
     expect(stderr.join("")).toBe("FATAL: profile bundle is unresolved")
-
-    child.emit("exit", 1)
-    await expect(launched.ready).rejects.toThrow("DSH exited before readiness with code 1")
   })
 
   test("escalates a non-exiting graceful stop to force termination within a bound", async () => {

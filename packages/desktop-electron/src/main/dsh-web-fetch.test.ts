@@ -15,15 +15,18 @@ describe("PawWork web_fetch", () => {
 
     expect(tool?.disabled).toBe(false)
     expect(tool?.config?.fetch).toBe(true)
-    // Mounted and unconditionally on. A row can name a plugin and still ship
-    // `disabled:`, which registers no provider and reads identically to the row
-    // having been retired — and upstream already writes that field as a `!!js`
-    // expression on the sandbox rows, which loads as its source text. So the
-    // assertion is that the field is absent, not that it is not `true`: any
-    // value at all, string or boolean, is a gate this test must fail on.
-    const provider = providers.find((row) => row.name === "@deepseek-ai/dsh-web-fetch-http")
-    expect(provider).toBeDefined()
-    expect(provider?.disabled).toBeUndefined()
+    // Mounted and unconditionally on. Selected by id and checked across every
+    // row carrying it, because retiring a row is done by id alone: dsh-web-app
+    // already writes bare `- id: tool-web / disabled: true` rows that state no
+    // name, so a search by name would read the row that mounts the provider and
+    // never see the one that switches it off.
+    //
+    // The assertion is that the field is absent rather than not `true`, because
+    // upstream writes it as a `!!js` expression on the sandbox rows, which loads
+    // as its source text — any value at all, string or boolean, is a gate.
+    const rows = providers.filter((row) => row.id === "web-fetch-http")
+    expect(rows.map((row) => row.name)).toContain("@deepseek-ai/dsh-web-fetch-http")
+    for (const row of rows) expect(row.disabled).toBeUndefined()
     // The seam picks the sole registered provider when nothing names one, so an
     // id that matches no provider fails only once a second one is mounted —
     // which is also the moment it stops being obvious why fetches began failing.

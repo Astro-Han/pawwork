@@ -56,13 +56,10 @@ const DEFAULT_STOP_TIMEOUT_MS = 5_000
 
 /**
  * Readiness arrives as data on the IPC channel this spawn opens, sent by the
- * `pawwork-product` plugin mounted inside the sidecar. DSH's own `dsh web:`
- * line is a startup notice written for a person: it has already grown a
- * `(LAN: …)` suffix, its host is a constant private to the bundle, and it
- * shares a prefix with the browser-handoff line beside it — so reading it made
- * every upstream rewording a PawWork that cannot start. The product patch
- * silences that line, which is also what keeps the launch token out of the
- * application log stdout is mirrored into.
+ * `pawwork-web-ready` plugin mounted inside the sidecar — which owns the
+ * argument for why DSH's own `dsh web:` line is not an interface. The literal
+ * is spelled independently on both sides so a rename on either fails a test
+ * rather than hanging a launch.
  */
 const WEB_READY_MESSAGE = "pawwork:web-ready"
 
