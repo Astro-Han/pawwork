@@ -1,0 +1,213 @@
+# Reproduction harness for #1614: PawWork v2 never finishes starting on Windows
+# after an update from v1, with the DSH sidecar producing no output at all
+# before the 30s readiness timeout.
+#
+# ci.yml already installs and smokes a freshly packaged v2 on windows-latest and
+# passes, so a clean install is not the trigger. The only thing the reporter's
+# log has that CI does not is pre-existing v1 state under
+# %APPDATA%\ai.pawwork.desktop, which v2 renames into ~\.pawwork\dsh on first
+# run. This workflow runs both halves of that comparison so the difference is
+# attributable rather than assumed.
+#
+# PAWWORK_CI_SMOKE=true is set for the launch (but NOT PAWWORK_CI_SMOKE_HOME, so
+# every path stays the real user-profile path a shipped install would use). It
+# only changes two things that matter here: the startup failure exits the
+# process instead of opening a modal dialog that would hang the runner, and a
+# successful start writes ci-smoke-ready.json we can poll for.
+#
+# Neither leg fails the job on a reproduction - both always upload their logs,
+# and the verdict goes to the run summary.
+name: repro-1614
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_version:
+        description: v1 version installed first (upgrade leg only)
+        default: "2026.8.5"
+      target_version:
+        description: v2 version under test
+        default: "2026.8.8"
+  push:
+    branches: [debug/1614-windows-upgrade-repro]
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    name: ${{ matrix.scenario }}
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [clean, upgrade]
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SCENARIO: ${{ matrix.scenario }}
+      BASELINE_VERSION: ${{ inputs.baseline_version || '2026.8.5' }}
+      TARGET_VERSION: ${{ inputs.target_version || '2026.8.8' }}
+      # app-identity.ts pins userData to <appData>\<appId> regardless of
+      # productName, which is why the reporter's log shows ai.pawwork.desktop.
+      APP_ID: ai.pawwork.desktop
+    steps:
+      - name: Resolve paths
+        run: |
+          $evidence = "$env:RUNNER_TEMP\evidence"
+          New-Item -ItemType Directory -Force -Path $evidence, "$env:RUNNER_TEMP\installers" | Out-Null
+          $userData = "$env:APPDATA\$env:APP_ID"
+          @(
+            "EVIDENCE_DIR=$evidence",
+            "USER_DATA=$userData",
+            "MAIN_LOG=$userData\logs\main.log",
+            "DSH_HOME=$env:USERPROFILE\.pawwork"
+          ) | Add-Content $env:GITHUB_ENV
+
+      - name: Download installers
+        run: |
+          $dir = "$env:RUNNER_TEMP\installers"
+          gh release download "v$env:TARGET_VERSION" -R Astro-Han/pawwork -D $dir `
+            -p "pawwork-win-x64-$env:TARGET_VERSION.exe"
+          if ($env:SCENARIO -eq 'upgrade') {
+            gh release download "v$env:BASELINE_VERSION" -R Astro-Han/pawwork -D $dir `
+              -p "pawwork-win-x64-$env:BASELINE_VERSION.exe"
+          }
+          Get-ChildItem $dir | Format-Table Name, Length
+
+      # /allusers matches the reporter, whose app.asar resolved under
+      # C:\Program Files\PawWork. The default silent install is per-user, so
+      # leaving it off would test a different install root than the report.
+      - name: Install v1 baseline
+        if: matrix.scenario == 'upgrade'
+        run: |
+          $installer = "$env:RUNNER_TEMP\installers\pawwork-win-x64-$env:BASELINE_VERSION.exe"
+          Start-Process -FilePath $installer -ArgumentList '/S','/allusers' -Wait
+          Get-ChildItem 'C:\Program Files' -Filter '*PawWork*' | Format-Table FullName
+
+      # v1 has to actually run once: the whole question is what state it leaves
+      # behind for v2 to migrate. An install alone writes no user data.
+      - name: Run v1 once to lay down real state
+        if: matrix.scenario == 'upgrade'
+        run: |
+          $exe = Get-ChildItem 'C:\Program Files' -Recurse -Depth 2 -Filter '*.exe' -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'PawWork' -and $_.Name -notmatch 'Uninstall' } |
+            Select-Object -First 1
+          if (-not $exe) { throw "v1 executable not found after install" }
+          "v1 executable: $($exe.FullName)"
+          $proc = Start-Process -FilePath $exe.FullName -PassThru
+          Start-Sleep -Seconds 90
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 5
+          Get-Process -Name 'PawWork*' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+      # Recorded before v2 touches anything: this is what tells us whether v1
+      # even creates the <userData>\dsh directory the reporter's migration
+      # renamed, or whether that legacy home came from somewhere else.
+      - name: Snapshot pre-upgrade state
+        if: matrix.scenario == 'upgrade'
+        run: |
+          $out = "$env:EVIDENCE_DIR\pre-upgrade-state.txt"
+          "== $env:USER_DATA ==" | Set-Content $out
+          Get-ChildItem $env:USER_DATA -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+            Select-Object FullName, Length | Out-String | Add-Content $out
+          "== $env:DSH_HOME ==" | Add-Content $out
+          Get-ChildItem $env:DSH_HOME -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+            Select-Object FullName, Length | Out-String | Add-Content $out
+          Copy-Item $env:MAIN_LOG "$env:EVIDENCE_DIR\v1-main.log" -ErrorAction SilentlyContinue
+          Get-Content $out | Select-Object -First 60
+
+      - name: Install v2 under test
+        run: |
+          $installer = "$env:RUNNER_TEMP\installers\pawwork-win-x64-$env:TARGET_VERSION.exe"
+          Start-Process -FilePath $installer -ArgumentList '/S','/allusers' -Wait
+          $exe = Get-ChildItem 'C:\Program Files' -Recurse -Depth 2 -Filter '*.exe' -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'PawWork' -and $_.Name -notmatch 'Uninstall' } |
+            Select-Object -First 1
+          if (-not $exe) { throw "v2 executable not found after install" }
+          "V2_EXE=$($exe.FullName)" | Add-Content $env:GITHUB_ENV
+
+      # The reporter's log cannot distinguish "sidecar never spawned" from
+      # "sidecar spawned and hung", because index.ts forwards both stdout and
+      # stderr to the logger and neither produced a line. Sampling the process
+      # table during the wait answers that directly.
+      - name: Launch v2 and watch for the sidecar
+        run: |
+          $procLog = "$env:EVIDENCE_DIR\process-samples.txt"
+          $readyFile = "$env:USER_DATA\ci-smoke-ready.json"
+          Remove-Item $readyFile -ErrorAction SilentlyContinue
+          Remove-Item $env:MAIN_LOG -ErrorAction SilentlyContinue
+
+          $sampler = Start-Job -ArgumentList $procLog -ScriptBlock {
+            param($out)
+            1..90 | ForEach-Object {
+              $stamp = (Get-Date).ToString('HH:mm:ss.fff')
+              $rows = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match 'PawWork|node' -or $_.CommandLine -match 'dsh' } |
+                ForEach-Object { "$stamp pid=$($_.ProcessId) ppid=$($_.ParentProcessId) $($_.Name) :: $($_.CommandLine)" }
+              if ($rows) { $rows | Add-Content $out }
+              Start-Sleep -Seconds 2
+            }
+          }
+
+          $env:PAWWORK_CI_SMOKE = 'true'
+          $proc = Start-Process -FilePath $env:V2_EXE -PassThru
+          $deadline = (Get-Date).AddSeconds(180)
+          $verdict = 'timeout-waiting-for-app'
+          while ((Get-Date) -lt $deadline) {
+            if (Test-Path $readyFile) { $verdict = 'ready'; break }
+            if ($proc.HasExited) { $verdict = "exited-code-$($proc.ExitCode)"; break }
+            Start-Sleep -Seconds 2
+          }
+          Stop-Job $sampler -ErrorAction SilentlyContinue
+          Receive-Job $sampler -ErrorAction SilentlyContinue | Out-Null
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          Get-Process -Name 'PawWork*' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          "LAUNCH_VERDICT=$verdict" | Add-Content $env:GITHUB_ENV
+
+      - name: Collect evidence
+        if: always()
+        run: |
+          Copy-Item $env:MAIN_LOG "$env:EVIDENCE_DIR\v2-main.log" -ErrorAction SilentlyContinue
+          $out = "$env:EVIDENCE_DIR\post-upgrade-state.txt"
+          "== $env:USER_DATA ==" | Set-Content $out
+          Get-ChildItem $env:USER_DATA -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+            Select-Object FullName, Length | Out-String | Add-Content $out
+          "== $env:DSH_HOME ==" | Add-Content $out
+          Get-ChildItem $env:DSH_HOME -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+            Select-Object FullName, Length | Out-String | Add-Content $out
+
+      - name: Report verdict
+        if: always()
+        run: |
+          $log = "$env:EVIDENCE_DIR\v2-main.log"
+          $text = if (Test-Path $log) { Get-Content $log -Raw } else { '' }
+          $stalled = $text -match 'did not announce readiness'
+          $migrated = [regex]::Match($text, 'DSH home migrated[^\}]*\}').Value
+          $sidecarOutput = ($text -split "`n" | Where-Object { $_ -match 'DSH std(out|err)' }).Count
+
+          $lines = @(
+            "## $env:SCENARIO",
+            '',
+            "- launch verdict: ``$env:LAUNCH_VERDICT``",
+            "- readiness timeout hit: **$stalled**",
+            "- DSH stdout/stderr lines before the verdict: **$sidecarOutput**",
+            "- migration: ``$(if ($migrated) { $migrated } else { 'none logged' })``"
+          )
+          if ($stalled) {
+            $lines += '', '**#1614 reproduced.** See process-samples.txt in the artifact for whether the sidecar process ever existed.'
+          }
+          $lines | Add-Content $env:GITHUB_STEP_SUMMARY
+          $lines | Write-Host
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: repro-1614-${{ matrix.scenario }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: warn
+          retention-days: 7
