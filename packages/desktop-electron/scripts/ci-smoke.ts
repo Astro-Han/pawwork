@@ -422,19 +422,27 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
         return visible(button) && !button.disabled && /^(打开|Open)$/i.test(label)
       }))
       if (!openDirectory) throw new Error("Windows browse directory picker never enabled Open")
-      openDirectory.click()
 
       // DSH 0.1.2-alpha.2 dropped the \`workspace.list\` RPC — the client reads the
       // set through the \`workspace/follow\` stream, which this raw-fetch helper
       // cannot open. Every read-only replacement is a stream too, and probing
       // with \`workspace/create\` would create the very workspace it claims to
-      // observe, so this asserts through the sidebar the picker writes into: the
-      // adopted workspace appears there under its directory name.
+      // observe, so this asserts through the sidebar the picker writes into.
+      //
+      // A directory name is not an identity: the home directory the picker opens
+      // on can share its basename with a workspace already listed, and matching
+      // on text alone would then pass without the picker having added anything.
+      // So the assertion is that a leaf carrying that name appears which was not
+      // there before Open was clicked.
       const expectedWorkspaceName = expectedPickedDirectory.split(/[\\\\/]/).filter(Boolean).pop()
-      const adoptedWorkspaceLeaf = await waitFor(() => Array.from(document.querySelectorAll("*"))
-        .find((element) => element.childElementCount === 0
+      const namedWorkspaceLeaves = () => Array.from(document.querySelectorAll("*"))
+        .filter((element) => element.childElementCount === 0
           && visible(element)
-          && (element.textContent || "").trim() === expectedWorkspaceName))
+          && (element.textContent || "").trim() === expectedWorkspaceName)
+      const leavesBeforePick = new Set(namedWorkspaceLeaves())
+      openDirectory.click()
+
+      const adoptedWorkspaceLeaf = await waitFor(() => namedWorkspaceLeaves().find((element) => !leavesBeforePick.has(element)))
       if (!adoptedWorkspaceLeaf) throw new Error("Windows browse directory picker did not create the selected workspace")
 
       const browseDialogClosed = await waitFor(() => !visible(browseDialog))
