@@ -12,12 +12,12 @@
         displayName: OpenCode Free
         models:
           - id: big-pickle
-          - id: deepseek-v4-flash-free
-          - id: laguna-s-2.1-free
-          - id: ling-3.0-flash-free
+          - id: hy3-free
+          - id: ling-3.0-flash-fin-free
           - id: mimo-v2.5-free
+          - id: muse-spark-1.2-contributor-free
           - id: nemotron-3-ultra-free
-          - id: north-mini-code-free
+          - id: nemotron-3.5-lightning-free
 - id: agent-instructions
   config:
     dshHome: "~/.pawwork"
@@ -61,8 +61,9 @@
 # `web_search` and shadows this row for that name; a second registration would
 # be dead weight that also drops the preset's 60s search timeout.
 #
-# Upstream tells deployments not to do this: `dsh-web-fetch-http` (inserted
-# below) implements no SSRF protection — the model picks the target and private,
+# Upstream tells deployments not to do this: `dsh-web-fetch-http` (mounted by
+# dsh-base since 0.1.2-alpha.2, so this file only flips the tool on) implements
+# no SSRF protection — the model picks the target and private,
 # loopback and link-local addresses are not blocked — so its README says it
 # "must not be enabled in a deployment that can reach sensitive internal network
 # targets", and dsh-base keeps `fetch: false` for that reason.
@@ -126,7 +127,9 @@
     - id: pawwork-product
       name: '@pawwork/dsh-product'
     - id: import-v1
-      name: '../../plugins/import-v1/index.mjs'
+      # Relative entry names resolve against the DSH home since 0.1.2-alpha.2;
+      # they used to resolve against the active profile directory.
+      name: './plugins/import-v1/index.mjs'
     - id: pawwork-automations
       name: '@pawwork/dsh-automations'
     - id: pawwork-web-search
@@ -136,11 +139,6 @@
     # state machine stays in the Electron main process.
     - id: pawwork-updater
       name: '@pawwork/dsh-updater'
-    # The fetch provider behind the `web_fetch` tool re-enabled above. dsh-base
-    # mounts none, so without this row the tool exists and every call answers
-    # `no usable web provider is registered`.
-    - id: web-fetch-http
-      name: '@deepseek-ai/dsh-web-fetch-http'
     # Not in the default composition upstream; without it the model has no clock.
     # The interval is a floor between injections, not a refresh timer — upstream
     # has no default, so dropping it makes every step carry its own reading.

@@ -1,16 +1,30 @@
+import { createRequire } from "node:module"
+import { dirname, join } from "node:path"
 import { LOCAL_FETCH_PROVIDER_ID } from "@deepseek-ai/dsh-web-fetch-http"
 import { describe, expect, test } from "vitest"
-import { readProductPatch } from "./dsh-product-patch.testing"
+import { readEntryList, readProductPatch } from "./dsh-product-patch.testing"
+
+/** The dsh-base composition PawWork's product patch overlays. */
+function baseEntryList() {
+  const require = createRequire(import.meta.url)
+  return readEntryList(join(dirname(require.resolve("@deepseek-ai/dsh-base/package.json")), "cordis.patch.yml"))
+}
+
+/** Every row a composition mounts, whether stated at top level or inserted. */
+function allRows(entries: ReturnType<typeof readEntryList>) {
+  return entries.flatMap((entry) => [entry, ...(entry.insert ?? [])])
+}
 
 describe("PawWork web_fetch", () => {
   // Two halves, and either one alone is a broken product: the tool without the
   // provider answers `no usable web provider is registered` on every call, and
-  // the provider without the tool is a service nothing can reach. They sit in
-  // different rows of the same file, so nothing but this couples them.
+  // the provider without the tool is a service nothing can reach. dsh-base has
+  // mounted the provider since 0.1.2-alpha.2 — PawWork only flips the tool on —
+  // so this couples our row to the upstream row a DSH upgrade could retire.
   test("mounts the tool and its provider together", () => {
     const patch = readProductPatch()
     const tool = patch.find((entry) => entry.id === "tool-web")
-    const providers = patch.flatMap((entry) => entry.insert ?? [])
+    const providers = [...allRows(patch), ...allRows(baseEntryList())]
 
     expect(tool?.disabled).toBe(false)
     expect(tool?.config?.fetch).toBe(true)

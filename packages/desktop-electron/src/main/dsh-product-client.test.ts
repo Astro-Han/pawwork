@@ -85,8 +85,16 @@ describe("PawWork DSH client product layer", () => {
 
     expect(productPackage.name).toBe("@pawwork/dsh-product")
     expect(productPackage.exports["./client"].default).toBe("./lib/client.js")
+    // 0.1.2-alpha.2 split `dsh-client-runtime` into the packages that own each
+    // client service, so the manifest now names one per service `client.js`
+    // reads: slots, connection, sessions, layout — in that order.
     expect(productPackage.dsh.client).toEqual({
-      inject: ["@deepseek-ai/dsh-client-runtime"],
+      inject: [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-layout",
+      ],
       platform: "web",
     })
   })

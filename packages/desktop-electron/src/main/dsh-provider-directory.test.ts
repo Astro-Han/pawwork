@@ -78,11 +78,18 @@ describe("pi-ai configurable-provider directory", () => {
   })
 })
 
+/** Every wire controller behind the API gateway; 0.1.2-alpha.2 split `dsh-host-apiproxy` into these. */
+const API_CONTROLLERS = [
+  "@deepseek-ai/dsh-api-session-controller",
+  "@deepseek-ai/dsh-api-settings-controller",
+  "@deepseek-ai/dsh-api-workspace-controller",
+]
+
 describe("DSH authorization surface", () => {
   test("still ships no wire method, so the patch is still the right call", () => {
-    const routes = readFileSync(resolveInDsh("@deepseek-ai/dsh-host-apiproxy"), "utf8")
+    const routes = API_CONTROLLERS.map((specifier) => readFileSync(resolveInDsh(specifier), "utf8")).join("\n")
 
-    // Proves the scan reads the table it thinks it does rather than passing on a moved file.
+    // Proves the scan reads the tables it thinks it does rather than passing on moved files.
     expect(routes).toContain('"credentials.describe"')
     // When this fails, DSH can start a sign-in: drop the pi-ai patch, mount
     // @deepseek-ai/dsh-authorization in product.cordis.patch.yml, and delete this file.

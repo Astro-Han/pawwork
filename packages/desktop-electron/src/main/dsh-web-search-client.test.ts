@@ -50,7 +50,7 @@ function loadPlugin() {
       if (module === "@deepseek-ai/dsh-client-ui-primitives") {
         return { IconChevronDownOutline14: "IconChevronDown", Menu: "Menu" }
       }
-      if (module === "@deepseek-ai/dsh-client-runtime/client") return { createSnapshotStore: fakeStore }
+      if (module === "@deepseek-ai/dsh-client-store") return { createSnapshotStore: fakeStore }
       throw new Error(`unexpected web-search client dependency: ${module}`)
     }),
   }

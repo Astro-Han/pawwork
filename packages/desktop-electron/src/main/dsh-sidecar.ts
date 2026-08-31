@@ -50,7 +50,13 @@ export function describeExit(code: number | null) {
   return code === null ? "without a status code" : `with code ${code}`
 }
 
-const READY_LINE = /^dsh web: (http:\/\/127\.0\.0\.1:\d+)(?: \(|$)/
+// DSH 0.1.2-alpha.2 announces `http://127.0.0.1:<port>/?token=<launch token>`:
+// the root query token is the sole authentication input, and loading it mints
+// the session cookie every later request rides on. Capture the whole URL, query
+// included — an origin-only match would load an unauthenticated root and answer
+// 401. The optional trailing group is the `(LAN: …)` suffix DSH appends when the
+// server also bound a routable address.
+const READY_LINE = /^dsh web: (http:\/\/127\.0\.0\.1:\d+\/?(?:\?\S*)?)(?: \(|$)/
 const DEFAULT_STOP_TIMEOUT_MS = 5_000
 
 export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {

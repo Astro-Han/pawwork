@@ -1,6 +1,5 @@
 import z from '@deepseek-ai/schemastery';
 import { credentialRef, isCredentialRefName } from '@deepseek-ai/dsh-credentials';
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings';
 import { WebError } from '@deepseek-ai/dsh-web';
 import { DeepSeekSearchProvider } from '@deepseek-ai/dsh-web-search-deepseek';
 import { ExaSearchProvider } from '@deepseek-ai/dsh-web-search-exa';
@@ -22,7 +21,7 @@ export const inject = ['web'];
 export const PAWWORK_SEARCH_PROVIDER_ID = 'pawwork';
 
 /** Settings namespace carrying the engine choice and each engine's credential reference. */
-export const PAWWORK_WEB_SEARCH_SETTINGS_NAMESPACE = settingsNamespace('pawwork-web-search');
+export const PAWWORK_WEB_SEARCH_SETTINGS_NAMESPACE = 'pawwork-web-search';
 
 const DEFAULT_EXA_API_KEY_ENV = 'EXA_API_KEY';
 const DEFAULT_DEEPSEEK_API_KEY_ENV = 'DEEPSEEK_API_KEY';
@@ -203,11 +202,13 @@ export class PawWorkSearchProvider {
  */
 export function apply(ctx, config) {
   let current = () => config;
-  installSettingsSection(ctx, PAWWORK_WEB_SEARCH_SETTINGS_NAMESPACE, Config, config, {
-    setSource: (source) => {
-      current = source;
-    },
-    onChange: () => {},
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.settings.installSection(ctx, PAWWORK_WEB_SEARCH_SETTINGS_NAMESPACE, Config, config, {
+      setSource: (source) => {
+        current = source;
+      },
+      onChange: () => {},
+    });
   });
   ctx.web.registerSearchProvider(new PawWorkSearchProvider(ctx, () => current()));
 }

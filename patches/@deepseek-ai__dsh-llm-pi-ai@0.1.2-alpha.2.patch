@@ -1,8 +1,8 @@
 diff --git a/lib/index.js b/lib/index.js
-index b819f847403e2bd76a7c04518da4652562a7a791..c0a4caf5eb02eb65131948a8b1d3c3593f453c82 100644
+index 906afd7..3c42cda 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -2376,7 +2376,16 @@ function directoryEntries(profiles) {
+@@ -2439,7 +2439,16 @@ function directoryEntries(profiles) {
  			declared: !catalog.has(provider)
  		});
  	};

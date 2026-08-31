@@ -403,12 +403,12 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     }
     const isWindows = /^Win/i.test(navigator.platform)
     let selectedWorkspace = ${workspace}
-    if (!isWindows) await call("workspace.create", { path: ${workspace} })
+    if (!isWindows) await call("workspace/create", { path: ${workspace} })
     let expandedPrimaryActions = await waitForSidebarPrimaryActions()
     let windowsBrowseDirectoryPickerWorked = !isWindows
     if (isWindows) {
       if (!expandedPrimaryActions.addWorkspace) throw new Error("Windows smoke could not find Add workspace")
-      const expectedPickedDirectory = (await call("host.listDirectory", {})).path
+      const expectedPickedDirectory = (await call("directoryPicker/list", {})).path
       expandedPrimaryActions.addWorkspace.click()
 
       const browseDialog = await waitFor(() => Array.from(document.querySelectorAll('[role="dialog"]')).find((dialog) => {
@@ -424,15 +424,22 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       if (!openDirectory) throw new Error("Windows browse directory picker never enabled Open")
       openDirectory.click()
 
-      const adoptedWorkspace = await waitFor(async () => {
-        const workspaces = (await call("workspace.list", {})).items
-        return workspaces.find((item) => item.path === expectedPickedDirectory)
-      })
-      if (!adoptedWorkspace) throw new Error("Windows browse directory picker did not create the selected workspace")
+      // DSH 0.1.2-alpha.2 dropped the \`workspace.list\` RPC — the client reads the
+      // set through the \`workspace/follow\` stream, which this raw-fetch helper
+      // cannot open. Every read-only replacement is a stream too, and probing
+      // with \`workspace/create\` would create the very workspace it claims to
+      // observe, so this asserts through the sidebar the picker writes into: the
+      // adopted workspace appears there under its directory name.
+      const expectedWorkspaceName = expectedPickedDirectory.split(/[\\\\/]/).filter(Boolean).pop()
+      const adoptedWorkspaceLeaf = await waitFor(() => Array.from(document.querySelectorAll("*"))
+        .find((element) => element.childElementCount === 0
+          && visible(element)
+          && (element.textContent || "").trim() === expectedWorkspaceName))
+      if (!adoptedWorkspaceLeaf) throw new Error("Windows browse directory picker did not create the selected workspace")
 
       const browseDialogClosed = await waitFor(() => !visible(browseDialog))
       if (!browseDialogClosed) throw new Error("Windows browse directory picker stayed open after selection")
-      selectedWorkspace = adoptedWorkspace.path
+      selectedWorkspace = expectedPickedDirectory
       windowsBrowseDirectoryPickerWorked = true
       expandedPrimaryActions = await waitForSidebarPrimaryActions()
     }
@@ -659,7 +666,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const importDeadline = Date.now() + 120_000
     while (!v1SessionVisibleInSidebar && Date.now() < importDeadline) {
       const sessionLeaf = sidebarSessionLeaf()
-      const sessions = (await call("session.list", {})).items
+      const sessions = (await call("session/list", {})).items
       v1SessionImported = sessions.some((item) => item.sessionId === ${expectedSession})
       if (sessionLeaf) {
         await new Promise((resolve) => setTimeout(resolve, 500))
@@ -785,10 +792,10 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     expandToggles[0]?.click()
     await new Promise((resolve) => setTimeout(resolve, 200))
 
-    const providers = (await call("llm.providers", {})).providers
-    const session = await call("session.create", { cwd: selectedWorkspace })
-    const skills = (await call("skill.list", { sessionId: session.sessionId })).skills
-    const sessionIdsBeforeRestart = (await call("session.list", {})).items.map((item) => item.sessionId)
+    const providers = (await call("llm/listProviders", {})).providers
+    const session = await call("session/create", { cwd: selectedWorkspace })
+    const skills = (await call("skills/list", { sessionId: session.sessionId })).skills
+    const sessionIdsBeforeRestart = (await call("session/list", {})).items.map((item) => item.sessionId)
     const freeProvider = providers.find((provider) => provider.provider === "opencode")
     return JSON.stringify({
       sidebarExpandedBrandHidden,
@@ -910,7 +917,7 @@ export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: st
       if (!envelope?.result?.ok) throw new Error(envelope?.result?.error?.message || method + " failed")
       return envelope.result.value
     }
-    const sessions = (await call("session.list", {})).items
+    const sessions = (await call("session/list", {})).items
     return JSON.stringify(sessions.map((session) => session.sessionId))
   })()`
   const restored = await evaluateCiSmokeJson(target, expression) as string[]
