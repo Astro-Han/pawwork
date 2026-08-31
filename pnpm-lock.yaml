@@ -23,7 +23,7 @@ overrides:
   ws: 8.21.0
 
 patchedDependencies:
-  '@deepseek-ai/dsh-llm-pi-ai@0.1.2-alpha.2': 3d09b3ee7d57b6fa8b4e56fbd1ac9b1c9b2c43eeb79992b34566f8a72a6e37d8
+  '@deepseek-ai/dsh-llm-pi-ai@0.1.2-alpha.2': 56f38d6743e843dee8ae545b573be99d831ace3758a4a5dd012e31a0137eb94f
   brace-expansion@5.0.9: ef72a243d0bee0990f9a97f527cdcbbb43bc8677f6337ac800e6d1df6ecb5a8b
 
 importers:
@@ -7684,7 +7684,7 @@ snapshots:
       '@deepseek-ai/dsh-jobs-local': 0.1.2-alpha.2(973ecdd6ffa735cf320e53e7b9b3ca8b)
       '@deepseek-ai/dsh-llm': 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))
       '@deepseek-ai/dsh-llm-deepseek': 0.1.2-alpha.2(394ce292c71f9392472e55b92990c49b)
-      '@deepseek-ai/dsh-llm-pi-ai': 0.1.2-alpha.2(patch_hash=3d09b3ee7d57b6fa8b4e56fbd1ac9b1c9b2c43eeb79992b34566f8a72a6e37d8)(8a468f50874d235a7f39b47b92ae3da8)
+      '@deepseek-ai/dsh-llm-pi-ai': 0.1.2-alpha.2(patch_hash=56f38d6743e843dee8ae545b573be99d831ace3758a4a5dd012e31a0137eb94f)(8a468f50874d235a7f39b47b92ae3da8)
       '@deepseek-ai/dsh-llm-retry': 0.1.2-alpha.2(949296e9c4a084c2c6c23d9ad3559882)
       '@deepseek-ai/dsh-permission-presets': 0.1.2-alpha.2(490536808139566fae9826a35187f896)
       '@deepseek-ai/dsh-plan-mode': 0.1.2-alpha.2(af80d9cf7e6cfe4ea9fc43ba514481b7)
@@ -8389,7 +8389,7 @@ snapshots:
       '@deepseek-ai/schemastery': 3.18.2
       eventsource-parser: 3.1.1
 
-  '@deepseek-ai/dsh-llm-pi-ai@0.1.2-alpha.2(patch_hash=3d09b3ee7d57b6fa8b4e56fbd1ac9b1c9b2c43eeb79992b34566f8a72a6e37d8)(8a468f50874d235a7f39b47b92ae3da8)':
+  '@deepseek-ai/dsh-llm-pi-ai@0.1.2-alpha.2(patch_hash=56f38d6743e843dee8ae545b573be99d831ace3758a4a5dd012e31a0137eb94f)(8a468f50874d235a7f39b47b92ae3da8)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@deepseek-ai/dsh-attachment': 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-brand@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))

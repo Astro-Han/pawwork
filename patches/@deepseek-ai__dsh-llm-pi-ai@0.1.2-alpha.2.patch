@@ -16,7 +16,7 @@ index 906afd7..3c42cda 100644
 +	authorization.* wire method and no client UI, so listing such a provider offers
 +	an API-key form whose key can never work. Drop this patch once DSH ships that
 +	surface and PawWork mounts @deepseek-ai/dsh-authorization. */
-+	for (const provider of catalog) if (catalogProvider(provider)?.auth.apiKey !== void 0) declare(provider, provider);
++	for (const provider of catalog) if (catalogProvider(provider)?.auth?.apiKey !== void 0) declare(provider, provider);
  	for (const [provider, profile] of profiles) declare(provider, profile.displayName);
  	return [...entries.values()];
  }
