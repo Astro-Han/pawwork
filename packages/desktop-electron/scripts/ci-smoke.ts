@@ -371,8 +371,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       planted.forEach((element) => element.remove())
       return caught
     }
-    const call = async (method, payload) => {
-      const request = { type: "client-request", rpcId: crypto.randomUUID(), method, payload }
+    const call = async (method, args) => {
+      const request = { type: "client-request", rpcId: crypto.randomUUID(), method, payload: { args } }
       const response = await fetch("/api/" + method, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -403,7 +403,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     }
     const isWindows = /^Win/i.test(navigator.platform)
     let selectedWorkspace = ${workspace}
-    if (!isWindows) await call("workspace/create", { path: ${workspace} })
+    if (!isWindows) await call("workspace/create", { request: { path: ${workspace} } })
     let expandedPrimaryActions = await waitForSidebarPrimaryActions()
     let windowsBrowseDirectoryPickerWorked = !isWindows
     if (isWindows) {
@@ -552,6 +552,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       })
       automationCreateViaChatWorked = !visible(document.querySelector(".pawwork-automations-surface")) && Boolean(draft)
     }
+
     visibleButton(/^(设置|Settings)$/i)?.click()
     await new Promise((resolve) => setTimeout(resolve, 50))
     visibleButton(/^(自动化|Automations)$/i)?.click()
@@ -666,7 +667,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const importDeadline = Date.now() + 120_000
     while (!v1SessionVisibleInSidebar && Date.now() < importDeadline) {
       const sessionLeaf = sidebarSessionLeaf()
-      const sessions = (await call("session/list", {})).items
+      const sessions = (await call("session/list", { _request: {} })).items
       v1SessionImported = sessions.some((item) => item.sessionId === ${expectedSession})
       if (sessionLeaf) {
         await new Promise((resolve) => setTimeout(resolve, 500))
@@ -792,11 +793,14 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     expandToggles[0]?.click()
     await new Promise((resolve) => setTimeout(resolve, 200))
 
-    const providers = (await call("llm/listProviders", {})).providers
-    const session = await call("session/create", { cwd: selectedWorkspace })
-    const skills = (await call("skills/list", { sessionId: session.sessionId })).skills
-    const sessionIdsBeforeRestart = (await call("session/list", {})).items.map((item) => item.sessionId)
-    const freeProvider = providers.find((provider) => provider.provider === "opencode")
+    // \`llm/listProviders\` answers only the providers that actually registered an
+    // adapter, so presence in this list is what \`active\` used to state, and \`name\`
+    // carries the display name the product patch sets.
+    const providers = await call("llm/listProviders", {})
+    const session = await call("session/create", { request: { cwd: selectedWorkspace } })
+    const skills = (await call("skills/list", { request: { sessionId: session.sessionId } })).skills
+    const sessionIdsBeforeRestart = (await call("session/list", { _request: {} })).items.map((item) => item.sessionId)
+    const freeProvider = providers.find((provider) => provider.id === "opencode")
     return JSON.stringify({
       sidebarExpandedBrandHidden,
       sidebarCollapsedBrandHidden,
@@ -855,7 +859,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       sidebarExpandToggleHasContent,
       sidebarExpandedAgain: !document.querySelector("[data-sidebar-collapsed]"),
       platform: typeof navigator === "undefined" ? "" : navigator.platform,
-      freeProviderActive: freeProvider?.active === true && freeProvider?.displayName === "OpenCode Free",
+      freeProviderActive: freeProvider !== undefined && freeProvider.name === "OpenCode Free",
       v1SessionImported,
       v1SessionVisibleInSidebar,
       skillNames: skills.map((skill) => skill.name).sort(),
@@ -905,8 +909,8 @@ async function evaluateCiSmokeJson(target: CdpTarget, expression: string, timeou
 export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: string, dshHome: string, listedBefore: string[] = [], appLog: string[] = []) {
   const expectedSessionId = JSON.stringify(sessionId)
   const expression = `(async () => {
-    const call = async (method, payload) => {
-      const request = { type: "client-request", rpcId: crypto.randomUUID(), method, payload }
+    const call = async (method, args) => {
+      const request = { type: "client-request", rpcId: crypto.randomUUID(), method, payload: { args } }
       const response = await fetch("/api/" + method, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -917,7 +921,7 @@ export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: st
       if (!envelope?.result?.ok) throw new Error(envelope?.result?.error?.message || method + " failed")
       return envelope.result.value
     }
-    const sessions = (await call("session/list", {})).items
+    const sessions = (await call("session/list", { _request: {} })).items
     return JSON.stringify(sessions.map((session) => session.sessionId))
   })()`
   const restored = await evaluateCiSmokeJson(target, expression) as string[]

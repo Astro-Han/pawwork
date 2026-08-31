@@ -641,7 +641,7 @@ window.__ModuleLoader__.load({
             visible.length === 0 && data !== null ? h("div", { className: "pawwork-automations-empty" }, query ? text("没有匹配的自动化", "No matching automations") : text("还没有自动化。在对话中描述任务和运行时间即可创建。", "No automations yet. Describe a task and schedule in chat to create one.")) : null))
     }
 
-    const inject = ["slots", "connection", "conversation", "sessions", "workspaces"]
+    const inject = ["slots", "connection", "conversation", "sessions", "workspaces", "uiWorkspace"]
 
     function apply(ctx) {
       ctx.slots.inject("settings.section", () => ctx.slots.register({
@@ -650,7 +650,11 @@ window.__ModuleLoader__.load({
       }, (props) => h(AutomationSurface, {
           ...props, connection: ctx.connection,
           createViaChat: async (workspaceId) => {
-            const sessionId = await ctx.workspaces.connectWorkspace(workspaceId)
+            // Navigation moved off the Workspace Controller in DSH 0.1.2-alpha.2:
+            // `workspaces` is the pure Host projection now, and connecting one to
+            // a session — reusing its blank session or creating one — belongs to
+            // `uiWorkspace`.
+            const sessionId = await ctx.uiWorkspace.connectWorkspace(workspaceId)
             const binding = ctx.sessions.binding(sessionId)
             if (!binding) throw new Error("automation chat session is unavailable")
             ctx.conversation.input.for(binding.ctx).setDraft(text("帮我创建一个自动化。先问我它要做什么、什么时候运行，再帮我创建。", "Help me create an automation. Ask what it should do and when it should run, then create it."))
