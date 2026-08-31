@@ -1,20 +1,32 @@
 import { LOCAL_FETCH_PROVIDER_ID } from "@deepseek-ai/dsh-web-fetch-http"
 import { describe, expect, test } from "vitest"
-import { readProductPatch } from "./dsh-product-patch.testing"
+import { allRows, overlaidRows, readProductPatch } from "./dsh-product-patch.testing"
 
 describe("PawWork web_fetch", () => {
   // Two halves, and either one alone is a broken product: the tool without the
   // provider answers `no usable web provider is registered` on every call, and
-  // the provider without the tool is a service nothing can reach. They sit in
-  // different rows of the same file, so nothing but this couples them.
+  // the provider without the tool is a service nothing can reach. dsh-base has
+  // mounted the provider since 0.1.2-alpha.2 — PawWork only flips the tool on —
+  // so this couples our row to the upstream row a DSH upgrade could retire.
   test("mounts the tool and its provider together", () => {
     const patch = readProductPatch()
     const tool = patch.find((entry) => entry.id === "tool-web")
-    const providers = patch.flatMap((entry) => entry.insert ?? [])
+    const providers = [...allRows(patch), ...overlaidRows()]
 
     expect(tool?.disabled).toBe(false)
     expect(tool?.config?.fetch).toBe(true)
-    expect(providers.some((row) => row.name === "@deepseek-ai/dsh-web-fetch-http")).toBe(true)
+    // Mounted and unconditionally on. Selected by id and checked across every
+    // row carrying it, because retiring a row is done by id alone: dsh-web-app
+    // already writes bare `- id: tool-web / disabled: true` rows that state no
+    // name, so a search by name would read the row that mounts the provider and
+    // never see the one that switches it off.
+    //
+    // The assertion is that the field is absent rather than not `true`, because
+    // upstream writes it as a `!!js` expression on the sandbox rows, which loads
+    // as its source text — any value at all, string or boolean, is a gate.
+    const rows = providers.filter((row) => row.id === "web-fetch-http")
+    expect(rows.map((row) => row.name)).toContain("@deepseek-ai/dsh-web-fetch-http")
+    for (const row of rows) expect(row.disabled).toBeUndefined()
     // The seam picks the sole registered provider when nothing names one, so an
     // id that matches no provider fails only once a second one is mounted —
     // which is also the moment it stops being obvious why fetches began failing.

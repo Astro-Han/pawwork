@@ -23,6 +23,12 @@ class FakeChildProcess extends EventEmitter implements DshChildProcess {
     return true
   }
 
+  // What the `pawwork-product` plugin sends over the IPC channel once the tree
+  // has settled and the Web server can serve the authenticated root.
+  announceReady(url: string) {
+    this.emit("message", { type: "pawwork:web-ready", url })
+  }
+
   // A spawn that never happened: Node reports it as an "error" event on a child
   // that has no pid, no stdio activity, and no exit to come.
   emitSpawnError(message = "spawn /app/PawWork EACCES") {
@@ -64,10 +70,11 @@ describe("DSH sidecar lifecycle", () => {
       },
     })
 
-    child.stdout.write("booting\ndsh web: http://127.0.0.1:43123\n")
+    child.stdout.write("booting\n")
+    child.announceReady("http://127.0.0.1:43123/?token=s3cr3t")
     const url = await launched.ready
 
-    expect(url).toBe("http://127.0.0.1:43123")
+    expect(url).toBe("http://127.0.0.1:43123/?token=s3cr3t")
     expect(invocation).toEqual({
       executable: "/app/PawWork",
       args: [
@@ -112,11 +119,12 @@ describe("DSH sidecar lifecycle", () => {
     await expect(stoppedBeforeReady).resolves.toBeInstanceOf(Error)
   })
 
-  // The sidecar's stdout carries agent output too, so the readiness line is only
-  // trusted at the start of a line and only in the exact shape DSH prints. Drop
-  // either half of that rule and anything the model echoes can point the app at
-  // another port.
-  test("trusts a readiness announcement only as a whole line", async () => {
+  // Readiness is a message, not a sentence, and the difference is the point:
+  // the sidecar's stdout carries agent output, so anything the model echoes
+  // used to be one parser slip away from pointing the window at another origin.
+  // Printed text is now inert whatever it says, and the announcement is
+  // addressed rather than overheard.
+  test("takes readiness only from the channel, never from what the sidecar prints", async () => {
     const child = new FakeChildProcess()
     const launched = launchDshSidecar({
       executable: "/app/PawWork",
@@ -126,12 +134,21 @@ describe("DSH sidecar lifecycle", () => {
       env: { PATH: "/usr/bin" },
       spawn: () => child,
     })
+    let settled = false
+    void launched.ready.finally(() => {
+      settled = true
+    })
 
-    child.stdout.write("[assistant] dsh web: http://127.0.0.1:1\n")
-    child.stdout.write("dsh web: http://127.0.0.1:2suffix\n")
-    child.stdout.write("dsh web: http://127.0.0.1:43123 (press h for help)\n")
+    child.stdout.write("[assistant] dsh web: http://127.0.0.1:1/?token=evil\n")
+    child.emit("message", { type: "pawwork:web-ready" })
+    child.emit("message", "SIGTERM")
+    await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(await launched.ready).toBe("http://127.0.0.1:43123")
+    expect(settled).toBe(false)
+
+    child.announceReady("http://127.0.0.1:43123/?token=s3cr3t")
+
+    expect(await launched.ready).toBe("http://127.0.0.1:43123/?token=s3cr3t")
 
     await launched.stop()
   })
@@ -196,8 +213,9 @@ describe("DSH sidecar lifecycle", () => {
     expect([child.messages, child.killSignals]).toEqual([[], []])
   })
 
-  // #1614: DSH is silent until its ready line, so a slow start looks exactly
-  // like a wedged one. Nothing may terminate the child on elapsed time alone.
+  // #1614: the sidecar says nothing until it is ready, so a slow start looks
+  // exactly like a wedged one. Nothing may terminate the child on elapsed time
+  // alone.
   test("leaves a silent child running instead of giving up on it", async () => {
     const child = new FakeChildProcess()
     const launched = launchDshSidecar({
@@ -218,8 +236,8 @@ describe("DSH sidecar lifecycle", () => {
     expect(settled).toBe(false)
     expect([child.messages, child.killSignals]).toEqual([[], []])
 
-    child.stdout.write("dsh web: http://127.0.0.1:4321\n")
-    await expect(launched.ready).resolves.toBe("http://127.0.0.1:4321")
+    child.announceReady("http://127.0.0.1:4321/?token=s3cr3t")
+    await expect(launched.ready).resolves.toBe("http://127.0.0.1:4321/?token=s3cr3t")
   })
 
   test("stops the owned child process once across concurrent and repeated calls", async () => {
@@ -232,7 +250,7 @@ describe("DSH sidecar lifecycle", () => {
       env: {},
       spawn: () => child,
     })
-    child.stdout.write("dsh web: http://127.0.0.1:43123\n")
+    child.announceReady("http://127.0.0.1:43123/?token=s3cr3t")
     await launched.ready
 
     const firstStop = launched.stop()
@@ -243,6 +261,33 @@ describe("DSH sidecar lifecycle", () => {
 
     expect(child.messages).toEqual(["SIGTERM"])
     expect(child.killCount).toBe(0)
+  })
+
+  // Both streams are log and nothing else, so both are forwarded exactly as
+  // they arrive. The startup-failure dialog is built from stderr, and a partial
+  // line held back for a newline that never comes is the last thing a wedged
+  // runtime said, withheld from the one screen that would have shown it.
+  test("forwards both streams whole and unbuffered", async () => {
+    const child = new FakeChildProcess()
+    const stdout: string[] = []
+    const stderr: string[] = []
+    const launched = launchDshSidecar({
+      executable: "/app/PawWork",
+      dshBin: "/app/dsh.js",
+      sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
+      productPatch: "/data/dsh/product.cordis.patch.yml",
+      env: {},
+      spawn: () => child,
+      onStdout: (chunk) => stdout.push(chunk),
+      onStderr: (chunk) => stderr.push(chunk),
+    })
+
+    child.stdout.write("loading plugins")
+    child.stderr.write("FATAL: profile bundle is unresolved")
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(stdout.join("")).toBe("loading plugins")
+    expect(stderr.join("")).toBe("FATAL: profile bundle is unresolved")
   })
 
   test("escalates a non-exiting graceful stop to force termination within a bound", async () => {
@@ -258,7 +303,7 @@ describe("DSH sidecar lifecycle", () => {
       stopTimeoutMs: 1,
       spawn: () => child,
     })
-    child.stdout.write("dsh web: http://127.0.0.1:43123\n")
+    child.announceReady("http://127.0.0.1:43123/?token=s3cr3t")
     await launched.ready
 
     await launched.stop()

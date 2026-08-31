@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
   factory: (require) => {
     const { createElement, useState } = require("react")
     const { IconChevronDownOutline14, Menu } = require("@deepseek-ai/dsh-client-ui-primitives")
-    const { createSnapshotStore } = require("@deepseek-ai/dsh-client-runtime/client")
+    const { createSnapshotStore } = require("@deepseek-ai/dsh-client-store")
     const h = createElement
 
     // The settings card for the PawWork search provider.

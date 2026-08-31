@@ -50,6 +50,7 @@ export type CiSmokeProductSnapshot = {
   heroMarkHeadlineOffset: number
   automationSettingsEntryVisible: boolean
   updateSettingsEntryVisible: boolean
+  webSearchCardVisible: boolean
   updateSectionVisible: boolean
   updateSectionReportsStatus: boolean
   automationSidebarEntryAbsent: boolean
@@ -196,6 +197,32 @@ export function parseSmokeArgs(argv: string[]): SmokeTarget {
 
 export function resolveMainEntry() {
   return resolve(import.meta.dirname, "../out/main/index.js")
+}
+
+/**
+ * This script runs the built main bundle, and nothing in it builds. A run
+ * against a stale `out/` exercises whatever was last compiled while reporting
+ * on the source in front of you — it passes, and the pass means nothing. CI
+ * builds in the step before, so this only ever fires locally, which is where
+ * the mistake is silent.
+ * @returns the newest source file left out of the build, or null when there is
+ * no build at all; undefined when the build is current.
+ */
+export function staleMainEntry(mainEntry = resolveMainEntry(), sourceRoot = resolve(import.meta.dirname, "../src")) {
+  let built: number
+  try {
+    built = statSync(mainEntry).mtimeMs
+  } catch {
+    // Nothing built at all. Reporting the entry as its own offender reads as
+    // "index.js is newer than index.js"; the caller says the useful thing.
+    return null
+  }
+  const newer = (readdirSync(sourceRoot, { recursive: true }) as string[])
+    // Test files and their helpers are not in the bundle, so editing one is not
+    // a reason to rebuild — and a guard that cries wolf gets bypassed.
+    .filter((file) => /\.(?:ts|tsx|cjs|mjs|js)$/.test(file) && !/\.(?:test|testing)\.tsx?$/.test(file))
+    .find((file) => statSync(join(sourceRoot, file)).mtimeMs > built)
+  return newer === undefined ? undefined : join(sourceRoot, newer)
 }
 
 export function buildSmokeEnv(
@@ -371,8 +398,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       planted.forEach((element) => element.remove())
       return caught
     }
-    const call = async (method, payload) => {
-      const request = { type: "client-request", rpcId: crypto.randomUUID(), method, payload }
+    const call = async (method, args) => {
+      const request = { type: "client-request", rpcId: crypto.randomUUID(), method, payload: { args } }
       const response = await fetch("/api/" + method, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -403,12 +430,12 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     }
     const isWindows = /^Win/i.test(navigator.platform)
     let selectedWorkspace = ${workspace}
-    if (!isWindows) await call("workspace.create", { path: ${workspace} })
+    if (!isWindows) await call("workspace/create", { request: { path: ${workspace} } })
     let expandedPrimaryActions = await waitForSidebarPrimaryActions()
     let windowsBrowseDirectoryPickerWorked = !isWindows
     if (isWindows) {
       if (!expandedPrimaryActions.addWorkspace) throw new Error("Windows smoke could not find Add workspace")
-      const expectedPickedDirectory = (await call("host.listDirectory", {})).path
+      const expectedPickedDirectory = (await call("directoryPicker/list", {})).path
       expandedPrimaryActions.addWorkspace.click()
 
       const browseDialog = await waitFor(() => Array.from(document.querySelectorAll('[role="dialog"]')).find((dialog) => {
@@ -422,17 +449,42 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
         return visible(button) && !button.disabled && /^(打开|Open)$/i.test(label)
       }))
       if (!openDirectory) throw new Error("Windows browse directory picker never enabled Open")
+
+      // DSH 0.1.2-alpha.2 dropped the \`workspace.list\` RPC — the client reads the
+      // set through the \`workspace/follow\` stream, which this raw-fetch helper
+      // cannot open, and every read-only replacement is a stream too. So this
+      // asserts in two halves, neither of which passes alone.
+      //
+      // First, wait for the sidebar the picker writes into to carry a leaf with
+      // that name which was not there before Open. That wait is a
+      // synchronisation point, not evidence: the scan is document-wide, and a
+      // re-render replacing rather than reusing a node satisfies it. It is here
+      // so the call below runs after the picker has finished, not instead of it.
+      //
+      // The assertion itself is identity, through \`workspace/create\`'s idempotence: it answers
+      // \`created: false\` for a path already registered. One call after adoption
+      // therefore proves the workspace the picker made is over the directory the
+      // picker reported — and \`created: true\` means the DOM leaf came from
+      // somewhere else. Calling it before the click, or in a retry loop, would
+      // register the path itself and make the answer meaningless.
+      const expectedWorkspaceName = expectedPickedDirectory.split(/[\\\\/]/).filter(Boolean).pop()
+      const namedWorkspaceLeaves = () => Array.from(document.querySelectorAll("*"))
+        .filter((element) => element.childElementCount === 0
+          && visible(element)
+          && (element.textContent || "").trim() === expectedWorkspaceName)
+      const leavesBeforePick = new Set(namedWorkspaceLeaves())
       openDirectory.click()
 
-      const adoptedWorkspace = await waitFor(async () => {
-        const workspaces = (await call("workspace.list", {})).items
-        return workspaces.find((item) => item.path === expectedPickedDirectory)
-      })
-      if (!adoptedWorkspace) throw new Error("Windows browse directory picker did not create the selected workspace")
+      const adoptedWorkspaceLeaf = await waitFor(() => namedWorkspaceLeaves().find((element) => !leavesBeforePick.has(element)))
+      if (!adoptedWorkspaceLeaf) throw new Error("Windows browse directory picker did not create the selected workspace")
 
       const browseDialogClosed = await waitFor(() => !visible(browseDialog))
       if (!browseDialogClosed) throw new Error("Windows browse directory picker stayed open after selection")
-      selectedWorkspace = adoptedWorkspace.path
+
+      const readopted = await call("workspace/create", { request: { path: expectedPickedDirectory } })
+      if (readopted.created) throw new Error("Windows browse directory picker did not register the directory it reported")
+
+      selectedWorkspace = expectedPickedDirectory
       windowsBrowseDirectoryPickerWorked = true
       expandedPrimaryActions = await waitForSidebarPrimaryActions()
     }
@@ -530,6 +582,18 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     // status card must carry live text from the bridge, not an empty shell.
     const updateStatusText = (document.querySelector(".pawwork-update-status")?.textContent || "").trim()
     const updateSectionReportsStatus = updateStatusText.length > 0
+    // A Host settings namespace renders nothing on its own: the card that draws
+    // it is a client plugin, and the two halves fail independently. The Host
+    // half surviving alone leaves a namespace no user can reach — which reads,
+    // from every wire probe, exactly like a working feature. The card renders
+    // only once its bound scope reports \`ready\`, so its presence is evidence
+    // for both halves at once.
+    const pluginsSettingsEntry = visibleButton(/^(插件|Plugins)$/i)
+    pluginsSettingsEntry?.click()
+    for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-websearch-card")); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    const webSearchCardVisible = visible(document.querySelector(".pawwork-websearch-card"))
     // The automation flow below expects its own surface; navigate back first.
     visibleButton(/^(自动化|Automations)$/i)?.click()
     for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-automations-surface")); attempt += 1) {
@@ -545,6 +609,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       })
       automationCreateViaChatWorked = !visible(document.querySelector(".pawwork-automations-surface")) && Boolean(draft)
     }
+
     visibleButton(/^(设置|Settings)$/i)?.click()
     await new Promise((resolve) => setTimeout(resolve, 50))
     visibleButton(/^(自动化|Automations)$/i)?.click()
@@ -659,7 +724,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const importDeadline = Date.now() + 120_000
     while (!v1SessionVisibleInSidebar && Date.now() < importDeadline) {
       const sessionLeaf = sidebarSessionLeaf()
-      const sessions = (await call("session.list", {})).items
+      const sessions = (await call("session/list", { _request: {} })).items
       v1SessionImported = sessions.some((item) => item.sessionId === ${expectedSession})
       if (sessionLeaf) {
         await new Promise((resolve) => setTimeout(resolve, 500))
@@ -785,11 +850,14 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     expandToggles[0]?.click()
     await new Promise((resolve) => setTimeout(resolve, 200))
 
-    const providers = (await call("llm.providers", {})).providers
-    const session = await call("session.create", { cwd: selectedWorkspace })
-    const skills = (await call("skill.list", { sessionId: session.sessionId })).skills
-    const sessionIdsBeforeRestart = (await call("session.list", {})).items.map((item) => item.sessionId)
-    const freeProvider = providers.find((provider) => provider.provider === "opencode")
+    // \`llm/listProviders\` answers only the providers that actually registered an
+    // adapter, so presence in this list is what \`active\` used to state, and \`name\`
+    // carries the display name the product patch sets.
+    const providers = await call("llm/listProviders", {})
+    const session = await call("session/create", { request: { cwd: selectedWorkspace } })
+    const skills = (await call("skills/list", { request: { sessionId: session.sessionId } })).skills
+    const sessionIdsBeforeRestart = (await call("session/list", { _request: {} })).items.map((item) => item.sessionId)
+    const freeProvider = providers.find((provider) => provider.id === "opencode")
     return JSON.stringify({
       sidebarExpandedBrandHidden,
       sidebarCollapsedBrandHidden,
@@ -799,6 +867,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       heroMarkHeadlineOffset,
       automationSettingsEntryVisible,
       updateSettingsEntryVisible,
+      webSearchCardVisible,
       updateSectionVisible,
       updateSectionReportsStatus,
       automationSidebarEntryAbsent,
@@ -848,7 +917,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       sidebarExpandToggleHasContent,
       sidebarExpandedAgain: !document.querySelector("[data-sidebar-collapsed]"),
       platform: typeof navigator === "undefined" ? "" : navigator.platform,
-      freeProviderActive: freeProvider?.active === true && freeProvider?.displayName === "OpenCode Free",
+      freeProviderActive: freeProvider !== undefined && freeProvider.name === "OpenCode Free",
       v1SessionImported,
       v1SessionVisibleInSidebar,
       skillNames: skills.map((skill) => skill.name).sort(),
@@ -898,8 +967,8 @@ async function evaluateCiSmokeJson(target: CdpTarget, expression: string, timeou
 export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: string, dshHome: string, listedBefore: string[] = [], appLog: string[] = []) {
   const expectedSessionId = JSON.stringify(sessionId)
   const expression = `(async () => {
-    const call = async (method, payload) => {
-      const request = { type: "client-request", rpcId: crypto.randomUUID(), method, payload }
+    const call = async (method, args) => {
+      const request = { type: "client-request", rpcId: crypto.randomUUID(), method, payload: { args } }
       const response = await fetch("/api/" + method, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -910,7 +979,7 @@ export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: st
       if (!envelope?.result?.ok) throw new Error(envelope?.result?.error?.message || method + " failed")
       return envelope.result.value
     }
-    const sessions = (await call("session.list", {})).items
+    const sessions = (await call("session/list", { _request: {} })).items
     return JSON.stringify(sessions.map((session) => session.sessionId))
   })()`
   const restored = await evaluateCiSmokeJson(target, expression) as string[]
@@ -1048,6 +1117,7 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.updateSettingsEntryVisible ? null : "Software Update settings entry is not visible",
     snapshot.updateSectionVisible ? null : "Software Update section did not open",
     snapshot.updateSectionReportsStatus ? null : "Software Update section shows no status from the updater bridge",
+    snapshot.webSearchCardVisible ? null : "PawWork web search settings card is not in the Plugins section",
     snapshot.automationSidebarEntryAbsent ? null : "Automation should not occupy the sidebar",
     snapshot.automationSurfaceVisible ? null : "Automation surface did not open",
     snapshot.automationCreateViaChatWorked ? null : "Automation did not create through the visible chat path",
@@ -1202,6 +1272,17 @@ async function stopChild(child: SmokeChild, closeWindow?: () => Promise<void>) {
 
 async function main() {
   const target = parseSmokeArgs(process.argv.slice(2))
+  // Only the raw mode runs the built bundle; a packaged run carries its own.
+  if (target.mode === "raw") {
+    const stale = staleMainEntry()
+    if (stale !== undefined) {
+      throw new Error(
+        stale === null
+          ? "Build the desktop app first — there is no out/main/index.js. Run: pnpm run build"
+          : `Build the desktop app first — ${stale} is newer than out/main/index.js. Run: pnpm run build`,
+      )
+    }
+  }
   const homeDir = mkdtempSync(join(tmpdir(), "pawwork-ci-smoke-"))
   const dshHome = dshHomeForSmoke(homeDir, target)
   // Seeded in the legacy home, asserted in the new one: the automation below has

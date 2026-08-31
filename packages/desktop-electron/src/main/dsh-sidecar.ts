@@ -15,8 +15,10 @@ export interface DshChildProcess {
   // before any promise this module returns can settle.
   on(event: "exit", listener: (code: number | null) => void): this
   on(event: "error", listener: (error: Error) => void): this
+  on(event: "message", listener: (message: unknown) => void): this
   once(event: "exit", listener: (code: number | null) => void): this
   off(event: "exit", listener: (code: number | null) => void): this
+  off(event: "message", listener: (message: unknown) => void): this
 }
 
 type SpawnDshProcess = (
@@ -50,8 +52,24 @@ export function describeExit(code: number | null) {
   return code === null ? "without a status code" : `with code ${code}`
 }
 
-const READY_LINE = /^dsh web: (http:\/\/127\.0\.0\.1:\d+)(?: \(|$)/
 const DEFAULT_STOP_TIMEOUT_MS = 5_000
+
+/**
+ * Readiness arrives as data on the IPC channel this spawn opens, sent by the
+ * `pawwork-web-ready` plugin mounted inside the sidecar — which owns the
+ * argument for why DSH's own `dsh web:` line is not an interface. The literal
+ * is spelled independently on both sides so a rename on either fails a test
+ * rather than hanging a launch.
+ */
+const WEB_READY_MESSAGE = "pawwork:web-ready"
+
+/** The announced URL, or undefined for anything else the sidecar sends. */
+function readyUrlOf(message: unknown) {
+  if (typeof message !== "object" || message === null) return undefined
+  const { type, url } = message as { type?: unknown; url?: unknown }
+  if (type !== WEB_READY_MESSAGE || typeof url !== "string") return undefined
+  return url
+}
 
 export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   const child = options.spawn(
@@ -84,7 +102,6 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
     })
   })
 
-  let stdoutBuffer = ""
   let settled = false
   let stopping: Promise<void> | undefined
   let rejectReady!: (error: Error) => void
@@ -102,7 +119,7 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   }
 
   const cleanupReadiness = () => {
-    child.stdout?.off("data", onStdout)
+    child.off("message", onMessage)
     child.off("exit", onEarlyExit)
   }
 
@@ -155,30 +172,26 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
     rejectReady = reject
   })
 
-  const onStdout = (data: Buffer | string) => {
-    const chunk = data.toString()
-    options.onStdout?.(chunk)
-    stdoutBuffer += chunk
-
-    const lines = stdoutBuffer.split(/\r?\n/)
-    stdoutBuffer = lines.pop() ?? ""
-    for (const line of lines) {
-      const match = READY_LINE.exec(line)
-      if (!match) continue
-      settled = true
-      cleanupReadiness()
-      resolveReady(match[1])
-      return
-    }
+  const onMessage = (message: unknown) => {
+    const url = readyUrlOf(message)
+    if (url === undefined) return
+    settled = true
+    cleanupReadiness()
+    resolveReady(url)
   }
 
-  child.stdout?.on("data", onStdout)
+  child.on("message", onMessage)
+  // Both streams are forwarded whole and unbuffered. They are log now and
+  // nothing else — no line here is parsed, and holding one back until its
+  // newline would only hide the last thing a wedged or dying runtime said,
+  // which is what the startup-failure dialog is built from.
+  child.stdout?.on("data", (data: Buffer | string) => options.onStdout?.(data.toString()))
   child.stderr?.on("data", (data: Buffer | string) => options.onStderr?.(data.toString()))
   child.once("exit", onEarlyExit)
   child.on("error", onSpawnError)
 
-  // There is deliberately no readiness deadline. DSH prints nothing at all
-  // until its ready line, so elapsed silence cannot tell a wedged runtime from
+  // There is deliberately no readiness deadline. The sidecar says nothing at
+  // all until it is ready, so elapsed silence cannot tell a wedged runtime from
   // a slow one — a first launch behind an antivirus scan of the freshly
   // unpacked runtime looks exactly like a hang. A deadline here only ever
   // killed starts that were about to succeed (#1614). The failures that are

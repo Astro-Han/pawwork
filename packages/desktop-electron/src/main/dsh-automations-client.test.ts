@@ -55,7 +55,7 @@ function settingsSectionOf(
 ) {
   let section: ((props: unknown) => unknown) | undefined
   plugin.apply({
-    connection: {}, conversation: {}, sessions: {}, workspaces: {}, ...ctx,
+    connection: {}, conversation: {}, sessions: {}, ...ctx,
     slots: {
       inject: (_name: string, register: () => void) => register(),
       register: (_options: unknown, component: typeof section) => { section = component; return () => {} },
@@ -100,7 +100,7 @@ describe("PawWork DSH Automations client", () => {
       },
     })
 
-    expect(plugin.inject).toEqual(["slots", "connection", "conversation", "sessions", "workspaces"])
+    expect(plugin.inject).toEqual(["slots", "connection", "conversation", "sessions", "uiWorkspace"])
     expect(registrations).toEqual([{
       id: "pawwork-automations",
       label: expect.any(Function),
@@ -136,7 +136,7 @@ describe("PawWork DSH Automations client", () => {
     const settingsSection = settingsSectionOf(plugin, {
       conversation: { input: { for: () => ({ setDraft }) } },
       sessions: { binding: () => ({ ctx: {} }), open },
-      workspaces: { connectWorkspace },
+      uiWorkspace: { connectWorkspace },
     })
 
     const close = vi.fn(() => {})

@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest"
 import { readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
+import { installedHarnessPackages } from "./dsh-product-patch.testing"
 import { pathToFileURL } from "node:url"
 
 /**
@@ -78,14 +79,39 @@ describe("pi-ai configurable-provider directory", () => {
   })
 })
 
+/**
+ * Every wire namespace the installed harness publishes. A Typert package states
+ * its own in `lib/typert.remote-client.js`, so reading all of them describes the
+ * whole reachable API — including namespaces on packages this app has never
+ * heard of. 0.1.2-alpha.2 split `dsh-host-apiproxy` into three controllers
+ * without adding a namespace, and a list of controller names pinned here would
+ * have gone quietly stale through exactly that kind of split.
+ */
+function wireNamespaces() {
+  const found = new Map<string, string>()
+  for (const [name, directory] of installedHarnessPackages()) {
+    let table: string
+    try {
+      table = readFileSync(join(directory, "lib", "typert.remote-client.js"), "utf8")
+    } catch {
+      continue
+    }
+    for (const [, namespace] of table.matchAll(/namespace: *['"]([A-Za-z][A-Za-z0-9]*)['"]/g)) {
+      found.set(namespace, name)
+    }
+  }
+  return found
+}
+
 describe("DSH authorization surface", () => {
   test("still ships no wire method, so the patch is still the right call", () => {
-    const routes = readFileSync(resolveInDsh("@deepseek-ai/dsh-host-apiproxy"), "utf8")
+    const namespaces = wireNamespaces()
 
-    // Proves the scan reads the table it thinks it does rather than passing on a moved file.
-    expect(routes).toContain('"credentials.describe"')
+    // Proves the scan reads real tables rather than passing on an empty sweep.
+    expect(namespaces.get("credentials")).toBeDefined()
+    expect(namespaces.get("llm")).toBeDefined()
     // When this fails, DSH can start a sign-in: drop the pi-ai patch, mount
     // @deepseek-ai/dsh-authorization in product.cordis.patch.yml, and delete this file.
-    expect(routes).not.toContain('"authorization.')
+    expect(namespaces.get("authorization")).toBeUndefined()
   })
 })
