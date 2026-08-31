@@ -31,7 +31,6 @@ type LaunchDshSidecarOptions = {
   sidecarPreload: string
   productPatch: string
   env: NodeJS.ProcessEnv
-  timeoutMs: number
   stopTimeoutMs?: number
   spawn: SpawnDshProcess
   onStdout?: (chunk: string) => void
@@ -88,7 +87,6 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   let stdoutBuffer = ""
   let settled = false
   let stopping: Promise<void> | undefined
-  let timeout: ReturnType<typeof setTimeout> | undefined
   let rejectReady!: (error: Error) => void
   const stopTimeoutMs = options.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS
 
@@ -104,7 +102,6 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   }
 
   const cleanupReadiness = () => {
-    if (timeout !== undefined) clearTimeout(timeout)
     child.stdout?.off("data", onStdout)
     child.off("exit", onEarlyExit)
   }
@@ -180,9 +177,11 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   child.once("exit", onEarlyExit)
   child.on("error", onSpawnError)
 
-  timeout = setTimeout(() => {
-    void fail(new Error(`DSH did not announce readiness within ${options.timeoutMs}ms`), true)
-  }, options.timeoutMs)
-
+  // There is deliberately no readiness deadline. DSH prints nothing at all
+  // until its ready line, so elapsed silence cannot tell a wedged runtime from
+  // a slow one — a first launch behind an antivirus scan of the freshly
+  // unpacked runtime looks exactly like a hang. A deadline here only ever
+  // killed starts that were about to succeed (#1614). The failures that are
+  // real announce themselves above: the process exits, or the spawn errors.
   return { ready, exited, stop: stopProcess }
 }
