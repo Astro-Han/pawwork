@@ -18,6 +18,45 @@ export const inject = ['settings', 'timer', 'agentDefaultModel', 'subprocess', '
 const REFRESH_INTERVAL_MS = 60 * 60 * 1000;
 const STARTUP_RETRY_DELAYS_MS = [60 * 1000, 5 * 60 * 1000];
 
+// How the Electron main process learns the URL to load. It is the answer to a
+// question DSH otherwise only answers in prose: `dsh web: <url>` is a startup
+// notice addressed to a person — it grew a `(LAN: …)` suffix, its host comes
+// from a constant the bundle keeps to itself, and it shares a prefix with the
+// browser-handoff line beside it. Parsing it makes any upstream rewording a
+// PawWork that cannot start, and routes the launch token through the stream
+// that is mirrored into the persistent application log. The IPC channel the
+// spawn already opens carries the same fact as data, addressed to us.
+const WEB_READY_MESSAGE = 'pawwork:web-ready';
+
+/**
+ * Report the authenticated root URL once this process can serve it. The token
+ * in that URL is the sole authentication input: loading the root with it mints
+ * the session cookie every later request rides on, so the URL is the whole
+ * handoff and an origin alone would answer 401.
+ */
+export function announceWebReady(ctx) {
+	ctx.inject(['connection'], (readyCtx) => {
+		const announce = () => {
+			// Settling can retire either service; the URL needs both, and a
+			// half-torn-down tree is a start that failed, not one to report.
+			if (readyCtx.get('webServer') === undefined) return;
+			if (readyCtx.get('connection') === undefined) return;
+			const url = readyCtx.connection.authenticatedUrl(
+				`http://127.0.0.1:${String(readyCtx.webServer.port)}`,
+			);
+			// A reload re-runs this; the parent keeps the first URL, and the
+			// launch token outlives Connection reloads, so both name one session.
+			if (process.connected) process.send({ type: WEB_READY_MESSAGE, url });
+		};
+		// The server binds before the tree finishes loading, so announcing on
+		// injection alone would hand over a URL whose page is still missing
+		// plugins. Wait for the loader exactly as the upstream URL line does.
+		const settled = readyCtx.get('loader')?.await();
+		if (settled === undefined) announce();
+		else settled.then(announce, () => {});
+	});
+}
+
 function runRefresh(ctx, controller) {
 	return refreshOpenCodeFreeModels({
 		settings: ctx.settings,
@@ -56,6 +95,7 @@ export function apply(ctx) {
 		nodeExecutable: requiredEnvironment('PAWWORK_NODE_EXECUTABLE'),
 		subprocess: ctx.subprocess,
 	});
+	announceWebReady(ctx);
 	ctx.provide('desktopProfiles', desktopHost.desktopProfiles);
 	ctx.provide('desktopPnpm', desktopHost.desktopPnpm);
 	ctx.effect(() => {

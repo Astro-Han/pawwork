@@ -15,8 +15,10 @@ export interface DshChildProcess {
   // before any promise this module returns can settle.
   on(event: "exit", listener: (code: number | null) => void): this
   on(event: "error", listener: (error: Error) => void): this
+  on(event: "message", listener: (message: unknown) => void): this
   once(event: "exit", listener: (code: number | null) => void): this
   off(event: "exit", listener: (code: number | null) => void): this
+  off(event: "message", listener: (message: unknown) => void): this
 }
 
 type SpawnDshProcess = (
@@ -50,28 +52,26 @@ export function describeExit(code: number | null) {
   return code === null ? "without a status code" : `with code ${code}`
 }
 
-// DSH 0.1.2-alpha.2 announces `http://127.0.0.1:<port>/?token=<launch token>`:
-// the root query token is the sole authentication input, and loading it mints
-// the session cookie every later request rides on. Capture the whole URL, query
-// included — an origin-only match would load an unauthenticated root and answer
-// 401. The optional trailing group is the `(LAN: …)` suffix DSH appends when the
-// server also bound a routable address.
-const READY_LINE = /^dsh web: (http:\/\/127\.0\.0\.1:\d+\/?(?:\?\S*)?)(?: \(|$)/
-// What makes a line an announcement rather than agent output, held to the same
-// start-of-line rule READY_LINE uses so nothing the model echoes can trip it.
-const READY_LINE_PREFIX = /^dsh web: /
 const DEFAULT_STOP_TIMEOUT_MS = 5_000
 
 /**
- * Keep the launch token out of anything that outlives the process. Since DSH
- * started authenticating the root URL with a query token, its readiness line
- * carries the one credential the whole session rests on — and the stdout stream
- * this reads from is mirrored into the persistent application log. The token is
- * useless without loopback access to the sidecar's port, but a log file is read
- * by more things, and for longer, than a live socket.
+ * Readiness arrives as data on the IPC channel this spawn opens, sent by the
+ * `pawwork-product` plugin mounted inside the sidecar. DSH's own `dsh web:`
+ * line is a startup notice written for a person: it has already grown a
+ * `(LAN: …)` suffix, its host is a constant private to the bundle, and it
+ * shares a prefix with the browser-handoff line beside it — so reading it made
+ * every upstream rewording a PawWork that cannot start. The product patch
+ * silences that line, which is also what keeps the launch token out of the
+ * application log stdout is mirrored into.
  */
-export function redactLaunchToken(text: string) {
-  return text.replace(/([?&]token=)[^\s&]+/g, "$1<redacted>")
+const WEB_READY_MESSAGE = "pawwork:web-ready"
+
+/** The announced URL, or undefined for anything else the sidecar sends. */
+function readyUrlOf(message: unknown) {
+  if (typeof message !== "object" || message === null) return undefined
+  const { type, url } = message as { type?: unknown; url?: unknown }
+  if (type !== WEB_READY_MESSAGE || typeof url !== "string") return undefined
+  return url
 }
 
 export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
@@ -105,7 +105,6 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
     })
   })
 
-  let stdoutBuffer = ""
   let settled = false
   let stopping: Promise<void> | undefined
   let rejectReady!: (error: Error) => void
@@ -123,15 +122,7 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   }
 
   const cleanupReadiness = () => {
-    // Every terminal path for readiness passes here — resolved, failed, or
-    // stopped — and it is the last moment stdout is read at all. Whatever the
-    // final chunk left after its last newline is reported now rather than being
-    // held for a newline that will never arrive.
-    if (stdoutBuffer.length > 0) {
-      options.onStdout?.(redactLaunchToken(stdoutBuffer))
-      stdoutBuffer = ""
-    }
-    child.stdout?.off("data", onStdout)
+    child.off("message", onMessage)
     child.off("exit", onEarlyExit)
   }
 
@@ -184,52 +175,26 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
     rejectReady = reject
   })
 
-  const onStdout = (data: Buffer | string) => {
-    stdoutBuffer += data.toString()
-
-    const lines = stdoutBuffer.split(/\r?\n/)
-    stdoutBuffer = lines.pop() ?? ""
-    // Reported from the same split the readiness scan uses, because a pipe
-    // breaks where it fills rather than where a line ends: `?token=abc` can
-    // arrive as `?tok` + `en=abc`, and a pattern applied to either chunk alone
-    // matches neither half. A token never spans a newline, so a whole line is
-    // the smallest unit that can be redacted at all.
-    if (lines.length > 0) options.onStdout?.(`${lines.map(redactLaunchToken).join("\n")}\n`)
-    for (const line of lines) {
-      const match = READY_LINE.exec(line)
-      if (!match) {
-        // There is no readiness deadline (#1614), because silence cannot tell a
-        // wedged runtime from a slow one. An announcement this cannot parse is
-        // not silence: DSH is up, it said so, and only the shape it said it in
-        // is unfamiliar. Waiting on that forever leaves the app in `starting`
-        // with a healthy sidecar behind it and nothing on screen to explain it,
-        // so it is reported as what it is — the one readiness failure that has
-        // evidence. 0.1.2-alpha.2 moved this line once already, by adding the
-        // launch token to the URL.
-        if (READY_LINE_PREFIX.test(line)) {
-          void fail(new Error(`DSH announced readiness in an unrecognized form: ${redactLaunchToken(line)}`), true)
-          return
-        }
-        continue
-      }
-      settled = true
-      cleanupReadiness()
-      resolveReady(match[1])
-      return
-    }
+  const onMessage = (message: unknown) => {
+    const url = readyUrlOf(message)
+    if (url === undefined) return
+    settled = true
+    cleanupReadiness()
+    resolveReady(url)
   }
 
-  child.stdout?.on("data", onStdout)
-  // stderr is forwarded whole and unbuffered: it is what the startup-failure
-  // dialog is built from, and holding a line back until its newline would hide
-  // the last thing a wedged or dying runtime said. DSH announces the token on
-  // stdout, so nothing here needs redacting.
+  child.on("message", onMessage)
+  // Both streams are forwarded whole and unbuffered. They are log now and
+  // nothing else — no line here is parsed, and holding one back until its
+  // newline would only hide the last thing a wedged or dying runtime said,
+  // which is what the startup-failure dialog is built from.
+  child.stdout?.on("data", (data: Buffer | string) => options.onStdout?.(data.toString()))
   child.stderr?.on("data", (data: Buffer | string) => options.onStderr?.(data.toString()))
   child.once("exit", onEarlyExit)
   child.on("error", onSpawnError)
 
-  // There is deliberately no readiness deadline. DSH prints nothing at all
-  // until its ready line, so elapsed silence cannot tell a wedged runtime from
+  // There is deliberately no readiness deadline. The sidecar says nothing at
+  // all until it is ready, so elapsed silence cannot tell a wedged runtime from
   // a slow one — a first launch behind an antivirus scan of the freshly
   // unpacked runtime looks exactly like a hang. A deadline here only ever
   // killed starts that were about to succeed (#1614). The failures that are

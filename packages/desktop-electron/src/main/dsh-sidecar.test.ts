@@ -1,7 +1,5 @@
 import { describe, expect, test } from "vitest"
 import { EventEmitter } from "node:events"
-import { readFileSync } from "node:fs"
-import { createRequire } from "node:module"
 import { PassThrough } from "node:stream"
 import { launchDshSidecar, type DshChildProcess } from "./dsh-sidecar"
 
@@ -23,6 +21,12 @@ class FakeChildProcess extends EventEmitter implements DshChildProcess {
       queueMicrotask(() => this.emit("exit", 0))
     }
     return true
+  }
+
+  // What the `pawwork-product` plugin sends over the IPC channel once the tree
+  // has settled and the Web server can serve the authenticated root.
+  announceReady(url: string) {
+    this.emit("message", { type: "pawwork:web-ready", url })
   }
 
   // A spawn that never happened: Node reports it as an "error" event on a child
@@ -66,10 +70,11 @@ describe("DSH sidecar lifecycle", () => {
       },
     })
 
-    child.stdout.write("booting\ndsh web: http://127.0.0.1:43123\n")
+    child.stdout.write("booting\n")
+    child.announceReady("http://127.0.0.1:43123/?token=s3cr3t")
     const url = await launched.ready
 
-    expect(url).toBe("http://127.0.0.1:43123")
+    expect(url).toBe("http://127.0.0.1:43123/?token=s3cr3t")
     expect(invocation).toEqual({
       executable: "/app/PawWork",
       args: [
@@ -114,11 +119,12 @@ describe("DSH sidecar lifecycle", () => {
     await expect(stoppedBeforeReady).resolves.toBeInstanceOf(Error)
   })
 
-  // The sidecar's stdout carries agent output too, so the readiness line is only
-  // trusted at the start of a line and only in the exact shape DSH prints. Drop
-  // either half of that rule and anything the model echoes can point the app at
-  // another port.
-  test("trusts a readiness announcement only as a whole line", async () => {
+  // Readiness is a message, not a sentence, and the difference is the point:
+  // the sidecar's stdout carries agent output, so anything the model echoes
+  // used to be one parser slip away from pointing the window at another origin.
+  // Printed text is now inert whatever it says, and the announcement is
+  // addressed rather than overheard.
+  test("takes readiness only from the channel, never from what the sidecar prints", async () => {
     const child = new FakeChildProcess()
     const launched = launchDshSidecar({
       executable: "/app/PawWork",
@@ -128,39 +134,23 @@ describe("DSH sidecar lifecycle", () => {
       env: { PATH: "/usr/bin" },
       spawn: () => child,
     })
-
-    child.stdout.write("[assistant] dsh web: http://127.0.0.1:1\n")
-    child.stdout.write("dsh web: http://127.0.0.1:43123 (press h for help)\n")
-
-    expect(await launched.ready).toBe("http://127.0.0.1:43123")
-
-    await launched.stop()
-  })
-
-  // There is no readiness deadline (#1614): silence cannot tell a wedged runtime
-  // from a slow one. A line DSH announces readiness on and this cannot parse is
-  // not silence, and waiting on it forever leaves a healthy sidecar behind a
-  // window stuck in `starting` with nothing on screen to explain it. alpha.2
-  // moved this line once already, by adding the launch token to the URL.
-  test("fails fast on an announcement it cannot parse rather than waiting forever", async () => {
-    const child = new FakeChildProcess()
-    const launched = launchDshSidecar({
-      executable: "/app/PawWork",
-      dshBin: "/app/bin.js",
-      sidecarPreload: "file:///app/preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
-      env: {},
-      spawn: () => child,
+    let settled = false
+    void launched.ready.finally(() => {
+      settled = true
     })
 
-    child.stdout.write("dsh web: https://dsh.example/?token=s3cr3t\n")
+    child.stdout.write("[assistant] dsh web: http://127.0.0.1:1/?token=evil\n")
+    child.emit("message", { type: "pawwork:web-ready" })
+    child.emit("message", "SIGTERM")
+    await new Promise((resolve) => setTimeout(resolve, 0))
 
-    await expect(launched.ready).rejects.toThrow(
-      "DSH announced readiness in an unrecognized form: dsh web: https://dsh.example/?token=<redacted>",
-    )
-    // The runtime is still alive behind the failure, and leaving it running
-    // would outlive the app that owns it.
-    expect(child.messages).toEqual(["SIGTERM"])
+    expect(settled).toBe(false)
+
+    child.announceReady("http://127.0.0.1:43123/?token=s3cr3t")
+
+    expect(await launched.ready).toBe("http://127.0.0.1:43123/?token=s3cr3t")
+
+    await launched.stop()
   })
 
   // A signal kill has no exit code at all, and "code null" is not a status the
@@ -223,8 +213,9 @@ describe("DSH sidecar lifecycle", () => {
     expect([child.messages, child.killSignals]).toEqual([[], []])
   })
 
-  // #1614: DSH is silent until its ready line, so a slow start looks exactly
-  // like a wedged one. Nothing may terminate the child on elapsed time alone.
+  // #1614: the sidecar says nothing until it is ready, so a slow start looks
+  // exactly like a wedged one. Nothing may terminate the child on elapsed time
+  // alone.
   test("leaves a silent child running instead of giving up on it", async () => {
     const child = new FakeChildProcess()
     const launched = launchDshSidecar({
@@ -245,8 +236,8 @@ describe("DSH sidecar lifecycle", () => {
     expect(settled).toBe(false)
     expect([child.messages, child.killSignals]).toEqual([[], []])
 
-    child.stdout.write("dsh web: http://127.0.0.1:4321\n")
-    await expect(launched.ready).resolves.toBe("http://127.0.0.1:4321")
+    child.announceReady("http://127.0.0.1:4321/?token=s3cr3t")
+    await expect(launched.ready).resolves.toBe("http://127.0.0.1:4321/?token=s3cr3t")
   })
 
   test("stops the owned child process once across concurrent and repeated calls", async () => {
@@ -259,7 +250,7 @@ describe("DSH sidecar lifecycle", () => {
       env: {},
       spawn: () => child,
     })
-    child.stdout.write("dsh web: http://127.0.0.1:43123\n")
+    child.announceReady("http://127.0.0.1:43123/?token=s3cr3t")
     await launched.ready
 
     const firstStop = launched.stop()
@@ -272,39 +263,13 @@ describe("DSH sidecar lifecycle", () => {
     expect(child.killCount).toBe(0)
   })
 
-  // The readiness line carries the launch token, and the stdout callback feeds
-  // the persistent application log. The ready URL this resolves is the one the
-  // window loads, so redaction has to stop at the log and not reach it.
-  test("keeps the launch token out of the reported output but not out of the URL", async () => {
+  // Both streams are log and nothing else, so both are forwarded exactly as
+  // they arrive. The startup-failure dialog is built from stderr, and a partial
+  // line held back for a newline that never comes is the last thing a wedged
+  // runtime said, withheld from the one screen that would have shown it.
+  test("forwards both streams whole and unbuffered", async () => {
     const child = new FakeChildProcess()
     const stdout: string[] = []
-    const launched = launchDshSidecar({
-      executable: "/app/PawWork",
-      dshBin: "/app/dsh.js",
-      sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
-      env: {},
-      spawn: () => child,
-      onStdout: (chunk) => stdout.push(chunk),
-    })
-
-    // A pipe splits where it fills, not where a line ends, so the token key can
-    // arrive in two writes. Both halves have to be redacted as one line.
-    child.stdout.write("dsh web: http://127.0.0.1:43123/?tok")
-    child.stdout.write("en=s3cr3t-launch-token (LAN: …)\n")
-    const url = await launched.ready
-    await launched.stop()
-
-    expect(url).toBe("http://127.0.0.1:43123/?token=s3cr3t-launch-token")
-    expect(stdout.join("")).toContain("http://127.0.0.1:43123/?token=<redacted>")
-    expect(stdout.join("")).not.toContain("s3cr3t-launch-token")
-  })
-
-  // The startup-failure dialog is built from stderr, so a line held back for a
-  // newline that never comes is a line the user never sees. DSH announces the
-  // token on stdout, so nothing on this stream needs holding back for it.
-  test("forwards stderr whole and unbuffered", async () => {
-    const child = new FakeChildProcess()
     const stderr: string[] = []
     const launched = launchDshSidecar({
       executable: "/app/PawWork",
@@ -313,26 +278,19 @@ describe("DSH sidecar lifecycle", () => {
       productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       spawn: () => child,
+      onStdout: (chunk) => stdout.push(chunk),
       onStderr: (chunk) => stderr.push(chunk),
     })
 
+    child.stdout.write("loading plugins")
     child.stderr.write("FATAL: profile bundle is unresolved")
     await new Promise((resolve) => setTimeout(resolve, 0))
 
+    expect(stdout.join("")).toBe("loading plugins")
     expect(stderr.join("")).toBe("FATAL: profile bundle is unresolved")
 
     child.emit("exit", 1)
     await expect(launched.ready).rejects.toThrow("DSH exited before readiness with code 1")
-  })
-
-  // The parameter this redacts is DSH's, not PawWork's: `redactLaunchToken` and
-  // both fixtures above spell `token` because dsh-client-connection does. An
-  // upstream rename turns redaction into a no-op that every test above still
-  // passes, so the coupling is asserted where it actually lives.
-  test("still redacts the query parameter DSH actually mints", () => {
-    const connection = createRequire(import.meta.url).resolve("@deepseek-ai/dsh-client-connection")
-
-    expect(readFileSync(connection, "utf8")).toContain('const TOKEN_QUERY = "token"')
   })
 
   test("escalates a non-exiting graceful stop to force termination within a bound", async () => {
@@ -348,7 +306,7 @@ describe("DSH sidecar lifecycle", () => {
       stopTimeoutMs: 1,
       spawn: () => child,
     })
-    child.stdout.write("dsh web: http://127.0.0.1:43123\n")
+    child.announceReady("http://127.0.0.1:43123/?token=s3cr3t")
     await launched.ready
 
     await launched.stop()

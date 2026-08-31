@@ -304,6 +304,9 @@ test('product lifecycle immediately refreshes the runtime catalog through settin
 			},
 			agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'live-free' }) },
 			provide() {},
+			// The readiness announcement waits on `connection`, which this
+			// harness never supplies; web-ready.test.cjs is what drives it.
+			inject() {},
 			subprocess: { spawn() { throw new Error('unexpected plugin operation'); } },
 			webServer: { register() { return () => {}; } },
 			logger: { info() {}, warn() {} },
@@ -366,6 +369,9 @@ test('product lifecycle retries a failed startup refresh after one and five minu
 			},
 			agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'live-free' }) },
 			provide() {},
+			// The readiness announcement waits on `connection`, which this
+			// harness never supplies; web-ready.test.cjs is what drives it.
+			inject() {},
 			subprocess: { spawn() { throw new Error('unexpected plugin operation'); } },
 			webServer: { register() { return () => {}; } },
 			logger: { info() {}, warn() {} },

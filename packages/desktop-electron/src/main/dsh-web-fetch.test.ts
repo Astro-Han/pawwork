@@ -1,12 +1,6 @@
-import { createRequire } from "node:module"
 import { LOCAL_FETCH_PROVIDER_ID } from "@deepseek-ai/dsh-web-fetch-http"
 import { describe, expect, test } from "vitest"
-import { allRows, readEntryList, readProductPatch } from "./dsh-product-patch.testing"
-
-/** The dsh-base composition PawWork's product patch overlays. */
-function baseEntryList() {
-  return readEntryList(createRequire(import.meta.url).resolve("@deepseek-ai/dsh-base/cordis.patch.yml"))
-}
+import { allRows, overlaidRows, readProductPatch } from "./dsh-product-patch.testing"
 
 describe("PawWork web_fetch", () => {
   // Two halves, and either one alone is a broken product: the tool without the
@@ -17,7 +11,7 @@ describe("PawWork web_fetch", () => {
   test("mounts the tool and its provider together", () => {
     const patch = readProductPatch()
     const tool = patch.find((entry) => entry.id === "tool-web")
-    const providers = [...allRows(patch), ...allRows(baseEntryList())]
+    const providers = [...allRows(patch), ...overlaidRows()]
 
     expect(tool?.disabled).toBe(false)
     expect(tool?.config?.fetch).toBe(true)

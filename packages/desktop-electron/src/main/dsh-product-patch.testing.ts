@@ -1,4 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs"
+import { createRequire } from "node:module"
 import { join, resolve } from "node:path"
 import { JSON_SCHEMA, Type, load } from "js-yaml"
 
@@ -52,6 +53,19 @@ export function readProductPatch() {
  */
 export function allRows(rows: EntryRow[]): EntryRow[] {
   return rows.flatMap((row) => [row, ...allRows(row.insert ?? [])])
+}
+
+/**
+ * Every row the product overlay lands on: the dsh-base layer and the
+ * dsh-web-app bundle patch stacked over it, in the order `dsh web` applies
+ * them. An override row addresses one of these by id and replaces the fields it
+ * names — so what this list contains is what an override can reach at all.
+ */
+export function overlaidRows() {
+  const require = createRequire(import.meta.url)
+  return ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"].flatMap((bundle) =>
+    allRows(readEntryList(require.resolve(`${bundle}/cordis.patch.yml`))),
+  )
 }
 
 /**
