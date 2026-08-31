@@ -1,13 +1,11 @@
 import { createRequire } from "node:module"
-import { dirname, join } from "node:path"
 import { LOCAL_FETCH_PROVIDER_ID } from "@deepseek-ai/dsh-web-fetch-http"
 import { describe, expect, test } from "vitest"
 import { readEntryList, readProductPatch } from "./dsh-product-patch.testing"
 
 /** The dsh-base composition PawWork's product patch overlays. */
 function baseEntryList() {
-  const require = createRequire(import.meta.url)
-  return readEntryList(join(dirname(require.resolve("@deepseek-ai/dsh-base/package.json")), "cordis.patch.yml"))
+  return readEntryList(createRequire(import.meta.url).resolve("@deepseek-ai/dsh-base/cordis.patch.yml"))
 }
 
 /** Every row a composition mounts, whether stated at top level or inserted. */
@@ -28,7 +26,12 @@ describe("PawWork web_fetch", () => {
 
     expect(tool?.disabled).toBe(false)
     expect(tool?.config?.fetch).toBe(true)
-    expect(providers.some((row) => row.name === "@deepseek-ai/dsh-web-fetch-http")).toBe(true)
+    // Mounted and on: a composition row can name a plugin and still ship
+    // `disabled: true`, which registers no provider and reads identically to the
+    // row having been retired.
+    const provider = providers.find((row) => row.name === "@deepseek-ai/dsh-web-fetch-http")
+    expect(provider).toBeDefined()
+    expect(provider?.disabled).not.toBe(true)
     // The seam picks the sole registered provider when nothing names one, so an
     // id that matches no provider fails only once a second one is mounted —
     // which is also the moment it stops being obvious why fetches began failing.

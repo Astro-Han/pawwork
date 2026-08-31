@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
 import { describe, expect, test } from "vitest"
+import { type EntryRow, readEntryList } from "./dsh-product-patch.testing"
 
 /**
  * electron-builder ships the production dependency closure — what `dependencies`
@@ -18,6 +19,7 @@ import { describe, expect, test } from "vitest"
 
 const packageRoot = resolve(import.meta.dirname, "../..")
 const workspaceRoot = resolve(packageRoot, "../..")
+const require = createRequire(import.meta.url)
 
 /** Every package name reachable through `dependencies` from this package. */
 function productionClosure() {
@@ -30,7 +32,13 @@ function productionClosure() {
     const require = createRequire(packageJsonPath)
     for (const dependency of Object.keys(manifest.dependencies ?? {})) {
       let resolved: string
-      // A dependency this platform never installs is not a packaging gap.
+      // A package whose `exports` map omits `./package.json` cannot be read
+      // this way — 21 of them today — so the walk stops at its edge and never
+      // sees its own dependencies. That makes this closure a lower bound on
+      // what electron-builder ships, which is the safe direction: it can
+      // over-report a gap, never miss one. It holds as a bound only because no
+      // `@deepseek-ai` package is among those 21, so no truncated subtree can
+      // hide a harness package that packaging would in fact keep.
       try {
         resolved = require.resolve(`${dependency}/package.json`)
       } catch {
@@ -76,7 +84,9 @@ function harnessImportsOf(packageDirectory: string) {
     return imports
   }
   for (const file of files) {
-    if (!file.endsWith(".js")) continue
+    // `.cjs` carries real payload here — dsh-workflow-worker-thread's worker
+    // reaches four harness packages from one.
+    if (!/\.(?:js|cjs|mjs)$/.test(file)) continue
     let source: string
     try {
       source = readFileSync(join(lib, file), "utf8")
@@ -88,6 +98,35 @@ function harnessImportsOf(packageDirectory: string) {
     }
   }
   return imports
+}
+
+/**
+ * The two compositions the app boots: dsh-base's overlay and the browser-surface
+ * bundle's. Their rows name plugins as strings the cordis loader imports, so a
+ * package can be mounted at startup without one line of JS naming it — 103 of
+ * them are today. Import scanning alone cannot see any of those.
+ */
+function compositionMountedNames() {
+  const webAppPackage = createRequire(require.resolve("@deepseek-ai/dsh/package.json")).resolve(
+    "@deepseek-ai/dsh-web-app/package.json",
+  )
+  const compositions = [
+    require.resolve("@deepseek-ai/dsh-base/cordis.patch.yml"),
+    join(dirname(webAppPackage), "cordis.patch.yml"),
+  ]
+
+  const mounted = new Set<string>()
+  const walk = (rows: EntryRow[]) => {
+    for (const row of rows) {
+      // A row's name may carry a subpath (`dsh-tool-subagent/model-selection-settings`);
+      // packaging keeps or drops the whole package, so scope+name is the unit.
+      const [scope, member] = (row.name ?? "").split("/")
+      if (scope === "@deepseek-ai" && member !== undefined) mounted.add(`${scope}/${member}`)
+      walk(row.insert ?? [])
+    }
+  }
+  for (const composition of compositions) walk(readEntryList(composition))
+  return mounted
 }
 
 describe("packaged DSH dependency closure", () => {
@@ -109,5 +148,13 @@ describe("packaged DSH dependency closure", () => {
     }
 
     expect([...reachableButPruned].sort()).toEqual([])
+  })
+
+  test("every harness package the compositions mount survives packaging", () => {
+    const closure = productionClosure()
+
+    const mountedButPruned = [...compositionMountedNames()].filter((name) => !closure.has(name))
+
+    expect(mountedButPruned.sort()).toEqual([])
   })
 })

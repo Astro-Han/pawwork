@@ -127,8 +127,10 @@
     - id: pawwork-product
       name: '@pawwork/dsh-product'
     - id: import-v1
-      # Relative entry names resolve against the DSH home since 0.1.2-alpha.2;
-      # they used to resolve against the active profile directory.
+      # Since 0.1.2-alpha.2 a relative entry name resolves against the directory
+      # of the patch file that states it — this file's own — where it used to
+      # resolve against the active profile directory. The two are the same path
+      # today only because this patch sits at the DSH home root.
       name: './plugins/import-v1/index.mjs'
     - id: pawwork-automations
       name: '@pawwork/dsh-automations'

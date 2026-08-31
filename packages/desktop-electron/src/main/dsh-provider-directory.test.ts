@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest"
-import { readFileSync } from "node:fs"
+import { readFileSync, readdirSync } from "node:fs"
 import { createRequire } from "node:module"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 /**
@@ -78,21 +78,50 @@ describe("pi-ai configurable-provider directory", () => {
   })
 })
 
-/** Every wire controller behind the API gateway; 0.1.2-alpha.2 split `dsh-host-apiproxy` into these. */
-const API_CONTROLLERS = [
-  "@deepseek-ai/dsh-api-session-controller",
-  "@deepseek-ai/dsh-api-settings-controller",
-  "@deepseek-ai/dsh-api-workspace-controller",
-]
+/**
+ * Every wire namespace the installed harness publishes. A Typert package states
+ * its own in `lib/typert.remote-client.js`, so reading all of them describes the
+ * whole reachable API — including namespaces on packages this app has never
+ * heard of. 0.1.2-alpha.2 split `dsh-host-apiproxy` into three controllers
+ * without adding a namespace, and a list of controller names pinned here would
+ * have gone quietly stale through exactly that kind of split.
+ */
+function wireNamespaces() {
+  const store = resolve(import.meta.dirname, "../../../../node_modules/.pnpm")
+  const found = new Map<string, string>()
+  for (const entry of readdirSync(store)) {
+    if (!entry.startsWith("@deepseek-ai+")) continue
+    const scope = join(store, entry, "node_modules", "@deepseek-ai")
+    let members: string[]
+    try {
+      members = readdirSync(scope)
+    } catch {
+      continue
+    }
+    for (const member of members) {
+      let table: string
+      try {
+        table = readFileSync(join(scope, member, "lib", "typert.remote-client.js"), "utf8")
+      } catch {
+        continue
+      }
+      for (const [, namespace] of table.matchAll(/namespace: *['"]([A-Za-z][A-Za-z0-9]*)['"]/g)) {
+        found.set(namespace, `@deepseek-ai/${member}`)
+      }
+    }
+  }
+  return found
+}
 
 describe("DSH authorization surface", () => {
   test("still ships no wire method, so the patch is still the right call", () => {
-    const routes = API_CONTROLLERS.map((specifier) => readFileSync(resolveInDsh(specifier), "utf8")).join("\n")
+    const namespaces = wireNamespaces()
 
-    // Proves the scan reads the tables it thinks it does rather than passing on moved files.
-    expect(routes).toContain('"credentials.describe"')
+    // Proves the scan reads real tables rather than passing on an empty sweep.
+    expect(namespaces.get("credentials")).toBeDefined()
+    expect(namespaces.get("llm")).toBeDefined()
     // When this fails, DSH can start a sign-in: drop the pi-ai patch, mount
     // @deepseek-ai/dsh-authorization in product.cordis.patch.yml, and delete this file.
-    expect(routes).not.toContain('"authorization.')
+    expect(namespaces.get("authorization")).toBeUndefined()
   })
 })

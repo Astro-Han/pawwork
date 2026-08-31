@@ -25,7 +25,9 @@ export type EntryRow = {
   disabled?: boolean
   inject?: string[]
   config?: Record<string, unknown>
-  insert?: Array<{ id: string; name: string; config?: Record<string, unknown> }>
+  // An inserted row is a row: the loader reads the same fields on it, `disabled`
+  // included, so narrowing this to id/name would hide a real state from callers.
+  insert?: EntryRow[]
 }
 
 export const productPatchFile = resolve(
