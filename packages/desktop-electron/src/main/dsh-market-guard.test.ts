@@ -41,6 +41,7 @@ class FakeChild extends EventEmitter {
 
   kill(signal?: NodeJS.Signals) {
     this.signals.push(signal)
+    queueMicrotask(() => this.emit("exit", null))
     return true
   }
 }
@@ -183,13 +184,12 @@ describe("ensureVerifiedCommunityMarket", () => {
   })
 
   test("terminates an install that outruns the deadline, and still starts", async () => {
-    // A wedged install: it never exits on its own.
+    // A wedged install: it exits on the signal and never on its own. Aborting
+    // the deadline does not terminate the child by itself, so without the kill
+    // this launch would wait forever.
     const harness = guard(profileWith({ declared: "1.34.0", installed: "1.34.0" }), () => {})
-    const started = harness.run("1.39.0", 1)
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    for (const child of harness.children) child.emit("exit", null)
 
-    await expect(started).resolves.toBeUndefined()
+    await expect(harness.run("1.39.0", 1)).resolves.toBeUndefined()
 
     expect(harness.children[0]?.signals).toEqual(["SIGTERM"])
     expect(harness.messages.at(-1)?.detail?.error).toMatch(/timed out/)
