@@ -13,21 +13,36 @@ const root = dirname(fileURLToPath(import.meta.url))
 // disagrees with their OS. `scheme` is the last appearance the product
 // published; the media query stays as the answer for the very first launch,
 // when there is nothing remembered yet.
-const startupHtml = (scheme?: StartupColorScheme) => `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>PawWork</title><style>
-:root{--bg:#fff;--line:#e3e3e7;--accent:#fc5c14}${scheme === undefined
-  ? "@media(prefers-color-scheme:dark){:root{--bg:#191919;--line:#2d2d31}}"
-  : scheme === "dark" ? ":root{--bg:#191919;--line:#2d2d31}" : ""}
-html,body{height:100%;margin:0}body{align-items:center;background:var(--bg);display:flex;justify-content:center}
+const escapeHtml = (text: string) =>
+  text.replace(/[&<>]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[character] ?? character)
+
+const startupHtml = (scheme?: StartupColorScheme, notice?: string) => `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>PawWork</title><style>
+:root{--bg:#fff;--line:#e3e3e7;--accent:#fc5c14;--muted:#6b6b70}${scheme === undefined
+  ? "@media(prefers-color-scheme:dark){:root{--bg:#191919;--line:#2d2d31;--muted:#a1a1a6}}"
+  : scheme === "dark" ? ":root{--bg:#191919;--line:#2d2d31;--muted:#a1a1a6}" : ""}
+html,body{height:100%;margin:0}body{align-items:center;background:var(--bg);display:flex;flex-direction:column;gap:16px;justify-content:center}
 .titlebar{-webkit-app-region:drag;height:var(--pawwork-titlebar-host-height,env(titlebar-area-height,0px));left:0;position:fixed;right:0;top:0}
 .spinner{animation:spin .8s linear infinite;border:2px solid var(--line);border-radius:50%;box-sizing:border-box;height:20px;position:relative;width:20px}
 .spinner:after{background:conic-gradient(var(--accent) 72deg,transparent 0);border-radius:inherit;content:"";inset:-2px;mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 0);position:absolute;-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 0)}
+.notice{color:var(--muted);font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;margin:0;max-width:32em;padding:0 24px;text-align:center}
 @keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spinner{animation:none}}
-</style></head><body><div class="titlebar"></div><div aria-label="PawWork is starting" class="spinner" role="progressbar"></div></body></html>`
+</style></head><body><div class="titlebar"></div><div aria-label="${
+  escapeHtml(notice ?? "PawWork is starting")
+}" class="spinner" role="progressbar"></div>${
+  notice === undefined ? "" : `<p class="notice">${escapeHtml(notice)}</p>`
+}</body></html>`
 
 export type StartupColorScheme = "dark" | "light"
 
-export function startupUrl(scheme?: StartupColorScheme) {
-  return `data:text/html;charset=utf-8,${encodeURIComponent(startupHtml(scheme))}`
+/**
+ * The page every window sits on while DSH is not serving one.
+ *
+ * `notice` names the step being waited on. DSH says nothing at all until it is
+ * ready, so any wait added in front of it is indistinguishable from a hang
+ * unless the page says what is happening (#1619).
+ */
+export function startupUrl(scheme?: StartupColorScheme, notice?: string) {
+  return `data:text/html;charset=utf-8,${encodeURIComponent(startupHtml(scheme, notice))}`
 }
 
 function iconsDir() {

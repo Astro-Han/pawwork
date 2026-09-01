@@ -71,6 +71,33 @@ function readyUrlOf(message: unknown) {
   return url
 }
 
+/**
+ * A run whose process is only spawned once `prelude` settles, so preparation
+ * that has to finish *before* DSH loads the profile still looks like a run to
+ * the lifecycle — one that can be stopped, and whose failures are reported
+ * through the same startup path.
+ *
+ * `exited` is deliberately left unsettled when no child was ever spawned. It
+ * exists to report a process that died; a launch that never happened is already
+ * being reported through `ready`, and answering here as well would race a second
+ * failure into the lifecycle.
+ */
+export function deferDshRun(prelude: Promise<unknown>, launch: () => DshRun): DshRun {
+  let stopped = false
+  let started: DshRun | undefined
+  const child = prelude.then(() => (stopped ? undefined : (started = launch())))
+  const pending = new Promise<never>(() => {})
+  return {
+    ready: child.then((run) => run?.ready ?? pending),
+    exited: child.then((run) => run?.exited ?? pending, () => pending),
+    stop: async () => {
+      stopped = true
+      await child.catch(() => undefined)
+      await started?.stop()
+    },
+  }
+}
+
 export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   const child = options.spawn(
     options.executable,

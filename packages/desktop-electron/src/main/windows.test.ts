@@ -167,6 +167,16 @@ describe("main window wiring", () => {
     expect(win.loaded).toEqual([DSH])
   })
 
+  // A wait in front of DSH is only distinguishable from a hang if the page names
+  // it: DSH itself prints nothing until it is ready.
+  test("names the step being waited on when the startup page is given a notice", () => {
+    const page = decodeURIComponent(startupUrl("dark", "Updating the community plugin market…"))
+
+    expect(page).toContain("<p class=\"notice\">Updating the community plugin market…</p>")
+    expect(page).toContain("aria-label=\"Updating the community plugin market…\"")
+    expect(decodeURIComponent(startupUrl("dark"))).not.toContain("class=\"notice\"")
+  })
+
   // With no origin to belong to, nothing belongs to it — including the page DSH
   // was showing a moment before it died.
   test("denies every DSH-origin navigation once the runtime is gone", () => {
