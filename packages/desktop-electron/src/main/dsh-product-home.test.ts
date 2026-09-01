@@ -15,10 +15,6 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { DOCUMENT_VERSION, parseCredentialsDocument } from "@deepseek-ai/dsh-credentials-local"
 import { readProductPatch } from "./dsh-product-patch.testing"
-// The product plugin the packaged patch has to stay in step with.
-const { OPENCODE_ROUTES, OPENCODE_ROUTE_BASE_URL } = createRequire(import.meta.url)(
-  "../../resources/dsh/product/lib/opencode-free.cjs",
-) as { OPENCODE_ROUTES: Array<{ route: string; api: string }>; OPENCODE_ROUTE_BASE_URL: string }
 import {
   buildDshEnvironment,
   prepareDshProductHome,
@@ -27,6 +23,12 @@ import {
   resolvePnpmPackagePath,
   resolveProductResources,
 } from "./dsh-product-home"
+
+// The product plugin the packaged patch has to stay in step with. It ships as
+// CommonJS into the DSH home, so it is required rather than imported.
+const { OPENCODE_ROUTES, OPENCODE_ROUTE_BASE_URL } = createRequire(import.meta.url)(
+  "../../resources/dsh/product/lib/opencode-free.cjs",
+) as { OPENCODE_ROUTES: Array<{ route: string; api: string }>; OPENCODE_ROUTE_BASE_URL: string }
 
 const appPath = join(import.meta.dirname, "../..")
 const hostModules = resolveHostModules({ appPath, isPackaged: false, resourcesPath: "/unused" })
