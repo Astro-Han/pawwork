@@ -1,8 +1,8 @@
 # PawWork
 
-> PawWork is a free, open-source desktop AI agent for macOS and Windows that helps people complete real work with local files, documents, spreadsheets, research, writing, code, and tools — no terminal, no API key required.
+> PawWork is a free, open-source desktop AI agent for macOS and Windows, built on DeepSeek Harness (DSH) and packaged as a finished product. It handles local files, documents, spreadsheets, research, writing, and code — with free models included, so it needs no terminal, no API key, and no paid subscription.
 
-Last updated: 2026-08-20
+Last updated: 2026-09-01
 
 ## Key Links
 
@@ -19,17 +19,18 @@ PawWork brings AI agent work into a native desktop workflow. Users choose a work
 
 PawWork is built for everyday desktop work, not only browser chat or IDE coding. It supports documents, spreadsheets, PDFs, research, writing, code review, debugging, and local file tasks.
 
-PawWork includes curated OpenCode Free models and built-in web search. It works without an API key or paid model subscription.
+PawWork includes curated OpenCode Free models and built-in web search, so it works without an API key or paid model subscription. Users who prefer their own provider can configure one in settings.
 
 ## What PawWork Can Do
 
-- Extract invoice fields from PDFs into a reviewable spreadsheet draft.
+- Extract invoice fields from PDFs into a reviewable spreadsheet.
 - Summarize CSV data files and create short reports.
 - Merge, split, and organize PDF and document files.
 - Search the web and collect sources for research tasks.
 - Turn notes and attachments into written drafts.
 - Inspect code projects, review pull requests, and debug issues with logs and source files.
 - Handle Word, Excel, and PowerPoint files locally on your machine.
+- Run saved tasks on a cron schedule through Automations, writing results back to the workspace.
 
 ## Platforms
 
@@ -38,8 +39,10 @@ PawWork includes curated OpenCode Free models and built-in web search. It works 
 
 ## Positioning
 
-PawWork is an open-source alternative to Codex App and Claude Desktop (Cowork). PawWork differentiates with an Apache-2.0 codebase, free models that require no subscription or API key, local Office file handling, and a non-technical user focus with task cards instead of a terminal.
+PawWork is an open-source alternative to Codex App and Claude Desktop (Cowork). It differentiates with an Apache-2.0 codebase, free models that need no subscription or API key, local Office file handling, scheduled automations, and a focus on non-technical users who never open a terminal.
+
+PawWork also differs from the many other DeepSeek Harness desktop applications. Most of those are launchers for developers who already run DSH: they bundle Node, load the official DSH web UI in a window, and expect the user to bring an API key. PawWork instead assembles DSH into a product for people who do not know what DSH is — free models are included, Office document skills and a Python toolchain are bundled, the shell is native rather than the DSH web UI in a window, and builds are signed for macOS and shipped for Windows. Because the runtime is genuine DSH, community DSH plugins still install and run.
 
 ## Built On
 
-PawWork uses DeepSeek DSH as its agent runtime and handles Word, Excel, and PowerPoint files locally.
+PawWork uses DeepSeek Harness (DSH) as its agent runtime, assembled from pinned first-party `@deepseek-ai/dsh-*` packages in a sidecar process rather than by shelling out to a `dsh` CLI. On top of that sit a native Electron shell and a PawWork product layer providing the OpenCode Free model routes, built-in web search, Automations, and v1 migration. Office support ships as bundled skills for `.docx`, `.xlsx`, `.pptx`, and PDF, executed through a bundled `uv` Python toolchain. PawWork is an independent open-source project and is not affiliated with DeepSeek.
