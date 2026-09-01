@@ -4,20 +4,34 @@
   config:
     provider: opencode
     model: big-pickle
+# The zen gateway serves one wire protocol per model, and a pi-ai route carries
+# one protocol for every model on it, so OpenCode Free arrives as two routes.
+# Both name their protocol and endpoint here rather than deferring to the
+# bundled catalog: the catalog does not describe every free id (it has no
+# `ling-3.0-flash-fin-free`, and only the paid `muse-spark-1.2`), so a route
+# without them cannot serve those models before the first refresh lands.
+# resources/dsh/product/lib/opencode-free.cjs keeps both lists current.
 - id: llm-pi-ai
   config:
     providers:
       opencode:
         apiKeyEnv: OPENCODE_API_KEY
         displayName: OpenCode Free
+        api: openai-completions
+        baseURL: https://opencode.ai/zen/v1
         models:
           - id: big-pickle
-          - id: hy3-free
           - id: ling-3.0-flash-fin-free
           - id: mimo-v2.5-free
-          - id: muse-spark-1.2-contributor-free
           - id: nemotron-3-ultra-free
           - id: nemotron-3.5-lightning-free
+      opencode-responses:
+        apiKeyEnv: OPENCODE_API_KEY
+        displayName: OpenCode Free (Responses)
+        api: openai-responses
+        baseURL: https://opencode.ai/zen/v1
+        models:
+          - id: muse-spark-1.2-contributor-free
 - id: llm-deepseek
   disabled: true
 # Silences the `dsh web:` URL line; `pawwork-web-ready` below reports the same

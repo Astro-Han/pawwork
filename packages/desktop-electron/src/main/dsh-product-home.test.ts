@@ -24,6 +24,12 @@ import {
   resolveProductResources,
 } from "./dsh-product-home"
 
+// The product plugin the packaged patch has to stay in step with. It ships as
+// CommonJS into the DSH home, so it is required rather than imported.
+const { OPENCODE_ROUTES, OPENCODE_ROUTE_BASE_URL } = createRequire(import.meta.url)(
+  "../../resources/dsh/product/lib/opencode-free.cjs",
+) as { OPENCODE_ROUTES: Array<{ route: string; api: string }>; OPENCODE_ROUTE_BASE_URL: string }
+
 const appPath = join(import.meta.dirname, "../..")
 const hostModules = resolveHostModules({ appPath, isPackaged: false, resourcesPath: "/unused" })
 
@@ -39,19 +45,22 @@ function temporaryDirectory() {
   return directory
 }
 
-function installedOpenCodeFreeModels() {
+type InstalledOpenCodeModel = { id: string; cost?: { input?: number } }
+
+// The installed adapter's own opencode catalog, keyed by the wire protocol it
+// files each model under. This is the upgrade tripwire behind the route split:
+// PawWork names a protocol per route, so a pi-ai release that respells one, or
+// moves a model between them, has to fail here rather than at the gateway.
+function installedOpenCodeCatalog() {
   const require = createRequire(import.meta.url)
   const dshPackage = require.resolve("@deepseek-ai/dsh/package.json")
   const webAppPackage = createRequire(dshPackage).resolve("@deepseek-ai/dsh-web-app/package.json")
   const adapterPackage = createRequire(webAppPackage).resolve("@deepseek-ai/dsh-llm-pi-ai/package.json")
   const piAiRoot = join(dirname(adapterPackage), "..", "..", "@earendil-works", "pi-ai")
-  const catalog = JSON.parse(readFileSync(join(piAiRoot, "dist/providers/data/opencode.json"), "utf8"))
+  const catalog = JSON.parse(readFileSync(join(piAiRoot, "dist/providers/data/opencode.json"), "utf8")) as
+    Record<string, Record<string, InstalledOpenCodeModel>>
 
-  return Object.values(catalog)
-    .flatMap((models) => Object.values(models as Record<string, { id: string; cost?: { input?: number } }>))
-    .filter((model) => model.cost?.input === 0)
-    .map((model) => model.id)
-    .sort()
+  return new Map(Object.entries(catalog).map(([api, models]) => [api, new Map(Object.entries(models))]))
 }
 
 describe("DSH product home", () => {
@@ -269,21 +278,52 @@ describe("DSH product home", () => {
     expect([...parsed.refs]).toEqual([["OPENCODE_API_KEY", "public"]])
   })
 
-  test("publishes the installed zero-cost OpenCode catalog as OpenCode Free", () => {
+  test("publishes OpenCode Free on one route per protocol the gateway serves", () => {
     const patch = readProductPatch()
     const modelDefaults = patch.find((entry) => entry.id === "agent-default-model")?.config as {
       provider: string
       model: string
     }
     const providerConfig = patch.find((entry) => entry.id === "llm-pi-ai")?.config as {
-      providers: { opencode: { displayName?: string; models?: Array<{ id: string }> } }
+      providers: Record<string, {
+        apiKeyEnv?: string
+        displayName?: string
+        api?: string
+        baseURL?: string
+        models?: Array<{ id: string }>
+      }>
     }
-    const freeModels = installedOpenCodeFreeModels()
+    const catalog = installedOpenCodeCatalog()
 
-    expect(providerConfig.providers.opencode.displayName).toBe("OpenCode Free")
-    expect(providerConfig.providers.opencode.models?.map((model) => model.id).sort()).toEqual(freeModels)
+    // The patch and the refresh have to name the same routes: a route only one
+    // of them knows is either never refreshed or published as a third provider.
+    expect(Object.keys(providerConfig.providers).sort()).toEqual(
+      OPENCODE_ROUTES.map((entry) => entry.route).sort(),
+    )
+
+    for (const { route, api } of OPENCODE_ROUTES) {
+      const profile = providerConfig.providers[route]
+      expect(profile.apiKeyEnv).toBe("OPENCODE_API_KEY")
+      expect(profile.displayName).toMatch(/^OpenCode Free/)
+      expect(profile.baseURL).toBe(OPENCODE_ROUTE_BASE_URL)
+      // The protocol has to be one the installed adapter still spells this way.
+      expect([...catalog.keys()]).toContain(api)
+      expect(profile.api).toBe(api)
+      expect(profile.models?.length).toBeGreaterThan(0)
+
+      for (const { id } of profile.models ?? []) {
+        // A packaged id the catalog does not describe is exactly why each route
+        // names its own protocol; one it does describe must agree with it, and
+        // must still be free.
+        const served = [...catalog].find(([, models]) => models.has(id))
+        if (served === undefined) continue
+        expect(served[0]).toBe(api)
+        expect(served[1].get(id)?.cost?.input).toBe(0)
+      }
+    }
+
     expect(modelDefaults.provider).toBe("opencode")
-    expect(freeModels).toContain(modelDefaults.model)
+    expect(providerConfig.providers.opencode.models?.map((model) => model.id)).toContain(modelDefaults.model)
   })
 
   test("does not publish the bundled paid DeepSeek route", () => {
