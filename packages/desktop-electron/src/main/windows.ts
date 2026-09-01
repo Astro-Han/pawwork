@@ -35,11 +35,9 @@ html,body{height:100%;margin:0}body{align-items:center;background:var(--bg);disp
 export type StartupColorScheme = "dark" | "light"
 
 /**
- * The page every window sits on while DSH is not serving one.
- *
- * `notice` names the step being waited on. DSH says nothing at all until it is
- * ready, so any wait added in front of it is indistinguishable from a hang
- * unless the page says what is happening (#1619).
+ * The page every window sits on while DSH is not serving one. `notice` names
+ * the step being waited on; without it a wait in front of DSH, which prints
+ * nothing until it is ready, is indistinguishable from a hang.
  */
 export function startupUrl(scheme?: StartupColorScheme, notice?: string) {
   return `data:text/html;charset=utf-8,${encodeURIComponent(startupHtml(scheme, notice))}`

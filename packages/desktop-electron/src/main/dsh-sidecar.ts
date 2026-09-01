@@ -72,15 +72,12 @@ function readyUrlOf(message: unknown) {
 }
 
 /**
- * A run whose process is only spawned once `prelude` settles, so preparation
- * that has to finish *before* DSH loads the profile still looks like a run to
- * the lifecycle — one that can be stopped, and whose failures are reported
- * through the same startup path.
+ * A run that spawns its process only once `prelude` settles, so work that has
+ * to finish before DSH loads the profile is still stoppable and still reports
+ * failures through the startup path.
  *
- * `exited` is deliberately left unsettled when no child was ever spawned. It
- * exists to report a process that died; a launch that never happened is already
- * being reported through `ready`, and answering here as well would race a second
- * failure into the lifecycle.
+ * With no child ever spawned, `exited` stays unsettled: it reports a process
+ * that died, and `ready` already carries the failure.
  */
 export function deferDshRun(prelude: Promise<unknown>, launch: () => DshRun): DshRun {
   let stopped = false

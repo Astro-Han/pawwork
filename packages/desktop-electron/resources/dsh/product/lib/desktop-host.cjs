@@ -3,11 +3,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const MARKET_NAME = 'dshmarket';
-// The floor is a compatibility contract, not a pin: it is the first market
-// release that works with the Desktop services we inject in place of its own
-// profile and package runtime. Installing targets the latest release, per the
-// market's own install instructions, and the market updates itself from there.
-const MARKET_MINIMUM_VERSION = '1.21.0';
 const MARKET_OPERATION_TIMEOUT_MS = 15 * 60 * 1000;
 
 function readProfile(profileDir) {
@@ -27,31 +22,13 @@ function installedMarketVersion(profileDir) {
   }
 }
 
-function versionAtLeast(version, minimum) {
-  const parse = (value) => {
-    const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(value);
-    return match === null
-      ? undefined
-      : { numbers: match.slice(1, 4).map(Number), prerelease: match[4] };
-  };
-  const candidate = parse(version);
-  const floor = parse(minimum);
-  if (candidate === undefined || floor === undefined) return false;
-  for (let index = 0; index < 3; index += 1) {
-    if (candidate.numbers[index] !== floor.numbers[index]) {
-      return candidate.numbers[index] > floor.numbers[index];
-    }
-  }
-  return floor.prerelease !== undefined || candidate.prerelease === undefined;
-}
-
 function marketStatus(profileDir) {
   const manifest = readProfile(profileDir);
   const declared = typeof manifest.dependencies?.[MARKET_NAME] === 'string';
   const version = installedMarketVersion(profileDir);
   const active = (manifest.dsh?.profile?.bundles ?? []).includes(MARKET_NAME);
   return {
-    enabled: declared && active && version !== null && versionAtLeast(version, MARKET_MINIMUM_VERSION),
+    enabled: declared && active && version !== null,
     version,
   };
 }
@@ -168,7 +145,7 @@ function createDesktopHost(options) {
     const operation = pnpm.service.runPlugin(
       args,
       profileDir,
-      AbortSignal.timeout(options.operationTimeoutMs ?? MARKET_OPERATION_TIMEOUT_MS),
+      AbortSignal.timeout(MARKET_OPERATION_TIMEOUT_MS),
     );
     let stderr = '';
     operation.stdout.on('data', () => {});
@@ -191,11 +168,7 @@ function createDesktopHost(options) {
         try {
           await runMarketPlugin(['add', MARKET_NAME], 'DSH plugin install');
           const installed = await status();
-          if (!installed.enabled) {
-            throw new Error(installed.version === null
-              ? 'DSH did not activate a compatible community market'
-              : `The community market requires ${MARKET_MINIMUM_VERSION} or newer, but ${installed.version} was installed`);
-          }
+          if (!installed.enabled) throw new Error('DSH did not activate the community market');
           return installed;
         } catch (error) {
           pruneUnresolvableMarketBundle(profileDir);
@@ -254,7 +227,6 @@ function registerCommunityMarketRoutes(webServer, market, hostToken) {
 }
 
 module.exports = {
-  MARKET_MINIMUM_VERSION,
   MARKET_NAME,
   createDesktopHost,
   registerCommunityMarketRoutes,

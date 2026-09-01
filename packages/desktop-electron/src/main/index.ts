@@ -21,7 +21,7 @@ import {
 import { ciSmokeCdpSwitches } from "./ci-smoke-cdp"
 import { pickConversationFiles } from "./dsh-file-input"
 import { DshLifecycle, type DshLifecycleState } from "./dsh-lifecycle"
-import { createMarketPluginRunner, ensureVerifiedCommunityMarket } from "./dsh-market-guard"
+import { ensureVerifiedCommunityMarket } from "./dsh-market-guard"
 import { createDshMenu } from "./dsh-menu"
 import { assertDshPluginRequest, requestDshCommunityMarket } from "./dsh-plugins"
 import {
@@ -69,10 +69,8 @@ const UPDATE_FEED_TIMEOUT_MS = 10_000
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
 const UPDATE_CHANNEL_FILE = process.platform === "win32" ? `${UPDATE_CHANNEL}.yml` : `${UPDATE_CHANNEL}-mac.yml`
 const LATEST_RELEASE_URL = `https://github.com/${UPDATE_GITHUB_OWNER}/${UPDATE_GITHUB_REPO}/releases/latest`
-// Shown on the startup page for the one launch that has to install a newer
-// community market before DSH may load it. Naming the step is what separates it
-// from a hang: DSH prints nothing until it is ready, so an unexplained wait in
-// front of it reads as a frozen app.
+// Shown while the community market is upgraded ahead of DSH. DSH prints nothing
+// until it is ready, so an unnamed wait in front of it reads as a frozen app.
 const MARKET_UPGRADE_NOTICE: Record<MenuLocale, string> = {
   en: "Updating the community plugin market…",
   zh: "正在更新社区插件市场…",
@@ -559,21 +557,12 @@ function launchDsh() {
     productToolsDir: join(dirname(productResources.dsh), "tools"),
   })
 
-  // Ahead of the sidecar, not beside it: a market too old for the DSH this build
-  // ships throws while cordis is assembling the profile, and cordis answers by
-  // rolling the whole tree back, so DSH exits before anything can intervene. The
-  // guard is a no-op — one manifest read, no network — unless this profile is
-  // carrying such a market.
-  const profileDir = join(product.home, "profiles", "web")
   const marketGuard = ensureVerifiedCommunityMarket({
-    profileDir,
-    runPlugin: createMarketPluginRunner({
-      dshBin,
-      env: environment,
-      executable: process.execPath,
-      profileDir,
-      spawn: (executable, args, options) => spawn(executable, args, options),
-    }),
+    dshBin,
+    env: environment,
+    executable: process.execPath,
+    profileDir: join(product.home, "profiles", "web"),
+    spawn: (executable, args, options) => spawn(executable, args, options),
     onUpgradeStart: () => showStartupPage(MARKET_UPGRADE_NOTICE[menuLocale]),
     log: (message, detail) => logger.log(message, detail),
   })
