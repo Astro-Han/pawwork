@@ -47,6 +47,11 @@ export function createCiSmokeV1Fixture(file: string, workspace: string) {
       );
     `)
 
+    // All inserts run in one transaction: outside one, node:sqlite creates and
+    // deletes a journal file per statement, which costs seconds of filesystem
+    // churn for the bulk rows on a contended filesystem.
+    database.exec("BEGIN")
+
     const insertSession = database.prepare("INSERT INTO session VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     const insertMessage = database.prepare("INSERT INTO message VALUES (?, ?, ?, ?, ?)")
     const insertPart = database.prepare("INSERT INTO part VALUES (?, ?, ?, ?, ?, ?)")
@@ -149,6 +154,8 @@ export function createCiSmokeV1Fixture(file: string, workspace: string) {
       2_000,
       JSON.stringify(automation),
     )
+
+    database.exec("COMMIT")
   } finally {
     database.close()
   }
