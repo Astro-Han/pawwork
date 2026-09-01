@@ -71,6 +71,38 @@ function readyUrlOf(message: unknown) {
   return url
 }
 
+/**
+ * A run that spawns its process only once `prelude` settles, so work that has
+ * to finish before DSH loads the profile is still stoppable and still reports
+ * failures through the startup path.
+ *
+ * `stop()` aborts the signal the prelude was handed before awaiting it, so
+ * quitting during that work is bounded by the prelude's own teardown rather
+ * than by however long it had left to run.
+ *
+ * When no child is ever spawned, neither `ready` nor `exited` settles: a stop
+ * is not a failure to report, and a prelude that threw is reported by `ready`.
+ */
+export function deferDshRun(
+  prelude: (signal: AbortSignal) => Promise<unknown>,
+  launch: () => DshRun,
+): DshRun {
+  const stopping = new AbortController()
+  let started: DshRun | undefined
+  const pending = new Promise<never>(() => {})
+  const child = prelude(stopping.signal)
+    .then(() => (stopping.signal.aborted ? undefined : (started = launch())))
+  return {
+    ready: child.then((run) => run?.ready ?? pending),
+    exited: child.then((run) => run?.exited ?? pending, () => pending),
+    stop: async () => {
+      stopping.abort()
+      await child.catch(() => undefined)
+      await started?.stop()
+    },
+  }
+}
+
 export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
   const child = options.spawn(
     options.executable,

@@ -134,8 +134,8 @@ test('cancels and awaits the active package tree before the host disposes', asyn
   assert.equal(disposed, true);
 })
 
-test('requires the minimum market version and derives restart from the boot generation', async () => {
-  const { home, profileDir } = profileHome('1.20.0');
+test('derives restart from the boot generation', async () => {
+  const { home, profileDir } = profileHome();
   const host = createDesktopHost({
     dshBin: '/app/dsh/bin.js',
     home,
@@ -146,23 +146,23 @@ test('requires the minimum market version and derives restart from the boot gene
   assert.deepEqual(await host.communityMarket.status(), {
     enabled: false,
     restartRequired: false,
-    version: '1.20.0',
+    version: null,
   });
 
   fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
-    dependencies: { dshmarket: '1.21.0' },
+    dependencies: { dshmarket: '1.39.0' },
     dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dshmarket'] } },
   }));
-  writeInstalledMarket(profileDir, '1.21.0');
+  writeInstalledMarket(profileDir, '1.39.0');
   assert.deepEqual(await host.communityMarket.status(), {
     enabled: true,
     restartRequired: true,
-    version: '1.21.0',
+    version: '1.39.0',
   });
 })
 
 test('requires restart when the running market is removed from the profile', async () => {
-  const { home, profileDir } = profileHome('1.21.0');
+  const { home, profileDir } = profileHome('1.39.0');
   const host = createDesktopHost({
     dshBin: '/app/dsh/bin.js',
     home,
@@ -178,7 +178,7 @@ test('requires restart when the running market is removed from the profile', asy
   assert.deepEqual(await host.communityMarket.status(), {
     enabled: false,
     restartRequired: true,
-    version: '1.21.0',
+    version: '1.39.0',
   });
 })
 
@@ -218,32 +218,6 @@ test('installs the latest market through the managed service', async () => {
   });
 })
 
-test('reports the installed version when it is below the compatibility floor', async () => {
-  const { home, profileDir } = profileHome();
-  const managed = managedSubprocess();
-  const host = createDesktopHost({
-    dshBin: '/app/dsh/bin.js',
-    home,
-    nodeExecutable: '/app/PawWork',
-    subprocess: managed.subprocess,
-  });
-
-  const enabling = host.communityMarket.enable();
-  await Promise.resolve();
-  fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
-    dependencies: { dshmarket: '1.20.4' },
-    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dshmarket'] } },
-  }));
-  writeInstalledMarket(profileDir, '1.20.4');
-  managed.settle({ exitCode: 0, signal: null });
-
-  await assert.rejects(enabling, /requires 1\.21\.0 or newer, but 1\.20\.4 was installed/);
-  // The row resolves, so it is the user's to keep — pruning it would break a
-  // profile that still boots fine.
-  const manifest = JSON.parse(fs.readFileSync(path.join(profileDir, 'package.json'), 'utf8'));
-  assert.deepEqual(manifest.dsh.profile.bundles, ['@deepseek-ai/dsh-base', 'dshmarket']);
-})
-
 test('prunes the orphan bundle row when the install fails', async () => {
   const { home, profileDir } = profileHome();
   const managed = managedSubprocess();
@@ -271,8 +245,8 @@ test('prunes the orphan bundle row when the install fails', async () => {
   assert.deepEqual(manifest.dsh.profile.bundles, ['@deepseek-ai/dsh-base']);
 })
 
-test('keeps a newer compatible market without spawning a downgrade', async () => {
-  const { home } = profileHome('1.24.0');
+test('keeps an installed market without spawning a redundant install', async () => {
+  const { home } = profileHome('1.39.0');
   const host = createDesktopHost({
     dshBin: '/app/dsh/bin.js',
     home,
@@ -283,12 +257,12 @@ test('keeps a newer compatible market without spawning a downgrade', async () =>
   assert.deepEqual(await host.communityMarket.enable(), {
     enabled: true,
     restartRequired: false,
-    version: '1.24.0',
+    version: '1.39.0',
   });
 })
 
 test('uses the installed package version instead of downgrading a newer dependency range', async () => {
-  const { home } = profileHome('^1.24.0', '1.24.3');
+  const { home } = profileHome('^1.39.0', '1.39.3');
   const host = createDesktopHost({
     dshBin: '/app/dsh/bin.js',
     home,
@@ -299,12 +273,12 @@ test('uses the installed package version instead of downgrading a newer dependen
   assert.deepEqual(await host.communityMarket.enable(), {
     enabled: true,
     restartRequired: false,
-    version: '1.24.3',
+    version: '1.39.3',
   });
 })
 
 test('does not report a manifest-only market as installed', async () => {
-  const { home } = profileHome('^1.24.0', null);
+  const { home } = profileHome('^1.39.0', null);
   const host = createDesktopHost({
     dshBin: '/app/dsh/bin.js',
     home,
@@ -333,7 +307,7 @@ test('rejects a successful command that did not activate the market', async () =
   await Promise.resolve();
   managed.settle({ exitCode: 0, signal: null });
 
-  await assert.rejects(enabling, /did not activate a compatible community market/);
+  await assert.rejects(enabling, /did not activate the community market/);
 })
 
 test('rejects market mutations that do not carry the per-launch host token', async () => {
@@ -356,9 +330,9 @@ test('rejects market mutations that do not carry the per-launch host token', asy
 })
 
 test('finishes a removal DSH left half-done, without touching the rest of the profile', async () => {
-  const { home, profileDir } = profileHome('1.21.0');
+  const { home, profileDir } = profileHome('1.39.0');
   fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
-    dependencies: { dshmarket: '1.21.0', 'dsh-notifier': '^2.0.0' },
+    dependencies: { dshmarket: '1.39.0', 'dsh-notifier': '^2.0.0' },
     dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dshmarket', 'dsh-notifier'] } },
   }));
   const managed = managedSubprocess();

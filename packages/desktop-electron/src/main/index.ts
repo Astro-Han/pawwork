@@ -21,6 +21,7 @@ import {
 import { ciSmokeCdpSwitches } from "./ci-smoke-cdp"
 import { pickConversationFiles } from "./dsh-file-input"
 import { DshLifecycle, type DshLifecycleState } from "./dsh-lifecycle"
+import { ensureVerifiedCommunityMarket } from "./dsh-market-guard"
 import { createDshMenu } from "./dsh-menu"
 import { assertDshPluginRequest, requestDshCommunityMarket } from "./dsh-plugins"
 import {
@@ -31,7 +32,7 @@ import {
   resolvePnpmPackagePath,
   resolveProductResources,
 } from "./dsh-product-home"
-import { launchDshSidecar } from "./dsh-sidecar"
+import { deferDshRun, launchDshSidecar } from "./dsh-sidecar"
 import { prepareDshToolsEnvironment } from "./dsh-tools"
 import { failingProfileBundle, removeProfileBundle } from "./dsh-profile-repair"
 import { migrateDshHome, resolveDshHome } from "./pawwork-home"
@@ -68,6 +69,12 @@ const UPDATE_FEED_TIMEOUT_MS = 10_000
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
 const UPDATE_CHANNEL_FILE = process.platform === "win32" ? `${UPDATE_CHANNEL}.yml` : `${UPDATE_CHANNEL}-mac.yml`
 const LATEST_RELEASE_URL = `https://github.com/${UPDATE_GITHUB_OWNER}/${UPDATE_GITHUB_REPO}/releases/latest`
+// Shown while the community market is upgraded ahead of DSH. DSH prints nothing
+// until it is ready, so an unnamed wait in front of it reads as a frozen app.
+const MARKET_UPGRADE_NOTICE: Record<MenuLocale, string> = {
+  en: "Updating the community plugin market…",
+  zh: "正在更新社区插件市场…",
+}
 
 const userDataRoot = CI_SMOKE_HOME ?? app.getPath("appData")
 const appChannel = app.isPackaged ? CHANNEL : "dev"
@@ -380,8 +387,8 @@ function dshUrl() {
   return lifecycle.url
 }
 
-function showStartupPage() {
-  for (const win of liveWindows()) navigateWindow(win, startupUrl(startupColorScheme))
+function showStartupPage(notice?: string) {
+  for (const win of liveWindows()) navigateWindow(win, startupUrl(startupColorScheme, notice))
 }
 
 async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed" }>) {
@@ -570,20 +577,31 @@ function launchDsh() {
     productToolsDir: join(dirname(productResources.dsh), "tools"),
   })
 
-  logger.log("spawning DSH sidecar")
-  return launchDshSidecar({
-    executable: process.execPath,
+  return deferDshRun((signal) => ensureVerifiedCommunityMarket({
     dshBin,
-    sidecarPreload: pathToFileURL(product.sidecarPreload).href,
-    productPatch: product.patch,
     env: environment,
+    executable: process.execPath,
+    profileDir: join(product.home, "profiles", "web"),
     spawn: (executable, args, options) => spawn(executable, args, options),
-    onStdout: (chunk) => logger.log("DSH stdout", { chunk: chunk.trimEnd() }),
-    onStderr: (chunk) => {
-      dshOutputTail = (dshOutputTail + chunk).slice(-DSH_OUTPUT_TAIL_CHARS)
-      logger.error("DSH stderr", chunk.trimEnd())
-    },
-    onError: (error) => logger.error("DSH sidecar process error", error),
+    signal,
+    onUpgradeStart: () => showStartupPage(MARKET_UPGRADE_NOTICE[menuLocale]),
+    log: (message, detail) => logger.log(message, detail),
+  }), () => {
+    logger.log("spawning DSH sidecar")
+    return launchDshSidecar({
+      executable: process.execPath,
+      dshBin,
+      sidecarPreload: pathToFileURL(product.sidecarPreload).href,
+      productPatch: product.patch,
+      env: environment,
+      spawn: (executable, args, options) => spawn(executable, args, options),
+      onStdout: (chunk) => logger.log("DSH stdout", { chunk: chunk.trimEnd() }),
+      onStderr: (chunk) => {
+        dshOutputTail = (dshOutputTail + chunk).slice(-DSH_OUTPUT_TAIL_CHARS)
+        logger.error("DSH stderr", chunk.trimEnd())
+      },
+      onError: (error) => logger.error("DSH sidecar process error", error),
+    })
   })
 }
 
