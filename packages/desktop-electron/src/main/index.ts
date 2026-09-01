@@ -39,6 +39,7 @@ import { migrateDshHome, resolveDshHome } from "./pawwork-home"
 import { initLogging } from "./logging"
 import { detectSystemMenuLocale, type MenuLocale } from "./menu-labels"
 import { createUpdateFeed, githubFeed, r2Feed, type FeedTarget } from "./update-feed"
+import { applyUserShellPath } from "./user-shell-env"
 import { PAWWORK_GITHUB_ISSUE_URL } from "./support-links"
 import { createUpdaterController } from "./updater"
 import { createUpdateScheduler } from "./updater-scheduler"
@@ -93,6 +94,13 @@ const logger = initLogging()
 // wrong question — it reports the locale Electron's own UI was built for, which
 // is en-US on a zh-CN machine. Everything that reads this runs after ready.
 let menuLocale: MenuLocale = "en"
+
+// GUI-launched apps inherit launchd's minimal PATH, so user-installed CLIs
+// (`/opt/homebrew/bin`, …) stay invisible to everything we spawn. Kicking off
+// the probe here lets it overlap Electron setup; it is awaited just before the
+// first child spawn, so the sidecar and every later child inherit the fixed
+// PATH. On failure (or off macOS) nothing changes.
+const userShellPath = applyUserShellPath()
 
 // Pure path work over values that never change for the life of the process, so
 // there is nothing to sequence and nothing that can be read before it is set.
@@ -298,7 +306,7 @@ function setupApp() {
 
   void app
     .whenReady()
-    .then(() => {
+    .then(async () => {
       menuLocale = detectSystemMenuLocale(app.getSystemLocale())
       app.setAsDefaultProtocolClient("pawwork")
       setDockIcon()
@@ -309,6 +317,11 @@ function setupApp() {
       // issue link lives, and it used to be built only after a successful start.
       openMainWindow()
       wireMenu()
+      // Before lifecycle.start(): every DSH child spawns below this line and
+      // must already see the user's PATH.
+      if (process.platform === "darwin" && !(await userShellPath)) {
+        logger.log("could not resolve the user's shell PATH; keeping the inherited PATH")
+      }
       lifecycle.start()
     })
     .catch((error) => {
