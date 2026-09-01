@@ -41,7 +41,7 @@
 | 免订阅可用 | 是（OpenCode Free） | 有限（ChatGPT Free） | 否（需 Pro，$20/月） |
 | 桌面应用 | macOS + Windows | macOS + Windows | macOS + Windows |
 | 本地文件访问 | 完整工作目录 | 默认沙箱 | 用户选定的文件夹 |
-| Office 文件（Word/Excel/PPT） | 是 | 否 | 否 |
+| Office 文件（Word/Excel/PPT） | 是 | 否 | 是 |
 | 定时任务 | 是 | 否 | 否 |
 | 插件生态 | DSH 插件 | 无 | MCP |
 

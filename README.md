@@ -41,7 +41,7 @@ Because the runtime underneath is real DSH, this is not a trade-off against the 
 | Free without subscription | Yes (OpenCode Free) | Limited (ChatGPT Free) | No (Pro $20/mo required) |
 | Desktop app | macOS + Windows | macOS + Windows | macOS + Windows |
 | Local file access | Full workspace access | Sandboxed by default | User-selected folders |
-| Office files (Word/Excel/PPT) | Yes | No | No |
+| Office files (Word/Excel/PPT) | Yes | No | Yes |
 | Scheduled automations | Yes | No | No |
 | Plugin ecosystem | DSH plugins | No | MCP |
 
