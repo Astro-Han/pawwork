@@ -337,7 +337,7 @@ describe("deferDshRun", () => {
     let launches = 0
     const inner = fakeRun()
 
-    const deferred = deferDshRun(prelude, () => {
+    const deferred = deferDshRun(() => prelude, () => {
       launches += 1
       return inner.run
     })
@@ -354,19 +354,24 @@ describe("deferDshRun", () => {
     expect(inner.stopped.count).toBe(1)
   })
 
-  test("does not spawn when the run is stopped while the prelude is still running", async () => {
+  // Quitting during work that runs in front of DSH has to end that work, not
+  // wait it out: the prelude owns a process of its own, and its own deadline.
+  test("aborts the prelude when the run is stopped, and does not spawn", async () => {
+    let aborted: AbortSignal | undefined
     let release!: () => void
     const prelude = new Promise<void>((resolve) => { release = resolve })
     let launches = 0
 
-    const deferred = deferDshRun(prelude, () => {
+    const deferred = deferDshRun((signal) => {
+      signal.addEventListener("abort", () => { aborted = signal; release() })
+      return prelude
+    }, () => {
       launches += 1
       return fakeRun().run
     })
-    const stopping = deferred.stop()
-    release()
-    await stopping
+    await deferred.stop()
 
+    expect(aborted?.aborted).toBe(true)
     expect(launches).toBe(0)
   })
 
@@ -374,7 +379,7 @@ describe("deferDshRun", () => {
   // as well would race a second, wrongly worded failure into the same start.
   test("reports a failed launch through readiness alone", async () => {
     let exitedSettled = false
-    const deferred = deferDshRun(Promise.resolve(), () => {
+    const deferred = deferDshRun(() => Promise.resolve(), () => {
       throw new Error("DSH host module scope is missing")
     })
     void deferred.exited.then(() => { exitedSettled = true }, () => { exitedSettled = true })

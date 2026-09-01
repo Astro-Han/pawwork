@@ -76,19 +76,27 @@ function readyUrlOf(message: unknown) {
  * to finish before DSH loads the profile is still stoppable and still reports
  * failures through the startup path.
  *
- * With no child ever spawned, `exited` stays unsettled: it reports a process
- * that died, and `ready` already carries the failure.
+ * `stop()` aborts the signal the prelude was handed before awaiting it, so
+ * quitting during that work is bounded by the prelude's own teardown rather
+ * than by however long it had left to run.
+ *
+ * When no child is ever spawned, neither `ready` nor `exited` settles: a stop
+ * is not a failure to report, and a prelude that threw is reported by `ready`.
  */
-export function deferDshRun(prelude: Promise<unknown>, launch: () => DshRun): DshRun {
-  let stopped = false
+export function deferDshRun(
+  prelude: (signal: AbortSignal) => Promise<unknown>,
+  launch: () => DshRun,
+): DshRun {
+  const stopping = new AbortController()
   let started: DshRun | undefined
-  const child = prelude.then(() => (stopped ? undefined : (started = launch())))
   const pending = new Promise<never>(() => {})
+  const child = prelude(stopping.signal)
+    .then(() => (stopping.signal.aborted ? undefined : (started = launch())))
   return {
     ready: child.then((run) => run?.ready ?? pending),
     exited: child.then((run) => run?.exited ?? pending, () => pending),
     stop: async () => {
-      stopped = true
+      stopping.abort()
       await child.catch(() => undefined)
       await started?.stop()
     },

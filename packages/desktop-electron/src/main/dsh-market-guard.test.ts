@@ -37,39 +37,52 @@ function profileWith(options: { declared?: string; installed?: string; bundled?:
 class FakeChild extends EventEmitter {
   readonly stdout = new EventEmitter()
   readonly stderr = new EventEmitter()
-  signals: Array<NodeJS.Signals | undefined> = []
-
-  kill(signal?: NodeJS.Signals) {
-    this.signals.push(signal)
-    queueMicrotask(() => this.emit("exit", null))
-    return true
-  }
+  readonly pid = 4321
 }
 
-function guard(profileDir: string, behaviour: (child: FakeChild) => void = (child) => child.emit("exit", 0)) {
+type GuardOptions = {
+  /** Whether a terminated process group actually dies. */
+  diesOnSignal?: boolean
+  killGraceMs?: number
+  signal?: AbortSignal
+  timeoutMs?: number
+}
+
+function guard(
+  profileDir: string,
+  behaviour: (child: FakeChild) => void = (child) => child.emit("exit", 0),
+  options: GuardOptions = {},
+) {
   const spawns: Array<{ executable: string; args: string[]; options: unknown }> = []
   const messages: Array<{ message: string; detail?: Record<string, unknown> }> = []
+  const kills: Array<{ pid: number; signal: NodeJS.Signals }> = []
   const children: FakeChild[] = []
   let notices = 0
   return {
     spawns,
     messages,
-    children,
+    kills,
     notices: () => notices,
-    run: (verifiedVersion = "1.39.0", timeoutMs?: number) => ensureVerifiedCommunityMarket({
+    run: (verifiedVersion = "1.39.0") => ensureVerifiedCommunityMarket({
       dshBin: "/app/dsh/bin.js",
       env: { DSH_HOME: "/home/u/.pawwork/dsh" },
       executable: "/app/PawWork",
       profileDir,
-      spawn: (executable, args, options) => {
+      spawn: (executable, args, spawnOptions) => {
         const child = new FakeChild()
         children.push(child)
-        spawns.push({ executable, args, options })
+        spawns.push({ executable, args, options: spawnOptions })
         queueMicrotask(() => behaviour(child))
         return child
       },
+      signal: options.signal ?? new AbortController().signal,
       verifiedVersion,
-      timeoutMs,
+      timeoutMs: options.timeoutMs,
+      killGraceMs: options.killGraceMs,
+      killTree: (pid, signal) => {
+        kills.push({ pid, signal })
+        if (options.diesOnSignal ?? true) queueMicrotask(() => children[0]?.emit("exit", null))
+      },
       onUpgradeStart: () => { notices += 1 },
       log: (message, detail) => messages.push({ message, detail }),
     }),
@@ -124,17 +137,10 @@ describe("ensureVerifiedCommunityMarket", () => {
 
     expect(harness.spawns).toEqual([{
       executable: "/app/PawWork",
-      args: [
-        "/app/dsh/bin.js",
-        "plugin",
-        "--profile",
-        "web",
-        "add",
-        "--config.minimumReleaseAge=0",
-        "dshmarket@1.39.0",
-      ],
+      args: ["/app/dsh/bin.js", "plugin", "--profile", "web", "add", "dshmarket@1.39.0"],
       options: {
         cwd: expect.stringContaining("pawwork-market-guard-") as unknown,
+        detached: true,
         env: { DSH_HOME: "/home/u/.pawwork/dsh" },
         stdio: ["ignore", "pipe", "pipe"],
       },
@@ -183,15 +189,47 @@ describe("ensureVerifiedCommunityMarket", () => {
     expect(harness.messages.at(-1)?.detail?.error).toBe("EACCES")
   })
 
-  test("terminates an install that outruns the deadline, and still starts", async () => {
-    // A wedged install: it exits on the signal and never on its own. Aborting
-    // the deadline does not terminate the child by itself, so without the kill
-    // this launch would wait forever.
-    const harness = guard(profileWith({ declared: "1.34.0", installed: "1.34.0" }), () => {})
+  // pnpm runs as a grandchild of the process spawned here, so the whole group
+  // has to go: anything still writing the profile when DSH starts is the crash
+  // this guard exists to prevent.
+  test("terminates the install group when the deadline runs out, and still starts", async () => {
+    const wedged = () => {}
+    const harness = guard(profileWith({ declared: "1.34.0", installed: "1.34.0" }), wedged, { timeoutMs: 1 })
 
-    await expect(harness.run("1.39.0", 1)).resolves.toBeUndefined()
+    await expect(harness.run()).resolves.toBeUndefined()
 
-    expect(harness.children[0]?.signals).toEqual(["SIGTERM"])
-    expect(harness.messages.at(-1)?.detail?.error).toMatch(/timed out/)
+    expect(harness.kills).toEqual([{ pid: 4321, signal: "SIGTERM" }])
+    expect(harness.messages.at(-1)?.detail?.error).toMatch(/was terminated/)
+  })
+
+  test("kills a group that ignores the termination rather than holding the launch", async () => {
+    const harness = guard(profileWith({ declared: "1.34.0", installed: "1.34.0" }), () => {}, {
+      diesOnSignal: false,
+      killGraceMs: 1,
+      timeoutMs: 1,
+    })
+
+    await expect(harness.run()).resolves.toBeUndefined()
+
+    expect(harness.kills.map((kill) => kill.signal)).toEqual(["SIGTERM", "SIGKILL"])
+    expect(harness.messages.at(-1)?.detail?.error).toMatch(/could not be terminated/)
+  })
+
+  // Quitting mid-upgrade: the install is stopped, and nothing is reported
+  // because nothing is about to start.
+  test("stops the install when the app is stopping, and reports nothing", async () => {
+    const stopping = new AbortController()
+    const harness = guard(
+      profileWith({ declared: "1.34.0", installed: "1.34.0" }),
+      () => stopping.abort(),
+      { signal: stopping.signal },
+    )
+
+    await expect(harness.run()).resolves.toBeUndefined()
+
+    expect(harness.kills).toEqual([{ pid: 4321, signal: "SIGTERM" }])
+    expect(harness.messages.map((entry) => entry.message)).toEqual([
+      "upgrading the community market before DSH starts",
+    ])
   })
 })

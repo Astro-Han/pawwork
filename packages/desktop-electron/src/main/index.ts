@@ -557,17 +557,16 @@ function launchDsh() {
     productToolsDir: join(dirname(productResources.dsh), "tools"),
   })
 
-  const marketGuard = ensureVerifiedCommunityMarket({
+  return deferDshRun((signal) => ensureVerifiedCommunityMarket({
     dshBin,
     env: environment,
     executable: process.execPath,
     profileDir: join(product.home, "profiles", "web"),
     spawn: (executable, args, options) => spawn(executable, args, options),
+    signal,
     onUpgradeStart: () => showStartupPage(MARKET_UPGRADE_NOTICE[menuLocale]),
     log: (message, detail) => logger.log(message, detail),
-  })
-
-  return deferDshRun(marketGuard, () => {
+  }), () => {
     logger.log("spawning DSH sidecar")
     return launchDshSidecar({
       executable: process.execPath,

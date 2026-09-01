@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { gte, valid } from "semver"
@@ -19,6 +20,8 @@ export const VERIFIED_COMMUNITY_MARKET = {
 
 // Bounds the wait on the startup page. Overrunning it is not fatal.
 const UPGRADE_TIMEOUT_MS = 90_000
+// How long a terminated install gets to unwind before it is killed outright.
+const KILL_GRACE_MS = 5_000
 const OUTPUT_TAIL_CHARS = 4_000
 
 function readJson(path: string): unknown {
@@ -53,14 +56,28 @@ function loadsMarketAtBoot(profileDir: string) {
  * with no package behind it belongs to `pruneUnresolvableMarketBundle` and the
  * startup-failure dialog instead.
  */
-export function outdatedMarketVersion(
-  profileDir: string,
-  verified: string = VERIFIED_COMMUNITY_MARKET.market,
-) {
+export function outdatedMarketVersion(profileDir: string, verified: string) {
   if (!loadsMarketAtBoot(profileDir)) return undefined
   const installed = installedMarketVersion(profileDir)
   if (installed === undefined || valid(installed) === null) return undefined
   return gte(installed, verified) ? undefined : installed
+}
+
+/**
+ * `dsh plugin` forwards to pnpm through a synchronous spawn, so the install is
+ * a grandchild: signalling the process we hold leaves pnpm running, and it goes
+ * on writing the profile that DSH is about to load. Terminate the group.
+ */
+function killProcessTree(pid: number, signal: NodeJS.Signals) {
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/pid", String(pid), "/t", "/f"])
+    return
+  }
+  try {
+    process.kill(-pid, signal)
+  } catch {
+    // Already gone.
+  }
 }
 
 type MarketPluginStream = { on(event: "data", listener: (data: Buffer | string) => void): unknown } | null
@@ -70,7 +87,7 @@ interface MarketPluginProcess {
   // pnpm's own reason went to stdout ahead of it.
   readonly stdout: MarketPluginStream
   readonly stderr: MarketPluginStream
-  kill(signal?: NodeJS.Signals): boolean
+  readonly pid?: number
   on(event: "exit", listener: (code: number | null) => void): this
   // An EventEmitter with no "error" listener rethrows, which in the main
   // process is the app dying during startup.
@@ -86,24 +103,40 @@ type EnsureVerifiedCommunityMarketOptions = {
   spawn(
     executable: string,
     args: string[],
-    options: { cwd: string; env: NodeJS.ProcessEnv; stdio: ["ignore", "pipe", "pipe"] },
+    options: {
+      cwd: string
+      // Group leader, so the whole install can be terminated at once.
+      detached: true
+      env: NodeJS.ProcessEnv
+      stdio: ["ignore", "pipe", "pipe"]
+    },
   ): MarketPluginProcess
+  /** Aborted when the app is stopping, so a quit is not held up by an install. */
+  signal: AbortSignal
   verifiedVersion?: string
   timeoutMs?: number
+  killGraceMs?: number
+  killTree?: (pid: number, signal: NodeJS.Signals) => void
   /** Called once, and only when an upgrade is about to run. */
   onUpgradeStart?: () => void
   log(message: string, detail?: Record<string, unknown>): void
 }
 
-// `dsh plugin` initializes the profile if needed, forwards to pnpm, and
-// reconciles `dsh.profile.bundles` against what is installed. It never loads a
-// bundle, so it is safe to run before DSH boots.
+/**
+ * `dsh plugin` initializes the profile if needed, forwards to pnpm, and
+ * reconciles `dsh.profile.bundles` against what is installed. It never loads a
+ * bundle, so it is safe to run before DSH boots.
+ *
+ * Settles only once the install is known to be over, terminated included:
+ * whatever comes next is entitled to a profile nothing is still writing.
+ */
 function runMarketPlugin(options: EnsureVerifiedCommunityMarketOptions, args: string[], signal: AbortSignal) {
+  const killTree = options.killTree ?? killProcessTree
   return new Promise<void>((resolve, reject) => {
     const child = options.spawn(
       options.executable,
       [options.dshBin, "plugin", "--profile", "web", ...args],
-      { cwd: options.profileDir, env: options.env, stdio: ["ignore", "pipe", "pipe"] },
+      { cwd: options.profileDir, detached: true, env: options.env, stdio: ["ignore", "pipe", "pipe"] },
     )
     let output = ""
     const collect = (data: Buffer | string) => {
@@ -111,20 +144,35 @@ function runMarketPlugin(options: EnsureVerifiedCommunityMarketOptions, args: st
     }
     child.stdout?.on("data", collect)
     child.stderr?.on("data", collect)
-    const abort = () => void child.kill("SIGTERM")
-    signal.addEventListener("abort", abort, { once: true })
+
+    let escalation: ReturnType<typeof setTimeout> | undefined
     const settle = (finish: () => void) => {
       signal.removeEventListener("abort", abort)
+      clearTimeout(escalation)
       finish()
     }
+    const failed = (cause: string) => {
+      const tail = output.trim()
+      return new Error(`dsh plugin ${cause}${tail === "" ? "" : `: ${tail}`}`)
+    }
+    function abort() {
+      const { pid } = child
+      if (pid === undefined) return
+      killTree(pid, "SIGTERM")
+      // A group that outlives SIGKILL is not going to report an exit either.
+      // Give up on it rather than hold the launch open indefinitely.
+      escalation = setTimeout(() => {
+        killTree(pid, "SIGKILL")
+        settle(() => reject(failed("could not be terminated")))
+      }, options.killGraceMs ?? KILL_GRACE_MS)
+    }
+    signal.addEventListener("abort", abort, { once: true })
+    if (signal.aborted) abort()
+
     child.on("error", (error) => settle(() => reject(error)))
     child.on("exit", (code) => settle(() => {
-      if (code === 0 && !signal.aborted) {
-        resolve()
-        return
-      }
-      const cause = signal.aborted ? "timed out" : `exited ${describeExit(code)}`
-      reject(new Error(`dsh plugin ${cause}${output.trim() === "" ? "" : `: ${output.trim()}`}`))
+      if (code === 0 && !signal.aborted) resolve()
+      else reject(failed(signal.aborted ? "was terminated" : `exited ${describeExit(code)}`))
     }))
   })
 }
@@ -135,27 +183,25 @@ function runMarketPlugin(options: EnsureVerifiedCommunityMarketOptions, args: st
  *
  * A market listed in `dsh.profile.bundles` that throws on load aborts the whole
  * DSH boot, so this has to finish first. It never rejects: an unreachable
- * registry, a failed install or a timeout is logged and the launch continues.
- * A start with nothing to do costs one manifest read and no network.
+ * registry, a failed install or a deadline overrun is logged and the launch
+ * continues. A start with nothing to do reads manifests and nothing else.
  */
 export async function ensureVerifiedCommunityMarket(options: EnsureVerifiedCommunityMarketOptions) {
   const verified = options.verifiedVersion ?? VERIFIED_COMMUNITY_MARKET.market
   const outdated = outdatedMarketVersion(options.profileDir, verified)
   if (outdated === undefined) return
 
-  options.log("upgrading the community market before DSH starts", { from: outdated, to: verified })
-  options.onUpgradeStart?.()
   try {
+    options.log("upgrading the community market before DSH starts", { from: outdated, to: verified })
+    options.onUpgradeStart?.()
     await runMarketPlugin(
       options,
-      // The version is named in this build rather than resolved automatically,
-      // so pnpm's release-age cooldown does not apply. Left on, it either
-      // rewrites the profile's pnpm-workspace.yaml or fails outright, depending
-      // on whether pnpm believes it can prompt.
-      ["add", "--config.minimumReleaseAge=0", `${MARKET_NAME}@${verified}`],
-      AbortSignal.timeout(options.timeoutMs ?? UPGRADE_TIMEOUT_MS),
+      ["add", `${MARKET_NAME}@${verified}`],
+      AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs ?? UPGRADE_TIMEOUT_MS)]),
     )
   } catch (error) {
+    // A quit is not a failure, and nothing is about to start.
+    if (options.signal.aborted) return
     options.log("community market upgrade failed, starting with the installed market", {
       from: outdated,
       to: verified,
