@@ -1,7 +1,7 @@
 {
   "name": "@pawwork/desktop",
   "private": true,
-  "version": "2026.8.8",
+  "version": "2026.9.1",
   "type": "module",
   "license": "Apache-2.0",
   "homepage": "https://pawwork.ai",
