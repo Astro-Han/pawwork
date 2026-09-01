@@ -12,7 +12,7 @@
 
 它是 [Codex App](https://openai.com/codex/) 和 [Claude Cowork](https://www.anthropic.com/product/claude-cowork) 的开源替代——面向日常的文档、表格、资料整理和文件处理，而不只是浏览器里聊天或 IDE 里写代码。
 
-![爪印 PawWork 的鲸鱼娘形象戴着橙色爪手套处理成摞的文档 - 开箱即用的桌面 AI 智能体](assets/readme/pawwork-cover.webp)
+![爪印 PawWork 的鲸鱼娘形象戴着橙色爪手套处理成摞的文档 - 开箱即用的桌面 AI 智能体](assets/readme/pawwork-cover-cn.webp)
 
 ## 爪印的差异在哪
 
