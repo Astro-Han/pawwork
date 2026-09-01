@@ -12,7 +12,7 @@ PawWork turns a DSH agent runtime into a desktop application you could hand to s
 
 It is an open alternative to [Codex App](https://openai.com/codex/) and [Claude Cowork](https://www.anthropic.com/product/claude-cowork) — for everyday document, spreadsheet, research, and file work, not only browser chat or IDE coding.
 
-![PawWork's whale-girl mascot in orange paw gloves working through a stack of documents - open-source alternative to Codex App and Claude Cowork](assets/readme/pawwork-cover.png)
+![PawWork's whale-girl mascot in orange paw gloves working through a stack of documents - open-source alternative to Codex App and Claude Cowork](assets/readme/pawwork-cover.webp)
 
 ## What Makes PawWork Different
 
