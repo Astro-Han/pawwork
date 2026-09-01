@@ -10,8 +10,8 @@ export type Dict = Record<string, string>;
 
 export const I18N: Record<Lang, Dict> = {
   en: {
-    title: "PawWork — Real work, done on your desktop",
-    desc: "Free, open-source AI desktop app for macOS and Windows. No terminal, no API key, no paid plan — open PawWork, choose a folder, and ask in plain language.",
+    title: "PawWork — Open-source desktop AI agent built on DeepSeek Harness",
+    desc: "Free, open-source AI desktop app for macOS and Windows, built on DeepSeek Harness. Free models included — no terminal, no API key, no paid plan. An open alternative to Codex App and Claude Cowork.",
     brand: "PawWork",
     "nav.feat": "What it does",
     tag: "Open-source, free to use",
@@ -35,7 +35,8 @@ export const I18N: Record<Lang, Dict> = {
     "mock.s3": "Building spreadsheet…",
     "mock.rd": "ready to review",
     "def.d1": '<b>PawWork</b> is a <span class="o">free, open-source desktop AI agent</span> for macOS and Windows.',
-    "def.d2": "An open alternative to Codex App and Claude Desktop (Cowork) — for everyday work, not just browser chat or IDE coding.",
+    "def.d2":
+      "Built on DeepSeek Harness and packaged as a finished product — an open alternative to Codex App and Claude Desktop (Cowork), for everyday work, not just browser chat or IDE coding.",
     "can.h": "See what it ships",
     "can.hint": "Real outputs from plain-language tasks, across files, the web, and code.",
     "t1.lab": "12 invoices into one spreadsheet",
@@ -57,9 +58,10 @@ export const I18N: Record<Lang, Dict> = {
     "t3.f2a": "Missing null check in",
     "t3.f2b": "— minor.",
     "m.h": "Free models, ready to work",
+    "m.count": "6",
     "m.num": "free models included",
     "m.lead":
-      "<b>Start without setup</b> with curated OpenCode Free models and built-in web search. No API key or paid model subscription required.",
+      "<b>Start without setup</b> with curated OpenCode Free models and built-in web search. No API key or paid model subscription required — or connect your own provider in settings.",
     "m.search": "Search models",
     "m.zen": "Free, web search included",
     "m.free": "FREE",
@@ -84,8 +86,8 @@ export const I18N: Record<Lang, Dict> = {
     foot: "Apache-2.0, powered by DeepSeek DSH",
   },
   cn: {
-    title: "爪印 — 真能干活，跑在你电脑上",
-    desc: "免费开源的桌面 AI 工作助手，支持 macOS 和 Windows。不用终端、不用 API key、不用付费。打开爪印，选个文件夹，说一声就行。",
+    title: "爪印 PawWork — 基于 DeepSeek Harness 的开源桌面 AI 智能体",
+    desc: "免费开源的桌面 AI 工作助手，支持 macOS 和 Windows，基于 DeepSeek Harness 构建。内置免费模型，不用终端、不用 API Key、不用付费。Codex App 和 Claude Cowork 的开源替代。",
     brand: "爪印",
     "nav.feat": "功能",
     tag: "开源，下载即用",
@@ -109,7 +111,8 @@ export const I18N: Record<Lang, Dict> = {
     "mock.s3": "正在生成表格…",
     "mock.rd": "待核对",
     "def.d1": '<b>爪印</b>是一款<span class="o">免费、开源的桌面 AI agent</span>，支持 macOS 和 Windows。',
-    "def.d2": "Codex App 和 Claude Desktop（Cowork）的开源替代，为日常工作设计，不止是聊天或写代码的工具。",
+    "def.d2":
+      "基于 DeepSeek Harness 打包成一个完整产品，是 Codex App 和 Claude Desktop（Cowork）的开源替代，为日常工作设计，不止是聊天或写代码的工具。",
     "can.h": "看看它能做什么",
     "can.hint": "用大白话说一声，文件、网页、代码，直接出结果。",
     "t1.lab": "12 张发票，变成一张表",
@@ -131,9 +134,10 @@ export const I18N: Record<Lang, Dict> = {
     "t3.f2a": "",
     "t3.f2b": "缺空值检查，是次要问题。",
     "m.h": "免费模型，打开就能用",
+    "m.count": "6",
     "m.num": "个内置免费模型",
     "m.lead":
-      "<b>无需配置</b>：内置精选 OpenCode Free 免费模型和联网搜索，不用 API Key，也不用购买模型订阅。",
+      "<b>无需配置</b>：内置精选 OpenCode Free 免费模型和联网搜索，不用 API Key，也不用购买模型订阅；也可以在设置里接入自己的服务商。",
     "m.search": "搜索模型",
     "m.zen": "免费，含联网搜索",
     "m.free": "免费",

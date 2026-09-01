@@ -2,7 +2,7 @@
 
 Thanks for contributing to PawWork.
 
-PawWork is a desktop AI workstation for non-technical knowledge workers. When making changes, optimize for clarity, reversibility, and out-of-the-box usability.
+PawWork packages a DeepSeek Harness agent runtime into a desktop product for non-technical knowledge workers. That framing decides most trade-offs: when making changes, optimize for clarity, reversibility, and whether someone who has never opened a terminal can still succeed on first run.
 
 ## Before You Start
 
@@ -37,6 +37,19 @@ AI coding agents should use the same public contribution contract as human contr
 - Before changing code, identify the affected product layer and the smallest relevant verification path.
 - For visible UI changes, follow the verification and reporting steps in the [Verification](#verification) section.
 
+## Repository Layout
+
+PawWork is a DSH runtime, a native desktop shell, and a product layer on top. Knowing which layer you are in usually tells you which verification path applies.
+
+| Path | What lives there |
+|---|---|
+| `packages/desktop-electron/src/main` | The Electron main process: window chrome, menus, native pickers, updater, DSH sidecar lifecycle |
+| `packages/desktop-electron/resources/dsh` | DSH plugins PawWork owns: OpenCode Free model routes, web search, Automations, v1 migration, desktop host bridge |
+| `skills/` | Vendored Office skills (`.docx`, `.xlsx`, `.pptx`, PDF), run through a bundled `uv` Python toolchain |
+| `site/` | The pawwork.ai marketing site (Astro). Copy for both languages lives in `site/src/i18n.ts` |
+
+The agent runtime itself comes from pinned `@deepseek-ai/dsh-*` packages and is not vendored here.
+
 ## Development Setup
 
 PawWork uses pnpm and requires Node 24 in CI.
@@ -50,6 +63,17 @@ For local development:
 ```bash
 pnpm dev:desktop
 ```
+
+Use pnpm only. Installing with `bun` rewrites the pnpm dependency tree through `node_modules/.bun` and silently breaks the workspace.
+
+To build a local package for one platform:
+
+```bash
+pnpm --filter @pawwork/desktop package:mac
+pnpm --filter @pawwork/desktop package:win
+```
+
+Full cross-platform packaging and signing are CI's job. Build locally only when a problem can be reproduced or verified in a packaged app.
 
 ## Branches and Commits
 
@@ -67,7 +91,9 @@ pnpm lint
 pnpm --filter @pawwork/desktop test
 ```
 
-If your change affects the desktop app or UI, also do a quick manual check in the app and include screenshots or a short recording in the pull request.
+`pnpm --filter @pawwork/desktop test` runs both the Vitest suite and the Node test files under `resources/dsh`, so changes to the product-layer plugins are covered by the same command.
+
+If your change affects the desktop app or UI, also do a quick manual check in the running app and include screenshots or a short recording in the pull request. Do not update a snapshot only to make a test pass — confirm the new rendering is correct first.
 
 ## Pull Requests
 
