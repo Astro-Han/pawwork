@@ -31,8 +31,8 @@ function settingsHarness(value, descriptor) {
 	return { settings, writes };
 }
 
-function writtenModels(write) {
-	return write.ops.find((op) => op.path.at(-1) === 'models')?.value;
+function writtenModels(write, route = 'opencode') {
+	return write.ops.find((op) => op.path.at(-1) === 'models' && op.path.at(-2) === route)?.value;
 }
 
 test('isZeroCost accepts only fully zero-cost models', () => {
@@ -78,25 +78,51 @@ test('selectFreeAndServed returns only free AND non-deprecated models, sorted', 
 		'paid': { cost: { input: 2, output: 12 } },
 		'free-persisted': { cost: { input: 0, output: 0 }, reasoning: false },
 	});
-	assert.deepEqual(selectFreeAndServed(catalog), [
-		{ id: 'free-persisted', reasoningEfforts: false },
-		{
-			id: 'new-free',
-			name: 'New Free',
-			contextWindow: 190000,
-			maxTokens: 64000,
-			input: ['text', 'image'],
-			reasoningEfforts: { off: null, low: 'low', medium: 'medium', high: 'high' },
+	assert.deepEqual(selectFreeAndServed(catalog), {
+		routes: {
+			'opencode': [
+				{ id: 'free-persisted', reasoningEfforts: false },
+				{
+					id: 'new-free',
+					name: 'New Free',
+					contextWindow: 190000,
+					maxTokens: 64000,
+					input: ['text', 'image'],
+					reasoningEfforts: { off: null, low: 'low', medium: 'medium', high: 'high' },
+				},
+			],
+			'opencode-responses': [],
 		},
-	]);
+		unroutable: [],
+	});
+});
+
+// The gateway's endpoint per model is what `provider.npm` records: absent is
+// `/chat/completions`, `@ai-sdk/openai` is `/responses`, and the two vendor SDK
+// markers name endpoints no PawWork route speaks.
+test('selectFreeAndServed splits the free set by the protocol each model is served on', () => {
+	const catalog = catalogWith({
+		'plain-free': { cost: { input: 0, output: 0 } },
+		'responses-free': { cost: { input: 0, output: 0 }, provider: { npm: '@ai-sdk/openai' } },
+		'anthropic-free': { cost: { input: 0, output: 0 }, provider: { npm: '@ai-sdk/anthropic' } },
+		'google-free': { cost: { input: 0, output: 0 }, provider: { npm: '@ai-sdk/google' } },
+	});
+	assert.deepEqual(selectFreeAndServed(catalog), {
+		routes: {
+			'opencode': [{ id: 'plain-free' }],
+			'opencode-responses': [{ id: 'responses-free' }],
+		},
+		unroutable: ['anthropic-free', 'google-free'],
+	});
 });
 
 test('selectFreeAndServed tolerates missing opencode / models / malformed entries', () => {
-	assert.deepEqual(selectFreeAndServed({}), []);
-	assert.deepEqual(selectFreeAndServed({ opencode: {} }), []);
-	assert.deepEqual(selectFreeAndServed({ opencode: { models: { a: null } } }), []);
-	assert.deepEqual(selectFreeAndServed(null), []);
-	assert.deepEqual(selectFreeAndServed(catalogWith({ a: { cost: { input: 0 } } })), []);
+	const empty = { routes: { 'opencode': [], 'opencode-responses': [] }, unroutable: [] };
+	assert.deepEqual(selectFreeAndServed({}), empty);
+	assert.deepEqual(selectFreeAndServed({ opencode: {} }), empty);
+	assert.deepEqual(selectFreeAndServed({ opencode: { models: { a: null } } }), empty);
+	assert.deepEqual(selectFreeAndServed(null), empty);
+	assert.deepEqual(selectFreeAndServed(catalogWith({ a: { cost: { input: 0 } } })), empty);
 });
 
 test('waitForNamespace resolves with the registered value', async () => {
@@ -134,6 +160,117 @@ test('refresh writes free non-deprecated models with serviceable route wiring', 
 		{ op: 'set', path: ['providers', 'opencode', 'baseURL'], value: 'https://opencode.ai/zen/v1' },
 		{ op: 'set', path: ['providers', 'opencode', 'models'], value: [{ id: 'hy3-free' }] },
 	]);
+});
+
+test('refresh wires each protocol to its own route in one write', async () => {
+	const { settings, writes } = settingsHarness({
+		providers: { opencode: { models: [{ id: 'old' }] }, 'opencode-responses': { models: [{ id: 'old-resp' }] } },
+	});
+	const fetchImpl = fetchCatalog({
+		'plain-free': { cost: { input: 0, output: 0 } },
+		'responses-free': { cost: { input: 0, output: 0 }, provider: { npm: '@ai-sdk/openai' } },
+	});
+	const count = await refreshOpenCodeFreeModels({ settings, fetchImpl });
+	assert.equal(count, 2);
+	assert.equal(writes.length, 1);
+	assert.deepEqual(writes[0].ops, [
+		{ op: 'set', path: ['providers', 'opencode', 'api'], value: 'openai-completions' },
+		{ op: 'set', path: ['providers', 'opencode', 'baseURL'], value: 'https://opencode.ai/zen/v1' },
+		{ op: 'set', path: ['providers', 'opencode', 'models'], value: [{ id: 'plain-free' }] },
+		{ op: 'set', path: ['providers', 'opencode-responses', 'api'], value: 'openai-responses' },
+		{ op: 'set', path: ['providers', 'opencode-responses', 'baseURL'], value: 'https://opencode.ai/zen/v1' },
+		{ op: 'set', path: ['providers', 'opencode-responses', 'models'], value: [{ id: 'responses-free' }] },
+	]);
+});
+
+// `compat` describes one protocol's wire, and a switch another protocol does not
+// declare is refused, so a model that moves between routes must not carry it.
+test('refresh keeps configured metadata within its own route', async () => {
+	const { settings, writes } = settingsHarness({
+		providers: {
+			opencode: { models: [{ id: 'moved', compat: { chatTemplateKwargs: {} } }] },
+			'opencode-responses': { models: [] },
+		},
+	});
+	const fetchImpl = fetchCatalog({
+		'moved': { cost: { input: 0, output: 0 }, provider: { npm: '@ai-sdk/openai' } },
+	});
+	await refreshOpenCodeFreeModels({ settings, fetchImpl });
+	assert.deepEqual(writtenModels(writes[0], 'opencode-responses'), [{ id: 'moved' }]);
+	// The route the model left keeps its packaged list rather than being emptied.
+	assert.equal(writtenModels(writes[0], 'opencode'), undefined);
+});
+
+test('refresh leaves a route the live catalog has nothing for untouched', async () => {
+	const { settings, writes } = settingsHarness({
+		providers: {
+			opencode: { api: 'openai-completions', baseURL: 'https://opencode.ai/zen/v1', models: [{ id: 'plain-free' }] },
+			'opencode-responses': { models: [{ id: 'packaged-resp' }] },
+		},
+	});
+	const fetchImpl = fetchCatalog({ 'plain-free': { cost: { input: 0, output: 0 } } });
+	const count = await refreshOpenCodeFreeModels({ settings, fetchImpl });
+	assert.equal(count, 1);
+	assert.equal(writes.length, 0);
+});
+
+test('refresh reports free models whose protocol no route serves', async () => {
+	const warnings = [];
+	const { settings } = settingsHarness({ providers: { opencode: { models: [] } } });
+	const fetchImpl = fetchCatalog({
+		'plain-free': { cost: { input: 0, output: 0 } },
+		'anthropic-free': { cost: { input: 0, output: 0 }, provider: { npm: '@ai-sdk/anthropic' } },
+	});
+	await refreshOpenCodeFreeModels({ settings, fetchImpl, logger: { info() {}, warn(message) { warnings.push(message); } } });
+	assert.equal(warnings.length, 1);
+	assert.match(warnings[0], /anthropic-free/);
+});
+
+test('refresh moves a dropped default to a model on its own route first', async () => {
+	const saves = [];
+	const { settings } = settingsHarness({
+		providers: { opencode: { models: [{ id: 'plain-free' }] }, 'opencode-responses': { models: [{ id: 'retired' }] } },
+	});
+	const defaultModel = {
+		currentSelection: () => ({ provider: 'opencode-responses', model: 'retired' }),
+		async saveSelection(next) { saves.push(next); },
+	};
+	const fetchImpl = fetchCatalog({
+		'plain-free': { cost: { input: 0, output: 0 } },
+		'responses-free': { cost: { input: 0, output: 0 }, provider: { npm: '@ai-sdk/openai' } },
+	});
+	await refreshOpenCodeFreeModels({ settings, defaultModel, fetchImpl });
+	assert.deepEqual(saves, [{ provider: 'opencode-responses', model: 'responses-free' }]);
+});
+
+test('refresh moves a dropped default across routes when its own route has nothing left', async () => {
+	const saves = [];
+	const { settings } = settingsHarness({
+		providers: { opencode: { models: [] }, 'opencode-responses': { models: [] } },
+	});
+	const defaultModel = {
+		currentSelection: () => ({ provider: 'opencode-responses', model: 'retired' }),
+		async saveSelection(next) { saves.push(next); },
+	};
+	const fetchImpl = fetchCatalog({ 'plain-free': { cost: { input: 0, output: 0 } } });
+	await refreshOpenCodeFreeModels({ settings, defaultModel, fetchImpl });
+	assert.deepEqual(saves, [{ provider: 'opencode', model: 'plain-free' }]);
+});
+
+// A route the refresh left alone still serves its packaged list, so a default
+// pointing into it is not "dropped" and must not be moved.
+test('refresh keeps a default served by a route the live catalog did not touch', async () => {
+	const saves = [];
+	const { settings } = settingsHarness({
+		providers: { opencode: { models: [] }, 'opencode-responses': { models: [{ id: 'packaged-resp' }] } },
+	});
+	const defaultModel = {
+		currentSelection: () => ({ provider: 'opencode-responses', model: 'packaged-resp' }),
+		async saveSelection(next) { saves.push(next); },
+	};
+	const fetchImpl = fetchCatalog({ 'plain-free': { cost: { input: 0, output: 0 } } });
+	await refreshOpenCodeFreeModels({ settings, defaultModel, fetchImpl });
+	assert.deepEqual(saves, []);
 });
 
 test('refresh does not write an empty list when nothing is usable', async () => {
