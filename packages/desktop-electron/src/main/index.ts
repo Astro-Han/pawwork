@@ -33,7 +33,7 @@ import {
 } from "./dsh-product-home"
 import { launchDshSidecar } from "./dsh-sidecar"
 import { prepareDshToolsEnvironment } from "./dsh-tools"
-import { removeProfileBundle, unresolvedProfileBundle } from "./dsh-profile-repair"
+import { failingProfileBundle, removeProfileBundle } from "./dsh-profile-repair"
 import { migrateDshHome, resolveDshHome } from "./pawwork-home"
 import { initLogging } from "./logging"
 import { detectSystemMenuLocale, type MenuLocale } from "./menu-labels"
@@ -100,7 +100,15 @@ const productPreload = join(productResources.dsh, "product", "preload.cjs")
 // DSH states the cause and the fix on its own stderr before it exits, and the
 // window has no other copy of it: once DSH is gone, its stdio is gone with it.
 // Keeping the tail costs a few kilobytes.
-const DSH_OUTPUT_TAIL_CHARS = 4_000
+//
+// It has to be tens of kilobytes, not a few: Node prints a failed plugin import
+// as a chain of nested causes whose frames are all deep pnpm paths, so a single
+// one runs past 4 KB and several failing plugins push the sentence that names
+// them — the one fact the recovery path can act on — off the front of a short
+// tail. What the dialog shows is capped separately; nobody wants 40 KB of Node
+// stack in a message box.
+const DSH_OUTPUT_TAIL_CHARS = 40_000
+const DSH_OUTPUT_EXCERPT_CHARS = 4_000
 let dshOutputTail = ""
 // Set by launchDsh: the recovery path needs the profile directory, and the home
 // is only settled once the migration inside launchDsh has run.
@@ -381,8 +389,12 @@ async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed
     ? {
         title: state.reason === "startup" ? "爪印无法启动" : "爪印已停止",
         message: state.reason === "startup" ? "智能体运行时未能启动。" : "智能体运行时意外退出。",
-        pluginCause: (bundle: string) =>
-          `插件「${bundle}」没有安装完整，运行时因此起不来。移除它就能重新打开爪印，之后可以在设置里重新安装。`,
+        pluginCause: {
+          missing: (bundle: string) =>
+            `插件「${bundle}」没有安装完整，运行时因此起不来。移除它就能重新打开爪印，之后可以在设置里重新安装。`,
+          incompatible: (bundle: string) =>
+            `插件「${bundle}」与当前版本的爪印不兼容，运行时因此起不来。移除它就能重新打开爪印；等插件发布适配新版本的更新后，再到设置里装回来。`,
+        },
         removePlugin: "移除该插件并重试",
         removeFailed: (bundle: string) => `没能移除插件「${bundle}」，请查看日志。`,
         retry: "重试",
@@ -394,9 +406,14 @@ async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed
     : {
         title: state.reason === "startup" ? "PawWork Could Not Start" : "PawWork Stopped",
         message: state.reason === "startup" ? "The agent runtime did not start." : "The agent runtime stopped unexpectedly.",
-        pluginCause: (bundle: string) =>
-          `The plugin "${bundle}" is not fully installed, which stops the runtime from starting.`
-          + " Removing it lets PawWork open again; you can reinstall it from Settings afterwards.",
+        pluginCause: {
+          missing: (bundle: string) =>
+            `The plugin "${bundle}" is not fully installed, which stops the runtime from starting.`
+            + " Removing it lets PawWork open again; you can reinstall it from Settings afterwards.",
+          incompatible: (bundle: string) =>
+            `The plugin "${bundle}" is not compatible with this version of PawWork, which stops the runtime from starting.`
+            + " Removing it lets PawWork open again; you can install it again from Settings once the plugin ships an update.",
+        },
         removePlugin: "Remove Plugin and Retry",
         removeFailed: (bundle: string) => `Could not remove the plugin "${bundle}". See the log for details.`,
         retry: "Try Again",
@@ -410,12 +427,12 @@ async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed
   // The runtime's own stderr is a Node stack over DSH's internals; it belongs in
   // the log, not in front of someone who just wants their app back. Only the one
   // fact they can act on is lifted out of it.
-  const bundle = dshHome === undefined ? undefined : unresolvedProfileBundle(`${error}\n${dshOutputTail}`)
+  const failure = dshHome === undefined ? undefined : failingProfileBundle(`${error}\n${dshOutputTail}`)
   let note = ""
 
   for (;;) {
     const buttons = [
-      ...(bundle === undefined ? [] : [copy.removePlugin]),
+      ...(failure === undefined ? [] : [copy.removePlugin]),
       copy.retry,
       copy.showLog,
       copy.report,
@@ -430,7 +447,9 @@ async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed
       // sentence already summarizes.
       detail: [
         note,
-        ...(bundle === undefined ? [error, dshOutputTail.trim()] : [copy.pluginCause(bundle)]),
+        ...(failure === undefined
+          ? [error, dshOutputTail.slice(-DSH_OUTPUT_EXCERPT_CHARS).trim()]
+          : [copy.pluginCause[failure.cause](failure.bundle)]),
         `${copy.log}: ${logPath}`,
       ]
         .filter(Boolean)
@@ -443,12 +462,13 @@ async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed
     const result = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options)
     const chosen = buttons[result.response]
 
-    if (chosen === copy.removePlugin && bundle !== undefined && dshHome !== undefined) {
+    if (chosen === copy.removePlugin && failure !== undefined && dshHome !== undefined) {
+      const bundle = failure.bundle
       let removed: boolean
       try {
         removed = removeProfileBundle({ profileDir: join(dshHome, "profiles", "web"), bundle })
-      } catch (failure) {
-        logger.error("failed to remove unresolved profile bundle", failure)
+      } catch (removeFailure) {
+        logger.error("failed to remove failing profile bundle", removeFailure)
         note = copy.removeFailed(bundle)
         continue
       }
@@ -456,11 +476,11 @@ async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed
       // comes from somewhere we do not own, so restarting would hit the same
       // failure. Say so rather than reporting a repair that did not happen.
       if (!removed) {
-        logger.error("unresolved profile bundle was not declared in the profile", { bundle })
+        logger.error("failing profile bundle was not declared in the profile", { bundle, cause: failure.cause })
         note = copy.removeFailed(bundle)
         continue
       }
-      logger.log("removed unresolved profile bundle", { bundle })
+      logger.log("removed failing profile bundle", { bundle, cause: failure.cause })
       focusMainWindow(true)
       lifecycle.start()
       return
