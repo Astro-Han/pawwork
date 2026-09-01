@@ -177,6 +177,15 @@ describe("main window wiring", () => {
     expect(decodeURIComponent(startupUrl("dark"))).not.toContain("class=\"notice\"")
   })
 
+  // The notice lands in an attribute value as well as in text, so quotes have
+  // to be escaped or a notice could close the attribute and add its own.
+  test("escapes a notice into both the attribute and the text", () => {
+    const page = decodeURIComponent(startupUrl("dark", '"><img src=x onerror=alert(1)>'))
+
+    expect(page).toContain("aria-label=\"&quot;&gt;&lt;img src=x onerror=alert(1)&gt;\"")
+    expect(page).not.toContain("<img")
+  })
+
   // With no origin to belong to, nothing belongs to it — including the page DSH
   // was showing a moment before it died.
   test("denies every DSH-origin navigation once the runtime is gone", () => {

@@ -13,8 +13,17 @@ const root = dirname(fileURLToPath(import.meta.url))
 // disagrees with their OS. `scheme` is the last appearance the product
 // published; the media query stays as the answer for the very first launch,
 // when there is nothing remembered yet.
-const escapeHtml = (text: string) =>
-  text.replace(/[&<>]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[character] ?? character)
+// Covers the quote characters too: the result is interpolated into an attribute
+// value as well as into text.
+const HTML_ESCAPES: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+}
+
+const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (character) => HTML_ESCAPES[character] ?? character)
 
 const startupHtml = (scheme?: StartupColorScheme, notice?: string) => `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>PawWork</title><style>
 :root{--bg:#fff;--line:#e3e3e7;--accent:#fc5c14;--muted:#6b6b70}${scheme === undefined
