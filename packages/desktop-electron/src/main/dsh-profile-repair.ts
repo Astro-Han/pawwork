@@ -8,9 +8,41 @@ import { join } from "node:path"
 // only in-app action — retry — cannot change the outcome.
 const UNRESOLVED_BUNDLE = /cannot resolve profile bundle "([^"]+)"/
 
-/** The bundle DSH could not resolve, read from its own failure output. */
-export function unresolvedProfileBundle(output: string) {
-  return UNRESOLVED_BUNDLE.exec(output)?.[1]
+// The other way a single plugin takes the whole runtime down: the package is
+// installed, but it was built against an API this DSH no longer exports, so
+// importing it throws. cordis loads every entry with `Promise.allSettled` and
+// rethrows the failures, which rolls the whole configuration tree back — one
+// stale plugin is enough to leave the app unopenable. The loader names the
+// entry as `<id> (<name>)`; `name` is the package, and the package is what
+// `dsh.profile.bundles` holds, so the parenthesized half is the one to take.
+//
+// Only the `import` stage: the same failure surfaces again one level up as
+// `failed to apply loader entry include (cordis:include)`, and that wrapper is
+// the loader's own plumbing, not anything a profile could declare. The name
+// cannot hold a colon for the same reason — npm packages have none, and the
+// built-in plugins that do are never bundles.
+const FAILED_IMPORT_BUNDLE = /failed to import loader entry \S+ \(([^()\s:]+)\)/
+
+export type ProfileBundleFailure = {
+  bundle: string
+  /** `missing`: the package is not there. `incompatible`: it is, and it will not load. */
+  cause: "missing" | "incompatible"
+}
+
+/**
+ * The bundle that kept DSH from booting, read from its own failure output.
+ *
+ * An AggregateError lists every entry that failed; the first one is as good a
+ * place to start as any, and a restart re-attributes to whatever is left.
+ */
+export function failingProfileBundle(output: string): ProfileBundleFailure | undefined {
+  const missing = UNRESOLVED_BUNDLE.exec(output)?.[1]
+  if (missing !== undefined) return { bundle: missing, cause: "missing" }
+
+  const incompatible = FAILED_IMPORT_BUNDLE.exec(output)?.[1]
+  if (incompatible !== undefined) return { bundle: incompatible, cause: "incompatible" }
+
+  return undefined
 }
 
 type RemoveProfileBundleOptions = {
