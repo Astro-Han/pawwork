@@ -11,16 +11,12 @@ type ApplyUserShellPathOptions = {
   execFile?: ExecFileStub
   env?: NodeJS.ProcessEnv
   platform?: NodeJS.Platform
-  shell?: string
-  timeoutMs?: number
 }
 
-type ExecFileCallback = (error: NodeJS.ErrnoException | null, stdout: string, stderr: string) => void
-
-// One probe per environment per session: the login-shell PATH does not change
-// while the process runs, and re-spawning an interactive shell per call would
-// multiply the worst case this module adds to startup.
-const resolved = new WeakMap<NodeJS.ProcessEnv, Promise<boolean>>()
+// The only production caller kicks this off once at startup and awaits the
+// same promise, so a per-session cache would serve no one — and a cached
+// failure would permanently lock a hypothetical recovery caller out.
+// Re-probing is harmless; do not add one preemptively.
 
 // GUI launches hand the app launchd's minimal PATH, so user-installed CLIs
 // (`/opt/homebrew/bin`, …) are invisible to every child we spawn. Resolving the
@@ -30,27 +26,26 @@ const resolved = new WeakMap<NodeJS.ProcessEnv, Promise<boolean>>()
 export function applyUserShellPath(options: ApplyUserShellPathOptions = {}): Promise<boolean> {
   const env = options.env ?? process.env
   if ((options.platform ?? process.platform) !== "darwin") return Promise.resolve(false)
-  const cached = resolved.get(env)
-  if (cached) return cached
-  const attempt = probeUserPath(options).then((userPath) => {
+  return probeUserPath(options).then((userPath) => {
     if (!userPath) return false
     env.PATH = mergePath(env.PATH, userPath)
     return true
   })
-  resolved.set(env, attempt)
-  return attempt
 }
+
 // The login shell is the only authority for what the user actually has on
 // PATH: Homebrew never touches /etc/paths.d, so path_helper cannot see
 // `/opt/homebrew/bin` on a stock Apple Silicon machine. `-i` is required
-// because users commonly export PATH in `.zshrc`, not `.zprofile`.
+// because users commonly export PATH in `.zshrc`, not `.zprofile`. A slow rc
+// file is capped at 5s; past that we fall back to the inherited PATH.
+const PROBE_TIMEOUT_MS = 5_000
+
 async function probeUserPath({
   execFile: run = nodeExecFile as unknown as ExecFileStub,
-  shell = process.env.SHELL ?? "/bin/zsh",
-  timeoutMs = 5_000,
 }: ApplyUserShellPathOptions): Promise<string[] | undefined> {
+  const shell = process.env.SHELL ?? "/bin/zsh"
   const stdout = await new Promise<string>((resolve, reject) => {
-    run(shell, ["-lic", "echo $PATH"], { timeout: timeoutMs }, (error, output) => {
+    run(shell, ["-lic", "echo $PATH"], { timeout: PROBE_TIMEOUT_MS }, (error, output) => {
       if (error) reject(error)
       else resolve(String(output))
     })
