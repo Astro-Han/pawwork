@@ -330,9 +330,9 @@ describe("PawWork DSH client product layer", () => {
 
     expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout"])
     const overlay = registrations.filter((entry) => entry.options.name === "shell.overlay")
-    expect(overlay).toHaveLength(1)
-    expect(overlay[0].options.id).toBe("pawwork-window-chrome")
-    const tree = overlay[0].component(overlay[0].options.inject?.()) as {
+    expect(overlay.map((entry) => entry.options.id)).toEqual(["pawwork-window-chrome", "pawwork-v1-import"])
+    const chrome = overlay[0]
+    const tree = chrome.component(chrome.options.inject?.()) as {
       props: { children: Array<{ type: unknown; props: Record<string, unknown> }> }
     }
     const button = tree.props.children[1]
@@ -611,6 +611,68 @@ describe("PawWork DSH client product layer", () => {
     await new Promise((resolve) => setImmediate(resolve))
     expect(refresh).toHaveBeenCalledTimes(2)
     expect(timers).toHaveLength(0)
+  })
+
+  // The import overlay is the only thing that tells an upgrading user why their
+  // sessions are not there yet, so it is rendered through the real store the
+  // watcher publishes into rather than against a hand-made state.
+  async function renderImportOverlay(value: unknown) {
+    const timers: Array<() => void> = []
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
+      document: {
+        title: "DeepSeek Harness",
+        documentElement: { lang: "zh-CN" },
+        querySelector: () => null,
+        createElement: () => ({ dataset: {}, textContent: "" }),
+        head: { appendChild: () => {} },
+      },
+      setTimeout: (callback: () => void) => timers.push(callback),
+      clearTimeout: () => {},
+    })
+    const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]): unknown => {
+      const nextProps = { ...props, children }
+      return typeof type === "function" ? type(nextProps) : { type, props: nextProps }
+    }
+    const plugin = definition.factory((name) => {
+      if (name === "react") {
+        return {
+          createElement,
+          useEffect: (effect: () => void) => { effect() },
+          useRef: <T>(initial: T) => ({ current: initial }),
+          useState: (initial: unknown) => [initial, vi.fn()],
+        }
+      }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") {
+        return { Button: (props: Record<string, unknown>) => ({ type: "button", props }), IconPanelLeftOutline16: () => null }
+      }
+      throw new Error(`unexpected product client dependency: ${name}`)
+    })
+    const call = vi.fn(async () => ({ ok: true, value }))
+    let overlay: (() => unknown) | undefined
+    plugin.apply({
+      connection: { rpc: { call } },
+      effect: (fn: () => unknown) => fn(),
+      layout: { toggleSidebar: vi.fn() },
+      sessions: { list: { getSnapshot: () => ({ ids: [] }) }, refresh: vi.fn(async () => {}) },
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (options: { id?: string; inject?: () => unknown }, component: (props: unknown) => unknown) => {
+          if (options.id === "pawwork-v1-import") overlay = () => component(options.inject?.())
+        },
+      },
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+    return { call, tree: overlay!(), timers }
+  }
+
+  test("keeps a standing strip up while the old PawWork still holds the v1 database", async () => {
+    const { tree, timers } = await renderImportOverlay({ phase: "blocked" })
+
+    expect(textOf(tree)).toContain("请先退出旧版爪印，导入会自动继续。")
+    expect(visit(tree).some((element) => element.props.role === "status")).toBe(true)
+    // Blocked is not an error state: the watcher keeps its steady cadence so the
+    // strip disappears on its own once the user quits v1.
+    expect(timers).toHaveLength(1)
   })
 
   test("stops polling when the client plugin is disposed", async () => {

@@ -110,6 +110,75 @@ export function createDshSessionImporter(ctx, onPersisted = () => {}) {
   };
 }
 
+// `new DatabaseSync` already waits out a five-second busy timeout of its own, so
+// a fixed pause on top of that is about six seconds between attempts.
+const SNAPSHOT_RETRY_MS = 1_000;
+
+function delay(ms, signal) {
+  return new Promise((resolve, reject) => {
+    signal.throwIfAborted();
+    const abort = () => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', abort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', abort, { once: true });
+  });
+}
+
+// A running v1 holds its database open. SQLite reports that contention as one
+// of two result codes carrying different words, and both mean the same thing
+// here: the user still has v1 open, so wait. Extended result codes carry the
+// primary code in their low byte. Every other code, CANTOPEN included, names
+// something no amount of waiting will change, such as a snapshot directory this
+// machine cannot write.
+const SQLITE_BUSY = 5;
+const SQLITE_LOCKED = 6;
+
+export function isLockedV1Database(error) {
+  const primary = typeof error?.errcode === 'number' ? error.errcode & 0xff : undefined;
+  return primary === SQLITE_BUSY || primary === SQLITE_LOCKED;
+}
+
+// v1 keeps its database open for as long as it runs, and this import is the
+// first thing the upgraded app does. Failing here would silently drop every
+// session the user has; waiting costs nothing and finishes on its own once they
+// quit v1. The wait is only worth taking while the source is still there: a
+// source that disappeared will never unlock.
+export async function openSnapshotWhenAvailable({ sourceDatabase, signal, onBlocked, onResumed }) {
+  for (;;) {
+    signal.throwIfAborted();
+    try {
+      const snapshot = await migrationIo.openV1Snapshot({ home: process.env.DSH_HOME, sourceDatabase });
+      onResumed();
+      return snapshot;
+    } catch (error) {
+      if (!isLockedV1Database(error)) throw error;
+      if (migrationIo.discoverV1Database() !== sourceDatabase) throw error;
+      onBlocked();
+      await delay(SNAPSHOT_RETRY_MS, signal);
+    }
+  }
+}
+
+// A snapshot that cannot be taken belongs to no single v1 session, so it takes
+// a reserved key in the same category and is cleared the moment one opens.
+const SNAPSHOT_FAILURE_ID = 'snapshot';
+
+async function recordSnapshotFailure(message) {
+  const { ledger, save } = migrationIo.openMigrationLedger(process.env.DSH_HOME);
+  if (message === undefined) {
+    if (ledger.failures.sessions[SNAPSHOT_FAILURE_ID] === undefined) return;
+    delete ledger.failures.sessions[SNAPSHOT_FAILURE_ID];
+  } else {
+    ledger.failures.sessions[SNAPSHOT_FAILURE_ID] = { message };
+  }
+  await save();
+}
+
 export function apply(ctx) {
   const controller = new AbortController();
   let lastPersistedSessionId;
@@ -125,21 +194,36 @@ export function apply(ctx) {
         sourceDatabase = migrationIo.discoverV1Database();
         if (sourceDatabase) {
           try {
-            snapshot = await migrationIo.openV1Snapshot({ home: process.env.DSH_HOME, sourceDatabase });
+            snapshot = await openSnapshotWhenAvailable({
+              sourceDatabase,
+              signal: controller.signal,
+              onBlocked: () => { sessionPhase = 'blocked'; },
+              onResumed: () => { sessionPhase = 'running'; },
+            });
+            await recordSnapshotFailure(undefined);
           } catch (error) {
-            ctx.logger.warn(`v1 database snapshot failed: ${error instanceof Error ? error.message : String(error)}`);
+            sessionPhase = 'running';
+            if (controller.signal.aborted) throw error;
+            const message = error instanceof Error ? error.message : String(error);
+            // Both database-backed stages read this one snapshot, so a snapshot
+            // this machine cannot take is a single failure the user is told
+            // about once. The stages that read files instead still run.
+            ctx.logger.warn(`v1 database snapshot failed: ${message}`);
+            await recordSnapshotFailure(message);
           }
         }
-        const importSession = createDshSessionImporter(ctx, (id) => { lastPersistedSessionId = id; });
-        controller.signal.throwIfAborted();
-        await importer.runV1SessionImport({
-          home: process.env.DSH_HOME,
-          sourceDatabase,
-          snapshot: snapshot?.path,
-          importSession,
-          signal: controller.signal,
-        });
-        controller.signal.throwIfAborted();
+        if (!sourceDatabase || snapshot) {
+          const importSession = createDshSessionImporter(ctx, (id) => { lastPersistedSessionId = id; });
+          controller.signal.throwIfAborted();
+          await importer.runV1SessionImport({
+            home: process.env.DSH_HOME,
+            sourceDatabase,
+            snapshot: snapshot?.path,
+            importSession,
+            signal: controller.signal,
+          });
+          controller.signal.throwIfAborted();
+        }
       } catch (error) {
         if (controller.signal.aborted) return;
         ctx.logger.warn(`v1 session import failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -163,29 +247,31 @@ export function apply(ctx) {
         ctx.logger.warn(`v1 settings import failed: ${error instanceof Error ? error.message : String(error)}`);
       }
 
-      try {
-        controller.signal.throwIfAborted();
-        await automationImporter.runV1AutomationImport({
-          home: process.env.DSH_HOME,
-          sourceDatabase,
-          snapshot: snapshot?.path,
-          resolveModel: createAutomationModelResolver(ctx),
-          importDefinition: async (definition) => {
-            if (definition.context === 'continue'
-              && !await hasPersistedV1Session(ctx.sessionPersistence, definition.sourceSessionId)) {
-              throw new Error(`v1 automation source session is unavailable: ${definition.sourceSessionId}`);
-            }
-            return ctx.pawworkAutomations.store.importDefinition(definition);
-          },
-          importRun: async (run) => ctx.pawworkAutomations.store.importRun(run),
-          signal: controller.signal,
-        });
-        controller.signal.throwIfAborted();
-        ctx.pawworkAutomations.store.activateImportedDefinitions();
-        ctx.pawworkAutomations.scheduler.refresh();
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        ctx.logger.warn(`v1 automation import failed: ${error instanceof Error ? error.message : String(error)}`);
+      if (!sourceDatabase || snapshot) {
+        try {
+          controller.signal.throwIfAborted();
+          await automationImporter.runV1AutomationImport({
+            home: process.env.DSH_HOME,
+            sourceDatabase,
+            snapshot: snapshot?.path,
+            resolveModel: createAutomationModelResolver(ctx),
+            importDefinition: async (definition) => {
+              if (definition.context === 'continue'
+                && !await hasPersistedV1Session(ctx.sessionPersistence, definition.sourceSessionId)) {
+                throw new Error(`v1 automation source session is unavailable: ${definition.sourceSessionId}`);
+              }
+              return ctx.pawworkAutomations.store.importDefinition(definition);
+            },
+            importRun: async (run) => ctx.pawworkAutomations.store.importRun(run),
+            signal: controller.signal,
+          });
+          controller.signal.throwIfAborted();
+          ctx.pawworkAutomations.store.activateImportedDefinitions();
+          ctx.pawworkAutomations.scheduler.refresh();
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          ctx.logger.warn(`v1 automation import failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
     } finally {
       // Everything else in this task is caught per stage, so this is the one
