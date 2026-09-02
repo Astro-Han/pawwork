@@ -88,3 +88,9 @@ test("does nothing off macOS", async () => {
   expect(stub.calls).toHaveLength(0)
   expect(env.PATH).toBe("/bin")
 })
+test("splits a space-separated PATH from shells like fish", async () => {
+  const stub = stubExecFile("/opt/homebrew/bin /usr/bin /bin")
+  const env: NodeJS.ProcessEnv = { PATH: "/bin" }
+  await applyUserShellPath({ env, platform: "darwin", execFile: stub.execFile })
+  expect(env.PATH).toBe("/opt/homebrew/bin:/usr/bin:/bin")
+})

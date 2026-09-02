@@ -40,7 +40,6 @@ export function applyUserShellPath(options: ApplyUserShellPathOptions = {}): Pro
   resolved.set(env, attempt)
   return attempt
 }
-
 // The login shell is the only authority for what the user actually has on
 // PATH: Homebrew never touches /etc/paths.d, so path_helper cannot see
 // `/opt/homebrew/bin` on a stock Apple Silicon machine. `-i` is required
@@ -49,7 +48,7 @@ async function probeUserPath({
   execFile: run = nodeExecFile as unknown as ExecFileStub,
   shell = process.env.SHELL ?? "/bin/zsh",
   timeoutMs = 5_000,
-}: ApplyUserShellPathOptions): Promise<string | undefined> {
+}: ApplyUserShellPathOptions): Promise<string[] | undefined> {
   const stdout = await new Promise<string>((resolve, reject) => {
     run(shell, ["-lic", "echo $PATH"], { timeout: timeoutMs }, (error, output) => {
       if (error) reject(error)
@@ -58,13 +57,17 @@ async function probeUserPath({
   }).catch(() => undefined)
   // Interactive rc files may print anything before the `echo`; the PATH is the
   // last non-empty line because the echo runs last.
-  return stdout?.split(/\r?\n/).filter(Boolean).pop()
+  const lastLine = stdout?.split(/\r?\n/).filter(Boolean).pop()
+  if (!lastLine) return undefined
+  // POSIX shells always print a colon-joined PATH; fish prints its PATH list
+  // space-separated instead.
+  return lastLine.includes(":") ? lastLine.split(":") : lastLine.split(/\s+/)
 }
 
-function mergePath(existing: string | undefined, userPath: string): string {
+function mergePath(existing: string | undefined, userPath: string[]): string {
   const merged: string[] = []
   const seen = new Set<string>()
-  for (const entry of [...userPath.split(":"), ...(existing ?? "").split(":")]) {
+  for (const entry of [...userPath, ...(existing ?? "").split(":")]) {
     if (entry && !seen.has(entry)) {
       seen.add(entry)
       merged.push(entry)
