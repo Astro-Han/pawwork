@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "vitest"
 
 import {
   fetchJson,
+  fetchReleasesByTag,
   fetchText,
   normalizeTag,
   parseUpdaterFileUrls,
@@ -367,5 +368,43 @@ describe("parseUpdaterShaByUrl", () => {
     // The top-level `sha512:` after `path:` has no preceding `- url:` entry, so it
     // is not emitted as a phantom hash.
     expect(parseUpdaterShaByUrl(yml)).toEqual([{ name: "pawwork-win-x64-2026.6.1.exe", sha512: "HASH_WIN" }])
+  })
+})
+
+describe("fetchReleasesByTag", () => {
+  const release = (id: number, tag: string) => ({ id, tag_name: tag, draft: true, prerelease: false, assets: [] })
+  const fullPage = (offset: number) =>
+    Array.from({ length: 100 }, (_, index) => release(offset + index, `v2025.1.${offset + index}`))
+
+  test("walks every page and collects matches past the first one", async () => {
+    const requested: string[] = []
+    const pages = [fullPage(1), [...fullPage(200), release(7, "v2026.6.1")], [release(8, "v2026.6.1")]]
+    const matches = await fetchReleasesByTag("Astro-Han/pawwork", "v2026.6.1", async (url) => {
+      requested.push(url)
+      return pages[Number(new URL(url).searchParams.get("page")) - 1] ?? []
+    })
+
+    expect(matches.map((match) => match.id)).toEqual([7, 8])
+    // Page 3 is short, so the walk stops there rather than asking for a fourth.
+    expect(requested).toHaveLength(3)
+    expect(requested[0]).toContain("per_page=100&page=1")
+  })
+
+  test("stops at the first short page", async () => {
+    const requested: string[] = []
+    const matches = await fetchReleasesByTag("Astro-Han/pawwork", "v2026.6.1", async (url) => {
+      requested.push(url)
+      return [release(7, "v2026.6.1")]
+    })
+
+    expect(matches.map((match) => match.id)).toEqual([7])
+    expect(requested).toHaveLength(1)
+  })
+
+  // Silently truncating the walk is the failure it exists to prevent.
+  test("refuses to walk past the page cap instead of truncating", async () => {
+    await expect(fetchReleasesByTag("Astro-Han/pawwork", "v2026.6.1", async () => fullPage(1))).rejects.toThrow(
+      /Refusing to look v2026\.6\.1 up past \d+ pages/,
+    )
   })
 })

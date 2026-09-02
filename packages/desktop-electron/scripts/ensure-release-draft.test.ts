@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { decideDraftAction } from "./ensure-release-draft"
-import { type GithubRelease } from "./verify-release"
+import { fetchReleasesByTag, type GithubRelease } from "./verify-release"
 
 // Shaped like the /releases payload the guard filters by tag, trimmed to the
 // fields the decision reads.
@@ -14,6 +14,12 @@ const release = (id: number, tag: string, draft = true): GithubRelease & { id: n
   prerelease: false,
   assets: [],
 })
+
+// A full first page of unrelated releases, so the tag only appears on page two.
+const pagedReleases = (matchOnPage2: Array<GithubRelease & { id: number }>) => {
+  const first = Array.from({ length: 100 }, (_, index) => release(9000 + index, `v2025.1.${index + 1}`, false))
+  return async (url: string) => (new URL(url).searchParams.get("page") === "1" ? first : matchOnPage2)
+}
 
 describe("ensure-release-draft", () => {
   test("creates a draft when the tag has no release", () => {
@@ -50,6 +56,22 @@ describe("ensure-release-draft", () => {
     expect(decision.reason).toContain("380293071")
     expect(decision.reason).toContain("380293073")
     expect(decision.reason).toContain("keep the one holding the assets")
+  })
+
+  // A match missed because it sat past the first page reads as "no release for
+  // this tag", which is exactly the state that creates a duplicate.
+  test("reuses a release that only appears on a later page of the list", async () => {
+    const matches = await fetchReleasesByTag(
+      "Astro-Han/pawwork",
+      "v2026.6.1",
+      pagedReleases([release(7, "v2026.6.1")]),
+    )
+    expect(matches.map((match) => match.id)).toEqual([7])
+    expect(decideDraftAction("v2026.6.1", matches)).toEqual({
+      kind: "reuse",
+      published: false,
+      reason: expect.stringContaining("reusing draft 7"),
+    })
   })
 
   // The create is only half the guard: reading the list endpoint back too soon

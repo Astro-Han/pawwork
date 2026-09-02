@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 
-import { decidePublishAction, type ProvenanceMarker } from "./publish-when-complete"
+import { decidePublishAction, findRelease, type ProvenanceMarker } from "./publish-when-complete"
 import { releaseProvenanceAssetNames, type GithubRelease } from "./verify-release"
 
 const BUILD_SHA = "1111111111111111111111111111111111111111"
@@ -147,5 +147,33 @@ describe("decidePublishAction", () => {
     const decision = decide({ provenance: noHash })
     expect(decision.kind).toBe("fail")
     expect(decision.reason).toContain("no recorded hash")
+  })
+
+  describe("findRelease", () => {
+    // Same shape the list endpoint returns, with the id and upload_url the
+    // publisher needs; a full first page pushes the tag onto page two.
+    const apiRelease = (id: number, tag: string) => ({
+      id,
+      tag_name: tag,
+      draft: true,
+      prerelease: false,
+      assets: [],
+      upload_url: `https://uploads.example.com/releases/${id}/assets{?name,label}`,
+    })
+    const paged = (page2: ReturnType<typeof apiRelease>[]) => async (url: string) =>
+      new URL(url).searchParams.get("page") === "1"
+        ? Array.from({ length: 100 }, (_, index) => apiRelease(9000 + index, `v2025.1.${index + 1}`))
+        : page2
+
+    test("finds a release that only appears on a later page", async () => {
+      const release = await findRelease("Astro-Han/pawwork", "v2026.6.1", paged([apiRelease(7, "v2026.6.1")]))
+      expect(release.id).toBe(7)
+    })
+
+    test("refuses a tag split across duplicate releases", async () => {
+      await expect(
+        findRelease("Astro-Han/pawwork", "v2026.6.1", paged([apiRelease(7, "v2026.6.1"), apiRelease(8, "v2026.6.1")])),
+      ).rejects.toThrow(/duplicate drafts for tag v2026\.6\.1/)
+    })
   })
 })

@@ -198,8 +198,12 @@ async function ghFetch(url: string, init: RequestInit & { accept: string; conten
   }
 }
 
-async function findRelease(repo: string, tag: string): Promise<ApiRelease> {
-  const matches = await fetchReleasesByTag<ApiRelease>(repo, tag)
+export async function findRelease(
+  repo: string,
+  tag: string,
+  fetchPage?: (url: string) => Promise<ApiRelease[]>,
+): Promise<ApiRelease> {
+  const matches = await fetchReleasesByTag<ApiRelease>(repo, tag, fetchPage)
   // Picking one half of a split tag would surface much later as a missing
   // checksum, so name the split here instead.
   if (matches.length > 1) throw new Error(duplicateReleasesMessage(tag, matches))
