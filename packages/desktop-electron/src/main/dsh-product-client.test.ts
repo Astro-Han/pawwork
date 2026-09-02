@@ -212,7 +212,7 @@ describe("PawWork DSH client product layer", () => {
 
     expect(client).toContain('renderSlot("shell.overlay", {})')
     expect(client).toContain('ctx.reflect.provide("layout", layout)')
-    expect(client).toContain("border-right:1px solid var(--dsw-alias-border-l1)")
+    expect(client).toContain("border-right:.5px solid var(--dsw-alias-border-l3)")
     expect(serviceTypes).toMatch(/interface ILayout[\s\S]*toggleSidebar\(\): void;/)
     expect(collapsedWidth).toBeDefined()
     expect(css).toContain(`--pawwork-dsh-collapsed-sidebar-width: ${collapsedWidth}px;`)

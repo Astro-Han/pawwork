@@ -1106,7 +1106,7 @@ test('builds a valid DSH seed with an explicit legacy boundary and no native too
   const dshSessionUrl = pathToFileURL(dshPackageRequire.resolve('@deepseek-ai/dsh-session')).href;
   const { Session } = await import(dshSessionUrl);
   const validated = Session.create(imported.id, imported.seed);
-  assert.equal(validated.events.at(-1).type, 'session/end-seed');
+  assert.equal(validated.snapshotEvents().at(-1).type, 'session/end-seed');
   const messages = validated.deriveMessages();
   assert.equal(messages.length, 2);
   assert.deepEqual(messages[0].content, [

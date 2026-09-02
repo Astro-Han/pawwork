@@ -367,7 +367,7 @@ test('the DSH executor cancels an already attached continue agent', async () => 
   let cancellations = 0;
   const agent = {
     session: {
-      events: [
+      snapshotEvents: () => [
         { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'done' }] } } },
         { type: 'turn/end', data: { reason: { kind: 'completed' } } },
       ],
@@ -417,7 +417,7 @@ test('the DSH executor retries when maintenance admission races with new user wo
   let idleCalls = 0;
   let maintenanceCalls = 0;
   const agent = {
-    session: { events },
+    session: { snapshotEvents: () => events },
     followup() {
       events.push({ type: 'turn/start', data: { turn: 6 } });
       events.push({ type: 'assistant/message', data: { turn: 6, message: { content: [{ type: 'text', text: 'automation result' }] } } });
@@ -465,7 +465,7 @@ test('the DSH executor keeps a continue result inside its single turn', async ()
   let idleCalls = 0;
   let inMaintenance = false;
   const agent = {
-    session: { events },
+    session: { snapshotEvents: () => events },
     followup() {
       assert.equal(inMaintenance, true);
       events.push({ type: 'turn/start', data: { turn: 5 } });
@@ -513,7 +513,7 @@ test('the DSH executor does not follow up when agent creation or resume aborts a
     let resolveAgent;
     let followups = 0;
     const agent = {
-      session: { events: [] },
+      session: { snapshotEvents: () => [] },
       followup() { followups += 1; },
       whenIdle: async () => {},
       cancel() {},
