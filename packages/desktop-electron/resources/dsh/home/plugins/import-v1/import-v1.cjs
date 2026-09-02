@@ -331,9 +331,10 @@ async function runV1SessionImport({
   if (typeof importSession !== 'function') throw new Error('v1 importSession adapter is required');
   const { ledger, save } = openMigrationLedger(home);
   guardV1DatabaseIdentity(ledger, sourceDatabase);
+  let importedCount = 0;
   if (!sourceDatabase) {
     await save();
-    return;
+    return importedCount;
   }
 
   if (!snapshot) throw new Error('v1 session import requires a database snapshot');
@@ -350,8 +351,12 @@ async function runV1SessionImport({
       const workspaceOutcome = await importSession(imported);
       signal?.throwIfAborted();
       if (!['attached', 'unavailable'].includes(workspaceOutcome)) throw new Error(`invalid workspace outcome: ${workspaceOutcome}`);
-      if (workspaceOutcome === 'attached') delete ledger.failures.sessions[sourceSession.id];
-      else ledger.failures.sessions[sourceSession.id] = { message: `v1 workspace is unavailable: ${imported.meta.cwd}` };
+      if (workspaceOutcome === 'attached') {
+        delete ledger.failures.sessions[sourceSession.id];
+        importedCount += 1;
+      } else {
+        ledger.failures.sessions[sourceSession.id] = { message: `v1 workspace is unavailable: ${imported.meta.cwd}` };
+      }
     } catch (error) {
       signal?.throwIfAborted();
       const message = error instanceof Error ? error.message : String(error);
@@ -360,6 +365,7 @@ async function runV1SessionImport({
     await save();
   }
   await save();
+  return importedCount;
 }
 
 module.exports = {

@@ -142,9 +142,10 @@ async function runV1SettingsImport({
     throw new Error(`v1 settings source changed from ${ledger.sourceAppData} to ${sourceAppData}`);
   }
   if (sourceAppData) ledger.sourceAppData = sourceAppData;
+  let importedCount = 0;
   if (!sourceAppData) {
     await save();
-    return;
+    return importedCount;
   }
 
   const preferences = readV1Preferences(sourceAppData);
@@ -167,6 +168,7 @@ async function runV1SettingsImport({
         ledger.failures.settings[setting.id] = { message: `v1 setting is unsupported: ${setting.id}` };
       } else {
         delete ledger.failures.settings[setting.id];
+        if (outcome === 'imported') importedCount += 1;
       }
     } catch (error) {
       signal?.throwIfAborted();
@@ -177,6 +179,7 @@ async function runV1SettingsImport({
   }
 
   await save();
+  return importedCount;
 }
 
 module.exports = {

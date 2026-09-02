@@ -182,6 +182,23 @@ html body :is(button, [role="button"], [role="treeitem"], [role="tab"], [role="m
 .pawwork-market-actions { display: flex; flex-shrink: 0; gap: 8px; white-space: nowrap; }
 .pawwork-market-action { align-self: flex-start; }
 .pawwork-market-error { color: var(--dsw-alias-state-error-primary); font-size: 12px; line-height: 19px; }
+/* The v1 import runs before the user has done anything, so what it has to say
+   sits over the shell rather than inside a view they may never open. Only the
+   strip itself takes pointer events; the rest of the overlay row stays
+   transparent. */
+.pawwork-import-feedback {
+  bottom: 16px; display: flex; flex-direction: column; gap: 8px; left: 50%;
+  max-width: min(560px, calc(100vw - 32px)); pointer-events: none; position: fixed;
+  transform: translateX(-50%); z-index: 20;
+}
+.pawwork-import-feedback > * {
+  background: var(--dsw-alias-bg-module-platform); border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12); color: var(--dsw-alias-label-primary);
+  display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; pointer-events: auto;
+}
+.pawwork-import-feedback p { font-size: 12px; line-height: 19px; margin: 0; }
+.pawwork-import-detail { color: var(--dsw-alias-label-tertiary); overflow-wrap: anywhere; }
+.pawwork-import-dismiss { align-self: flex-end; }
 /* The rc.8 locale registry throws on a duplicate namespace and offers no override point, so DSH's
    own headline and preview badge are replaced visually, anchored on data-slot rather than on class
    names that carry a per-version hash. Zeroing font-size alone leaves a 32px line box that lifts
@@ -387,8 +404,59 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     // public snapshot.
     const IMPORT_POLL_INTERVAL_MS = 1_000
     const IMPORT_POLL_MAX_RETRY_MS = 30_000
+    const IMPORT_PHASES = ["running", "blocked", "done"]
 
-    function watchV1Import({ connection, sessions }) {
+    // Two things the import has to say out loud: that it is waiting on the old
+    // app, and what it ended up doing. The watcher below already owns the poll,
+    // so it publishes here and the overlay only renders.
+    function createImportFeedback() {
+      let state = { blocked: false, notice: null }
+      const listeners = new Set()
+      const publish = (next) => {
+        if (next.blocked === state.blocked && next.notice === state.notice) return
+        state = next
+        for (const listener of listeners) listener(state)
+      }
+      return {
+        get: () => state,
+        subscribe(listener) {
+          listeners.add(listener)
+          return () => { listeners.delete(listener) }
+        },
+        setBlocked: (blocked) => publish({ ...state, blocked }),
+        setNotice: (notice) => publish({ ...state, notice }),
+        dismiss: () => publish({ ...state, notice: null }),
+      }
+    }
+
+    function V1ImportNotice({ feedback }) {
+      const [state, setState] = useState(feedback.get())
+      useEffect(() => feedback.subscribe(setState), [feedback])
+      const notice = state.notice
+      if (!state.blocked && !notice) return null
+      return h("div", { className: "pawwork-import-feedback" },
+        state.blocked
+          ? h("div", { role: "status" }, h("p", null,
+            text("请先退出旧版爪印，导入会自动继续。", "Quit the older PawWork; the import continues on its own.")))
+          : null,
+        notice
+          ? h("div", { role: notice.failed > 0 ? "alert" : "status" },
+            h("p", null, notice.failed > 0
+              ? text(`已从旧版爪印导入 ${notice.imported} 项，${notice.failed} 项没能导入。`,
+                `Imported ${notice.imported} items from the older PawWork. ${notice.failed} could not be imported.`)
+              : text(`已从旧版爪印导入 ${notice.imported} 项。`,
+                `Imported ${notice.imported} items from the older PawWork.`)),
+            notice.reasons?.length
+              ? h("p", { className: "pawwork-import-detail" }, notice.reasons.join(" / "))
+              : null,
+            h("p", { className: "pawwork-import-detail" },
+              text(`详细记录：${notice.ledgerPath}`, `Full record: ${notice.ledgerPath}`)),
+            h(Button, { className: "pawwork-import-dismiss", onClick: () => feedback.dismiss(), size: "sm" },
+              text("知道了", "Got it")))
+          : null)
+    }
+
+    function watchV1Import({ connection, sessions }, feedback) {
       let retryDelay = IMPORT_POLL_INTERVAL_MS
       let timer = null
       let stopped = false
@@ -417,16 +485,18 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
         if (stopped) return
         const value = result?.ok === true ? result.value : undefined
         if (value === null || typeof value !== "object"
-          || (value.phase !== "running" && value.phase !== "done")
+          || !IMPORT_PHASES.includes(value.phase)
           || (value.sessionId !== undefined && typeof value.sessionId !== "string")) {
           retry()
           return
         }
-        if (value.phase === "running") {
+        feedback.setBlocked(value.phase === "blocked")
+        if (value.phase !== "done") {
           retryDelay = IMPORT_POLL_INTERVAL_MS
           schedule(IMPORT_POLL_INTERVAL_MS)
           return
         }
+        if (value.notice) feedback.setNotice(value.notice)
         // refreshList reuses a still in-flight fetch, which at this point may be one that started
         // before the import finished, so the first read only settles it and the second is the one
         // guaranteed to begin after the completion barrier.
@@ -445,8 +515,11 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     }
 
     function apply(ctx) {
+      const feedback = createImportFeedback()
       ctx.slots.inject("shell.overlay", () => ctx.slots.register({ name: "shell.overlay", id: "pawwork-window-chrome", order: -100 },
         () => WindowChrome({ toggleSidebar: () => ctx.layout.toggleSidebar() })))
+      ctx.slots.inject("shell.overlay", () => ctx.slots.register({ name: "shell.overlay", id: "pawwork-v1-import", order: -90 },
+        () => V1ImportNotice({ feedback })))
       ctx.slots.inject("sidebar.brand.mark", () => ctx.slots.register({ name: "sidebar.brand.mark", priority: -100 }, PawReadyMark))
       ctx.slots.inject("sidebar.brand.name", () => ctx.slots.register({ name: "sidebar.brand.name", priority: -100 }, BrandName))
       ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawGloveMark))
@@ -456,7 +529,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
         label: () => text("社区市场", "Community market"),
       }, CommunityMarketTab))
       ctx.slots.inject("conversation.input.left", () => ctx.slots.register({ name: "conversation.input.left", id: "pawwork-files", order: -100 }, FileAction))
-      ctx.effect(() => watchV1Import(ctx))
+      ctx.effect(() => watchV1Import(ctx, feedback))
     }
 
     return { inject, apply }

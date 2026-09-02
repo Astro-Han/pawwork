@@ -33,6 +33,29 @@ function temporaryDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-import-v1-'));
 }
 
+// The plugin reads both homes from the environment, so a test that drives it
+// without a v1 fixture has to say there is none: left unset, the run finds
+// whatever v1 data the machine running the test happens to hold.
+function withoutV1Data() {
+  const original = {
+    HOME: process.env.HOME,
+    APPDATA: process.env.APPDATA,
+    DSH_HOME: process.env.DSH_HOME,
+    PAWWORK_V1_DATABASE: process.env.PAWWORK_V1_DATABASE,
+  };
+  const root = temporaryDirectory();
+  process.env.HOME = path.join(root, 'user');
+  process.env.APPDATA = path.join(root, 'roaming');
+  process.env.DSH_HOME = path.join(root, 'v2-home');
+  delete process.env.PAWWORK_V1_DATABASE;
+  return () => {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+}
+
 function fileDigest(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
@@ -96,6 +119,7 @@ test('retires each persisted v1 session through the paired live lifecycle', asyn
       backgroundFinished();
     }
   };
+  const restoreEnvironment = withoutV1Data();
   try {
     const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?status=${Date.now()}`;
     const { apply } = await import(pluginUrl);
@@ -162,17 +186,19 @@ test('retires each persisted v1 session through the paired live lifecycle', asyn
     settingsModule.createDshSettingImporter = originalCreateSettingImporter;
     settingsModule.runV1SettingsImport = originalSettingsRun;
     automationsModule.runV1AutomationImport = originalAutomationsRun;
+    restoreEnvironment();
   }
 });
 
-// The sidebar is the only status consumer, so its barrier belongs to the
-// session stage: once the cold sessions are flushed, later settings and
-// Automation work must not delay the authoritative list refresh.
-test('reports the session import settled while later migration stages continue', async () => {
+// "done" is the one reply the client acts on and then stops polling, so it may
+// not appear before the result it has to carry: every stage, the summary
+// included, is behind that barrier.
+test('reports done only once every stage has run and the result is recorded', async () => {
   const importerModule = require('./import-v1.cjs');
   const settingsModule = require('./import-v1-settings.cjs');
   const automationsModule = require('./import-v1-automations.cjs');
   const originalRun = importerModule.runV1SessionImport;
+  const originalAttach = importerModule.attachDshWorkspace;
   const originalSettingsRun = settingsModule.runV1SettingsImport;
   const originalCreateSettingImporter = settingsModule.createDshSettingImporter;
   const originalAutomationsRun = automationsModule.runV1AutomationImport;
@@ -197,6 +223,7 @@ test('reports the session import settled while later migration stages continue',
   let releaseAutomations;
   const automationsGate = new Promise((resolve) => { releaseAutomations = resolve; });
   let sessionFlushed = false;
+  importerModule.attachDshWorkspace = async () => 'attached';
   importerModule.runV1SessionImport = async ({ importSession }) => {
     await sessionsGate;
     await importSession({
@@ -206,18 +233,18 @@ test('reports the session import settled while later migration stages continue',
       seed: [{ type: 'pawwork-v1/session', data: { sourceSessionId: 'session' } }],
       title: 'Imported session',
     });
-    return { status: 'complete' };
+    return 1;
   };
   settingsModule.createDshSettingImporter = () => async () => 'skipped';
   settingsModule.runV1SettingsImport = async () => {
     settingsStarted();
     await settingsGate;
-    return { status: 'complete' };
+    return 1;
   };
   automationsModule.runV1AutomationImport = async () => {
     automationsStarted();
     await automationsGate;
-    return { status: 'complete' };
+    return 0;
   };
   let registration;
   let status;
@@ -264,22 +291,32 @@ test('reports the session import settled while later migration stages continue',
     assert.equal(sessionFlushed, true);
     assert.deepEqual(await status('status', {}), {
       ok: true,
-      value: { phase: 'done', sessionId: 'pawwork-v1-session' },
+      value: { phase: 'running', sessionId: 'pawwork-v1-session' },
     });
 
     releaseSettings();
     await automationsStage;
     assert.deepEqual(await status('status', {}), {
       ok: true,
-      value: { phase: 'done', sessionId: 'pawwork-v1-session' },
+      value: { phase: 'running', sessionId: 'pawwork-v1-session' },
     });
+
     releaseAutomations();
+    const done = await waitForPhase(status, 'done');
+    assert.equal(done.sessionId, 'pawwork-v1-session');
+    assert.deepEqual(done.notice, {
+      imported: 2,
+      failed: 0,
+      reasons: [],
+      ledgerPath: path.join(home, 'import-v1', 'ledger.json'),
+    });
     await stopPlugin();
   } finally {
     releaseSessions?.();
     releaseSettings?.();
     releaseAutomations?.();
     importerModule.runV1SessionImport = originalRun;
+    importerModule.attachDshWorkspace = originalAttach;
     settingsModule.createDshSettingImporter = originalCreateSettingImporter;
     settingsModule.runV1SettingsImport = originalSettingsRun;
     automationsModule.runV1AutomationImport = originalAutomationsRun;
@@ -322,8 +359,7 @@ test('settles the session status when source discovery fails before import', asy
       workspaceRegistry: {},
     });
 
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual(await status('status', {}), { ok: true, value: { phase: 'done' } });
+    assert.deepEqual(await waitForPhase(status, 'done'), { phase: 'done' });
     await stopPlugin();
   } finally {
     migrationIoModule.discoverV1Database = originalDiscover;
@@ -389,6 +425,7 @@ test('saves a session\'s images once and leaves an already-imported one alone', 
   settingsModule.createDshSettingImporter = () => async () => 'skipped';
   settingsModule.runV1SettingsImport = async () => ({ status: 'complete' });
   automationsModule.runV1AutomationImport = async () => ({ status: 'complete' });
+  const restoreEnvironment = withoutV1Data();
 
   try {
     const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?images=${Date.now()}`;
@@ -432,6 +469,7 @@ test('saves a session\'s images once and leaves an already-imported one alone', 
     settingsModule.createDshSettingImporter = originals.settingImporter;
     settingsModule.runV1SettingsImport = originals.settingsRun;
     automationsModule.runV1AutomationImport = originals.automationsRun;
+    restoreEnvironment();
   }
 
   assert.equal(saved.length, 1);
@@ -617,6 +655,7 @@ test('plugin disposal aborts and awaits the background migration', async () => {
   };
   settingsModule.runV1SettingsImport = async () => { settingsCalls += 1; };
   automationsModule.runV1AutomationImport = async () => { automationCalls += 1; };
+  const restoreEnvironment = withoutV1Data();
   try {
     const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?dispose=${Date.now()}`;
     const { apply } = await import(pluginUrl);
@@ -640,6 +679,7 @@ test('plugin disposal aborts and awaits the background migration', async () => {
     importerModule.runV1SessionImport = originalRun;
     settingsModule.runV1SettingsImport = originalSettingsRun;
     automationsModule.runV1AutomationImport = originalAutomationsRun;
+    restoreEnvironment();
   }
 });
 
@@ -1480,4 +1520,303 @@ test('preserves source identity and failures written by another migration stage'
   assert.equal(ledger.sourceAppData, '/tmp/v1-app-data');
   assert.deepEqual(ledger.failures.settings, { theme: { message: 'settings store unavailable' } });
   assert.deepEqual(ledger.failures.sessions, {});
+});
+
+// --- upgrade feedback -------------------------------------------------------
+// v1 holds its database open while it runs, so the first launch after an
+// upgrade can find the source locked. These cover what the user is told about
+// it, which the stage tests above cannot see.
+
+function lockedV1DatabaseError() {
+  const error = new Error('v1 database is in use');
+  error.errcode = 5;
+  return error;
+}
+
+function applyImportPlugin(apply, overrides = {}) {
+  let status;
+  let stopPlugin;
+  apply({
+    connection: { rpc: { handle: (_channel, handler) => { status = handler; return async () => {}; } } },
+    effect: (setup) => { stopPlugin = setup(); },
+    llm: { listProviders: () => [], listModels: async () => [] },
+    logger: { warn: () => {} },
+    agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }) },
+    pawworkAutomations: { scheduler: { refresh: () => {} }, store: { activateImportedDefinitions: () => {} } },
+    sessionPersistence: { inspect: async (id) => { throw new Error(`session "${id}" not found`); } },
+    sessionTitle: { rename: () => {} },
+    sessions: { announce: () => {}, enter: () => () => {}, flush: async () => {}, prepare: () => ({}) },
+    attachments: { saveImage: async () => {} },
+    workspaceRegistry: {},
+    ...overrides,
+  });
+  return { status, stopPlugin };
+}
+
+async function waitForPhase(status, phase, deadlineMs = 15_000) {
+  const started = Date.now();
+  for (;;) {
+    const current = (await status('status', {})).value;
+    if (current.phase === phase) return current;
+    if (Date.now() - started > deadlineMs) {
+      throw new Error(`v1 import stayed in phase ${current.phase} instead of reaching ${phase}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+function stubbedImportRun({ sessions, settings, automations }) {
+  const importerModule = require('./import-v1.cjs');
+  const settingsModule = require('./import-v1-settings.cjs');
+  const automationsModule = require('./import-v1-automations.cjs');
+  const originals = {
+    run: importerModule.runV1SessionImport,
+    settingsRun: settingsModule.runV1SettingsImport,
+    createSettingImporter: settingsModule.createDshSettingImporter,
+    automationsRun: automationsModule.runV1AutomationImport,
+  };
+  importerModule.runV1SessionImport = async () => sessions;
+  settingsModule.createDshSettingImporter = () => async () => 'skipped';
+  settingsModule.runV1SettingsImport = async () => settings;
+  automationsModule.runV1AutomationImport = async () => automations;
+  return () => {
+    importerModule.runV1SessionImport = originals.run;
+    settingsModule.runV1SettingsImport = originals.settingsRun;
+    settingsModule.createDshSettingImporter = originals.createSettingImporter;
+    automationsModule.runV1AutomationImport = originals.automationsRun;
+  };
+}
+
+function withV1Environment(home, sourceDatabase) {
+  const original = { home: process.env.DSH_HOME, source: process.env.PAWWORK_V1_DATABASE };
+  process.env.DSH_HOME = home;
+  process.env.PAWWORK_V1_DATABASE = sourceDatabase;
+  return () => {
+    if (original.home === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = original.home;
+    if (original.source === undefined) delete process.env.PAWWORK_V1_DATABASE;
+    else process.env.PAWWORK_V1_DATABASE = original.source;
+  };
+}
+
+test('reports a locked v1 database as blocked and completes once it is released', { timeout: 20_000 }, async () => {
+  const migrationIoModule = require('./migration-io.cjs');
+  const originalOpen = migrationIoModule.openV1Snapshot;
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  createV1Fixture(source);
+  const restoreEnvironment = withV1Environment(home, source);
+  const restoreStages = stubbedImportRun({ sessions: 1, settings: 0, automations: 0 });
+  let locked = true;
+  migrationIoModule.openV1Snapshot = async (options) => {
+    if (locked) throw lockedV1DatabaseError();
+    return originalOpen(options);
+  };
+  let stopPlugin;
+
+  try {
+    const { apply } = await import(`${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?blocked=${Date.now()}`);
+    const plugin = applyImportPlugin(apply);
+    stopPlugin = plugin.stopPlugin;
+
+    await waitForPhase(plugin.status, 'blocked');
+    locked = false;
+    const done = await waitForPhase(plugin.status, 'done');
+    assert.equal(done.phase, 'done');
+    assert.equal(done.notice.imported, 1);
+    await stopPlugin();
+    stopPlugin = undefined;
+  } finally {
+    migrationIoModule.openV1Snapshot = originalOpen;
+    restoreStages();
+    restoreEnvironment();
+    if (stopPlugin) await stopPlugin().catch(() => {});
+  }
+});
+
+test('a disposal during the locked-database wait stops the import at once', { timeout: 20_000 }, async () => {
+  const migrationIoModule = require('./migration-io.cjs');
+  const originalOpen = migrationIoModule.openV1Snapshot;
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  createV1Fixture(source);
+  const restoreEnvironment = withV1Environment(home, source);
+  const restoreStages = stubbedImportRun({ sessions: 0, settings: 0, automations: 0 });
+  migrationIoModule.openV1Snapshot = async () => { throw lockedV1DatabaseError(); };
+
+  try {
+    const { apply } = await import(`${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?abort=${Date.now()}`);
+    const plugin = applyImportPlugin(apply);
+    await waitForPhase(plugin.status, 'blocked');
+
+    const started = Date.now();
+    await plugin.stopPlugin();
+    // The retry sleeps for a second before its next attempt; an abort that only
+    // took effect between attempts would hold shutdown for at least that long.
+    assert.ok(Date.now() - started < 500, `disposal waited ${Date.now() - started}ms for the retry`);
+    assert.equal(fs.existsSync(path.join(home, 'import-v1', 'ledger.json')), false);
+  } finally {
+    migrationIoModule.openV1Snapshot = originalOpen;
+    restoreStages();
+    restoreEnvironment();
+  }
+});
+
+test('waits only for a v1 database another process holds', async () => {
+  const { isLockedV1Database } = await import(
+    `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?locked=${Date.now()}`);
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  createV1Fixture(source);
+  const holder = new DatabaseSync(source);
+  holder.exec('PRAGMA locking_mode=EXCLUSIVE');
+  holder.exec('BEGIN EXCLUSIVE');
+  holder.exec("INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated)"
+    + " VALUES ('ses_open', 'project_1', 'open', '/Users/alice/work', 'Open', '1.2.3', 9000, 9000)");
+
+  try {
+    await assert.rejects(
+      () => createDatabaseSnapshot(source, path.join(root, 'snapshot.db')),
+      (error) => error.errcode === 5 && isLockedV1Database(error),
+    );
+  } finally {
+    holder.close();
+  }
+
+  // A source that is not there will never unlock, so CANTOPEN must not be waited
+  // out.
+  await assert.rejects(
+    () => createDatabaseSnapshot(path.join(root, 'absent.db'), path.join(root, 'snapshot.db')),
+    (error) => error.errcode === 14 && !isLockedV1Database(error),
+  );
+});
+
+test('a snapshot failure that is not a lock is reported once and lets the other stages finish', async () => {
+  const migrationIoModule = require('./migration-io.cjs');
+  const originalOpen = migrationIoModule.openV1Snapshot;
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  createV1Fixture(source);
+  const restoreEnvironment = withV1Environment(home, source);
+  const restoreStages = stubbedImportRun({ sessions: 5, settings: 1, automations: 4 });
+  migrationIoModule.openV1Snapshot = async () => { throw new Error('snapshot directory is read-only'); };
+  const warnings = [];
+  let stopPlugin;
+
+  try {
+    const { apply } = await import(`${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?cantopen=${Date.now()}`);
+    const plugin = applyImportPlugin(apply, { logger: { warn: (message) => warnings.push(message) } });
+    stopPlugin = plugin.stopPlugin;
+
+    const done = await waitForPhase(plugin.status, 'done');
+    // Only the settings stage reads files rather than the database, so its one
+    // import plus the single snapshot failure is the whole result.
+    assert.deepEqual(done.notice, {
+      imported: 1,
+      failed: 1,
+      reasons: ['snapshot directory is read-only'],
+      ledgerPath: path.join(home, 'import-v1', 'ledger.json'),
+    });
+    assert.deepEqual(warnings, ['v1 database snapshot failed: snapshot directory is read-only']);
+    const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
+    assert.deepEqual(ledger.failures.sessions.snapshot, { message: 'snapshot directory is read-only' });
+
+    await stopPlugin();
+    stopPlugin = undefined;
+  } finally {
+    migrationIoModule.openV1Snapshot = originalOpen;
+    restoreStages();
+    restoreEnvironment();
+    if (stopPlugin) await stopPlugin().catch(() => {});
+  }
+});
+
+test('writes the run result to the ledger and reports it once', async () => {
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  const ledgerFile = path.join(home, 'import-v1', 'ledger.json');
+  createV1Fixture(source);
+  fs.mkdirSync(path.dirname(ledgerFile), { recursive: true });
+  fs.writeFileSync(ledgerFile, JSON.stringify({
+    schema: 1,
+    failures: { sessions: { ses_broken: { message: 'invalid JSON in message m1' } } },
+  }));
+  const restoreEnvironment = withV1Environment(home, source);
+  const restoreStages = stubbedImportRun({ sessions: 2, settings: 1, automations: 0 });
+  let stopPlugin;
+
+  try {
+    const { apply } = await import(`${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?summary=${Date.now()}`);
+    const plugin = applyImportPlugin(apply);
+    stopPlugin = plugin.stopPlugin;
+
+    const done = await waitForPhase(plugin.status, 'done');
+    assert.deepEqual(done.notice, {
+      imported: 3,
+      failed: 1,
+      reasons: ['invalid JSON in message m1'],
+      ledgerPath: ledgerFile,
+    });
+    // The reply that carried the result is the only one that does: a poll still
+    // running must not put a dismissed strip back on screen.
+    assert.equal((await plugin.status('status', {})).value.notice, undefined);
+
+    assert.deepEqual(JSON.parse(fs.readFileSync(ledgerFile, 'utf8')).summary, {
+      imported: 3,
+      failed: 1,
+      reasons: ['invalid JSON in message m1'],
+    });
+
+    await stopPlugin();
+    stopPlugin = undefined;
+  } finally {
+    restoreStages();
+    restoreEnvironment();
+    if (stopPlugin) await stopPlugin().catch(() => {});
+  }
+});
+
+// A second launch re-reconciles what the first one imported: the stages that
+// recognise their own earlier result answer "skipped", so the run reports fewer
+// items than the one that did the work.
+test('a launch that only re-reconciles an earlier import says nothing again', async () => {
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  const ledgerFile = path.join(home, 'import-v1', 'ledger.json');
+  createV1Fixture(source);
+  const restoreEnvironment = withV1Environment(home, source);
+
+  async function launch(stages) {
+    const restoreStages = stubbedImportRun(stages);
+    let stopPlugin;
+    try {
+      const { apply } = await import(`${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?relaunch=${Date.now()}${Math.random()}`);
+      const plugin = applyImportPlugin(apply);
+      stopPlugin = plugin.stopPlugin;
+      const done = await waitForPhase(plugin.status, 'done');
+      await stopPlugin();
+      stopPlugin = undefined;
+      return done.notice;
+    } finally {
+      restoreStages();
+      if (stopPlugin) await stopPlugin().catch(() => {});
+    }
+  }
+
+  try {
+    const first = await launch({ sessions: 151, settings: 1, automations: 0 });
+    assert.equal(first.imported, 152);
+
+    const second = await launch({ sessions: 151, settings: 0, automations: 0 });
+    assert.equal(second, undefined);
+    const ledger = JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
+    assert.deepEqual(ledger.summary, { imported: 152, failed: 0, reasons: [] });
+  } finally {
+    restoreEnvironment();
+  }
 });
