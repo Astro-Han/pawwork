@@ -264,11 +264,6 @@ export function apply(ctx) {
       } catch (error) {
         if (controller.signal.aborted) return;
         ctx.logger.warn(`v1 session import failed: ${error instanceof Error ? error.message : String(error)}`);
-      } finally {
-        // The sidebar consumes only session persistence. Settings and
-        // Automation continue independently after this barrier and must not
-        // delay the client's cold-session list refresh.
-        sessionPhase = 'done';
       }
       try {
         controller.signal.throwIfAborted();
@@ -319,6 +314,10 @@ export function apply(ctx) {
         ctx.logger.warn(`v1 import summary failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     } finally {
+      // "done" means the summary has been recorded, so a reply that carries
+      // this phase also carries the notice when there is one. Every path out
+      // of the task, abort included, passes through here.
+      sessionPhase = 'done';
       // Everything else in this task is caught per stage, so this is the one
       // statement that can reject it — and nothing awaits importTask until the
       // plugin is disposed, so a rejection here reaches DSH's fail-loud handler

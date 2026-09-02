@@ -190,14 +190,15 @@ test('retires each persisted v1 session through the paired live lifecycle', asyn
   }
 });
 
-// The sidebar is the only status consumer, so its barrier belongs to the
-// session stage: once the cold sessions are flushed, later settings and
-// Automation work must not delay the authoritative list refresh.
-test('reports the session import settled while later migration stages continue', async () => {
+// "done" is the one reply the client acts on and then stops polling, so it may
+// not appear before the result it has to carry: every stage, the summary
+// included, is behind that barrier.
+test('reports done only once every stage has run and the result is recorded', async () => {
   const importerModule = require('./import-v1.cjs');
   const settingsModule = require('./import-v1-settings.cjs');
   const automationsModule = require('./import-v1-automations.cjs');
   const originalRun = importerModule.runV1SessionImport;
+  const originalAttach = importerModule.attachDshWorkspace;
   const originalSettingsRun = settingsModule.runV1SettingsImport;
   const originalCreateSettingImporter = settingsModule.createDshSettingImporter;
   const originalAutomationsRun = automationsModule.runV1AutomationImport;
@@ -222,6 +223,7 @@ test('reports the session import settled while later migration stages continue',
   let releaseAutomations;
   const automationsGate = new Promise((resolve) => { releaseAutomations = resolve; });
   let sessionFlushed = false;
+  importerModule.attachDshWorkspace = async () => 'attached';
   importerModule.runV1SessionImport = async ({ importSession }) => {
     await sessionsGate;
     await importSession({
@@ -231,18 +233,18 @@ test('reports the session import settled while later migration stages continue',
       seed: [{ type: 'pawwork-v1/session', data: { sourceSessionId: 'session' } }],
       title: 'Imported session',
     });
-    return { status: 'complete' };
+    return 1;
   };
   settingsModule.createDshSettingImporter = () => async () => 'skipped';
   settingsModule.runV1SettingsImport = async () => {
     settingsStarted();
     await settingsGate;
-    return { status: 'complete' };
+    return 1;
   };
   automationsModule.runV1AutomationImport = async () => {
     automationsStarted();
     await automationsGate;
-    return { status: 'complete' };
+    return 0;
   };
   let registration;
   let status;
@@ -289,22 +291,32 @@ test('reports the session import settled while later migration stages continue',
     assert.equal(sessionFlushed, true);
     assert.deepEqual(await status('status', {}), {
       ok: true,
-      value: { phase: 'done', sessionId: 'pawwork-v1-session' },
+      value: { phase: 'running', sessionId: 'pawwork-v1-session' },
     });
 
     releaseSettings();
     await automationsStage;
     assert.deepEqual(await status('status', {}), {
       ok: true,
-      value: { phase: 'done', sessionId: 'pawwork-v1-session' },
+      value: { phase: 'running', sessionId: 'pawwork-v1-session' },
     });
+
     releaseAutomations();
+    const done = await waitForPhase(status, 'done');
+    assert.equal(done.sessionId, 'pawwork-v1-session');
+    assert.deepEqual(done.notice, {
+      imported: 2,
+      failed: 0,
+      reasons: [],
+      ledgerPath: path.join(home, 'import-v1', 'ledger.json'),
+    });
     await stopPlugin();
   } finally {
     releaseSessions?.();
     releaseSettings?.();
     releaseAutomations?.();
     importerModule.runV1SessionImport = originalRun;
+    importerModule.attachDshWorkspace = originalAttach;
     settingsModule.createDshSettingImporter = originalCreateSettingImporter;
     settingsModule.runV1SettingsImport = originalSettingsRun;
     automationsModule.runV1AutomationImport = originalAutomationsRun;
@@ -347,8 +359,7 @@ test('settles the session status when source discovery fails before import', asy
       workspaceRegistry: {},
     });
 
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual(await status('status', {}), { ok: true, value: { phase: 'done' } });
+    assert.deepEqual(await waitForPhase(status, 'done'), { phase: 'done' });
     await stopPlugin();
   } finally {
     migrationIoModule.discoverV1Database = originalDiscover;
