@@ -24,6 +24,7 @@ type VerificationInput = {
 
 const DEFAULT_REPO = `${PAWWORK_RELEASE_OWNER}/${PAWWORK_APP.prod.releaseRepo}`
 const FETCH_TIMEOUT_MS = 15_000
+const GITHUB_API = "https://api.github.com"
 
 export function releaseAssetNames(version: string) {
   return [
@@ -154,6 +155,22 @@ export function normalizeTag(raw: string) {
     throw new Error(`Invalid release tag: ${raw}. Expected vYYYY.M.D or YYYY.M.D.`)
   }
   return normalized
+}
+
+// A draft is NOT reachable via GET /releases/tags/{tag} (it 404s), so every
+// release lookup in the pipeline goes through the list endpoint and filters by
+// tag. More than one match means the tag was split across duplicate releases.
+export async function fetchReleasesByTag<T extends GithubRelease>(repo: string, tag: string): Promise<T[]> {
+  const releases = await fetchJson<T[]>(`${GITHUB_API}/repos/${repo}/releases?per_page=100`)
+  return releases.filter((release) => release.tag_name === tag)
+}
+
+// One wording for the split-tag failure, shared by everything that looks a
+// release up: the symptom surfaces late (a checksum read from the wrong half of
+// a split tag), so the message has to name the actual cause.
+export function duplicateReleasesMessage(tag: string, releases: Array<{ id: number; draft: boolean }>) {
+  const detail = releases.map((release) => `${release.id}${release.draft ? " (draft)" : ""}`).join(", ")
+  return `duplicate drafts for tag ${tag}: ${releases.length} releases carry it (ids ${detail}). Assets are split across them; delete all but one before building.`
 }
 
 function githubHeaders() {

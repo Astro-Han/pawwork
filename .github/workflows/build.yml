@@ -643,6 +643,22 @@ jobs:
         if: always() && runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full')
         run: rm -f "${{ runner.temp }}/apple-api-key.p8"
 
+      # electron-builder creates the release when the tag has none, and it
+      # uploads a target's assets concurrently, so the first phase to publish for
+      # a tag can produce two drafts and split its assets between them. Claim the
+      # single draft here, before any upload, and fail fast on a split.
+      - name: Ensure a single release draft
+        if: ${{ inputs.channel != 'dev' && ((runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label) || (runner.os == 'Windows' && inputs.phase == 'full')) }}
+        run: pnpm exec tsx ./scripts/ensure-release-draft.ts
+        working-directory: packages/desktop-electron
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ env.PUBLISH_OWNER }}/${{ env.PUBLISH_REPO }}
+          RELEASE_TAG: v${{ steps.package_version.outputs.version }}
+          # Same phase-tied commit the publisher pins the tag to, so the draft
+          # starts out targeting the commit its assets are built from.
+          RELEASE_TARGET_SHA: ${{ inputs.phase == 'finalize' && inputs.source_sha || github.sha }}
+
       - name: Package notarized artifacts
         if: ${{ runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label }}
         run: |

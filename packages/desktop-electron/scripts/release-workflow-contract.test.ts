@@ -57,6 +57,26 @@ describe("release workflow", () => {
     expect(publisher).not.toMatch(/MIRROR_REF.*\?\?/)
   })
 
+  // electron-builder creates the release when the tag has none and uploads a
+  // target's assets concurrently, so without a claimed draft the first phase to
+  // publish for a tag can split its assets across two of them.
+  test("claims one release draft before any step uploads assets", () => {
+    const ensure = indexOfStep("Ensure a single release draft")
+    expect(ensure).toBeGreaterThanOrEqual(0)
+    expect(steps[ensure].body).toMatch(/ensure-release-draft\.ts/)
+    expect(steps[ensure].body).toMatch(/inputs\.channel != 'dev'/)
+
+    const publishing = stepsRunning(/electron-builder .*--publish always/)
+    expect(publishing.map((step) => step.name)).toEqual(["Package notarized artifacts"])
+    for (const step of publishing) expect(steps.indexOf(step)).toBeGreaterThan(ensure)
+    // Windows resolves --publish through a variable, so it is ordered by name.
+    expect(indexOfStep("Package app")).toBeGreaterThan(ensure)
+  })
+
+  test("release lookup refuses a split tag instead of reading half of one", () => {
+    expect(publisher).toContain("duplicateReleasesMessage(tag, matches)")
+  })
+
   test("bundles uv before anything packages the app", () => {
     const packaging = stepsRunning(/electron-builder .*(--mac|\$\{\{ matrix\.platform_flag \}\})/)
     // submit packs the signed directory, finalize repacks it into dmg/zip, and
