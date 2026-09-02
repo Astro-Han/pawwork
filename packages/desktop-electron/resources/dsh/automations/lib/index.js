@@ -69,7 +69,7 @@ export function createDshExecutor(ctx) {
       for (;;) {
         await agent.whenIdle();
         signal.throwIfAborted();
-        previousTurn = [...agent.session.events]
+        previousTurn = [...agent.session.snapshotEvents()]
           .reverse()
           .map(eventTurn)
           .find((turn) => turn !== null) ?? null;
@@ -89,7 +89,7 @@ export function createDshExecutor(ctx) {
       }
       await agent.whenIdle();
       signal.throwIfAborted();
-      const events = [...agent.session.events];
+      const events = [...agent.session.snapshotEvents()];
       const turn = events
         .find((event) => event.type === 'turn/start'
           && eventTurn(event) !== null
