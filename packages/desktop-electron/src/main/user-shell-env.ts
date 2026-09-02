@@ -41,7 +41,8 @@ export function applyUserShellPath(options: ApplyUserShellPathOptions = {}): Pro
 const PROBE_TIMEOUT_MS = 5_000
 
 // Unique enough that rc files are unlikely to print it; the marker also keeps
-// the probe working when a shell prints before or after our command. fish
+// the probe working when a shell prints before or after our command. The
+// leading newline guards against rc noise without a trailing newline. fish
 // joins "$PATH" with spaces inside double quotes, so the fish branch below is
 // unaffected.
 const PATH_MARKER = "__pawwork_shell_path__"
@@ -51,7 +52,7 @@ async function probeUserPath({
 }: ApplyUserShellPathOptions): Promise<string[] | undefined> {
   const shell = process.env.SHELL ?? "/bin/zsh"
   const stdout = await new Promise<string>((resolve, reject) => {
-    run(shell, ["-lic", `printf "${PATH_MARKER}%s\\n" "$PATH"`], { timeout: PROBE_TIMEOUT_MS }, (error, output) => {
+    run(shell, ["-lic", `printf "\\n${PATH_MARKER}%s\\n" "$PATH"`], { timeout: PROBE_TIMEOUT_MS }, (error, output) => {
       if (error) reject(error)
       else resolve(String(output))
     })

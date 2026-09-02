@@ -61,7 +61,7 @@ test("probes the user's login and interactive shell", async () => {
   const stub = stubExecFile("__pawwork_shell_path__/opt/homebrew/bin:/usr/bin")
   await applyUserShellPath({ env: {}, platform: "darwin", execFile: stub.execFile })
   expect(stub.calls).toEqual([
-    { file: "/opt/homebrew/bin/fish", args: ["-lic", "printf \"__pawwork_shell_path__%s\\n\" \"$PATH\""] },
+    { file: "/opt/homebrew/bin/fish", args: ["-lic", "printf \"\\n__pawwork_shell_path__%s\\n\" \"$PATH\""] },
   ])
 })
 
@@ -70,7 +70,7 @@ test("falls back to zsh when SHELL is unset", async () => {
   const stub = stubExecFile("__pawwork_shell_path__/opt/homebrew/bin:/usr/bin")
   await applyUserShellPath({ env: {}, platform: "darwin", execFile: stub.execFile })
   expect(stub.calls).toEqual([
-    { file: "/bin/zsh", args: ["-lic", "printf \"__pawwork_shell_path__%s\\n\" \"$PATH\""] },
+    { file: "/bin/zsh", args: ["-lic", "printf \"\\n__pawwork_shell_path__%s\\n\" \"$PATH\""] },
   ])
 })
 
@@ -93,5 +93,15 @@ test("reads the marked line when the shell prints after the probe", async () => 
   const stub = stubExecFile("__pawwork_shell_path__/opt/homebrew/bin:/usr/bin\nzshexit cleanup")
   const env: NodeJS.ProcessEnv = { PATH: "/bin" }
   await applyUserShellPath({ env, platform: "darwin", execFile: stub.execFile })
+  expect(env.PATH).toBe("/opt/homebrew/bin:/usr/bin:/bin")
+})
+
+test("reads the marker when rc noise has no trailing newline", async () => {
+  // The probe's printf emits a leading newline, so rc noise without a trailing
+  // newline cannot glue itself onto the marker line.
+  const stub = stubExecFile("noise without newline\n__pawwork_shell_path__/opt/homebrew/bin:/usr/bin")
+  const env: NodeJS.ProcessEnv = { PATH: "/bin" }
+  await applyUserShellPath({ env, platform: "darwin", execFile: stub.execFile })
+  expect(stub.calls[0].args[1]).toContain("\\n__pawwork_shell_path__%s")
   expect(env.PATH).toBe("/opt/homebrew/bin:/usr/bin:/bin")
 })
