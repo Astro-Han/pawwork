@@ -76,6 +76,20 @@ const MARKET_UPGRADE_NOTICE: Record<MenuLocale, string> = {
   en: "Updating the community plugin market…",
   zh: "正在更新社区插件市场…",
 }
+// Shown when a second launch finds the data already in use. Without it the Dock
+// icon bounces once and the launch disappears with nothing said.
+const SECOND_INSTANCE_NOTICE: Record<MenuLocale, { message: string; detail: string; button: string }> = {
+  en: {
+    message: "PawWork is already running",
+    detail: "Another PawWork window is using the same data. If you just upgraded, quit the older PawWork first, then open it again.",
+    button: "OK",
+  },
+  zh: {
+    message: "爪印已经在运行",
+    detail: "另一个爪印窗口正在使用同一份数据。如果你刚从旧版本升级，请先退出旧版爪印，再重新打开。",
+    button: "好",
+  },
+}
 
 const userDataRoot = CI_SMOKE_HOME ?? app.getPath("appData")
 const appChannel = app.isPackaged ? CHANNEL : "dev"
@@ -197,11 +211,6 @@ function setupApp() {
   app.commandLine.appendSwitch("proxy-bypass-list", "<-loopback>")
   for (const [name, value] of ciSmokeCdpSwitches(process.env)) app.commandLine.appendSwitch(name, value)
 
-  if (!CI_SMOKE_ENABLED && !app.requestSingleInstanceLock()) {
-    app.quit()
-    return
-  }
-
   ipcMain.handle("pawwork:pick-conversation-files", (event) => {
     const state = lifecycle.state
     if (state.phase !== "ready") throw new Error("Cannot pick files before DSH is ready")
@@ -308,6 +317,25 @@ function setupApp() {
     .whenReady()
     .then(async () => {
       menuLocale = detectSystemMenuLocale(app.getSystemLocale())
+
+      // The lock is claimed after ready and before anything with an effect: a
+      // process that requests it before ready and loses never becomes ready, so
+      // it could only ever exit in silence.
+      if (!CI_SMOKE_ENABLED && !app.requestSingleInstanceLock()) {
+        const copy = SECOND_INSTANCE_NOTICE[menuLocale]
+        logger.info("second instance: PawWork is already running, notice shown")
+        dialog.showMessageBoxSync({
+          type: "info",
+          message: copy.message,
+          detail: copy.detail,
+          buttons: [copy.button],
+          defaultId: 0,
+          cancelId: 0,
+        })
+        app.exit(0)
+        return
+      }
+
       app.setAsDefaultProtocolClient("pawwork")
       setDockIcon()
       setupAutoUpdater()
@@ -631,6 +659,7 @@ function openMainWindow() {
 function focusMainWindow(openIfMissing = false) {
   const [existing] = liveWindows()
   const win = existing ?? (openIfMissing ? openMainWindow() : undefined)
+  if (win?.isMinimized()) win.restore()
   win?.show()
   win?.focus()
 }
