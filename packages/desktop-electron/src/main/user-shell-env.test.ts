@@ -27,7 +27,7 @@ afterEach(() => {
 })
 
 test("prepends the login-shell PATH to the current environment", async () => {
-  const stub = stubExecFile("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+  const stub = stubExecFile("__pawwork_shell_path__/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
   const env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin" }
   const applied = await applyUserShellPath({ env, platform: "darwin", execFile: stub.execFile })
   expect(applied).toBe(true)
@@ -35,14 +35,14 @@ test("prepends the login-shell PATH to the current environment", async () => {
 })
 
 test("keeps current PATH directories the login shell does not know", async () => {
-  const stub = stubExecFile("/opt/homebrew/bin:/usr/bin")
+  const stub = stubExecFile("__pawwork_shell_path__/opt/homebrew/bin:/usr/bin")
   const env: NodeJS.ProcessEnv = { PATH: "/usr/local/bin:/opt/pawwork-extra" }
   await applyUserShellPath({ env, platform: "darwin", execFile: stub.execFile })
   expect(env.PATH).toBe("/opt/homebrew/bin:/usr/bin:/usr/local/bin:/opt/pawwork-extra")
 })
 
 test("reads the PATH from the last output line when the shell rc prints noise", async () => {
-  const stub = stubExecFile("loading plugins…\n/opt/homebrew/bin:/usr/bin\n")
+  const stub = stubExecFile("loading plugins…\n__pawwork_shell_path__/opt/homebrew/bin:/usr/bin")
   const env: NodeJS.ProcessEnv = { PATH: "/bin" }
   await applyUserShellPath({ env, platform: "darwin", execFile: stub.execFile })
   expect(env.PATH).toBe("/opt/homebrew/bin:/usr/bin:/bin")
@@ -58,20 +58,24 @@ test("leaves the environment unchanged when the probe fails", async () => {
 
 test("probes the user's login and interactive shell", async () => {
   process.env.SHELL = "/opt/homebrew/bin/fish"
-  const stub = stubExecFile("/opt/homebrew/bin:/usr/bin")
+  const stub = stubExecFile("__pawwork_shell_path__/opt/homebrew/bin:/usr/bin")
   await applyUserShellPath({ env: {}, platform: "darwin", execFile: stub.execFile })
-  expect(stub.calls).toEqual([{ file: "/opt/homebrew/bin/fish", args: ["-lic", "echo $PATH"] }])
+  expect(stub.calls).toEqual([
+    { file: "/opt/homebrew/bin/fish", args: ["-lic", "printf \"__pawwork_shell_path__%s\\n\" \"$PATH\""] },
+  ])
 })
 
 test("falls back to zsh when SHELL is unset", async () => {
   delete process.env.SHELL
-  const stub = stubExecFile("/opt/homebrew/bin:/usr/bin")
+  const stub = stubExecFile("__pawwork_shell_path__/opt/homebrew/bin:/usr/bin")
   await applyUserShellPath({ env: {}, platform: "darwin", execFile: stub.execFile })
-  expect(stub.calls).toEqual([{ file: "/bin/zsh", args: ["-lic", "echo $PATH"] }])
+  expect(stub.calls).toEqual([
+    { file: "/bin/zsh", args: ["-lic", "printf \"__pawwork_shell_path__%s\\n\" \"$PATH\""] },
+  ])
 })
 
 test("does nothing off macOS", async () => {
-  const stub = stubExecFile("/opt/homebrew/bin:/usr/bin")
+  const stub = stubExecFile("__pawwork_shell_path__/opt/homebrew/bin:/usr/bin")
   const env: NodeJS.ProcessEnv = { PATH: "/bin" }
   const applied = await applyUserShellPath({ env, platform: "win32", execFile: stub.execFile })
   expect(applied).toBe(false)
@@ -80,7 +84,13 @@ test("does nothing off macOS", async () => {
 })
 
 test("splits a space-separated PATH from shells like fish", async () => {
-  const stub = stubExecFile("/opt/homebrew/bin /usr/bin /bin")
+  const stub = stubExecFile("__pawwork_shell_path__/opt/homebrew/bin /usr/bin /bin")
+  const env: NodeJS.ProcessEnv = { PATH: "/bin" }
+  await applyUserShellPath({ env, platform: "darwin", execFile: stub.execFile })
+  expect(env.PATH).toBe("/opt/homebrew/bin:/usr/bin:/bin")
+})
+test("reads the marked line when the shell prints after the probe", async () => {
+  const stub = stubExecFile("__pawwork_shell_path__/opt/homebrew/bin:/usr/bin\nzshexit cleanup")
   const env: NodeJS.ProcessEnv = { PATH: "/bin" }
   await applyUserShellPath({ env, platform: "darwin", execFile: stub.execFile })
   expect(env.PATH).toBe("/opt/homebrew/bin:/usr/bin:/bin")
