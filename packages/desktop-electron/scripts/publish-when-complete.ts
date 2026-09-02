@@ -51,6 +51,8 @@
 // single orchestrated workflow.
 
 import {
+  duplicateReleasesMessage,
+  fetchReleasesByTag,
   normalizeTag,
   parseUpdaterShaByUrl,
   releaseAssetNames,
@@ -196,16 +198,17 @@ async function ghFetch(url: string, init: RequestInit & { accept: string; conten
   }
 }
 
-async function fetchReleases(repo: string): Promise<ApiRelease[]> {
-  const res = await ghFetch(`${GITHUB_API}/repos/${repo}/releases?per_page=100`, { accept: "application/vnd.github+json" })
-  if (!res.ok) throw new Error(`failed to list releases: ${res.status} ${res.statusText}`)
-  return (await res.json()) as ApiRelease[]
-}
-
-async function findRelease(repo: string, tag: string): Promise<ApiRelease> {
-  const releases = await fetchReleases(repo)
-  const release = releases.find((entry) => entry.tag_name === tag)
-  if (!release) throw new Error(`no release found for ${tag} among ${releases.length} releases`)
+export async function findRelease(
+  repo: string,
+  tag: string,
+  fetchPage?: (url: string) => Promise<ApiRelease[]>,
+): Promise<ApiRelease> {
+  const matches = await fetchReleasesByTag<ApiRelease>(repo, tag, fetchPage)
+  // Picking one half of a split tag would surface much later as a missing
+  // checksum, so name the split here instead.
+  if (matches.length > 1) throw new Error(duplicateReleasesMessage(tag, matches))
+  const release = matches[0]
+  if (!release) throw new Error(`no release found for ${tag}`)
   return release
 }
 

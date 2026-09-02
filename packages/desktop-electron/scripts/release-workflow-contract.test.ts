@@ -23,6 +23,12 @@ function indexOfStep(name: string) {
   return steps.findIndex((step) => step.name === name)
 }
 
+function conditionOfStep(name: string) {
+  const condition = steps[indexOfStep(name)]?.body.match(/\n {8}if: (?<condition>.+)/)?.groups?.condition
+  if (!condition) throw new Error(`step "${name}" has no if: condition`)
+  return condition
+}
+
 function runSourceValidation(phase: string, githubRef: string, sourceRef = "") {
   const match = workflow.match(
     /- name: Validate release source branch\n\s+run: \|\n(?<script>(?: {10}.*\n|\n)+?)\s+env:/,
@@ -55,6 +61,28 @@ describe("release workflow", () => {
   test("requires the workflow to name the mirror branch explicitly", () => {
     expect(publisher).toContain('const mirrorRef = requireEnv("MIRROR_REF")')
     expect(publisher).not.toMatch(/MIRROR_REF.*\?\?/)
+  })
+
+  // electron-builder creates the release when the tag has none and uploads a
+  // target's assets concurrently, so without a claimed draft the first phase to
+  // publish for a tag can split its assets across two of them.
+  test("claims one release draft before any step uploads assets", () => {
+    const ensure = indexOfStep("Ensure a single release draft")
+    expect(ensure).toBeGreaterThanOrEqual(0)
+    expect(steps[ensure].body).toMatch(/ensure-release-draft\.ts/)
+    // Every target that uploads to the release has to claim the draft, and only
+    // those: the same gate the metadata finalizer runs under, word for word.
+    expect(conditionOfStep("Ensure a single release draft")).toBe(conditionOfStep("Finalize updater metadata"))
+
+    const publishing = stepsRunning(/electron-builder .*--publish always/)
+    expect(publishing.map((step) => step.name)).toEqual(["Package notarized artifacts"])
+    for (const step of publishing) expect(steps.indexOf(step)).toBeGreaterThan(ensure)
+    // Windows resolves --publish through a variable, so it is ordered by name.
+    expect(indexOfStep("Package app")).toBeGreaterThan(ensure)
+  })
+
+  test("release lookup refuses a split tag instead of reading half of one", () => {
+    expect(publisher).toContain("duplicateReleasesMessage(tag, matches)")
   })
 
   test("bundles uv before anything packages the app", () => {

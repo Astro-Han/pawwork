@@ -24,6 +24,11 @@ type VerificationInput = {
 
 const DEFAULT_REPO = `${PAWWORK_RELEASE_OWNER}/${PAWWORK_APP.prod.releaseRepo}`
 const FETCH_TIMEOUT_MS = 15_000
+const GITHUB_API = "https://api.github.com"
+const RELEASE_PAGE_SIZE = 100
+// 10k releases is far past anything this repo will hold; the cap only keeps a
+// misbehaving endpoint from looping forever.
+const RELEASE_PAGE_LIMIT = 100
 
 export function releaseAssetNames(version: string) {
   return [
@@ -154,6 +159,40 @@ export function normalizeTag(raw: string) {
     throw new Error(`Invalid release tag: ${raw}. Expected vYYYY.M.D or YYYY.M.D.`)
   }
   return normalized
+}
+
+// A draft is NOT reachable via GET /releases/tags/{tag} (it 404s), so every
+// release lookup in the pipeline goes through the list endpoint and filters by
+// tag. More than one match means the tag was split across duplicate releases.
+//
+// Every page is walked, not just the first: a match missed because it sat past
+// the page boundary reads as "this tag has no release", which is exactly the
+// state that creates a duplicate. `fetchPage` is injectable so the walk is
+// testable without GitHub.
+export async function fetchReleasesByTag<T extends GithubRelease>(
+  repo: string,
+  tag: string,
+  fetchPage: (url: string) => Promise<T[]> = (url) => fetchJson<T[]>(url),
+): Promise<T[]> {
+  const matches: T[] = []
+  for (let page = 1; page <= RELEASE_PAGE_LIMIT; page += 1) {
+    const releases = await fetchPage(`${GITHUB_API}/repos/${repo}/releases?per_page=${RELEASE_PAGE_SIZE}&page=${page}`)
+    matches.push(...releases.filter((release) => release.tag_name === tag))
+    // A short page is the last one. GitHub also serves a Link header, but
+    // fetchJson does not expose response headers and page walking needs no
+    // extra plumbing to stay injectable.
+    if (releases.length < RELEASE_PAGE_SIZE) return matches
+  }
+  // Truncating silently is the failure this walk exists to prevent, so refuse.
+  throw new Error(`Refusing to look ${tag} up past ${RELEASE_PAGE_LIMIT} pages of releases in ${repo}`)
+}
+
+// One wording for the split-tag failure, shared by everything that looks a
+// release up: the symptom surfaces late (a checksum read from the wrong half of
+// a split tag), so the message has to name the actual cause.
+export function duplicateReleasesMessage(tag: string, releases: Array<{ id: number; draft: boolean }>) {
+  const detail = releases.map((release) => `${release.id}${release.draft ? " (draft)" : ""}`).join(", ")
+  return `duplicate drafts for tag ${tag}: ${releases.length} releases carry it (ids ${detail}). Assets are split across them; keep the one holding the assets (or the published one), delete the rest, and re-run the build.`
 }
 
 function githubHeaders() {
