@@ -170,7 +170,7 @@ export async function fetchReleasesByTag<T extends GithubRelease>(repo: string, 
 // a split tag), so the message has to name the actual cause.
 export function duplicateReleasesMessage(tag: string, releases: Array<{ id: number; draft: boolean }>) {
   const detail = releases.map((release) => `${release.id}${release.draft ? " (draft)" : ""}`).join(", ")
-  return `duplicate drafts for tag ${tag}: ${releases.length} releases carry it (ids ${detail}). Assets are split across them; delete all but one before building.`
+  return `duplicate drafts for tag ${tag}: ${releases.length} releases carry it (ids ${detail}). Assets are split across them; keep the one holding the assets (or the published one), delete the rest, and re-run the build.`
 }
 
 function githubHeaders() {

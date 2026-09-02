@@ -23,6 +23,12 @@ function indexOfStep(name: string) {
   return steps.findIndex((step) => step.name === name)
 }
 
+function conditionOfStep(name: string) {
+  const condition = steps[indexOfStep(name)]?.body.match(/\n {8}if: (?<condition>.+)/)?.groups?.condition
+  if (!condition) throw new Error(`step "${name}" has no if: condition`)
+  return condition
+}
+
 function runSourceValidation(phase: string, githubRef: string, sourceRef = "") {
   const match = workflow.match(
     /- name: Validate release source branch\n\s+run: \|\n(?<script>(?: {10}.*\n|\n)+?)\s+env:/,
@@ -64,7 +70,9 @@ describe("release workflow", () => {
     const ensure = indexOfStep("Ensure a single release draft")
     expect(ensure).toBeGreaterThanOrEqual(0)
     expect(steps[ensure].body).toMatch(/ensure-release-draft\.ts/)
-    expect(steps[ensure].body).toMatch(/inputs\.channel != 'dev'/)
+    // Every target that uploads to the release has to claim the draft, and only
+    // those: the same gate the metadata finalizer runs under, word for word.
+    expect(conditionOfStep("Ensure a single release draft")).toBe(conditionOfStep("Finalize updater metadata"))
 
     const publishing = stepsRunning(/electron-builder .*--publish always/)
     expect(publishing.map((step) => step.name)).toEqual(["Package notarized artifacts"])

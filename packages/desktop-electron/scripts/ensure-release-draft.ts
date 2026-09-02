@@ -14,8 +14,18 @@ import { duplicateReleasesMessage, fetchReleasesByTag, normalizeTag, type Github
 
 type TaggedRelease = GithubRelease & { id: number }
 
+// Spread the creates of phases that start together, so the common case is one
+// job creating and the others simply seeing its release.
+const CREATE_JITTER_MS = 3_000
+// The list endpoint lags a create, so a second read taken immediately can miss
+// the other job's release and let both conclude they are alone. Same settle
+// window publish-when-complete uses before its final re-read.
+const CREATE_SETTLE_MS = 8_000
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
 export type DraftDecision =
-  | { kind: "reuse"; reason: string }
+  | { kind: "reuse"; reason: string; published: boolean }
   | { kind: "create"; reason: string }
   | { kind: "fail"; reason: string }
 
@@ -27,9 +37,12 @@ export function decideDraftAction(tag: string, releases: TaggedRelease[]): Draft
   const existing = releases[0]
   if (!existing) return { kind: "create", reason: `no release for ${tag}; creating an empty draft to upload into` }
 
+  if (existing.draft) return { kind: "reuse", reason: `reusing draft ${existing.id} for ${tag}`, published: false }
+
   return {
     kind: "reuse",
-    reason: `reusing release ${existing.id} for ${tag} (${existing.draft ? "draft" : "published"})`,
+    reason: `release ${existing.id} for ${tag} is already published; uploading into a live release, not a draft`,
+    published: true,
   }
 }
 
@@ -48,30 +61,45 @@ async function gh(args: string[]) {
   if (code !== 0) throw new Error(`gh ${args.join(" ")} exited ${code}`)
 }
 
+function report(decision: DraftDecision) {
+  // A published release means the assets are about to be uploaded to something
+  // that is already live, not to a draft this run controls. Legitimate on a
+  // re-run, worth saying out loud either way.
+  if (decision.kind === "reuse" && decision.published) console.warn(`ensure-release-draft: ${decision.reason}`)
+  else console.log(`ensure-release-draft: ${decision.reason}`)
+}
+
 async function main() {
   const repo = requireEnv("GH_REPO")
+  // Anonymous list requests cannot see drafts, so a missing token would make
+  // every run believe the tag has no release and create a second one.
+  requireEnv("GH_TOKEN")
   const tag = normalizeTag(requireEnv("RELEASE_TAG"))
   const targetSha = requireEnv("RELEASE_TARGET_SHA")
 
   const decision = decideDraftAction(tag, await fetchReleasesByTag<TaggedRelease>(repo, tag))
-  console.log(`ensure-release-draft: ${decision.reason}`)
+  report(decision)
   if (decision.kind === "fail") process.exit(1)
   if (decision.kind === "reuse") return
 
-  // Two phases can reach the create at the same time. Whether ours succeeds or
-  // loses to the other one, re-read and let the same policy judge the result:
-  // one release is fine no matter who made it, two is the split we exist to
-  // report. Notes stay empty — the release text is written into the draft by
-  // hand before it is published.
+  // Two phases can reach the create at the same time. Jitter first so they
+  // usually do not, then create, then let the list endpoint catch up before
+  // re-reading: reading it immediately can still show only our own release and
+  // leave both jobs believing they are the only one. Whether our create won or
+  // lost, the same policy judges the settled result — one release is fine no
+  // matter who made it, two is the split we exist to report. Notes stay empty;
+  // the release text is written into the draft by hand before it is published.
+  await sleep(Math.random() * CREATE_JITTER_MS)
   try {
     await gh(["release", "create", tag, "--repo", repo, "--draft", "--target", targetSha, "--notes", ""])
   } catch (error) {
     console.warn(`ensure-release-draft: create failed (${error instanceof Error ? error.message : String(error)})`)
   }
+  await sleep(CREATE_SETTLE_MS)
 
   const settled = decideDraftAction(tag, await fetchReleasesByTag<TaggedRelease>(repo, tag))
   if (settled.kind === "reuse") {
-    console.log(`ensure-release-draft: ${settled.reason}`)
+    report(settled)
     return
   }
   console.error(
