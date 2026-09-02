@@ -113,6 +113,7 @@ export function createDshSessionImporter(ctx, onPersisted = () => {}) {
 // `new DatabaseSync` already waits out a five-second busy timeout of its own, so
 // a fixed pause on top of that is about six seconds between attempts.
 const SNAPSHOT_RETRY_MS = 1_000;
+const NOTICE_REASON_LIMIT = 3;
 
 function delay(ms, signal) {
   return new Promise((resolve, reject) => {
@@ -179,10 +180,46 @@ async function recordSnapshotFailure(message) {
   await save();
 }
 
+function ledgerReasons(ledger) {
+  const messages = Object.values(ledger.failures)
+    .flatMap((records) => Object.values(records).map((record) => record.message));
+  return [...new Set(messages)].slice(0, NOTICE_REASON_LIMIT);
+}
+
 export function apply(ctx) {
   const controller = new AbortController();
   let lastPersistedSessionId;
   let sessionPhase = 'running';
+  let notice;
+  let importedTotal = 0;
+  const count = (imported) => { importedTotal += imported || 0; };
+
+  // The result is worth one sentence to the user, once. The counts of the last
+  // run that carried something live in the ledger, because that is the only
+  // thing that survives the window and the next launch has to recognise its own
+  // earlier work.
+  function recordImportSummary() {
+    const { file, ledger, save } = migrationIo.openMigrationLedger(process.env.DSH_HOME);
+    // Every stage records each failure under its own key in the ledger, so what
+    // did not make it is read back from there rather than tallied a second time.
+    const failed = Object.values(ledger.failures).reduce((sum, records) => sum + Object.keys(records).length, 0);
+    // A later launch reconciles the same data again and reports less than the
+    // run that did the work: a stage that recognises its own earlier result
+    // answers "skipped", and no total counts a skip. So the question is not
+    // whether the summary changed but whether this run carried more than the
+    // recorded one; anything else is the same result reached again and must not
+    // greet the user a second time.
+    const advanced = (importedTotal > 0 || failed > 0) && (
+      ledger.summary === undefined
+      || importedTotal > ledger.summary.imported
+      || failed > ledger.summary.failed
+    );
+    if (!advanced) return;
+    ledger.summary = { imported: importedTotal, failed, reasons: ledgerReasons(ledger) };
+    notice = { ...ledger.summary, ledgerPath: file };
+    return save();
+  }
+
   const importTask = (async () => {
     let sourceDatabase;
     let snapshot;
@@ -215,13 +252,13 @@ export function apply(ctx) {
         if (!sourceDatabase || snapshot) {
           const importSession = createDshSessionImporter(ctx, (id) => { lastPersistedSessionId = id; });
           controller.signal.throwIfAborted();
-          await importer.runV1SessionImport({
+          count(await importer.runV1SessionImport({
             home: process.env.DSH_HOME,
             sourceDatabase,
             snapshot: snapshot?.path,
             importSession,
             signal: controller.signal,
-          });
+          }));
           controller.signal.throwIfAborted();
         }
       } catch (error) {
@@ -236,11 +273,11 @@ export function apply(ctx) {
       try {
         controller.signal.throwIfAborted();
         const importSetting = settingsImporter.createDshSettingImporter(ctx);
-        await settingsImporter.runV1SettingsImport({
+        count(await settingsImporter.runV1SettingsImport({
           home: process.env.DSH_HOME,
           importSetting,
           signal: controller.signal,
-        });
+        }));
         controller.signal.throwIfAborted();
       } catch (error) {
         if (controller.signal.aborted) return;
@@ -250,7 +287,7 @@ export function apply(ctx) {
       if (!sourceDatabase || snapshot) {
         try {
           controller.signal.throwIfAborted();
-          await automationImporter.runV1AutomationImport({
+          count(await automationImporter.runV1AutomationImport({
             home: process.env.DSH_HOME,
             sourceDatabase,
             snapshot: snapshot?.path,
@@ -264,7 +301,7 @@ export function apply(ctx) {
             },
             importRun: async (run) => ctx.pawworkAutomations.store.importRun(run),
             signal: controller.signal,
-          });
+          }));
           controller.signal.throwIfAborted();
           ctx.pawworkAutomations.store.activateImportedDefinitions();
           ctx.pawworkAutomations.scheduler.refresh();
@@ -272,6 +309,14 @@ export function apply(ctx) {
           if (controller.signal.aborted) return;
           ctx.logger.warn(`v1 automation import failed: ${error instanceof Error ? error.message : String(error)}`);
         }
+      }
+
+      try {
+        controller.signal.throwIfAborted();
+        await recordImportSummary();
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        ctx.logger.warn(`v1 import summary failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     } finally {
       // Everything else in this task is caught per stage, so this is the one
@@ -289,13 +334,21 @@ export function apply(ctx) {
   ctx.effect(() => {
     const stopStatusRpc = ctx.connection.rpc.handle(
       '/pawwork-import-v1',
-      async () => ({
-        ok: true,
-        value: {
-          phase: sessionPhase,
-          ...(lastPersistedSessionId === undefined ? {} : { sessionId: lastPersistedSessionId }),
-        },
-      }),
+      async () => {
+        // The result goes out with the first reply that carries it and is gone
+        // from this task afterwards, so a poll that keeps running cannot put a
+        // dismissed strip back on screen.
+        const carried = notice;
+        notice = undefined;
+        return {
+          ok: true,
+          value: {
+            phase: sessionPhase,
+            ...(lastPersistedSessionId === undefined ? {} : { sessionId: lastPersistedSessionId }),
+            ...(carried === undefined ? {} : { notice: carried }),
+          },
+        };
+      },
       { authority: 'loopback' },
     );
     return async () => {

@@ -1613,6 +1613,7 @@ test('reports a locked v1 database as blocked and completes once it is released'
     locked = false;
     const done = await waitForPhase(plugin.status, 'done');
     assert.equal(done.phase, 'done');
+    assert.equal(done.notice.imported, 1);
     await stopPlugin();
     stopPlugin = undefined;
   } finally {
@@ -1699,7 +1700,15 @@ test('a snapshot failure that is not a lock is reported once and lets the other 
     const plugin = applyImportPlugin(apply, { logger: { warn: (message) => warnings.push(message) } });
     stopPlugin = plugin.stopPlugin;
 
-    await waitForPhase(plugin.status, 'done');
+    const done = await waitForPhase(plugin.status, 'done');
+    // Only the settings stage reads files rather than the database, so its one
+    // import plus the single snapshot failure is the whole result.
+    assert.deepEqual(done.notice, {
+      imported: 1,
+      failed: 1,
+      reasons: ['snapshot directory is read-only'],
+      ledgerPath: path.join(home, 'import-v1', 'ledger.json'),
+    });
     assert.deepEqual(warnings, ['v1 database snapshot failed: snapshot directory is read-only']);
     const ledger = JSON.parse(fs.readFileSync(path.join(home, 'import-v1', 'ledger.json'), 'utf8'));
     assert.deepEqual(ledger.failures.sessions.snapshot, { message: 'snapshot directory is read-only' });
@@ -1711,5 +1720,92 @@ test('a snapshot failure that is not a lock is reported once and lets the other 
     restoreStages();
     restoreEnvironment();
     if (stopPlugin) await stopPlugin().catch(() => {});
+  }
+});
+
+test('writes the run result to the ledger and reports it once', async () => {
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  const ledgerFile = path.join(home, 'import-v1', 'ledger.json');
+  createV1Fixture(source);
+  fs.mkdirSync(path.dirname(ledgerFile), { recursive: true });
+  fs.writeFileSync(ledgerFile, JSON.stringify({
+    schema: 1,
+    failures: { sessions: { ses_broken: { message: 'invalid JSON in message m1' } } },
+  }));
+  const restoreEnvironment = withV1Environment(home, source);
+  const restoreStages = stubbedImportRun({ sessions: 2, settings: 1, automations: 0 });
+  let stopPlugin;
+
+  try {
+    const { apply } = await import(`${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?summary=${Date.now()}`);
+    const plugin = applyImportPlugin(apply);
+    stopPlugin = plugin.stopPlugin;
+
+    const done = await waitForPhase(plugin.status, 'done');
+    assert.deepEqual(done.notice, {
+      imported: 3,
+      failed: 1,
+      reasons: ['invalid JSON in message m1'],
+      ledgerPath: ledgerFile,
+    });
+    // The reply that carried the result is the only one that does: a poll still
+    // running must not put a dismissed strip back on screen.
+    assert.equal((await plugin.status('status', {})).value.notice, undefined);
+
+    assert.deepEqual(JSON.parse(fs.readFileSync(ledgerFile, 'utf8')).summary, {
+      imported: 3,
+      failed: 1,
+      reasons: ['invalid JSON in message m1'],
+    });
+
+    await stopPlugin();
+    stopPlugin = undefined;
+  } finally {
+    restoreStages();
+    restoreEnvironment();
+    if (stopPlugin) await stopPlugin().catch(() => {});
+  }
+});
+
+// A second launch re-reconciles what the first one imported: the stages that
+// recognise their own earlier result answer "skipped", so the run reports fewer
+// items than the one that did the work.
+test('a launch that only re-reconciles an earlier import says nothing again', async () => {
+  const root = temporaryDirectory();
+  const source = path.join(root, 'pawwork.db');
+  const home = path.join(root, 'v2-home');
+  const ledgerFile = path.join(home, 'import-v1', 'ledger.json');
+  createV1Fixture(source);
+  const restoreEnvironment = withV1Environment(home, source);
+
+  async function launch(stages) {
+    const restoreStages = stubbedImportRun(stages);
+    let stopPlugin;
+    try {
+      const { apply } = await import(`${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?relaunch=${Date.now()}${Math.random()}`);
+      const plugin = applyImportPlugin(apply);
+      stopPlugin = plugin.stopPlugin;
+      const done = await waitForPhase(plugin.status, 'done');
+      await stopPlugin();
+      stopPlugin = undefined;
+      return done.notice;
+    } finally {
+      restoreStages();
+      if (stopPlugin) await stopPlugin().catch(() => {});
+    }
+  }
+
+  try {
+    const first = await launch({ sessions: 151, settings: 1, automations: 0 });
+    assert.equal(first.imported, 152);
+
+    const second = await launch({ sessions: 151, settings: 0, automations: 0 });
+    assert.equal(second, undefined);
+    const ledger = JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
+    assert.deepEqual(ledger.summary, { imported: 152, failed: 0, reasons: [] });
+  } finally {
+    restoreEnvironment();
   }
 });

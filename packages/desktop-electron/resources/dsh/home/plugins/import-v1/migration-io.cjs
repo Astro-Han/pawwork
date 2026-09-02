@@ -119,7 +119,7 @@ function openMigrationLedger(home) {
   for (const category of ['sessions', 'settings', 'automationDefinitions', 'automationRuns']) {
     ledger.failures[category] ||= {};
   }
-  return { ledger, save: () => writeJsonAtomically(file, ledger) };
+  return { file, ledger, save: () => writeJsonAtomically(file, ledger) };
 }
 
 // The session and automation stages read one database and record one identity,

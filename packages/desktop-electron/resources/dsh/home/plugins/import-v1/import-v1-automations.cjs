@@ -174,9 +174,10 @@ async function runV1AutomationImport({
   if (typeof importRun !== 'function') throw new Error('v1 importRun adapter is required');
   const { ledger, save } = openMigrationLedger(home);
   guardV1DatabaseIdentity(ledger, sourceDatabase);
+  let importedCount = 0;
   if (!sourceDatabase) {
     await save();
-    return;
+    return importedCount;
   }
 
   if (!snapshot) throw new Error('v1 automation import requires a database snapshot');
@@ -200,6 +201,7 @@ async function runV1AutomationImport({
       signal?.throwIfAborted();
       if (!['imported', 'skipped'].includes(outcome)) throw new Error(`invalid definition outcome: ${outcome}`);
       delete ledger.failures.automationDefinitions[definition.id];
+      if (outcome === 'imported') importedCount += 1;
     } catch (error) {
       signal?.throwIfAborted();
       const message = error instanceof Error ? error.message : String(error);
@@ -218,6 +220,7 @@ async function runV1AutomationImport({
       signal?.throwIfAborted();
       if (!['imported', 'skipped'].includes(outcome)) throw new Error(`invalid run outcome: ${outcome}`);
       delete ledger.failures.automationRuns[run.id];
+      if (outcome === 'imported') importedCount += 1;
     } catch (error) {
       signal?.throwIfAborted();
       const message = error instanceof Error ? error.message : String(error);
@@ -226,6 +229,7 @@ async function runV1AutomationImport({
     await save();
   }
   await save();
+  return importedCount;
 }
 
 module.exports = {

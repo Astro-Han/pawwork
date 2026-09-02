@@ -197,6 +197,8 @@ html body :is(button, [role="button"], [role="treeitem"], [role="tab"], [role="m
   display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; pointer-events: auto;
 }
 .pawwork-import-feedback p { font-size: 12px; line-height: 19px; margin: 0; }
+.pawwork-import-detail { color: var(--dsw-alias-label-tertiary); overflow-wrap: anywhere; }
+.pawwork-import-dismiss { align-self: flex-end; }
 /* The rc.8 locale registry throws on a duplicate namespace and offers no override point, so DSH's
    own headline and preview badge are replaced visually, anchored on data-slot rather than on class
    names that carry a per-version hash. Zeroing font-size alone leaves a 32px line box that lifts
@@ -404,14 +406,14 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     const IMPORT_POLL_MAX_RETRY_MS = 30_000
     const IMPORT_PHASES = ["running", "blocked", "done"]
 
-    // What the import has to say out loud, starting with the fact that it is
-    // waiting on the old app. The watcher below already owns the poll, so it
-    // publishes here and the overlay only renders.
+    // Two things the import has to say out loud: that it is waiting on the old
+    // app, and what it ended up doing. The watcher below already owns the poll,
+    // so it publishes here and the overlay only renders.
     function createImportFeedback() {
-      let state = { blocked: false }
+      let state = { blocked: false, notice: null }
       const listeners = new Set()
       const publish = (next) => {
-        if (next.blocked === state.blocked) return
+        if (next.blocked === state.blocked && next.notice === state.notice) return
         state = next
         for (const listener of listeners) listener(state)
       }
@@ -422,16 +424,36 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
           return () => { listeners.delete(listener) }
         },
         setBlocked: (blocked) => publish({ ...state, blocked }),
+        setNotice: (notice) => publish({ ...state, notice }),
+        dismiss: () => publish({ ...state, notice: null }),
       }
     }
 
     function V1ImportNotice({ feedback }) {
       const [state, setState] = useState(feedback.get())
       useEffect(() => feedback.subscribe(setState), [feedback])
-      if (!state.blocked) return null
+      const notice = state.notice
+      if (!state.blocked && !notice) return null
       return h("div", { className: "pawwork-import-feedback" },
-        h("div", { role: "status" }, h("p", null,
-          text("请先退出旧版爪印，导入会自动继续。", "Quit the older PawWork; the import continues on its own."))))
+        state.blocked
+          ? h("div", { role: "status" }, h("p", null,
+            text("请先退出旧版爪印，导入会自动继续。", "Quit the older PawWork; the import continues on its own.")))
+          : null,
+        notice
+          ? h("div", { role: notice.failed > 0 ? "alert" : "status" },
+            h("p", null, notice.failed > 0
+              ? text(`已从旧版爪印导入 ${notice.imported} 项，${notice.failed} 项没能导入。`,
+                `Imported ${notice.imported} items from the older PawWork. ${notice.failed} could not be imported.`)
+              : text(`已从旧版爪印导入 ${notice.imported} 项。`,
+                `Imported ${notice.imported} items from the older PawWork.`)),
+            notice.reasons?.length
+              ? h("p", { className: "pawwork-import-detail" }, notice.reasons.join(" / "))
+              : null,
+            h("p", { className: "pawwork-import-detail" },
+              text(`详细记录：${notice.ledgerPath}`, `Full record: ${notice.ledgerPath}`)),
+            h(Button, { className: "pawwork-import-dismiss", onClick: () => feedback.dismiss(), size: "sm" },
+              text("知道了", "Got it")))
+          : null)
     }
 
     function watchV1Import({ connection, sessions }, feedback) {
@@ -474,6 +496,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
           schedule(IMPORT_POLL_INTERVAL_MS)
           return
         }
+        if (value.notice) feedback.setNotice(value.notice)
         // refreshList reuses a still in-flight fetch, which at this point may be one that started
         // before the import finished, so the first read only settles it and the second is the one
         // guaranteed to begin after the completion barrier.

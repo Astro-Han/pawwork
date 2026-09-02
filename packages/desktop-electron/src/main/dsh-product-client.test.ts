@@ -675,6 +675,19 @@ describe("PawWork DSH client product layer", () => {
     expect(timers).toHaveLength(1)
   })
 
+  test("reports the import result the host handed it", async () => {
+    const { tree } = await renderImportOverlay({
+      phase: "done",
+      notice: { imported: 3, failed: 1, reasons: ["invalid JSON in message m1"], ledgerPath: "/home/import-v1/ledger.json" },
+    })
+
+    const texts = textOf(tree)
+    expect(texts).toContain("已从旧版爪印导入 3 项，1 项没能导入。")
+    expect(texts).toContain("invalid JSON in message m1")
+    expect(texts).toContain("详细记录：/home/import-v1/ledger.json")
+    expect(visit(tree).some((element) => element.props.role === "alert")).toBe(true)
+  })
+
   test("stops polling when the client plugin is disposed", async () => {
     const timers: Array<() => void> = []
     const plugin = loadPlugin(timers)
