@@ -1,11 +1,14 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, lstatSync, mkdirSync, readlinkSync, rmSync, symlinkSync } from "node:fs"
 import { isAbsolute, join } from "node:path"
 
-// Boot migrates a pre-0.1.1-rc.1 flat credential map into `version: 1` in place, so seeding the
-// versioned form directly is what keeps a fresh product home out of that migration.
-const PUBLIC_CREDENTIAL = 'version: 1\nrefs:\n  OPENCODE_API_KEY: "public"\n'
+// The free routes are product-managed and the gateway admits their free tier only on this
+// literal, so the credential is the product's to state, not the user's to fill in. Supplying it
+// through the launching environment is what makes that true: credentials-local ranks the
+// inherited environment above its own store as a read-only source, so the Models page renders the
+// key field disabled, a write attempt is refused rather than silently shadowed, and whatever an
+// existing store holds under this name cannot reach the gateway.
+const SEEDED_MODEL_ENVIRONMENT = { OPENCODE_API_KEY: "public" } as const
 const DROPPED_MODEL_ENVIRONMENT = [
-  "OPENCODE_API_KEY",
   "OPENCODE_GO_API_KEY",
   "DEEPSEEK_API_KEY",
   "DEEPSEEK_BASE_URL",
@@ -115,9 +118,6 @@ export function prepareDshProductHome(options: PrepareDshProductHomeOptions) {
   }
   linkHostScope(options.productHome, options.hostModules)
 
-  const credentials = join(options.productHome, ".credentials.yaml")
-  if (!existsSync(credentials)) writeFileSync(credentials, PUBLIC_CREDENTIAL, { mode: 0o600 })
-
   return {
     home: options.productHome,
     patch: join(options.productHome, "product.cordis.patch.yml"),
@@ -129,11 +129,21 @@ export function buildDshEnvironment(
   bundledSkillDir: string,
   source: NodeJS.ProcessEnv = process.env,
 ) {
-  const environment: NodeJS.ProcessEnv = {
-    ...source,
+  // Windows treats environment names case-insensitively, but this is a plain object: a shell that
+  // exported `opencode_api_key` survives a `delete` of the canonical spelling and reaches the
+  // sidecar beside the name meant to replace it. Drop on the lowercased name so every spelling the
+  // product owns leaves with one rule, then state the owned values.
+  const owned = new Set(
+    [
+      "DSH_HOME",
+      "DSH_BUNDLED_SKILL_DIR",
+      ...DROPPED_MODEL_ENVIRONMENT,
+      ...Object.keys(SEEDED_MODEL_ENVIRONMENT),
+    ].map((name) => name.toLowerCase()),
+  )
+  return {
+    ...Object.fromEntries(Object.entries(source).filter(([name]) => !owned.has(name.toLowerCase()))),
     DSH_BUNDLED_SKILL_DIR: bundledSkillDir,
-  }
-  delete environment.DSH_HOME
-  for (const name of DROPPED_MODEL_ENVIRONMENT) delete environment[name]
-  return environment
+    ...SEEDED_MODEL_ENVIRONMENT,
+  } satisfies NodeJS.ProcessEnv
 }

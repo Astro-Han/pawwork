@@ -6,14 +6,12 @@ import {
   readFileSync,
   readlinkSync,
   rmSync,
-  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { DOCUMENT_VERSION, parseCredentialsDocument } from "@deepseek-ai/dsh-credentials-local"
 import { readProductPatch } from "./dsh-product-patch.testing"
 import {
   buildDshEnvironment,
@@ -245,37 +243,16 @@ describe("DSH product home", () => {
     ).toThrow(/host module scope is missing/)
   })
 
-  test("creates the public free-model credential for a fresh product home", () => {
+  // The store is the user's, and the free-model credential is not: it now arrives through the
+  // launching environment, which outranks the store. Writing a seed into the store as well would
+  // put a value the product owns somewhere the user can edit, to no effect.
+  test("leaves the credential store alone for a fresh product home", () => {
     const productHome = join(temporaryDirectory(), "fresh")
     const resources = join(import.meta.dirname, "../../resources/dsh")
 
     prepareDshProductHome({ productHome, resources, hostModules })
 
-    expect(readFileSync(join(productHome, ".credentials.yaml"), "utf8")).toBe(
-      'version: 1\nrefs:\n  OPENCODE_API_KEY: "public"\n',
-    )
-    // The file sits next to every other user in a shared home, and the next key
-    // written into it is the user's own. Windows ignores the mode entirely.
-    if (process.platform !== "win32") {
-      expect(statSync(join(productHome, ".credentials.yaml")).mode & 0o777).toBe(0o600)
-    }
-  })
-
-  // The seed is a literal, so byte-equality against another literal can only
-  // restate it. What has to hold is that the *installed* DSH accepts it: the
-  // format is versioned now, and a DSH that moves to version 2 would otherwise
-  // fail nowhere until a user's app quietly refuses to open.
-  test("seeds a credential document the installed DSH accepts", () => {
-    const productHome = join(temporaryDirectory(), "fresh")
-    const resources = join(import.meta.dirname, "../../resources/dsh")
-
-    prepareDshProductHome({ productHome, resources, hostModules })
-    const file = join(productHome, ".credentials.yaml")
-    const seeded = readFileSync(file, "utf8")
-
-    expect(DOCUMENT_VERSION).toBe(1)
-    const parsed = parseCredentialsDocument(seeded, file)
-    expect([...parsed.refs]).toEqual([["OPENCODE_API_KEY", "public"]])
+    expect(existsSync(join(productHome, ".credentials.yaml"))).toBe(false)
   })
 
   test("publishes OpenCode Free on one route per protocol the gateway serves", () => {
@@ -294,6 +271,7 @@ describe("DSH product home", () => {
       }>
     }
     const catalog = installedOpenCodeCatalog()
+    const environment: NodeJS.ProcessEnv = buildDshEnvironment("/app/skills", {})
 
     // The patch and the refresh have to name the same routes: a route only one
     // of them knows is either never refreshed or published as a third provider.
@@ -303,7 +281,10 @@ describe("DSH product home", () => {
 
     for (const { route, api } of OPENCODE_ROUTES) {
       const profile = providerConfig.providers[route]
-      expect(profile.apiKeyEnv).toBe("OPENCODE_API_KEY")
+      // Whatever ref the route names, the launcher has to be the one stating it: a ref only the
+      // patch knows is a credential nothing supplies, and every free model answers 401.
+      expect(profile.apiKeyEnv).toBeTypeOf("string")
+      expect(environment[profile.apiKeyEnv as string]).toBe("public")
       expect(profile.displayName).toMatch(/^OpenCode Free/)
       expect(profile.baseURL).toBe(OPENCODE_ROUTE_BASE_URL)
       // The protocol has to be one the installed adapter still spells this way.
@@ -354,6 +335,33 @@ describe("DSH product home", () => {
     expect(environment).toEqual({
       PATH: "/usr/bin",
       DSH_BUNDLED_SKILL_DIR: "/app/skills",
+      OPENCODE_API_KEY: "public",
     })
+  })
+
+  // Windows environment names are case-insensitive while this object is not, so a lowercase
+  // export would otherwise ride along beside the name meant to replace it and leave which one
+  // the sidecar sees up to the platform.
+  test("drops every casing of the names the product owns", () => {
+    const environment = buildDshEnvironment("/app/skills", {
+      PATH: "/usr/bin",
+      opencode_api_key: "ambient",
+      Deepseek_Api_Key: "ambient-deepseek",
+      dsh_home: "/ambient/dsh",
+      dsh_bundled_skill_dir: "/ambient/skills",
+    })
+
+    expect(environment).toEqual({
+      PATH: "/usr/bin",
+      DSH_BUNDLED_SKILL_DIR: "/app/skills",
+      OPENCODE_API_KEY: "public",
+    })
+  })
+
+  // The whole fix rests on this value reaching the sidecar as an inherited environment variable:
+  // credentials-local ranks that layer above its own store and refuses writes it would shadow, so
+  // a key a user types on the Models page cannot displace it or reach the gateway.
+  test("states the free-model credential even when nothing ambient names it", () => {
+    expect(buildDshEnvironment("/app/skills", { PATH: "/usr/bin" }).OPENCODE_API_KEY).toBe("public")
   })
 })
