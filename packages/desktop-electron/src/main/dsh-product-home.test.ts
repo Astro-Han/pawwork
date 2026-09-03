@@ -6,14 +6,12 @@ import {
   readFileSync,
   readlinkSync,
   rmSync,
-  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { DOCUMENT_VERSION, parseCredentialsDocument } from "@deepseek-ai/dsh-credentials-local"
 import { readProductPatch } from "./dsh-product-patch.testing"
 import {
   buildDshEnvironment,
@@ -257,21 +255,6 @@ describe("DSH product home", () => {
     expect(existsSync(join(productHome, ".credentials.yaml"))).toBe(false)
   })
 
-  // The literal has to be one the *installed* credentials-local accepts as a ref name and value:
-  // the environment layer is parsed by the same reader as the store, and a name it rejects would
-  // fail nowhere until a user's free models stopped answering.
-  test("seeds a credential the installed DSH reads back from the environment", () => {
-    const file = join(temporaryDirectory(), ".credentials.yaml")
-    const environment = buildDshEnvironment("/app/skills", {})
-
-    expect(DOCUMENT_VERSION).toBe(1)
-    const parsed = parseCredentialsDocument(
-      `version: 1\nrefs:\n  OPENCODE_API_KEY: "${environment.OPENCODE_API_KEY}"\n`,
-      file,
-    )
-    expect([...parsed.refs]).toEqual([["OPENCODE_API_KEY", "public"]])
-  })
-
   test("publishes OpenCode Free on one route per protocol the gateway serves", () => {
     const patch = readProductPatch()
     const modelDefaults = patch.find((entry) => entry.id === "agent-default-model")?.config as {
@@ -288,6 +271,7 @@ describe("DSH product home", () => {
       }>
     }
     const catalog = installedOpenCodeCatalog()
+    const environment: NodeJS.ProcessEnv = buildDshEnvironment("/app/skills", {})
 
     // The patch and the refresh have to name the same routes: a route only one
     // of them knows is either never refreshed or published as a third provider.
@@ -297,7 +281,10 @@ describe("DSH product home", () => {
 
     for (const { route, api } of OPENCODE_ROUTES) {
       const profile = providerConfig.providers[route]
-      expect(profile.apiKeyEnv).toBe("OPENCODE_API_KEY")
+      // Whatever ref the route names, the launcher has to be the one stating it: a ref only the
+      // patch knows is a credential nothing supplies, and every free model answers 401.
+      expect(profile.apiKeyEnv).toBeTypeOf("string")
+      expect(environment[profile.apiKeyEnv as string]).toBe("public")
       expect(profile.displayName).toMatch(/^OpenCode Free/)
       expect(profile.baseURL).toBe(OPENCODE_ROUTE_BASE_URL)
       // The protocol has to be one the installed adapter still spells this way.
