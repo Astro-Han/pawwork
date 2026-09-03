@@ -1,8 +1,22 @@
 diff --git a/lib/index.js b/lib/index.js
-index 906afd7..3c42cda 100644
+index c25e5c7afcd9381dec2490fbff24910f173281d0..139d623cb1e08c8e5094779d0e5bb2bf17e9056c 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -2439,7 +2439,16 @@ function directoryEntries(profiles) {
+@@ -386,7 +386,12 @@ const COMPLETIONS_COMPAT_GATE = {
+ 	vercelGatewayRouting: "withhold",
+ 	zaiToolStream: "withhold",
+ 	supportsOpenAIGrammarTools: "withhold",
+-	sendSessionAffinityHeaders: "withhold",
++	/* PawWork patch: let a route ask for the session-affinity headers, which
++	Completions gates off and Responses sends unconditionally. The decision stays
++	in the product patch. The switch also writes `session_id` and
++	`x-session-affinity`; narrowing it to one header would mean opening
++	`sessionAffinityFormat` too. Drop this once upstream offers the field. */
++	sendSessionAffinityHeaders: "offer",
+ 	deferredToolsMode: "withhold",
+ 	sessionAffinityFormat: "withhold"
+ };
+@@ -2447,7 +2464,16 @@ function directoryEntries(profiles) {
  			declared: !catalog.has(provider)
  		});
  	};

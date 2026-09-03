@@ -49,14 +49,20 @@ type InstalledOpenCodeModel = { id: string; cost?: { input?: number } }
 // files each model under. This is the upgrade tripwire behind the route split:
 // PawWork names a protocol per route, so a pi-ai release that respells one, or
 // moves a model between them, has to fail here rather than at the gateway.
-function installedOpenCodeCatalog() {
+function installedPiAi() {
   const require = createRequire(import.meta.url)
   const dshPackage = require.resolve("@deepseek-ai/dsh/package.json")
   const webAppPackage = createRequire(dshPackage).resolve("@deepseek-ai/dsh-web-app/package.json")
   const adapterPackage = createRequire(webAppPackage).resolve("@deepseek-ai/dsh-llm-pi-ai/package.json")
-  const piAiRoot = join(dirname(adapterPackage), "..", "..", "@earendil-works", "pi-ai")
-  const catalog = JSON.parse(readFileSync(join(piAiRoot, "dist/providers/data/opencode.json"), "utf8")) as
-    Record<string, Record<string, InstalledOpenCodeModel>>
+  const adapterRoot = dirname(adapterPackage)
+
+  return { adapterRoot, piAiRoot: join(adapterRoot, "..", "..", "@earendil-works", "pi-ai") }
+}
+
+function installedOpenCodeCatalog() {
+  const catalog = JSON.parse(
+    readFileSync(join(installedPiAi().piAiRoot, "dist/providers/data/opencode.json"), "utf8"),
+  ) as Record<string, Record<string, InstalledOpenCodeModel>>
 
   return new Map(Object.entries(catalog).map(([api, models]) => [api, new Map(Object.entries(models))]))
 }
@@ -305,6 +311,43 @@ describe("DSH product home", () => {
 
     expect(modelDefaults.provider).toBe("opencode")
     expect(providerConfig.providers.opencode.models?.map((model) => model.id)).toContain(modelDefaults.model)
+  })
+
+  // The gateway rejects an inference request with no per-conversation id, and three
+  // packages have to agree for one to go out: the patched adapter has to let a route
+  // ask for it, the packaged patch has to ask, and the header the preload restates
+  // has to be the one pi-ai still writes. Each half is silent on its own.
+  test("carries a per-conversation id to the gateway on both routes", async () => {
+    const { adapterRoot, piAiRoot } = installedPiAi()
+    const adapter = readFileSync(join(adapterRoot, "lib/index.js"), "utf8")
+    const { OPENCODE_ZEN_SESSION_SOURCE_HEADER } = (await import(
+      "../../resources/dsh/zen-identity.mjs"
+    )) as { OPENCODE_ZEN_SESSION_SOURCE_HEADER: string }
+    const providerConfig = readProductPatch().find((entry) => entry.id === "llm-pi-ai")?.config as {
+      providers: Record<string, { compat?: { sendSessionAffinityHeaders?: boolean } }>
+    }
+
+    // Scoped to the Completions gate, because the adapter drops a route-level
+    // switch its gate does not offer with a bare `continue`, and asks whether ANY
+    // protocol offers the field before it complains — a question
+    // `anthropic-messages` already answers for this one. So a whole-file match
+    // would go green off another protocol's gate while the route silently sends
+    // nothing.
+    const completionsGate = adapter.indexOf("const COMPLETIONS_COMPAT_GATE = {")
+    expect(completionsGate).toBeGreaterThan(-1)
+    // Upstream withholds this switch; the packaged patch is what reopens it.
+    expect(adapter.slice(completionsGate, adapter.indexOf("\n};", completionsGate))).toContain(
+      'sendSessionAffinityHeaders: "offer"',
+    )
+    // Completions gates the id behind the switch and defaults it off. Responses
+    // sends it unconditionally, which is why only one route names it.
+    expect(providerConfig.providers.opencode.compat?.sendSessionAffinityHeaders).toBe(true)
+    expect(providerConfig.providers["opencode-responses"].compat?.sendSessionAffinityHeaders).toBeUndefined()
+
+    for (const api of ["openai-completions", "openai-responses"]) {
+      const source = readFileSync(join(piAiRoot, `dist/api/${api}.js`), "utf8")
+      expect(source).toContain(`"${OPENCODE_ZEN_SESSION_SOURCE_HEADER}"`)
+    }
   })
 
   test("does not publish the bundled paid DeepSeek route", () => {

@@ -54,6 +54,30 @@ test('replaces User-Agent and keeps the original request headers', async () => {
   });
 });
 
+// The id is restated, never minted: the gateway groups a conversation by this
+// value, so a fresh one per request would be worse than sending nothing.
+test('restates the session id the gateway reads, and invents none', async () => {
+  const {
+    applyOpenCodeZenHeaders,
+    OPENCODE_ZEN_SESSION_HEADER,
+    OPENCODE_ZEN_SESSION_SOURCE_HEADER,
+  } = await loadIdentity();
+  // Spelled out, not compared against the same import: the names are the contract
+  // with the gateway, so a rename on both sides has to fail here.
+  assert.equal(OPENCODE_ZEN_SESSION_SOURCE_HEADER, 'x-client-request-id');
+  assert.equal(OPENCODE_ZEN_SESSION_HEADER, 'x-opencode-session');
+  const sessionId = 'session-01513391-0758-4654-9a04-da77af86c553';
+
+  const inference = applyOpenCodeZenHeaders('https://opencode.ai/zen/v1/chat/completions', {
+    headers: { [OPENCODE_ZEN_SESSION_SOURCE_HEADER]: sessionId },
+  });
+  assert.equal(headerRecord(inference)[OPENCODE_ZEN_SESSION_HEADER], sessionId);
+
+  // The settings card's "fetch models" button is the request with no session.
+  const models = applyOpenCodeZenHeaders('https://opencode.ai/zen/v1/models', { headers: {} });
+  assert.equal(headerRecord(models)[OPENCODE_ZEN_SESSION_HEADER], undefined);
+});
+
 test('wraps fetch so only Zen requests carry the official OpenCode identity', async () => {
   const { wrapFetchForOpenCodeZen, OPENCODE_ZEN_HEADERS, OPENCODE_ZEN_HOST } = await loadIdentity();
   const seen = [];
