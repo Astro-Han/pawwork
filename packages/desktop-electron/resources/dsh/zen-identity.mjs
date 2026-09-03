@@ -12,6 +12,14 @@ export const OPENCODE_ZEN_HEADERS = Object.freeze({
   'x-opencode-client': 'desktop',
 });
 
+// The gateway groups a conversation's requests by `x-opencode-session` and
+// rejects inference requests that omit it. pi-ai already writes the harness
+// session id, stable for the life of a conversation, as `x-client-request-id`,
+// so it is restated under the name the gateway reads rather than minted here. A
+// request carrying no session — the model list — sends none.
+export const OPENCODE_ZEN_SESSION_SOURCE_HEADER = 'x-client-request-id';
+export const OPENCODE_ZEN_SESSION_HEADER = 'x-opencode-session';
+
 export function requestUrl(input) {
   if (typeof input === 'string') return input;
   if (input instanceof URL) return input.href;
@@ -32,6 +40,8 @@ export function applyOpenCodeZenHeaders(input, init) {
   const headers = new Headers(init?.headers ?? (input && typeof input === 'object' ? input.headers : undefined));
   headers.set('user-agent', OPENCODE_ZEN_HEADERS['user-agent']);
   headers.set('x-opencode-client', OPENCODE_ZEN_HEADERS['x-opencode-client']);
+  const session = headers.get(OPENCODE_ZEN_SESSION_SOURCE_HEADER);
+  if (session) headers.set(OPENCODE_ZEN_SESSION_HEADER, session);
   return { ...(init || {}), headers };
 }
 

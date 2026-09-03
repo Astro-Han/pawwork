@@ -11,6 +11,10 @@
 # `ling-3.0-flash-fin-free`, and only the paid `muse-spark-1.2`), so a route
 # without them cannot serve those models before the first refresh lands.
 # resources/dsh/product/lib/opencode-free.cjs keeps both lists current.
+#
+# The gateway requires a per-conversation id on every request, and only the
+# Completions protocol gates that behind `sendSessionAffinityHeaders`. The switch
+# is route-level because a catalog refresh rewrites `models` and would drop it.
 - id: llm-pi-ai
   config:
     providers:
@@ -19,6 +23,8 @@
         displayName: OpenCode Free
         api: openai-completions
         baseURL: https://opencode.ai/zen/v1
+        compat:
+          sendSessionAffinityHeaders: true
         models:
           - id: big-pickle
           - id: ling-3.0-flash-fin-free
