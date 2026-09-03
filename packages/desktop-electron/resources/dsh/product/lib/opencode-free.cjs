@@ -15,6 +15,33 @@ const OPENCODE_MODELS_URL = 'https://models.dev/api.json';
 const LLM_PI_AI_NAMESPACE = 'llm-pi-ai';
 const OPENCODE_ROUTE_BASE_URL = 'https://opencode.ai/zen/v1';
 /**
+ * How PawWork addresses the zen gateway.
+ *
+ * The gateway meters free-tier traffic per client identity, and an unrecognized
+ * `user-agent` lands in a pool that answers `FreeUsageLimitError` (HTTP 429)
+ * long before the desktop-client pool does. Both routes send the desktop client
+ * identity so a PawWork user gets the free access the models are published
+ * under. `user-agent` is lowercase because the adapter compares header names
+ * case-insensitively and prefers the spelling a route declares.
+ *
+ * The shape is the opencode desktop client's own: its embedded server builds
+ * `opencode/<channel>/<version>/<client>`, a release build's channel is
+ * `latest`, and the desktop sets the client to `desktop`. Bump the version to
+ * the current `@opencode-ai/desktop` release, not on PawWork's own cadence.
+ *
+ * The four per-session headers that client also sends (`x-session-affinity`,
+ * `X-Session-Id`, `x-opencode-project`, `x-opencode-session`) are deliberately
+ * absent: they carry one session's identity, and a route profile can only
+ * declare constants, which would report every user's every turn as the same
+ * session.
+ */
+const OPENCODE_CLIENT = 'desktop';
+const OPENCODE_CLIENT_VERSION = '1.18.15';
+const OPENCODE_CLIENT_HEADERS = {
+	'user-agent': `opencode/latest/${OPENCODE_CLIENT_VERSION}/${OPENCODE_CLIENT}`,
+	'x-opencode-client': OPENCODE_CLIENT,
+};
+/**
  * The zen gateway serves one wire protocol per model, not one per gateway: a
  * model reached on the wrong endpoint answers 500 on every attempt. A pi-ai
  * route carries a single protocol (`PiAiModelProfile` has no per-model `api`),
@@ -256,11 +283,13 @@ async function refreshOpenCodeFreeModels({ settings, defaultModel, logger, fetch
 		const unchanged = Array.isArray(currentProvider?.models)
 			&& currentProvider?.api === api
 			&& currentProvider?.baseURL === OPENCODE_ROUTE_BASE_URL
+			&& isDeepStrictEqual(currentProvider.headers, OPENCODE_CLIENT_HEADERS)
 			&& isDeepStrictEqual(currentProvider.models, merged[route]);
 		if (unchanged) continue;
 		ops.push(
 			{ op: 'set', path: ['providers', route, 'api'], value: api },
 			{ op: 'set', path: ['providers', route, 'baseURL'], value: OPENCODE_ROUTE_BASE_URL },
+			{ op: 'set', path: ['providers', route, 'headers'], value: OPENCODE_CLIENT_HEADERS },
 			{ op: 'set', path: ['providers', route, 'models'], value: merged[route] },
 		);
 	}
@@ -278,6 +307,7 @@ async function refreshOpenCodeFreeModels({ settings, defaultModel, logger, fetch
 }
 
 module.exports = {
+	OPENCODE_CLIENT_HEADERS,
 	OPENCODE_ROUTES,
 	OPENCODE_ROUTE_BASE_URL,
 	isZeroCost,

@@ -1,8 +1,44 @@
 diff --git a/lib/index.js b/lib/index.js
-index 906afd7..3c42cda 100644
+index c25e5c7afcd9381dec2490fbff24910f173281d0..7dff1ac276c58abf5a35188d33f7addbd0ee0c4b 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -2439,7 +2439,16 @@ function directoryEntries(profiles) {
+@@ -1643,13 +1643,17 @@ function reasoningInfo(model, defaultLevel) {
+ 		...defaultLevel === void 0 ? {} : { defaultEffort: ReasoningEffortId(defaultLevel) }
+ 	} };
+ }
+-/** Merge deployment headers while removing case-insensitive attribution collisions. */
++/* PawWork patch: a route profile's own header wins over the harness attribution
++header of the same name (case-insensitively), instead of being dropped. A gateway
++may meter or admit traffic by the client identity it is addressed with, so a route
++declared for such a gateway has to be able to state that identity. Routes that
++declare nothing still send attribution unchanged. */
++/** Merge deployment headers, letting a declared name displace the attribution default. */
+ function requestHeaders(headers) {
+-	const attribution = attributionHeaders();
+-	const reserved = new Set(Object.keys(attribution).map((name) => name.toLowerCase()));
++	const declared = new Set(Object.keys(headers ?? {}).map((name) => name.toLowerCase()));
+ 	return {
+-		...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
+-		...attribution
++		...Object.fromEntries(Object.entries(attributionHeaders()).filter(([name]) => !declared.has(name.toLowerCase()))),
++		...headers
+ 	};
+ }
+ /**
+@@ -2178,7 +2182,11 @@ async function discoverModels(request, storedProfile) {
+ 		const headers = new Headers(stored?.headers === void 0 ? void 0 : Object.entries(stored.headers));
+ 		headers.set("accept", "application/json");
+ 		if (apiKey !== void 0) headers.set("authorization", `Bearer ${apiKey}`);
+-		for (const [name, value] of Object.entries(attributionHeaders())) headers.set(name, value);
++		/* PawWork patch: same precedence as requestHeaders — discovery must address the
++		gateway as the same client the completion requests do, or a route admitted for
++		one identity is listed under another. */
++		const declared = new Set(Object.keys(stored?.headers ?? {}).map((name) => name.toLowerCase()));
++		for (const [name, value] of Object.entries(attributionHeaders())) if (!declared.has(name.toLowerCase())) headers.set(name, value);
+ 		response = await fetch(url, {
+ 			method: "GET",
+ 			headers,
+@@ -2447,7 +2455,16 @@ function directoryEntries(profiles) {
  			declared: !catalog.has(provider)
  		});
  	};

@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
+	OPENCODE_CLIENT_HEADERS,
 	isZeroCost,
 	selectFreeAndServed,
 	waitForNamespace,
@@ -158,6 +159,7 @@ test('refresh writes free non-deprecated models with serviceable route wiring', 
 	assert.deepEqual(writes[0].ops, [
 		{ op: 'set', path: ['providers', 'opencode', 'api'], value: 'openai-completions' },
 		{ op: 'set', path: ['providers', 'opencode', 'baseURL'], value: 'https://opencode.ai/zen/v1' },
+		{ op: 'set', path: ['providers', 'opencode', 'headers'], value: OPENCODE_CLIENT_HEADERS },
 		{ op: 'set', path: ['providers', 'opencode', 'models'], value: [{ id: 'hy3-free' }] },
 	]);
 });
@@ -176,9 +178,11 @@ test('refresh wires each protocol to its own route in one write', async () => {
 	assert.deepEqual(writes[0].ops, [
 		{ op: 'set', path: ['providers', 'opencode', 'api'], value: 'openai-completions' },
 		{ op: 'set', path: ['providers', 'opencode', 'baseURL'], value: 'https://opencode.ai/zen/v1' },
+		{ op: 'set', path: ['providers', 'opencode', 'headers'], value: OPENCODE_CLIENT_HEADERS },
 		{ op: 'set', path: ['providers', 'opencode', 'models'], value: [{ id: 'plain-free' }] },
 		{ op: 'set', path: ['providers', 'opencode-responses', 'api'], value: 'openai-responses' },
 		{ op: 'set', path: ['providers', 'opencode-responses', 'baseURL'], value: 'https://opencode.ai/zen/v1' },
+		{ op: 'set', path: ['providers', 'opencode-responses', 'headers'], value: OPENCODE_CLIENT_HEADERS },
 		{ op: 'set', path: ['providers', 'opencode-responses', 'models'], value: [{ id: 'responses-free' }] },
 	]);
 });
@@ -204,7 +208,7 @@ test('refresh keeps configured metadata within its own route', async () => {
 test('refresh leaves a route the live catalog has nothing for untouched', async () => {
 	const { settings, writes } = settingsHarness({
 		providers: {
-			opencode: { api: 'openai-completions', baseURL: 'https://opencode.ai/zen/v1', models: [{ id: 'plain-free' }] },
+			opencode: { api: 'openai-completions', baseURL: 'https://opencode.ai/zen/v1', headers: OPENCODE_CLIENT_HEADERS, models: [{ id: 'plain-free' }] },
 			'opencode-responses': { models: [{ id: 'packaged-resp' }] },
 		},
 	});
@@ -314,6 +318,7 @@ test('refresh skips the write when live profiles and routing already match', asy
 		providers: { opencode: {
 			api: 'openai-completions',
 			baseURL: 'https://opencode.ai/zen/v1',
+			headers: OPENCODE_CLIENT_HEADERS,
 			models: [{ id: 'hy3-free' }],
 		} },
 	});
@@ -531,4 +536,16 @@ test('product lifecycle retries a failed startup refresh after one and five minu
 			else process.env[name] = value;
 		}
 	}
+});
+
+// The gateway admits the free tier by the client identity it is addressed with:
+// an unrecognized user-agent is metered in a pool that answers 429 long before
+// the desktop-client pool does. A rewrite that drops the shape silently costs
+// every user their free access, so pin it.
+test('the client identity addresses the gateway as the opencode desktop app', () => {
+	assert.match(OPENCODE_CLIENT_HEADERS['user-agent'], /^opencode\/latest\/\d+\.\d+\.\d+\/desktop$/);
+	assert.equal(OPENCODE_CLIENT_HEADERS['x-opencode-client'], 'desktop');
+	// The adapter drops an attribution default only for a name a route declares,
+	// and it compares case-insensitively against its own lowercase spelling.
+	assert.deepEqual(Object.keys(OPENCODE_CLIENT_HEADERS), Object.keys(OPENCODE_CLIENT_HEADERS).map((name) => name.toLowerCase()));
 });

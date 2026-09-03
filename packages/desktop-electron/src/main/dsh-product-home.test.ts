@@ -26,9 +26,13 @@ import {
 
 // The product plugin the packaged patch has to stay in step with. It ships as
 // CommonJS into the DSH home, so it is required rather than imported.
-const { OPENCODE_ROUTES, OPENCODE_ROUTE_BASE_URL } = createRequire(import.meta.url)(
+const { OPENCODE_CLIENT_HEADERS, OPENCODE_ROUTES, OPENCODE_ROUTE_BASE_URL } = createRequire(import.meta.url)(
   "../../resources/dsh/product/lib/opencode-free.cjs",
-) as { OPENCODE_ROUTES: Array<{ route: string; api: string }>; OPENCODE_ROUTE_BASE_URL: string }
+) as {
+  OPENCODE_CLIENT_HEADERS: Record<string, string>
+  OPENCODE_ROUTES: Array<{ route: string; api: string }>
+  OPENCODE_ROUTE_BASE_URL: string
+}
 
 const appPath = join(import.meta.dirname, "../..")
 const hostModules = resolveHostModules({ appPath, isPackaged: false, resourcesPath: "/unused" })
@@ -290,6 +294,7 @@ describe("DSH product home", () => {
         displayName?: string
         api?: string
         baseURL?: string
+        headers?: Record<string, string>
         models?: Array<{ id: string }>
       }>
     }
@@ -306,6 +311,9 @@ describe("DSH product home", () => {
       expect(profile.apiKeyEnv).toBe("OPENCODE_API_KEY")
       expect(profile.displayName).toMatch(/^OpenCode Free/)
       expect(profile.baseURL).toBe(OPENCODE_ROUTE_BASE_URL)
+      // The gateway meters the free tier per client identity, so the packaged
+      // patch has to address it as the same client the refresh writes back.
+      expect(profile.headers).toEqual(OPENCODE_CLIENT_HEADERS)
       // The protocol has to be one the installed adapter still spells this way.
       expect([...catalog.keys()]).toContain(api)
       expect(profile.api).toBe(api)

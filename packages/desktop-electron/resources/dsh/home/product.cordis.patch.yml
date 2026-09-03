@@ -16,6 +16,9 @@
     providers:
       opencode:
         apiKeyEnv: OPENCODE_API_KEY
+        headers:
+          user-agent: opencode/latest/1.18.15/desktop
+          x-opencode-client: desktop
         displayName: OpenCode Free
         api: openai-completions
         baseURL: https://opencode.ai/zen/v1
@@ -27,6 +30,9 @@
           - id: nemotron-3.5-lightning-free
       opencode-responses:
         apiKeyEnv: OPENCODE_API_KEY
+        headers:
+          user-agent: opencode/latest/1.18.15/desktop
+          x-opencode-client: desktop
         displayName: OpenCode Free (Responses)
         api: openai-responses
         baseURL: https://opencode.ai/zen/v1
