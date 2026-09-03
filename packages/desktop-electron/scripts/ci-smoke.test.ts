@@ -10,6 +10,7 @@ import {
   appIdForSmoke,
   dshHomeForSmoke,
   assertCiSmokeProduct,
+  assertCiSmokeFreeModelTurn,
   buildSmokeEnv,
   captureWindowsAppScreenshot,
   isCiSmokeDshTarget,
@@ -21,7 +22,7 @@ import {
   resolveLaunchCommand,
   resolveMainEntry,
 } from "./ci-smoke"
-import type { CiSmokeProductSnapshot } from "./ci-smoke"
+import type { CiSmokeFreeModelTurn, CiSmokeProductSnapshot } from "./ci-smoke"
 import { packagedAppEnv } from "./packaged-app-env.ts"
 import type { PawWorkChannel } from "../src/main/app-identity.ts"
 
@@ -542,4 +543,42 @@ describe("ci smoke helpers", () => {
       }
     },
   )
+})
+
+describe("free-model turn", () => {
+  const answered: CiSmokeFreeModelTurn = {
+    provider: "opencode",
+    model: "big-pickle",
+    requested: true,
+    answered: true,
+    code: null,
+    events: ["agent/request", "turn/end"],
+  }
+
+  test("accepts a turn the shipped default answered", () => {
+    expect(() => assertCiSmokeFreeModelTurn(answered)).not.toThrow()
+  })
+
+  test("rejects a default model that is not an OpenCode Free route", () => {
+    expect(() => assertCiSmokeFreeModelTurn({ ...answered, provider: "deepseek", model: "deepseek-chat" }))
+      .toThrow(/not an OpenCode Free route/)
+  })
+
+  test("rejects a turn that never reached the gateway", () => {
+    expect(() => assertCiSmokeFreeModelTurn({ ...answered, requested: false, answered: false, events: [] }))
+      .toThrow(/never reached the gateway/)
+  })
+
+  test("rejects the credential the gateway refuses", () => {
+    expect(() => assertCiSmokeFreeModelTurn({ ...answered, answered: false, code: "AUTH" }))
+      .toThrow(/rejected as unauthenticated/)
+  })
+
+  test("accepts a turn the gateway failed for a reason other than the credential", () => {
+    // A smoke that went red on upstream instability would be switched off within a week,
+    // and the seeded key is the only part of this the build actually controls.
+    for (const code of ["RATE_LIMIT", "QUOTA_EXCEEDED", "UNKNOWN"]) {
+      expect(() => assertCiSmokeFreeModelTurn({ ...answered, answered: false, code })).not.toThrow()
+    }
+  })
 })
