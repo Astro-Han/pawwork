@@ -105,10 +105,12 @@ const tlsServer = createTlsServer({ cert, key }, (client) => {
   // A write on a still-connecting socket is queued, so writing chunks straight
   // through would put body bytes ahead of the head and the origin answers 400.
   let connected = false
+  let clientEnded = false
   const pending: Buffer[] = []
   const upstream = tlsConnect({ host: TARGET, port: 443, servername: TARGET }, () => {
     connected = true
     for (const queued of pending.splice(0)) if (queued.length > 0) upstream.write(queued)
+    if (clientEnded) upstream.end()
   })
   upstream.on("error", () => client.destroy())
   upstream.pipe(client)
@@ -165,8 +167,15 @@ const tlsServer = createTlsServer({ cert, key }, (client) => {
       if (bodyRemaining === 0) flush()
     }
   })
-  // A request cut off mid-body still had a head worth checking.
-  client.on("end", flush)
+  // A request cut off mid-body still had a head worth checking, and the tunnel's
+  // own EOF has to reach the gateway or that upstream socket lingers until the
+  // gateway times it out. Ending waits for `pending`, so a client that closes
+  // before the upstream handshake finishes cannot truncate its own body.
+  client.on("end", () => {
+    flush()
+    clientEnded = true
+    if (connected) upstream.end()
+  })
   client.on("error", () => upstream.destroy())
 })
 
