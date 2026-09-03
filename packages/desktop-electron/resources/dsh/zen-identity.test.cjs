@@ -18,11 +18,11 @@ function loadIdentity() {
 // The module exists to send exactly these two headers: the whole point is the
 // value, and every other test here compares the value against the same import,
 // so any string would have passed them.
-test('sends the official OpenCode CLI identity, not our own', async () => {
+test('sends the official OpenCode desktop identity, not our own', async () => {
   const { OPENCODE_ZEN_HEADERS, OPENCODE_ZEN_HOST } = await loadIdentity();
   assert.deepEqual({ ...OPENCODE_ZEN_HEADERS }, {
-    'user-agent': 'opencode/latest/1.16.2/cli',
-    'x-opencode-client': 'cli',
+    'user-agent': 'opencode/latest/1.18.15/desktop',
+    'x-opencode-client': 'desktop',
   });
   assert.equal(OPENCODE_ZEN_HOST, 'opencode.ai');
 });
