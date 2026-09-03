@@ -22,7 +22,7 @@ overrides:
   '@xmldom/xmldom': 0.8.13
   brace-expansion: 5.0.9
   esbuild: 0.28.1
-  fast-uri: 3.1.5
+  fast-uri: 3.1.6
   form-data: 4.0.6
   ip-address: 10.3.1
   js-yaml: 4.3.1

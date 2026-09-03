@@ -102,6 +102,16 @@ export type CiSmokeProductSnapshot = {
   sessionIdsBeforeRestart: string[]
 }
 
+export type CiSmokeFreeModelTurn = {
+  provider: string
+  model: string
+  prepared: boolean
+  answered: boolean
+  completed: boolean
+  code: string | null
+  events: string[]
+}
+
 type ProbeOptions = {
   attempts?: number
   delayMs?: number
@@ -929,6 +939,129 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
   return await evaluateCiSmokeJson(target, expression, 180_000) as CiSmokeProductSnapshot
 }
 
+/**
+ * Send one real turn on the model a fresh install starts with, and report what came back.
+ *
+ * A registered provider is not a usable one: the free routes authenticate with the
+ * credential the product seeds, and a key the gateway rejects answers 401 — which nothing
+ * in the product snapshot can see, because until this runs no request has left the app.
+ *
+ * Its own CDP evaluation rather than another probe folded into that snapshot: this one
+ * waits on a live model, and sharing a budget with the UI probes would report every
+ * unrelated UI failure as a timeout with nothing to read.
+ */
+export async function inspectCiSmokeFreeModelTurn(target: CdpTarget, sessionId: string) {
+  const productSessionId = JSON.stringify(sessionId)
+  const expression = `(async () => {
+    const call = async (method, args) => {
+      const request = { type: "client-request", rpcId: crypto.randomUUID(), method, payload: { args } }
+      const response = await fetch("/api/" + method, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(request),
+      })
+      if (!response.ok) throw new Error(method + ": HTTP " + response.status)
+      const envelope = await response.json()
+      if (!envelope?.result?.ok) throw new Error(method + ": " + (envelope?.result?.error?.message || "unknown failure"))
+      return envelope.result.value
+    }
+    const selection = (await call("session/modelCatalog", {})).default
+    // The workspace the product probe already adopted, which is the only one this run is
+    // known to hold: on Windows it comes from the native picker, not from the harness.
+    const cwd = (await call("session/list", { _request: {} })).items
+      .find((item) => item.sessionId === ${productSessionId})?.cwd
+    const turn = await call("session/create", { request: cwd === undefined ? {} : { cwd } })
+    await call("session/prompt", {
+      request: {
+        requestId: crypto.randomUUID(),
+        sessionId: turn.sessionId,
+        mode: "queue",
+        content: [{ type: "text", text: "Reply with the single word: pong" }],
+      },
+    })
+    const deadline = Date.now() + 120000
+    let records = []
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const item = (await call("session/list", { _request: {} })).items
+        .find((entry) => entry.sessionId === turn.sessionId)
+      // A page is read up to a cursor the caller already holds, and the only one on offer
+      // here is the projection's. \`-1\` is a legal cursor meaning "through nothing", so
+      // passing it reads an empty page forever instead of failing.
+      const throughSeq = item?.projections?.asOfSeq
+      if (throughSeq !== undefined && throughSeq >= 0) {
+        records = (await call("session/page", {
+          request: { address: { kind: "session", sessionId: turn.sessionId }, throughSeq, maxMessages: 200 },
+        })).records
+        if (item.running === false && records.some((record) => record.event?.type === "turn/end")) break
+      }
+      if (Date.now() > deadline) break
+    }
+    const events = records.map((record) => record.event?.type).filter((type) => type !== undefined)
+    const reason = records.find((record) => record.event?.type === "turn/end")?.event?.data?.reason
+    return JSON.stringify({
+      provider: selection.provider,
+      model: selection.model,
+      // Appended once the adapter has a call assembled — before it is dispatched, and even
+      // when no adapter resolved at all. It proves the loop reached the model layer, which
+      // is weaker than proving anything left the machine.
+      prepared: events.includes("request/header"),
+      answered: events.includes("assistant/message"),
+      completed: reason !== undefined,
+      // Off the terminal record, never a scan of the page: \`llm/retry\` logs the failure it
+      // is retrying, code and all, at a lower seq, so a scan reports whichever transient
+      // blip came first and hides the verdict that actually ended the turn.
+      code: reason?.kind === "error" ? reason.error?.code ?? null : null,
+      // Event types only: the log also carries the workspace path and whatever the model
+      // said, and a public CI log is not the place for either.
+      events: Array.from(new Set(events)),
+    })
+  })()`
+
+  return await evaluateCiSmokeJson(target, expression, 180_000) as CiSmokeFreeModelTurn
+}
+
+/**
+ * The routes PawWork serves OpenCode Free on, read from the module that defines them
+ * rather than restated here: the product ships two, one per wire protocol, and a list
+ * copied into the smoke would keep passing a default that moved to a route the product
+ * no longer serves — or start failing one it added.
+ */
+function openCodeFreeRoutes() {
+  const { OPENCODE_ROUTES } = require("../resources/dsh/product/lib/opencode-free.cjs") as {
+    OPENCODE_ROUTES: { route: string }[]
+  }
+  return OPENCODE_ROUTES.map((entry) => entry.route)
+}
+
+/**
+ * Hold the build to shipping a credential its own free routes accept — and to nothing
+ * else. A gateway that answers 400, rate-limits, or drops the stream is the model being
+ * unstable, which no smoke can hold a build to; a 401 is the product shipping a key that
+ * cannot buy the models it ships as the default.
+ */
+export function assertCiSmokeFreeModelTurn(turn: CiSmokeFreeModelTurn) {
+  const failures = [
+    openCodeFreeRoutes().includes(turn.provider)
+      ? null
+      : `the shipped default model is ${turn.provider}/${turn.model}, not an OpenCode Free route`,
+    turn.prepared
+      ? null
+      : `${turn.model} never reached the model layer: ${turn.events.join(", ") || "no events"}`,
+    // Without a terminal record there is no verdict to read, so a silent pass here would
+    // be the check quietly switching itself off. A one-word prompt that cannot finish
+    // inside the budget is its own signal.
+    turn.completed
+      ? null
+      : `${turn.model} did not finish a one-word turn in time, so the credential was never put to the test`,
+    turn.code === "AUTH"
+      ? `${turn.model} was rejected as unauthenticated on the seeded free-tier credential`
+      : null,
+  ].filter((failure): failure is string => failure !== null)
+
+  if (failures.length) throw new Error(`DSH free-model turn failed:\n- ${failures.join("\n- ")}`)
+}
+
 async function evaluateCiSmokeJson(target: CdpTarget, expression: string, timeoutMs = 20_000) {
   if (typeof target.webSocketDebuggerUrl !== "string") {
     throw new Error("DSH CDP target does not expose a WebSocket debugger URL")
@@ -1350,7 +1483,12 @@ async function main() {
         captureWindowsAppScreenshot(process.platform, child.pid, process.env.PAWWORK_CI_SCREENSHOT_PATH)
       }
       assertCiSmokeProduct(product)
-      console.log("CI smoke verified DSH product UI, free model, and bundled skills")
+      console.log("CI smoke verified DSH product UI, free-model routing, and bundled skills")
+      const turn = await inspectCiSmokeFreeModelTurn(cdpTarget, product.sessionId)
+      assertCiSmokeFreeModelTurn(turn)
+      console.log(`CI smoke free-model turn on ${turn.provider}/${turn.model}: ${
+        turn.answered ? "answered" : `no answer (${turn.code ?? "no failure code"}) — the model, not the credential`
+      }`)
       await waitForSessionOnDisk(dshHome, product.sessionId)
       console.log(`CI smoke sessions before shutdown: ${product.sessionIdsBeforeRestart.join(", ") || "(none)"}`)
       console.log(`CI smoke session files before shutdown:\n${describeDirectory(join(dshHome, "sessions"))}`)
