@@ -1,11 +1,15 @@
-// Process preload: wrap global fetch so OpenCode Zen requests look like the official CLI.
+// Process preload: wrap global fetch so OpenCode Zen requests look like the official client.
 // DSH's llm-pi-ai overwrites User-Agent with deepseek-harness attribution, and
 // llm/stream cannot change outbound headers. Loaded with Node --import before dsh.
 
+// The identity the official client sends: its server builds
+// `opencode/<channel>/<version>/<client>`, a release build's channel is `latest`,
+// and PawWork is a desktop app, which is the client the opencode desktop sets too.
+// Track the version against the current @opencode-ai/desktop release.
 export const OPENCODE_ZEN_HOST = 'opencode.ai';
 export const OPENCODE_ZEN_HEADERS = Object.freeze({
-  'user-agent': 'opencode/latest/1.16.2/cli',
-  'x-opencode-client': 'cli',
+  'user-agent': 'opencode/latest/1.18.15/desktop',
+  'x-opencode-client': 'desktop',
 });
 
 export function requestUrl(input) {
