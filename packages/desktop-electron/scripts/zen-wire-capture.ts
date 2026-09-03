@@ -53,6 +53,8 @@ const MODEL_FIELD = /"model"\s*:\s*"([^"]+)"/
 const MODEL_SCAN_BYTES = 4096
 
 const captures: Capture[] = []
+/** Connections whose framing this parser cannot follow, so their later requests went unchecked. */
+let unframed = 0
 const workDir = mkdtempSync(join(tmpdir(), "pawwork-zen-wire-"))
 const capturePath = join(workDir, "capture.jsonl")
 
@@ -100,55 +102,72 @@ function record(head: string, model: string | undefined) {
 }
 
 const tlsServer = createTlsServer({ cert, key }, (client) => {
-  let head = Buffer.alloc(0)
-  let forwarded = false
-  let upstream: ReturnType<typeof tlsConnect> | undefined
+  // A write on a still-connecting socket is queued, so writing chunks straight
+  // through would put body bytes ahead of the head and the origin answers 400.
+  let connected = false
+  const pending: Buffer[] = []
+  const upstream = tlsConnect({ host: TARGET, port: 443, servername: TARGET }, () => {
+    connected = true
+    for (const queued of pending.splice(0)) if (queued.length > 0) upstream.write(queued)
+  })
+  upstream.on("error", () => client.destroy())
+  upstream.pipe(client)
+
+  // One tunnel carries many requests, so the stream is parsed continuously
+  // rather than only as far as the first blank line. Bodies are stepped over by
+  // Content-Length, because a body containing a blank line would otherwise be
+  // read as the next request head.
+  let buffer = Buffer.alloc(0)
+  let head: string | undefined
+  let bodyRemaining = 0
+  let scan = Buffer.alloc(0)
+  let framed = true
+
+  const flush = () => {
+    if (head === undefined) return
+    record(head, MODEL_FIELD.exec(scan.toString("utf8"))?.[1])
+    head = undefined
+    scan = Buffer.alloc(0)
+  }
 
   client.on("data", (chunk: Buffer) => {
-    if (forwarded) return
-    head = Buffer.concat([head, chunk])
-    const end = head.indexOf("\r\n\r\n")
-    if (end === -1) return
+    if (connected) upstream.write(chunk)
+    else pending.push(chunk)
+    if (!framed) return
 
-    const requestHead = head.subarray(0, end + 4).toString("latin1")
-    const body = head.subarray(end + 4)
-    forwarded = true
-
-    // The head and the start of the body do not have to share a TCP segment, so
-    // hold the record open until the model is in hand or the scan budget is
-    // spent. Forwarding never waits for it.
-    let scan = body
-    let recorded = false
-    const tryRecord = (force: boolean) => {
-      if (recorded) return
-      const model = MODEL_FIELD.exec(scan.subarray(0, MODEL_SCAN_BYTES).toString("utf8"))?.[1]
-      if (!force && model === undefined && scan.length < MODEL_SCAN_BYTES) return
-      recorded = true
-      record(requestHead, model)
-    }
-    tryRecord(!requestHead.startsWith("POST"))
-    client.on("end", () => tryRecord(true))
-
-    // A write on a still-connecting socket is queued, so forwarding later chunks
-    // directly would put body bytes ahead of the head and the origin answers 400.
-    let connected = false
-    const pending: Buffer[] = [head.subarray(0, end + 4), body]
-    upstream = tlsConnect({ host: TARGET, port: 443, servername: TARGET }, () => {
-      connected = true
-      for (const queued of pending.splice(0)) if (queued.length > 0) upstream?.write(queued)
-    })
-    client.on("data", (later: Buffer) => {
-      if (!recorded && scan.length < MODEL_SCAN_BYTES) {
-        scan = Buffer.concat([scan, later])
-        tryRecord(false)
+    buffer = Buffer.concat([buffer, chunk])
+    for (;;) {
+      if (bodyRemaining > 0) {
+        const take = Math.min(bodyRemaining, buffer.length)
+        if (scan.length < MODEL_SCAN_BYTES) {
+          scan = Buffer.concat([scan, buffer.subarray(0, Math.min(take, MODEL_SCAN_BYTES - scan.length))])
+        }
+        buffer = buffer.subarray(take)
+        bodyRemaining -= take
+        if (bodyRemaining > 0) return
+        flush()
+        continue
       }
-      if (connected) upstream?.write(later)
-      else pending.push(later)
-    })
-    upstream.on("error", () => client.destroy())
-    upstream.pipe(client)
+      const end = buffer.indexOf("\r\n\r\n")
+      if (end === -1) return
+      head = buffer.subarray(0, end + 4).toString("latin1")
+      buffer = buffer.subarray(end + 4)
+      // Only Content-Length framing can be stepped over exactly. Anything else
+      // desynchronises the parser, so recording stops and the summary says so
+      // rather than reporting heads it may have invented.
+      if (/^transfer-encoding:/im.test(head)) {
+        flush()
+        framed = false
+        unframed += 1
+        return
+      }
+      bodyRemaining = Number(/^content-length:[ \t]*(\d+)/im.exec(head)?.[1] ?? 0)
+      if (bodyRemaining === 0) flush()
+    }
   })
-  client.on("error", () => upstream?.destroy())
+  // A request cut off mid-body still had a head worth checking.
+  client.on("end", flush)
+  client.on("error", () => upstream.destroy())
 })
 
 const proxy = createServer((_request, response) => {
@@ -218,6 +237,12 @@ function summarize() {
         `${unique.length === 0 ? ", head OK" : `, PROBLEMS: ${unique.join("; ")}`}\n` +
         (models.size === 0 ? "" : `    models served: ${[...models].sort().join(", ")}\n`),
     )
+  }
+  // The point of the tool is completeness, so an incomplete run fails rather
+  // than reporting OK over the requests it could not read.
+  if (unframed > 0) {
+    process.stdout.write(`  PROBLEMS: ${unframed} connection(s) used framing this parser cannot follow\n`)
+    failed = true
   }
   if (failed) process.exitCode = 1
 }
