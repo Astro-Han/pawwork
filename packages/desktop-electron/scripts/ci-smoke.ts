@@ -105,8 +105,9 @@ export type CiSmokeProductSnapshot = {
 export type CiSmokeFreeModelTurn = {
   provider: string
   model: string
-  requested: boolean
+  prepared: boolean
   answered: boolean
+  completed: boolean
   code: string | null
   events: string[]
 }
@@ -978,7 +979,7 @@ export async function inspectCiSmokeFreeModelTurn(target: CdpTarget, sessionId: 
         content: [{ type: "text", text: "Reply with the single word: pong" }],
       },
     })
-    const deadline = Date.now() + 90000
+    const deadline = Date.now() + 120000
     let records = []
     for (;;) {
       await new Promise((resolve) => setTimeout(resolve, 1000))
@@ -997,22 +998,40 @@ export async function inspectCiSmokeFreeModelTurn(target: CdpTarget, sessionId: 
       if (Date.now() > deadline) break
     }
     const events = records.map((record) => record.event?.type).filter((type) => type !== undefined)
-    const page = JSON.stringify(records)
+    const reason = records.find((record) => record.event?.type === "turn/end")?.event?.data?.reason
     return JSON.stringify({
       provider: selection.provider,
       model: selection.model,
-      // \`request/header\` is written when the call leaves for the gateway, and
-      // \`assistant/message\` only when one came back whole.
-      requested: events.includes("request/header"),
+      // Appended once the adapter has a call assembled — before it is dispatched, and even
+      // when no adapter resolved at all. It proves the loop reached the model layer, which
+      // is weaker than proving anything left the machine.
+      prepared: events.includes("request/header"),
       answered: events.includes("assistant/message"),
-      code: (/"code":"([A-Z_]+)"/.exec(page) ?? [null, null])[1],
+      completed: reason !== undefined,
+      // Off the terminal record, never a scan of the page: \`llm/retry\` logs the failure it
+      // is retrying, code and all, at a lower seq, so a scan reports whichever transient
+      // blip came first and hides the verdict that actually ended the turn.
+      code: reason?.kind === "error" ? reason.error?.code ?? null : null,
       // Event types only: the log also carries the workspace path and whatever the model
       // said, and a public CI log is not the place for either.
       events: Array.from(new Set(events)),
     })
   })()`
 
-  return await evaluateCiSmokeJson(target, expression, 150_000) as CiSmokeFreeModelTurn
+  return await evaluateCiSmokeJson(target, expression, 180_000) as CiSmokeFreeModelTurn
+}
+
+/**
+ * The routes PawWork serves OpenCode Free on, read from the module that defines them
+ * rather than restated here: the product ships two, one per wire protocol, and a list
+ * copied into the smoke would keep passing a default that moved to a route the product
+ * no longer serves — or start failing one it added.
+ */
+function openCodeFreeRoutes() {
+  const { OPENCODE_ROUTES } = require("../resources/dsh/product/lib/opencode-free.cjs") as {
+    OPENCODE_ROUTES: { route: string }[]
+  }
+  return OPENCODE_ROUTES.map((entry) => entry.route)
 }
 
 /**
@@ -1023,12 +1042,18 @@ export async function inspectCiSmokeFreeModelTurn(target: CdpTarget, sessionId: 
  */
 export function assertCiSmokeFreeModelTurn(turn: CiSmokeFreeModelTurn) {
   const failures = [
-    turn.provider.startsWith("opencode")
+    openCodeFreeRoutes().includes(turn.provider)
       ? null
       : `the shipped default model is ${turn.provider}/${turn.model}, not an OpenCode Free route`,
-    turn.requested
+    turn.prepared
       ? null
-      : `${turn.model} never reached the gateway: ${turn.events.join(", ") || "no events"}`,
+      : `${turn.model} never reached the model layer: ${turn.events.join(", ") || "no events"}`,
+    // Without a terminal record there is no verdict to read, so a silent pass here would
+    // be the check quietly switching itself off. A one-word prompt that cannot finish
+    // inside the budget is its own signal.
+    turn.completed
+      ? null
+      : `${turn.model} did not finish a one-word turn in time, so the credential was never put to the test`,
     turn.code === "AUTH"
       ? `${turn.model} was rejected as unauthenticated on the seeded free-tier credential`
       : null,

@@ -549,24 +549,36 @@ describe("free-model turn", () => {
   const answered: CiSmokeFreeModelTurn = {
     provider: "opencode",
     model: "big-pickle",
-    requested: true,
+    prepared: true,
     answered: true,
+    completed: true,
     code: null,
-    events: ["agent/request", "turn/end"],
+    events: ["request/header", "assistant/message", "turn/end"],
   }
 
   test("accepts a turn the shipped default answered", () => {
     expect(() => assertCiSmokeFreeModelTurn(answered)).not.toThrow()
   })
 
-  test("rejects a default model that is not an OpenCode Free route", () => {
-    expect(() => assertCiSmokeFreeModelTurn({ ...answered, provider: "deepseek", model: "deepseek-chat" }))
-      .toThrow(/not an OpenCode Free route/)
+  test("accepts the second Free route, which serves the other wire protocol", () => {
+    expect(() => assertCiSmokeFreeModelTurn({ ...answered, provider: "opencode-responses" })).not.toThrow()
   })
 
-  test("rejects a turn that never reached the gateway", () => {
-    expect(() => assertCiSmokeFreeModelTurn({ ...answered, requested: false, answered: false, events: [] }))
-      .toThrow(/never reached the gateway/)
+  test("rejects a default model that is not an OpenCode Free route", () => {
+    for (const provider of ["deepseek", "opencode-paid"]) {
+      expect(() => assertCiSmokeFreeModelTurn({ ...answered, provider }))
+        .toThrow(/not an OpenCode Free route/)
+    }
+  })
+
+  test("rejects a turn that never reached the model layer", () => {
+    expect(() => assertCiSmokeFreeModelTurn({ ...answered, prepared: false, answered: false, events: [] }))
+      .toThrow(/never reached the model layer/)
+  })
+
+  test("rejects a turn that never finished, rather than reading no verdict as a pass", () => {
+    expect(() => assertCiSmokeFreeModelTurn({ ...answered, answered: false, completed: false }))
+      .toThrow(/never put to the test/)
   })
 
   test("rejects the credential the gateway refuses", () => {
