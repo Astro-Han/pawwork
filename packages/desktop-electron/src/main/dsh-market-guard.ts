@@ -14,7 +14,7 @@ const MARKET_NAME = "dshmarket"
  * validated with, and dsh-market-guard.test.ts fails until it does.
  */
 export const VERIFIED_COMMUNITY_MARKET = {
-  dsh: "0.1.2-alpha.5",
+  dsh: "0.1.2-rc.1",
   market: "1.39.0",
 } as const
 
