@@ -63,7 +63,7 @@ function guard(
     messages,
     kills,
     notices: () => notices,
-    run: (verifiedVersion = "1.39.0") => ensureVerifiedCommunityMarket({
+    run: (verifiedVersion = VERIFIED_COMMUNITY_MARKET.market) => ensureVerifiedCommunityMarket({
       dshBin: "/app/dsh/bin.js",
       env: { DSH_HOME: "/home/u/.pawwork/dsh" },
       executable: "/app/PawWork",
@@ -137,7 +137,7 @@ describe("ensureVerifiedCommunityMarket", () => {
 
     expect(harness.spawns).toEqual([{
       executable: "/app/PawWork",
-      args: ["/app/dsh/bin.js", "plugin", "--profile", "web", "add", "dshmarket@1.39.0"],
+      args: ["/app/dsh/bin.js", "plugin", "--profile", "web", "add", `dshmarket@${VERIFIED_COMMUNITY_MARKET.market}`],
       options: {
         cwd: expect.stringContaining("pawwork-market-guard-") as unknown,
         detached: true,
@@ -153,7 +153,10 @@ describe("ensureVerifiedCommunityMarket", () => {
   })
 
   test("does nothing, and says nothing, on a normal start", async () => {
-    const harness = guard(profileWith({ declared: "1.39.0", installed: "1.39.0" }))
+    const harness = guard(profileWith({
+      declared: VERIFIED_COMMUNITY_MARKET.market,
+      installed: VERIFIED_COMMUNITY_MARKET.market,
+    }))
 
     await harness.run()
 

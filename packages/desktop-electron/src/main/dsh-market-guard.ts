@@ -15,7 +15,7 @@ const MARKET_NAME = "dshmarket"
  */
 export const VERIFIED_COMMUNITY_MARKET = {
   dsh: "0.1.2-rc.1",
-  market: "1.39.0",
+  market: "1.44.0",
 } as const
 
 // Bounds the wait on the startup page. Overrunning it is not fatal.
