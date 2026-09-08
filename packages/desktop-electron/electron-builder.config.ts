@@ -33,10 +33,9 @@ const repositoryUrl = (channel: PawWorkChannel) => `https://github.com/Astro-Han
 
 const getBase = (channel: PawWorkChannel): Configuration => ({
   artifactName: "pawwork-${os}-${arch}-${version}.${ext}",
-  // DSH maintains real symlinks from its user profile to the installed
-  // dependency closure. Keep dependencies outside the virtual ASAR filesystem
-  // so those links remain traversable in packaged builds.
-  asarUnpack: ["node_modules/**/*"],
+  // The plain-Node sidecar needs real dependency paths. An app.asar.unpacked
+  // directory also triggers node-pty's ASAR rewrite a second time.
+  asar: false,
   directories: {
     output: "dist",
     buildResources: "resources",
