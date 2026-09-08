@@ -49,7 +49,7 @@ export function resolveDshPackagePath(options: ResolveDshPackagePathOptions) {
   if (!options.isPackaged) return options.resolveDevelopmentPackage()
   return join(
     options.resourcesPath,
-    "app.asar.unpacked",
+    "app",
     "node_modules",
     "@deepseek-ai",
     "dsh",
@@ -59,7 +59,7 @@ export function resolveDshPackagePath(options: ResolveDshPackagePathOptions) {
 
 export function resolvePnpmPackagePath(options: ResolvePnpmPackagePathOptions) {
   if (!options.isPackaged) return options.resolveDevelopmentPackage()
-  return join(options.resourcesPath, "app.asar.unpacked", "node_modules", "pnpm", "package.json")
+  return join(options.resourcesPath, "app", "node_modules", "pnpm", "package.json")
 }
 
 // The app's own module tree, not the tree the installed `dsh` package sits in:
@@ -68,7 +68,7 @@ export function resolvePnpmPackagePath(options: ResolvePnpmPackagePathOptions) {
 // needs to reach is what *this* package declared.
 export function resolveHostModules(options: ResolveProductResourcesOptions) {
   return options.isPackaged
-    ? join(options.resourcesPath, "app.asar.unpacked", "node_modules")
+    ? join(options.resourcesPath, "app", "node_modules")
     : join(options.appPath, "node_modules")
 }
 

@@ -42,6 +42,7 @@ afterEach(() => {
 describe("electron builder app-update config", () => {
   test("packages only the DSH production entry", () => {
     const config = createConfig("prod")
+    expect(config.asar).toBe(false)
     const extraResources = config.extraResources
     if (!Array.isArray(extraResources)) throw new Error("extraResources must be a list")
     const dshResources = extraResources.find((resource) => typeof resource === "object" && resource.to === "dsh/")

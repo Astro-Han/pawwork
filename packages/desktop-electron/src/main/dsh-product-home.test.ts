@@ -71,7 +71,7 @@ describe("DSH product home", () => {
   test("uses external packaged resources and source resources in development", () => {
     expect(
       resolveProductResources({
-        appPath: "/Applications/PawWork.app/Contents/Resources/app.asar",
+        appPath: "/Applications/PawWork.app/Contents/Resources/app",
         isPackaged: true,
         resourcesPath: "/Applications/PawWork.app/Contents/Resources",
       }),
@@ -101,7 +101,7 @@ describe("DSH product home", () => {
     ).toBe(
       join(
         "/Applications/PawWork.app/Contents/Resources",
-        "app.asar.unpacked",
+        "app",
         "node_modules",
         "@deepseek-ai",
         "dsh",
@@ -127,7 +127,7 @@ describe("DSH product home", () => {
       }),
     ).toBe(join(
       "/Applications/PawWork.app/Contents/Resources",
-      "app.asar.unpacked",
+      "app",
       "node_modules",
       "pnpm",
       "package.json",
@@ -180,7 +180,7 @@ describe("DSH product home", () => {
       "/repo/app/node_modules",
     )
     expect(resolveHostModules({ appPath: "/ignored", isPackaged: true, resourcesPath: "/r" })).toBe(
-      "/r/app.asar.unpacked/node_modules",
+      "/r/app/node_modules",
     )
   })
 
