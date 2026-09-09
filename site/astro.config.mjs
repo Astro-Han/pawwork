@@ -5,4 +5,5 @@ import { defineConfig } from "astro/config";
 // the production domain may change once registration is sorted out.
 export default defineConfig({
   site: "https://pawwork.ai",
+  compressHTML: true,
 });

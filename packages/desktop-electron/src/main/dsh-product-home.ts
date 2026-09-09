@@ -1,4 +1,4 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, readlinkSync, rmSync, symlinkSync } from "node:fs"
+import { cpSync, existsSync, lstatSync, mkdirSync, readlinkSync, rmSync, symlinkSync, unlinkSync } from "node:fs"
 import { isAbsolute, join } from "node:path"
 
 // The free routes are product-managed and the gateway admits their free tier only on this
@@ -99,7 +99,12 @@ function linkHostScope(productHome: string, hostModules: string) {
   // An upgrade moves the host tree, so a link surviving from an older install
   // would resolve to packages that are no longer there.
   if (existing?.isSymbolicLink() === true && readlinkSync(link) === target) return
-  if (existing !== undefined) rmSync(link, { force: true, recursive: true })
+  if (existing?.isSymbolicLink()) {
+    // Remove the link itself, including a Windows junction with a missing target.
+    unlinkSync(link)
+  } else if (existing !== undefined) {
+    rmSync(link, { force: true, recursive: true })
+  }
   symlinkSync(target, link, "junction")
 }
 
