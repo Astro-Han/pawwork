@@ -1,7 +1,7 @@
 import { spawn, spawnSync, type ChildProcessByStdio } from "node:child_process"
 import { once } from "node:events"
 import type { Readable } from "node:stream"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
@@ -1504,6 +1504,7 @@ async function main() {
   if (product !== undefined) {
     // An upgrade can remove the installed dependencies while leaving their home junction.
     const hostScopeLink = join(dshHome, "node_modules", "@deepseek-ai")
+    const expectedHostScopeTarget = readlinkSync(hostScopeLink)
     unlinkSync(hostScopeLink)
     symlinkSync(join(homeDir, "removed-install", "@deepseek-ai"), hostScopeLink, "junction")
     rmSync(resolveCiSmokeReadyFile(homeDir, { channel: target.channel, mode: target.mode }), { force: true })
@@ -1513,6 +1514,9 @@ async function main() {
     let restartTarget: CdpTarget | undefined
     try {
       await waitForCiSmokeReady(homeDir, target, restarted.child, restarted.spawnError, restartLogs.recent)
+      if (!existsSync(hostScopeLink) || readlinkSync(hostScopeLink) !== expectedHostScopeTarget) {
+        throw new Error(`DSH did not repair host module scope link: ${hostScopeLink}`)
+      }
       restartTarget = await probeCiSmokeCdpTarget(restartPort)
       await inspectCiSmokePersistence(restartTarget, product.sessionId, dshHome, product.sessionIdsBeforeRestart, firstAppLog)
       console.log("CI smoke verified DSH session persistence and dangling host-link repair after restart")
