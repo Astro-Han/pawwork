@@ -1,7 +1,7 @@
 import { spawn, spawnSync, type ChildProcessByStdio } from "node:child_process"
 import { once } from "node:events"
 import type { Readable } from "node:stream"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
@@ -1502,6 +1502,10 @@ async function main() {
   }
 
   if (product !== undefined) {
+    // An upgrade can remove the installed dependencies while leaving their home junction.
+    const hostScopeLink = join(dshHome, "node_modules", "@deepseek-ai")
+    unlinkSync(hostScopeLink)
+    symlinkSync(join(homeDir, "removed-install", "@deepseek-ai"), hostScopeLink, "junction")
     rmSync(resolveCiSmokeReadyFile(homeDir, { channel: target.channel, mode: target.mode }), { force: true })
     const restartPort = await allocateCiSmokeCdpPort()
     const restarted = launchApp(homeDir, target, { cdpPort: restartPort, v1Database })
@@ -1511,7 +1515,7 @@ async function main() {
       await waitForCiSmokeReady(homeDir, target, restarted.child, restarted.spawnError, restartLogs.recent)
       restartTarget = await probeCiSmokeCdpTarget(restartPort)
       await inspectCiSmokePersistence(restartTarget, product.sessionId, dshHome, product.sessionIdsBeforeRestart, firstAppLog)
-      console.log("CI smoke verified DSH session persistence after restart")
+      console.log("CI smoke verified DSH session persistence and dangling host-link repair after restart")
     } finally {
       restartLogs.close()
       await stopChild(restarted.child, restartTarget === undefined ? undefined : () => closeAppWindow(restartTarget as CdpTarget))
