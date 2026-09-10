@@ -1,0 +1,22 @@
+diff --git a/lib/index.js b/lib/index.js
+index d78f1ffe1421dea0ebdbb8d6377e3a475c8f43d1..51b3f124d28fae20597aa2971ef8d5f477648f9e 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -733,7 +733,16 @@ function assertImageBodyCapacity(ctx, maxRequestBodyBytes) {
+ 	if (maxRequestBodyBytes < requiredImageBodyBytes) throw new Error(`client-connection maxRequestBodyBytes (${String(maxRequestBodyBytes)}) must be at least ${String(requiredImageBodyBytes)} for the configured aggregate image limit`);
+ }
+ /** Services required before providing Connection. */
+-const inject = ["credentials"];
++/* PawWork patch: keep webServer a plugin-level dependency, as it was through
++0.1.2-rc.1. `rpc.handle` registers its route through `owner.webServer`, where
++`owner` is this plugin's own context (a Service getter runs against the raw
++instance, so `this.ctx` is not the caller's traced context). Upstream moved the
++carrier into the nested `ctx.inject(["webServer"], …)` below, so from 0.1.5 the
++plugin-level context no longer resolves webServer and every `rpc.handle` call
++throws "cannot get property webServer without inject". PawWork always mounts a
++web carrier, so the 0.1.2 dependency shape is still correct here. Drop this
++once upstream resolves the carrier for `rpc.handle` itself. */
++const inject = ["credentials", "webServer"];
+ const Config = z.object({
+ 	recovery: ConnectionRecoveryConfigSchema.default({}),
+ 	trustedHosts: z.array(String).default([]),

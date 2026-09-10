@@ -20,46 +20,41 @@ export const inject = [
   'workspaceRegistry',
 ];
 
-function isMissingSession(error, id) {
-  return error instanceof Error && error.message === `session "${id}" not found`;
+// The stored header and full log of one session, or undefined when none is stored.
+async function readStoredSession(sessionPersistence, id) {
+  if (await sessionPersistence.stat(id) === undefined) return undefined;
+  const handle = await sessionPersistence.open(id, 'read');
+  try {
+    const { events } = await handle.read();
+    return { header: handle.header, events };
+  } finally {
+    await handle.close();
+  }
 }
 
-function persistedImportMatches(imported, inspection) {
-  const source = inspection.events[0];
+function persistedImportMatches(imported, stored) {
+  const source = stored.events[0];
   return source?.type === 'pawwork-v1/session'
     && source.data?.sourceSessionId === imported.seed[0]?.data?.sourceSessionId
-    && inspection.meta?.cwd === imported.meta.cwd
-    && inspection.meta?.seedLength === imported.meta.seedLength;
+    && stored.header.cwd === imported.meta.cwd;
 }
 
 async function hasPersistedV1Session(sessionPersistence, id) {
-  let inspection;
-  try {
-    inspection = await sessionPersistence.inspect(id);
-  } catch (error) {
-    if (isMissingSession(error, id)) return false;
-    throw error;
-  }
-  const source = inspection.events[0];
+  const stored = await readStoredSession(sessionPersistence, id);
+  const source = stored?.events[0];
   return source?.type === 'pawwork-v1/session'
     && id === `pawwork-v1-${source.data?.sourceSessionId}`
-    && Number.isInteger(inspection.meta?.seedLength)
-    && inspection.events.length >= inspection.meta.seedLength;
+    && stored.events.some((event) => event.type === 'session/end-seed');
 }
 
 export function createDshSessionImporter(ctx, onPersisted = () => {}) {
   return async (imported) => {
-    let inspection;
-    try {
-      inspection = await ctx.sessionPersistence.inspect(imported.id);
-    } catch (error) {
-      if (!isMissingSession(error, imported.id)) throw error;
-    }
-    if (inspection && !persistedImportMatches(imported, inspection)) {
+    const stored = await readStoredSession(ctx.sessionPersistence, imported.id);
+    if (stored && !persistedImportMatches(imported, stored)) {
       throw new Error(`v1 session target does not match source: ${imported.id}`);
     }
 
-    const contentImported = inspection && inspection.events.length >= imported.meta.seedLength;
+    const contentImported = stored && stored.events.length >= imported.meta.seedLength;
     if (!contentImported) {
       await importer.materializeLegacyImages(
         imported,
@@ -69,17 +64,30 @@ export function createDshSessionImporter(ctx, onPersisted = () => {}) {
         seed: imported.seed,
         meta: imported.meta,
       });
-      const detach = ctx.sessions.enter(session);
+      // The seed never re-emits once the session is entered, so persistence only
+      // holds it if it is appended through the write handle first. A stored
+      // record that stops short of the seed is an interrupted earlier import:
+      // its id cannot be created again, so only the missing tail is appended.
+      const storedCount = stored ? stored.events.length : 0;
+      const handle = stored
+        ? await ctx.sessionPersistence.open(imported.id, 'write')
+        : await ctx.sessionPersistence.create(session.header, {
+          inheritedEventCount: session.inheritedEventCount,
+        });
       try {
-        ctx.sessionTitle.rename(session, imported.title);
-        await ctx.sessions.flush(session);
-        // DSH persistence adopts the session on session/created and retires
-        // that ownership on the paired session/disposed emitted by detach.
-        // Imported sessions are cold after this lifecycle; the status RPC
-        // below still supplies the later authoritative sidebar refresh.
-        ctx.sessions.announce(session);
+        await handle.append(session.snapshotEvents().slice(storedCount));
+        const detach = ctx.sessions.enter(session);
+        try {
+          ctx.sessionTitle.rename(session, imported.title);
+          await ctx.sessions.flush(session);
+          // Imported sessions are cold after this lifecycle; the status RPC
+          // below still supplies the later authoritative sidebar refresh.
+          ctx.sessions.announce(session);
+        } finally {
+          detach();
+        }
       } finally {
-        detach();
+        await handle.close();
       }
     }
     onPersisted(imported.id);

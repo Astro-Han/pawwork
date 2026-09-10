@@ -1,8 +1,8 @@
 diff --git a/lib/index.js b/lib/index.js
-index c25e5c7afcd9381dec2490fbff24910f173281d0..139d623cb1e08c8e5094779d0e5bb2bf17e9056c 100644
+index e06cf8d5faf9755710420623908478c704b225b8..079169ccc5b783b6d4a12a69fcf89bbc60fd0889 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -386,7 +386,12 @@ const COMPLETIONS_COMPAT_GATE = {
+@@ -400,7 +400,12 @@ const COMPLETIONS_COMPAT_GATE = {
  	vercelGatewayRouting: "withhold",
  	zaiToolStream: "withhold",
  	supportsOpenAIGrammarTools: "withhold",
@@ -16,8 +16,8 @@ index c25e5c7afcd9381dec2490fbff24910f173281d0..139d623cb1e08c8e5094779d0e5bb2bf
  	deferredToolsMode: "withhold",
  	sessionAffinityFormat: "withhold"
  };
-@@ -2447,7 +2464,16 @@ function directoryEntries(profiles) {
- 			declared: !catalog.has(provider)
+@@ -2564,7 +2569,18 @@ function directoryEntries(profiles) {
+ 			...error === void 0 ? {} : { error }
  		});
  	};
 -	for (const provider of catalog) declare(provider, provider);
@@ -26,11 +26,13 @@ index c25e5c7afcd9381dec2490fbff24910f173281d0..139d623cb1e08c8e5094779d0e5bb2bf
 +	can authenticate with — the harness resolves API keys through ctx.credentials
 +	and hands them to pi-ai per request, while an OAuth grant only ever comes from
 +	a sign-in flow. rc.1 dropped this filter for the new ctx.authorization seam,
-+	but no DSH release yet ships a surface that can start a flow: there is no
-+	authorization.* wire method and no client UI, so listing such a provider offers
-+	an API-key form whose key can never work. Drop this patch once DSH ships that
-+	surface and PawWork mounts @deepseek-ai/dsh-authorization. */
++	and 0.1.5-rc.1 registers a flow per provider through it, but no DSH release
++	yet ships a surface that can start one: dsh-web-app does not mount
++	dsh-authorization and the models settings UI has no sign-in control, so
++	listing such a provider offers an API-key form whose key can never work. Drop
++	this patch once DSH ships that surface and PawWork mounts
++	@deepseek-ai/dsh-authorization. */
 +	for (const provider of catalog) if (catalogProvider(provider)?.auth?.apiKey !== void 0) declare(provider, provider);
- 	for (const [provider, profile] of profiles) declare(provider, profile.displayName);
+ 	for (const [provider, profile] of profiles) declare(provider, profile.displayName, profile.catalogError);
  	return [...entries.values()];
  }

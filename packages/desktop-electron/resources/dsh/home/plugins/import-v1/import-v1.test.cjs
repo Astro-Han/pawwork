@@ -29,6 +29,52 @@ async function snapshotOf(home, sourceDatabase) {
   return (await openV1Snapshot({ home, sourceDatabase })).path;
 }
 
+// ctx.sessionPersistence for tests: lookup(id) answers the header and log of
+// one stored session, or undefined when none is stored; every session the
+// importer creates lands in `created` with the events it appended, and a
+// write open appends into the stored record itself.
+function storedSessions(lookup, created = []) {
+  return {
+    create: async (header, options) => {
+      if (lookup(header.id)) throw new Error(`session "${header.id}" already exists`);
+      const record = { header, inheritedEventCount: options.inheritedEventCount, events: [], closed: false };
+      created.push(record);
+      return {
+        header,
+        append: async (events) => { record.events.push(...events); },
+        close: async () => { record.closed = true; },
+      };
+    },
+    stat: async (id) => {
+      const stored = lookup(id);
+      return stored && { header: stored.header, revision: 'r' };
+    },
+    open: async (id, access) => {
+      const stored = lookup(id);
+      if (!stored) throw new Error(`session "${id}" not found`);
+      return {
+        header: stored.header,
+        read: async () => ({ events: structuredClone(stored.events) }),
+        append: async (events) => {
+          assert.equal(access, 'write');
+          stored.events.push(...events);
+        },
+        close: async () => {},
+      };
+    },
+  };
+}
+
+// What ctx.sessions.prepare hands back: the header and seed the importer stores.
+function preparedSession(id, options = {}) {
+  return {
+    id,
+    header: { version: 3, id, cwd: options.meta?.cwd, isSeeded: false },
+    inheritedEventCount: 0,
+    snapshotEvents: () => structuredClone(options.seed ?? []),
+  };
+}
+
 function temporaryDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-import-v1-'));
 }
@@ -79,6 +125,7 @@ test('retires each persisted v1 session through the paired live lifecycle', asyn
   let defaultModelSupplied = false;
   let sessionPersisted = false;
   const sessionLifecycle = [];
+  const storedSessionRecords = [];
   const finished = new Promise((resolve) => { backgroundFinished = resolve; });
   importerModule.runV1SessionImport = async ({ importSession }) => {
     await importSession({
@@ -130,24 +177,24 @@ test('retires each persisted v1 session through the paired live lifecycle', asyn
         scheduler: { refresh: () => {} },
         store: { activateImportedDefinitions: () => { automationsActivated = true; } },
       },
-      sessionPersistence: {
-        inspect: async (id) => {
-          if (id === 'pawwork-v1-session') {
-            if (!sessionPersisted) throw new Error(`session "${id}" not found`);
-            return {
-              meta: { id, cwd: '/Users/alice/worktree', seedLength: 1 },
-              events: [{ type: 'pawwork-v1/session', data: { sourceSessionId: 'session' } }],
-            };
-          }
-          if (id === 'pawwork-v1-incomplete') {
-            return {
-              meta: { id, seedLength: 2 },
-              events: [{ type: 'pawwork-v1/session', data: { sourceSessionId: 'incomplete' } }],
-            };
-          }
-          throw new Error(`session "${id}" not found`);
-        },
-      },
+      sessionPersistence: storedSessions((id) => {
+        if (id === 'pawwork-v1-session' && sessionPersisted) {
+          return {
+            header: { id, cwd: '/Users/alice/worktree' },
+            events: [
+              { type: 'pawwork-v1/session', data: { sourceSessionId: 'session' } },
+              { type: 'session/end-seed', data: {} },
+            ],
+          };
+        }
+        if (id === 'pawwork-v1-incomplete') {
+          return {
+            header: { id },
+            events: [{ type: 'pawwork-v1/session', data: { sourceSessionId: 'incomplete' } }],
+          };
+        }
+        return undefined;
+      }, storedSessionRecords),
       sessionTitle: { rename: () => { sessionLifecycle.push('rename'); } },
       sessions: {
         announce: () => { sessionLifecycle.push('announce'); },
@@ -156,7 +203,7 @@ test('retires each persisted v1 session through the paired live lifecycle', asyn
           return () => { sessionLifecycle.push('detach'); };
         },
         flush: async () => { sessionLifecycle.push('flush'); sessionPersisted = true; },
-        prepare: () => ({ id: 'pawwork-v1-session' }),
+        prepare: preparedSession,
       },
       attachments: { saveImage: async () => {} },
       workspaceRegistry: {},
@@ -169,11 +216,10 @@ test('retires each persisted v1 session through the paired live lifecycle', asyn
     assert.equal(missingContinueSessionRejected, true);
     assert.equal(incompleteContinueSessionRejected, true);
     assert.equal(defaultModelSupplied, true);
-    // DSH rc.8 persistence adopts ownership on session/created and releases it
-    // on the paired session/disposed. Detaching an unannounced session removes
-    // it from the live store without retirement, leaving later load/prepare to
-    // fail with "already has a live persistence owner" until restart.
     assert.deepEqual(sessionLifecycle, ['enter', 'rename', 'flush', 'announce', 'detach', 'attach-workspace']);
+    assert.equal(storedSessionRecords.length, 1);
+    assert.equal(storedSessionRecords[0].header.id, 'pawwork-v1-session');
+    assert.equal(storedSessionRecords[0].closed, true);
     await stopPlugin();
   } finally {
     importerModule.runV1SessionImport = originalRun;
@@ -263,13 +309,13 @@ test('reports done only once every stage has run and the result is recorded', as
       logger: { warn: () => {} },
       agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }) },
       pawworkAutomations: { scheduler: { refresh: () => {} }, store: { activateImportedDefinitions: () => {} } },
-      sessionPersistence: { inspect: async (id) => { throw new Error(`session "${id}" not found`); } },
+      sessionPersistence: storedSessions(() => undefined),
       sessionTitle: { rename: () => {} },
       sessions: {
         announce: () => {},
         enter: () => () => {},
         flush: async () => { sessionFlushed = true; },
-        prepare: () => ({ id: 'pawwork-v1-session' }),
+        prepare: preparedSession,
       },
       attachments: { saveImage: async () => {} },
       workspaceRegistry: {},
@@ -347,9 +393,9 @@ test('settles the session status when source discovery fails before import', asy
       logger: { warn: () => {} },
       agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }) },
       pawworkAutomations: { scheduler: { refresh: () => {} }, store: { activateImportedDefinitions: () => {} } },
-      sessionPersistence: { inspect: async () => { throw new Error('no session should be inspected'); } },
+      sessionPersistence: storedSessions(() => { throw new Error('no session should be inspected'); }),
       sessionTitle: { rename: () => {} },
-      sessions: { announce: () => {}, enter: () => () => {}, flush: async () => {}, prepare: () => ({}) },
+      sessions: { announce: () => {}, enter: () => () => {}, flush: async () => {}, prepare: preparedSession },
       attachments: { saveImage: async () => {} },
       workspaceRegistry: {},
     });
@@ -406,7 +452,7 @@ test('saves a session\'s images once and leaves an already-imported one alone', 
   let finishImport;
   const finished = new Promise((resolve) => { finishImport = resolve; });
   let stopPlugin;
-  let inspections = 0;
+  const storedRecords = [];
 
   importerModule.runV1SessionImport = async ({ importSession }) => {
     try {
@@ -440,19 +486,16 @@ test('saves a session\'s images once and leaves an already-imported one alone', 
         scheduler: { refresh: () => {} },
         store: { activateImportedDefinitions: () => {} },
       },
-      sessionPersistence: {
-        inspect: async (id) => {
-          inspections += 1;
-          if (inspections === 1) throw new Error(`session "${id}" not found`);
-          return { meta: { id, ...imported.meta }, events: structuredClone(imported.seed) };
-        },
-      },
+      sessionPersistence: storedSessions(
+        (id) => storedRecords.find((record) => record.header.id === id),
+        storedRecords,
+      ),
       sessionTitle: { rename: () => {} },
       sessions: {
         announce: () => {},
         enter: () => () => {},
         flush: async () => {},
-        prepare: (id, options) => { prepared.push({ id, seed: options.seed }); return { id }; },
+        prepare: (id, options) => { prepared.push({ id, seed: options.seed }); return preparedSession(id, options); },
       },
       workspaceRegistry: {},
     });
@@ -526,7 +569,7 @@ test('opens one v1 database snapshot for the whole import run', { timeout: 20_00
       agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }) },
       pawworkAutomations: { scheduler: { refresh: () => {} }, store: { activateImportedDefinitions: () => {} } },
       sessionTitle: { rename: () => {} },
-      sessions: { enter: () => () => {}, flush: async () => {}, prepare: () => ({}) },
+      sessions: { enter: () => () => {}, flush: async () => {}, prepare: preparedSession },
       attachments: { saveImage: async () => {} },
       workspaceRegistry: {},
     });
@@ -605,7 +648,7 @@ test('survives a snapshot it cannot delete', { timeout: 20_000 }, async () => {
       agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }) },
       pawworkAutomations: { scheduler: { refresh: () => {} }, store: { activateImportedDefinitions: () => {} } },
       sessionTitle: { rename: () => {} },
-      sessions: { enter: () => () => {}, flush: async () => {}, prepare: () => ({}) },
+      sessions: { enter: () => () => {}, flush: async () => {}, prepare: preparedSession },
       attachments: { saveImage: async () => {} },
       workspaceRegistry: {},
     });
@@ -1241,12 +1284,10 @@ test('reuses content already owned by DSH and only repairs workspace attachment'
   const importSession = createDshSessionImporter({
     attachments: { saveImage: async () => { throw new Error('images must not be saved again'); } },
     sessions: { prepare: () => { throw new Error('persisted content must not be prepared again'); } },
-    sessionPersistence: {
-      inspect: async (id) => {
-        assert.equal(id, imported.id);
-        return { meta: { id, ...imported.meta }, events: structuredClone(imported.seed) };
-      },
-    },
+    sessionPersistence: storedSessions((id) => {
+      assert.equal(id, imported.id);
+      return { header: { id, cwd: imported.meta.cwd }, events: imported.seed };
+    }),
     sessionTitle: { rename: () => { throw new Error('persisted content must not be renamed again'); } },
     workspaceRegistry: {
       create: async () => ({ attachSession: async (id) => attached.push(id) }),
@@ -1257,6 +1298,45 @@ test('reuses content already owned by DSH and only repairs workspace attachment'
 
   assert.equal(result, 'attached');
   assert.deepEqual(attached, [imported.id]);
+});
+
+test('completes an interrupted import by appending only the missing tail', async () => {
+  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?resume=${Date.now()}`;
+  const { createDshSessionImporter } = await import(pluginUrl);
+  const seed = [
+    { type: 'pawwork-v1/session', seq: 0, time: 1, data: { sourceSessionId: 'partial' } },
+    { type: 'turn/start', seq: 1, time: 2, data: { turn: 1 } },
+    { type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
+  ];
+  const imported = {
+    id: 'pawwork-v1-partial',
+    title: 'Imported session',
+    seed,
+    meta: { cwd: '/Users/alice/worktree', createdAt: 1, seedLength: seed.length },
+  };
+  const stored = { header: { id: imported.id, cwd: imported.meta.cwd }, events: seed.slice(0, 1) };
+  const created = [];
+  const lifecycle = [];
+  const importSession = createDshSessionImporter({
+    attachments: { saveImage: async () => {} },
+    sessions: {
+      announce: () => { lifecycle.push('announce'); },
+      enter: () => { lifecycle.push('enter'); return () => { lifecycle.push('detach'); }; },
+      flush: async () => { lifecycle.push('flush'); },
+      prepare: preparedSession,
+    },
+    sessionPersistence: storedSessions((id) => (id === imported.id ? stored : undefined), created),
+    sessionTitle: { rename: () => { lifecycle.push('rename'); } },
+    workspaceRegistry: {
+      create: async () => ({ attachSession: async () => {} }),
+    },
+  });
+
+  assert.equal(await importSession(imported), 'attached');
+
+  assert.deepEqual(created, []);
+  assert.deepEqual(stored.events, seed);
+  assert.deepEqual(lifecycle, ['enter', 'rename', 'flush', 'announce', 'detach']);
 });
 
 test('attaches an imported session through the official DSH workspace registry', async () => {
@@ -1538,9 +1618,9 @@ function applyImportPlugin(apply, overrides = {}) {
     logger: { warn: () => {} },
     agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }) },
     pawworkAutomations: { scheduler: { refresh: () => {} }, store: { activateImportedDefinitions: () => {} } },
-    sessionPersistence: { inspect: async (id) => { throw new Error(`session "${id}" not found`); } },
+    sessionPersistence: storedSessions(() => undefined),
     sessionTitle: { rename: () => {} },
-    sessions: { announce: () => {}, enter: () => () => {}, flush: async () => {}, prepare: () => ({}) },
+    sessions: { announce: () => {}, enter: () => () => {}, flush: async () => {}, prepare: preparedSession },
     attachments: { saveImage: async () => {} },
     workspaceRegistry: {},
     ...overrides,
