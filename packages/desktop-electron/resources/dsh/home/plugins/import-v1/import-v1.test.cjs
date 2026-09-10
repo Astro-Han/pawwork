@@ -31,10 +31,12 @@ async function snapshotOf(home, sourceDatabase) {
 
 // ctx.sessionPersistence for tests: lookup(id) answers the header and log of
 // one stored session, or undefined when none is stored; every session the
-// importer creates lands in `created` with the events it appended.
+// importer creates lands in `created` with the events it appended, and a
+// write open appends into the stored record itself.
 function storedSessions(lookup, created = []) {
   return {
     create: async (header, options) => {
+      if (lookup(header.id)) throw new Error(`session "${header.id}" already exists`);
       const record = { header, inheritedEventCount: options.inheritedEventCount, events: [], closed: false };
       created.push(record);
       return {
@@ -48,12 +50,15 @@ function storedSessions(lookup, created = []) {
       return stored && { header: stored.header, revision: 'r' };
     },
     open: async (id, access) => {
-      assert.equal(access, 'read');
       const stored = lookup(id);
       if (!stored) throw new Error(`session "${id}" not found`);
       return {
         header: stored.header,
         read: async () => ({ events: structuredClone(stored.events) }),
+        append: async (events) => {
+          assert.equal(access, 'write');
+          stored.events.push(...events);
+        },
         close: async () => {},
       };
     },
@@ -447,7 +452,7 @@ test('saves a session\'s images once and leaves an already-imported one alone', 
   let finishImport;
   const finished = new Promise((resolve) => { finishImport = resolve; });
   let stopPlugin;
-  let inspections = 0;
+  const storedRecords = [];
 
   importerModule.runV1SessionImport = async ({ importSession }) => {
     try {
@@ -481,11 +486,10 @@ test('saves a session\'s images once and leaves an already-imported one alone', 
         scheduler: { refresh: () => {} },
         store: { activateImportedDefinitions: () => {} },
       },
-      sessionPersistence: storedSessions((id) => {
-        inspections += 1;
-        if (inspections === 1) return undefined;
-        return { header: { id, cwd: imported.meta.cwd }, events: imported.seed };
-      }),
+      sessionPersistence: storedSessions(
+        (id) => storedRecords.find((record) => record.header.id === id),
+        storedRecords,
+      ),
       sessionTitle: { rename: () => {} },
       sessions: {
         announce: () => {},
@@ -1294,6 +1298,45 @@ test('reuses content already owned by DSH and only repairs workspace attachment'
 
   assert.equal(result, 'attached');
   assert.deepEqual(attached, [imported.id]);
+});
+
+test('completes an interrupted import by appending only the missing tail', async () => {
+  const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?resume=${Date.now()}`;
+  const { createDshSessionImporter } = await import(pluginUrl);
+  const seed = [
+    { type: 'pawwork-v1/session', seq: 0, time: 1, data: { sourceSessionId: 'partial' } },
+    { type: 'turn/start', seq: 1, time: 2, data: { turn: 1 } },
+    { type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
+  ];
+  const imported = {
+    id: 'pawwork-v1-partial',
+    title: 'Imported session',
+    seed,
+    meta: { cwd: '/Users/alice/worktree', createdAt: 1, seedLength: seed.length },
+  };
+  const stored = { header: { id: imported.id, cwd: imported.meta.cwd }, events: seed.slice(0, 1) };
+  const created = [];
+  const lifecycle = [];
+  const importSession = createDshSessionImporter({
+    attachments: { saveImage: async () => {} },
+    sessions: {
+      announce: () => { lifecycle.push('announce'); },
+      enter: () => { lifecycle.push('enter'); return () => { lifecycle.push('detach'); }; },
+      flush: async () => { lifecycle.push('flush'); },
+      prepare: preparedSession,
+    },
+    sessionPersistence: storedSessions((id) => (id === imported.id ? stored : undefined), created),
+    sessionTitle: { rename: () => { lifecycle.push('rename'); } },
+    workspaceRegistry: {
+      create: async () => ({ attachSession: async () => {} }),
+    },
+  });
+
+  assert.equal(await importSession(imported), 'attached');
+
+  assert.deepEqual(created, []);
+  assert.deepEqual(stored.events, seed);
+  assert.deepEqual(lifecycle, ['enter', 'rename', 'flush', 'announce', 'detach']);
 });
 
 test('attaches an imported session through the official DSH workspace registry', async () => {

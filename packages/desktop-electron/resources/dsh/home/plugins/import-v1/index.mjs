@@ -65,12 +65,17 @@ export function createDshSessionImporter(ctx, onPersisted = () => {}) {
         meta: imported.meta,
       });
       // The seed never re-emits once the session is entered, so persistence only
-      // holds it if it is appended through the write handle first.
-      const handle = await ctx.sessionPersistence.create(session.header, {
-        inheritedEventCount: session.inheritedEventCount,
-      });
+      // holds it if it is appended through the write handle first. A stored
+      // record that stops short of the seed is an interrupted earlier import:
+      // its id cannot be created again, so only the missing tail is appended.
+      const storedCount = stored ? stored.events.length : 0;
+      const handle = stored
+        ? await ctx.sessionPersistence.open(imported.id, 'write')
+        : await ctx.sessionPersistence.create(session.header, {
+          inheritedEventCount: session.inheritedEventCount,
+        });
       try {
-        await handle.append(session.snapshotEvents());
+        await handle.append(session.snapshotEvents().slice(storedCount));
         const detach = ctx.sessions.enter(session);
         try {
           ctx.sessionTitle.rename(session, imported.title);
