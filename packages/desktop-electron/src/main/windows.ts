@@ -5,14 +5,15 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { macTrafficLightPosition, pawworkWindowTitle, titlebarInsetCss } from "./window-chrome"
 import { decideDshNavigation, guardDshNavigation, handleDshWindowOpen } from "./window-navigation"
-import { dshTitleBarOptions, dshWebPreferences, titleBarOverlayStyle } from "./window-options"
+import {
+  dshTitleBarOptions,
+  dshWebPreferences,
+  SURFACE_COLOR,
+  titleBarOverlayStyle,
+  type WindowColorScheme,
+} from "./window-options"
 
 const root = dirname(fileURLToPath(import.meta.url))
-// The startup page is shown before DSH can say which appearance the user chose,
-// so a system-only default flashes the wrong one at anybody whose app setting
-// disagrees with their OS. `scheme` is the last appearance the product
-// published; the media query stays as the answer for the very first launch,
-// when there is nothing remembered yet.
 // Covers the quote characters too: the result is interpolated into an attribute
 // value as well as into text.
 const HTML_ESCAPES: Record<string, string> = {
@@ -25,10 +26,17 @@ const HTML_ESCAPES: Record<string, string> = {
 
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (character) => HTML_ESCAPES[character] ?? character)
 
-const startupHtml = (scheme?: StartupColorScheme, notice?: string) => `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>PawWork</title><style>
-:root{--bg:#fff;--line:#e3e3e7;--accent:#fc5c14;--muted:#6b6b70}${scheme === undefined
-  ? "@media(prefers-color-scheme:dark){:root{--bg:#191919;--line:#2d2d31;--muted:#a1a1a6}}"
-  : scheme === "dark" ? ":root{--bg:#191919;--line:#2d2d31;--muted:#a1a1a6}" : ""}
+// The spinner track and the notice text, which have no equivalent in the web
+// app to borrow.
+const STARTUP_PALETTE: Record<WindowColorScheme, { line: string; muted: string }> = {
+  light: { line: "#e3e3e7", muted: "#6b6b70" },
+  dark: { line: "#2d2d31", muted: "#a1a1a6" },
+}
+
+const startupHtml = (scheme: WindowColorScheme, notice?: string) => `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>PawWork</title><style>
+:root{color-scheme:${scheme};--bg:${SURFACE_COLOR[scheme]};--line:${
+  STARTUP_PALETTE[scheme].line
+};--accent:#fc5c14;--muted:${STARTUP_PALETTE[scheme].muted}}
 html,body{height:100%;margin:0}body{align-items:center;background:var(--bg);display:flex;flex-direction:column;gap:16px;justify-content:center}
 .titlebar{-webkit-app-region:drag;height:var(--pawwork-titlebar-host-height,env(titlebar-area-height,0px));left:0;position:fixed;right:0;top:0}
 .spinner{animation:spin .8s linear infinite;border:2px solid var(--line);border-radius:50%;box-sizing:border-box;height:20px;position:relative;width:20px}
@@ -41,14 +49,12 @@ html,body{height:100%;margin:0}body{align-items:center;background:var(--bg);disp
   notice === undefined ? "" : `<p class="notice">${escapeHtml(notice)}</p>`
 }</body></html>`
 
-export type StartupColorScheme = "dark" | "light"
-
 /**
  * The page every window sits on while DSH is not serving one. `notice` names
  * the step being waited on; without it a wait in front of DSH, which prints
  * nothing until it is ready, is indistinguishable from a hang.
  */
-export function startupUrl(scheme?: StartupColorScheme, notice?: string) {
+export function startupUrl(scheme: WindowColorScheme, notice?: string) {
   return `data:text/html;charset=utf-8,${encodeURIComponent(startupHtml(scheme, notice))}`
 }
 
@@ -69,19 +75,20 @@ export function setDockIcon() {
 
 type MainWindowOptions = {
   preload: string
-  startupColorScheme?: StartupColorScheme
+  colorScheme: WindowColorScheme
   // Read on every navigation rather than captured: the window is created before
   // DSH has an origin, and outlives the one it eventually gets.
   dshUrl: () => string | undefined
 }
 
-export function setTitlebarColorScheme(
-  win: Pick<BrowserWindow, "setTitleBarOverlay">,
+// The overlay is a Windows control; elsewhere only the background exists.
+export function applyWindowColorScheme(
+  win: Pick<BrowserWindow, "setBackgroundColor" | "setTitleBarOverlay">,
   platform: NodeJS.Platform,
-  colorScheme: unknown,
+  colorScheme: WindowColorScheme,
 ) {
-  if (platform !== "win32" || (colorScheme !== "light" && colorScheme !== "dark")) return
-  win.setTitleBarOverlay(titleBarOverlayStyle(colorScheme))
+  win.setBackgroundColor(SURFACE_COLOR[colorScheme])
+  if (platform === "win32") win.setTitleBarOverlay(titleBarOverlayStyle(colorScheme))
 }
 
 // A load that is superseded rejects with ERR_ABORTED, and an unhandled rejection
@@ -104,7 +111,8 @@ export function createMainWindow(options: MainWindowOptions) {
     show: false,
     title: "PawWork",
     icon: iconPath(),
-    ...dshTitleBarOptions(process.platform),
+    backgroundColor: SURFACE_COLOR[options.colorScheme],
+    ...dshTitleBarOptions(process.platform, options.colorScheme),
     ...(process.platform === "darwin" ? { trafficLightPosition: macTrafficLightPosition() } : {}),
     webPreferences: dshWebPreferences(options.preload),
   })
@@ -152,7 +160,7 @@ export function createMainWindow(options: MainWindowOptions) {
     event.preventDefault()
     win.setTitle(pawworkWindowTitle(title))
   })
-  navigateWindow(win, options.dshUrl() ?? startupUrl(options.startupColorScheme))
+  navigateWindow(win, options.dshUrl() ?? startupUrl(options.colorScheme))
   win.once("ready-to-show", () => win.show())
 
   return win

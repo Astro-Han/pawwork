@@ -1192,7 +1192,7 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
   // Assert relationships, never a height: that number is owned by Chromium on Windows and by the
   // main process on macOS. frameless is read from window-options, a different source than the
   // rendered drag strip, so the two diverging goes red.
-  const frameless = "titleBarStyle" in dshTitleBarOptions(platform)
+  const frameless = "titleBarStyle" in dshTitleBarOptions(platform, "light")
   const titlebarInsetsMatchPlatform = platform === "darwin"
     ? snapshot.titlebarInsetLeft > 0 && snapshot.titlebarInsetRight === 0
     : platform === "win32"
