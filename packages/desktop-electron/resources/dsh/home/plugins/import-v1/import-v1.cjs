@@ -254,6 +254,7 @@ function buildDshSession(session) {
             model: message.data.modelID || 'unknown',
           },
         },
+        stream: [],
       }, { surfaceOp: 'append' });
       append('step/end', completedAt, { turn, step });
       lastTime = Math.max(lastTime, completedAt);
