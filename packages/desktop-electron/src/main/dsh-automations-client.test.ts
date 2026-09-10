@@ -468,14 +468,19 @@ describe("PawWork DSH Automations client", () => {
 
     expect(fields.some((element) => element.type === "input" && element.props["aria-label"] === "模型来源")).toBe(false)
     expect(modelSelect).toBeDefined()
+    // Each advanced field says what it does in one line under the control; a name alone
+    // ("Timezone", "Run limit") does not tell a non-technical user what changes if they touch it.
+    const hints = fields.filter((element) => element.props.className === "pawwork-automation-group-hint").flatMap(textOf)
+    expect(hints).toEqual([
+      "每次运行使用的模型。不在列表里的模型，运行时会改用默认模型。",
+      "上面的时间按这个时区计算，默认是本机时区。",
+      "完成这么多次后自动停止，留空则一直运行。",
+    ])
     const options = visit(modelSelect).filter((element) => element.type === "option")
     expect(options.map((option) => option.props.children)).toEqual([
       ["opencode/deepseek-v4-flash-free (未列出，运行时改用默认模型)"], ["Big Pickle"], ["MiMo V2.5"],
     ])
     expect(modelSelect!.props.value).toBe(options[0].props.value)
-    // A native select clips option text to its field, so the model field takes the whole row.
-    expect(fields.find((element) => String(element.props.className).includes("pawwork-automation-group") && visit(element).includes(modelSelect!))?.props.className)
-      .toBe("pawwork-automation-group pawwork-automation-group-wide")
     expect(visit(modelSelect).map((element) => element.props.label).filter(Boolean)).toEqual(["OpenCode"])
     // The catalog is already loaded, so opening the editor must not ask for it again.
     expect(modelCatalog).not.toHaveBeenCalled()

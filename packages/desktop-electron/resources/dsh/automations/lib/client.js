@@ -79,6 +79,7 @@ window.__ModuleLoader__.load({
   display: flex; flex-direction: column; gap: 6px; min-width: 0;
 }
 .pawwork-automation-group-label { color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 500; line-height: 18px; }
+.pawwork-automation-group-hint { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; }
 /* One control box for the whole editor, copied from DSH's own settings editor (ui-settings-models):
    a border-box 32px field on bg-layer-1. The Input primitive is an inline-flex *content* box that
    adds its own padding and border, so sizing it to a column made every field spill 18px over its
@@ -148,8 +149,9 @@ window.__ModuleLoader__.load({
   margin-left: -4px; padding: 2px 4px; width: fit-content;
 }
 .pawwork-automation-advanced-summary:hover { color: var(--dsw-alias-label-primary); }
-.pawwork-automation-advanced-content { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); padding-top: 12px; }
-.pawwork-automation-group-wide { grid-column: 1 / -1; }
+/* One column: every advanced field is label, control, then a line of explanation, and fields of
+   unequal height side by side in a grid read as misaligned. */
+.pawwork-automation-advanced-content { display: flex; flex-direction: column; gap: 14px; padding-top: 12px; }
 .pawwork-automation-form-footer {
   align-items: center; display: flex; gap: 8px; justify-content: flex-end;
 }
@@ -349,8 +351,11 @@ window.__ModuleLoader__.load({
       }
       return { kind: "recurring", rhythm: { kind: "cron", expression } }
     }
-    function Field({ label, children, wide = false }) {
-      return h("div", { className: wide ? "pawwork-automation-group pawwork-automation-group-wide" : "pawwork-automation-group" }, h("span", { className: "pawwork-automation-group-label" }, label), children)
+    function Field({ label, children, hint = null }) {
+      return h("div", { className: "pawwork-automation-group" },
+        h("span", { className: "pawwork-automation-group-label" }, label),
+        children,
+        hint ? h("span", { className: "pawwork-automation-group-hint" }, hint) : null)
     }
     // DSH's own settings editor (ui-settings-models) styles a native select as one of its fields
     // rather than anchoring a Menu to a button: the popup is then the platform's, correctly placed
@@ -568,10 +573,10 @@ window.__ModuleLoader__.load({
               onClick: () => setAdvanced((current) => !current), type: "button",
             }, h(advanced ? IconChevronDownOutline14 : IconChevronRightOutline14, { size: 14 }), text("高级设置", "Advanced settings")),
             advanced ? h("div", { className: "pawwork-automation-advanced-content", id: "pawwork-automation-advanced-content" },
-              h(Field, { label: text("模型", "Model"), wide: true }, h(ModelSelect, { catalog, onChange: ([provider, model]) => setForm((current) => ({ ...current, provider, model })), pinned: definition.model, value: { provider: form.provider, model: form.model } })),
-              h(Field, { label: text("时区", "Timezone") }, h("input", { "aria-label": text("时区", "Timezone"), className: "pawwork-automation-input", onChange: update("timezone"), value: form.timezone })),
-              h(Field, { label: text("会话", "Session") }, h("span", { className: "pawwork-automation-readonly" }, definition.context === "continue" ? text("继续原会话", "Continue original session") : text("每次新会话", "New session each run"))),
-              form.frequency !== "once" ? h(Field, { label: text("运行次数上限", "Run limit") }, h("input", { "aria-label": text("运行次数上限", "Run limit"), className: "pawwork-automation-input", min: "1", onChange: update("runCount"), placeholder: text("永不停止", "Never"), type: "number", value: form.runCount })) : null) : null),
+              h(Field, { hint: text("每次运行使用的模型。不在列表里的模型，运行时会改用默认模型。", "The model each run uses. A model not in the list is replaced by the default model at run time."), label: text("模型", "Model") }, h(ModelSelect, { catalog, onChange: ([provider, model]) => setForm((current) => ({ ...current, provider, model })), pinned: definition.model, value: { provider: form.provider, model: form.model } })),
+              h(Field, { hint: text("上面的时间按这个时区计算，默认是本机时区。", "The schedule above is read in this time zone. Defaults to this computer's."), label: text("时区", "Timezone") }, h("input", { "aria-label": text("时区", "Timezone"), className: "pawwork-automation-input", onChange: update("timezone"), value: form.timezone })),
+              form.frequency !== "once" ? h(Field, { hint: text("完成这么多次后自动停止，留空则一直运行。", "Stops after this many completed runs. Leave empty to keep running."), label: text("运行次数上限", "Run limit") }, h("input", { "aria-label": text("运行次数上限", "Run limit"), className: "pawwork-automation-input", min: "1", onChange: update("runCount"), placeholder: text("永不停止", "Never"), type: "number", value: form.runCount })) : null,
+              h(Field, { label: text("会话", "Session") }, h("span", { className: "pawwork-automation-readonly" }, definition.context === "continue" ? text("继续原会话", "Continue original session") : text("每次新会话", "New session each run")))) : null),
           error ? h("div", { className: "pawwork-automations-error", role: "alert" }, error) : null,
           h("div", { className: "pawwork-automation-form-footer" },
             discarding ? h("span", { className: "pawwork-automation-discard" }, text("放弃未保存的更改？", "Discard unsaved changes?")) : null,
