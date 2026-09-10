@@ -6,7 +6,7 @@ import { createRequire } from "node:module"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { app, BrowserWindow, dialog, ipcMain, shell, type Event } from "electron"
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell, type Event } from "electron"
 import contextMenu from "electron-context-menu"
 import pkg from "electron-updater"
 import { PAWWORK_APP } from "./app-identity"
@@ -45,14 +45,8 @@ import { createUpdaterController } from "./updater"
 import { createUpdateScheduler } from "./updater-scheduler"
 import { pendingUpdateCacheDir } from "./updater-cache"
 import { readStartupColorScheme, writeStartupColorScheme } from "./startup-theme"
-import {
-  createMainWindow,
-  navigateWindow,
-  setDockIcon,
-  setTitlebarColorScheme,
-  startupUrl,
-  type StartupColorScheme,
-} from "./windows"
+import type { WindowColorScheme } from "./window-options"
+import { applyWindowColorScheme, createMainWindow, navigateWindow, setDockIcon, startupUrl } from "./windows"
 
 contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false })
 
@@ -142,7 +136,14 @@ let dshOutputTail = ""
 // Set by launchDsh: the recovery path needs the profile directory, and the home
 // is only settled once the migration inside launchDsh has run.
 let dshHome: string | undefined
-let startupColorScheme: StartupColorScheme | undefined = readStartupColorScheme(STARTUP_THEME_FILE)
+// DSH owns the appearance but only says so once its page is up, so what it
+// published last time stands in until then, and the system appearance until
+// there is one. Asked per use, never resolved once: `nativeTheme` means nothing
+// before the app is ready and follows the OS while we run.
+let publishedColorScheme: WindowColorScheme | undefined = readStartupColorScheme(STARTUP_THEME_FILE)
+function windowColorScheme(): WindowColorScheme {
+  return publishedColorScheme ?? (nativeTheme.shouldUseDarkColors ? "dark" : "light")
+}
 let currentProgress: number | null = null
 const dshHostToken = randomUUID()
 
@@ -284,11 +285,12 @@ function setupApp() {
   })
   ipcMain.on("pawwork:titlebar-color-scheme", (event, colorScheme) => {
     if (event.senderFrame !== event.sender.mainFrame) return
-    const owner = BrowserWindow.fromWebContents(event.sender)
-    if (owner) setTitlebarColorScheme(owner, process.platform, colorScheme)
     if (colorScheme !== "dark" && colorScheme !== "light") return
-    if (colorScheme === startupColorScheme) return
-    startupColorScheme = colorScheme
+    // The theme is one user setting, so every window follows the one that
+    // reported it, including any still sitting on the startup page.
+    for (const win of liveWindows()) applyWindowColorScheme(win, process.platform, colorScheme)
+    if (colorScheme === publishedColorScheme) return
+    publishedColorScheme = colorScheme
     writeStartupColorScheme(STARTUP_THEME_FILE, colorScheme)
   })
 
@@ -429,7 +431,7 @@ function dshUrl() {
 }
 
 function showStartupPage(notice?: string) {
-  for (const win of liveWindows()) navigateWindow(win, startupUrl(startupColorScheme, notice))
+  for (const win of liveWindows()) navigateWindow(win, startupUrl(windowColorScheme(), notice))
 }
 
 async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed" }>) {
@@ -650,7 +652,7 @@ function openMainWindow() {
   const win = createMainWindow({
     preload: productPreload,
     dshUrl,
-    startupColorScheme,
+    colorScheme: windowColorScheme(),
   })
   if (currentProgress !== null) win.setProgressBar(currentProgress)
   return win

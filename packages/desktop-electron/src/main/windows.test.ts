@@ -53,7 +53,9 @@ const win = vi.hoisted(() => ({
   isFullScreen: () => win.fullscreen,
   setTitle: () => {},
   setTitleBarOverlay: vi.fn(() => {}),
+  setBackgroundColor: vi.fn(() => {}),
   show: () => {},
+  created: [] as Record<string, unknown>[],
   loaded: [] as string[],
   async loadURL(url: string) {
     win.loaded.push(url)
@@ -65,12 +67,16 @@ const openExternal = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock("electron", () => ({
   app: { isPackaged: false, dock: undefined },
   BrowserWindow: class {
+    constructor(options: Record<string, unknown>) {
+      win.created.push(options)
+    }
     webContents = webContents
     on = win.on
     once = win.once
     isFullScreen = win.isFullScreen
     setTitle = win.setTitle
     setTitleBarOverlay = win.setTitleBarOverlay
+    setBackgroundColor = win.setBackgroundColor
     show = win.show
     loadURL = win.loadURL
   },
@@ -83,14 +89,15 @@ vi.mock("electron-window-state", () => ({
   default: () => ({ x: 0, y: 0, width: 1280, height: 800, manage: () => {} }),
 }))
 
-const { createMainWindow, setTitlebarColorScheme, startupUrl } = await import("./windows")
+const { applyWindowColorScheme, createMainWindow, startupUrl } = await import("./windows")
 
 const DSH = "http://127.0.0.1:4321/"
 
-function openWindow(dshUrl?: string) {
-  webContents.url = dshUrl ?? startupUrl()
+function openWindow(dshUrl?: string, colorScheme: "light" | "dark" = "light") {
+  webContents.url = dshUrl ?? startupUrl(colorScheme)
   return createMainWindow({
     preload: "/preload.cjs",
+    colorScheme,
     dshUrl: () => dshUrl,
   })
 }
@@ -104,7 +111,9 @@ beforeEach(() => {
   win.fullscreen = false
   webContents.url = ""
   win.loaded.length = 0
+  win.created.length = 0
   win.setTitleBarOverlay.mockClear()
+  win.setBackgroundColor.mockClear()
   openExternal.mockClear()
 })
 
@@ -115,16 +124,37 @@ function navigate(url: string, isMainFrame: boolean) {
 }
 
 describe("main window wiring", () => {
-  test("updates Windows caption symbols from the web app theme", () => {
-    setTitlebarColorScheme(win, "win32", "dark")
+  // Whatever has not been painted by the web app yet is one of these surfaces,
+  // so a scheme that reaches only some of them is the white edge users report.
+  test("repaints the window background and the Windows caption overlay together", () => {
+    applyWindowColorScheme(win, "win32", "dark")
 
+    expect(win.setBackgroundColor).toHaveBeenCalledWith("#151517")
     expect(win.setTitleBarOverlay).toHaveBeenCalledWith({
       height: 32,
+      color: "#151517",
       symbolColor: "#f0f0f0",
     })
-    setTitlebarColorScheme(win, "darwin", "light")
-    setTitlebarColorScheme(win, "win32", "sepia")
+    // The overlay is a Windows control; elsewhere only the background exists.
+    applyWindowColorScheme(win, "darwin", "light")
+    expect(win.setBackgroundColor).toHaveBeenLastCalledWith("#fff")
     expect(win.setTitleBarOverlay).toHaveBeenCalledTimes(1)
+  })
+
+  // The window is restored at the size of the last run, so its first frame is a
+  // full window of whatever this colour is.
+  test("creates the window on the scheme it will be shown in", () => {
+    openWindow(undefined, "dark")
+
+    expect(win.created[0]).toMatchObject({ backgroundColor: "#151517", show: false })
+    expect(decodeURIComponent(win.loaded[0]!)).toContain("color-scheme:dark")
+  })
+
+  // Chromium paints its own canvas white until a declared scheme says otherwise,
+  // and the page's dark background has to be the one DSH is about to paint.
+  test("declares the startup page's scheme and matches the web app's surface", () => {
+    expect(decodeURIComponent(startupUrl("dark"))).toContain(":root{color-scheme:dark;--bg:#151517;")
+    expect(decodeURIComponent(startupUrl("light"))).toContain(":root{color-scheme:light;--bg:#fff;")
   })
 
   test("holds a subframe to the DSH origin", () => {
@@ -160,7 +190,7 @@ describe("main window wiring", () => {
   // the meantime; loading nothing is what the 30-second blank start used to be.
   test("opens on the local startup page until DSH has a URL", () => {
     openWindow()
-    expect(win.loaded).toEqual([startupUrl()])
+    expect(win.loaded).toEqual([startupUrl("light")])
 
     win.loaded.length = 0
     openWindow(DSH)
@@ -190,7 +220,7 @@ describe("main window wiring", () => {
   // was showing a moment before it died.
   test("denies every DSH-origin navigation once the runtime is gone", () => {
     openWindow()
-    webContents.url = startupUrl()
+    webContents.url = startupUrl("light")
 
     expect(navigate("http://127.0.0.1:4321/settings", true).preventDefault).toHaveBeenCalled()
     expect(navigate("http://127.0.0.1:4321/settings", false).preventDefault).toHaveBeenCalled()

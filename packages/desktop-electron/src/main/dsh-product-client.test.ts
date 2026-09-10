@@ -3,6 +3,7 @@ import { createRequire } from "node:module"
 import { loadDshClientModule } from "./dsh-client-module.testing"
 import { resolve } from "node:path"
 import { describe, expect, vi, test } from "vitest"
+import { windowSurfaceColor } from "./window-options"
 
 const repositoryRoot = resolve(import.meta.dirname, "../../../..")
 const productRoot = resolve(repositoryRoot, "packages/desktop-electron/resources/dsh/product")
@@ -217,6 +218,26 @@ describe("PawWork DSH client product layer", () => {
     expect(collapsedWidth).toBeDefined()
     expect(css).toContain(`--pawwork-dsh-collapsed-sidebar-width: ${collapsedWidth}px;`)
     expect(css).toMatch(/calc\(var\(--pawwork-titlebar-inset-left\) \+ 44px - var\(--pawwork-dsh-collapsed-sidebar-width\)\)/)
+  })
+
+  // The main process paints the native surfaces from its own copy of these two
+  // colours, because they have to be on screen before the web app's stylesheet
+  // exists. That copy is only correct while DSH still resolves bg-base to them,
+  // and the preload only learns the theme because the boot script writes it to
+  // documentElement.style. Both are DSH's to change, so an upgrade that moves
+  // either one fails here instead of shipping a white edge to Windows users.
+  test("pins the DSH theme contracts the native window surfaces mirror", () => {
+    const requireFromTest = createRequire(import.meta.url)
+    const requireFromDsh = createRequire(requireFromTest.resolve("@deepseek-ai/dsh/package.json"))
+    const themeRoot = resolve(requireFromDsh.resolve("@deepseek-ai/dsh-client-ui-theme/package.json"), "..")
+    const client = readFileSync(resolve(themeRoot, "lib/client.js"), "utf8")
+    const boot = readFileSync(resolve(themeRoot, "lib/index.js"), "utf8")
+
+    expect(client).toContain("--dsw-alias-bg-base:var(--dsw-static-neutral-bluish-00)")
+    expect(client).toContain(`--dsw-static-neutral-bluish-00:${windowSurfaceColor("light")}`)
+    expect(client).toContain("--dsw-alias-bg-base:var(--dsw-static-neutral-bluish-950)")
+    expect(client).toContain(`--dsw-static-neutral-bluish-950:${windowSurfaceColor("dark")}`)
+    expect(boot).toContain("document.documentElement.style.colorScheme = dark ? 'dark' : 'light'")
   })
 
   test("owns the public brand slots and replaces the DSH welcome notice", () => {
