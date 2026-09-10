@@ -18,6 +18,11 @@ describe("desktop windows security", () => {
       titleBarOverlay: { height: 32, color: "#151517", symbolColor: "#f0f0f0" },
       titleBarStyle: "hidden",
     })
+    // Both schemes, or a caption strip hard-coded to one of them still passes.
+    expect(dshTitleBarOptions("win32", "light")).toEqual({
+      titleBarOverlay: { height: 32, color: "#fff", symbolColor: "#1f2328" },
+      titleBarStyle: "hidden",
+    })
     expect(dshTitleBarOptions("darwin", "dark")).toEqual({ titleBarStyle: "hidden" })
   })
 })
