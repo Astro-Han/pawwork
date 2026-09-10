@@ -3,7 +3,7 @@ import { createRequire } from "node:module"
 import { loadDshClientModule } from "./dsh-client-module.testing"
 import { resolve } from "node:path"
 import { describe, expect, vi, test } from "vitest"
-import { windowSurfaceColor } from "./window-options"
+import { SURFACE_COLOR } from "./window-options"
 
 const repositoryRoot = resolve(import.meta.dirname, "../../../..")
 const productRoot = resolve(repositoryRoot, "packages/desktop-electron/resources/dsh/product")
@@ -220,24 +220,32 @@ describe("PawWork DSH client product layer", () => {
     expect(css).toMatch(/calc\(var\(--pawwork-titlebar-inset-left\) \+ 44px - var\(--pawwork-dsh-collapsed-sidebar-width\)\)/)
   })
 
-  // The main process paints the native surfaces from its own copy of these two
-  // colours, because they have to be on screen before the web app's stylesheet
-  // exists. That copy is only correct while DSH still resolves bg-base to them,
-  // and the preload only learns the theme because the boot script writes it to
-  // documentElement.style. Both are DSH's to change, so an upgrade that moves
-  // either one fails here instead of shipping a white edge to Windows users.
+  // The main process paints the native window surfaces from its own copy of
+  // these two colours, because they have to be on screen before the web app's
+  // stylesheet exists, and it repaints them from what the preload reads out of
+  // documentElement.style. Both halves are DSH's to change, so an upgrade that
+  // moves either fails here instead of shipping a white edge to Windows users.
+  // Each colour is matched through the selector that resolves bg-base to it and
+  // up to its terminator, so a re-mapped or merely nearby value cannot pass.
   test("pins the DSH theme contracts the native window surfaces mirror", () => {
     const requireFromTest = createRequire(import.meta.url)
     const requireFromDsh = createRequire(requireFromTest.resolve("@deepseek-ai/dsh/package.json"))
     const themeRoot = resolve(requireFromDsh.resolve("@deepseek-ai/dsh-client-ui-theme/package.json"), "..")
+    const layoutRoot = resolve(requireFromDsh.resolve("@deepseek-ai/dsh-client-ui-layout/package.json"), "..")
     const client = readFileSync(resolve(themeRoot, "lib/client.js"), "utf8")
     const boot = readFileSync(resolve(themeRoot, "lib/index.js"), "utf8")
+    const layout = readFileSync(resolve(layoutRoot, "lib/client.js"), "utf8")
 
-    expect(client).toContain("--dsw-alias-bg-base:var(--dsw-static-neutral-bluish-00)")
-    expect(client).toContain(`--dsw-static-neutral-bluish-00:${windowSurfaceColor("light")}`)
-    expect(client).toContain("--dsw-alias-bg-base:var(--dsw-static-neutral-bluish-950)")
-    expect(client).toContain(`--dsw-static-neutral-bluish-950:${windowSurfaceColor("dark")}`)
+    expect(client).toContain("body{--dsw-alias-bg-base:var(--dsw-static-neutral-bluish-00)")
+    expect(client).toContain(`--dsw-static-neutral-bluish-00:${SURFACE_COLOR.light};`)
+    expect(client).toContain("body[data-ds-dark-theme]{--dsw-alias-bg-base:var(--dsw-static-neutral-bluish-950)")
+    expect(client).toContain(`--dsw-static-neutral-bluish-950:${SURFACE_COLOR.dark};`)
+    // A third rule would decide the colour for some state the window cannot see.
+    expect(client.match(/--dsw-alias-bg-base:/g)).toHaveLength(2)
+    // The boot script covers the first frame only; every later change is the
+    // layout plugin's presenter, and that is the write the preload observes.
     expect(boot).toContain("document.documentElement.style.colorScheme = dark ? 'dark' : 'light'")
+    expect(layout).toContain("document.documentElement.style.colorScheme = scheme")
   })
 
   test("owns the public brand slots and replaces the DSH welcome notice", () => {

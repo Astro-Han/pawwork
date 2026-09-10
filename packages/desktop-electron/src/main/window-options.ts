@@ -4,14 +4,9 @@ export type WindowColorScheme = "light" | "dark"
 
 // Every surface the window shows before the web app's own stylesheet applies —
 // the native window background, the Windows caption overlay, the startup page —
-// has to be the colour the web app is about to paint, or the difference shows as
-// a flash or a permanent white strip. These are DSH's `--dsw-alias-bg-base`; a
-// test in dsh-product-client.test.ts fails if the installed theme moves.
-const SURFACE_COLOR: Record<WindowColorScheme, string> = { light: "#fff", dark: "#151517" }
-
-export function windowSurfaceColor(colorScheme: WindowColorScheme) {
-  return SURFACE_COLOR[colorScheme]
-}
+// is painted from here, and all of them have to agree. New values come from
+// DSH's `--dsw-alias-bg-base`, in both of its themes.
+export const SURFACE_COLOR = { light: "#fff", dark: "#151517" } as const satisfies Record<WindowColorScheme, string>
 
 export function titleBarOverlayStyle(colorScheme: WindowColorScheme) {
   return {

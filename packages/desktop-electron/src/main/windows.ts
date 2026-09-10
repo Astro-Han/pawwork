@@ -8,9 +8,9 @@ import { decideDshNavigation, guardDshNavigation, handleDshWindowOpen } from "./
 import {
   dshTitleBarOptions,
   dshWebPreferences,
+  SURFACE_COLOR,
   titleBarOverlayStyle,
   type WindowColorScheme,
-  windowSurfaceColor,
 } from "./window-options"
 
 const root = dirname(fileURLToPath(import.meta.url))
@@ -27,14 +27,14 @@ const HTML_ESCAPES: Record<string, string> = {
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (character) => HTML_ESCAPES[character] ?? character)
 
 // The spinner track and the notice text, which have no equivalent in the web
-// app to borrow. The background does, so it comes from the shared surface.
+// app to borrow.
 const STARTUP_PALETTE: Record<WindowColorScheme, { line: string; muted: string }> = {
   light: { line: "#e3e3e7", muted: "#6b6b70" },
   dark: { line: "#2d2d31", muted: "#a1a1a6" },
 }
 
 const startupHtml = (scheme: WindowColorScheme, notice?: string) => `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>PawWork</title><style>
-:root{color-scheme:${scheme};--bg:${windowSurfaceColor(scheme)};--line:${
+:root{color-scheme:${scheme};--bg:${SURFACE_COLOR[scheme]};--line:${
   STARTUP_PALETTE[scheme].line
 };--accent:#fc5c14;--muted:${STARTUP_PALETTE[scheme].muted}}
 html,body{height:100%;margin:0}body{align-items:center;background:var(--bg);display:flex;flex-direction:column;gap:16px;justify-content:center}
@@ -81,17 +81,13 @@ type MainWindowOptions = {
   dshUrl: () => string | undefined
 }
 
-/**
- * Repaints an open window's native surfaces. They move together: one left on
- * the previous scheme is an edge the user sees. The caption overlay is a
- * Windows control; elsewhere only the background exists.
- */
+// The overlay is a Windows control; elsewhere only the background exists.
 export function applyWindowColorScheme(
   win: Pick<BrowserWindow, "setBackgroundColor" | "setTitleBarOverlay">,
   platform: NodeJS.Platform,
   colorScheme: WindowColorScheme,
 ) {
-  win.setBackgroundColor(windowSurfaceColor(colorScheme))
+  win.setBackgroundColor(SURFACE_COLOR[colorScheme])
   if (platform === "win32") win.setTitleBarOverlay(titleBarOverlayStyle(colorScheme))
 }
 
@@ -115,7 +111,7 @@ export function createMainWindow(options: MainWindowOptions) {
     show: false,
     title: "PawWork",
     icon: iconPath(),
-    backgroundColor: windowSurfaceColor(options.colorScheme),
+    backgroundColor: SURFACE_COLOR[options.colorScheme],
     ...dshTitleBarOptions(process.platform, options.colorScheme),
     ...(process.platform === "darwin" ? { trafficLightPosition: macTrafficLightPosition() } : {}),
     webPreferences: dshWebPreferences(options.preload),

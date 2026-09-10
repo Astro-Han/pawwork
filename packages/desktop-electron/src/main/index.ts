@@ -136,10 +136,8 @@ let dshOutputTail = ""
 // Set by launchDsh: the recovery path needs the profile directory, and the home
 // is only settled once the migration inside launchDsh has run.
 let dshHome: string | undefined
-// DSH owns the appearance but only says so once its page is up, so what it
-// published last time stands in until then, and the system appearance until
-// there is one. Asked per use, never resolved once: `nativeTheme` means nothing
-// before the app is ready and follows the OS while we run.
+// Asked per use, never resolved once: `nativeTheme` means nothing before the
+// app is ready.
 let publishedColorScheme: WindowColorScheme | undefined = readStartupColorScheme(STARTUP_THEME_FILE)
 function windowColorScheme(): WindowColorScheme {
   return publishedColorScheme ?? (nativeTheme.shouldUseDarkColors ? "dark" : "light")
@@ -286,8 +284,8 @@ function setupApp() {
   ipcMain.on("pawwork:titlebar-color-scheme", (event, colorScheme) => {
     if (event.senderFrame !== event.sender.mainFrame) return
     if (colorScheme !== "dark" && colorScheme !== "light") return
-    // The theme is one user setting, so every window follows the one that
-    // reported it, including any still sitting on the startup page.
+    // One user setting, so every window's native surfaces follow the window
+    // that reported it, not just that window's own.
     for (const win of liveWindows()) applyWindowColorScheme(win, process.platform, colorScheme)
     if (colorScheme === publishedColorScheme) return
     publishedColorScheme = colorScheme
