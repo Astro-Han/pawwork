@@ -8,6 +8,7 @@ const {
 } = require('./automation-cron.cjs');
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const CLAIM_RETRY_DELAY_MS = 60_000;
 const MIN_INTERVAL_MS = 30_000;
 const AUTOMATION_RUN_ID_PREFIX = 'automation-run-';
 
@@ -438,6 +439,17 @@ class AutomationStore {
     ));
   }
 
+  // Written when the executor decides which model the run gets, so the record says so
+  // whatever the run's outcome turns out to be.
+  recordRunModel(id, modelFallback) {
+    const run = this.document.runs.find((entry) => entry.id === id);
+    if (!run) throw new Error(`automation run not found: ${id}`);
+    if (run.state !== 'running') throw new Error(`automation run ${id} is not running`);
+    run.modelFallback = structuredClone(modelFallback);
+    this.save();
+    return structuredClone(run);
+  }
+
   completeRun(id, outcome) {
     const run = this.document.runs.find((entry) => entry.id === id);
     if (!run) throw new Error(`automation run not found: ${id}`);
@@ -551,10 +563,14 @@ class AutomationScheduler {
       .map((definition) => definition.nextFireAt)
       .filter((value) => value !== null);
     if (targets.length === 0) return;
-    const delay = Math.max(0, Math.min(Math.min(...targets) - this.clock.now(), MAX_TIMER_DELAY_MS));
+    this.armIn(Math.max(0, Math.min(Math.min(...targets) - this.clock.now(), MAX_TIMER_DELAY_MS)));
+  }
+
+  armIn(delay) {
     this.timer = this.clock.setTimeout(() => {
       this.timer = null;
-      void this.runDue().finally(() => this.arm());
+      // A claim the store could not persist is retried later, not on the next tick.
+      this.runDue().then(() => this.arm(), () => this.armIn(CLAIM_RETRY_DELAY_MS));
     }, delay);
     this.timer?.unref?.();
   }
@@ -565,20 +581,22 @@ class AutomationScheduler {
       .filter((definition) => definition.nextFireAt !== null && definition.nextFireAt <= now)
       .sort((left, right) => left.nextFireAt - right.nextFireAt);
     const executions = [];
-    for (const candidate of due) {
-      const target = candidate.nextFireAt;
-      const active = this.store.hasActiveRun(candidate.id);
-      const claimed = this.store.claimDue(candidate.id, target, now, active
-        ? { state: 'stopped', completedAt: now, stopReason: 'previous_run_active' }
-        : { state: 'running' });
-      if (!claimed) continue;
-      if (active) {
-        continue;
+    try {
+      for (const candidate of due) {
+        const target = candidate.nextFireAt;
+        const active = this.store.hasActiveRun(candidate.id);
+        const claimed = this.store.claimDue(candidate.id, target, now, active
+          ? { state: 'stopped', completedAt: now, stopReason: 'previous_run_active' }
+          : { state: 'running' });
+        if (!claimed) continue;
+        if (active) {
+          continue;
+        }
+        executions.push(this.executeRun(claimed.definition, claimed.run));
       }
-      executions.push(this.executeRun(claimed.definition, claimed.run));
+    } finally {
+      void Promise.allSettled(executions);
     }
-    void Promise.allSettled(executions);
-    this.refresh();
   }
 
   startNow(id, now = this.clock.now()) {
@@ -697,6 +715,8 @@ function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }
       if (endpoint === 'run-now') {
         if (typeof args.id !== 'string') return rpcFailure('bad-request', 'id is required', { issues: [] });
         const started = scheduler.startNow(args.id, now());
+        // The caller learns that the run started; its outcome lives in the run record.
+        void started.completion.catch(() => {});
         return rpcSuccess(started.run);
       }
       if (endpoint === 'delete') {
@@ -747,9 +767,11 @@ function createAutomationToolDefinitions({
   scheduler,
   cwd,
   model,
+  checkModel,
   sessionId = () => null,
   now = () => Date.now(),
 }) {
+  if (typeof checkModel !== 'function') throw new Error('automation tools require checkModel');
   const current = (id) => {
     const definition = store.getDefinition(id);
     if (definition.cwd !== cwd()) throw new Error(`automation not found: ${id}`);
@@ -806,7 +828,7 @@ function createAutomationToolDefinitions({
   return [
     tool(
       'automation_create',
-      'Create a durable PawWork automation. Use exactly one of at (absolute RFC 3339 time with offset), every_seconds (fixed interval of at least 30 seconds), or cron (five fields evaluated in timezone). run_count optionally stops a recurring automation after that many completed attempts; 0 means no limit. Set continue_session only when the user explicitly wants every run appended to this conversation; otherwise each run gets a fresh DSH session. The automation runs even after its creating conversation is closed.',
+      'Create a durable PawWork automation. Use exactly one of at (absolute RFC 3339 time with offset), every_seconds (fixed interval of at least 30 seconds), or cron (five fields evaluated in timezone). run_count optionally stops a recurring automation after that many completed attempts; 0 means no limit. model uses provider/model format and defaults to the model of this conversation; a model given here is refused when its provider does not know it. Set continue_session only when the user explicitly wants every run appended to this conversation; otherwise each run gets a fresh DSH session. The automation runs even after its creating conversation is closed.',
       objectParameters({
         title: { type: 'string' },
         prompt: { type: 'string' },
@@ -834,12 +856,14 @@ function createAutomationToolDefinitions({
         if (args.run_count !== undefined && schedule.kind !== 'recurring') {
           throw new Error('run_count is only supported for recurring automations');
         }
+        const selectedModel = args.model === undefined ? model() : parseModelSelection(args.model);
+        if (args.model !== undefined) await checkModel(selectedModel);
         const definition = store.createDefinition({
           ...schedule,
           title: args.title,
           prompt: args.prompt,
           cwd: cwd(),
-          model: args.model === undefined ? model() : parseModelSelection(args.model),
+          model: selectedModel,
           timezone: args.timezone,
           context: args.continue_session ? 'continue' : 'fresh',
           ...(args.continue_session ? { sourceSessionId: sessionId() } : {}),
@@ -864,7 +888,7 @@ function createAutomationToolDefinitions({
     ),
     tool(
       'automation_update',
-      'Update an existing PawWork automation in the current workspace without replacing its identity or history. Supply at only for a one-shot automation; supply every_seconds or cron only for a recurring automation. run_count is the completed-attempt limit and 0 removes the limit. model uses provider/model format.',
+      'Update an existing PawWork automation in the current workspace without replacing its identity or history. Supply at only for a one-shot automation; supply every_seconds or cron only for a recurring automation. run_count is the completed-attempt limit and 0 removes the limit. model uses provider/model format and is refused when that provider does not know the model.',
       objectParameters({
         id: { type: 'string' },
         title: { type: 'string' },
@@ -886,7 +910,14 @@ function createAutomationToolDefinitions({
         for (const field of ['title', 'prompt', 'timezone']) {
           if (args[field] !== undefined) patch[field] = args[field];
         }
-        if (args.model !== undefined) patch.model = parseModelSelection(args.model);
+        if (args.model !== undefined) {
+          patch.model = parseModelSelection(args.model);
+          // Only a change of pair is put to the adapter; the pair a definition already has
+          // stays through edits of other fields, and the run decides what to do with it.
+          if (patch.model.provider !== previous.model.provider || patch.model.model !== previous.model.model) {
+            await checkModel(patch.model);
+          }
+        }
         if (args.at !== undefined) {
           if (previous.kind !== 'oneshot') throw new Error('at cannot update a recurring automation');
           patch.fireAt = parseAbsoluteTime(args.at);

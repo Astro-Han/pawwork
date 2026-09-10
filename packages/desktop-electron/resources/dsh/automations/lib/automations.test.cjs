@@ -13,6 +13,8 @@ const {
   createAutomationToolDefinitions,
 } = require('./automations.cjs');
 
+const acceptModel = async () => {};
+
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-automations-'));
   return {
@@ -149,6 +151,28 @@ test('persists definitions and run history with monotonic ids', () => {
   assert.equal(oneShot(reopened, cwd, 3_000).id, 'automation-2');
 });
 
+// The model a run was moved to is recorded while it runs, so the record says so however the
+// run ends; a failure on the substitute model must not read as a failure of the pinned one.
+test('a run keeps the model it was moved to through any outcome', () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = oneShot(store, cwd, 2_000);
+  const modelFallback = {
+    requested: { provider: 'opencode', model: 'deepseek-v4-flash-free' },
+    used: { provider: 'opencode', model: 'big-pickle' },
+  };
+
+  const failed = store.beginRun(created.id, 1_500);
+  store.recordRunModel(failed.id, modelFallback);
+  store.completeRun(failed.id, { state: 'failed', completedAt: 1_700, error: 'rate limited' });
+  assert.deepEqual(new AutomationStore(file).listRuns(created.id)[0].modelFallback, modelFallback);
+
+  const later = store.beginRun(created.id, 2_500);
+  store.completeRun(later.id, { state: 'succeeded', completedAt: 2_600, result: 'done' });
+  assert.throws(() => store.recordRunModel(later.id, modelFallback), /is not running/);
+  assert.equal(new AutomationStore(file).listRuns(created.id).find((entry) => entry.id === later.id).modelFallback, undefined);
+});
+
 test('startup interrupts unfinished runs, does not replay misses, and arms only the next future target', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
@@ -263,6 +287,72 @@ test('persists a due claim and its running record in one write', async () => {
   assert.equal(reopened.listRuns(created.id)[0].state, 'running');
   await scheduler.stop();
   assert.equal(store.listRuns(created.id)[0].state, 'stopped');
+});
+
+test('retries a due claim the store could not persist instead of failing the timer', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = interval(store, cwd, 300_000);
+  const clock = fakeClock(300_000);
+  const calls = [];
+  const scheduler = new AutomationScheduler({
+    store,
+    execute: async (definition, run) => {
+      calls.push(run.id);
+      return { sessionId: `pawwork-${run.id}`, result: 'ok' };
+    },
+    clock,
+  });
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on('unhandledRejection', onUnhandled);
+  const claimDue = store.claimDue.bind(store);
+  try {
+    await scheduler.start();
+    clock.setNow(301_000);
+    store.claimDue = () => { throw new Error('ENOSPC: no space left on device'); };
+    clock.armed().callback();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(calls, []);
+    assert.equal(clock.armed().delay, 60_000);
+    assert.deepEqual(unhandled, []);
+    assert.equal(store.getDefinition(created.id).nextFireAt, 301_000);
+
+    store.claimDue = claimDue;
+    clock.armed().callback();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(calls, ['automation-run-1']);
+    assert.equal(store.getDefinition(created.id).nextFireAt, 601_000);
+    assert.equal(clock.armed().delay, 300_000);
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+    await scheduler.stop();
+  }
+});
+
+// A store written by a newer PawWork may carry run and definition fields this version does not
+// know. They ride along through load and save so a rollback never strips them.
+test('keeps fields it does not know through load and save', () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = interval(store, cwd, 300_000);
+  const run = store.beginRun(created.id, 1_000);
+  const document = JSON.parse(fs.readFileSync(file, 'utf8'));
+  document.definitions[0].futureField = { kept: true };
+  document.runs[0].modelFallback = { requested: { provider: 'a', model: 'b' }, used: { provider: 'c', model: 'd' } };
+  document.runs[0].futureField = 'kept';
+  fs.writeFileSync(file, JSON.stringify(document));
+
+  const reopened = new AutomationStore(file);
+  reopened.completeRun(run.id, { state: 'succeeded', completedAt: 2_000, result: 'done' });
+
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepEqual(saved.definitions[0].futureField, { kept: true });
+  assert.equal(saved.runs[0].futureField, 'kept');
+  assert.deepEqual(saved.runs[0].modelFallback, document.runs[0].modelFallback);
+  assert.equal(saved.runs[0].state, 'succeeded');
 });
 
 test('rearms future work without waiting for a due run to finish', async () => {
@@ -388,7 +478,7 @@ test('the DSH executor cancels an already attached continue agent', async () => 
     },
     sessions: { flush: async () => {} },
     sessionTitle: { rename: () => {} },
-  });
+  }, { recordRunModel: () => assert.fail('a reused agent keeps its own model') });
   const controller = new AbortController();
 
   const completion = execute({
@@ -441,7 +531,7 @@ test('the DSH executor retries when maintenance admission races with new user wo
     agents: { get: () => agent },
     sessions: { flush: async () => {} },
     sessionTitle: { rename: () => {} },
-  });
+  }, { recordRunModel: () => assert.fail('a reused agent keeps its own model') });
 
   const result = await execute({
     context: 'continue',
@@ -494,7 +584,7 @@ test('the DSH executor keeps a continue result inside its single turn', async ()
     agents: { get: () => agent },
     sessions: { flush: async () => {} },
     sessionTitle: { rename: () => {} },
-  });
+  }, { recordRunModel: () => assert.fail('a reused agent keeps its own model') });
 
   const result = await execute({
     context: 'continue',
@@ -519,17 +609,21 @@ test('the DSH executor does not follow up when agent creation or resume aborts a
       cancel() {},
       runMaintenance: async (task) => task(new AbortController().signal),
     };
+    const requested = new Promise((markRequested) => {
+      resolveAgent = markRequested;
+    });
     const ctx = {
       agents: {
         get: () => undefined,
         [method]: () => new Promise((resolve) => {
-          resolveAgent = () => resolve({ agent, dispose: async () => {} });
+          resolveAgent(() => resolve({ agent, dispose: async () => {} }));
         }),
       },
+      llm: { resolveModelInfo: async (provider, model) => ({ provider, id: model, name: model }) },
       sessions: { flush: async () => {} },
       sessionTitle: { rename: () => {} },
     };
-    const execute = createDshExecutor(ctx);
+    const execute = createDshExecutor(ctx, { recordRunModel: () => assert.fail('a kept model is not recorded') });
     const controller = new AbortController();
     const completion = execute({
       context: method === 'resume' ? 'continue' : 'fresh',
@@ -540,8 +634,9 @@ test('the DSH executor does not follow up when agent creation or resume aborts a
       prompt: 'Continue.',
     }, { id: `automation-run-${method}` }, controller.signal);
 
+    const release = await requested;
     controller.abort();
-    resolveAgent();
+    release();
     await assert.rejects(completion, /aborted|AbortError/);
     assert.equal(followups, 0);
   }
@@ -792,7 +887,7 @@ test('conversation tools manage only the current workspace and keep model choice
     },
   };
   const tools = createAutomationToolDefinitions({
-    store,
+    store, checkModel: acceptModel,
     scheduler,
     cwd: () => cwd,
     model: () => ({ provider: 'opencode', model: 'deepseek-v4-flash-free' }),
@@ -814,6 +909,44 @@ test('conversation tools manage only the current workspace and keep model choice
   assert.throws(() => store.getDefinition(created.id), /automation not found/);
   await assert.rejects(() => byName.automation_delete.execute({ id: created.id }), /automation not found/);
   assert.equal((await byName.automation_list.execute({})).items.length, 0);
+});
+
+// The same adapter verdict the executor acts on is applied when a conversation tool writes a
+// pair: a refused pair never reaches the store, and nothing else is written in its place. Only
+// a change of pair is judged, so a definition already on an unknown pair stays editable.
+test('conversation tools refuse a model the adapter does not know and store the rest untouched', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const checked = [];
+  const checkModel = async (model) => {
+    checked.push(model);
+    if (model.model === 'gone-free') {
+      const error = new Error(`model ${model.provider}/${model.model} is not available`);
+      error.code = 'unknown-model';
+      throw error;
+    }
+  };
+  const tools = createAutomationToolDefinitions({
+    store, scheduler: { refresh() {} }, checkModel, cwd: () => cwd,
+    model: () => ({ provider: 'opencode', model: 'big-pickle' }), now: () => 1_000,
+  });
+  const byName = Object.fromEntries(tools.map((tool) => [tool.name, tool]));
+  const base = { title: 'Daily brief', prompt: 'Write the brief.', every_seconds: 60 };
+
+  await assert.rejects(byName.automation_create.execute({ ...base, model: 'opencode/gone-free' }), /is not available/);
+  assert.deepEqual(store.listDefinitions(), []);
+  const created = await byName.automation_create.execute(base);
+  assert.deepEqual(checked, [{ provider: 'opencode', model: 'gone-free' }]);
+  await assert.rejects(byName.automation_update.execute({ id: created.id, model: 'opencode/gone-free' }), /is not available/);
+  assert.deepEqual(store.getDefinition(created.id).model, { provider: 'opencode', model: 'big-pickle' });
+  assert.equal((await byName.automation_update.execute({ id: created.id, model: 'opencode/mimo-v2.5-free' })).model.model, 'mimo-v2.5-free');
+
+  const pinned = store.createDefinition({
+    kind: 'recurring', title: 'Legacy', prompt: 'Run.', cwd, rhythm: { kind: 'interval', everyMs: 60_000 },
+    model: { provider: 'opencode', model: 'gone-free' },
+  }, 3_000);
+  assert.equal((await byName.automation_update.execute({ id: pinned.id, model: 'opencode/gone-free', title: 'Legacy again' })).title, 'Legacy again');
+  assert.equal(checked.length, 3);
 });
 
 test('cron definitions keep their timezone and stop after the requested completed run count', async () => {
@@ -847,7 +980,7 @@ test('conversation create accepts cron and finite schedules', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
   const tools = createAutomationToolDefinitions({
-    store,
+    store, checkModel: acceptModel,
     scheduler: { refresh() {} },
     cwd: () => cwd,
     model: () => ({ provider: 'opencode', model: 'big-pickle' }),
@@ -1034,7 +1167,7 @@ test('conversation tools refuse to run inside a continue-mode automation turn', 
   const store = new AutomationStore(file);
   const scheduler = new AutomationScheduler({ store, execute: async () => ({ result: 'done' }), clock: fakeClock(1_000) });
   const tools = createAutomationToolDefinitions({
-    store,
+    store, checkModel: acceptModel,
     scheduler,
     cwd: () => cwd,
     sessionId: () => 'session-user-1',
@@ -1063,7 +1196,7 @@ test('conversation tools refuse to run inside a continue-mode automation turn', 
 
   // A different conversation is unaffected while that run is in flight.
   const other = createAutomationToolDefinitions({
-    store, scheduler, cwd: () => cwd, sessionId: () => 'session-user-2',
+    store, checkModel: acceptModel, scheduler, cwd: () => cwd, sessionId: () => 'session-user-2',
     model: () => ({ provider: 'opencode', model: 'big-pickle' }), now: () => 1_000,
   });
   const otherByName = Object.fromEntries(other.map((entry) => [entry.name, entry]));
@@ -1074,7 +1207,7 @@ test('conversation tools apply one schedule arg rule to create and update alike'
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
   const tools = createAutomationToolDefinitions({
-    store,
+    store, checkModel: acceptModel,
     scheduler: { refresh() {} },
     cwd: () => cwd,
     model: () => ({ provider: 'opencode', model: 'big-pickle' }),
@@ -1145,7 +1278,7 @@ test('conversation update edits v1-manageable fields atomically without changing
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
   const tools = createAutomationToolDefinitions({
-    store,
+    store, checkModel: acceptModel,
     scheduler: { refresh() {} },
     cwd: () => cwd,
     model: () => ({ provider: 'opencode', model: 'big-pickle' }),
@@ -1188,7 +1321,7 @@ test('continue automations bind immutably to the creating DSH session', async ()
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
   const tools = createAutomationToolDefinitions({
-    store,
+    store, checkModel: acceptModel,
     scheduler: { refresh() {} },
     cwd: () => cwd,
     sessionId: () => 'session-existing',

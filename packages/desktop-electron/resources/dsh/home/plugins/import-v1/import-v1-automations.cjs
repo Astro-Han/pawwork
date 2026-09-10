@@ -66,12 +66,20 @@ function v2SessionId(sourceId) {
   return `pawwork-v1-${sourceId}`;
 }
 
-function mapV1AutomationDefinition(source, { model, modelWarning } = {}) {
+function recordedText(value) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+// The pair v1 recorded is kept as written; whether it can still run is decided when a run
+// starts, by the adapter. Only a definition that names no model gets the default.
+function mapV1AutomationDefinition(source, defaultModel) {
   const definition = source.data;
   if (!definition || definition.id !== source.id) throw new Error(`invalid v1 automation definition: ${source.id}`);
-  if (!model?.provider || !model?.model) throw new Error('resolved v2 automation model is required');
+  const recorded = { provider: recordedText(definition.model?.providerID), model: recordedText(definition.model?.modelID) };
+  const model = recorded.provider && recorded.model ? recorded : defaultModel;
+  if (!model?.provider || !model?.model) throw new Error('v2 automation default model is required');
   const warnings = [];
-  if (modelWarning) warnings.push(modelWarning);
+  if (model !== recorded) warnings.push('model_not_recorded');
   if (definition.where?.worktree) warnings.push('worktree_placement_not_preserved');
   if (definition.variant) warnings.push('reasoning_effort_not_preserved');
   const context = definition.context === 'continue' ? 'continue' : 'fresh';
@@ -163,13 +171,13 @@ async function runV1AutomationImport({
   home,
   sourceDatabase = discoverV1Database(),
   snapshot,
-  resolveModel,
+  defaultModel,
   importDefinition,
   importRun,
   signal,
   now = () => Date.now(),
 }) {
-  if (typeof resolveModel !== 'function') throw new Error('v1 resolveModel adapter is required');
+  if (typeof defaultModel !== 'function') throw new Error('v1 defaultModel adapter is required');
   if (typeof importDefinition !== 'function') throw new Error('v1 importDefinition adapter is required');
   if (typeof importRun !== 'function') throw new Error('v1 importRun adapter is required');
   const { ledger, save } = openMigrationLedger(home);
@@ -194,9 +202,7 @@ async function runV1AutomationImport({
   for (const definition of source.definitions) {
     signal?.throwIfAborted();
     try {
-      const resolved = await resolveModel(definition);
-      signal?.throwIfAborted();
-      const mapped = mapV1AutomationDefinition(definition, resolved);
+      const mapped = mapV1AutomationDefinition(definition, defaultModel());
       const outcome = await importDefinition(mapped);
       signal?.throwIfAborted();
       if (!['imported', 'skipped'].includes(outcome)) throw new Error(`invalid definition outcome: ${outcome}`);

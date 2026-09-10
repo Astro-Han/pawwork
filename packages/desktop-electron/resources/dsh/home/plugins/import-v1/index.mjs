@@ -20,29 +20,6 @@ export const inject = [
   'workspaceRegistry',
 ];
 
-function createAutomationModelResolver(ctx) {
-  const providers = new Set(ctx.llm.listProviders().map((provider) => provider.id));
-  const models = new Map();
-  return async (source) => {
-    const selected = source.data?.model;
-    if (providers.has(selected?.providerID)) {
-      let available = models.get(selected.providerID);
-      if (!available) {
-        available = new Set((await ctx.llm.listModels(selected.providerID)).map((model) => model.id));
-        models.set(selected.providerID, available);
-      }
-      if (available.has(selected.modelID)) {
-        return { model: { provider: selected.providerID, model: selected.modelID } };
-      }
-    }
-    const fallback = ctx.agentDefaultModel.currentSelection();
-    return {
-      model: { provider: fallback.provider, model: fallback.model },
-      modelWarning: 'model_not_available',
-    };
-  };
-}
-
 function isMissingSession(error, id) {
   return error instanceof Error && error.message === `session "${id}" not found`;
 }
@@ -286,7 +263,10 @@ export function apply(ctx) {
             home: process.env.DSH_HOME,
             sourceDatabase,
             snapshot: snapshot?.path,
-            resolveModel: createAutomationModelResolver(ctx),
+            defaultModel: () => {
+              const current = ctx.agentDefaultModel.currentSelection();
+              return { provider: current.provider, model: current.model };
+            },
             importDefinition: async (definition) => {
               if (definition.context === 'continue'
                 && !await hasPersistedV1Session(ctx.sessionPersistence, definition.sourceSessionId)) {

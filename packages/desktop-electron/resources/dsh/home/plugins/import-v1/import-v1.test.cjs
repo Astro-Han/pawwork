@@ -76,7 +76,7 @@ test('retires each persisted v1 session through the paired live lifecycle', asyn
   let automationsActivated = false;
   let missingContinueSessionRejected = false;
   let incompleteContinueSessionRejected = false;
-  let unavailableAutomationCatalogRejected = false;
+  let defaultModelSupplied = false;
   let sessionPersisted = false;
   const sessionLifecycle = [];
   const finished = new Promise((resolve) => { backgroundFinished = resolve; });
@@ -97,13 +97,10 @@ test('retires each persisted v1 session through the paired live lifecycle', asyn
   };
   settingsModule.createDshSettingImporter = () => async () => 'skipped';
   settingsModule.runV1SettingsImport = async () => ({ status: 'complete' });
-  automationsModule.runV1AutomationImport = async ({ importDefinition, resolveModel }) => {
+  automationsModule.runV1AutomationImport = async ({ importDefinition, defaultModel }) => {
     try {
-      await assert.rejects(
-        resolveModel({ data: { model: { providerID: 'opencode', modelID: 'deepseek-v4-flash-free' } } }),
-        /temporary automation catalog failure/,
-      );
-      unavailableAutomationCatalogRejected = true;
+      assert.deepEqual(defaultModel(), { provider: 'opencode', model: 'big-pickle' });
+      defaultModelSupplied = true;
       await assert.rejects(
         importDefinition({ id: 'automation-1', context: 'continue', sourceSessionId: 'pawwork-v1-missing' }),
         /source session is unavailable/,
@@ -126,10 +123,8 @@ test('retires each persisted v1 session through the paired live lifecycle', asyn
     apply({
       connection: { rpc: { handle: () => async () => {} } },
       effect: (setup) => { stopPlugin = setup(); },
-      llm: {
-        listProviders: () => [{ id: 'opencode' }],
-        listModels: async () => { throw new Error('temporary automation catalog failure'); },
-      },
+      agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }) },
+      llm: { listProviders: () => [], listModels: async () => [] },
       logger: { warn: () => {} },
       pawworkAutomations: {
         scheduler: { refresh: () => {} },
@@ -173,7 +168,7 @@ test('retires each persisted v1 session through the paired live lifecycle', asyn
     assert.equal(automationsActivated, true);
     assert.equal(missingContinueSessionRejected, true);
     assert.equal(incompleteContinueSessionRejected, true);
-    assert.equal(unavailableAutomationCatalogRejected, true);
+    assert.equal(defaultModelSupplied, true);
     // DSH rc.8 persistence adopts ownership on session/created and releases it
     // on the paired session/disposed. Detaching an unannounced session removes
     // it from the live store without retirement, leaving later load/prepare to
