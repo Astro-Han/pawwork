@@ -65,6 +65,8 @@ export type CiSmokeProductSnapshot = {
   automationDeleteDialogWorks: boolean
   automationDirtyPauseBlocked: boolean
   automationMetadataPlain: boolean
+  automationModelSelectPopulated: boolean
+  automationModelSelectPinned: boolean
   automationDatePopoutWorks: boolean
   automationDateEscapeCloses: boolean
   cursorMismatches: string[]
@@ -637,6 +639,16 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     advancedButton?.click()
     await new Promise((resolve) => setTimeout(resolve, 50))
     const automationAdvancedVisible = visible(document.querySelector(".pawwork-automation-advanced-content"))
+    // The model field is a select fed by the live catalog and opened on the definition's own
+    // pair, so it must list more than that pair and still have it selected.
+    let modelSelect = null
+    for (let attempt = 0; attempt < 40 && !(modelSelect && modelSelect.options.length > 1); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      modelSelect = Array.from(document.querySelectorAll("select.pawwork-automation-select"))
+        .find((element) => /^(模型|Model)$/.test(element.getAttribute("aria-label") || "")) ?? null
+    }
+    const automationModelSelectPopulated = Boolean(modelSelect && modelSelect.options.length > 1)
+    const automationModelSelectPinned = modelSelect?.value === JSON.stringify(["opencode", "deepseek-v4-flash-free"])
     const readonlyMetadata = Array.from(document.querySelectorAll(".pawwork-automation-readonly"))
     const automationSurface = document.querySelector(".pawwork-automations-surface")
     const automationEditor = document.querySelector(".pawwork-automation-panel")
@@ -892,6 +904,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       automationDeleteDialogWorks,
       automationDirtyPauseBlocked,
       automationMetadataPlain,
+      automationModelSelectPopulated,
+      automationModelSelectPinned,
       automationDatePopoutWorks,
       automationDateEscapeCloses,
       cursorMismatches: Array.from(new Set([...heroCursorMismatches, ...settledCursorMismatches])),
@@ -1263,6 +1277,8 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.automationDeleteDialogWorks ? null : "Automation delete confirmation is not a cancellable dialog",
     snapshot.automationDirtyPauseBlocked ? null : "Automation pause can discard unsaved edits",
     snapshot.automationMetadataPlain ? null : "Automation immutable metadata is not plain read-only text",
+    snapshot.automationModelSelectPopulated ? null : "Automation model select did not fill from the model catalog",
+    snapshot.automationModelSelectPinned ? null : "Automation model select did not open on the definition's model",
     snapshot.automationDatePopoutWorks ? null : "Automation date picker is not a popout inside the window",
     snapshot.automationDateEscapeCloses ? null : "Automation date picker does not close on Escape",
     snapshot.sidebarToggleCount === 1 ? null : `expected one PawWork sidebar toggle, found ${snapshot.sidebarToggleCount}`,

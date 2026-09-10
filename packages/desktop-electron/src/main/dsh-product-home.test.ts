@@ -12,7 +12,7 @@ import {
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { readProductPatch } from "./dsh-product-patch.testing"
+import { allRows, overlaidRows, readProductPatch } from "./dsh-product-patch.testing"
 import {
   buildDshEnvironment,
   prepareDshProductHome,
@@ -354,6 +354,23 @@ describe("DSH product home", () => {
     const patch = readProductPatch()
 
     expect(patch.find((entry) => entry.id === "llm-deepseek")?.disabled).toBe(true)
+  })
+
+  // The automation editor labels an unlisted model as one the run will not get, which is
+  // only true of an adapter that resolves exactly the models it lists. pi-ai does
+  // (getModel is getModels().find); llm-deepseek synthesises unlisted ids. So pi-ai has
+  // to stay the only adapter the composition enables.
+  test("enables pi-ai as the only model adapter", () => {
+    const enabled = new Map<string, boolean>()
+    for (const row of [...overlaidRows(), ...allRows(readProductPatch())]) {
+      if (row.id?.startsWith("llm-")) enabled.set(row.id, row.disabled !== true)
+    }
+    const adapters = [...enabled].filter(([id, on]) => on && id !== "llm-retry").map(([id]) => id)
+    expect(adapters).toEqual(["llm-pi-ai"])
+
+    const { adapterRoot } = installedPiAi()
+    const retryEntry = createRequire(join(adapterRoot, "package.json")).resolve("@deepseek-ai/dsh-llm-retry")
+    expect(readFileSync(retryEntry, "utf8")).not.toContain("registerAdapter(")
   })
 
   test("makes the community market wait for PawWork-owned Desktop services", () => {

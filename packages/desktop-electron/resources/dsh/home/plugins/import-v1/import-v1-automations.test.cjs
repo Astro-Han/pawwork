@@ -115,10 +115,7 @@ test('reads v1 automation definitions and runs from their authoritative tables',
 
 test('preserves v1 automation facts without deriving its next fire', () => {
   const source = readV1Automations(fixture()).definitions[0];
-  const mapped = mapV1AutomationDefinition(source, {
-    model: { provider: 'opencode', model: 'big-pickle' },
-    modelWarning: 'model_not_available',
-  });
+  const mapped = mapV1AutomationDefinition(source, { provider: 'opencode', model: 'big-pickle' });
 
   assert.equal(mapped.id, 'pawwork-v1-automation_source');
   // The content the user wrote, and the fields the scheduler runs it with.
@@ -128,7 +125,7 @@ test('preserves v1 automation facts without deriving its next fire', () => {
   assert.equal(mapped.prompt, 'Write the brief.');
   assert.equal(mapped.revision, 3);
   assert.equal(mapped.timezone, 'Asia/Shanghai');
-  assert.deepEqual(mapped.model, { provider: 'opencode', model: 'big-pickle' });
+  assert.deepEqual(mapped.model, { provider: 'openai', model: 'gpt-5.5' });
   assert.equal(mapped.createdAt, 1_000);
   assert.equal(mapped.paused, false);
   assert.equal(mapped.context, 'continue');
@@ -139,7 +136,7 @@ test('preserves v1 automation facts without deriving its next fire', () => {
   assert.deepEqual(mapped.migration, {
     source: 'pawwork-v1',
     sourceId: 'automation_source',
-    warnings: ['model_not_available', 'worktree_placement_not_preserved', 'reasoning_effort_not_preserved'],
+    warnings: ['worktree_placement_not_preserved', 'reasoning_effort_not_preserved'],
   });
 });
 
@@ -177,7 +174,7 @@ test('reconciles definitions and runs against the Automation store without copie
     home,
     sourceDatabase: source,
     snapshot: await snapshotOf(home, source),
-    resolveModel: async () => ({ model: { provider: 'opencode', model: 'big-pickle' } }),
+    defaultModel: () => ({ provider: 'opencode', model: 'big-pickle' }),
     importDefinition: async (definition) => { definitions.push(definition); return 'imported'; },
     importRun: async (run) => { runs.push(run); return 'imported'; },
     now: () => 8_000,
@@ -207,7 +204,7 @@ test('does not commit an Automation definition after cancellation during import'
     home,
     sourceDatabase: source,
     snapshot: await snapshotOf(home, source),
-    resolveModel: async () => ({ model: { provider: 'opencode', model: 'big-pickle' } }),
+    defaultModel: () => ({ provider: 'opencode', model: 'big-pickle' }),
     importDefinition: async () => {
       controller.abort(new Error('automation import stopped'));
       return 'imported';
@@ -232,7 +229,7 @@ test('records malformed automation rows and continues importing valid rows', asy
     home,
     sourceDatabase: source,
     snapshot: await snapshotOf(home, source),
-    resolveModel: async () => ({ model: { provider: 'opencode', model: 'big-pickle' } }),
+    defaultModel: () => ({ provider: 'opencode', model: 'big-pickle' }),
     importDefinition: async () => 'imported',
     importRun: async (run) => { store.importRun(run); return 'imported'; },
     now: () => 8_000,

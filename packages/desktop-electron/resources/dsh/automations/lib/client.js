@@ -149,6 +149,7 @@ window.__ModuleLoader__.load({
 }
 .pawwork-automation-advanced-summary:hover { color: var(--dsw-alias-label-primary); }
 .pawwork-automation-advanced-content { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); padding-top: 12px; }
+.pawwork-automation-group-wide { grid-column: 1 / -1; }
 .pawwork-automation-form-footer {
   align-items: center; display: flex; gap: 8px; justify-content: flex-end;
 }
@@ -166,6 +167,7 @@ window.__ModuleLoader__.load({
 .pawwork-automation-run-summary {
   display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.pawwork-automation-run-note { color: var(--dsw-alias-state-warn-label); display: block; font-size: 12px; line-height: 18px; margin-top: 2px; overflow-wrap: anywhere; }
 `
 
     const styleId = "@pawwork/dsh-automations"
@@ -219,7 +221,7 @@ window.__ModuleLoader__.load({
       if (error?.issues?.some((issue) => issue?.code === "invalid-cron")) {
         return text("Cron 表达式无效，或它指定的时间永远不会到来", "This cron expression is invalid, or the time it names never comes")
       }
-      return error instanceof Error ? error.message : String(error)
+      return typeof error?.message === "string" ? error.message : String(error)
     }
 
     function workspaceName(cwd) {
@@ -268,8 +270,14 @@ window.__ModuleLoader__.load({
       return "done"
     }
 
+    function modelLabel(selection) {
+      return `${selection.provider}/${selection.model}`
+    }
     function RunRow({ onError, run, sessions, closeSettings }) {
       const summary = run.error || run.stopReason || run.result
+      const fallback = run.modelFallback
+        ? text(`模型 ${modelLabel(run.modelFallback.requested)} 不可用，本次运行使用 ${modelLabel(run.modelFallback.used)}`, `Model ${modelLabel(run.modelFallback.requested)} is unavailable; this run uses ${modelLabel(run.modelFallback.used)}`)
+        : null
       async function openSession() {
         try {
           await sessions.refresh()
@@ -284,6 +292,7 @@ window.__ModuleLoader__.load({
           h(StateDot, { size: 10, state: runDotState(run) }),
           h("span", { className: "pawwork-automation-run-state" }, runState(run)),
           h("span", { className: "pawwork-automation-run-time" }, formatTime(run.triggeredAt)),
+          fallback ? h("span", { className: "pawwork-automation-run-note" }, fallback) : null,
           summary ? h("span", { className: "pawwork-automation-run-summary" }, summary) : null),
         run.sessionId ? h(Button, { onClick: openSession, size: "sm", variant: "outline" }, text("打开会话", "Open session")) : null)
     }
@@ -340,8 +349,8 @@ window.__ModuleLoader__.load({
       }
       return { kind: "recurring", rhythm: { kind: "cron", expression } }
     }
-    function Field({ label, children }) {
-      return h("div", { className: "pawwork-automation-group" }, h("span", { className: "pawwork-automation-group-label" }, label), children)
+    function Field({ label, children, wide = false }) {
+      return h("div", { className: wide ? "pawwork-automation-group pawwork-automation-group-wide" : "pawwork-automation-group" }, h("span", { className: "pawwork-automation-group-label" }, label), children)
     }
     // DSH's own settings editor (ui-settings-models) styles a native select as one of its fields
     // rather than anchoring a Menu to a button: the popup is then the platform's, correctly placed
@@ -444,7 +453,30 @@ window.__ModuleLoader__.load({
             cells)) : null)
     }
 
-    function AutomationEditor({ closeSettings, connection, definition, onClose, onDeleted, onSaved, sessions }) {
+    // The definition's pair is always an option, so the form opens on what it says. Its label
+    // states the catalog fact and the run rule that follows from it: with no provider routable
+    // nothing is judged, a provider whose list could not be read keeps its pair, and any other
+    // unlisted pair is moved to the default model.
+    function ModelSelect({ catalog, onChange, pinned, value }) {
+      const key = (selection) => JSON.stringify([selection.provider, selection.model])
+      const groups = catalog?.groups || []
+      const listed = (selection) => groups.some((group) => group.id === selection.provider && group.models.some((model) => model.id === selection.model))
+      const unlisted = (selection) => catalog === null ? text("正在加载模型…", "Loading models…")
+        : catalog.error ? text("模型列表加载失败", "Model list failed to load")
+        : catalog.routableProviders.length === 0 ? text("当前没有可用模型", "No model is available right now")
+        : catalog.failures.some((failure) => failure.id === selection.provider) ? text("暂时无法列出，运行时仍使用", "Cannot be listed right now; runs still use it")
+        : text("未列出，运行时改用默认模型", "Unlisted; runs use the default model")
+      const extra = [pinned, ...(key(value) === key(pinned) ? [] : [value])].filter((selection) => !listed(selection))
+      return h("select", {
+        "aria-label": text("模型", "Model"), className: "pawwork-automation-select",
+        onChange: (event) => onChange(JSON.parse(event.target.value)), value: key(value),
+      },
+        extra.map((selection) => h("option", { key: key(selection), value: key(selection) }, `${modelLabel(selection)} (${unlisted(selection)})`)),
+        groups.map((group) => h("optgroup", { key: group.id, label: group.name },
+          group.models.map((model) => h("option", { key: key({ provider: group.id, model: model.id }), value: key({ provider: group.id, model: model.id }) }, model.name)))))
+    }
+
+    function AutomationEditor({ catalog, closeSettings, connection, definition, onClose, onDeleted, onSaved, sessions }) {
       const baseline = useRef(formState(definition))
       const [form, setForm] = useState(baseline.current)
       const [busy, setBusy] = useState("")
@@ -512,7 +544,7 @@ window.__ModuleLoader__.load({
             h("p", { className: "pawwork-automation-panel-summary" }, `${formatSchedule(definition)}  ${workspaceName(definition.cwd)}`)),
           h("div", { className: "pawwork-automation-actions" },
             h(Button, { disabled: busy !== "" || dirty, icon: h(definition.paused ? IconPlayOutline16 : IconPauseOutline16, { size: 16 }), onClick: () => mutate("set-paused", { id: definition.id, paused: !definition.paused }), size: "sm", title: dirty ? text("请先保存更改", "Save changes first") : undefined, variant: "outline" }, definition.paused ? text("启用", "Resume") : text("暂停", "Pause")),
-            h(Button, { disabled: busy !== "", icon: h(IconPlayOutline16, { size: 16 }), onClick: () => mutate("run-now", { id: definition.id }), size: "sm", variant: "primary" }, text("立即运行", "Run now")),
+            h(Button, { disabled: busy !== "" || dirty, icon: h(IconPlayOutline16, { size: 16 }), onClick: () => mutate("run-now", { id: definition.id }), size: "sm", title: dirty ? text("请先保存更改", "Save changes first") : undefined, variant: "primary" }, text("立即运行", "Run now")),
             h(Button, { "aria-label": text("删除", "Delete"), disabled: busy !== "", icon: h(IconTrashOutline16, { size: 16 }), onClick: () => setDeleting(true), size: "sm", title: text("删除", "Delete"), type: "button", variant: "ghost" }))),
         h("form", { className: "pawwork-automation-form", onSubmit: save },
           h(Field, { label: text("标题", "Title") }, h("input", { "aria-label": text("标题", "Title"), className: "pawwork-automation-input", onChange: update("title"), value: form.title })),
@@ -536,8 +568,7 @@ window.__ModuleLoader__.load({
               onClick: () => setAdvanced((current) => !current), type: "button",
             }, h(advanced ? IconChevronDownOutline14 : IconChevronRightOutline14, { size: 14 }), text("高级设置", "Advanced settings")),
             advanced ? h("div", { className: "pawwork-automation-advanced-content", id: "pawwork-automation-advanced-content" },
-              h(Field, { label: text("模型来源", "Provider") }, h("input", { "aria-label": text("模型来源", "Provider"), className: "pawwork-automation-input", onChange: update("provider"), value: form.provider })),
-              h(Field, { label: text("模型", "Model") }, h("input", { "aria-label": text("模型", "Model"), className: "pawwork-automation-input", onChange: update("model"), value: form.model })),
+              h(Field, { label: text("模型", "Model"), wide: true }, h(ModelSelect, { catalog, onChange: ([provider, model]) => setForm((current) => ({ ...current, provider, model })), pinned: definition.model, value: { provider: form.provider, model: form.model } })),
               h(Field, { label: text("时区", "Timezone") }, h("input", { "aria-label": text("时区", "Timezone"), className: "pawwork-automation-input", onChange: update("timezone"), value: form.timezone })),
               h(Field, { label: text("会话", "Session") }, h("span", { className: "pawwork-automation-readonly" }, definition.context === "continue" ? text("继续原会话", "Continue original session") : text("每次新会话", "New session each run"))),
               form.frequency !== "once" ? h(Field, { label: text("运行次数上限", "Run limit") }, h("input", { "aria-label": text("运行次数上限", "Run limit"), className: "pawwork-automation-input", min: "1", onChange: update("runCount"), placeholder: text("永不停止", "Never"), type: "number", value: form.runCount })) : null) : null),
@@ -564,7 +595,7 @@ window.__ModuleLoader__.load({
         }))
     }
 
-    function AutomationSurface({ close, connection, createViaChat, sessions, useWorkspaces }) {
+    function AutomationSurface({ close, connection, createViaChat, remote, sessions, useWorkspaces }) {
       const workspaceState = useWorkspaces((state) => state)
       const workspaces = workspaceState.items || []
       const [data, setData] = useState(null)
@@ -572,6 +603,21 @@ window.__ModuleLoader__.load({
       const [query, setQuery] = useState("")
       const [filter, setFilter] = useState("all")
       const [error, setError] = useState("")
+      // Loaded when an editor opens, not with the list: the catalog resolves every model of every
+      // provider. A failed or empty result is not a value; the next editor open asks again.
+      const [catalog, setCatalog] = useState(null)
+      const editing = selectedId !== null
+      useEffect(() => {
+        if (!editing || (catalog !== null && !catalog.error && catalog.groups.length > 0)) return
+        let live = true
+        remote.session.modelCatalog().then((response) => {
+          if (!response.ok) throw response.error
+          if (live) setCatalog(response.value)
+        }).catch((catalogError) => {
+          if (live) setCatalog({ groups: [], routableProviders: [], failures: [], error: errorText(catalogError) })
+        })
+        return () => { live = false }
+      }, [editing])
 
       async function load(signal) {
         setError("")
@@ -618,7 +664,7 @@ window.__ModuleLoader__.load({
       }
 
       if (selected) return h("main", { className: "pawwork-automations-surface" },
-        h(AutomationEditor, { closeSettings: close, connection, definition: selected, key: `${selected.id}:${selected.revision}`, onClose: closePanel, onDeleted: async () => { closePanel(); await load() }, onSaved: reloadAfter, sessions }))
+        h(AutomationEditor, { catalog, closeSettings: close, connection, definition: selected, key: `${selected.id}:${selected.revision}`, onClose: closePanel, onDeleted: async () => { closePanel(); await load() }, onSaved: reloadAfter, sessions }))
 
       return h("main", { className: "pawwork-automations-surface" },
           h("div", { className: "pawwork-automations-page-head" },
@@ -641,14 +687,14 @@ window.__ModuleLoader__.load({
             visible.length === 0 && data !== null ? h("div", { className: "pawwork-automations-empty" }, query ? text("没有匹配的自动化", "No matching automations") : text("还没有自动化。在对话中描述任务和运行时间即可创建。", "No automations yet. Describe a task and schedule in chat to create one.")) : null))
     }
 
-    const inject = ["slots", "connection", "conversation", "sessions", "uiWorkspace"]
+    const inject = ["slots", "connection", "conversation", "remote", "remote.session", "sessions", "uiWorkspace"]
 
     function apply(ctx) {
       ctx.slots.inject("settings.section", () => ctx.slots.register({
         name: "settings.section", id: "pawwork-automations", order: 40,
         label: () => text("自动化", "Automations"),
       }, (props) => h(AutomationSurface, {
-          ...props, connection: ctx.connection,
+          ...props, connection: ctx.connection, remote: ctx.remote,
           createViaChat: async (workspaceId) => {
             // Navigation moved off the Workspace Controller in DSH 0.1.2-alpha.2:
             // `workspaces` is the pure Host projection now, and connecting one to
