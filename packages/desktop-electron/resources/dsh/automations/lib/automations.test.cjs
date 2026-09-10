@@ -197,6 +197,31 @@ test('startup interrupts unfinished runs, does not replay misses, and arms only 
   await scheduler.stop();
 });
 
+// The scheduler reads timestamps straight out of the stored document, and only
+// `null` used to mean "not scheduled". A definition carrying anything else armed
+// a timer on NaN — one per millisecond, forever — or, unpaused, threw out of
+// start() into a warning nothing exports, leaving every automation dead.
+test('treats a definition with no usable timestamp as unscheduled', async () => {
+  const { file, cwd } = fixture();
+  const stranded = oneShot(new AutomationStore(file), cwd, 2_000);
+  const document = JSON.parse(fs.readFileSync(file, 'utf8'));
+  delete document.definitions[0].nextFireAt;
+  fs.writeFileSync(file, JSON.stringify(document));
+  const store = new AutomationStore(file);
+  const clock = fakeClock(9_000);
+  const scheduler = new AutomationScheduler({
+    store,
+    execute: async () => assert.fail('an unscheduled definition must not run'),
+    clock,
+  });
+
+  await scheduler.start();
+
+  assert.equal(clock.armed(), undefined);
+  assert.equal(store.listRuns(stranded.id).length, 0);
+  await scheduler.stop();
+});
+
 // An automation turn still in flight when the sidecar quits is the case the
 // abort loop exists for: without it stop() waits on a promise nothing will ever
 // settle. This test is the only one that reaches that deadlock — the others

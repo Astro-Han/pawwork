@@ -50,6 +50,15 @@ function recurringNext(createdAt, everyMs, after) {
   return createdAt + (Math.floor(elapsed / everyMs) + 1) * everyMs;
 }
 
+// The store persists whatever the document on disk holds, so a definition can
+// reach the scheduler without a usable timestamp. Only a real one counts as
+// scheduled: as a delay it arms a timer every millisecond for the life of the
+// process, and as a claim target it fails the run record's own validation and
+// leaves the scheduler unstarted.
+function scheduledAt(definition) {
+  return Number.isFinite(definition.nextFireAt) ? definition.nextFireAt : null;
+}
+
 function definitionNext(definition, after, completedRunCount = 0) {
   if (definition.paused) return null;
   if (definition.stop?.kind === 'count' && completedRunCount >= definition.stop.count) return null;
@@ -540,7 +549,7 @@ class AutomationScheduler {
     const now = this.clock.now();
     this.store.interruptActiveRuns(now);
     for (const definition of this.store.listDefinitions()) {
-      const target = definition.nextFireAt;
+      const target = scheduledAt(definition);
       if (target === null || target > now || definition.paused) continue;
       this.store.claimDue(definition.id, target, now, {
         state: 'stopped',
@@ -560,7 +569,7 @@ class AutomationScheduler {
     this.timer = null;
     if (this.stopping) return;
     const targets = this.store.listDefinitions()
-      .map((definition) => definition.nextFireAt)
+      .map(scheduledAt)
       .filter((value) => value !== null);
     if (targets.length === 0) return;
     this.armIn(Math.max(0, Math.min(Math.min(...targets) - this.clock.now(), MAX_TIMER_DELAY_MS)));
