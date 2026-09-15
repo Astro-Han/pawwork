@@ -73,6 +73,7 @@ export type CiSmokeProductSnapshot = {
   cursorProbeCaught: string[]
   titlebarStripHeight: number
   titlebarStripDraggable: boolean
+  titlebarStripPrecedesControls: boolean
   contentInsetHeight: number
   titlebarInsetLeft: number
   titlebarInsetRight: number
@@ -507,6 +508,17 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const titlebarStripHeight = titlebarStrip ? titlebarStrip.getBoundingClientRect().height : -1
     const titlebarStripDraggable = Boolean(titlebarStrip)
       && getComputedStyle(titlebarStrip).getPropertyValue("-webkit-app-region").trim() === "drag"
+    // Draggable regions are composited in document order and the last rect containing a point
+    // decides, so a control the strip covers keeps its clicks only when its own no-drag rect
+    // comes after the strip. The strip is mounted ahead of the app root to make that hold.
+    const titlebarStripPrecedesControls = Boolean(titlebarStrip)
+      && Array.from(document.querySelectorAll('button, a, input, textarea, select, [role="button"], [role="tab"], [contenteditable="true"]'))
+        .filter(visible)
+        .filter((element) => {
+          const rect = element.getBoundingClientRect()
+          return rect.top < titlebarStripHeight && rect.bottom > 0
+        })
+        .every((element) => Boolean(titlebarStrip.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING))
     const insetProbe = document.createElement("div")
     insetProbe.style.cssText = 'box-sizing:border-box;height:0;padding-left:var(--pawwork-titlebar-inset-left,0px);padding-right:var(--pawwork-titlebar-inset-right,0px);position:fixed;visibility:hidden;width:100vw'
     document.body.appendChild(insetProbe)
@@ -912,6 +924,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       cursorProbeCaught,
       titlebarStripHeight,
       titlebarStripDraggable,
+      titlebarStripPrecedesControls,
       contentInsetHeight,
       titlebarInsetLeft,
       titlebarInsetRight,
@@ -1205,6 +1218,9 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
       ? null
       : `frameless=${frameless} but the titlebar drag strip is ${snapshot.titlebarStripHeight}px`,
     snapshot.titlebarStripDraggable ? null : "titlebar strip is not a drag region",
+    snapshot.titlebarStripPrecedesControls
+      ? null
+      : "a control inside the titlebar band precedes the drag strip, so the strip wins the overlap and drops its clicks",
     snapshot.contentInsetHeight === 0 ? null : `web content still has a ${snapshot.contentInsetHeight}px full-width titlebar inset`,
     titlebarInsetsMatchPlatform
       ? null
