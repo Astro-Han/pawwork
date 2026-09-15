@@ -295,7 +295,7 @@ describe("PawWork DSH web search card", () => {
   test("a throwing write leaves the card usable", async () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
-      const { injected } = cardOf({
+      const { card, injected } = cardOf({
         set: async () => {
           throw new Error("read-only deployment")
         },
@@ -306,7 +306,9 @@ describe("PawWork DSH web search card", () => {
 
       const state = stateOf(injected)
       expect(state.saving).toBe(false)
-      expect(state.failure).toEqual({ field: "backend", kind: "broken" })
+      expect(state.failure).toEqual({ field: "backend" })
+      // Nothing answered, so there are no words of anyone else's to show.
+      expect(textOf(card, injected)).toContain("saveFailedApp")
       expect(state.backend).toBe("deepseek")
     } finally {
       logged.mockRestore()
@@ -387,39 +389,33 @@ describe("PawWork DSH web search card", () => {
     await injected.save()
 
     const state = stateOf(injected)
-    expect(state.failure).toEqual({ field: "key", kind: "refused" })
+    expect(state.failure).toEqual({ field: "key", message: "the deployment refused the value" })
     expect(state.keyText).toBe("rotated-key")
   })
 
-  test("a failure names the field that did not land", async () => {
+  // The refusal is the deployment's to explain, and it explains it for a user to
+  // read: the card shows those words rather than paraphrasing them into copy of
+  // its own that would have to guess which side was at fault.
+  test("a refusal is shown in the deployment's own words", async () => {
     const { card, injected } = cardOf({ setCredential: () => refusal() })
 
     injected.selectBackend("deepseek")
     injected.editKey("deepseek-secret")
     await injected.save()
 
-    expect(stateOf(injected).failure).toEqual({ field: "key", kind: "refused" })
-    expect(textOf(card, injected)).toContain("saveFailedKey")
+    expect(stateOf(injected).failure).toEqual({ field: "key", message: "the deployment refused the value" })
+    expect(textOf(card, injected)).toContain("the deployment refused the value")
   })
 
-  // A refusal and a call that never arrived need different copy: the first is the
-  // user's to correct, the second is not.
-  test("a write that never reached an authority is this app's fault, not the input's", async () => {
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {})
-    try {
-      const { card, injected } = cardOf({
-        setCredential: () => ({ ok: false, error: { code: "gateway/internal", message: "no active Connection" } }),
-      })
+  test("a Remote failure is shown as the Remote face reported it", async () => {
+    const { card, injected } = cardOf({
+      setCredential: () => ({ ok: false, error: { code: "gateway/internal", message: "no active Connection" } }),
+    })
 
-      injected.editKey("exa-secret")
-      await injected.save()
+    injected.editKey("exa-secret")
+    await injected.save()
 
-      expect(stateOf(injected).failure).toEqual({ field: "key", kind: "broken" })
-      expect(textOf(card, injected)).toContain("saveFailedApp")
-      expect(logged).toHaveBeenCalled()
-    } finally {
-      logged.mockRestore()
-    }
+    expect(textOf(card, injected)).toContain("no active Connection")
   })
 
   test("discard drops every engine's staged key", () => {
@@ -470,7 +466,7 @@ describe("PawWork DSH web search card", () => {
     await injected.save()
 
     expect(stateOf(injected)).toMatchObject({ dirty: true })
-    expect(stateOf(injected).failure).toEqual({ field: "backend", kind: "broken" })
+    expect(stateOf(injected).failure).toEqual({ field: "backend" })
   })
 
   // Choosing the engine already on screen is not an edit. Recorded as one, it
@@ -530,7 +526,7 @@ describe("PawWork DSH web search card", () => {
       injected.resetBackend()
       await injected.save()
 
-      expect(stateOf(injected).failure).toEqual({ field: "backend", kind: "broken" })
+      expect(stateOf(injected).failure).toEqual({ field: "backend" })
 
       injected.discard()
 
@@ -573,7 +569,7 @@ describe("PawWork DSH web search card", () => {
     expect(stateOf(injected)).toMatchObject({
       backend: "deepseek",
       dirty: true,
-      failure: { field: "key", kind: "refused" },
+      failure: { field: "key", message: "the deployment refused the value" },
       keyText: "deepseek-secret",
     })
   })

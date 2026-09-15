@@ -157,7 +157,6 @@ window.__ModuleLoader__.load({
       saving: "Saving…",
       discard: "Discard",
       unsaved: "Unsaved",
-      saveFailedKey: "The deployment did not accept the API key; it was left for you to correct.",
       saveFailedApp: "Saving failed on this app's side, not on your input. Your values were kept; try again.",
       expand: "Show settings",
       collapse: "Hide settings",
@@ -182,7 +181,6 @@ window.__ModuleLoader__.load({
       saving: "保存中…",
       discard: "放弃修改",
       unsaved: "未保存",
-      saveFailedKey: "本部署没有接受 API Key，已保留供你修改。",
       saveFailedApp: "保存失败：应用出错，不是你输入的问题；内容已保留，可重试。",
       expand: "展开设置",
       collapse: "收起设置",
@@ -214,7 +212,7 @@ window.__ModuleLoader__.load({
       backendDraft = undefined
       keyDraft = undefined
       saving = false
-      /** The field a save did not land and why: `{ field, kind }`, or undefined. */
+      /** The field a save did not land, with the deployment's own words when it had any: `{ field, message }`, or undefined. */
       failure = undefined
       /** The credential the deployment is known to hold for `ref`. */
       held = { ref: "", configured: false, writable: true }
@@ -445,7 +443,7 @@ window.__ModuleLoader__.load({
           return true
         } catch (failure) {
           console.error(`[pawwork-web-search] the ${field} write could not be made:`, failure)
-          this.failure = { field, kind: "broken" }
+          this.failure = { field }
           return false
         }
       }
@@ -476,15 +474,15 @@ window.__ModuleLoader__.load({
               // The deployment's answer decides, and `configured` cannot stand in
               // for it: that flag is already true whenever a key was set before,
               // so a rejected rotation would read as a successful one.
-              const outcome = await this.credentials.store(write.ref, write.value)
-              if (outcome !== "landed") {
+              const failed = await this.credentials.store(write.ref, write.value)
+              if (failed !== undefined) {
                 // The key goes first so the engine never runs a moment without
                 // the credential it was chosen for — which is exactly what
                 // carrying on would produce. Any pending engine write selects
                 // the engine this key was typed under, so it stays staged and
                 // Save retries both rather than moving the user onto an engine
                 // whose key the deployment just refused.
-                this.failure = { field: "key", kind: outcome }
+                this.failure = { field: "key", ...failed }
                 break
               }
               this.keyDraft = undefined
@@ -503,7 +501,7 @@ window.__ModuleLoader__.load({
                 ? !Object.hasOwn(this.scope.getSnapshot().user ?? {}, "backend")
                 : this.scope.getSnapshot().user?.backend === write.backend)
             if (wrote) this.backendDraft = undefined
-            else if (made) this.failure = { field: "backend", kind: "broken" }
+            else if (made) this.failure = { field: "backend" }
           }
           await this.readCredential()
         } finally {
@@ -517,20 +515,15 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** The Remote face's own failure codes: the call never reached an authority. */
-    const GATEWAY_FAILURE = /^gateway\//
-
     /**
-     * The credentials namespace as this card needs it: whether a key is held,
-     * whether a write landed, and — when it did not — whether the deployment
-     * answered at all.
+     * The credentials namespace as this card needs it: whether a key is held, and
+     * what a refused write said.
      *
      * DSH publishes that namespace with positional parameters and an `{ok, value}`
      * envelope, and nothing type-checks this bundle, so the shape is a contract
      * only a test against the installed DSH can hold.
      */
     function credentialFace(ctx) {
-      const answered = (error) => typeof error?.code === "string" && !GATEWAY_FAILURE.test(error.code)
       return {
         async inspect(ref) {
           let response
@@ -541,38 +534,29 @@ window.__ModuleLoader__.load({
             return undefined
           }
           if (response?.ok !== true) {
-            if (!answered(response?.error)) {
-              console.error(`[pawwork-web-search] could not ask about "${ref}":`, response?.error)
-            }
+            console.error(`[pawwork-web-search] could not ask about "${ref}":`, response?.error)
             return undefined
           }
           const view = response.value?.[ref]
           return { configured: view?.configured ?? false, writable: view?.writable ?? true }
         },
+        /**
+         * @returns undefined when the write landed, otherwise the failure to
+         *   report — carrying the deployment's own words when it spoke, and
+         *   nothing it said when no answer arrived at all.
+         */
         async store(ref, value) {
           let response
           try {
             response = await ctx.remote.credentials.set(ref, value)
           } catch (failure) {
             console.error(`[pawwork-web-search] the write of "${ref}" could not be made:`, failure)
-            return "broken"
+            return {}
           }
-          if (response?.ok === true) return "landed"
-          if (answered(response?.error)) return "refused"
-          console.error(`[pawwork-web-search] the write of "${ref}" was not delivered:`, response?.error)
-          return "broken"
+          if (response?.ok === true) return undefined
+          return { message: response?.error?.message }
         },
       }
-    }
-
-    /**
-     * Only the key can be blamed on the input: the engine value comes from the
-     * section's own picker. The two need different copy, because "the deployment
-     * did not accept these values" tells a user nothing changed while the engine
-     * has moved.
-     */
-    function saveFailureKey(failure) {
-      return failure.kind === "broken" ? "saveFailedApp" : "saveFailedKey"
     }
 
     /**
@@ -700,7 +684,7 @@ window.__ModuleLoader__.load({
           }),
           h("div", { className: "pawwork-websearch-footer" },
             state.failure
-              ? h("p", { className: "pawwork-websearch-failed", role: "status" }, t(saveFailureKey(state.failure)))
+              ? h("p", { className: "pawwork-websearch-failed", role: "status" }, state.failure.message ?? t("saveFailedApp"))
               : null,
             // Asks `staged` rather than `dirty`, and a failure counts too: a
             // draft that would write nothing is still a draft on screen, and a
