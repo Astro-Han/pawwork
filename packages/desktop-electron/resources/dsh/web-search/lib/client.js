@@ -148,7 +148,6 @@ window.__ModuleLoader__.load({
       saving: "Saving…",
       discard: "Discard",
       unsaved: "Unsaved",
-      saveFailedBackend: "The deployment did not accept the search source; it was left for you to correct.",
       saveFailedKey: "The deployment did not accept the API key; it was left for you to correct.",
       saveFailedApp: "Saving failed on this app's side, not on your input. Your values were kept; try again.",
       expand: "Show settings",
@@ -174,7 +173,6 @@ window.__ModuleLoader__.load({
       saving: "保存中…",
       discard: "放弃修改",
       unsaved: "未保存",
-      saveFailedBackend: "本部署没有接受搜索源，已保留供你修改。",
       saveFailedKey: "本部署没有接受 API Key，已保留供你修改。",
       saveFailedApp: "保存失败：应用出错，不是你输入的问题；内容已保留，可重试。",
       expand: "展开设置",
@@ -419,10 +417,10 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * Run one settings write and record the field as broken if it threw.
+       * Run one settings write and report whether it completed without throwing.
        *
-       * The scope resolves for a write the Host refuses — the caller reads that
-       * back — so a throw means the call itself could not be made.
+       * The scope reports that a write did not land, never why, so a throw is the
+       * only signal that the call itself could not be made.
        * @param field - the field this write belongs to, for the failure report.
        * @param write - performs the write; its resolved value is not inspected.
        * @returns whether the write completed without throwing.
@@ -491,7 +489,7 @@ window.__ModuleLoader__.load({
                 ? !Object.hasOwn(this.scope.getSnapshot().user ?? {}, "backend")
                 : this.scope.getSnapshot().user?.backend === write.backend)
             if (wrote) this.backendDraft = undefined
-            else if (made) this.failure = { field: "backend", kind: "refused" }
+            else if (made) this.failure = { field: "backend", kind: "broken" }
           }
           await this.readCredential()
         } finally {
@@ -554,13 +552,13 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Name the field a save did not land, rather than the save as a whole: when
-     * the engine landed and the key did not, "the deployment did not accept these
-     * values" tells the user nothing changed while it has switched engines.
+     * Only the key can be blamed on the input: the engine value comes from the
+     * section's own picker. The two need different copy, because "the deployment
+     * did not accept these values" tells a user nothing changed while the engine
+     * has moved.
      */
     function saveFailureKey(failure) {
-      if (failure.kind === "broken") return "saveFailedApp"
-      return failure.field === "backend" ? "saveFailedBackend" : "saveFailedKey"
+      return failure.kind === "broken" ? "saveFailedApp" : "saveFailedKey"
     }
 
     /**

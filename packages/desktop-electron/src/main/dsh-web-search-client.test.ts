@@ -433,7 +433,7 @@ describe("PawWork DSH web search card", () => {
     await injected.save()
 
     expect(stateOf(injected)).toMatchObject({ dirty: true })
-    expect(stateOf(injected).failure).toEqual({ field: "backend", kind: "refused" })
+    expect(stateOf(injected).failure).toEqual({ field: "backend", kind: "broken" })
   })
 
   // Choosing the engine already on screen is not an edit. Recorded as one, it
