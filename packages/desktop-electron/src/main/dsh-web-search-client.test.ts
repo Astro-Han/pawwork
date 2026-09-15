@@ -95,9 +95,11 @@ function cardOf(options: CardOptions = {}) {
   const snapshot: Record<string, unknown> = {
     status: "ready",
     writable: true,
-    value: { backend: "exa" },
+    // What the Host describes for a namespace whose defaults nothing overrode:
+    // the reference names reach the card in both layers, never as a constant.
+    value: { backend: "exa", exaApiKeyEnv: "EXA_API_KEY", deepseekApiKeyEnv: "DEEPSEEK_API_KEY" },
     user: undefined,
-    base: {},
+    base: { backend: "exa", exaApiKeyEnv: "EXA_API_KEY", deepseekApiKeyEnv: "DEEPSEEK_API_KEY" },
     ...options.section,
   }
   const registrations: Array<Record<string, unknown>> = []
@@ -326,6 +328,30 @@ describe("PawWork DSH web search card", () => {
     // The answer is keyed by the reference that was asked about.
     expect(credentials.describe).toHaveBeenLastCalledWith(["DEEPSEEK_API_KEY"])
     expect(stateOf(injected)).toMatchObject({ keyConfigured: false })
+  })
+
+  // A reference name is one fact of the section, and the card has to read it
+  // rather than know it: a name a user hand-edited has to be the one asked
+  // about, and one the deployment could not resolve has to fall back where the
+  // Host falls back — the section's own default.
+  test("the reference comes from the section, not from a copy in the card", async () => {
+    const named = cardOf({
+      section: {
+        value: { backend: "exa", exaApiKeyEnv: "TEAM_EXA_KEY" },
+        base: { backend: "exa", exaApiKeyEnv: "EXA_API_KEY" },
+      },
+    })
+    await settle()
+    expect(named.credentials.describe).toHaveBeenLastCalledWith(["TEAM_EXA_KEY"])
+
+    const unusable = cardOf({
+      section: {
+        value: { backend: "exa", exaApiKeyEnv: "not a name" },
+        base: { backend: "exa", exaApiKeyEnv: "DEFAULT_EXA_KEY" },
+      },
+    })
+    await settle()
+    expect(unusable.credentials.describe).toHaveBeenLastCalledWith(["DEFAULT_EXA_KEY"])
   })
 
   test("an answer a newer read has replaced does not overwrite it", async () => {

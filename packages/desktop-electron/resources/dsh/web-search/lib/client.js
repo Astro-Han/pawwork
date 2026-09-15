@@ -32,10 +32,19 @@ window.__ModuleLoader__.load({
     /** The names a credential reference may take; mirrors the Host's grammar. */
     const CREDENTIAL_REF = /^[A-Za-z_][A-Za-z0-9_]*$/
 
+    /**
+     * @param declared - a reference the section names, in either layer.
+     * @returns the name when this deployment could resolve it; otherwise undefined.
+     */
+    function usableReference(declared) {
+      const named = typeof declared === "string" ? declared.trim() : ""
+      return CREDENTIAL_REF.test(named) ? named : undefined
+    }
+
     /** Credential reference each engine resolves, and the section field naming it. */
     const BACKENDS = [
-      { id: "exa", refField: "exaApiKeyEnv", defaultRef: "EXA_API_KEY", keyless: true },
-      { id: "deepseek", refField: "deepseekApiKeyEnv", defaultRef: "DEEPSEEK_API_KEY", keyless: false },
+      { id: "exa", refField: "exaApiKeyEnv", keyless: true },
+      { id: "deepseek", refField: "deepseekApiKeyEnv", keyless: false },
     ]
 
     const css = `
@@ -229,8 +238,8 @@ window.__ModuleLoader__.load({
       /** @returns the backend the card is editing, staged draft included. */
       backend() {
         const snapshot = this.scope.getSnapshot()
-        if (this.backendDraft?.reset === true) return snapshot.base?.backend ?? "exa"
-        return this.backendDraft?.backend ?? snapshot.value?.backend ?? "exa"
+        if (this.backendDraft?.reset === true) return snapshot.base?.backend
+        return this.backendDraft?.backend ?? snapshot.value?.backend
       }
 
       /** @returns the descriptor of the backend currently selected. */
@@ -244,14 +253,18 @@ window.__ModuleLoader__.load({
        */
       ref(backend = this.backend()) {
         const spec = BACKENDS.find((entry) => entry.id === backend) ?? BACKENDS[0]
-        const declared = this.scope.getSnapshot().value?.[spec.refField]
         // The grammar is restated rather than imported: this bundle is loaded by
         // the renderer's module loader and cannot reach `dsh-credentials`. It has
         // to match `resolveRef` in the Host half, because a name the two read
         // differently has the card describing one reference while the search
         // resolves another — and the wire refuses anything outside it anyway.
-        const named = declared?.trim() ?? ""
-        return CREDENTIAL_REF.test(named) ? named : spec.defaultRef
+        //
+        // Both layers come from the section: `value` is the reference in force,
+        // and `base` is the default the composition gives an unusable one — the
+        // same default the Host falls back to. No name is copied here, so
+        // changing the default moves the card with the Host.
+        const snapshot = this.scope.getSnapshot()
+        return usableReference(snapshot.value?.[spec.refField]) ?? usableReference(snapshot.base?.[spec.refField])
       }
 
       /**
@@ -343,8 +356,9 @@ window.__ModuleLoader__.load({
        * answered leaves the last known state alone.
        */
       async readCredential() {
-        const read = ++this.reads
         const ref = this.ref()
+        if (ref === undefined) return
+        const read = ++this.reads
         if (ref !== this.held.ref) {
           this.held = { ref, configured: false, writable: true }
           this.publish()
