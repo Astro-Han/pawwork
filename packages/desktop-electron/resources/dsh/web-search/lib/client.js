@@ -32,10 +32,19 @@ window.__ModuleLoader__.load({
     /** The names a credential reference may take; mirrors the Host's grammar. */
     const CREDENTIAL_REF = /^[A-Za-z_][A-Za-z0-9_]*$/
 
+    /**
+     * @param declared - a reference the section names, in either layer.
+     * @returns the name when this deployment could resolve it; otherwise undefined.
+     */
+    function usableReference(declared) {
+      const named = typeof declared === "string" ? declared.trim() : ""
+      return CREDENTIAL_REF.test(named) ? named : undefined
+    }
+
     /** Credential reference each engine resolves, and the section field naming it. */
     const BACKENDS = [
-      { id: "exa", refField: "exaApiKeyEnv", defaultRef: "EXA_API_KEY", keyless: true },
-      { id: "deepseek", refField: "deepseekApiKeyEnv", defaultRef: "DEEPSEEK_API_KEY", keyless: false },
+      { id: "exa", refField: "exaApiKeyEnv", keyless: true },
+      { id: "deepseek", refField: "deepseekApiKeyEnv", keyless: false },
     ]
 
     const css = `
@@ -148,9 +157,7 @@ window.__ModuleLoader__.load({
       saving: "Saving…",
       discard: "Discard",
       unsaved: "Unsaved",
-      saveFailedBackend: "The deployment did not accept the search source; it was left for you to correct.",
-      saveFailedKey: "The deployment did not accept the API key; it was left for you to correct.",
-      saveFailedBoth: "The deployment accepted neither value; both were left for you to correct.",
+      saveFailedApp: "Saving failed on this app's side, not on your input. Your values were kept; try again.",
       expand: "Show settings",
       collapse: "Hide settings",
     }
@@ -174,9 +181,7 @@ window.__ModuleLoader__.load({
       saving: "保存中…",
       discard: "放弃修改",
       unsaved: "未保存",
-      saveFailedBackend: "本部署没有接受搜索源，已保留供你修改。",
-      saveFailedKey: "本部署没有接受 API Key，已保留供你修改。",
-      saveFailedBoth: "本部署两个值都没有接受，已保留供你修改。",
+      saveFailedApp: "保存失败：应用出错，不是你输入的问题；内容已保留，可重试。",
       expand: "展开设置",
       collapse: "收起设置",
     }
@@ -207,16 +212,19 @@ window.__ModuleLoader__.load({
       backendDraft = undefined
       keyDraft = undefined
       saving = false
-      failures = new Set()
-      credential = { ref: "", configured: false, writable: true }
+      /** The field a save did not land, with the deployment's own words when it had any: `{ field, message }`, or undefined. */
+      failure = undefined
+      /** The credential the deployment is known to hold for `ref`. */
+      held = { ref: "", configured: false, writable: true }
+      reads = 0
 
       /**
        * @param scope - the bound settings scope for this card's namespace.
-       * @param api - wire face used for the credential the section references.
+       * @param credentials - the credential face for the reference the section names.
        */
-      constructor(scope, api) {
+      constructor(scope, credentials) {
         this.scope = scope
-        this.api = api
+        this.credentials = credentials
         this.store = createSnapshotStore(this.projection())
         scope.subscribe(() => {
           this.publish()
@@ -228,8 +236,8 @@ window.__ModuleLoader__.load({
       /** @returns the backend the card is editing, staged draft included. */
       backend() {
         const snapshot = this.scope.getSnapshot()
-        if (this.backendDraft?.reset === true) return snapshot.base?.backend ?? "exa"
-        return this.backendDraft?.backend ?? snapshot.value?.backend ?? "exa"
+        if (this.backendDraft?.reset === true) return snapshot.base?.backend
+        return this.backendDraft?.backend ?? snapshot.value?.backend
       }
 
       /** @returns the descriptor of the backend currently selected. */
@@ -243,14 +251,18 @@ window.__ModuleLoader__.load({
        */
       ref(backend = this.backend()) {
         const spec = BACKENDS.find((entry) => entry.id === backend) ?? BACKENDS[0]
-        const declared = this.scope.getSnapshot().value?.[spec.refField]
         // The grammar is restated rather than imported: this bundle is loaded by
         // the renderer's module loader and cannot reach `dsh-credentials`. It has
         // to match `resolveRef` in the Host half, because a name the two read
         // differently has the card describing one reference while the search
         // resolves another — and the wire refuses anything outside it anyway.
-        const named = declared?.trim() ?? ""
-        return CREDENTIAL_REF.test(named) ? named : spec.defaultRef
+        //
+        // Both layers come from the section: `value` is the reference in force,
+        // and `base` is the default the composition gives an unusable one — the
+        // same default the Host falls back to. No name is copied here, so
+        // changing the default moves the card with the Host.
+        const snapshot = this.scope.getSnapshot()
+        return usableReference(snapshot.value?.[spec.refField]) ?? usableReference(snapshot.base?.[spec.refField])
       }
 
       /**
@@ -322,8 +334,7 @@ window.__ModuleLoader__.load({
           // can see and nothing to write, and Discard is the only way to clear it.
           staged: this.staged(),
           saving: this.saving,
-          failed: this.failures.size > 0,
-          failedFields: [...this.failures],
+          failure: this.failure,
           backend: this.backend(),
           // Offered while there is an override to remove and removing it is not
           // already staged — the control is how you stage it, so leaving it up
@@ -331,35 +342,36 @@ window.__ModuleLoader__.load({
           backendOverridden: Object.hasOwn(user ?? {}, "backend") && this.backendDraft?.reset !== true,
           keyless: spec.keyless,
           keyText: this.stagedKey()?.text ?? "",
-          keyConfigured: this.credential.configured,
-          keyWritable: this.credential.writable,
+          keyConfigured: this.held.configured,
+          keyWritable: this.held.writable,
         }
       }
 
       /**
-       * Ask the credentials domain about the reference now in force.
+       * Ask the credentials domain about the reference now in force. Reads
+       * overlap — leaving an engine and returning starts a second read of the
+       * same reference — so only the newest one publishes, and one that nothing
+       * answered leaves the last known state alone.
        *
-       * The answer is stored with the reference it describes, because switching
-       * the backend changes which reference the card is asking about and two
-       * reads can settle out of order.
+       * Both steps before the guard are what make an answer attributable: the
+       * generation counts requests rather than answers, so a reference that
+       * stops resolving still voids whatever was in flight for the one it
+       * replaced, and `held` is dropped with that reference so it never
+       * describes a reference other than the one in force.
        */
       async readCredential() {
+        const read = ++this.reads
         const ref = this.ref()
-        if (ref !== this.credential.ref) {
-          this.credential = { ref, configured: false, writable: true }
+        if (ref !== this.held.ref) {
+          this.held = { ref, configured: false, writable: true }
           this.publish()
         }
-        let response
-        try {
-          response = await this.api.credentials.describe({ refs: [ref] })
-        } catch (_credentialReadFailure) {
-          return
-        }
-        if (response?.result?.ok !== true || ref !== this.ref()) return
-        const view = response.result.value?.credentials?.[ref]
-        const next = { ref, configured: view?.configured ?? false, writable: view?.writable ?? true }
-        if (next.configured === this.credential.configured && next.writable === this.credential.writable) return
-        this.credential = next
+        if (ref === undefined) return
+        const view = await this.credentials.inspect(ref)
+        if (view === undefined || read !== this.reads) return
+        const next = { ref, ...view }
+        if (next.configured === this.held.configured && next.writable === this.held.writable) return
+        this.held = next
         this.publish()
       }
 
@@ -368,7 +380,7 @@ window.__ModuleLoader__.load({
        * @param ref - the reference the Host reports as changed.
        */
       refreshCredential(ref) {
-        if (ref !== this.credential.ref) return
+        if (ref !== this.held.ref) return
         this.readCredential()
       }
 
@@ -383,7 +395,7 @@ window.__ModuleLoader__.load({
             // value, pinning the user to an engine they meant to stop pinning.
             if (value === this.backend()) return
             this.backendDraft = { backend: value }
-            this.failures.clear()
+            this.failure = undefined
             this.publish()
             // The reference follows the backend, so the badge must re-resolve
             // before the user decides whether a key is still needed.
@@ -392,7 +404,7 @@ window.__ModuleLoader__.load({
           editKey: (text) => {
             if (this.saving) return
             this.keyDraft = { backend: this.backend(), text }
-            this.failures.delete("key")
+            if (this.failure?.field === "key") this.failure = undefined
             this.publish()
           },
           // Stages the reset; it does not perform it. Restoring the default is
@@ -402,7 +414,7 @@ window.__ModuleLoader__.load({
           resetBackend: () => {
             if (this.saving) return
             this.backendDraft = { reset: true }
-            this.failures.clear()
+            this.failure = undefined
             this.publish()
             this.readCredential()
           },
@@ -415,7 +427,7 @@ window.__ModuleLoader__.load({
             if (this.saving) return
             this.backendDraft = undefined
             this.keyDraft = undefined
-            this.failures.clear()
+            this.failure = undefined
             this.publish()
             this.readCredential()
           },
@@ -423,10 +435,10 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * Run one write and record which field failed.
+       * Run one settings write and report whether it completed without throwing.
        *
-       * Every path that changes the deployment goes through here, so a rejected
-       * promise cannot strand `saving` at true and disable both buttons.
+       * The scope reports that a write did not land, never why, so a throw is the
+       * only signal that the call itself could not be made.
        * @param field - the field this write belongs to, for the failure report.
        * @param write - performs the write; its resolved value is not inspected.
        * @returns whether the write completed without throwing.
@@ -435,8 +447,9 @@ window.__ModuleLoader__.load({
         try {
           await write()
           return true
-        } catch (_writeFailure) {
-          this.failures.add(field)
+        } catch (failure) {
+          console.error(`[pawwork-web-search] the ${field} write could not be made:`, failure)
+          this.failure = { field }
           return false
         }
       }
@@ -459,26 +472,23 @@ window.__ModuleLoader__.load({
         const writes = this.pendingWrites()
         if (writes.length === 0) return
         this.saving = true
-        this.failures.clear()
+        this.failure = undefined
         this.publish()
         try {
           for (const write of writes) {
             if (write.field === "key") {
-              // The deployment answers in the response envelope as well as by
-              // throwing, and `configured` cannot stand in for either: it is
-              // already true whenever a key was set before, so a rejected
-              // rotation would read as a successful one.
-              const wrote = await this.commit("key", async () => {
-                const response = await this.api.credentials.set({ ref: write.ref, value: write.value })
-                if (response?.result?.ok === false) throw new Error("credential write rejected")
-              })
-              if (!wrote) {
+              // The deployment's answer decides, and `configured` cannot stand in
+              // for it: that flag is already true whenever a key was set before,
+              // so a rejected rotation would read as a successful one.
+              const failed = await this.credentials.store(write.ref, write.value)
+              if (failed !== undefined) {
                 // The key goes first so the engine never runs a moment without
                 // the credential it was chosen for — which is exactly what
                 // carrying on would produce. Any pending engine write selects
                 // the engine this key was typed under, so it stays staged and
                 // Save retries both rather than moving the user onto an engine
                 // whose key the deployment just refused.
+                this.failure = { field: "key", ...failed }
                 break
               }
               this.keyDraft = undefined
@@ -487,14 +497,17 @@ window.__ModuleLoader__.load({
             // Read back either way. A Host that accepts the call without moving
             // the value is the case this exists for, and a reset that silently
             // did not land is the same lie as an engine that silently did not.
-            const wrote =
+            const made =
               write.reset === true
-                ? (await this.commit("backend", () => this.scope.unset("backend"))) &&
-                  !Object.hasOwn(this.scope.getSnapshot().user ?? {}, "backend")
-                : (await this.commit("backend", () => this.scope.set("backend", write.backend))) &&
-                  this.scope.getSnapshot().user?.backend === write.backend
+                ? await this.commit("backend", () => this.scope.unset("backend"))
+                : await this.commit("backend", () => this.scope.set("backend", write.backend))
+            const wrote =
+              made &&
+              (write.reset === true
+                ? !Object.hasOwn(this.scope.getSnapshot().user ?? {}, "backend")
+                : this.scope.getSnapshot().user?.backend === write.backend)
             if (wrote) this.backendDraft = undefined
-            else this.failures.add("backend")
+            else if (made) this.failure = { field: "backend" }
           }
           await this.readCredential()
         } finally {
@@ -509,26 +522,54 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * The credentials namespace as this card needs it: whether a key is held, and
+     * what a refused write said.
+     *
+     * DSH publishes that namespace with positional parameters and an `{ok, value}`
+     * envelope, and nothing type-checks this bundle, so the shape is a contract
+     * only a test against the installed DSH can hold.
+     */
+    function credentialFace(ctx) {
+      return {
+        async inspect(ref) {
+          let response
+          try {
+            response = await ctx.remote.credentials.describe([ref])
+          } catch (failure) {
+            console.error(`[pawwork-web-search] could not ask about "${ref}":`, failure)
+            return undefined
+          }
+          if (response?.ok !== true) {
+            console.error(`[pawwork-web-search] could not ask about "${ref}":`, response?.error)
+            return undefined
+          }
+          const view = response.value?.[ref]
+          return { configured: view?.configured ?? false, writable: view?.writable ?? true }
+        },
+        /**
+         * @returns undefined when the write landed, otherwise the failure to
+         *   report — carrying the deployment's own words when it spoke, and
+         *   nothing it said when no answer arrived at all.
+         */
+        async store(ref, value) {
+          let response
+          try {
+            response = await ctx.remote.credentials.set(ref, value)
+          } catch (failure) {
+            console.error(`[pawwork-web-search] the write of "${ref}" could not be made:`, failure)
+            return {}
+          }
+          if (response?.ok === true) return undefined
+          return { message: response?.error?.message }
+        },
+      }
+    }
+
+    /**
      * One labelled control row, matching the plugin-configuration field metrics.
      * @param props - label, badges, hint, and the control to render.
      * @returns the field row.
      */
-    /**
-     * Name the fields a save did not land, rather than the save as a whole.
-     *
-     * The two writes settle independently, so "the deployment did not accept
-     * these values" can be false about one of them — and when the engine landed
-     * and the key did not, that phrasing tells the user nothing changed while
-     * the deployment has in fact switched engines.
-     * @param fields - the fields whose writes failed.
-     * @returns the locale key for the failure line.
-     */
-    function saveFailureKey(fields) {
-      const failed = new Set(fields ?? [])
-      if (failed.has("backend") && failed.has("key")) return "saveFailedBoth"
-      return failed.has("backend") ? "saveFailedBackend" : "saveFailedKey"
-    }
-
     // A `<button>` is not a labelable element, so `htmlFor` pointing at one is
     // ignored: the browser makes no association and clicking the label does
     // nothing. Fields whose control is a button carry their label the other way
@@ -648,8 +689,8 @@ window.__ModuleLoader__.load({
             label: t("apiKey"),
           }),
           h("div", { className: "pawwork-websearch-footer" },
-            state.failed
-              ? h("p", { className: "pawwork-websearch-failed", role: "status" }, t(saveFailureKey(state.failedFields)))
+            state.failure
+              ? h("p", { className: "pawwork-websearch-failed", role: "status" }, state.failure.message ?? t("saveFailedApp"))
               : null,
             // Asks `staged` rather than `dirty`, and a failure counts too: a
             // draft that would write nothing is still a draft on screen, and a
@@ -657,7 +698,7 @@ window.__ModuleLoader__.load({
             // with every control that could clear it disabled.
             h("button", {
               className: "pawwork-websearch-discard",
-              disabled: (!state.staged && !state.failed) || state.saving,
+              disabled: (!state.staged && !state.failure) || state.saving,
               onClick: props.discard,
               type: "button",
             }, t("discard")),
@@ -669,12 +710,11 @@ window.__ModuleLoader__.load({
             }, t(state.saving ? "saving" : "save")))) : null)
     }
 
-    const inject = ["slots", "locale", "connection", "remote", "settingsScope"]
+    const inject = ["slots", "locale", "remote", "remote.credentials", "settingsScope"]
 
     function apply(ctx) {
-      const { api } = ctx.get("connection")
       ctx.effect(() => ctx.locale.register(NS, { en, zh }), "pawwork-web-search: card dictionaries")
-      const card = new CardController(ctx.settingsScope.bind({ namespace: NS }), api)
+      const card = new CardController(ctx.settingsScope.bind({ namespace: NS }), credentialFace(ctx))
       ctx.effect(
         () => ctx.remote.$on("credentials/reference-updated", (ref) => card.refreshCredential(ref)),
         "pawwork-web-search: credential invalidations",

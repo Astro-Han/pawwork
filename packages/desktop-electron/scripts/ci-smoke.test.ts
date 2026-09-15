@@ -93,6 +93,18 @@ describe("ci smoke helpers", () => {
     expect(env.XDG_CONFIG_HOME).toBe("/tmp/pawwork-ci-smoke")
     expect(env.XDG_STATE_HOME).toBe("/tmp/pawwork-ci-smoke")
     expect(env.CI).toBe("true")
+
+    // A reference resolves over the process environment, so an inherited key
+    // would reach the app already configured — the state the web search probe
+    // has to observe changing.
+    const inherited = buildSmokeEnv("/tmp/pawwork-ci-smoke", {
+      EXA_API_KEY: "inherited",
+      DEEPSEEK_API_KEY: "inherited",
+      PATH: "/bin",
+    })
+    expect(inherited).not.toHaveProperty("EXA_API_KEY")
+    expect(inherited).not.toHaveProperty("DEEPSEEK_API_KEY")
+    expect(inherited.PATH).toBe("/bin")
   })
 
   test("resolveCiSmokeReadyFile points at the CI-ready marker inside the isolated user data dir", () => {
@@ -273,6 +285,10 @@ describe("ci smoke helpers", () => {
     automationSettingsEntryVisible: true,
     updateSettingsEntryVisible: true,
     webSearchCardVisible: true,
+    webSearchConfiguredBeforeSave: false,
+    webSearchUnsavedShown: true,
+    webSearchSaveWorks: true,
+    webSearchFailureText: "",
     updateSectionVisible: true,
     updateSectionReportsStatus: true,
     automationSidebarEntryAbsent: true,
@@ -337,6 +353,9 @@ describe("ci smoke helpers", () => {
     automationSettingsEntryVisible: false,
     updateSettingsEntryVisible: false,
     webSearchCardVisible: false,
+    webSearchConfiguredBeforeSave: true,
+    webSearchUnsavedShown: false,
+    webSearchSaveWorks: false,
     updateSectionVisible: false,
     updateSectionReportsStatus: false,
     automationSidebarEntryAbsent: false,
@@ -419,11 +438,11 @@ describe("ci smoke helpers", () => {
   })
 
   test("consults every field it collects", () => {
-    // The three left out are carried for the failure report and the restart
-    // comparison, not asserted here. A new field landing outside `broken` means
-    // the smoke gathers something nothing checks.
+    // These are carried for the failure report and the restart comparison, not
+    // asserted here. A new field landing outside `broken` means the smoke
+    // gathers something nothing checks.
     const unchecked = Object.keys(healthy).filter((field) => !(field in broken))
-    expect(unchecked.sort()).toEqual(["platform", "sessionId", "sessionIdsBeforeRestart"])
+    expect(unchecked.sort()).toEqual(["platform", "sessionId", "sessionIdsBeforeRestart", "webSearchFailureText"])
   })
 
   test("reports every failing capability at once, not just the first", () => {
