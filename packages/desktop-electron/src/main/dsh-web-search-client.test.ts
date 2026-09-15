@@ -17,6 +17,13 @@ function refusal(): RemoteAnswer {
 /** Let the card's own fire-and-forget reads settle. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
+/** Make the section name a reference nothing could resolve, in both layers. */
+function unresolvableReference(scope: { getSnapshot: () => Record<string, unknown> }) {
+  for (const layer of ["value", "base"]) {
+    Object.assign(scope.getSnapshot()[layer] as Record<string, unknown>, { exaApiKeyEnv: "not a name" })
+  }
+}
+
 type Element = { type: unknown; props: Record<string, unknown> }
 
 function fakeDocument() {
@@ -377,6 +384,43 @@ describe("PawWork DSH web search card", () => {
     await settle()
 
     expect(stateOf(injected)).toMatchObject({ keyConfigured: true, keyWritable: false })
+  })
+
+  // A read that finds no reference to ask about still supersedes the one in
+  // flight: a request is what the card counts, and the answer it is waiting for
+  // belongs to a reference the section no longer names.
+  test("a reference that stops resolving voids the read in flight", async () => {
+    const answers: Array<(answer: RemoteAnswer) => void> = []
+    const { injected, scope } = cardOf({
+      describe: () => new Promise<RemoteAnswer>((resolve) => { answers.push(resolve) }),
+    })
+    await settle()
+    expect(answers).toHaveLength(1)
+
+    unresolvableReference(scope)
+    injected.discard()
+    await settle()
+
+    answers[0]({ ok: true, value: { EXA_API_KEY: { configured: true, writable: false } } })
+    await settle()
+
+    expect(stateOf(injected)).toMatchObject({ keyConfigured: false, keyWritable: true })
+  })
+
+  // The card may only say what it knows about the reference in force, so the
+  // state read for a reference the section stops naming goes with it.
+  test("credential state leaves with the reference it was read for", async () => {
+    const { injected, scope } = cardOf({
+      describe: () => ({ ok: true, value: { EXA_API_KEY: { configured: true, writable: false } } }),
+    })
+    await settle()
+    expect(stateOf(injected)).toMatchObject({ keyConfigured: true, keyWritable: false })
+
+    unresolvableReference(scope)
+    injected.discard()
+    await settle()
+
+    expect(stateOf(injected)).toMatchObject({ keyConfigured: false, keyWritable: true })
   })
 
   test("a rejected credential write is a failure, not a silent success", async () => {

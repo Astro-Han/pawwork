@@ -352,15 +352,21 @@ window.__ModuleLoader__.load({
        * overlap — leaving an engine and returning starts a second read of the
        * same reference — so only the newest one publishes, and one that nothing
        * answered leaves the last known state alone.
+       *
+       * Both steps before the guard are what make an answer attributable: the
+       * generation counts requests rather than answers, so a reference that
+       * stops resolving still voids whatever was in flight for the one it
+       * replaced, and `held` is dropped with that reference so it never
+       * describes a reference other than the one in force.
        */
       async readCredential() {
-        const ref = this.ref()
-        if (ref === undefined) return
         const read = ++this.reads
+        const ref = this.ref()
         if (ref !== this.held.ref) {
           this.held = { ref, configured: false, writable: true }
           this.publish()
         }
+        if (ref === undefined) return
         const view = await this.credentials.inspect(ref)
         if (view === undefined || read !== this.reads) return
         const next = { ref, ...view }
