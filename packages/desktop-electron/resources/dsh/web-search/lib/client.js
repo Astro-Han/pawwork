@@ -516,17 +516,10 @@ window.__ModuleLoader__.load({
      * DSH publishes that namespace with positional parameters and an `{ok, value}`
      * envelope, and nothing type-checks this bundle, so the shape is a contract
      * only a test against the installed DSH can hold.
-     * @param ctx - the plugin context, whose `remote.credentials` namespace this
-     *   plugin declares as a dependency.
-     * @returns the credential face the card is constructed with.
      */
     function credentialFace(ctx) {
       const answered = (error) => typeof error?.code === "string" && !GATEWAY_FAILURE.test(error.code)
       return {
-        /**
-         * @param ref - the credential reference to ask about.
-         * @returns `{configured, writable}`, or undefined when nothing answered.
-         */
         async inspect(ref) {
           let response
           try {
@@ -544,11 +537,6 @@ window.__ModuleLoader__.load({
           const view = response.value?.[ref]
           return { configured: view?.configured ?? false, writable: view?.writable ?? true }
         },
-        /**
-         * @param ref - the credential reference to write.
-         * @param value - the key the user staged.
-         * @returns `"landed"`, `"refused"`, or `"broken"`.
-         */
         async store(ref, value) {
           let response
           try {
@@ -569,8 +557,6 @@ window.__ModuleLoader__.load({
      * Name the field a save did not land, rather than the save as a whole: when
      * the engine landed and the key did not, "the deployment did not accept these
      * values" tells the user nothing changed while it has switched engines.
-     * @param failure - the field that did not land, and why.
-     * @returns the locale key for the failure line.
      */
     function saveFailureKey(failure) {
       if (failure.kind === "broken") return "saveFailedApp"

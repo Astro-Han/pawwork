@@ -26,9 +26,6 @@ export type RemoteContract = {
 /**
  * Read one namespace's descriptors out of the DSH packages installed for this
  * checkout: the same generated table the client runtime mounts.
- * @param packageName - the DSH package owning the namespace.
- * @param namespace - the namespace to read.
- * @returns the contract the double is built from.
  */
 export async function dshRemoteContract(packageName: string, namespace: string): Promise<RemoteContract> {
   const directory = installedHarnessPackages().get(packageName)
@@ -53,9 +50,6 @@ export async function dshRemoteContract(packageName: string, namespace: string):
  * The methods come from the contract rather than from the handlers, so a name
  * DSH no longer serves is a name the double does not answer, and every argument
  * is parsed through the generated codec before a handler sees it.
- * @param contract - the namespace, as read from the installed DSH.
- * @param handlers - one implementation per method the test drives.
- * @returns the namespace double, whose methods resolve DSH's answer envelope.
  */
 export function fakeDshRemote(
   contract: RemoteContract,
