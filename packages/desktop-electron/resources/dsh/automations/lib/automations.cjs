@@ -12,6 +12,12 @@ const CLAIM_RETRY_DELAY_MS = 60_000;
 const MIN_INTERVAL_MS = 30_000;
 const AUTOMATION_RUN_ID_PREFIX = 'automation-run-';
 
+// Recent runs each surface lists per automation. They are sized apart because the
+// readers differ: a person scrolls the settings page, while a tool result becomes
+// model context that every later turn pays for.
+const RECENT_RUNS_FOR_HUMAN = 20;
+const RECENT_RUNS_FOR_AGENT = 5;
+
 // The executor names a fresh run's DSH session after the run id, and tool
 // registration excludes exactly those sessions. Both derive from the run-id
 // prefix here: stated separately, a change to the run-id format silently
@@ -503,6 +509,18 @@ class AutomationStore {
       runOutcome.stopReason,
     );
     this.document.runs.push(run);
+    // A slot that ran can still leave later slots unrun when the timer arrived late.
+    // They are recorded as one span rather than one row per slot: a skipped row states
+    // the span between its own triggeredAt and completedAt, so the rest of the gap is
+    // in the log without a row that pretends to be an attempt.
+    if (runOutcome.state === 'running') {
+      const skippedFrom = definition.kind === 'oneshot'
+        ? null
+        : definitionNext(definition, target, this.completedRunCount(id));
+      if (skippedFrom !== null && skippedFrom <= now) {
+        this.document.runs.push(this.createRunRecord(id, skippedFrom, 'stopped', now, 'missed_schedule'));
+      }
+    }
     this.save();
     return {
       definition: structuredClone(definition),
@@ -689,7 +707,7 @@ function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }
             return {
               ...definition,
               activeRun,
-              recentRuns: runs.filter((run) => run.state !== 'running').slice(0, 5),
+              recentRuns: runs.filter((run) => run.state !== 'running').slice(0, RECENT_RUNS_FOR_HUMAN),
               // A claimed run clears nextFireAt before it lands, so a definition is only
               // terminal once nothing is still running for it.
               terminalReason: activeRun ? null : store.terminalReason(definition),
@@ -882,7 +900,7 @@ function createAutomationToolDefinitions({
       async () => ({
         items: store.listDefinitions(cwd()).map((definition) => ({
           ...definition,
-          recentRuns: store.listRuns(definition.id).slice(0, 5),
+          recentRuns: store.listRuns(definition.id).slice(0, RECENT_RUNS_FOR_AGENT),
         })),
       }),
     ),
@@ -982,4 +1000,6 @@ module.exports = {
   createAutomationRpcHandler,
   createAutomationToolDefinitions,
   isAutomationRunSession,
+  RECENT_RUNS_FOR_AGENT,
+  RECENT_RUNS_FOR_HUMAN,
 };
