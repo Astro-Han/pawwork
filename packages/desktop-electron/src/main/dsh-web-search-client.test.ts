@@ -190,6 +190,17 @@ describe("PawWork DSH web search card", () => {
     ])
   })
 
+  // Every contract assertion in this file rests on the double refusing what the
+  // runtime refuses: a card sending the wrong shape has to fail here, or the
+  // suite passes while the card is wrong.
+  test("the double refuses a call the deployment would", async () => {
+    const namespace = fakeDshRemote(CREDENTIALS, { set: async () => ({ ok: true, value: undefined }) })
+
+    await expect(namespace.set("EXA_API_KEY")).rejects.toThrow(/expected 2 argument/)
+    await expect(namespace.set("EXA_API_KEY", "value", "extra")).rejects.toThrow(/expected 2 argument/)
+    await expect(namespace.set("EXA_API_KEY", 7)).rejects.toThrow(/rejected/)
+  })
+
   // Nothing else in the app is a native `<select>`, and a portalled menu is one
   // the keyboard cannot reach: the primitive moves no focus into the portal and
   // restores none on close.

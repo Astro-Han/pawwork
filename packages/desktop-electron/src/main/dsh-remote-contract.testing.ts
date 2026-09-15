@@ -58,6 +58,11 @@ export function fakeDshRemote(
   const fake: Record<string, (...args: unknown[]) => Promise<RemoteAnswer>> = {}
   for (const [method, descriptor] of contract.methods) {
     fake[method] = async (...args: unknown[]) => {
+      if (args.length !== descriptor.parameters.length) {
+        throw new Error(
+          `client api: ${contract.namespace}/${method} expected ${String(descriptor.parameters.length)} argument(s), got ${String(args.length)}`,
+        )
+      }
       descriptor.parameters.forEach((parameter, index) => {
         parse(parameter.codec?.schema, args[index], `${contract.namespace}/${method} ${parameter.name}`)
       })
