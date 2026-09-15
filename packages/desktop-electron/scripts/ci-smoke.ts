@@ -609,11 +609,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
     const webSearchCardVisible = visible(document.querySelector(".pawwork-websearch-card"))
-    // The card's save is the only path in this product that writes a credential
-    // through the client Remote face, and no Host-side probe can see it happen: a
-    // member that moved leaves the write inside the renderer while every wire
-    // assertion still passes and the card blames the deployment for it. So this
-    // drives the real form and reads back what the card says about the result.
+    // A write that stops inside the renderer is invisible to every Host-side
+    // assertion, so this drives the real form and reads back what it says.
     document.querySelector(".pawwork-websearch-header")?.click()
     await new Promise((resolve) => setTimeout(resolve, 50))
     const webSearchKeyInput = document.querySelector("#pawwork-websearch-key")

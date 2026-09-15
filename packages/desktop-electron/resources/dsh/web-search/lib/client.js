@@ -203,19 +203,13 @@ window.__ModuleLoader__.load({
      * save has to do: the button's enabled state and the writes themselves read
      * it, so "there is something to save" cannot mean one thing to the user and
      * another to the code.
-     *
-     * Failures are recorded by kind, because the two kinds are not the same
-     * event: a value the deployment answered about is one the user can correct,
-     * while a write that never reached an authority is this app's own fault. The
-     * footer names which, so a broken card cannot send its user to re-check an
-     * input nobody read.
      */
     class CardController {
       /** `{ backend }`, `{ reset: true }`, or undefined — never two of them. */
       backendDraft = undefined
       keyDraft = undefined
       saving = false
-      /** Field name -> `"refused"` or `"broken"`, for the fields a save did not land. */
+      /** Field name -> `"refused"` (the deployment answered) or `"broken"` (the call never arrived). */
       failures = new Map()
       /** The credential the deployment is known to hold for `ref`. */
       held = { ref: "", configured: false, writable: true }
@@ -350,17 +344,10 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * Ask the credentials domain about the reference now in force.
-       *
-       * The answer is stored with the reference it describes, because switching
-       * the backend changes which reference the card is asking about and two
-       * reads can settle out of order. The reference alone does not settle that
-       * though: leaving an engine and coming back starts a second read of the
-       * same one, and the older answer describes a key the newer read has already
-       * replaced — so the newest read is the only one allowed to publish. A read
-       * the face could not answer leaves the last known state alone: the card has
-       * nowhere truthful to put "unknown", and the save it feeds reports its own
-       * outcome.
+       * Ask the credentials domain about the reference now in force. Reads
+       * overlap — leaving an engine and returning starts a second read of the
+       * same reference — so only the newest one publishes, and one that nothing
+       * answered leaves the last known state alone.
        */
       async readCredential() {
         const read = ++this.reads
@@ -439,11 +426,8 @@ window.__ModuleLoader__.load({
       /**
        * Run one settings write and record the field as broken if it threw.
        *
-       * Every path that changes the section goes through here, so a rejected
-       * promise cannot strand `saving` at true and disable both buttons. The scope
-       * resolves for a write the Host refuses — that refusal is read back by the
-       * caller — so a throw here means the call itself could not be made, which is
-       * this app's fault and not a value the user can correct.
+       * The scope resolves for a write the Host refuses — the caller reads that
+       * back — so a throw means the call itself could not be made.
        * @param field - the field this write belongs to, for the failure report.
        * @param write - performs the write; its resolved value is not inspected.
        * @returns whether the write completed without throwing.
@@ -502,9 +486,6 @@ window.__ModuleLoader__.load({
             // Read back either way. A Host that accepts the call without moving
             // the value is the case this exists for, and a reset that silently
             // did not land is the same lie as an engine that silently did not.
-            // The read-back only means something once the call itself went
-            // through: a write that threw already recorded why it did, and the
-            // value cannot have moved.
             const made =
               write.reset === true
                 ? await this.commit("backend", () => this.scope.unset("backend"))
@@ -529,28 +510,17 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /**
-     * A failure code the Remote face produced on its own: the call never reached
-     * an authority, so nothing about the value was decided.
-     */
+    /** The Remote face's own failure codes: the call never reached an authority. */
     const GATEWAY_FAILURE = /^gateway\//
 
     /**
-     * Narrow the credentials Remote namespace to the three answers this card
-     * needs: whether a key is held, whether a write landed, and — when it did not
-     * — whether the deployment answered at all.
+     * The credentials namespace as this card needs it: whether a key is held,
+     * whether a write landed, and — when it did not — whether the deployment
+     * answered at all.
      *
-     * That last one is why this exists. The namespace reports every outcome in an
-     * envelope, so reading "not ok" as "rejected" sends a user to correct an input
-     * no authority ever read — which is exactly what a broken binding looks like
-     * from the outside. Keeping the split here leaves the card with an outcome it
-     * can state truthfully, and leaves the console line where a developer is
-     * looking when they wonder why a save does nothing.
-     *
-     * The namespace is addressed the way DSH publishes it — positional parameters,
-     * an `{ok, value}` envelope — and not through anything hand-rolled: this file
-     * is a browser bundle that nothing type-checks, so the shape it calls is a
-     * contract only a test against the installed DSH can hold.
+     * DSH publishes that namespace with positional parameters and an `{ok, value}`
+     * envelope, and nothing type-checks this bundle, so the shape is a contract
+     * only a test against the installed DSH can hold.
      * @param ctx - the plugin context, whose `remote.credentials` namespace this
      *   plugin declares as a dependency.
      * @returns the credential face the card is constructed with.
@@ -607,10 +577,6 @@ window.__ModuleLoader__.load({
      * these values" can be false about one of them — and when the engine landed
      * and the key did not, that phrasing tells the user nothing changed while
      * the deployment has in fact switched engines.
-     *
-     * A field that never reached an authority is not that case at all, so it
-     * outranks the others: the deployment accepted or refused nothing, and saying
-     * otherwise costs the user a hunt through their own input for this app's bug.
      * @param fields - the fields whose writes failed.
      * @param broken - whether any of them failed without reaching an authority.
      * @returns the locale key for the failure line.
@@ -767,9 +733,6 @@ window.__ModuleLoader__.load({
             }, t(state.saving ? "saving" : "save")))) : null)
     }
 
-    // `remote.credentials` is a dependency rather than something read through the
-    // connection service: the credential namespace is the published way to hold a
-    // key, and it is what DSH's own settings cards use.
     const inject = ["slots", "locale", "remote", "remote.credentials", "settingsScope"]
 
     function apply(ctx) {

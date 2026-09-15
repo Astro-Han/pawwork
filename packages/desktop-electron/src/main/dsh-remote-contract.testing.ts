@@ -2,13 +2,10 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { installedHarnessPackages } from "./dsh-product-patch.testing"
 
-// Client plugins here call DSH's Remote namespaces by hand, and nothing
-// type-checks a browser bundle: the descriptor table DSH generates for a
-// namespace is the only description of what such a call must look like. Reading
-// that table is what keeps a test double from agreeing with a caller the real
-// runtime refuses — the failure this file exists for is a double written to
-// match its caller, which is how a settings card spent three releases "saving" a
-// key through a member DSH had already deleted.
+// The descriptor table DSH generates for a namespace is the only description of
+// what a client-side Remote call must look like: nothing type-checks a browser
+// bundle. A double built by hand agrees with its caller instead, and so cannot
+// refuse a call the real runtime would.
 
 /** One parameter or result codec, with the generated schema the runtime parses. */
 type Codec = { schema?: { parse: (value: unknown) => unknown } }
@@ -29,11 +26,10 @@ export type RemoteContract = {
 
 /**
  * Read one namespace's descriptors out of the DSH packages installed for this
- * checkout — the same generated table the client runtime mounts, so anything it
- * says about a method is what the app's browser half will do with it.
+ * checkout: the same generated table the client runtime mounts.
  * @param packageName - the DSH package owning the namespace.
  * @param namespace - the namespace to read.
- * @returns the contract the fake is built from.
+ * @returns the contract the double is built from.
  */
 export async function dshRemoteContract(packageName: string, namespace: string): Promise<RemoteContract> {
   const directory = installedHarnessPackages().get(packageName)
@@ -57,9 +53,7 @@ export async function dshRemoteContract(packageName: string, namespace: string):
  *
  * The methods come from the contract rather than from the handlers, so a name
  * DSH no longer serves is a name the double does not answer, and every argument
- * is parsed through the generated codec before a handler sees it. Both are the
- * point: the call shape is what drifted last time, and a double that accepts any
- * shape cannot notice.
+ * is parsed through the generated codec before a handler sees it.
  * @param contract - the namespace, as read from the installed DSH.
  * @param handlers - one implementation per method the test drives.
  * @returns the namespace double, whose methods resolve DSH's answer envelope.
