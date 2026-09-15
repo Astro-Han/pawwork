@@ -219,6 +219,8 @@ window.__ModuleLoader__.load({
       failures = new Map()
       /** The credential the deployment is known to hold for `ref`. */
       held = { ref: "", configured: false, writable: true }
+      /** Reads started so far; see `readCredential`. */
+      reads = 0
 
       /**
        * @param scope - the bound settings scope for this card's namespace.
@@ -352,18 +354,23 @@ window.__ModuleLoader__.load({
        *
        * The answer is stored with the reference it describes, because switching
        * the backend changes which reference the card is asking about and two
-       * reads can settle out of order. A read the face could not answer leaves
-       * the last known state alone: the card has nowhere truthful to put
-       * "unknown", and the save it feeds reports its own outcome.
+       * reads can settle out of order. The reference alone does not settle that
+       * though: leaving an engine and coming back starts a second read of the
+       * same one, and the older answer describes a key the newer read has already
+       * replaced — so the newest read is the only one allowed to publish. A read
+       * the face could not answer leaves the last known state alone: the card has
+       * nowhere truthful to put "unknown", and the save it feeds reports its own
+       * outcome.
        */
       async readCredential() {
+        const read = ++this.reads
         const ref = this.ref()
         if (ref !== this.held.ref) {
           this.held = { ref, configured: false, writable: true }
           this.publish()
         }
         const view = await this.credentials.inspect(ref)
-        if (view === undefined || ref !== this.ref()) return
+        if (view === undefined || read !== this.reads || ref !== this.ref()) return
         const next = { ref, ...view }
         if (next.configured === this.held.configured && next.writable === this.held.writable) return
         this.held = next

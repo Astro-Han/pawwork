@@ -332,6 +332,35 @@ describe("PawWork DSH web search card", () => {
     expect(stateOf(injected)).toMatchObject({ keyConfigured: false })
   })
 
+  // Two reads of one reference overlap whenever the user leaves an engine and
+  // comes back, and the reference cannot tell them apart — both describe the key
+  // the card is showing now. The older one describes a key the newer read has
+  // already replaced, so only the newest read may publish; otherwise the badge
+  // and the input follow an answer nobody asked for last.
+  test("an answer a newer read has replaced does not overwrite it", async () => {
+    const answers: Array<(answer: RemoteAnswer) => void> = []
+    const { injected } = cardOf({
+      describe: () => new Promise<RemoteAnswer>((resolve) => { answers.push(resolve) }),
+    })
+    await settle()
+
+    injected.selectBackend("deepseek")
+    await settle()
+    injected.selectBackend("exa")
+    await settle()
+    // Three reads, two of them for the same reference, all still in flight.
+    expect(answers).toHaveLength(3)
+
+    answers[2]({ ok: true, value: { EXA_API_KEY: { configured: true, writable: false } } })
+    await settle()
+    expect(stateOf(injected)).toMatchObject({ keyConfigured: true, keyWritable: false })
+
+    answers[0]({ ok: true, value: { EXA_API_KEY: { configured: false, writable: true } } })
+    await settle()
+
+    expect(stateOf(injected)).toMatchObject({ keyConfigured: true, keyWritable: false })
+  })
+
   // The deployment answers in the response envelope rather than by throwing, and
   // `configured` cannot stand in for it: that flag is already true whenever a key
   // was set before, so a rejected rotation read as a successful one — the field
