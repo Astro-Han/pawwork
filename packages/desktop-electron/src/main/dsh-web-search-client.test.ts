@@ -1,9 +1,23 @@
 import { resolve } from "node:path"
 import { describe, expect, test, vi } from "vitest"
 import { loadDshClientModule } from "./dsh-client-module.testing"
+import { dshRemoteContract, fakeDshRemote, type RemoteAnswer } from "./dsh-remote-contract.testing"
 
 const repositoryRoot = resolve(import.meta.dirname, "../../../..")
 const clientEntry = resolve(repositoryRoot, "packages/desktop-electron/resources/dsh/web-search/lib/client.js")
+
+// The credentials namespace as the installed DSH serves it. The card is driven
+// through a double built from this, so what it calls is what the app publishes
+// rather than what this file happens to remember.
+const CREDENTIALS = await dshRemoteContract("@deepseek-ai/dsh-api-settings-controller", "credentials")
+
+/** The answer a deployment gives for a value it read and would not keep. */
+function refusal(): RemoteAnswer {
+  return { ok: false, error: { code: "credential/rejected", message: "the deployment refused the value" } }
+}
+
+/** Let the card's own fire-and-forget reads settle. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 type Element = { type: unknown; props: Record<string, unknown> }
 
@@ -42,7 +56,9 @@ function fakeStore(value: unknown) {
  * to the card would otherwise reach a user's machine unverified.
  */
 function loadPlugin() {
-  const definition = loadDshClientModule(clientEntry, { document: fakeDocument() })
+  // The host's own console stands in for the page's, so a test can see the lines
+  // the card logs for a failure it cannot describe to the user.
+  const definition = loadDshClientModule(clientEntry, { console, document: fakeDocument() })
   return {
     definition,
     plugin: definition.factory((module: string) => {
@@ -67,9 +83,11 @@ type CardActions = {
 
 type CardOptions = {
   section?: Record<string, unknown>
-  describe?: unknown
+  /** Answers `credentials.describe`, the way the deployment would. */
+  describe?: () => RemoteAnswer | Promise<RemoteAnswer>
+  /** Answers `credentials.set`, the way the deployment would. */
+  setCredential?: () => RemoteAnswer | Promise<RemoteAnswer>
   set?: () => Promise<unknown>
-  setCredential?: () => Promise<unknown>
   unset?: () => Promise<unknown>
   unsetIgnored?: boolean
 }
@@ -106,15 +124,25 @@ function cardOf(options: CardOptions = {}) {
       snapshot.value = { ...(snapshot.value as object), [key]: (snapshot.base as Record<string, unknown>)?.[key] }
     }),
   }
-  const credentials = {
-    describe: vi.fn(async () => options.describe ?? { result: { ok: true, value: { credentials: {} } } }),
-    set: vi.fn(async () => (options.setCredential === undefined ? { result: { ok: true } } : options.setCredential())),
-  }
+  // Spied, not replaced: the double's own parsing is what refuses a call the
+  // installed DSH would, and the spy is here for "did anything get written".
+  const namespace = fakeDshRemote(CREDENTIALS, {
+    describe: async () => options.describe?.() ?? { ok: true, value: {} },
+    set: async () => options.setCredential?.() ?? { ok: true, value: undefined },
+  })
+  const credentials = { describe: vi.fn(namespace.describe), set: vi.fn(namespace.set) }
   plugin.apply({
-    get: (service: string) => (service === "connection" ? { api: { credentials } } : undefined),
+    // The context hands over exactly what the plugin declares, so a card that goes
+    // looking for anything else fails here. The credential write used to reach
+    // through `ctx.get("connection").api` — a member DSH had already removed — and
+    // this is what turns that into a red test instead of a card that renders "the
+    // deployment did not accept your key" over a write that never left the page.
+    get: (service: string) => {
+      throw new Error(`the card reached for a service it does not declare: ${service}`)
+    },
     effect: (run: () => unknown) => run(),
     locale: { register: () => () => {} },
-    remote: { $on: () => () => {} },
+    remote: { $on: () => () => {}, credentials },
     settingsScope: { bind: () => scope },
     slots: {
       inject: (_name: string, register: () => void) => register(),
@@ -145,6 +173,11 @@ function stateOf(injected: CardActions) {
   return store.webSearchCard.getSnapshot()
 }
 
+/** @returns every piece of copy the rendered card holds. */
+function textOf(card: (props: Record<string, unknown>) => unknown, injected: CardActions) {
+  return visit(render(card, injected)).flatMap((element) => element.props.children as unknown[])
+}
+
 describe("PawWork DSH web search card", () => {
   // The card's whole surface is one module the Host evaluates, and a throw at
   // load removes it with nothing but a loader line in a console no user reads.
@@ -154,7 +187,7 @@ describe("PawWork DSH web search card", () => {
     const { definition, plugin, registrations } = cardOf()
 
     expect(definition.id).toBe("@pawwork/dsh-web-search")
-    expect(plugin.inject).toEqual(["slots", "locale", "connection", "remote", "settingsScope"])
+    expect(plugin.inject).toEqual(["slots", "locale", "remote", "remote.credentials", "settingsScope"])
     expect(registrations).toEqual([
       {
         name: "settings.plugin.item",
@@ -196,7 +229,7 @@ describe("PawWork DSH web search card", () => {
     await injected.save()
 
     expect(credentials.set).toHaveBeenCalledTimes(1)
-    expect(credentials.set).toHaveBeenCalledWith({ ref: "DEEPSEEK_API_KEY", value: "deepseek-secret" })
+    expect(credentials.set).toHaveBeenCalledWith("DEEPSEEK_API_KEY", "deepseek-secret")
   })
 
   // A staged key is invisible and unwritable under any engine but the one it was
@@ -217,7 +250,7 @@ describe("PawWork DSH web search card", () => {
     expect(stateOf(injected).keyText).toBe("exa-secret")
 
     await injected.save()
-    expect(credentials.set).toHaveBeenCalledWith({ ref: "EXA_API_KEY", value: "exa-secret" })
+    expect(credentials.set).toHaveBeenCalledWith("EXA_API_KEY", "exa-secret")
   })
 
   // The Save button and the writes have to agree on what counts as a change. They
@@ -255,29 +288,58 @@ describe("PawWork DSH web search card", () => {
   // leaving both buttons disabled for the rest of the session with the drafts
   // trapped behind them.
   test("a throwing write leaves the card usable", async () => {
-    const { injected } = cardOf({
-      set: async () => {
-        throw new Error("read-only deployment")
-      },
-    })
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const { injected } = cardOf({
+        set: async () => {
+          throw new Error("read-only deployment")
+        },
+      })
 
-    injected.selectBackend("deepseek")
-    await injected.save()
+      injected.selectBackend("deepseek")
+      await injected.save()
 
-    const state = stateOf(injected)
-    expect(state.saving).toBe(false)
-    expect(state.failed).toBe(true)
-    expect(state.backend).toBe("deepseek")
+      const state = stateOf(injected)
+      expect(state.saving).toBe(false)
+      expect(state.failed).toBe(true)
+      // The scope resolves for a write the Host refuses, so a throw is the call
+      // failing to be made — never a value the user could correct.
+      expect(state.failedBroken).toBe(true)
+      expect(state.backend).toBe("deepseek")
+    } finally {
+      logged.mockRestore()
+    }
   })
 
-  // The deployment answers in the response envelope as well as by throwing, and
-  // `configured` cannot stand in for either: it is already true whenever a key
+  // The read is the other half of the same wire, and it is what the badge and the
+  // hint are drawn from: a card that never asks reports the included allowance
+  // over a key the deployment is already holding.
+  test("the card asks about the reference the section names", async () => {
+    const { credentials, injected } = cardOf({
+      describe: () => ({ ok: true, value: { EXA_API_KEY: { configured: true, writable: true } } }),
+    })
+    await settle()
+
+    expect(credentials.describe).toHaveBeenCalledWith(["EXA_API_KEY"])
+    expect(stateOf(injected)).toMatchObject({ keyConfigured: true })
+
+    injected.selectBackend("deepseek")
+    await settle()
+
+    // The answer is keyed by the reference that was asked about, so the other
+    // engine's key is not read as this one's.
+    expect(credentials.describe).toHaveBeenLastCalledWith(["DEEPSEEK_API_KEY"])
+    expect(stateOf(injected)).toMatchObject({ keyConfigured: false })
+  })
+
+  // The deployment answers in the response envelope rather than by throwing, and
+  // `configured` cannot stand in for it: that flag is already true whenever a key
   // was set before, so a rejected rotation read as a successful one — the field
   // cleared, no error, and the old key still in force.
   test("a rejected credential write is a failure, not a silent success", async () => {
     const { injected } = cardOf({
-      describe: { result: { ok: true, value: { credentials: { EXA_API_KEY: { configured: true, writable: true } } } } },
-      setCredential: async () => ({ result: { ok: false } }),
+      describe: () => ({ ok: true, value: { EXA_API_KEY: { configured: true, writable: true } } }),
+      setCredential: () => refusal(),
     })
 
     injected.editKey("rotated-key")
@@ -293,15 +355,54 @@ describe("PawWork DSH web search card", () => {
   // the key did not, it tells the user nothing changed while the deployment has
   // already switched engines.
   test("a partial failure names the field that did not land", async () => {
-    const { card, injected } = cardOf({ setCredential: async () => ({ result: { ok: false } }) })
+    const { card, injected } = cardOf({ setCredential: () => refusal() })
 
     injected.selectBackend("deepseek")
     injected.editKey("deepseek-secret")
     await injected.save()
 
     expect(stateOf(injected).failedFields).toEqual(["key"])
-    const text = visit(render(card, injected)).flatMap((element) => element.props.children as unknown[])
-    expect(text).toContain("saveFailedKey")
+    expect(textOf(card, injected)).toContain("saveFailedKey")
+  })
+
+  // Refused and never-arrived are not the same event, and the copy is the only
+  // place a user can tell them apart. Saying "the deployment did not accept this"
+  // about a call that never reached one is how a card that had lost its way with
+  // DSH spent three releases sending people to re-check a key nobody had read.
+  test("a write that never reached an authority is this app's fault, not the input's", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const { card, injected } = cardOf({
+        setCredential: () => ({ ok: false, error: { code: "gateway/internal", message: "no active Connection" } }),
+      })
+
+      injected.editKey("exa-secret")
+      await injected.save()
+
+      expect(stateOf(injected)).toMatchObject({ failed: true, failedBroken: true, failedFields: ["key"] })
+      expect(textOf(card, injected)).toContain("saveFailedApp")
+      // The console line is the half a developer reads, and it is the only place
+      // the real failure survives: the footer can say no more than "ours".
+      expect(logged).toHaveBeenCalled()
+    } finally {
+      logged.mockRestore()
+    }
+  })
+
+  test("a deployment that answered keeps its refusal", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const { card, injected } = cardOf({ setCredential: () => refusal() })
+
+      injected.editKey("exa-secret")
+      await injected.save()
+
+      expect(stateOf(injected)).toMatchObject({ failed: true, failedBroken: false, failedFields: ["key"] })
+      expect(textOf(card, injected)).toContain("saveFailedKey")
+      expect(logged).not.toHaveBeenCalled()
+    } finally {
+      logged.mockRestore()
+    }
   })
 
   test("discard drops every engine's staged key", () => {
@@ -375,11 +476,12 @@ describe("PawWork DSH web search card", () => {
   // the credential it was chosen for, and an engine write that fails still
   // leaves the key under the vendor the user was looking at.
   test("a save writes the key before the engine it was typed under", async () => {
-    const { credentials, scope, injected } = cardOf()
     const order: string[] = []
-    credentials.set.mockImplementation(async () => {
-      order.push("key")
-      return { result: { ok: true } }
+    const { credentials, scope, injected } = cardOf({
+      setCredential: () => {
+        order.push("key")
+        return { ok: true, value: undefined }
+      },
     })
     scope.set.mockImplementation(async () => {
       order.push("backend")
@@ -390,28 +492,33 @@ describe("PawWork DSH web search card", () => {
     await injected.save()
 
     expect(order).toEqual(["key", "backend"])
-    expect(credentials.set).toHaveBeenCalledWith({ ref: "DEEPSEEK_API_KEY", value: "deepseek-secret" })
+    expect(credentials.set).toHaveBeenCalledWith("DEEPSEEK_API_KEY", "deepseek-secret")
   })
 
   // A write that failed without leaving a draft behind used to render a message
   // with every control that could clear it disabled, and the only way out was to
   // type into the key field.
   test("a failure can be dismissed even when it left no draft", async () => {
-    const { injected } = cardOf({
-      section: { base: { backend: "exa" }, value: { backend: "deepseek" }, user: { backend: "deepseek" } },
-      unset: async () => {
-        throw new Error("read-only deployment")
-      },
-    })
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const { injected } = cardOf({
+        section: { base: { backend: "exa" }, value: { backend: "deepseek" }, user: { backend: "deepseek" } },
+        unset: async () => {
+          throw new Error("read-only deployment")
+        },
+      })
 
-    injected.resetBackend()
-    await injected.save()
+      injected.resetBackend()
+      await injected.save()
 
-    expect(stateOf(injected)).toMatchObject({ failed: true, failedFields: ["backend"] })
+      expect(stateOf(injected)).toMatchObject({ failed: true, failedFields: ["backend"] })
 
-    injected.discard()
+      injected.discard()
 
-    expect(stateOf(injected)).toMatchObject({ failed: false, dirty: false, backend: "deepseek" })
+      expect(stateOf(injected)).toMatchObject({ failed: false, dirty: false, backend: "deepseek" })
+    } finally {
+      logged.mockRestore()
+    }
   })
 
   // A reference the two halves read differently has the card describing and
@@ -424,7 +531,7 @@ describe("PawWork DSH web search card", () => {
       injected.editKey("exa-secret")
       await injected.save()
 
-      expect(credentials.set).toHaveBeenCalledWith({ ref: "EXA_API_KEY", value: "exa-secret" })
+      expect(credentials.set).toHaveBeenCalledWith("EXA_API_KEY", "exa-secret")
     }
   })
 
@@ -434,7 +541,7 @@ describe("PawWork DSH web search card", () => {
   // nothing stored and every search failed, while the footer named only the key.
   test("a refused key does not move the user onto the engine that needed it", async () => {
     const { credentials, scope, injected } = cardOf({
-      setCredential: async () => ({ result: { ok: false } }),
+      setCredential: () => refusal(),
     })
 
     injected.selectBackend("deepseek")

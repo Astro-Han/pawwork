@@ -151,6 +151,7 @@ window.__ModuleLoader__.load({
       saveFailedBackend: "The deployment did not accept the search source; it was left for you to correct.",
       saveFailedKey: "The deployment did not accept the API key; it was left for you to correct.",
       saveFailedBoth: "The deployment accepted neither value; both were left for you to correct.",
+      saveFailedApp: "Saving failed on this app's side, not on your input. Your values were kept; try again.",
       expand: "Show settings",
       collapse: "Hide settings",
     }
@@ -177,6 +178,7 @@ window.__ModuleLoader__.load({
       saveFailedBackend: "本部署没有接受搜索源，已保留供你修改。",
       saveFailedKey: "本部署没有接受 API Key，已保留供你修改。",
       saveFailedBoth: "本部署两个值都没有接受，已保留供你修改。",
+      saveFailedApp: "保存失败：应用出错，不是你输入的问题；内容已保留，可重试。",
       expand: "展开设置",
       collapse: "收起设置",
     }
@@ -201,22 +203,30 @@ window.__ModuleLoader__.load({
      * save has to do: the button's enabled state and the writes themselves read
      * it, so "there is something to save" cannot mean one thing to the user and
      * another to the code.
+     *
+     * Failures are recorded by kind, because the two kinds are not the same
+     * event: a value the deployment answered about is one the user can correct,
+     * while a write that never reached an authority is this app's own fault. The
+     * footer names which, so a broken card cannot send its user to re-check an
+     * input nobody read.
      */
     class CardController {
       /** `{ backend }`, `{ reset: true }`, or undefined — never two of them. */
       backendDraft = undefined
       keyDraft = undefined
       saving = false
-      failures = new Set()
-      credential = { ref: "", configured: false, writable: true }
+      /** Field name -> `"refused"` or `"broken"`, for the fields a save did not land. */
+      failures = new Map()
+      /** The credential the deployment is known to hold for `ref`. */
+      held = { ref: "", configured: false, writable: true }
 
       /**
        * @param scope - the bound settings scope for this card's namespace.
-       * @param api - wire face used for the credential the section references.
+       * @param credentials - the credential face for the reference the section names.
        */
-      constructor(scope, api) {
+      constructor(scope, credentials) {
         this.scope = scope
-        this.api = api
+        this.credentials = credentials
         this.store = createSnapshotStore(this.projection())
         scope.subscribe(() => {
           this.publish()
@@ -323,7 +333,8 @@ window.__ModuleLoader__.load({
           staged: this.staged(),
           saving: this.saving,
           failed: this.failures.size > 0,
-          failedFields: [...this.failures],
+          failedFields: [...this.failures.keys()],
+          failedBroken: [...this.failures.values()].includes("broken"),
           backend: this.backend(),
           // Offered while there is an override to remove and removing it is not
           // already staged — the control is how you stage it, so leaving it up
@@ -331,8 +342,8 @@ window.__ModuleLoader__.load({
           backendOverridden: Object.hasOwn(user ?? {}, "backend") && this.backendDraft?.reset !== true,
           keyless: spec.keyless,
           keyText: this.stagedKey()?.text ?? "",
-          keyConfigured: this.credential.configured,
-          keyWritable: this.credential.writable,
+          keyConfigured: this.held.configured,
+          keyWritable: this.held.writable,
         }
       }
 
@@ -341,25 +352,21 @@ window.__ModuleLoader__.load({
        *
        * The answer is stored with the reference it describes, because switching
        * the backend changes which reference the card is asking about and two
-       * reads can settle out of order.
+       * reads can settle out of order. A read the face could not answer leaves
+       * the last known state alone: the card has nowhere truthful to put
+       * "unknown", and the save it feeds reports its own outcome.
        */
       async readCredential() {
         const ref = this.ref()
-        if (ref !== this.credential.ref) {
-          this.credential = { ref, configured: false, writable: true }
+        if (ref !== this.held.ref) {
+          this.held = { ref, configured: false, writable: true }
           this.publish()
         }
-        let response
-        try {
-          response = await this.api.credentials.describe({ refs: [ref] })
-        } catch (_credentialReadFailure) {
-          return
-        }
-        if (response?.result?.ok !== true || ref !== this.ref()) return
-        const view = response.result.value?.credentials?.[ref]
-        const next = { ref, configured: view?.configured ?? false, writable: view?.writable ?? true }
-        if (next.configured === this.credential.configured && next.writable === this.credential.writable) return
-        this.credential = next
+        const view = await this.credentials.inspect(ref)
+        if (view === undefined || ref !== this.ref()) return
+        const next = { ref, ...view }
+        if (next.configured === this.held.configured && next.writable === this.held.writable) return
+        this.held = next
         this.publish()
       }
 
@@ -368,7 +375,7 @@ window.__ModuleLoader__.load({
        * @param ref - the reference the Host reports as changed.
        */
       refreshCredential(ref) {
-        if (ref !== this.credential.ref) return
+        if (ref !== this.held.ref) return
         this.readCredential()
       }
 
@@ -423,10 +430,13 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * Run one write and record which field failed.
+       * Run one settings write and record the field as broken if it threw.
        *
-       * Every path that changes the deployment goes through here, so a rejected
-       * promise cannot strand `saving` at true and disable both buttons.
+       * Every path that changes the section goes through here, so a rejected
+       * promise cannot strand `saving` at true and disable both buttons. The scope
+       * resolves for a write the Host refuses — that refusal is read back by the
+       * caller — so a throw here means the call itself could not be made, which is
+       * this app's fault and not a value the user can correct.
        * @param field - the field this write belongs to, for the failure report.
        * @param write - performs the write; its resolved value is not inspected.
        * @returns whether the write completed without throwing.
@@ -435,8 +445,9 @@ window.__ModuleLoader__.load({
         try {
           await write()
           return true
-        } catch (_writeFailure) {
-          this.failures.add(field)
+        } catch (failure) {
+          console.error(`[pawwork-web-search] the ${field} write could not be made:`, failure)
+          this.failures.set(field, "broken")
           return false
         }
       }
@@ -464,21 +475,18 @@ window.__ModuleLoader__.load({
         try {
           for (const write of writes) {
             if (write.field === "key") {
-              // The deployment answers in the response envelope as well as by
-              // throwing, and `configured` cannot stand in for either: it is
-              // already true whenever a key was set before, so a rejected
-              // rotation would read as a successful one.
-              const wrote = await this.commit("key", async () => {
-                const response = await this.api.credentials.set({ ref: write.ref, value: write.value })
-                if (response?.result?.ok === false) throw new Error("credential write rejected")
-              })
-              if (!wrote) {
+              // The deployment's answer decides, and `configured` cannot stand in
+              // for it: that flag is already true whenever a key was set before,
+              // so a rejected rotation would read as a successful one.
+              const outcome = await this.credentials.store(write.ref, write.value)
+              if (outcome !== "landed") {
                 // The key goes first so the engine never runs a moment without
                 // the credential it was chosen for — which is exactly what
                 // carrying on would produce. Any pending engine write selects
                 // the engine this key was typed under, so it stays staged and
                 // Save retries both rather than moving the user onto an engine
                 // whose key the deployment just refused.
+                this.failures.set("key", outcome)
                 break
               }
               this.keyDraft = undefined
@@ -487,14 +495,20 @@ window.__ModuleLoader__.load({
             // Read back either way. A Host that accepts the call without moving
             // the value is the case this exists for, and a reset that silently
             // did not land is the same lie as an engine that silently did not.
-            const wrote =
+            // The read-back only means something once the call itself went
+            // through: a write that threw already recorded why it did, and the
+            // value cannot have moved.
+            const made =
               write.reset === true
-                ? (await this.commit("backend", () => this.scope.unset("backend"))) &&
-                  !Object.hasOwn(this.scope.getSnapshot().user ?? {}, "backend")
-                : (await this.commit("backend", () => this.scope.set("backend", write.backend))) &&
-                  this.scope.getSnapshot().user?.backend === write.backend
+                ? await this.commit("backend", () => this.scope.unset("backend"))
+                : await this.commit("backend", () => this.scope.set("backend", write.backend))
+            const wrote =
+              made &&
+              (write.reset === true
+                ? !Object.hasOwn(this.scope.getSnapshot().user ?? {}, "backend")
+                : this.scope.getSnapshot().user?.backend === write.backend)
             if (wrote) this.backendDraft = undefined
-            else this.failures.add("backend")
+            else if (made) this.failures.set("backend", "refused")
           }
           await this.readCredential()
         } finally {
@@ -509,10 +523,76 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * One labelled control row, matching the plugin-configuration field metrics.
-     * @param props - label, badges, hint, and the control to render.
-     * @returns the field row.
+     * A failure code the Remote face produced on its own: the call never reached
+     * an authority, so nothing about the value was decided.
      */
+    const GATEWAY_FAILURE = /^gateway\//
+
+    /**
+     * Narrow the credentials Remote namespace to the three answers this card
+     * needs: whether a key is held, whether a write landed, and — when it did not
+     * — whether the deployment answered at all.
+     *
+     * That last one is why this exists. The namespace reports every outcome in an
+     * envelope, so reading "not ok" as "rejected" sends a user to correct an input
+     * no authority ever read — which is exactly what a broken binding looks like
+     * from the outside. Keeping the split here leaves the card with an outcome it
+     * can state truthfully, and leaves the console line where a developer is
+     * looking when they wonder why a save does nothing.
+     *
+     * The namespace is addressed the way DSH publishes it — positional parameters,
+     * an `{ok, value}` envelope — and not through anything hand-rolled: this file
+     * is a browser bundle that nothing type-checks, so the shape it calls is a
+     * contract only a test against the installed DSH can hold.
+     * @param ctx - the plugin context, whose `remote.credentials` namespace this
+     *   plugin declares as a dependency.
+     * @returns the credential face the card is constructed with.
+     */
+    function credentialFace(ctx) {
+      const answered = (error) => typeof error?.code === "string" && !GATEWAY_FAILURE.test(error.code)
+      return {
+        /**
+         * @param ref - the credential reference to ask about.
+         * @returns `{configured, writable}`, or undefined when nothing answered.
+         */
+        async inspect(ref) {
+          let response
+          try {
+            response = await ctx.remote.credentials.describe([ref])
+          } catch (failure) {
+            console.error(`[pawwork-web-search] could not ask about "${ref}":`, failure)
+            return undefined
+          }
+          if (response?.ok !== true) {
+            if (!answered(response?.error)) {
+              console.error(`[pawwork-web-search] could not ask about "${ref}":`, response?.error)
+            }
+            return undefined
+          }
+          const view = response.value?.[ref]
+          return { configured: view?.configured ?? false, writable: view?.writable ?? true }
+        },
+        /**
+         * @param ref - the credential reference to write.
+         * @param value - the key the user staged.
+         * @returns `"landed"`, `"refused"`, or `"broken"`.
+         */
+        async store(ref, value) {
+          let response
+          try {
+            response = await ctx.remote.credentials.set(ref, value)
+          } catch (failure) {
+            console.error(`[pawwork-web-search] the write of "${ref}" could not be made:`, failure)
+            return "broken"
+          }
+          if (response?.ok === true) return "landed"
+          if (answered(response?.error)) return "refused"
+          console.error(`[pawwork-web-search] the write of "${ref}" was not delivered:`, response?.error)
+          return "broken"
+        },
+      }
+    }
+
     /**
      * Name the fields a save did not land, rather than the save as a whole.
      *
@@ -520,15 +600,26 @@ window.__ModuleLoader__.load({
      * these values" can be false about one of them — and when the engine landed
      * and the key did not, that phrasing tells the user nothing changed while
      * the deployment has in fact switched engines.
+     *
+     * A field that never reached an authority is not that case at all, so it
+     * outranks the others: the deployment accepted or refused nothing, and saying
+     * otherwise costs the user a hunt through their own input for this app's bug.
      * @param fields - the fields whose writes failed.
+     * @param broken - whether any of them failed without reaching an authority.
      * @returns the locale key for the failure line.
      */
-    function saveFailureKey(fields) {
+    function saveFailureKey(fields, broken) {
+      if (broken === true) return "saveFailedApp"
       const failed = new Set(fields ?? [])
       if (failed.has("backend") && failed.has("key")) return "saveFailedBoth"
       return failed.has("backend") ? "saveFailedBackend" : "saveFailedKey"
     }
 
+    /**
+     * One labelled control row, matching the plugin-configuration field metrics.
+     * @param props - label, badges, hint, and the control to render.
+     * @returns the field row.
+     */
     // A `<button>` is not a labelable element, so `htmlFor` pointing at one is
     // ignored: the browser makes no association and clicking the label does
     // nothing. Fields whose control is a button carry their label the other way
@@ -649,7 +740,7 @@ window.__ModuleLoader__.load({
           }),
           h("div", { className: "pawwork-websearch-footer" },
             state.failed
-              ? h("p", { className: "pawwork-websearch-failed", role: "status" }, t(saveFailureKey(state.failedFields)))
+              ? h("p", { className: "pawwork-websearch-failed", role: "status" }, t(saveFailureKey(state.failedFields, state.failedBroken)))
               : null,
             // Asks `staged` rather than `dirty`, and a failure counts too: a
             // draft that would write nothing is still a draft on screen, and a
@@ -669,12 +760,14 @@ window.__ModuleLoader__.load({
             }, t(state.saving ? "saving" : "save")))) : null)
     }
 
-    const inject = ["slots", "locale", "connection", "remote", "settingsScope"]
+    // `remote.credentials` is a dependency rather than something read through the
+    // connection service: the credential namespace is the published way to hold a
+    // key, and it is what DSH's own settings cards use.
+    const inject = ["slots", "locale", "remote", "remote.credentials", "settingsScope"]
 
     function apply(ctx) {
-      const { api } = ctx.get("connection")
       ctx.effect(() => ctx.locale.register(NS, { en, zh }), "pawwork-web-search: card dictionaries")
-      const card = new CardController(ctx.settingsScope.bind({ namespace: NS }), api)
+      const card = new CardController(ctx.settingsScope.bind({ namespace: NS }), credentialFace(ctx))
       ctx.effect(
         () => ctx.remote.$on("credentials/reference-updated", (ref) => card.refreshCredential(ref)),
         "pawwork-web-search: credential invalidations",

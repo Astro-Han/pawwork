@@ -273,6 +273,9 @@ describe("ci smoke helpers", () => {
     automationSettingsEntryVisible: true,
     updateSettingsEntryVisible: true,
     webSearchCardVisible: true,
+    webSearchUnsavedShown: true,
+    webSearchSaveWorks: true,
+    webSearchFailureText: "",
     updateSectionVisible: true,
     updateSectionReportsStatus: true,
     automationSidebarEntryAbsent: true,
@@ -336,6 +339,8 @@ describe("ci smoke helpers", () => {
     automationSettingsEntryVisible: false,
     updateSettingsEntryVisible: false,
     webSearchCardVisible: false,
+    webSearchUnsavedShown: false,
+    webSearchSaveWorks: false,
     updateSectionVisible: false,
     updateSectionReportsStatus: false,
     automationSidebarEntryAbsent: false,
@@ -417,11 +422,11 @@ describe("ci smoke helpers", () => {
   })
 
   test("consults every field it collects", () => {
-    // The three left out are carried for the failure report and the restart
-    // comparison, not asserted here. A new field landing outside `broken` means
-    // the smoke gathers something nothing checks.
+    // These are carried for the failure report and the restart comparison, not
+    // asserted here. A new field landing outside `broken` means the smoke
+    // gathers something nothing checks.
     const unchecked = Object.keys(healthy).filter((field) => !(field in broken))
-    expect(unchecked.sort()).toEqual(["platform", "sessionId", "sessionIdsBeforeRestart"])
+    expect(unchecked.sort()).toEqual(["platform", "sessionId", "sessionIdsBeforeRestart", "webSearchFailureText"])
   })
 
   test("reports every failing capability at once, not just the first", () => {

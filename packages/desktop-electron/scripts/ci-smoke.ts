@@ -51,6 +51,9 @@ export type CiSmokeProductSnapshot = {
   automationSettingsEntryVisible: boolean
   updateSettingsEntryVisible: boolean
   webSearchCardVisible: boolean
+  webSearchUnsavedShown: boolean
+  webSearchSaveWorks: boolean
+  webSearchFailureText: string
   updateSectionVisible: boolean
   updateSectionReportsStatus: boolean
   automationSidebarEntryAbsent: boolean
@@ -606,6 +609,30 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
     const webSearchCardVisible = visible(document.querySelector(".pawwork-websearch-card"))
+    // The card's save is the only path in this product that writes a credential
+    // through the client Remote face, and no Host-side probe can see it happen: a
+    // member that moved leaves the write inside the renderer while every wire
+    // assertion still passes and the card blames the deployment for it. So this
+    // drives the real form and reads back what the card says about the result.
+    document.querySelector(".pawwork-websearch-header")?.click()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const webSearchKeyInput = document.querySelector("#pawwork-websearch-key")
+    if (webSearchKeyInput) {
+      const keyValueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      keyValueSetter?.call(webSearchKeyInput, "smoke-web-search-key")
+      webSearchKeyInput.dispatchEvent(new Event("input", { bubbles: true }))
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const webSearchUnsavedShown = visible(document.querySelector(".pawwork-websearch-pending"))
+    document.querySelector(".pawwork-websearch-save")?.click()
+    let webSearchSaveWorks = false
+    for (let attempt = 0; attempt < 40 && !webSearchSaveWorks; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      webSearchSaveWorks = !visible(document.querySelector(".pawwork-websearch-pending"))
+        && !visible(document.querySelector(".pawwork-websearch-failed"))
+        && /已配置密钥|Key configured/.test(document.querySelector(".pawwork-websearch-badge")?.textContent || "")
+    }
+    const webSearchFailureText = (document.querySelector(".pawwork-websearch-failed")?.textContent || "").trim()
     // The automation flow below expects its own surface; navigate back first.
     visibleButton(/^(自动化|Automations)$/i)?.click()
     for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-automations-surface")); attempt += 1) {
@@ -890,6 +917,9 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       automationSettingsEntryVisible,
       updateSettingsEntryVisible,
       webSearchCardVisible,
+      webSearchUnsavedShown,
+      webSearchSaveWorks,
+      webSearchFailureText,
       updateSectionVisible,
       updateSectionReportsStatus,
       automationSidebarEntryAbsent,
@@ -1265,6 +1295,12 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.updateSectionVisible ? null : "Software Update section did not open",
     snapshot.updateSectionReportsStatus ? null : "Software Update section shows no status from the updater bridge",
     snapshot.webSearchCardVisible ? null : "PawWork web search settings card is not in the Plugins section",
+    snapshot.webSearchUnsavedShown ? null : "PawWork web search card did not stage a typed API key",
+    snapshot.webSearchSaveWorks
+      ? null
+      : `PawWork web search card did not save a key through its own form${
+        snapshot.webSearchFailureText.length > 0 ? `: ${snapshot.webSearchFailureText}` : ""
+      }`,
     snapshot.automationSidebarEntryAbsent ? null : "Automation should not occupy the sidebar",
     snapshot.automationSurfaceVisible ? null : "Automation surface did not open",
     snapshot.automationCreateViaChatWorked ? null : "Automation did not create through the visible chat path",
