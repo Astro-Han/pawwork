@@ -51,6 +51,7 @@ export type CiSmokeProductSnapshot = {
   automationSettingsEntryVisible: boolean
   updateSettingsEntryVisible: boolean
   webSearchCardVisible: boolean
+  webSearchConfiguredBeforeSave: boolean
   webSearchUnsavedShown: boolean
   webSearchSaveWorks: boolean
   webSearchFailureText: string
@@ -240,12 +241,17 @@ export function staleMainEntry(mainEntry = resolveMainEntry(), sourceRoot = reso
   return newer === undefined ? undefined : join(sourceRoot, newer)
 }
 
+// The credential store resolves a reference over the process environment, so an
+// inherited key leaves the reference configured before the card's form writes
+// one, and the probe below would pass with nothing written.
+const SMOKE_CREDENTIAL_REFS = ["EXA_API_KEY", "DEEPSEEK_API_KEY"]
+
 export function buildSmokeEnv(
   homeDir: string,
   env: NodeJS.ProcessEnv = process.env,
   options: BuildSmokeEnvOptions = {},
 ) {
-  return {
+  const smokeEnv: NodeJS.ProcessEnv = {
     ...env,
     CI: "true",
     HOME: homeDir,
@@ -258,6 +264,8 @@ export function buildSmokeEnv(
     ...(options.cdpPort !== undefined ? { PAWWORK_CI_SMOKE_CDP_PORT: String(options.cdpPort) } : {}),
     ...(options.v1Database !== undefined ? { PAWWORK_V1_DATABASE: options.v1Database } : {}),
   }
+  for (const ref of SMOKE_CREDENTIAL_REFS) delete smokeEnv[ref]
+  return smokeEnv
 }
 
 export function parseSmokeCdpPort(raw: string | undefined) {
@@ -613,6 +621,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     // assertion, so this drives the real form and reads back what it says.
     document.querySelector(".pawwork-websearch-header")?.click()
     await new Promise((resolve) => setTimeout(resolve, 50))
+    const webSearchConfiguredBeforeSave = visible(document.querySelector(".pawwork-websearch-badge"))
     const webSearchKeyInput = document.querySelector("#pawwork-websearch-key")
     if (webSearchKeyInput) {
       const keyValueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
@@ -916,6 +925,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       automationSettingsEntryVisible,
       updateSettingsEntryVisible,
       webSearchCardVisible,
+      webSearchConfiguredBeforeSave,
       webSearchUnsavedShown,
       webSearchSaveWorks,
       webSearchFailureText,
@@ -1294,6 +1304,9 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.updateSectionVisible ? null : "Software Update section did not open",
     snapshot.updateSectionReportsStatus ? null : "Software Update section shows no status from the updater bridge",
     snapshot.webSearchCardVisible ? null : "PawWork web search settings card is not in the Plugins section",
+    snapshot.webSearchConfiguredBeforeSave
+      ? "PawWork web search card already reported a configured key before the form wrote one"
+      : null,
     snapshot.webSearchUnsavedShown ? null : "PawWork web search card did not stage a typed API key",
     snapshot.webSearchSaveWorks
       ? null

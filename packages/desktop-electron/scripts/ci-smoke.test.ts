@@ -93,6 +93,18 @@ describe("ci smoke helpers", () => {
     expect(env.XDG_CONFIG_HOME).toBe("/tmp/pawwork-ci-smoke")
     expect(env.XDG_STATE_HOME).toBe("/tmp/pawwork-ci-smoke")
     expect(env.CI).toBe("true")
+
+    // A reference resolves over the process environment, so an inherited key
+    // would reach the app already configured — the state the web search probe
+    // has to observe changing.
+    const inherited = buildSmokeEnv("/tmp/pawwork-ci-smoke", {
+      EXA_API_KEY: "inherited",
+      DEEPSEEK_API_KEY: "inherited",
+      PATH: "/bin",
+    })
+    expect(inherited).not.toHaveProperty("EXA_API_KEY")
+    expect(inherited).not.toHaveProperty("DEEPSEEK_API_KEY")
+    expect(inherited.PATH).toBe("/bin")
   })
 
   test("resolveCiSmokeReadyFile points at the CI-ready marker inside the isolated user data dir", () => {
@@ -273,6 +285,7 @@ describe("ci smoke helpers", () => {
     automationSettingsEntryVisible: true,
     updateSettingsEntryVisible: true,
     webSearchCardVisible: true,
+    webSearchConfiguredBeforeSave: false,
     webSearchUnsavedShown: true,
     webSearchSaveWorks: true,
     webSearchFailureText: "",
@@ -339,6 +352,7 @@ describe("ci smoke helpers", () => {
     automationSettingsEntryVisible: false,
     updateSettingsEntryVisible: false,
     webSearchCardVisible: false,
+    webSearchConfiguredBeforeSave: true,
     webSearchUnsavedShown: false,
     webSearchSaveWorks: false,
     updateSectionVisible: false,
