@@ -503,6 +503,43 @@ test('a late timer records the slots it stepped over as one span', async () => {
   await scheduler.stop();
 });
 
+// The single run this schedule owes ran late; nothing was lost, so the span stays out of
+// the history instead of claiming a slot the run limit already spent.
+test('a late timer records no span for slots a finite schedule cannot reach', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = store.createDefinition({
+    kind: 'recurring',
+    title: 'Check inbox',
+    prompt: 'Check the inbox.',
+    cwd,
+    rhythm: { kind: 'interval', everyMs: 30_000 },
+    stop: { kind: 'count', count: 1 },
+    model: { provider: 'opencode', model: 'big-pickle' },
+  }, 1_000);
+  const clock = fakeClock(1_000);
+  const scheduler = new AutomationScheduler({
+    store,
+    execute: async () => ({ sessionId: null, result: 'done' }),
+    clock,
+  });
+  await scheduler.start();
+  const timer = clock.armed();
+
+  clock.setNow(100_000);
+  timer.callback();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const runs = store.listRuns(created.id);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].state, 'succeeded');
+  assert.equal(runs[0].triggeredAt, 31_000);
+  assert.equal(store.getDefinition(created.id).nextFireAt, null);
+  await scheduler.stop();
+});
+
 test('the DSH executor cancels an already attached continue agent', async () => {
   const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.js')).href}?executor=${Date.now()}`;
   const { createDshExecutor } = await import(pluginUrl);

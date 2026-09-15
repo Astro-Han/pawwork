@@ -513,10 +513,13 @@ class AutomationStore {
     // They are recorded as one span rather than one row per slot: a skipped row states
     // the span between its own triggeredAt and completedAt, so the rest of the gap is
     // in the log without a row that pretends to be an attempt.
+    // The run being claimed counts against a finite schedule even though it has not settled
+    // yet: nextFireAt can still be withdrawn when it finishes, this row cannot, so the span
+    // may only claim slots that the claimed run left the budget for.
     if (runOutcome.state === 'running') {
       const skippedFrom = definition.kind === 'oneshot'
         ? null
-        : definitionNext(definition, target, this.completedRunCount(id));
+        : definitionNext(definition, target, this.completedRunCount(id) + 1);
       if (skippedFrom !== null && skippedFrom <= now) {
         this.document.runs.push(this.createRunRecord(id, skippedFrom, 'stopped', now, 'missed_schedule'));
       }
