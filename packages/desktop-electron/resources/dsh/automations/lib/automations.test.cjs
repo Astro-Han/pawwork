@@ -9,6 +9,7 @@ const {
   AutomationScheduler,
   AutomationStore,
   MIN_INTERVAL_MS,
+  RECENT_RUNS_FOR_HUMAN,
   createAutomationRpcHandler,
   createAutomationToolDefinitions,
 } = require('./automations.cjs');
@@ -449,6 +450,96 @@ test('rejects a second trigger while the previous run is active', async () => {
   await first.completion;
 });
 
+// A gap is one row for the whole span: the history never turns a slot that never ran into
+// a row that reads like an attempt, and never loses the slots a late timer stepped over.
+test('a startup gap is recorded as one span per definition', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = interval(store, cwd, 30_000, 1_000);
+  let executions = 0;
+  const scheduler = new AutomationScheduler({
+    store,
+    execute: async () => { executions += 1; return { result: 'must not run' }; },
+    clock: fakeClock(100_000),
+  });
+
+  await scheduler.start();
+
+  const runs = store.listRuns(created.id);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].state, 'stopped');
+  assert.equal(runs[0].stopReason, 'missed_schedule');
+  assert.equal(runs[0].triggeredAt, 31_000);
+  assert.equal(runs[0].completedAt, 100_000);
+  assert.equal(store.listDefinitions()[0].nextFireAt, 121_000);
+  assert.equal(executions, 0);
+});
+
+test('a late timer records the slots it stepped over as one span', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = interval(store, cwd, 30_000, 1_000);
+  const clock = fakeClock(1_000);
+  const scheduler = new AutomationScheduler({
+    store,
+    execute: async () => ({ sessionId: null, result: 'done' }),
+    clock,
+  });
+  await scheduler.start();
+  const timer = clock.armed();
+
+  clock.setNow(100_000);
+  timer.callback();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const runs = store.listRuns(created.id);
+  assert.equal(runs.length, 2);
+  assert.equal(runs.some((run) => run.triggeredAt === 31_000 && run.result === 'done'), true);
+  const skipped = runs.find((run) => run.stopReason === 'missed_schedule');
+  assert.equal(skipped.triggeredAt, 61_000);
+  assert.equal(skipped.completedAt, 100_000);
+  await scheduler.stop();
+});
+
+// The single run this schedule owes ran late; nothing was lost, so the span stays out of
+// the history instead of claiming a slot the run limit already spent.
+test('a late timer records no span for slots a finite schedule cannot reach', async () => {
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const created = store.createDefinition({
+    kind: 'recurring',
+    title: 'Check inbox',
+    prompt: 'Check the inbox.',
+    cwd,
+    rhythm: { kind: 'interval', everyMs: 30_000 },
+    stop: { kind: 'count', count: 1 },
+    model: { provider: 'opencode', model: 'big-pickle' },
+  }, 1_000);
+  const clock = fakeClock(1_000);
+  const scheduler = new AutomationScheduler({
+    store,
+    execute: async () => ({ sessionId: null, result: 'done' }),
+    clock,
+  });
+  await scheduler.start();
+  const timer = clock.armed();
+
+  clock.setNow(100_000);
+  timer.callback();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const runs = store.listRuns(created.id);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].state, 'succeeded');
+  assert.equal(runs[0].triggeredAt, 31_000);
+  assert.equal(store.getDefinition(created.id).nextFireAt, null);
+  await scheduler.stop();
+});
+
 test('the DSH executor cancels an already attached continue agent', async () => {
   const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.js')).href}?executor=${Date.now()}`;
   const { createDshExecutor } = await import(pluginUrl);
@@ -691,7 +782,7 @@ test('automation RPC keeps the active run separate from bounded terminal history
   const store = new AutomationStore(file);
   const created = interval(store, cwd, 30_000);
   const active = store.beginRun(created.id, 2_000);
-  for (let index = 0; index < 6; index += 1) {
+  for (let index = 0; index < RECENT_RUNS_FOR_HUMAN + 1; index += 1) {
     store.recordStoppedRun(created.id, 3_000 + index, 'previous_run_active', 3_000 + index);
   }
   const rpc = createAutomationRpcHandler({ store, scheduler: {}, now: () => 10_000 });
@@ -700,7 +791,7 @@ test('automation RPC keeps the active run separate from bounded terminal history
 
   assert.equal(response.ok, true);
   assert.equal(response.value.definitions[0].activeRun.id, active.id);
-  assert.equal(response.value.definitions[0].recentRuns.length, 5);
+  assert.equal(response.value.definitions[0].recentRuns.length, RECENT_RUNS_FOR_HUMAN);
   assert.equal(response.value.definitions[0].recentRuns.every((run) => run.state !== 'running'), true);
 });
 

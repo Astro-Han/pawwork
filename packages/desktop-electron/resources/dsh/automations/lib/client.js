@@ -234,6 +234,15 @@ window.__ModuleLoader__.load({
       if (value === null || value === undefined) return "—"
       return new Intl.DateTimeFormat(isChinese() ? "zh-CN" : "en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
     }
+    // A skipped row covers a span, so it shows both ends. Same-day spans stay compact;
+    // one that crosses midnight carries the second date so it cannot read as same-day.
+    function formatSpan(from, to) {
+      const clock = new Intl.DateTimeFormat(isChinese() ? "zh-CN" : "en", { timeStyle: "short" })
+      const sameDay = new Date(from).toDateString() === new Date(to).toDateString()
+      return sameDay
+        ? `${clock.format(new Date(from))}–${clock.format(new Date(to))}`
+        : `${formatTime(from)}–${formatTime(to)}`
+    }
     function formatSchedule(definition) {
       if (definition.kind === "oneshot") return text(`单次 ${formatTime(definition.fireAt)}`, `Once ${formatTime(definition.fireAt)}`)
       if (definition.rhythm.kind === "interval") {
@@ -259,7 +268,22 @@ window.__ModuleLoader__.load({
       return { icon: IconPlayOutline16, label: `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}` }
     }
 
+    // Why a stopped run stopped is the one thing its row has to say, and the reason is an
+    // internal enum, so name it. A reason with no name stays as it came rather than vanishing.
+    function stopReasonLabel(run) {
+      if (run.state !== "stopped") return undefined
+      const labels = isChinese()
+        ? { missed_schedule: "已错过", previous_run_active: "上次运行未结束", cancelled: "已取消", interrupted: "被打断" }
+        : { missed_schedule: "Missed", previous_run_active: "Previous run still active", cancelled: "Cancelled", interrupted: "Interrupted" }
+      return labels[run.stopReason]
+    }
+    // True when the row stands for slots that never ran, rather than for one attempt.
+    function isSkippedSpan(run) {
+      return run.state === "stopped" && (run.stopReason === "missed_schedule" || run.stopReason === "previous_run_active")
+    }
     function runState(run) {
+      const reason = stopReasonLabel(run)
+      if (reason !== undefined) return reason
       const labels = isChinese()
         ? { failed: "失败", running: "运行中", stopped: "已停止", succeeded: "已完成" }
         : { failed: "Failed", running: "Running", stopped: "Stopped", succeeded: "Completed" }
@@ -276,7 +300,7 @@ window.__ModuleLoader__.load({
       return `${selection.provider}/${selection.model}`
     }
     function RunRow({ onError, run, sessions, closeSettings }) {
-      const summary = run.error || run.stopReason || run.result
+      const summary = run.error || (stopReasonLabel(run) === undefined ? run.stopReason : null) || run.result
       const fallback = run.modelFallback
         ? text(`模型 ${modelLabel(run.modelFallback.requested)} 不可用，本次运行使用 ${modelLabel(run.modelFallback.used)}`, `Model ${modelLabel(run.modelFallback.requested)} is unavailable; this run uses ${modelLabel(run.modelFallback.used)}`)
         : null
@@ -293,7 +317,9 @@ window.__ModuleLoader__.load({
         h("div", { className: "pawwork-automation-run-main" },
           h(StateDot, { size: 10, state: runDotState(run) }),
           h("span", { className: "pawwork-automation-run-state" }, runState(run)),
-          h("span", { className: "pawwork-automation-run-time" }, formatTime(run.triggeredAt)),
+          h("span", { className: "pawwork-automation-run-time" }, isSkippedSpan(run) && run.completedAt !== null
+            ? formatSpan(run.triggeredAt, run.completedAt)
+            : formatTime(run.triggeredAt)),
           fallback ? h("span", { className: "pawwork-automation-run-note" }, fallback) : null,
           summary ? h("span", { className: "pawwork-automation-run-summary" }, summary) : null),
         run.sessionId ? h(Button, { onClick: openSession, size: "sm", variant: "outline" }, text("打开会话", "Open session")) : null)
