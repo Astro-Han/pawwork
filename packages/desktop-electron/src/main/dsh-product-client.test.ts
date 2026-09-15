@@ -31,6 +31,7 @@ describe("PawWork DSH client product layer", () => {
         querySelector: () => null,
         createElement: () => ({ dataset: {}, textContent: "" }),
         head: { appendChild: () => {} },
+        body: { firstChild: null, insertBefore: () => {} },
       },
       setTimeout: (callback: () => void, delay: number) => {
         timers.push(callback)
@@ -61,16 +62,29 @@ describe("PawWork DSH client product layer", () => {
   }
 
   function loadProductCss() {
-    const appended: Array<{ className: string }> = []
+    // The app root is in the body by the time the plugin loads, and the strip has to land
+    // ahead of it.
+    const appRoot = { className: "app-root" }
+    const bodyChildren: Array<{ className: string }> = [appRoot]
+    const inserted: Array<{ node: { className: string }; before: unknown }> = []
     const style = { dataset: {} as Record<string, string>, textContent: "" }
     const document = {
       title: "DeepSeek Harness",
       documentElement: { lang: "zh-CN" },
       readyState: "complete",
       querySelector: () => null,
-      createElement: (tag: string) => (tag === "style" ? style : { className: "" }),
+      createElement: (tag: string) => (tag === "style" ? style : { className: "", dataset: {} }),
       head: { appendChild: () => {} },
-      body: { appendChild: (node: { className: string }) => appended.push(node) },
+      body: {
+        get firstChild() {
+          return bodyChildren[0]
+        },
+        insertBefore: (node: { className: string }, before: unknown) => {
+          inserted.push({ node, before })
+          bodyChildren.unshift(node)
+          return node
+        },
+      },
     }
     const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), { document })
     definition.factory((name) => {
@@ -78,7 +92,7 @@ describe("PawWork DSH client product layer", () => {
       if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
-    return { appended, css: style.textContent }
+    return { appRoot, bodyChildren, inserted, css: style.textContent }
   }
 
   test("is a packaged DSH web plugin", () => {
@@ -106,6 +120,7 @@ describe("PawWork DSH client product layer", () => {
       querySelector: () => null,
       createElement: () => ({ dataset: {}, textContent: "" }),
       head: { appendChild: () => {} },
+      body: { firstChild: null, insertBefore: () => {} },
     }
     const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
       document,
@@ -144,6 +159,7 @@ describe("PawWork DSH client product layer", () => {
       querySelector: () => null,
       createElement: () => ({ dataset: {}, textContent: "" }),
       head: { appendChild: () => {} },
+      body: { firstChild: null, insertBefore: () => {} },
     }
     const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
       document,
@@ -256,6 +272,7 @@ describe("PawWork DSH client product layer", () => {
       querySelector: () => null,
       createElement: () => ({ dataset: {}, textContent: "" }),
       head: { appendChild: () => {} },
+      body: { firstChild: null, insertBefore: () => {} },
     }
 
     const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
@@ -325,6 +342,7 @@ describe("PawWork DSH client product layer", () => {
       querySelector: () => null,
       createElement: () => ({ dataset: {}, textContent: "" }),
       head: { appendChild: () => {} },
+      body: { firstChild: null, insertBefore: () => {} },
     }
     const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), { document })
     const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
@@ -364,7 +382,10 @@ describe("PawWork DSH client product layer", () => {
     const tree = chrome.component(chrome.options.inject?.()) as {
       props: { children: Array<{ type: unknown; props: Record<string, unknown> }> }
     }
-    const button = tree.props.children[1]
+    // The strip is mounted in the body instead: from the overlay it would be the last
+    // draggable rect in the document and would win over every control it covers.
+    expect(tree.props.children).toHaveLength(1)
+    const button = tree.props.children[0]
     expect(button.props).toMatchObject({
       "aria-label": "切换侧边栏",
       className: "pawwork-sidebar-toggle",
@@ -377,10 +398,14 @@ describe("PawWork DSH client product layer", () => {
   })
 
   test("reserves only the native-control edges without pushing the whole shell down", () => {
-    const { appended, css } = loadProductCss()
+    const { appRoot, bodyChildren, inserted, css } = loadProductCss()
 
-    // The real drag strip is owned by shell.overlay; the plugin must not append parallel DOM.
-    expect(appended).toEqual([])
+    // Draggable regions compose in document order, so the strip is mounted ahead of the app
+    // root; every control it covers must contribute its no-drag rect afterwards.
+    expect(inserted).toHaveLength(1)
+    expect(inserted[0].node.className).toBe("pawwork-window-drag-region")
+    expect(inserted[0].before).toBe(appRoot)
+    expect(bodyChildren).toEqual([inserted[0].node, appRoot])
     expect(css).toContain("--pawwork-titlebar-inset-left: var(--pawwork-titlebar-host-inset-left, env(titlebar-area-x, 0px))")
     expect(css).toContain("--pawwork-titlebar-inset-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw))")
     expect(css).toContain("var(--pawwork-titlebar-host-height, env(titlebar-area-height, 0px))")
@@ -463,6 +488,7 @@ describe("PawWork DSH client product layer", () => {
       querySelector: () => null,
       createElement: () => ({ dataset: {}, textContent: "" }),
       head: { appendChild: () => {} },
+      body: { firstChild: null, insertBefore: () => {} },
     }
     const pick = vi.fn(async () => ({
       status: "selected",
@@ -654,6 +680,7 @@ describe("PawWork DSH client product layer", () => {
         querySelector: () => null,
         createElement: () => ({ dataset: {}, textContent: "" }),
         head: { appendChild: () => {} },
+        body: { firstChild: null, insertBefore: () => {} },
       },
       setTimeout: (callback: () => void) => timers.push(callback),
       clearTimeout: () => {},

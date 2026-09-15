@@ -22,6 +22,8 @@ window.__ModuleLoader__.load({
   height: max(var(--pawwork-titlebar-height), 32px);
   left: 0; pointer-events: none; position: fixed; right: 0; top: 0;
 }
+/* Mounted ahead of the app root rather than from shell.overlay: drag regions compose in
+   document order, and only a no-drag rect that comes later carves a control back out. */
 .pawwork-window-drag-region {
   -webkit-app-region: drag;
   height: var(--pawwork-titlebar-height, 0px);
@@ -230,6 +232,21 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       style.textContent = productCss
       document.head.appendChild(style)
     }
+
+    // Chromium collects draggable regions in document order and composites them in that same
+    // order, so the last rect containing a point decides whether it is draggable. The strip
+    // therefore has to precede the app root: every control it covers then contributes its own
+    // no-drag rect afterwards and wins. Rendered from shell.overlay instead — a sibling of the
+    // app root, so always last — it would be the final rect in the list and swallow those
+    // clicks. pointer-events does not exempt a region: Blink skips an object only when it is
+    // invisible, so the strip must stay out of the DOM path that owns the controls.
+    const dragRegionId = "@pawwork/dsh-product/drag-region"
+    if (document.querySelector(`[data-plugin-region="${dragRegionId}"]`) === null) {
+      const dragRegion = document.createElement("div")
+      dragRegion.className = "pawwork-window-drag-region"
+      dragRegion.dataset.pluginRegion = dragRegionId
+      document.body.insertBefore(dragRegion, document.body.firstChild)
+    }
     function isChinese() { return document.documentElement.lang.startsWith("zh") }
     function text(chinese, english) { return isChinese() ? chinese : english }
     function icon(paths, size = 16) {
@@ -264,7 +281,6 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     function WindowChrome({ toggleSidebar }) {
       const label = text("切换侧边栏", "Toggle sidebar")
       return h("div", { className: "pawwork-window-chrome" },
-        h("div", { className: "pawwork-window-drag-region" }),
         h("button", { "aria-label": label, className: "pawwork-sidebar-toggle", onClick: toggleSidebar, title: label, type: "button" },
           h(IconPanelLeftOutline16, { size: 16 })))
     }
