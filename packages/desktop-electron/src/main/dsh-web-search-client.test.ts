@@ -166,7 +166,6 @@ function stateOf(injected: CardActions) {
   return store.webSearchCard.getSnapshot()
 }
 
-/** @returns every piece of copy the rendered card holds. */
 function textOf(card: (props: Record<string, unknown>) => unknown, injected: CardActions) {
   return visit(render(card, injected)).flatMap((element) => element.props.children as unknown[])
 }
@@ -294,7 +293,6 @@ describe("PawWork DSH web search card", () => {
 
       const state = stateOf(injected)
       expect(state.saving).toBe(false)
-      // A thrown write is the call failing to be made, not a refused value.
       expect(state.failure).toEqual({ field: "backend", kind: "broken" })
       expect(state.backend).toBe("deepseek")
     } finally {
@@ -319,8 +317,6 @@ describe("PawWork DSH web search card", () => {
     expect(stateOf(injected)).toMatchObject({ keyConfigured: false })
   })
 
-  // Reads overlap when an engine is left and re-entered, and both then describe
-  // the reference in force, so the reference alone cannot order them.
   test("an answer a newer read has replaced does not overwrite it", async () => {
     const answers: Array<(answer: RemoteAnswer) => void> = []
     const { injected } = cardOf({
@@ -344,8 +340,6 @@ describe("PawWork DSH web search card", () => {
     expect(stateOf(injected)).toMatchObject({ keyConfigured: true, keyWritable: false })
   })
 
-  // `configured` cannot stand in for the write's answer: it is already true
-  // whenever a key was set before, so a rejected rotation would read as a success.
   test("a rejected credential write is a failure, not a silent success", async () => {
     const { injected } = cardOf({
       describe: () => ({ ok: true, value: { EXA_API_KEY: { configured: true, writable: true } } }),
@@ -385,8 +379,6 @@ describe("PawWork DSH web search card", () => {
 
       expect(stateOf(injected).failure).toEqual({ field: "key", kind: "broken" })
       expect(textOf(card, injected)).toContain("saveFailedApp")
-      // The console line is the half a developer reads, and it is the only place
-      // the real failure survives: the footer can say no more than "ours".
       expect(logged).toHaveBeenCalled()
     } finally {
       logged.mockRestore()

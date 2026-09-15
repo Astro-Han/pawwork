@@ -69,8 +69,6 @@ export function fakeDshRemote(
       })
       const handler = handlers[method]
       const answer = handler === undefined ? { ok: true as const, value: undefined } : await handler(...(args as never[]))
-      // A handler answering outside the generated shape is the same defect as a
-      // caller passing one, and it is just as invisible without this.
       if (answer.ok) parse(descriptor.result?.schema, answer.value, `${contract.namespace}/${method} result`)
       return answer
     }

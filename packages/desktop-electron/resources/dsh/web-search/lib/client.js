@@ -211,7 +211,6 @@ window.__ModuleLoader__.load({
       failure = undefined
       /** The credential the deployment is known to hold for `ref`. */
       held = { ref: "", configured: false, writable: true }
-      /** Reads started so far; see `readCredential`. */
       reads = 0
 
       /**
