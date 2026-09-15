@@ -150,7 +150,6 @@ window.__ModuleLoader__.load({
       unsaved: "Unsaved",
       saveFailedBackend: "The deployment did not accept the search source; it was left for you to correct.",
       saveFailedKey: "The deployment did not accept the API key; it was left for you to correct.",
-      saveFailedBoth: "The deployment accepted neither value; both were left for you to correct.",
       saveFailedApp: "Saving failed on this app's side, not on your input. Your values were kept; try again.",
       expand: "Show settings",
       collapse: "Hide settings",
@@ -177,7 +176,6 @@ window.__ModuleLoader__.load({
       unsaved: "未保存",
       saveFailedBackend: "本部署没有接受搜索源，已保留供你修改。",
       saveFailedKey: "本部署没有接受 API Key，已保留供你修改。",
-      saveFailedBoth: "本部署两个值都没有接受，已保留供你修改。",
       saveFailedApp: "保存失败：应用出错，不是你输入的问题；内容已保留，可重试。",
       expand: "展开设置",
       collapse: "收起设置",
@@ -209,8 +207,8 @@ window.__ModuleLoader__.load({
       backendDraft = undefined
       keyDraft = undefined
       saving = false
-      /** Field name -> `"refused"` (the deployment answered) or `"broken"` (the call never arrived). */
-      failures = new Map()
+      /** The field a save did not land and why: `{ field, kind }`, or undefined. */
+      failure = undefined
       /** The credential the deployment is known to hold for `ref`. */
       held = { ref: "", configured: false, writable: true }
       /** Reads started so far; see `readCredential`. */
@@ -328,9 +326,7 @@ window.__ModuleLoader__.load({
           // can see and nothing to write, and Discard is the only way to clear it.
           staged: this.staged(),
           saving: this.saving,
-          failed: this.failures.size > 0,
-          failedFields: [...this.failures.keys()],
-          failedBroken: [...this.failures.values()].includes("broken"),
+          failure: this.failure,
           backend: this.backend(),
           // Offered while there is an override to remove and removing it is not
           // already staged — the control is how you stage it, so leaving it up
@@ -384,7 +380,7 @@ window.__ModuleLoader__.load({
             // value, pinning the user to an engine they meant to stop pinning.
             if (value === this.backend()) return
             this.backendDraft = { backend: value }
-            this.failures.clear()
+            this.failure = undefined
             this.publish()
             // The reference follows the backend, so the badge must re-resolve
             // before the user decides whether a key is still needed.
@@ -393,7 +389,7 @@ window.__ModuleLoader__.load({
           editKey: (text) => {
             if (this.saving) return
             this.keyDraft = { backend: this.backend(), text }
-            this.failures.delete("key")
+            if (this.failure?.field === "key") this.failure = undefined
             this.publish()
           },
           // Stages the reset; it does not perform it. Restoring the default is
@@ -403,7 +399,7 @@ window.__ModuleLoader__.load({
           resetBackend: () => {
             if (this.saving) return
             this.backendDraft = { reset: true }
-            this.failures.clear()
+            this.failure = undefined
             this.publish()
             this.readCredential()
           },
@@ -416,7 +412,7 @@ window.__ModuleLoader__.load({
             if (this.saving) return
             this.backendDraft = undefined
             this.keyDraft = undefined
-            this.failures.clear()
+            this.failure = undefined
             this.publish()
             this.readCredential()
           },
@@ -438,7 +434,7 @@ window.__ModuleLoader__.load({
           return true
         } catch (failure) {
           console.error(`[pawwork-web-search] the ${field} write could not be made:`, failure)
-          this.failures.set(field, "broken")
+          this.failure = { field, kind: "broken" }
           return false
         }
       }
@@ -461,7 +457,7 @@ window.__ModuleLoader__.load({
         const writes = this.pendingWrites()
         if (writes.length === 0) return
         this.saving = true
-        this.failures.clear()
+        this.failure = undefined
         this.publish()
         try {
           for (const write of writes) {
@@ -477,7 +473,7 @@ window.__ModuleLoader__.load({
                 // the engine this key was typed under, so it stays staged and
                 // Save retries both rather than moving the user onto an engine
                 // whose key the deployment just refused.
-                this.failures.set("key", outcome)
+                this.failure = { field: "key", kind: outcome }
                 break
               }
               this.keyDraft = undefined
@@ -496,7 +492,7 @@ window.__ModuleLoader__.load({
                 ? !Object.hasOwn(this.scope.getSnapshot().user ?? {}, "backend")
                 : this.scope.getSnapshot().user?.backend === write.backend)
             if (wrote) this.backendDraft = undefined
-            else if (made) this.failures.set("backend", "refused")
+            else if (made) this.failure = { field: "backend", kind: "refused" }
           }
           await this.readCredential()
         } finally {
@@ -571,21 +567,15 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Name the fields a save did not land, rather than the save as a whole.
-     *
-     * The two writes settle independently, so "the deployment did not accept
-     * these values" can be false about one of them — and when the engine landed
-     * and the key did not, that phrasing tells the user nothing changed while
-     * the deployment has in fact switched engines.
-     * @param fields - the fields whose writes failed.
-     * @param broken - whether any of them failed without reaching an authority.
+     * Name the field a save did not land, rather than the save as a whole: when
+     * the engine landed and the key did not, "the deployment did not accept these
+     * values" tells the user nothing changed while it has switched engines.
+     * @param failure - the field that did not land, and why.
      * @returns the locale key for the failure line.
      */
-    function saveFailureKey(fields, broken) {
-      if (broken === true) return "saveFailedApp"
-      const failed = new Set(fields ?? [])
-      if (failed.has("backend") && failed.has("key")) return "saveFailedBoth"
-      return failed.has("backend") ? "saveFailedBackend" : "saveFailedKey"
+    function saveFailureKey(failure) {
+      if (failure.kind === "broken") return "saveFailedApp"
+      return failure.field === "backend" ? "saveFailedBackend" : "saveFailedKey"
     }
 
     /**
@@ -712,8 +702,8 @@ window.__ModuleLoader__.load({
             label: t("apiKey"),
           }),
           h("div", { className: "pawwork-websearch-footer" },
-            state.failed
-              ? h("p", { className: "pawwork-websearch-failed", role: "status" }, t(saveFailureKey(state.failedFields, state.failedBroken)))
+            state.failure
+              ? h("p", { className: "pawwork-websearch-failed", role: "status" }, t(saveFailureKey(state.failure)))
               : null,
             // Asks `staged` rather than `dirty`, and a failure counts too: a
             // draft that would write nothing is still a draft on screen, and a
@@ -721,7 +711,7 @@ window.__ModuleLoader__.load({
             // with every control that could clear it disabled.
             h("button", {
               className: "pawwork-websearch-discard",
-              disabled: (!state.staged && !state.failed) || state.saving,
+              disabled: (!state.staged && !state.failure) || state.saving,
               onClick: props.discard,
               type: "button",
             }, t("discard")),

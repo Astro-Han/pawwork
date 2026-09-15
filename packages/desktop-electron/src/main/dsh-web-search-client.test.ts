@@ -294,9 +294,8 @@ describe("PawWork DSH web search card", () => {
 
       const state = stateOf(injected)
       expect(state.saving).toBe(false)
-      expect(state.failed).toBe(true)
       // A thrown write is the call failing to be made, not a refused value.
-      expect(state.failedBroken).toBe(true)
+      expect(state.failure).toEqual({ field: "backend", kind: "broken" })
       expect(state.backend).toBe("deepseek")
     } finally {
       logged.mockRestore()
@@ -357,18 +356,18 @@ describe("PawWork DSH web search card", () => {
     await injected.save()
 
     const state = stateOf(injected)
-    expect(state.failed).toBe(true)
+    expect(state.failure).toEqual({ field: "key", kind: "refused" })
     expect(state.keyText).toBe("rotated-key")
   })
 
-  test("a partial failure names the field that did not land", async () => {
+  test("a failure names the field that did not land", async () => {
     const { card, injected } = cardOf({ setCredential: () => refusal() })
 
     injected.selectBackend("deepseek")
     injected.editKey("deepseek-secret")
     await injected.save()
 
-    expect(stateOf(injected)).toMatchObject({ failedFields: ["key"], failedBroken: false })
+    expect(stateOf(injected).failure).toEqual({ field: "key", kind: "refused" })
     expect(textOf(card, injected)).toContain("saveFailedKey")
   })
 
@@ -384,7 +383,7 @@ describe("PawWork DSH web search card", () => {
       injected.editKey("exa-secret")
       await injected.save()
 
-      expect(stateOf(injected)).toMatchObject({ failed: true, failedBroken: true, failedFields: ["key"] })
+      expect(stateOf(injected).failure).toEqual({ field: "key", kind: "broken" })
       expect(textOf(card, injected)).toContain("saveFailedApp")
       // The console line is the half a developer reads, and it is the only place
       // the real failure survives: the footer can say no more than "ours".
@@ -409,7 +408,7 @@ describe("PawWork DSH web search card", () => {
   })
 
   // Reset stages; it does not write. A second writer would race `save` over the
-  // same section and the same failure set, and `saving` cannot serialize what it
+  // same section and the same failure, and `saving` cannot serialize what it
   // does not own.
   test("a reset stages the default and writes nothing until saved", async () => {
     const { scope, injected } = cardOf({
@@ -424,7 +423,8 @@ describe("PawWork DSH web search card", () => {
     await injected.save()
 
     expect(scope.unset).toHaveBeenCalledWith("backend")
-    expect(stateOf(injected)).toMatchObject({ backend: "exa", dirty: false, failed: false })
+    expect(stateOf(injected)).toMatchObject({ backend: "exa", dirty: false })
+    expect(stateOf(injected).failure).toBeUndefined()
   })
 
   // The Host's validators own constraints no schema expresses, so a call it
@@ -440,7 +440,8 @@ describe("PawWork DSH web search card", () => {
     injected.resetBackend()
     await injected.save()
 
-    expect(stateOf(injected)).toMatchObject({ failed: true, failedFields: ["backend"], dirty: true })
+    expect(stateOf(injected)).toMatchObject({ dirty: true })
+    expect(stateOf(injected).failure).toEqual({ field: "backend", kind: "refused" })
   })
 
   // Choosing the engine already on screen is not an edit. Recorded as one, it
@@ -500,11 +501,12 @@ describe("PawWork DSH web search card", () => {
       injected.resetBackend()
       await injected.save()
 
-      expect(stateOf(injected)).toMatchObject({ failed: true, failedFields: ["backend"] })
+      expect(stateOf(injected).failure).toEqual({ field: "backend", kind: "broken" })
 
       injected.discard()
 
-      expect(stateOf(injected)).toMatchObject({ failed: false, dirty: false, backend: "deepseek" })
+      expect(stateOf(injected)).toMatchObject({ dirty: false, backend: "deepseek" })
+      expect(stateOf(injected).failure).toBeUndefined()
     } finally {
       logged.mockRestore()
     }
@@ -542,8 +544,7 @@ describe("PawWork DSH web search card", () => {
     expect(stateOf(injected)).toMatchObject({
       backend: "deepseek",
       dirty: true,
-      failed: true,
-      failedFields: ["key"],
+      failure: { field: "key", kind: "refused" },
       keyText: "deepseek-secret",
     })
   })

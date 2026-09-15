@@ -9,7 +9,7 @@ import { installedHarnessPackages } from "./dsh-product-patch.testing"
 
 /** One parameter or result codec, with the generated schema the runtime parses. */
 type Codec = { schema?: { parse: (value: unknown) => unknown } }
-type Parameter = { name: string; codec?: Codec; acceptsUndefined?: boolean }
+type Parameter = { name: string; codec?: Codec }
 type Descriptor = { namespace: string; method: string; parameters: Parameter[]; result?: Codec }
 
 /** What one Remote call answers: DSH's own envelope, failures included. */
@@ -19,7 +19,6 @@ export type RemoteAnswer =
 
 /** One namespace as the installed DSH describes it, keyed by method name. */
 export type RemoteContract = {
-  package: string
   namespace: string
   methods: Map<string, Descriptor>
 }
@@ -45,7 +44,7 @@ export async function dshRemoteContract(packageName: string, namespace: string):
   if (methods.size === 0) {
     throw new Error(`${packageName} serves no ${namespace} namespace`)
   }
-  return { package: packageName, namespace, methods }
+  return { namespace, methods }
 }
 
 /**
@@ -66,7 +65,6 @@ export function fakeDshRemote(
   for (const [method, descriptor] of contract.methods) {
     fake[method] = async (...args: unknown[]) => {
       descriptor.parameters.forEach((parameter, index) => {
-        if (parameter.acceptsUndefined === true && args[index] === undefined) return
         parse(parameter.codec?.schema, args[index], `${contract.namespace}/${method} ${parameter.name}`)
       })
       const handler = handlers[method]
