@@ -350,7 +350,7 @@ window.__ModuleLoader__.load({
           this.publish()
         }
         const view = await this.credentials.inspect(ref)
-        if (view === undefined || read !== this.reads || ref !== this.ref()) return
+        if (view === undefined || read !== this.reads) return
         const next = { ref, ...view }
         if (next.configured === this.held.configured && next.writable === this.held.writable) return
         this.held = next
