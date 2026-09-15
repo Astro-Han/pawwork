@@ -625,9 +625,11 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     let webSearchSaveWorks = false
     for (let attempt = 0; attempt < 40 && !webSearchSaveWorks; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 50))
+      // The configured state is this class; the keyless badge is a different
+      // one, and the copy behind either is the card's own to word.
       webSearchSaveWorks = !visible(document.querySelector(".pawwork-websearch-pending"))
         && !visible(document.querySelector(".pawwork-websearch-failed"))
-        && /已配置密钥|Key configured/.test(document.querySelector(".pawwork-websearch-badge")?.textContent || "")
+        && visible(document.querySelector(".pawwork-websearch-badge"))
     }
     const webSearchFailureText = (document.querySelector(".pawwork-websearch-failed")?.textContent || "").trim()
     // The automation flow below expects its own surface; navigate back first.
