@@ -88,15 +88,12 @@ window.__ModuleLoader__.load({
         }
       }, [connection])
 
-      useEffect(() => { void refresh() }, [refresh])
-
-      // While a browser is open on the authorization page the loopback leg lands
-      // in the host, so the section watches until that server changes state.
+      // Background refresh and reconnect can change status without a UI action.
       useEffect(() => {
-        if (!waiting) return undefined
+        void refresh()
         const timer = setInterval(() => void refresh(), 1500)
         return () => clearInterval(timer)
-      }, [waiting, refresh])
+      }, [refresh])
 
       const run = async (serverName, endpoint, payload) => {
         setBusy(serverName)
