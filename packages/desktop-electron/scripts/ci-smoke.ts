@@ -57,6 +57,9 @@ export type CiSmokeProductSnapshot = {
   webSearchFailureText: string
   updateSectionVisible: boolean
   updateSectionReportsStatus: boolean
+  integrationsEntryVisible: boolean
+  mcpOAuthSurfaceVisible: boolean
+  mcpOAuthAddFormVisible: boolean
   automationSidebarEntryAbsent: boolean
   automationSurfaceVisible: boolean
   automationCreateViaChatWorked: boolean
@@ -617,6 +620,18 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     // status card must carry live text from the bridge, not an empty shell.
     const updateStatusText = (document.querySelector(".pawwork-update-status")?.textContent || "").trim()
     const updateSectionReportsStatus = updateStatusText.length > 0
+    // The Integrations section is the only UI path to remote MCP servers: the
+    // nav entry, the rendered surface, and the add form are checked separately
+    // because each half of the plugin (host registration and client bundle)
+    // fails on its own.
+    const integrationsEntry = visibleButton(/^(集成|Integrations)$/i)
+    const integrationsEntryVisible = visible(integrationsEntry)
+    integrationsEntry?.click()
+    for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-mcp-surface")); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    const mcpOAuthSurfaceVisible = visible(document.querySelector(".pawwork-mcp-surface"))
+    const mcpOAuthAddFormVisible = visible(document.querySelector(".pawwork-mcp-add"))
     // A Host settings namespace renders nothing on its own: the card that draws
     // it is a client plugin, and the two halves fail independently. The Host
     // half surviving alone leaves a namespace no user can reach — which reads,
@@ -943,6 +958,9 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       webSearchFailureText,
       updateSectionVisible,
       updateSectionReportsStatus,
+      integrationsEntryVisible,
+      mcpOAuthSurfaceVisible,
+      mcpOAuthAddFormVisible,
       automationSidebarEntryAbsent,
       automationSurfaceVisible,
       automationCreateViaChatWorked,
@@ -1319,6 +1337,9 @@ export function assertCiSmokeProduct(snapshot: CiSmokeProductSnapshot, platform:
     snapshot.updateSettingsEntryVisible ? null : "Software Update settings entry is not visible",
     snapshot.updateSectionVisible ? null : "Software Update section did not open",
     snapshot.updateSectionReportsStatus ? null : "Software Update section shows no status from the updater bridge",
+    snapshot.integrationsEntryVisible ? null : "Integrations settings entry is not visible",
+    snapshot.mcpOAuthSurfaceVisible ? null : "Integrations section did not open",
+    snapshot.mcpOAuthAddFormVisible ? null : "Integrations add-server form is not rendered",
     snapshot.webSearchCardVisible ? null : "PawWork web search settings card is not in the Plugins section",
     snapshot.webSearchConfiguredBeforeSave
       ? "PawWork web search card already reported a configured key before the form wrote one"

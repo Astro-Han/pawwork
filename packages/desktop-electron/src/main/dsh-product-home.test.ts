@@ -169,6 +169,9 @@ describe("DSH product home", () => {
     expect(
       JSON.parse(readFileSync(join(productHome, "node_modules/@pawwork/dsh-updater/package.json"), "utf8")).name,
     ).toBe("@pawwork/dsh-updater")
+    expect(
+      JSON.parse(readFileSync(join(productHome, "node_modules/@pawwork/dsh-mcp-oauth/package.json"), "utf8")).name,
+    ).toBe("@pawwork/dsh-mcp-oauth")
     expect(prepared.sidecarPreload).toBe(join(resources, "sidecar-preload.mjs"))
   })
 
@@ -379,6 +382,15 @@ describe("DSH product home", () => {
     expect(patch.find((entry) => entry.id === "dsh-market")).toEqual({
       id: "dsh-market",
       inject: ["desktopProfiles", "desktopPnpm"],
+    })
+  })
+
+  // The mcp-client patch is only half the feature: without this row nothing
+  // provides the `mcpAuth` service it asks for and OAuth servers never load.
+  test("mounts the remote-MCP OAuth plugin the patched bridge consults", () => {
+    expect(allRows(readProductPatch()).find((entry) => entry.id === "pawwork-mcp-oauth")).toEqual({
+      id: "pawwork-mcp-oauth",
+      name: "@pawwork/dsh-mcp-oauth",
     })
   })
 

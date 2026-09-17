@@ -115,7 +115,7 @@ export function prepareDshProductHome(options: PrepareDshProductHomeOptions) {
   cpSync(join(options.resources, "home"), options.productHome, { force: true, recursive: true })
   const productPackageParent = join(options.productHome, "node_modules", "@pawwork")
   mkdirSync(productPackageParent, { recursive: true })
-  for (const plugin of ["product", "automations", "identity", "web-search", "updater"] as const) {
+  for (const plugin of ["product", "automations", "identity", "web-search", "updater", "mcp-oauth"] as const) {
     cpSync(join(options.resources, plugin), join(productPackageParent, `dsh-${plugin}`), {
       force: true,
       recursive: true,
