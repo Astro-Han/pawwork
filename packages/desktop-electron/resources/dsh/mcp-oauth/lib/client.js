@@ -70,7 +70,9 @@ window.__ModuleLoader__.load({
 
     function Surface({ connection }) {
       ensureStyle()
-      const [servers, setServers] = useState(null)
+      const [status, setStatus] = useState({ servers: null, error: null })
+      const { servers } = status
+      const setServers = (servers) => setStatus({ servers, error: null })
       const [error, setError] = useState(null)
       const [busy, setBusy] = useState("")
       const waiting = servers?.some((server) => server.authorizationPending) ?? false
@@ -79,11 +81,10 @@ window.__ModuleLoader__.load({
       const refresh = useCallback(async () => {
         try {
           const next = await call(connection, "status")
-          setServers(next.servers)
-          setError(null)
+          setStatus({ servers: next.servers, error: null })
           return next.servers
         } catch (failure) {
-          setError(String(failure?.message ?? failure))
+          setStatus((previous) => ({ ...previous, error: String(failure?.message ?? failure) }))
           return null
         }
       }, [connection])
@@ -149,7 +150,7 @@ window.__ModuleLoader__.load({
         h("div", { className: "pawwork-mcp-head" },
           h("h2", null, text("集成", "Integrations")),
           h("p", null, text("需要登录的远程 MCP 服务器：点「授权」会打开系统浏览器，登录后回到这里即可使用它的工具。自定义请求头照旧可用。", "Remote MCP servers that need a login: Authorize opens your browser, and its tools work here once you are back. Custom headers keep working."))),
-        error !== null ? h("div", { className: "pawwork-mcp-error", role: "alert" }, error) : null,
+        error !== null || status.error !== null ? h("div", { className: "pawwork-mcp-error", role: "alert" }, error ?? status.error) : null,
         servers === null
           ? h("div", { className: "pawwork-mcp-note" }, text("正在加载…", "Loading…"))
           : servers.length === 0
