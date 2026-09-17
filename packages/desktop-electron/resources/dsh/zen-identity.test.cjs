@@ -54,24 +54,31 @@ test('replaces User-Agent and keeps the original request headers', async () => {
   });
 });
 
-// The id is restated, never minted: the gateway groups a conversation by this
-// value, so a fresh one per request would be worse than sending nothing.
-test('restates the session id the gateway reads, and invents none', async () => {
+// The id is reshaped, never minted: the gateway groups a conversation by this
+// value, so a fresh one per request would be worse than sending nothing, and it
+// reads the shape too — the harness's own id is not one it serves.
+test('reshapes the session id the gateway reads, and invents none', async () => {
   const {
     applyOpenCodeZenHeaders,
     OPENCODE_ZEN_SESSION_HEADER,
     OPENCODE_ZEN_SESSION_SOURCE_HEADER,
+    openCodeZenSessionId,
   } = await loadIdentity();
   // Spelled out, not compared against the same import: the names are the contract
   // with the gateway, so a rename on both sides has to fail here.
   assert.equal(OPENCODE_ZEN_SESSION_SOURCE_HEADER, 'x-client-request-id');
   assert.equal(OPENCODE_ZEN_SESSION_HEADER, 'x-opencode-session');
   const sessionId = 'session-01513391-0758-4654-9a04-da77af86c553';
+  // What OpenCode 2.0.5 puts on the wire, and the only shape the gateway served
+  // on 2026-09-17: ses_, twelve hex characters, fourteen more alphanumerics.
+  const shaped = openCodeZenSessionId(sessionId);
+  assert.match(shaped, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+  assert.equal(openCodeZenSessionId(sessionId), shaped);
 
   const inference = applyOpenCodeZenHeaders('https://opencode.ai/zen/v1/chat/completions', {
     headers: { [OPENCODE_ZEN_SESSION_SOURCE_HEADER]: sessionId },
   });
-  assert.equal(headerRecord(inference)[OPENCODE_ZEN_SESSION_HEADER], sessionId);
+  assert.equal(headerRecord(inference)[OPENCODE_ZEN_SESSION_HEADER], shaped);
 
   // The settings card's "fetch models" button is the request with no session.
   const models = applyOpenCodeZenHeaders('https://opencode.ai/zen/v1/models', { headers: {} });
