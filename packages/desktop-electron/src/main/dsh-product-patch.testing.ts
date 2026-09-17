@@ -117,23 +117,42 @@ export function productionClosure() {
  * Every `@deepseek-ai` package pnpm installed, and where each one lives.
  *
  * The store's shape — one directory per resolution, each holding a `node_modules`
- * with the package inside — is one fact, and the tests that read a package's own
- * files (its imports, its Typert tables) all need it. Kept here so it stays one
- * fact rather than one per test.
+ * with the package inside, plus a link farm naming the copy this workspace uses —
+ * is one fact, and the tests that read a package's own files (its imports, its
+ * Typert tables) all need it. Kept here so it stays one fact rather than one per
+ * test.
+ *
+ * Superseded resolutions stay in the store — a patch bump writes a new one and
+ * leaves the old behind — so reading the store alone lets a stale copy win on
+ * readdir order, and a test then asserts against code that is not installed: it
+ * fails on a copy nobody uses, and can pass while the installed patch differs.
+ * The link farm is the answer; the store only fills in what it does not name.
  */
-export function installedHarnessPackages() {
-  const store = resolve(import.meta.dirname, "../../../../node_modules/.pnpm")
+export function installedHarnessPackages(store = harnessStore()) {
   const found = new Map<string, string>()
+  const linked = join(store, "node_modules", "@deepseek-ai")
+  for (const member of scopeMembers(linked)) {
+    found.set(`@deepseek-ai/${member}`, join(linked, member))
+  }
   for (const entry of readdirSync(store)) {
     if (!entry.startsWith("@deepseek-ai+")) continue
     const scope = join(store, entry, "node_modules", "@deepseek-ai")
-    let members: string[]
-    try {
-      members = readdirSync(scope)
-    } catch {
-      continue
+    for (const member of scopeMembers(scope)) {
+      const name = `@deepseek-ai/${member}`
+      if (!found.has(name)) found.set(name, join(scope, member))
     }
-    for (const member of members) found.set(`@deepseek-ai/${member}`, join(scope, member))
   }
   return found
+}
+
+function harnessStore() {
+  return resolve(import.meta.dirname, "../../../../node_modules/.pnpm")
+}
+
+function scopeMembers(scope: string) {
+  try {
+    return readdirSync(scope)
+  } catch {
+    return []
+  }
 }
