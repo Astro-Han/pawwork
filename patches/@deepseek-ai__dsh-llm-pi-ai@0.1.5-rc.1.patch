@@ -16,6 +16,20 @@ index e06cf8d5faf9755710420623908478c704b225b8..079169ccc5b783b6d4a12a69fcf89bbc
  	deferredToolsMode: "withhold",
  	sessionAffinityFormat: "withhold"
  };
+@@ -1364,7 +1369,12 @@ function classifyPiAiError(message) {
+ 	};
+ }
+ function classifyPiAiError(message) {
+-	if (/\b(?:401|403)\b/.test(message)) return "AUTH";
++	/* PawWork patch: a 403 says the provider refused the request, not that the
++	credential is wrong, and its body names the reason. AUTH is also the one code
++	the chat client replaces with "API key is invalid", so folding every 403 into
++	it also hides that reason — Zen's free-tier gate reached users as a key problem
++	this way. Drop this once upstream separates refusal from authentication. */
++	if (/\b401\b/.test(message)) return "AUTH";
+ 	if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE;
+ 	if (/\b429\b|rate.?limit/i.test(message)) return "RATE_LIMIT";
+ 	if (/\b413\b|failed to buffer the request body:\s*length limit exceeded|payload too large|request body too large/i.test(message)) return "INVALID_REQUEST";
 @@ -2564,7 +2569,18 @@ function directoryEntries(profiles) {
  			...error === void 0 ? {} : { error }
  		});
