@@ -377,8 +377,10 @@ export function createMcpOAuthEngine({ credentials, list, fork, sdk, logger = {}
             run.redirectUrl = run.callback.redirectUrl
             const outcome = await exchange(entry, run)
             run.controller.signal.throwIfAborted()
-            if (outcome === "AUTHORIZED") run.preAuthorized = true
-            else {
+            if (outcome === "AUTHORIZED") {
+              run.preAuthorized = true
+              await run.callback.close()
+            } else {
               if (pending.authorizationUrl === undefined) throw new Error("mcp-oauth: the authorization server returned no URL to open")
               const scheme = new URL(pending.authorizationUrl).protocol
               if (scheme !== "https:" && scheme !== "http:") {

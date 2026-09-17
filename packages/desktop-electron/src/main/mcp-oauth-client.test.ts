@@ -42,6 +42,15 @@ function fakeReact() {
     Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => value === b[index])
   return {
     createElement,
+    Fragment: "Fragment",
+    useId() {
+      return `:r${cursor++}:`
+    },
+    useRef(initial: unknown) {
+      const index = cursor++
+      if (index >= cells.length) cells[index] = { current: initial }
+      return cells[index]
+    },
     useState(initial: unknown) {
       const index = cursor++
       if (index >= cells.length) cells[index] = initial
@@ -97,7 +106,7 @@ function mountSurface(rpc: Rpc) {
   })
   const plugin = definition.factory((module: string) => {
     if (module === "react") return react
-    if (module === "@deepseek-ai/dsh-client-ui-primitives") return { Button: "Button", Pill: "Pill" }
+    if (module === "@deepseek-ai/dsh-client-ui-primitives") return { Button: "Button", IconPlusOutline16: "Icon", Modal: "Modal", Tag: "Tag" }
     throw new Error(`unexpected mcp-oauth client dependency: ${module}`)
   })
   const registered: Array<{ registration: Record<string, unknown>; component: (props: unknown) => unknown }> = []
@@ -182,7 +191,12 @@ function alertsOf(tree: unknown) {
 }
 
 function inputOf(tree: unknown, label: string) {
-  return visit(tree).find((element) => element.type === "input" && element.props["aria-label"] === label)
+  const id = visit(tree).find((element) => element.type === "label" && (element.props.children as unknown[]).includes(label))?.props.htmlFor
+  return visit(tree).find((element) => element.props.id === id)
+}
+
+function fieldChange(element: Element | undefined, value: string) {
+  ;(element?.props.onChange as (event: { target: { value: string } }) => void)({ target: { value } })
 }
 
 function textOf(tree: unknown) {
@@ -217,11 +231,19 @@ describe("PawWork remote MCP integrations surface", () => {
     // connected while the bridge may still be retrying in the background.
     expect(buttonLabels(rowFor(tree, "conn"))).toEqual(["Retry", "Sign out", "Remove"])
     expect(buttonLabels(rowFor(tree, "need"))).toEqual(["Authorize", "Remove"])
-    expect(buttonLabels(rowFor(tree, "gone"))).toEqual(["Authorize", "Sign out", "Remove"])
+    expect(buttonLabels(rowFor(tree, "gone"))).toEqual(["Reauthorize", "Sign out", "Remove"])
     expect(buttonLabels(rowFor(tree, "down"))).toEqual(["Retry", "Sign out", "Remove"])
     expect(buttonLabels(rowFor(tree, "load"))).toEqual(["Remove"])
     expect(buttonLabels(rowFor(tree, "wait"))).toEqual(["Cancel authorization", "Remove"])
-    expect(textOf(tree)).not.toContain("Reauthorize")
+    const tags = visit(tree).filter((element) => element.type === "Tag").map((tag) => [tag.props.tone, ...(tag.props.children as unknown[])].join(":"))
+    expect(tags).toEqual([
+      "success:Connected",
+      "warning:Not authorized",
+      "warning:Authorization expired",
+      "danger:Connection failed",
+      "info:Connecting",
+      "info:Waiting for authorization",
+    ])
   })
 
   test("a file error is surfaced instead of silently showing an empty list", async () => {
@@ -250,48 +272,102 @@ describe("PawWork remote MCP integrations surface", () => {
     const surface = mountSurface(statusRpc(status))
     let tree = await renderSettled(surface)
 
+    // The form sits behind the dashed add button.
+    const openAdd = visit(tree).find((element) => element.props.className === "pawwork-mcp-add-button")
+    ;(openAdd?.props.onClick as () => void)()
+    tree = surface.render()
+
     const setInput = (label: string, value: string) => {
-      const input = inputOf(tree, label)
-      ;(input?.props.onChange as (event: { target: { value: string } }) => void)({ target: { value } })
+      fieldChange(inputOf(tree, label), value)
       tree = surface.render()
     }
-    const clickAdd = async () => {
-      const addButton = visit(tree).find(
-        (element) => element.type === "Button" && (element.props.children as unknown[]).includes("Add"),
-      )
-      ;(addButton?.props.onClick as () => void)()
+    const setHeaders = (value: string) => {
+      fieldChange(visit(tree).find((element) => element.type === "textarea"), value)
+      tree = surface.render()
+    }
+    const submit = async () => {
+      const form = visit(tree).find((element) => element.type === "form")
+      ;(form?.props.onSubmit as (event: { preventDefault: () => void }) => void)({ preventDefault() {} })
       await settle()
       tree = surface.render()
     }
 
     setInput("Name", "alpha")
     setInput("Server URL", "https://mcp.example.com/mcp")
-    ;(visit(tree).find((element) => element.type === "textarea")?.props.onChange as (event: { target: { value: string } }) => void)({
-      target: { value: "x-token: abc\nx-env: prod" },
-    })
-    tree = surface.render()
-    await clickAdd()
+    setHeaders("x-token: abc\nx-env: prod")
+    await submit()
     expect(surface.calls).toContainEqual({
       endpoint: "add",
       payload: { serverName: "alpha", url: "https://mcp.example.com/mcp", headers: { "x-token": "abc", "x-env": "prod" } },
     })
 
-    // A malformed header line is a local error, not an RPC.
+    // A successful add closes the form; open it again for the refusals.
+    expect(visit(tree).find((element) => element.type === "form")).toBeUndefined()
+    ;(visit(tree).find((element) => element.props.className === "pawwork-mcp-add-button")?.props.onClick as () => void)()
+    tree = surface.render()
+
+    // A malformed header line is a local error next to its field, not an RPC.
     setInput("Name", "beta")
     setInput("Server URL", "https://mcp.example.com/mcp")
-    ;(visit(tree).find((element) => element.type === "textarea")?.props.onChange as (event: { target: { value: string } }) => void)({
-      target: { value: "not a header line" },
-    })
-    tree = surface.render()
-    await clickAdd()
+    setHeaders("not a header line")
+    await submit()
     expect(alertsOf(tree).some((line) => line.includes("Name: Value"))).toBe(true)
+    expect(inputOf(tree, "One per line, written as Name: Value")?.props["aria-invalid"]).toBe(true)
     expect(surface.calls.filter((call) => call.endpoint === "add")).toHaveLength(1)
 
     // Neither is a scheme the loopback OAuth flow could ever complete under.
+    setHeaders("")
     setInput("Server URL", "ftp://mcp.example.com/mcp")
-    await clickAdd()
-    expect(alertsOf(tree).some((line) => line.includes("http(s)"))).toBe(true)
+    await submit()
+    expect(alertsOf(tree).some((line) => line.includes("https://"))).toBe(true)
+    expect(inputOf(tree, "Server URL")?.props["aria-invalid"]).toBe(true)
     expect(surface.calls.filter((call) => call.endpoint === "add")).toHaveLength(1)
+  })
+
+  test("an add the engine refuses is reported inside the form", async () => {
+    const surface = mountSurface(
+      statusRpc({ servers: [] }, { add: () => ({ ok: false, error: { message: "mcp-oauth: server alpha is already configured" } }) }),
+    )
+    let tree = await renderSettled(surface)
+    ;(visit(tree).find((element) => element.props.className === "pawwork-mcp-add-button")?.props.onClick as () => void)()
+    tree = surface.render()
+    fieldChange(inputOf(tree, "Name"), "alpha")
+    tree = surface.render()
+    fieldChange(inputOf(tree, "Server URL"), "https://mcp.example.com/mcp")
+    tree = surface.render()
+    const form = visit(tree).find((element) => element.type === "form")
+    ;(form?.props.onSubmit as (event: { preventDefault: () => void }) => void)({ preventDefault() {} })
+    await settle()
+    tree = surface.render()
+    const inForm = visit(visit(tree).find((element) => element.type === "form")).filter((element) => element.props.role === "alert")
+    expect(inForm.map((element) => (element.props.children as unknown[]).join(""))).toEqual(["A server with that name is already configured."])
+  })
+
+  test("remove asks first and keeps the dialog open until the engine answers", async () => {
+    let status: Status = { servers: [{ serverName: "alpha", url: "https://a.example/mcp", state: "connected" }] }
+    const surface = mountSurface(
+      statusRpc(() => status, {
+        remove: () => {
+          status = { servers: [] }
+          return status
+        },
+      }),
+    )
+    let tree = await renderSettled(surface)
+    const modalOf = (node: unknown) => visit(node).find((element) => element.type === "Modal")
+    expect(modalOf(tree)?.props.open).toBe(false)
+    const remove = buttonsOf(rowFor(tree, "alpha")).find((button) => (button.props.children as unknown[]).includes("Remove"))
+    ;(remove?.props.onClick as () => void)()
+    tree = surface.render()
+    expect(surface.calls.map((call) => call.endpoint)).not.toContain("remove")
+    expect(modalOf(tree)?.props).toMatchObject({ open: true, title: "Remove alpha?" })
+    const confirm = visit(modalOf(tree)?.props.footer).find((element) => element.type === "Button" && (element.props.children as unknown[]).includes("Remove"))
+    ;(confirm?.props.onClick as () => void)()
+    await settle()
+    tree = surface.render()
+    expect(surface.calls).toContainEqual({ endpoint: "remove", payload: { serverName: "alpha" } })
+    expect(modalOf(tree)?.props.open).toBe(false)
+    expect(rowsOf(tree)).toHaveLength(0)
   })
 
   test("sign out and retry hit their endpoints and apply the returned status", async () => {
