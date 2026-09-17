@@ -131,6 +131,34 @@ export function createMcpOAuthEngine({ credentials, fork, sdk, logger = {} }) {
     return { state: entry.state }
   }
 
+  function buildEntry(definition) {
+    return {
+      serverName: definition.serverName,
+      url: definition.url,
+      headers: definition.headers ?? {},
+      store: createGrantStore(credentials, { serverName: definition.serverName, serverUrl: definition.url }),
+      state: SERVER_STATE.UNAUTHORIZED,
+      everConnected: false,
+      fork: undefined,
+      provider: undefined,
+      pending: undefined,
+      authorizationUrl: undefined,
+      lastError: undefined,
+    }
+  }
+
+  /** A stored grant is what makes a server worth connecting at load time. */
+  async function load(entry) {
+    if ((await entry.store.read()).tokens === undefined) return
+    try {
+      await connect(entry)
+    } catch (error) {
+      // connect() already decided which state the failure means.
+      entry.lastError = String(error)
+      note("error", "mcp-oauth: could not connect " + entry.serverName, error)
+    }
+  }
+
   return {
     /** Load the configured servers, connecting the ones already authorized. */
     async configure(definitions) {
@@ -140,30 +168,34 @@ export function createMcpOAuthEngine({ credentials, fork, sdk, logger = {} }) {
       }
       entries.clear()
       for (const definition of definitions) {
-        const entry = {
-          serverName: definition.serverName,
-          url: definition.url,
-          headers: definition.headers ?? {},
-          store: createGrantStore(credentials, { serverName: definition.serverName, serverUrl: definition.url }),
-          state: SERVER_STATE.UNAUTHORIZED,
-          everConnected: false,
-          fork: undefined,
-          provider: undefined,
-          pending: undefined,
-          authorizationUrl: undefined,
-          lastError: undefined,
-        }
+        const entry = buildEntry(definition)
         entries.set(entry.serverName, entry)
-        const held = await entry.store.read()
-        if (held.tokens === undefined) continue
-        try {
-          await connect(entry)
-        } catch (error) {
-          // connect() already decided which state the failure means.
-          entry.lastError = String(error)
-          note("error", "mcp-oauth: could not connect " + entry.serverName, error)
-        }
+        await load(entry)
       }
+      return this.status()
+    },
+
+    /** Add one server at runtime; a stored grant for it connects immediately. */
+    async add(definition) {
+      if (entries.has(definition.serverName)) throw new Error("mcp-oauth: server " + definition.serverName + " is already configured")
+      const entry = buildEntry(definition)
+      entries.set(entry.serverName, entry)
+      await load(entry)
+      return this.status()
+    },
+
+    /** Remove one server: stop its tools, forget its grant, close any flow. */
+    async remove(serverName) {
+      const entry = must(serverName)
+      if (entry.pending !== undefined) {
+        const pending = entry.pending
+        entry.pending = undefined
+        await pending.callback.close()
+      }
+      await dropFork(entry)
+      await entry.store.clear()
+      entries.delete(serverName)
+      note("info", "mcp-oauth: removed " + serverName)
       return this.status()
     },
 

@@ -1,9 +1,14 @@
 import { createHash, randomUUID } from "node:crypto"
+import { mkdtempSync } from "node:fs"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { createRequire } from "node:module"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client"
 import { beforeEach, describe, expect, test } from "vitest"
 import { createMcpOAuthEngine, SERVER_STATE } from "../../resources/dsh/mcp-oauth/lib/engine.js"
+import { createMcpOAuthRpcHandler } from "../../resources/dsh/mcp-oauth/lib/rpc.js"
+import { createServerList } from "../../resources/dsh/mcp-oauth/lib/server-list.js"
 
 // Cordis comes from the tree the installed DSH packages themselves use, so the
 // context this test drives is the same implementation the bridge runs under. The
@@ -57,6 +62,8 @@ interface ProviderHandle {
   expireAccessToken(): void
   /** Fail every MCP request the way an outage does, without touching the grant. */
   breakMcp(): void
+  /** The value of one custom request header on every MCP request seen so far. */
+  headerValues(): string[]
 }
 
 async function startProvider(): Promise<ProviderHandle> {
@@ -68,6 +75,7 @@ async function startProvider(): Promise<ProviderHandle> {
   let refreshBroken = false
   let mcpBroken = false
   let refreshed = 0
+  const seenHeaders: string[] = []
   let port = 0
   const origin = () => "http://127.0.0.1:" + port
 
@@ -92,6 +100,7 @@ async function startProvider(): Promise<ProviderHandle> {
       json(response, 500, { jsonrpc: "2.0", error: { code: -32000, message: "upstream is unavailable" }, id: null })
       return
     }
+    seenHeaders.push(String(request.headers["x-static-header"] ?? ""))
     const authorized = request.headers.authorization === "Bearer " + accessToken && accessToken !== ""
     if (!authorized) {
       response
@@ -223,6 +232,7 @@ async function startProvider(): Promise<ProviderHandle> {
     breakMcp: () => {
       mcpBroken = true
     },
+    headerValues: () => seenHeaders.slice(),
     close: () => new Promise<void>((resolve) => http.close(() => resolve())),
   } as ProviderHandle
 }
@@ -460,5 +470,53 @@ describe("remote MCP OAuth", () => {
     expect(second.tools.live()).toEqual(["mcp__alpha__echo"])
     expect(provider.refreshed).toBe(0)
     await secondEngine.dispose()
+  })
+
+  test("the Integrations section adds, authorizes, signs out and removes a server over RPC", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "pawwork-mcp-oauth-"))
+    const list = createServerList(join(directory, "mcp-oauth.json"))
+    const credentials = memoryCredentials()
+    const { ctx, tools } = makeContext()
+    const engine = createMcpOAuthEngine({
+      credentials,
+      fork: (config: unknown) => ctx.plugin(mcpClient as never, config as never),
+      sdk: { auth: mcpClient.auth },
+    })
+    ctx.provide("mcpAuth", { providerFor: (config: unknown) => engine.providerFor(config) })
+    const rpc = createMcpOAuthRpcHandler({ engine, list }) as (
+      endpoint: string,
+      payload: unknown,
+      signal?: AbortSignal,
+    ) => Promise<{ ok: boolean; value?: { servers: Array<{ serverName: string; state: string }>; authorizationUrl?: string }; error?: { message: string } }>
+
+    const added = await rpc("add", { serverName: "alpha", url: provider.mcpUrl, headers: { "x-static-header": "kept" } })
+    expect(added.ok).toBe(true)
+    expect(added.value?.servers[0]?.state).toBe(SERVER_STATE.UNAUTHORIZED)
+    expect(list.list()).toEqual([{ serverName: "alpha", url: provider.mcpUrl, headers: { "x-static-header": "kept" } }])
+    expect((await rpc("add", { serverName: "alpha", url: provider.mcpUrl })).ok).toBe(false)
+
+    const started = await rpc("authorize", { serverName: "alpha" })
+    expect(started.value?.authorizationUrl).toContain("/authorize?")
+    await completeInBrowser(started.value?.authorizationUrl ?? "")
+    await settle(600)
+    expect((await rpc("status", {})).value?.servers[0]?.state).toBe(SERVER_STATE.CONNECTED)
+    expect(tools.live()).toEqual(["mcp__alpha__echo"])
+    // A static header still rides every request next to the OAuth token.
+    expect(provider.headerValues()).toContain("kept")
+
+    expect((await rpc("signOut", { serverName: "alpha" })).value?.servers[0]?.state).toBe(SERVER_STATE.UNAUTHORIZED)
+    expect(tools.live()).toEqual([])
+    expect(credentials.records.size).toBe(0)
+
+    expect((await rpc("remove", { serverName: "alpha" })).value?.servers).toEqual([])
+    expect(list.list()).toEqual([])
+    await engine.dispose()
+  })
+
+  test("the server file refuses a name that cannot address a credential record", () => {
+    const directory = mkdtempSync(join(tmpdir(), "pawwork-mcp-oauth-"))
+    const list = createServerList(join(directory, "mcp-oauth.json"))
+    expect(() => list.add({ serverName: "has spaces", url: "https://example.com/mcp" })).toThrow(/server name/)
+    expect(list.list()).toEqual([])
   })
 })

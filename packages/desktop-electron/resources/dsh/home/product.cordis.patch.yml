@@ -172,6 +172,11 @@
       name: '@pawwork/dsh-automations'
     - id: pawwork-web-search
       name: '@pawwork/dsh-web-search'
+    # Remote MCP servers that need OAuth: the Integrations section, the grant
+    # records and the loopback callback. The mcp-client bridge keeps the
+    # transport and the tool registry; this row only adds what a login needs.
+    - id: pawwork-mcp-oauth
+      name: '@pawwork/dsh-mcp-oauth'
     # The in-app update UI: settings section, ready toast, sidebar indicator.
     # Pure presentation over the preload's pawworkUpdater bridge; the updater
     # state machine stays in the Electron main process.
