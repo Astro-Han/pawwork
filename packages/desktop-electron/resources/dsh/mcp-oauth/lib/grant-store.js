@@ -47,7 +47,9 @@ export function createGrantStore(credentials, identity) {
       await credentials.modifyRecord(key, async (current) => {
         const held = current?.kind === "grant" ? current.payload : undefined
         const base = held === null || typeof held !== "object" || held.serverName !== identity.serverName || held.serverUrl !== identity.serverUrl ? {} : held
-        return { kind: "grant", payload: { ...base, ...identity, ...patch } }
+        // SDK optional fields use undefined; persisted grants contain JSON only.
+        // Serializing after the merge also removes fields explicitly cleared.
+        return { kind: "grant", payload: JSON.parse(JSON.stringify({ ...base, ...identity, ...patch })) }
       })
     },
     /** Drop every trace of this server's grant. */

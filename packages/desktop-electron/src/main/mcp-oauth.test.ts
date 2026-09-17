@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto"
-import { mkdtempSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync } from "node:fs"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client"
+import { LocalCredentialProvider, parseCredentialsDocument } from "@deepseek-ai/dsh-credentials-local"
 import { beforeEach, describe, expect, test } from "vitest"
 import { createMcpOAuthEngine, SERVER_STATE } from "../../resources/dsh/mcp-oauth/lib/engine.js"
 import { createMcpOAuthRpcHandler } from "../../resources/dsh/mcp-oauth/lib/rpc.js"
@@ -25,24 +26,19 @@ const { CallToolRequestSchema, ListToolsRequestSchema } = (await import(fromMcp.
 // The engine is driven end to end here: a fake authorization server plus a fake
 // MCP endpoint that refuses until it sees the access token that server issued, the
 // real patched mcp-client bridge forked through a real cordis context, and the
-// harness credential seam replaced by an in-memory record store.
+// real file-backed credential provider.
 
-function memoryCredentials() {
-  const records = new Map<string, unknown>()
+function fileCredentials() {
+  const path = join(mkdtempSync(join(tmpdir(), "pawwork-oauth-grants-")), ".credentials.yaml")
+  const provider = new LocalCredentialProvider(new Context(), { path, watch: false })
   return {
-    records,
-    async readRecord(key: string) {
-      return records.get(key)
+    path,
+    get records() {
+      return parseCredentialsDocument(existsSync(path) ? readFileSync(path, "utf8") : "", path).records
     },
-    async modifyRecord(key: string, mutate: (current: unknown) => Promise<unknown>) {
-      const next = await mutate(records.get(key))
-      if (next === undefined) records.delete(key)
-      else records.set(key, next)
-      return next
-    },
-    async deleteRecord(key: string) {
-      records.delete(key)
-    },
+    readRecord: provider.readRecord.bind(provider),
+    modifyRecord: provider.modifyRecord.bind(provider),
+    deleteRecord: provider.deleteRecord.bind(provider),
   }
 }
 
@@ -292,7 +288,7 @@ describe("remote MCP OAuth", () => {
   })
 
   test("first authorization: 401 leads to a browser, tokens land in a grant record, tools register", async () => {
-    const credentials = memoryCredentials()
+    const credentials = fileCredentials()
     const { ctx, tools } = makeContext()
     const engine = createMcpOAuthEngine({
       credentials,
@@ -324,7 +320,7 @@ describe("remote MCP OAuth", () => {
   })
 
   test("a redirect whose state does not match is refused and leaves the server unauthorized", async () => {
-    const credentials = memoryCredentials()
+    const credentials = fileCredentials()
     const { ctx, tools } = makeContext()
     const engine = createMcpOAuthEngine({
       credentials,
@@ -348,7 +344,7 @@ describe("remote MCP OAuth", () => {
   })
 
   test("a denied authorization leaves the server unauthorized", async () => {
-    const credentials = memoryCredentials()
+    const credentials = fileCredentials()
     const { ctx, tools } = makeContext()
     const engine = createMcpOAuthEngine({
       credentials,
@@ -367,7 +363,7 @@ describe("remote MCP OAuth", () => {
   })
 
   async function authorizeOnce() {
-    const credentials = memoryCredentials()
+    const credentials = fileCredentials()
     const { ctx, tools } = makeContext()
     const engine = createMcpOAuthEngine({
       credentials,
@@ -383,7 +379,7 @@ describe("remote MCP OAuth", () => {
     return { credentials, engine, tools }
   }
 
-  function grant(credentials: ReturnType<typeof memoryCredentials>) {
+  function grant(credentials: ReturnType<typeof fileCredentials>) {
     return [...credentials.records.values()] as Array<{ kind: string; payload: Record<string, unknown> }>
   }
 
@@ -442,7 +438,7 @@ describe("remote MCP OAuth", () => {
   })
 
   test("a stored grant survives a restart and connects without another authorization", async () => {
-    const credentials = memoryCredentials()
+    const credentials = fileCredentials()
     const first = makeContext()
     const firstEngine = createMcpOAuthEngine({
       credentials,
@@ -475,7 +471,7 @@ describe("remote MCP OAuth", () => {
   test("the Integrations section adds, authorizes, signs out and removes a server over RPC", async () => {
     const directory = mkdtempSync(join(tmpdir(), "pawwork-mcp-oauth-"))
     const list = createServerList(join(directory, "mcp-oauth.json"))
-    const credentials = memoryCredentials()
+    const credentials = fileCredentials()
     const { ctx, tools } = makeContext()
     const engine = createMcpOAuthEngine({
       credentials,
