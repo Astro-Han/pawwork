@@ -385,6 +385,15 @@ describe("DSH product home", () => {
     })
   })
 
+  // The mcp-client patch is only half the feature: without this row nothing
+  // provides the `mcpAuth` service it asks for and OAuth servers never load.
+  test("mounts the remote-MCP OAuth plugin the patched bridge consults", () => {
+    expect(allRows(readProductPatch()).find((entry) => entry.id === "pawwork-mcp-oauth")).toEqual({
+      id: "pawwork-mcp-oauth",
+      name: "@pawwork/dsh-mcp-oauth",
+    })
+  })
+
   test("isolates DSH from ambient model credentials", () => {
     const environment = buildDshEnvironment("/app/skills", {
       PATH: "/usr/bin",

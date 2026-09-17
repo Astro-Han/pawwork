@@ -6,236 +6,431 @@ import { assertServer } from "./server-list.js"
 
 export const SERVER_STATE = {
   UNAUTHORIZED: "unauthorized",
+  CONNECTING: "connecting",
   CONNECTED: "connected",
   DISCONNECTED: "disconnected",
   EXPIRED: "expired",
 }
 const PLACEHOLDER_REDIRECT_URL = "http://127.0.0.1:19750/mcp/oauth/callback"
 
+// A transport that keeps asking for a browser while nobody is waiting on one
+// either holds a dead grant (the SDK just invalidated it) or faces a server
+// that will not answer without authorization. The first redirects only mark
+// the entry — a transient authorization-server outage lands here too and the
+// retry can still heal itself — so the loop is stopped once it has proven a
+// human is required.
+const REDIRECT_LIMIT = 3
+
 /** Each runtime owns its provider, writes, browser flow and fork until cancelled. */
-export function createMcpOAuthEngine({ credentials, fork, sdk, logger = {} }) {
+export function createMcpOAuthEngine({ credentials, list, fork, sdk, logger = {} }) {
   const entries = new Map()
-  let configuration = {}
+  let disposed = false
+
+  /**
+   * Every ownership change to one entry — creating, swapping or tearing down
+   * its run — goes through that entry's lane, so two operations can never hold
+   * a different `entry.run` at the same time. Lane work is limited to ownership
+   * transfer and bounded joins: network waits hang off the run and are gated by
+   * its abort signal, so a slow server cannot stall the lane and a cancellation
+   * is never queued behind the work it is cancelling.
+   */
+  function enqueue(entry, op) {
+    const result = entry.lane.then(op)
+    entry.lane = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
 
   function must(serverName) {
     const entry = entries.get(serverName)
-    if (!configuration || entry === undefined || entry.removing) throw new Error("mcp-oauth: no remote MCP server named " + JSON.stringify(serverName))
+    if (disposed || entry === undefined) throw new Error("mcp-oauth: no remote MCP server named " + JSON.stringify(serverName))
     return entry
   }
 
-  function createRuntime(entry) {
+  function gone(serverName) {
+    return new Error("mcp-oauth: no remote MCP server named " + JSON.stringify(serverName))
+  }
+
+  function createRun(entry) {
     const controller = new AbortController()
-    const run = { controller, redirectUrl: PLACEHOLDER_REDIRECT_URL, pending: undefined, callback: undefined, fork: undefined, connecting: undefined, provider: undefined }
+    const run = {
+      controller,
+      redirectUrl: PLACEHOLDER_REDIRECT_URL,
+      pending: undefined,
+      callback: undefined,
+      fork: undefined,
+      work: undefined,
+      invalidated: false,
+      redirects: 0,
+      preAuthorized: false,
+      provider: undefined,
+    }
     run.provider = createOAuthProvider({
       store: entry.store,
+      serverUrl: entry.url,
+      headers: entry.headers,
       signal: controller.signal,
       redirectUrl: () => run.redirectUrl,
       state: () => run.pending?.state,
+      onInvalidate: () => {
+        run.invalidated = true
+      },
       onRedirect: (url) => {
-        if (run.pending) run.pending.authorizationUrl = url
-        else entry.state = SERVER_STATE.EXPIRED
+        if (run.pending !== undefined) {
+          run.pending.authorizationUrl = url
+          return
+        }
+        run.redirects += 1
+        entry.authRequired = true
+        if (run.invalidated || run.redirects >= REDIRECT_LIMIT) {
+          void enqueue(entry, () => (entry.run === run ? stopRun(entry) : undefined)).catch(() => {})
+        }
       },
     })
     entry.run = run
     return run
   }
 
-  function auth(entry, run, authorizationCode) {
-    return sdk.auth(run.provider, {
-      serverUrl: entry.url,
-      authorizationCode,
-      fetchFn: (url, init) => fetch(url, {
-        ...init,
-        signal: init?.signal ? AbortSignal.any([init.signal, run.controller.signal]) : run.controller.signal,
-      }),
+  /**
+   * Fork the patched bridge for this server. The fiber handle is captured
+   * synchronously — before the await — so a rejection or an abort always leaves
+   * a disposable handle and the server-name reservation is always released.
+   * `failFast` reports the first attempt's outcome (user-triggered connects);
+   * without it the bridge keeps retrying in the background so an outage heals
+   * itself instead of unregistering the tools.
+   */
+  function connect(entry, run, failFast) {
+    const fiber = fork({
+      transport: "streamable-http",
+      serverName: entry.serverName,
+      url: entry.url,
+      headers: entry.headers,
+      reconnect: { maxAttempts: Number.MAX_SAFE_INTEGER },
+      failOnStartupError: failFast,
     })
-  }
-
-  function connect(entry, run) {
-    if (run.connecting) return run.connecting
-    run.connecting = (async () => {
+    run.fork = fiber
+    return (async () => {
       try {
+        await fiber
         run.controller.signal.throwIfAborted()
-        const handle = await fork({ transport: "streamable-http", serverName: entry.serverName, url: entry.url, headers: entry.headers, reconnect: { maxAttempts: 3 }, failOnStartupError: true })
-        if (run.controller.signal.aborted) {
-          await handle.dispose()
-          run.controller.signal.throwIfAborted()
+        // A resolved fiber proves only that the first attempt settled; a
+        // redirect seen along the way means the server still wants a human.
+        if (entry.run === run && run.redirects === 0) {
+          entry.authRequired = false
+          entry.lastError = undefined
         }
-        run.fork = handle
-        entry.state = SERVER_STATE.CONNECTED
-        entry.lastError = undefined
         logger.info?.("mcp-oauth: connected " + entry.serverName)
       } catch (error) {
-        if (!run.controller.signal.aborted) {
-          if (entry.state !== SERVER_STATE.EXPIRED) entry.state = SERVER_STATE.DISCONNECTED
-          entry.lastError = String(error)
-        }
+        run.fork = undefined
+        await Promise.resolve(fiber.dispose?.()).catch(() => {})
+        if (!run.controller.signal.aborted && entry.run === run && !entry.authRequired) entry.lastError = String(error)
         throw error
       }
     })()
-    return run.connecting
   }
 
-  // Invalidation is synchronous. Cleanup joins outstanding work before another
-  // runtime can reuse the server name or delete its credential record.
-  function stop(entry) {
-    const run = entry.run
-    if (!run) return entry.stopping ?? Promise.resolve()
-    entry.run = undefined
-    run.controller.abort()
-    const pending = run.pending
-    const prior = entry.stopping
-    entry.stopping = (async () => {
-      await prior
-      await run.callback?.close()
-      await pending?.started?.catch(() => {})
-      await pending?.completion
-      await run.connecting?.catch(() => {})
-      await run.fork?.dispose()
+  /**
+   * Read the grant, then connect only when the record says it is worth trying:
+   * tokens, or nothing at all — an open server needs no authorization and a
+   * first probe is how the product learns that. Material without tokens means a
+   * browser is needed before a connection can succeed.
+   */
+  function startLoad(entry, run, failFast) {
+    entry.loading = true
+    run.work = (async () => {
+      try {
+        const grant = await entry.store.read(run.controller.signal)
+        run.controller.signal.throwIfAborted()
+        run.redirectUrl = grant.redirectUri ?? PLACEHOLDER_REDIRECT_URL
+        if (grant.tokens !== undefined && entry.run === run) entry.hadTokens = true
+        const untouched = grant.tokens === undefined && grant.clientInformation === undefined && grant.discoveryState === undefined
+        if (grant.tokens !== undefined || untouched) await connect(entry, run, failFast)
+        else if (entry.run === run) entry.authRequired = true
+      } catch (error) {
+        if (!run.controller.signal.aborted && entry.run === run && !entry.authRequired) entry.lastError = String(error)
+      } finally {
+        if (entry.run === run || entry.run === undefined) entry.loading = false
+      }
     })()
-    return entry.stopping
+  }
+
+  /**
+   * Detach and tear down the current run. The abort lands first so in-flight
+   * OAuth work dies, then the join waits for what it started: the fiber's
+   * dispose releases the server-name reservation, so a successor may not fork
+   * until this resolves.
+   */
+  async function stopRun(entry) {
+    const run = entry.run
+    if (run === undefined) return
+    entry.run = undefined
+    entry.loading = false
+    run.controller.abort()
+    try {
+      await run.callback?.close()
+    } catch {}
+    await Promise.allSettled([run.work, Promise.resolve(run.fork?.dispose?.())])
+  }
+
+  function exchange(entry, run, authorizationCode) {
+    return sdk.auth(run.provider, {
+      serverUrl: entry.url,
+      authorizationCode,
+      fetchFn: run.provider.fetch,
+    })
   }
 
   async function settle(entry, run, pending) {
+    let authorized = run.preAuthorized
     try {
-      const result = await run.callback.settled
-      await run.callback.close()
-      run.controller.signal.throwIfAborted()
-      if (result.code === undefined) throw new Error(result.error)
-      await auth(entry, run, result.code)
-      await connect(entry, run)
-      return { state: entry.state }
+      if (!authorized) {
+        const result = await run.callback.settled
+        await run.callback.close()
+        run.controller.signal.throwIfAborted()
+        if (result.code === undefined) throw new Error(result.error)
+        await exchange(entry, run, result.code)
+        run.controller.signal.throwIfAborted()
+        authorized = true
+        if (entry.run === run) {
+          entry.hadTokens = true
+          entry.authRequired = false
+        }
+      }
+      await connect(entry, run, true)
+      return { state: stateOf(entry) }
     } catch (error) {
       if (run.controller.signal.aborted) return { error: "cancelled" }
-      entry.lastError = String(error)
-      return { state: entry.state, error: error instanceof Error ? error.message : String(error) }
+      if (entry.run === run) {
+        entry.lastError = String(error)
+        // A failure before the connect attempt leaves the grant unserviceable:
+        // report it as needing authorization rather than as an outage.
+        if (!authorized) entry.authRequired = true
+      }
+      return { state: stateOf(entry), error: error instanceof Error ? error.message : String(error) }
     } finally {
       if (run.pending === pending) run.pending = undefined
     }
   }
 
   function buildEntry(definition) {
-    definition = assertServer(definition)
+    const accepted = assertServer(definition)
     return {
-      ...definition,
-      headers: definition.headers ?? {},
-      store: createGrantStore(credentials, { serverName: definition.serverName, serverUrl: definition.url }),
-      state: SERVER_STATE.UNAUTHORIZED,
+      ...accepted,
+      store: createGrantStore(credentials, { serverName: accepted.serverName, serverUrl: accepted.url }),
+      lane: Promise.resolve(),
+      closed: false,
       run: undefined,
-      stopping: undefined,
-      removing: false,
+      loading: false,
+      authRequired: false,
+      hadTokens: false,
       lastError: undefined,
     }
   }
 
-  async function load(entry) {
-    const run = createRuntime(entry)
-    try {
-      const grant = await entry.store.read(run.controller.signal)
-      run.redirectUrl = grant.redirectUri ?? PLACEHOLDER_REDIRECT_URL
-      if (grant.tokens !== undefined) await connect(entry, run)
-    } catch (error) {
-      if (!run.controller.signal.aborted) {
-        if (entry.state !== SERVER_STATE.EXPIRED) entry.state = SERVER_STATE.DISCONNECTED
-        entry.lastError = String(error)
-      }
-    }
+  function stateOf(entry) {
+    if (entry.loading) return SERVER_STATE.CONNECTING
+    if (entry.authRequired) return entry.hadTokens ? SERVER_STATE.EXPIRED : SERVER_STATE.UNAUTHORIZED
+    if (entry.lastError !== undefined) return SERVER_STATE.DISCONNECTED
+    if (entry.run?.fork !== undefined) return SERVER_STATE.CONNECTED
+    return SERVER_STATE.UNAUTHORIZED
   }
 
   return {
     async configure(definitions) {
-      const current = {}
-      configuration = current
-      await Promise.all([...entries.values()].map(stop))
-      if (configuration !== current) return this.status()
-      entries.clear()
-      for (const definition of definitions) {
+      const accepted = definitions.map(assertServer)
+      if (new Set(accepted.map((server) => server.serverName)).size !== accepted.length) {
+        throw new Error("mcp-oauth: duplicate serverName in the server list")
+      }
+      const stale = new Map(entries)
+      // Stale teardowns are queued on their own lanes first: a successor entry
+      // inherits its predecessor's lane, so its load can never overlap the
+      // server-name reservation the previous run has not released yet.
+      const teardowns = [...stale.values()].map((entry) =>
+        enqueue(entry, async () => {
+          entry.closed = true
+          await stopRun(entry)
+          if (entries.get(entry.serverName) === entry) entries.delete(entry.serverName)
+        }),
+      )
+      // Entries go into the map and their loads onto the lanes before the first
+      // await, so an operation landing mid-load finds the entry and queues
+      // behind the load rather than interleaving with it.
+      const loads = accepted.map((definition) => {
         const entry = buildEntry(definition)
+        const held = stale.get(entry.serverName)
+        if (held !== undefined) entry.lane = held.lane
         entries.set(entry.serverName, entry)
-      }
-      for (const entry of entries.values()) {
-        if (configuration !== current) break
-        await load(entry)
-      }
+        let work
+        const queued = enqueue(entry, () => {
+          if (disposed || entry.closed) return
+          const run = createRun(entry)
+          startLoad(entry, run, false)
+          work = run.work
+        })
+        return queued.then(() => work)
+      })
+      await Promise.all(teardowns)
+      if (disposed) return this.status()
+      await Promise.all(loads)
       return this.status()
     },
     async add(definition) {
-      if (!configuration) throw new Error("mcp-oauth: engine is disposed")
-      if (entries.has(definition.serverName)) throw new Error("mcp-oauth: server " + definition.serverName + " is already configured")
-      const entry = buildEntry(definition)
+      if (disposed) throw new Error("mcp-oauth: engine is disposed")
+      const accepted = assertServer(definition)
+      const held = entries.get(accepted.serverName)
+      if (held !== undefined) {
+        if (!held.closed) throw new Error("mcp-oauth: server " + accepted.serverName + " is already configured")
+        await held.lane.catch(() => {})
+        entries.delete(accepted.serverName)
+      }
+      const entry = buildEntry(accepted)
       entries.set(entry.serverName, entry)
-      await load(entry)
+      let work
+      await enqueue(entry, async () => {
+        try {
+          list.add(accepted)
+        } catch (error) {
+          entry.closed = true
+          entries.delete(entry.serverName)
+          throw error
+        }
+        if (disposed || entry.closed) {
+          entries.delete(entry.serverName)
+          return
+        }
+        const run = createRun(entry)
+        startLoad(entry, run, true)
+        work = run.work
+      })
+      await work
       return this.status()
     },
     async remove(serverName) {
+      if (disposed) throw new Error("mcp-oauth: engine is disposed")
       const entry = entries.get(serverName)
-      if (!entry) return this.status()
-      entry.removing = true
-      try {
-        await stop(entry)
+      if (entry === undefined) {
+        list.remove(serverName)
+        return this.status()
+      }
+      await enqueue(entry, async () => {
+        // The file is the restart authority, so it leaves first: a teardown
+        // that then fails is retried from the same state the file still shows.
+        list.remove(serverName)
+        entry.closed = true
+        await stopRun(entry)
         await entry.store.clear()
         entries.delete(serverName)
-      } finally {
-        entry.removing = false
-      }
+      })
       return this.status()
     },
     providerFor(config) {
       const entry = entries.get(config.serverName)
-      if (entry === undefined || config.transport !== "streamable-http" || config.url !== entry.url) return undefined
+      if (entry === undefined || entry.closed || config.transport !== "streamable-http" || config.url !== entry.url) return undefined
       return entry.run?.provider
     },
     status() {
-      return [...entries.values()].map((entry) => ({
-        serverName: entry.serverName,
-        url: entry.url,
-        state: entry.state,
-        authorizationPending: entry.run?.pending !== undefined,
-        lastError: entry.lastError,
-      }))
+      return {
+        servers: [...entries.values()].map((entry) => ({
+          serverName: entry.serverName,
+          url: entry.url,
+          state: stateOf(entry),
+          authorizationPending: entry.run?.pending !== undefined,
+          lastError: entry.lastError,
+        })),
+        fileError: list.fileError(),
+      }
     },
     authorize(serverName) {
       const entry = must(serverName)
-      if (entry.run?.pending) return entry.run.pending.started
-      const prior = stop(entry)
-      const run = createRuntime(entry)
-      const pending = { state: randomBytes(16).toString("hex"), started: undefined, completion: undefined, authorizationUrl: undefined }
-      run.pending = pending
-      entry.lastError = undefined
-      pending.started = (async () => {
-        try {
-          await prior
-          run.controller.signal.throwIfAborted()
-          await entry.store.update({ tokens: undefined, codeVerifier: undefined }, run.controller.signal)
-          entry.state = SERVER_STATE.UNAUTHORIZED
-          run.callback = await startCallbackServer({ state: pending.state })
-          run.controller.signal.throwIfAborted()
-          run.controller.signal.addEventListener("abort", () => void run.callback.close(), { once: true })
-          run.redirectUrl = run.callback.redirectUrl
-          await auth(entry, run)
-          run.controller.signal.throwIfAborted()
-          if (pending.authorizationUrl === undefined) throw new Error("mcp-oauth: the authorization server returned no URL to open")
-          pending.completion = settle(entry, run, pending)
-          return { authorizationUrl: pending.authorizationUrl, completion: pending.completion }
-        } catch (error) {
-          await run.callback?.close()
-          run.pending = undefined
-          if (!run.controller.signal.aborted) entry.lastError = String(error)
-          throw error
+      return enqueue(entry, async () => {
+        if (entry.closed) throw gone(serverName)
+        if (entry.run?.pending !== undefined) return { started: entry.run.pending.started }
+        if (stateOf(entry) === SERVER_STATE.CONNECTED) {
+          throw new Error("mcp-oauth: " + entry.serverName + " is already authorized; sign out before authorizing again")
         }
-      })()
-      return pending.started
+        await stopRun(entry)
+        const run = createRun(entry)
+        const pending = { state: randomBytes(16).toString("hex"), started: undefined, completion: undefined, authorizationUrl: undefined }
+        run.pending = pending
+        entry.lastError = undefined
+        pending.started = (async () => {
+          try {
+            run.controller.signal.throwIfAborted()
+            await entry.store.update({ tokens: undefined, codeVerifier: undefined }, run.controller.signal)
+            run.callback = await startCallbackServer({ state: pending.state })
+            run.controller.signal.throwIfAborted()
+            run.controller.signal.addEventListener("abort", () => void run.callback.close(), { once: true })
+            run.redirectUrl = run.callback.redirectUrl
+            const outcome = await exchange(entry, run)
+            run.controller.signal.throwIfAborted()
+            if (outcome === "AUTHORIZED") run.preAuthorized = true
+            else {
+              if (pending.authorizationUrl === undefined) throw new Error("mcp-oauth: the authorization server returned no URL to open")
+              const scheme = new URL(pending.authorizationUrl).protocol
+              if (scheme !== "https:" && scheme !== "http:") {
+                throw new Error("mcp-oauth: the authorization server returned a non-web URL (" + scheme + ")")
+              }
+            }
+            pending.completion = settle(entry, run, pending)
+            return { authorizationUrl: pending.authorizationUrl, completion: pending.completion }
+          } catch (error) {
+            await Promise.resolve(run.callback?.close()).catch(() => {})
+            if (run.pending === pending) run.pending = undefined
+            if (!run.controller.signal.aborted && entry.run === run) {
+              entry.lastError = String(error)
+              entry.authRequired = true
+            }
+            throw error
+          }
+        })()
+        run.work = pending.started.then(
+          ({ completion }) => Promise.resolve(completion).then(
+            () => undefined,
+            () => undefined,
+          ),
+          () => undefined,
+        )
+        return { started: pending.started }
+      }).then(({ started }) => started)
     },
     async signOut(serverName) {
       const entry = must(serverName)
-      entry.stopping = stop(entry).then(() => entry.store.clear())
-      entry.state = SERVER_STATE.UNAUTHORIZED
-      entry.lastError = undefined
-      await entry.stopping
+      await enqueue(entry, async () => {
+        await stopRun(entry)
+        await entry.store.clear()
+        entry.authRequired = false
+        entry.hadTokens = false
+        entry.lastError = undefined
+      })
+      return this.status()
+    },
+    async retry(serverName) {
+      const entry = must(serverName)
+      let work
+      await enqueue(entry, async () => {
+        if (entry.closed) throw gone(serverName)
+        await stopRun(entry)
+        entry.lastError = undefined
+        const run = createRun(entry)
+        startLoad(entry, run, true)
+        work = run.work
+      })
+      await work
+      return this.status()
     },
     async dispose() {
-      configuration = undefined
-      await Promise.all([...entries.values()].map(stop))
+      if (disposed) return
+      disposed = true
+      await Promise.all(
+        [...entries.values()].map((entry) =>
+          enqueue(entry, async () => {
+            entry.closed = true
+            await stopRun(entry)
+          }),
+        ),
+      )
     },
   }
 }

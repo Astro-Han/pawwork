@@ -9,7 +9,6 @@
  * authorization is untouched.
  */
 import path from "node:path"
-import z from "@deepseek-ai/schemastery"
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client"
 import { createMcpOAuthEngine } from "./engine.js"
 import { createServerList } from "./server-list.js"
@@ -20,35 +19,24 @@ export const name = "mcp-oauth"
 /** \`credentials\` holds the grant, \`tools\` must exist before a fork can register, and the Integrations section reaches the engine over \`connection\`. */
 export const inject = ["credentials", "tools", "connection"]
 
-export const Config = z.object({
-  servers: z
-    .array(
-      z.object({
-        serverName: z.string(),
-        url: z.string(),
-        headers: z.dict(z.string()).default({}),
-      }),
-    )
-    .default([]),
-})
-
 const CHANNEL = "/pawwork-mcp-oauth"
 const SERVER_FILE = "mcp-oauth.json"
 
-export function apply(ctx, config) {
+export function apply(ctx) {
   const home = process.env.DSH_HOME
   if (!home || !path.isAbsolute(home)) throw new Error("PawWork remote MCP authorization requires an absolute DSH_HOME")
+  // Read every service now, while this fiber is certainly active: reading a
+  // service off a disposed context throws, and a throw inside a later callback
+  // or disposer is an unhandled rejection.
+  const { credentials, connection, logger } = ctx
   const list = createServerList(path.join(home, SERVER_FILE))
 
   const engine = createMcpOAuthEngine({
-    credentials: ctx.credentials,
+    credentials,
+    list,
     fork: (forkConfig) => ctx.plugin(mcpClient, forkConfig),
     sdk: { auth: mcpClient.auth },
-    logger: {
-      info: (message) => ctx.logger.info(message),
-      warn: (message, detail) => ctx.logger.warn(message, detail),
-      error: (message, detail) => ctx.logger.error(message, detail),
-    },
+    logger,
   })
 
   ctx.provide("mcpAuth", {
@@ -57,18 +45,11 @@ export function apply(ctx, config) {
   })
 
   ctx.effect(() => {
-    // A composition that ships a default list seeds the file once. After that the
-    // file is the only authority the Integrations section reads and writes, so a
-    // change made there and a change made here cannot disagree.
-    if (list.list().length === 0 && (config.servers ?? []).length > 0) list.replace(config.servers)
     void engine.configure(list.list()).catch((error) => {
-      ctx.logger.error("mcp-oauth: could not load the configured servers", error)
+      logger.error("mcp-oauth: could not load the configured servers", error)
     })
-    return () => void engine.dispose()
+    return () => engine.dispose()
   }, "mcp-oauth.servers")
 
-  ctx.effect(() => {
-    const stopRpc = ctx.connection.rpc.handle(CHANNEL, createMcpOAuthRpcHandler({ engine, list }), { authority: "loopback" })
-    return () => void stopRpc()
-  }, "mcp-oauth.rpc")
+  ctx.effect(() => connection.rpc.handle(CHANNEL, createMcpOAuthRpcHandler({ engine }), { authority: "loopback" }), "mcp-oauth.rpc")
 }

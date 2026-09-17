@@ -23,19 +23,23 @@ index b2f16b4a2b5eaca1ab66b1c4750454daf3e92a90..a22f905dff369d23b0538d32f61f0aae
  	switch (config.transport) {
  		case "stdio": return new StdioClientTransport({
  			command: config.command,
-@@ -45,7 +48,10 @@ function createTransport(config) {
+@@ -45,7 +48,14 @@ function createTransport(config) {
  			env: buildChildEnv(config.env),
  			cwd: config.cwd
  		});
 -		case "streamable-http": return new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });
 +		case "streamable-http": return new StreamableHTTPClientTransport(new URL(config.url), {
-+			requestInit: { headers: config.headers },
-+			authProvider
++			// With an OAuth provider the provider's fetch owns header policy —
++			// configured headers reach the MCP origin only, never a foreign
++			// authorization server — so the blanket requestInit must not apply.
++			requestInit: authProvider ? undefined : { headers: config.headers },
++			authProvider,
++			fetch: authProvider?.fetch
 +		});
  	}
  }
  //#endregion
-@@ -639,7 +645,11 @@ function startConnection(ctx, config, policy) {
+@@ -639,7 +649,11 @@ function startConnection(ctx, config, policy) {
  			}
  		});
  		try {
@@ -48,7 +52,7 @@ index b2f16b4a2b5eaca1ab66b1c4750454daf3e92a90..a22f905dff369d23b0538d32f61f0aae
  			if (hasClosed()) {
  				attemptSettled = true;
  				generationDown(generation);
-@@ -788,4 +798,4 @@ async function apply(ctx, config) {
+@@ -788,4 +802,4 @@ async function apply(ctx, config) {
  	if (outcome.error !== void 0 && config.failOnStartupError) throw new Error(`mcp-client(${config.serverName}): initial connection or tool synchronization failed`, { cause: outcome.error });
  }
  //#endregion
