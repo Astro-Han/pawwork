@@ -20,7 +20,7 @@ export function assertServer(server) {
   if (typeof server?.serverName !== "string" || server.serverName.length === 0) throw new Error("mcp-oauth: a server entry has no serverName")
   // The bridge reserves this name for tool prefixes and the credential seam needs
   // it to address a record, so it is checked before anything is written.
-  if (!/^[A-Za-z0-9_-]{1,32}$/.test(server.serverName)) throw new Error("mcp-oauth: server name " + server.serverName + " must be 1-32 of A-Z a-z 0-9 _ -")
+  if (!/^[A-Za-z0-9_-]{1,32}$/.test(server.serverName)) throw new Error("mcp-oauth: server name " + JSON.stringify(server.serverName) + " must be 1-32 of A-Z a-z 0-9 _ -")
   if (typeof server.url !== "string" || server.url.length === 0) throw new Error("mcp-oauth: server " + server.serverName + " has no url")
   try {
     const url = new URL(server.url)
@@ -33,8 +33,10 @@ export function assertServer(server) {
   const headers = server.headers ?? {}
   if (headers === null || typeof headers !== "object" || Array.isArray(headers)) throw new Error("mcp-oauth: server " + server.serverName + " has invalid headers")
   for (const [name, value] of Object.entries(headers)) {
-    if (!HEADER_NAME.test(name)) throw new Error("mcp-oauth: server " + server.serverName + " has an invalid header name " + JSON.stringify(name))
-    if (typeof value !== "string") throw new Error("mcp-oauth: server " + server.serverName + " has a non-string header value")
+    if (!HEADER_NAME.test(name) || name.toLowerCase() === "__proto__") throw new Error("mcp-oauth: server " + server.serverName + " has an invalid header name " + JSON.stringify(name))
+    if (typeof value !== "string" || /^[ \t]|[ \t]$|[^\t\x20-\x7e\x80-\xff]/.test(value)) {
+      throw new Error("mcp-oauth: server " + server.serverName + " has an invalid value for header " + JSON.stringify(name))
+    }
   }
   return { serverName: server.serverName, url: server.url, headers }
 }
@@ -44,7 +46,11 @@ function parse(text) {
   if (document === null || typeof document !== "object" || !Array.isArray(document.servers)) {
     throw new Error("mcp-oauth: the server file has no servers array")
   }
-  return document.servers.map(assertServer)
+  const servers = document.servers.map(assertServer)
+  if (new Set(servers.map((server) => server.serverName)).size !== servers.length) {
+    throw new Error("mcp-oauth: the server file lists a serverName twice")
+  }
+  return servers
 }
 
 export function createServerList(path) {

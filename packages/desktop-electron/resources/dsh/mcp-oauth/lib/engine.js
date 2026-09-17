@@ -61,6 +61,7 @@ export function createMcpOAuthEngine({ credentials, list, fork, sdk, logger = {}
       pending: undefined,
       callback: undefined,
       fork: undefined,
+      connected: false,
       work: undefined,
       invalidated: false,
       redirects: 0,
@@ -120,6 +121,7 @@ export function createMcpOAuthEngine({ credentials, list, fork, sdk, logger = {}
         if (entry.run === run && run.redirects === 0) {
           entry.authRequired = false
           entry.lastError = undefined
+          run.connected = true
         }
         logger.info?.("mcp-oauth: connected " + entry.serverName)
       } catch (error) {
@@ -168,6 +170,10 @@ export function createMcpOAuthEngine({ credentials, list, fork, sdk, logger = {}
     entry.run = undefined
     entry.loading = false
     run.controller.abort()
+    // A bridge connect attempt that slips into the teardown window asks
+    // `providerFor` after `entry.run` is gone; leaving the aborted provider
+    // reachable makes that attempt fail fast instead of running bare.
+    entry.lastProvider = run.provider
     try {
       await run.callback?.close()
     } catch {}
@@ -222,6 +228,7 @@ export function createMcpOAuthEngine({ credentials, list, fork, sdk, logger = {}
       lane: Promise.resolve(),
       closed: false,
       run: undefined,
+      lastProvider: undefined,
       loading: false,
       authRequired: false,
       hadTokens: false,
@@ -233,7 +240,7 @@ export function createMcpOAuthEngine({ credentials, list, fork, sdk, logger = {}
     if (entry.loading) return SERVER_STATE.CONNECTING
     if (entry.authRequired) return entry.hadTokens ? SERVER_STATE.EXPIRED : SERVER_STATE.UNAUTHORIZED
     if (entry.lastError !== undefined) return SERVER_STATE.DISCONNECTED
-    if (entry.run?.fork !== undefined) return SERVER_STATE.CONNECTED
+    if (entry.run?.connected === true) return SERVER_STATE.CONNECTED
     return SERVER_STATE.UNAUTHORIZED
   }
 
@@ -283,7 +290,9 @@ export function createMcpOAuthEngine({ credentials, list, fork, sdk, logger = {}
       if (held !== undefined) {
         if (!held.closed) throw new Error("mcp-oauth: server " + accepted.serverName + " is already configured")
         await held.lane.catch(() => {})
-        entries.delete(accepted.serverName)
+        // A racing add may have replaced the drained entry while we waited.
+        if (entries.get(accepted.serverName) === held) entries.delete(accepted.serverName)
+        else if (entries.has(accepted.serverName)) throw new Error("mcp-oauth: server " + accepted.serverName + " is already configured")
       }
       const entry = buildEntry(accepted)
       entries.set(entry.serverName, entry)
@@ -293,11 +302,11 @@ export function createMcpOAuthEngine({ credentials, list, fork, sdk, logger = {}
           list.add(accepted)
         } catch (error) {
           entry.closed = true
-          entries.delete(entry.serverName)
+          if (entries.get(entry.serverName) === entry) entries.delete(entry.serverName)
           throw error
         }
         if (disposed || entry.closed) {
-          entries.delete(entry.serverName)
+          if (entries.get(entry.serverName) === entry) entries.delete(entry.serverName)
           return
         }
         const run = createRun(entry)
@@ -315,24 +324,27 @@ export function createMcpOAuthEngine({ credentials, list, fork, sdk, logger = {}
         return this.status()
       }
       await enqueue(entry, async () => {
+        // A successor entry may already own this name: a queued op that lost
+        // the slot must not touch its file entry, grant or map slot.
+        if (entries.get(serverName) !== entry) return
         // The file is the restart authority, so it leaves first: a teardown
         // that then fails is retried from the same state the file still shows.
         list.remove(serverName)
         entry.closed = true
         await stopRun(entry)
         await entry.store.clear()
-        entries.delete(serverName)
+        if (entries.get(serverName) === entry) entries.delete(serverName)
       })
       return this.status()
     },
     providerFor(config) {
       const entry = entries.get(config.serverName)
-      if (entry === undefined || entry.closed || config.transport !== "streamable-http" || config.url !== entry.url) return undefined
-      return entry.run?.provider
+      if (entry === undefined || config.transport !== "streamable-http" || config.url !== entry.url) return undefined
+      return entry.run?.provider ?? entry.lastProvider
     },
     status() {
       return {
-        servers: [...entries.values()].map((entry) => ({
+        servers: [...entries.values()].filter((entry) => !entry.closed).map((entry) => ({
           serverName: entry.serverName,
           url: entry.url,
           state: stateOf(entry),

@@ -14,6 +14,10 @@
  * sending a URI the authorization server never approved.
  */
 const CLIENT_NAME = "PawWork"
+// What a cross-origin redirect must not carry. The first four mirror the fetch
+// stack's own strip list; the session id is ours to protect because it is not.
+const CROSS_ORIGIN_STRIP = ["authorization", "proxy-authorization", "cookie", "host", "mcp-session-id"]
+const REDIRECT_HOP_LIMIT = 10
 
 /**
  * @param options.store - Grant store for this server.
@@ -89,24 +93,61 @@ export function createOAuthProvider(options) {
      * Authorization the SDK just minted always wins over a configured one, and
      * every request borrows the run's abort signal so teardown cancels a hung
      * exchange the transport itself would not interrupt.
+     *
+     * Redirects are followed by hand rather than by the fetch stack: a
+     * cross-origin hop strips only a fixed header list, which would carry
+     * configured keys — and on 307/308 the whole request body — to whatever
+     * origin the redirect names. Each hop re-runs the origin check, so a
+     * redirect chain cannot smuggle headers or payloads anywhere new.
      */
     fetch: (url, init) => {
-      const merged = new Headers(init?.headers)
-      try {
-        if (new URL(url).origin === origin) {
+      const requestSignal = init?.signal ? AbortSignal.any([init.signal, signal]) : signal
+      const visit = async (target, carried, method, body, hops) => {
+        const merged = new Headers(carried)
+        let onMcpOrigin = false
+        try {
+          onMcpOrigin = new URL(target).origin === origin
+        } catch {
+          // A URL the parser cannot read is not same-origin; it gets nothing.
+        }
+        if (onMcpOrigin) {
           for (const [name, value] of Object.entries(headers ?? {})) {
             if (name.toLowerCase() === "authorization" && merged.has("authorization")) continue
             merged.set(name, value)
           }
+        } else {
+          for (const name of CROSS_ORIGIN_STRIP) merged.delete(name)
+          for (const name of Object.keys(headers ?? {})) merged.delete(name)
         }
-      } catch {
-        // A URL the parser cannot read is not same-origin; pass it through.
+        const response = await fetch(target, { ...init, method, body, headers: merged, signal: requestSignal, redirect: "manual" })
+        if (response.status < 300 || response.status >= 400 || hops >= REDIRECT_HOP_LIMIT) return response
+        const location = response.headers.get("location")
+        if (location === null) return response
+        let next
+        try {
+          next = new URL(location, target)
+        } catch {
+          return response
+        }
+        await response.body?.cancel().catch(() => {})
+        let nextMethod = method
+        let nextBody = body
+        if ((response.status === 301 || response.status === 302 || response.status === 303) && method !== "GET" && method !== "HEAD") {
+          nextMethod = "GET"
+          nextBody = undefined
+          merged.delete("content-type")
+          merged.delete("content-length")
+        } else if (next.origin !== new URL(target).origin && body !== undefined && body !== null) {
+          // A 307/308 asks to replay the body; across origins that would hand
+          // the payload to a server that never earned it.
+          nextMethod = "GET"
+          nextBody = undefined
+          merged.delete("content-type")
+          merged.delete("content-length")
+        }
+        return visit(next, merged, nextMethod, nextBody, hops + 1)
       }
-      return fetch(url, {
-        ...init,
-        headers: merged,
-        signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal,
-      })
+      return visit(url, init?.headers, init?.method ?? "GET", init?.body, 0)
     },
     /**
      * The SDK asks for this when the authorization server rejects what we hold.

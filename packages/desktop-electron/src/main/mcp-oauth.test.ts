@@ -68,10 +68,14 @@ interface ProviderHandle {
   mcpAuthorizations(): string[]
   /** Custom-header values the authorization server saw; must stay empty. */
   asHeaderValues(): string[]
+  /** Authorization headers the authorization server saw, per request. */
+  asAuthValues(): string[]
+  /** Content-Type headers the authorization server saw, per request. */
+  asContentTypes(): string[]
   holdTokenExchange(): { received: Promise<void>; release(): void }
 }
 
-async function startProvider(): Promise<ProviderHandle> {
+async function startProvider(options: { openMcp?: boolean; authorizeEndpoint?: string; redirectMcpToAs?: number } = {}): Promise<ProviderHandle> {
   const issues: string[] = []
   const codes = new Map<string, { challenge: string; redirectUri: string; clientId: string }>()
   const clients = new Map<string, string[]>()
@@ -84,6 +88,8 @@ async function startProvider(): Promise<ProviderHandle> {
   const seenHeaders: string[] = []
   const seenAuthorizations: string[] = []
   const asSeenHeaders: string[] = []
+  const asSeenAuth: string[] = []
+  const asSeenContentTypes: string[] = []
   let tokenGate: { received(): void; wait: Promise<void> } | undefined
   let mcpPort = 0
   let asPort = 0
@@ -113,7 +119,14 @@ async function startProvider(): Promise<ProviderHandle> {
     }
     seenHeaders.push(String(request.headers["x-static-header"] ?? ""))
     seenAuthorizations.push(String(request.headers.authorization ?? ""))
-    const authorized = request.headers.authorization === "Bearer " + accessToken && accessToken !== ""
+    if (options.redirectMcpToAs !== undefined) {
+      // A server (or the gateway in front of it) can legitimately redirect —
+      // the client's fetch must not carry configured headers or credentials
+      // to whatever origin the redirect names.
+      response.writeHead(options.redirectMcpToAs, { location: asOrigin() + "/trapped" }).end()
+      return
+    }
+    const authorized = options.openMcp === true || (request.headers.authorization === "Bearer " + accessToken && accessToken !== "")
     if (!authorized) {
       response
         .writeHead(401, {
@@ -149,7 +162,7 @@ async function startProvider(): Promise<ProviderHandle> {
     if (url.pathname === "/.well-known/oauth-authorization-server") {
       json(response, 200, {
         issuer: asOrigin(),
-        authorization_endpoint: asOrigin() + "/authorize",
+        authorization_endpoint: options.authorizeEndpoint ?? asOrigin() + "/authorize",
         token_endpoint: asOrigin() + "/token",
         registration_endpoint: asOrigin() + "/register",
         scopes_supported: ["default"],
@@ -243,6 +256,8 @@ async function startProvider(): Promise<ProviderHandle> {
   })
   const asHttp = createServer((request, response) => {
     asSeenHeaders.push(String(request.headers["x-static-header"] ?? ""))
+    asSeenAuth.push(String(request.headers.authorization ?? ""))
+    asSeenContentTypes.push(String(request.headers["content-type"] ?? ""))
     const url = new URL(request.url ?? "/", "http://127.0.0.1")
     void handleOAuth(request, response, url).catch((error: unknown) => {
       if (!response.headersSent) response.writeHead(500)
@@ -279,6 +294,8 @@ async function startProvider(): Promise<ProviderHandle> {
     headerValues: () => seenHeaders.slice(),
     mcpAuthorizations: () => seenAuthorizations.slice(),
     asHeaderValues: () => asSeenHeaders.slice(),
+    asAuthValues: () => asSeenAuth.slice(),
+    asContentTypes: () => asSeenContentTypes.slice(),
     holdTokenExchange() {
       let received!: () => void
       let release!: () => void
@@ -401,7 +418,10 @@ describe("remote MCP OAuth", () => {
     const configuring = engine.configure([{ serverName: "alpha", url: provider.mcpUrl }])
     await engine.dispose()
     await configuring
-    expect(engine.providerFor({ serverName: "alpha", url: provider.mcpUrl, transport: "streamable-http" })).toBeUndefined()
+    // A bridge attempt that outlives the run gets a dead provider whose fetch
+    // rejects on the aborted signal — never a live one.
+    const stale = engine.providerFor({ serverName: "alpha", url: provider.mcpUrl, transport: "streamable-http" })
+    if (stale !== undefined) await expect(Promise.resolve(stale.fetch(provider.mcpUrl, {}))).rejects.toThrow()
     expect(() => engine.authorize("alpha")).toThrow(/no remote MCP server/)
   })
 
@@ -641,7 +661,71 @@ describe("remote MCP OAuth", () => {
     expect(status.servers[0]?.state).toBe(SERVER_STATE.EXPIRED)
     expect(grant(credentials)[0]?.payload.tokens).toBeUndefined()
     expect(second.tools.live()).toEqual([])
+    // The invalidated run must stop itself: whatever providerFor answers for a
+    // dead run carries an aborted signal, so a stale bridge attempt fails fast
+    // instead of retrying a grant that is already gone.
+    await expect
+      .poll(
+        async () => {
+          const stale = secondEngine.providerFor({ serverName: "alpha", url: provider.mcpUrl, transport: "streamable-http" })
+          if (stale === undefined) return true
+          return await Promise.resolve(stale.fetch(provider.mcpUrl, {})).then(() => false, () => true)
+        },
+        { timeout: 3000, interval: 50 },
+      )
+      .toBe(true)
     await secondEngine.dispose()
+  })
+
+  test("a server that needs no authorization connects on its first probe", async () => {
+    const open = await startProvider({ openMcp: true })
+    try {
+      const credentials = fileCredentials()
+      const { ctx, tools } = makeContext()
+      const engine = makeEngine(ctx, credentials)
+      const status = await engine.configure([{ serverName: "open", url: open.mcpUrl }])
+      expect(status.servers[0]?.state).toBe(SERVER_STATE.CONNECTED)
+      await settle()
+      expect(tools.live()).toEqual(["mcp__open__echo"])
+      expect(credentials.records.size).toBe(0)
+      await engine.dispose()
+    } finally {
+      await open.close()
+    }
+  })
+
+  test("an authorization endpoint that is not a web URL is refused", async () => {
+    const strange = await startProvider({ authorizeEndpoint: "custom-scheme://authorize" })
+    try {
+      const credentials = fileCredentials()
+      const { ctx } = makeContext()
+      const engine = makeEngine(ctx, credentials)
+      await engine.configure([{ serverName: "alpha", url: strange.mcpUrl }])
+      await settle()
+      await expect(engine.authorize("alpha")).rejects.toThrow(/non-web URL/)
+      await engine.dispose()
+    } finally {
+      await strange.close()
+    }
+  })
+
+  test.each([302, 307] as const)("a cross-origin %s redirect carries no configured headers, credentials or body", async (statusCode) => {
+    const redirecting = await startProvider({ redirectMcpToAs: statusCode })
+    try {
+      const credentials = fileCredentials()
+      const { ctx } = makeContext()
+      const engine = makeEngine(ctx, credentials)
+      await engine.configure([{ serverName: "alpha", url: redirecting.mcpUrl, headers: { "x-static-header": "leak-me-if-you-can", authorization: "Bearer static" } }])
+      // Every MCP request is redirected to the authorization-server origin; the
+      // connection never succeeds, but each followed hop must arrive bare.
+      await expect.poll(() => redirecting.asHeaderValues().length, { timeout: 5000, interval: 50 }).toBeGreaterThan(0)
+      expect(redirecting.asHeaderValues().every((value) => value === "")).toBe(true)
+      expect(redirecting.asAuthValues().every((value) => value === "")).toBe(true)
+      expect(redirecting.asContentTypes().every((value) => value === "")).toBe(true)
+      await engine.dispose()
+    } finally {
+      await redirecting.close()
+    }
   })
 
   test("an unreachable server keeps its grant and is retried, not marked expired", async () => {
@@ -654,6 +738,12 @@ describe("remote MCP OAuth", () => {
     const after = await engine.configure([{ serverName: "alpha", url: provider.mcpUrl }])
     expect(after.servers[0]?.state).toBe(SERVER_STATE.CONNECTED)
     expect(grant(credentials)[0]?.payload.tokens).toBeDefined()
+    // The bridge retries in the background forever, so healing the server is
+    // enough: the next attempt registers the tools without any user action.
+    provider.unbreakMcp()
+    await expect
+      .poll(() => Promise.resolve().then(() => tools.call("mcp__alpha__echo", { text: "healed" })).then(() => true, () => false), { timeout: 15_000, interval: 250 })
+      .toBe(true)
     await engine.dispose()
     expect(tools.live()).toEqual([])
   })
@@ -715,8 +805,11 @@ describe("remote MCP OAuth", () => {
     const started = await rpc("authorize", { serverName: "alpha" })
     expect(started.value?.authorizationUrl).toContain("/authorize?")
     await completeInBrowser(started.value?.authorizationUrl ?? "")
-    await settle(600)
-    expect((await rpc("status", {})).value?.servers[0]?.state).toBe(SERVER_STATE.CONNECTED)
+    // The RPC drops the completion handle, so poll status until the exchange,
+    // reconnect and tool registration have all landed.
+    await expect
+      .poll(async () => (await rpc("status", {})).value?.servers[0]?.state, { timeout: 10_000, interval: 100 })
+      .toBe(SERVER_STATE.CONNECTED)
     expect(tools.live()).toEqual(["mcp__alpha__echo"])
     // A static header still rides every MCP request next to the OAuth token.
     expect(provider.headerValues()).toContain("kept")
@@ -778,16 +871,14 @@ describe("remote MCP OAuth", () => {
       expect(typeof (ctx.get("mcpAuth") as { providerFor?: unknown } | undefined)?.providerFor).toBe("function")
       const handler = handled.get("/pawwork-mcp-oauth")
       expect(handler).toBeTypeOf("function")
-      await settle()
       // Startup probed the configured server, met its 401 and reads as
       // unauthorized; authorizing through the channel runs the real flow.
-      const before = (await handler!("status", {})) as { value: { servers: Array<{ state: string }> } }
-      expect(before.value.servers[0]?.state).toBe(SERVER_STATE.UNAUTHORIZED)
+      const readState = async () =>
+        ((await handler!("status", {})) as { value: { servers: Array<{ state: string }> } }).value.servers[0]?.state
+      await expect.poll(readState, { timeout: 10_000, interval: 100 }).toBe(SERVER_STATE.UNAUTHORIZED)
       const started = (await handler!("authorize", { serverName: "alpha" })) as { value: { authorizationUrl: string } }
       await completeInBrowser(started.value.authorizationUrl)
-      await settle(600)
-      const after = (await handler!("status", {})) as { value: { servers: Array<{ state: string }> } }
-      expect(after.value.servers[0]?.state).toBe(SERVER_STATE.CONNECTED)
+      await expect.poll(readState, { timeout: 10_000, interval: 100 }).toBe(SERVER_STATE.CONNECTED)
       expect(tools.live()).toEqual(["mcp__alpha__echo"])
     } finally {
       if (previousHome === undefined) delete process.env.DSH_HOME
@@ -814,6 +905,29 @@ describe("remote MCP OAuth", () => {
     expect(() => list.add({ serverName: "unsafe", url: "http://127.attacker.example/mcp" })).toThrow(/https/i)
     expect(() => list.add({ serverName: "unsafe", url: "https://user:pass@example.com/mcp" })).toThrow(/credentials/)
     expect(() => list.add({ serverName: "unsafe", url: "https://example.com/mcp", headers: { "bad name": "v" } })).toThrow(/header name/)
+    expect(() => list.add({ serverName: "unsafe", url: "https://example.com/mcp", headers: { "x-token": "has\nnewline" } })).toThrow(/invalid value/)
+    expect(() => list.add({ serverName: "unsafe", url: "https://example.com/mcp", headers: JSON.parse('{"__proto__":"v"}') })).toThrow(/header name/)
     expect(list.list().map((server: { serverName: string }) => server.serverName)).toEqual(names)
+  })
+
+  test("a grant recorded under a different server URL reads as empty", async () => {
+    const credentials = fileCredentials()
+    const stored = createGrantStore(credentials, { serverName: "alpha", serverUrl: provider.mcpUrl })
+    await stored.update({ tokens: { access_token: "belongs-to-this-url" } })
+    // Editing the file to point the name at another endpoint must not hand the
+    // old server's token to a different origin.
+    const moved = createGrantStore(credentials, { serverName: "alpha", serverUrl: "https://elsewhere.example/mcp" })
+    expect(await moved.read()).toEqual({})
+  })
+
+  test("a failed add leaves no server entry behind", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "pawwork-oauth-list-"))
+    writeFileSync(join(directory, "mcp-oauth.json"), "{ torn write")
+    const list = createServerList(join(directory, "mcp-oauth.json"))
+    const { ctx } = makeContext()
+    const engine = makeEngine(ctx, fileCredentials(), list)
+    await expect(engine.add({ serverName: "alpha", url: provider.mcpUrl })).rejects.toThrow(/refusing to overwrite/)
+    expect(engine.status().servers).toEqual([])
+    await engine.dispose()
   })
 })
