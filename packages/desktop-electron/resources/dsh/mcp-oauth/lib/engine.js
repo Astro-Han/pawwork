@@ -53,7 +53,6 @@ export function createMcpOAuthEngine({ credentials, fork, sdk, logger = {} }) {
     if (entry.provider === undefined) {
       entry.provider = createOAuthProvider({
         store: entry.store,
-        serverUrl: entry.url,
         redirectUrl: () => entry.pending?.callback.redirectUrl ?? PLACEHOLDER_REDIRECT_URL,
         state: () => entry.pending?.state,
         onRedirect: (url) => {
@@ -229,7 +228,6 @@ export function createMcpOAuthEngine({ credentials, fork, sdk, logger = {} }) {
       pending.callback = await startCallbackServer({ state: pending.state })
       pending.provider = createOAuthProvider({
         store: entry.store,
-        serverUrl: entry.url,
         redirectUrl: () => pending.callback.redirectUrl,
         state: () => pending.state,
         onRedirect: (url) => {

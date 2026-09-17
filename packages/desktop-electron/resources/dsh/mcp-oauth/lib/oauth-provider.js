@@ -17,14 +17,13 @@ const CLIENT_NAME = "PawWork"
 
 /**
  * @param options.store - Grant store for this server.
- * @param options.serverUrl - The MCP endpoint, used as the OAuth resource.
  * @param options.redirectUrl - Returns the redirect URI in force right now.
  * @param options.state - Returns the CSRF state for the attempt in progress.
  * @param options.onRedirect - Called with the authorization URL when the SDK
  * needs a human.
  */
 export function createOAuthProvider(options) {
-  const { store, serverUrl, redirectUrl, state, onRedirect } = options
+  const { store, redirectUrl, state, onRedirect } = options
 
   return {
     get redirectUrl() {
