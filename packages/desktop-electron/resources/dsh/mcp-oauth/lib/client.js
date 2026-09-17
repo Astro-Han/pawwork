@@ -1,7 +1,7 @@
 window.__ModuleLoader__.load({
   id: "@pawwork/dsh-mcp-oauth",
   factory: (require) => {
-    const { createElement: h, Fragment, useCallback, useEffect, useState } = require("react")
+    const { createElement: h, Fragment, useCallback, useEffect, useId, useRef, useState } = require("react")
     const { Button, IconPlusOutline16, Modal, Tag } = require("@deepseek-ai/dsh-client-ui-primitives")
 
     const CHANNEL = "/pawwork-mcp-oauth"
@@ -79,9 +79,11 @@ textarea.pawwork-mcp-input { font-family: var(--ds-font-family-code, monospace);
       [/ is already configured$/, () => text("已有同名的服务器。", "A server with that name is already configured.")],
       [/^no remote MCP server named /, () => text("这台服务器已不在列表里。", "That server is no longer in the list.")],
       [/^engine is disposed$/, () => text("爪印正在关闭，请稍后再试。", "PawWork is shutting down; try again later.")],
+      [/ is already authorized; /, () => text("已经授权成功，无需再打开授权页。", "Already authorized; there is nothing left to open.")],
+      [/^the server file could not be read; /, () => text("服务器列表文件无法读取，改动未保存。", "The server list file could not be read, so the change was not saved.")],
     ]
     function describeFailure(failure) {
-      const message = String(failure?.message ?? failure).replace(/^(?:Error:\s*)?(?:mcp-oauth:\s*)?/, "")
+      const message = String(failure?.message ?? failure).replace(/^(?:\w*Error:\s*)?(?:mcp-oauth:\s*)?/, "")
       const known = KNOWN_FAILURE.find(([pattern]) => pattern.test(message))
       return known ? known[1]() : text("操作失败：", "The request failed: ") + message
     }
@@ -124,17 +126,20 @@ textarea.pawwork-mcp-input { font-family: var(--ds-font-family-code, monospace);
       return { problems, entry: { serverName: draft.serverName.trim(), url: draft.url.trim(), headers } }
     }
 
-    function field(label, problem, control) {
+    function field(id, label, problem, control) {
       return h("div", { className: "pawwork-mcp-field" },
-        h("span", { className: "pawwork-mcp-label" }, label),
+        h("label", { className: "pawwork-mcp-label", htmlFor: id }, label),
         control,
-        problem ? h("p", { className: "pawwork-mcp-error", role: "alert" }, problem) : null)
+        problem ? h("p", { className: "pawwork-mcp-error", id: id + "-error", role: "alert" }, problem) : null)
     }
 
     function AddCard({ busy, onCancel, onSubmit }) {
+      const ids = useId()
       const [draft, setDraft] = useState({ serverName: "", url: "", headers: "" })
       const [problems, setProblems] = useState({})
       const [failure, setFailure] = useState(null)
+      const [submitting, setSubmitting] = useState(false)
+      const [headersOpen, setHeadersOpen] = useState(false)
       const update = (key) => (event) => setDraft({ ...draft, [key]: event.target.value })
       const submit = async (event) => {
         event.preventDefault()
@@ -142,25 +147,26 @@ textarea.pawwork-mcp-input { font-family: var(--ds-font-family-code, monospace);
         setProblems(next)
         setFailure(null)
         if (Object.keys(next).length > 0) return
+        setSubmitting(true)
         setFailure(await onSubmit(entry))
+        setSubmitting(false)
       }
-      const input = (key, label, extra) => h("input", {
-        className: "pawwork-mcp-input", "aria-invalid": problems[key] !== undefined, "aria-label": label, disabled: busy,
-        onChange: update(key), type: "text", value: draft[key], ...extra,
+      const control = (tag, key, extra) => h(tag, {
+        className: "pawwork-mcp-input", id: ids + key, "aria-errormessage": problems[key] === undefined ? undefined : ids + key + "-error",
+        "aria-invalid": problems[key] !== undefined, disabled: busy, onChange: update(key), value: draft[key], ...extra,
       })
       return h("form", { className: "pawwork-mcp-card", onSubmit: (event) => void submit(event) },
         h("span", { className: "pawwork-mcp-card-title" }, text("添加远程 MCP 服务器", "Add a remote MCP server")),
-        field(text("名称", "Name"), problems.serverName, input("serverName", text("名称", "Name"), { autoFocus: true, placeholder: "linear" })),
-        field(text("服务器地址", "Server URL"), problems.url, input("url", text("服务器地址", "Server URL"), { placeholder: "https://mcp.example.com/mcp" })),
-        h("details", { className: "pawwork-mcp-advanced", open: draft.headers !== "" || problems.headers !== undefined },
+        field(ids + "serverName", text("名称", "Name"), problems.serverName, control("input", "serverName", { autoFocus: true, placeholder: "linear", type: "text" })),
+        field(ids + "url", text("服务器地址", "Server URL"), problems.url, control("input", "url", { placeholder: "https://mcp.example.com/mcp", type: "text" })),
+        h("details", { className: "pawwork-mcp-advanced", onToggle: (event) => setHeadersOpen(event.target.open), open: headersOpen || problems.headers !== undefined },
           h("summary", { className: "pawwork-mcp-summary" }, text("自定义请求头", "Custom headers")),
           h("div", { className: "pawwork-mcp-advanced-body" },
-            field(text("每行一个，写成「名称: 值」", "One per line, written as Name: Value"), problems.headers,
-              h("textarea", { className: "pawwork-mcp-input", "aria-invalid": problems.headers !== undefined, "aria-label": text("自定义请求头", "Custom headers"), disabled: busy, onChange: update("headers"), placeholder: "X-Api-Version: 2", value: draft.headers })))),
-        failure !== null ? h("p", { className: "pawwork-mcp-error", key: "failure", role: "alert" }, failure) : null,
+            field(ids + "headers", text("每行一个，写成「名称: 值」", "One per line, written as Name: Value"), problems.headers, control("textarea", "headers", { placeholder: "X-Api-Version: 2" })))),
+        failure !== null ? h("p", { className: "pawwork-mcp-error", role: "alert" }, failure) : null,
         h("div", { className: "pawwork-mcp-card-actions" },
           h(Button, { disabled: busy, onClick: onCancel, type: "button", variant: "outline" }, text("取消", "Cancel")),
-          h(Button, { disabled: busy || draft.serverName.trim() === "" || draft.url.trim() === "", type: "submit", variant: "primary" }, busy ? text("添加中…", "Adding…") : text("添加", "Add"))))
+          h(Button, { disabled: busy || draft.serverName.trim() === "" || draft.url.trim() === "", type: "submit", variant: "primary" }, submitting ? text("添加中…", "Adding…") : text("添加", "Add"))))
     }
 
     function Surface({ connection }) {
@@ -172,10 +178,15 @@ textarea.pawwork-mcp-input { font-family: var(--ds-font-family-code, monospace);
       const [adding, setAdding] = useState(false)
       const [removing, setRemoving] = useState(null)
       const [removeFailure, setRemoveFailure] = useState(null)
+      const [removingNow, setRemovingNow] = useState(false)
+      // A poll answered before a write landed must not put the old list back.
+      const writes = useRef(0)
 
       const refresh = useCallback(async () => {
+        const seen = writes.current
         try {
-          applyStatus(await call(connection, "status"))
+          const next = await call(connection, "status")
+          if (seen === writes.current) applyStatus(next)
         } catch (failure) {
           setStatus((previous) => ({ ...previous, error: describeFailure(failure) }))
         }
@@ -195,7 +206,9 @@ textarea.pawwork-mcp-input { font-family: var(--ds-font-family-code, monospace);
         setBusy(true)
         setError(null)
         try {
-          return await call(connection, endpoint, payload)
+          const answer = await call(connection, endpoint, payload)
+          writes.current += 1
+          return answer
         } catch (failure) {
           report(describeFailure(failure))
           return null
@@ -219,7 +232,9 @@ textarea.pawwork-mcp-input { font-family: var(--ds-font-family-code, monospace);
       }
 
       const remove = async () => {
+        setRemovingNow(true)
         const answer = await run("remove", { serverName: removing }, setRemoveFailure)
+        setRemovingNow(false)
         if (answer === null) return
         setRemoving(null)
         applyStatus(answer)
@@ -262,7 +277,7 @@ textarea.pawwork-mcp-input { font-family: var(--ds-font-family-code, monospace);
               h(Tag, { className: "pawwork-mcp-tag", tone: state.tone }, state.label())),
             h("span", { className: "pawwork-mcp-actions" }, actionsFor(server))),
           h("span", { className: "pawwork-mcp-url", title: server.url }, server.url),
-          server.lastError ? h("p", { className: "pawwork-mcp-error", role: "status" }, describeFailure(server.lastError)) : null,
+          server.lastError ? h("p", { className: "pawwork-mcp-error" }, describeFailure(server.lastError)) : null,
           server.authorizationPending ? h("p", { className: "pawwork-mcp-note" },
             text("已在浏览器打开授权页面，完成后这里会自动更新。", "The authorization page is open in your browser; this list updates when it is done."),
             h("button", { className: "pawwork-mcp-link", disabled: busy, onClick: () => void authorize(server.serverName), type: "button" }, text("重新打开授权页", "Open it again"))) : null)
@@ -271,8 +286,8 @@ textarea.pawwork-mcp-input { font-family: var(--ds-font-family-code, monospace);
       return h("div", { className: "pawwork-mcp-surface" },
         h("h2", { className: "pawwork-mcp-title" }, text("集成", "Integrations")),
         h("p", { className: "pawwork-mcp-intro" }, text("需要登录的远程 MCP 服务器。点「授权」会打开系统浏览器，登录后回到这里即可在会话中使用它的工具。", "Remote MCP servers that need a login. Authorize opens your browser; once you are back, the server's tools are available in sessions.")),
-        error !== null || status.error !== null ? h("p", { className: "pawwork-mcp-error", key: "error", role: "alert" }, error ?? status.error) : null,
-        cannotWrite ? h("p", { className: "pawwork-mcp-error", key: "file", role: "alert" }, text("服务器列表文件无法读取，为避免覆盖已拒绝改动：", "The server list file could not be read; changes are refused rather than overwriting it: ") + status.fileError) : null,
+        error !== null || status.error !== null ? h("p", { className: "pawwork-mcp-error", role: "alert" }, error ?? status.error) : null,
+        cannotWrite ? h("p", { className: "pawwork-mcp-error", role: "alert" }, text("服务器列表文件无法读取，为避免覆盖已拒绝改动：", "The server list file could not be read; changes are refused rather than overwriting it: ") + status.fileError) : null,
         servers === null
           ? (status.error === null ? h("p", { className: "pawwork-mcp-note" }, text("正在加载…", "Loading…")) : null)
           : servers.length === 0
@@ -287,13 +302,14 @@ textarea.pawwork-mcp-input { font-family: var(--ds-font-family-code, monospace);
           className: "pawwork-mcp-dialog",
           closeLabel: text("关闭", "Close"),
           description: text("已保存的登录授权会一起删除，会话将无法再使用它的工具。", "Its saved authorization is deleted too, and sessions lose access to its tools."),
-          onClose: () => setRemoving(null),
+          onClose: () => { if (!removingNow) setRemoving(null) },
           open: removing !== null,
           title: text("移除 " + (removing ?? "") + "？", "Remove " + (removing ?? "") + "?"),
           footer: h(Fragment, null,
             h(Button, { autoFocus: true, disabled: busy, onClick: () => setRemoving(null), type: "button", variant: "outline" }, text("取消", "Cancel")),
-            h(Button, { className: "pawwork-mcp-danger", disabled: busy, onClick: () => void remove(), type: "button", variant: "outline" }, busy ? text("移除中…", "Removing…") : text("移除", "Remove"))),
-        }, removeFailure !== null ? h("p", { className: "pawwork-mcp-error", role: "alert" }, removeFailure) : null))
+            h(Button, { className: "pawwork-mcp-danger", disabled: busy || cannotWrite, onClick: () => void remove(), type: "button", variant: "outline" }, removingNow ? text("移除中…", "Removing…") : text("移除", "Remove"))),
+          ...(removeFailure === null ? {} : { children: h("p", { className: "pawwork-mcp-error", role: "alert" }, removeFailure) }),
+        }))
     }
 
     const inject = ["slots", "connection"]
