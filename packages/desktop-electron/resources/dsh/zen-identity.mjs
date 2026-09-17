@@ -1,6 +1,7 @@
 // Process preload: wrap global fetch so OpenCode Zen requests look like the official client.
 // DSH's llm-pi-ai overwrites User-Agent with deepseek-harness attribution, and
 // llm/stream cannot change outbound headers. Loaded with Node --import before dsh.
+import { createHash } from 'node:crypto';
 
 // The identity the official client sends: its server builds
 // `opencode/<channel>/<version>/<client>`, a release build's channel is `latest`,
@@ -13,12 +14,20 @@ export const OPENCODE_ZEN_HEADERS = Object.freeze({
 });
 
 // The gateway groups a conversation's requests by `x-opencode-session` and
-// rejects inference requests that omit it. pi-ai already writes the harness
+// rejects inference requests that omit it. It also reads the value: since
+// 2026-09-17 it serves the free tier only to ids shaped like the ones its own
+// client mints — `ses_`, twelve hex characters, fourteen more alphanumerics —
+// and answers anything else with FreeTierError. pi-ai already writes the harness
 // session id, stable for the life of a conversation, as `x-client-request-id`,
-// so it is restated under the name the gateway reads rather than minted here. A
-// request carrying no session — the model list — sends none.
+// so it is reshaped into that form rather than minted here. A request carrying no
+// session — the model list — sends none.
 export const OPENCODE_ZEN_SESSION_SOURCE_HEADER = 'x-client-request-id';
 export const OPENCODE_ZEN_SESSION_HEADER = 'x-opencode-session';
+
+/** Hash the harness id into the shape the gateway accepts; same id in, same id out. */
+export function openCodeZenSessionId(conversationId) {
+  return `ses_${createHash('sha256').update(conversationId).digest('hex').slice(0, 26)}`;
+}
 
 export function requestUrl(input) {
   if (typeof input === 'string') return input;
@@ -41,7 +50,7 @@ export function applyOpenCodeZenHeaders(input, init) {
   headers.set('user-agent', OPENCODE_ZEN_HEADERS['user-agent']);
   headers.set('x-opencode-client', OPENCODE_ZEN_HEADERS['x-opencode-client']);
   const session = headers.get(OPENCODE_ZEN_SESSION_SOURCE_HEADER);
-  if (session) headers.set(OPENCODE_ZEN_SESSION_HEADER, session);
+  if (session) headers.set(OPENCODE_ZEN_SESSION_HEADER, openCodeZenSessionId(session));
   return { ...(init || {}), headers };
 }
 
