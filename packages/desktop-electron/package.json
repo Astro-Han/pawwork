@@ -36,6 +36,7 @@
     "@deepseek-ai/dsh-hook-protocol": "0.1.5-rc.1",
     "@deepseek-ai/dsh-invariants": "0.1.5-rc.1",
     "@deepseek-ai/dsh-jobs": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-mcp-client": "0.1.5-rc.1",
     "@deepseek-ai/dsh-output-retention": "0.1.5-rc.1",
     "@deepseek-ai/dsh-sandbox": "0.1.5-rc.1",
     "@deepseek-ai/dsh-scope": "0.1.5-rc.1",
