@@ -83,12 +83,16 @@ type Rpc = (endpoint: string, payload: Record<string, unknown>) => Promise<{ ok:
 function mountSurface(rpc: Rpc) {
   const react = fakeReact()
   const opened = vi.fn()
+  let tick: (() => void) | undefined
   const definition = loadDshClientModule(clientEntry, {
     console,
     document: fakeDocument(),
     URL,
     window: { open: opened },
-    setInterval: () => 0,
+    setInterval: (fn: () => void) => {
+      tick = fn
+      return 0
+    },
     clearInterval: () => {},
   })
   const plugin = definition.factory((module: string) => {
@@ -128,7 +132,7 @@ function mountSurface(rpc: Rpc) {
     react.flushEffects()
     return tree
   }
-  return { calls, component, definition, opened, plugin, react, registered, render }
+  return { calls, component, definition, opened, plugin, react, registered, render, tick: () => tick?.() }
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -144,7 +148,11 @@ function statusRpc(status: Status | (() => Status), extras: Record<string, (payl
   const read = typeof status === "function" ? status : () => status
   return async (endpoint, payload) => {
     const extra = extras[endpoint]
-    if (extra !== undefined) return { ok: true, value: extra(payload) }
+    if (extra !== undefined) {
+      const produced = extra(payload) as Record<string, unknown>
+      if (produced !== null && typeof produced === "object" && "error" in produced) return produced as never
+      return { ok: true, value: produced }
+    }
     if (endpoint === "status") return { ok: true, value: read() }
     return { ok: true, value: read() }
   }
@@ -205,8 +213,9 @@ describe("PawWork remote MCP integrations surface", () => {
     const tree = await renderSettled(surface)
 
     // A connected server offers no reauthorize path: switching accounts goes
-    // through sign-out, and a lost connection gets Retry, not a new grant.
-    expect(buttonLabels(rowFor(tree, "conn"))).toEqual(["Sign out", "Remove"])
+    // through sign-out. Retry stays available because a startup load reports
+    // connected while the bridge may still be retrying in the background.
+    expect(buttonLabels(rowFor(tree, "conn"))).toEqual(["Retry", "Sign out", "Remove"])
     expect(buttonLabels(rowFor(tree, "need"))).toEqual(["Authorize", "Remove"])
     expect(buttonLabels(rowFor(tree, "gone"))).toEqual(["Authorize", "Sign out", "Remove"])
     expect(buttonLabels(rowFor(tree, "down"))).toEqual(["Retry", "Sign out", "Remove"])
@@ -303,5 +312,25 @@ describe("PawWork remote MCP integrations surface", () => {
     tree = surface.render()
     expect(surface.calls).toContainEqual({ endpoint: "signOut", payload: { serverName: "alpha" } })
     expect(buttonLabels(rowFor(tree, "alpha"))).toEqual(["Authorize", "Remove"])
+  })
+
+  test("an action error survives a successful background status refresh", async () => {
+    const surface = mountSurface(
+      statusRpc(
+        { servers: [{ serverName: "alpha", url: "https://a.example/mcp", state: "connected" }] },
+        { signOut: () => ({ ok: false, error: { message: "sign-out blew up" } }) },
+      ),
+    )
+    let tree = await renderSettled(surface)
+    const signOut = buttonsOf(rowFor(tree, "alpha")).find((button) => (button.props.children as unknown[]).includes("Sign out"))
+    ;(signOut?.props.onClick as () => void)()
+    await settle()
+    tree = surface.render()
+    expect(alertsOf(tree).some((line) => line.includes("sign-out blew up"))).toBe(true)
+    // The next poll succeeds — and must not erase what the failed action said.
+    surface.tick()
+    await settle()
+    tree = surface.render()
+    expect(alertsOf(tree).some((line) => line.includes("sign-out blew up"))).toBe(true)
   })
 })

@@ -40,6 +40,15 @@ window.__ModuleLoader__.load({
       expired: () => text("授权过期", "Authorization expired"),
       disconnected: () => text("连接失败", "Connection failed"),
     }
+    // The callback server reports its outcome as an English slug; translate the
+    // known ones and pass anything else through untouched.
+    const ERROR_LABEL = {
+      timeout: () => text("等待授权超时", "Timed out waiting for authorization"),
+      access_denied: () => text("授权被拒绝", "Authorization was denied"),
+      authorization_failed: () => text("授权未完成", "Authorization did not complete"),
+      missing_code: () => text("回调没有携带授权码", "The callback carried no authorization code"),
+      closed: () => text("授权已取消", "Authorization was cancelled"),
+    }
 
     function call(connection, endpoint, payload = {}, signal) {
       return connection.rpc.call(CHANNEL, endpoint, payload, signal).then((result) => {
@@ -49,7 +58,7 @@ window.__ModuleLoader__.load({
     }
 
     function parseHeaders(value) {
-      const headers = {}
+      const headers = Object.create(null)
       for (const line of String(value).split("\n")) {
         const trimmed = line.trim()
         if (trimmed.length === 0) continue
@@ -65,7 +74,7 @@ window.__ModuleLoader__.load({
         h("div", { className: "pawwork-mcp-identity" },
           h("span", { className: "pawwork-mcp-name" }, server.serverName),
           h("span", { className: "pawwork-mcp-url", title: server.url }, server.url),
-          server.lastError ? h("span", { className: "pawwork-mcp-error" }, server.lastError) : null),
+          server.lastError ? h("span", { className: "pawwork-mcp-error" }, ERROR_LABEL[server.lastError]?.() ?? server.lastError) : null),
         h(Pill, { active: server.state === "connected" }, STATE_LABEL[server.state]?.() ?? server.state),
         h("div", { className: "pawwork-mcp-actions" }, actions))
     }
@@ -79,6 +88,9 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState("")
       const waiting = servers?.some((server) => server.authorizationPending) ?? false
       const [draft, setDraft] = useState({ serverName: "", url: "", headers: "" })
+      // Kept so a browser that never opened (or was closed) can be retried;
+      // a repeated authorize reuses the pending attempt and returns this URL.
+      const [pendingUrl, setPendingUrl] = useState("")
 
       const refresh = useCallback(async () => {
         try {
@@ -114,7 +126,10 @@ window.__ModuleLoader__.load({
       const authorize = async (serverName) => {
         const answer = await run(serverName, "authorize", { serverName })
         if (answer === null) return
-        window.open(answer.authorizationUrl, "_blank", "noopener")
+        if (typeof answer.authorizationUrl === "string" && answer.authorizationUrl.length > 0) {
+          setPendingUrl(answer.authorizationUrl)
+          window.open(answer.authorizationUrl, "_blank", "noopener")
+        }
         await refresh()
       }
 
@@ -155,7 +170,7 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const canAdd = draft.serverName.trim() !== "" && draft.url.trim() !== "" && busy !== "add"
+      const canAdd = draft.serverName.trim() !== "" && draft.url.trim() !== "" && busy === ""
 
       return h("div", { className: "pawwork-mcp-surface" },
         h("div", { className: "pawwork-mcp-head" },
@@ -164,16 +179,20 @@ window.__ModuleLoader__.load({
         error !== null || status.error !== null ? h("div", { className: "pawwork-mcp-error", role: "alert" }, error ?? status.error) : null,
         status.fileError !== null ? h("div", { className: "pawwork-mcp-error", role: "alert" }, text("服务器列表文件无法读取，为避免覆盖已拒绝改动：" + status.fileError, "The server list file could not be read; changes are refused rather than overwriting it: " + status.fileError)) : null,
         servers === null
-          ? h("div", { className: "pawwork-mcp-note" }, text("正在加载…", "Loading…"))
+          ? (status.error === null ? h("div", { className: "pawwork-mcp-note" }, text("正在加载…", "Loading…")) : null)
           : servers.length === 0
             ? h("div", { className: "pawwork-mcp-note" }, text("还没有配置远程 MCP 服务器。", "No remote MCP servers configured yet."))
             : h("div", { className: "pawwork-mcp-list" }, servers.map((server) => {
                 const disabled = busy !== ""
                 const signOutButton = h(Button, { disabled, key: "signout", onClick: () => void signOut(server.serverName), size: "sm", type: "button", variant: "ghost" }, server.authorizationPending ? text("取消授权", "Cancel authorization") : text("退出登录", "Sign out"))
                 const removeButton = h(Button, { disabled, key: "remove", onClick: () => void remove(server.serverName), size: "sm", type: "button", variant: "ghost" }, text("移除", "Remove"))
+                const retryButton = h(Button, { disabled, key: "retry", onClick: () => void retry(server.serverName), size: "sm", type: "button", variant: "ghost" }, text("重连", "Retry"))
                 if (server.authorizationPending) return row(server, [signOutButton, removeButton])
                 if (server.state === "connecting") return row(server, [removeButton])
-                if (server.state === "connected") return row(server, [signOutButton, removeButton])
+                // A startup load reports connected even while the bridge is
+                // still retrying in the background, so Retry stays available
+                // here — it reconnects without touching the grant.
+                if (server.state === "connected") return row(server, [retryButton, signOutButton, removeButton])
                 if (server.state === "disconnected") {
                   return row(server, [
                     h(Button, { disabled, key: "retry", onClick: () => void retry(server.serverName), size: "sm", type: "button", variant: "outline" }, text("重连", "Retry")),
@@ -189,7 +208,12 @@ window.__ModuleLoader__.load({
                   removeButton,
                 ])
               })),
-        waiting ? h("div", { className: "pawwork-mcp-note" }, text("已在浏览器打开授权页面，完成后这里会自动更新。", "The authorization page is open in your browser; this list updates when it is done.")) : null,
+        waiting ? h("div", { className: "pawwork-mcp-note" },
+          text("已在浏览器打开授权页面，完成后这里会自动更新。", "The authorization page is open in your browser; this list updates when it is done."),
+          " ",
+          pendingUrl !== ""
+            ? h("a", { href: pendingUrl, target: "_blank", rel: "noopener" }, text("重新打开授权页", "Open the authorization page again"))
+            : null) : null,
         h("div", { className: "pawwork-mcp-add" },
           h("input", { className: "pawwork-mcp-field", "aria-label": text("名称", "Name"), onChange: (event) => setDraft({ ...draft, serverName: event.target.value }), placeholder: text("名称，例如 linear", "Name, for example linear"), value: draft.serverName }),
           h("input", { className: "pawwork-mcp-field", "aria-label": text("服务器地址", "Server URL"), onChange: (event) => setDraft({ ...draft, url: event.target.value }), placeholder: "https://mcp.example.com/mcp", value: draft.url }),
