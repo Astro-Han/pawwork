@@ -47,15 +47,14 @@ export async function startCallbackServer({ state, timeoutMs = DEFAULT_TIMEOUT_M
       response.writeHead(404, { "content-type": "text/html; charset=utf-8" }).end(PAGE("Not found", "This address only serves the PawWork authorization callback."))
       return
     }
+    if (url.searchParams.get("state") !== state) {
+      response.writeHead(400, { "content-type": "text/html; charset=utf-8" }).end(PAGE("Authorization failed", "This callback does not belong to the request PawWork started."))
+      return
+    }
     const error = url.searchParams.get("error")
     if (error !== null) {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(PAGE("Authorization was not completed", "PawWork did not receive permission. You can close this window and try again."))
-      finish({ error: error === "access_denied" ? "access_denied" : error })
-      return
-    }
-    if (url.searchParams.get("state") !== state) {
-      response.writeHead(400, { "content-type": "text/html; charset=utf-8" }).end(PAGE("Authorization failed", "This callback does not belong to the request PawWork started."))
-      finish({ error: "state_mismatch" })
+      finish({ error: error === "access_denied" ? "access_denied" : "authorization_failed" })
       return
     }
     const code = url.searchParams.get("code")
@@ -64,7 +63,7 @@ export async function startCallbackServer({ state, timeoutMs = DEFAULT_TIMEOUT_M
       finish({ error: "missing_code" })
       return
     }
-    response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(PAGE("PawWork is connected", "You can close this window and go back to PawWork."))
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(PAGE("Authorization received", "Go back to PawWork to see the connection result. You can close this window."))
     finish({ code })
   })
 

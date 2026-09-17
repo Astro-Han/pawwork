@@ -10,10 +10,7 @@
  *   4. does disposing one instance unregister exactly its tools, leaving the
  *      other alone;
  *   5. can the same serverName be forked again after disposal (reconnect =
- *      re-fork);
- *   6. do our own import and mcp-client's own import of
- *      @modelcontextprotocol/sdk resolve to the same file (the instanceof
- *      question for UnauthorizedError).
+ *      re-fork).
  *
  * The fake server maps one MCP server + transport per session, which is what a
  * real server does: every reconnect is a new session with its own initialize.
@@ -36,8 +33,6 @@ const { Client } = (await import(fromMcp.resolve("@modelcontextprotocol/sdk/clie
 const { StreamableHTTPClientTransport } = (await import(fromMcp.resolve("@modelcontextprotocol/sdk/client/streamableHttp.js"))) as any
 
 console.log("mcp-client entry:", mcpEntry)
-console.log("sdk (ours):       ", fromMcp.resolve("@modelcontextprotocol/sdk/client/index.js"))
-console.log("sdk (mcp-client): ", fromMcp.resolve("@modelcontextprotocol/sdk/package.json"))
 
 function buildServer(label: string) {
   const server = new Server({ name: label, version: "0.0.1" }, { capabilities: { tools: {} } })

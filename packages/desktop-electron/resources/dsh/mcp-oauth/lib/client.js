@@ -11,15 +11,16 @@ window.__ModuleLoader__.load({
 .pawwork-mcp-head h2 { font-size: 18px; font-weight: 600; line-height: 26px; margin: 0; }
 .pawwork-mcp-head p { color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xs-13); margin: 0; }
 .pawwork-mcp-list { display: flex; flex-direction: column; gap: 8px; }
-.pawwork-mcp-row { align-items: center; border: 1px solid var(--dsw-alias-border-secondary); border-radius: 10px; display: flex; gap: 10px; padding: 10px 12px; }
+.pawwork-mcp-row { align-items: center; border: 1px solid var(--dsw-alias-border-l3); border-radius: 10px; display: flex; gap: 10px; padding: 10px 12px; }
 .pawwork-mcp-identity { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
 .pawwork-mcp-name { font-weight: 600; }
 .pawwork-mcp-url { color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xs-13); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pawwork-mcp-actions { display: flex; flex: none; gap: 6px; }
 .pawwork-mcp-note { color: var(--dsw-alias-label-tertiary); font: var(--dsw-font-xs-13); }
 .pawwork-mcp-error { color: var(--dsw-alias-label-error, #d33); font: var(--dsw-font-xs-13); }
-.pawwork-mcp-add { border: 1px solid var(--dsw-alias-border-secondary); border-radius: 10px; display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+.pawwork-mcp-add { border: 1px solid var(--dsw-alias-border-l3); border-radius: 10px; display: flex; flex-direction: column; gap: 8px; padding: 12px; }
 .pawwork-mcp-add-actions { display: flex; justify-content: flex-end; }
+.pawwork-mcp-headers { box-sizing: border-box; width: 100%; min-height: 76px; resize: vertical; border: 1px solid var(--dsw-alias-border-l3); border-radius: 8px; padding: 8px 10px; background: transparent; color: inherit; font: inherit; }
 `
     let styled = false
     function ensureStyle() {
@@ -35,6 +36,7 @@ window.__ModuleLoader__.load({
       unauthorized: () => text("未授权", "Not authorized"),
       connected: () => text("已连接", "Connected"),
       expired: () => text("授权过期", "Authorization expired"),
+      disconnected: () => text("连接失败", "Connection failed"),
     }
 
     function call(connection, endpoint, payload = {}, signal) {
@@ -71,7 +73,7 @@ window.__ModuleLoader__.load({
       const [servers, setServers] = useState(null)
       const [error, setError] = useState(null)
       const [busy, setBusy] = useState("")
-      const [waiting, setWaiting] = useState("")
+      const waiting = servers?.some((server) => server.authorizationPending) ?? false
       const [draft, setDraft] = useState({ serverName: "", url: "", headers: "" })
 
       const refresh = useCallback(async () => {
@@ -91,13 +93,8 @@ window.__ModuleLoader__.load({
       // While a browser is open on the authorization page the loopback leg lands
       // in the host, so the section watches until that server changes state.
       useEffect(() => {
-        if (waiting === "") return undefined
-        const timer = setInterval(() => {
-          void refresh().then((next) => {
-            const held = next?.find((server) => server.serverName === waiting)
-            if (held !== undefined && (held.state !== "unauthorized" || held.lastError !== undefined)) setWaiting("")
-          })
-        }, 1500)
+        if (!waiting) return undefined
+        const timer = setInterval(() => void refresh(), 1500)
         return () => clearInterval(timer)
       }, [waiting, refresh])
 
@@ -117,18 +114,18 @@ window.__ModuleLoader__.load({
       const authorize = async (serverName) => {
         const answer = await run(serverName, "authorize", { serverName })
         if (answer === null) return
-        setWaiting(serverName)
         window.open(answer.authorizationUrl, "_blank", "noopener")
+        await refresh()
       }
 
       const signOut = async (serverName) => {
         const answer = await run(serverName, "signOut", { serverName })
-        if (answer !== null) { setServers(answer.servers); setWaiting("") }
+        if (answer !== null) setServers(answer.servers)
       }
 
       const remove = async (serverName) => {
         const answer = await run(serverName, "remove", { serverName })
-        if (answer !== null) { setServers(answer.servers); setWaiting("") }
+        if (answer !== null) setServers(answer.servers)
       }
 
       const add = async () => {
@@ -162,18 +159,18 @@ window.__ModuleLoader__.load({
             ? h("div", { className: "pawwork-mcp-note" }, text("还没有配置远程 MCP 服务器。", "No remote MCP servers configured yet."))
             : h("div", { className: "pawwork-mcp-list" }, servers.map((server) => row(server, [
                 server.state === "connected"
-                  ? h(Button, { disabled: busy !== "", key: "reauth", onClick: () => void authorize(server.serverName), size: "sm", type: "button", variant: "outline" }, text("重新授权", "Reauthorize"))
-                  : h(Button, { disabled: busy !== "", key: "auth", onClick: () => void authorize(server.serverName), size: "sm", type: "button", variant: "primary" }, text("授权", "Authorize")),
-                server.state === "unauthorized"
+                  ? h(Button, { disabled: busy !== "" || server.authorizationPending, key: "reauth", onClick: () => void authorize(server.serverName), size: "sm", type: "button", variant: "outline" }, text("重新授权", "Reauthorize"))
+                  : h(Button, { disabled: busy !== "" || server.authorizationPending, key: "auth", onClick: () => void authorize(server.serverName), size: "sm", type: "button", variant: "primary" }, text("授权", "Authorize")),
+                server.state === "unauthorized" && !server.authorizationPending
                   ? null
-                  : h(Button, { disabled: busy !== "", key: "signout", onClick: () => void signOut(server.serverName), size: "sm", type: "button", variant: "ghost" }, text("退出登录", "Sign out")),
+                  : h(Button, { disabled: busy !== "", key: "signout", onClick: () => void signOut(server.serverName), size: "sm", type: "button", variant: "ghost" }, server.authorizationPending ? text("取消授权", "Cancel authorization") : text("退出登录", "Sign out")),
                 h(Button, { disabled: busy !== "", key: "remove", onClick: () => void remove(server.serverName), size: "sm", type: "button", variant: "ghost" }, text("移除", "Remove")),
               ]))),
-        waiting !== "" ? h("div", { className: "pawwork-mcp-note" }, text("已在浏览器打开授权页面，完成后这里会自动更新。", "The authorization page is open in your browser; this list updates when it is done.")) : null,
+        waiting ? h("div", { className: "pawwork-mcp-note" }, text("已在浏览器打开授权页面，完成后这里会自动更新。", "The authorization page is open in your browser; this list updates when it is done.")) : null,
         h("div", { className: "pawwork-mcp-add" },
           h(Input, { "aria-label": text("名称", "Name"), onChange: (event) => setDraft({ ...draft, serverName: event.target.value }), placeholder: text("名称，例如 linear", "Name, for example linear"), value: draft.serverName }),
           h(Input, { "aria-label": text("服务器地址", "Server URL"), onChange: (event) => setDraft({ ...draft, url: event.target.value }), placeholder: "https://mcp.example.com/mcp", value: draft.url }),
-          h(Input, { "aria-label": text("自定义请求头", "Custom headers"), onChange: (event) => setDraft({ ...draft, headers: event.target.value }), placeholder: text("自定义请求头（可选），每行 名称: 值", "Custom headers (optional), one Name: Value per line"), value: draft.headers }),
+          h("textarea", { className: "pawwork-mcp-headers", "aria-label": text("自定义请求头", "Custom headers"), onChange: (event) => setDraft({ ...draft, headers: event.target.value }), placeholder: text("自定义请求头（可选），每行 名称: 值", "Custom headers (optional), one Name: Value per line"), value: draft.headers }),
           h("div", { className: "pawwork-mcp-add-actions" },
             h(Button, { disabled: !canAdd, onClick: () => void add(), size: "sm", type: "button", variant: "primary" }, text("添加", "Add")))))
     }

@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, test } from "vitest"
 import { createMcpOAuthEngine, SERVER_STATE } from "../../resources/dsh/mcp-oauth/lib/engine.js"
 import { createMcpOAuthRpcHandler } from "../../resources/dsh/mcp-oauth/lib/rpc.js"
 import { createServerList } from "../../resources/dsh/mcp-oauth/lib/server-list.js"
+import { createGrantStore } from "../../resources/dsh/mcp-oauth/lib/grant-store.js"
 
 // Cordis comes from the tree the installed DSH packages themselves use, so the
 // context this test drives is the same implementation the bridge runs under. The
@@ -28,17 +29,17 @@ const { CallToolRequestSchema, ListToolsRequestSchema } = (await import(fromMcp.
 // real patched mcp-client bridge forked through a real cordis context, and the
 // real file-backed credential provider.
 
-function fileCredentials() {
-  const path = join(mkdtempSync(join(tmpdir(), "pawwork-oauth-grants-")), ".credentials.yaml")
-  const provider = new LocalCredentialProvider(new Context(), { path, watch: false })
+function fileCredentials(path = join(mkdtempSync(join(tmpdir(), "pawwork-oauth-grants-")), ".credentials.yaml")) {
+  const ctx = new Context()
+  const ready = Promise.resolve(ctx.plugin(LocalCredentialProvider, { path, watch: false }))
   return {
     path,
     get records() {
       return parseCredentialsDocument(existsSync(path) ? readFileSync(path, "utf8") : "", path).records
     },
-    readRecord: provider.readRecord.bind(provider),
-    modifyRecord: provider.modifyRecord.bind(provider),
-    deleteRecord: provider.deleteRecord.bind(provider),
+    async readRecord(key: string) { await ready; return ctx.credentials.readRecord(key) },
+    async modifyRecord(key: string, mutate: (current: unknown) => Promise<unknown>) { await ready; return ctx.credentials.modifyRecord(key, mutate) },
+    async deleteRecord(key: string) { await ready; return ctx.credentials.deleteRecord(key) },
   }
 }
 
@@ -60,18 +61,21 @@ interface ProviderHandle {
   breakMcp(): void
   /** The value of one custom request header on every MCP request seen so far. */
   headerValues(): string[]
+  holdTokenExchange(): { received: Promise<void>; release(): void }
 }
 
 async function startProvider(): Promise<ProviderHandle> {
   const issues: string[] = []
-  const codes = new Map<string, { challenge: string; redirectUri: string }>()
-  const clients = new Set<string>()
+  const codes = new Map<string, { challenge: string; redirectUri: string; clientId: string }>()
+  const clients = new Map<string, string[]>()
   let accessToken = ""
   let refreshToken = ""
+  let grantClientId = ""
   let refreshBroken = false
   let mcpBroken = false
   let refreshed = 0
   const seenHeaders: string[] = []
+  let tokenGate: { received(): void; wait: Promise<void> } | undefined
   let port = 0
   const origin = () => "http://127.0.0.1:" + port
 
@@ -146,16 +150,22 @@ async function startProvider(): Promise<ProviderHandle> {
     }
     if (url.pathname === "/register") {
       const clientId = randomUUID()
-      clients.add(clientId)
-      json(response, 201, { client_id: clientId, redirect_uris: [], token_endpoint_auth_method: "none" })
+      const metadata = JSON.parse(await readBody(request)) as { redirect_uris: string[] }
+      clients.set(clientId, metadata.redirect_uris)
+      json(response, 201, { client_id: clientId, redirect_uris: metadata.redirect_uris, token_endpoint_auth_method: "none" })
       return
     }
     if (url.pathname === "/authorize") {
       const state = url.searchParams.get("state") ?? ""
       const redirectUri = url.searchParams.get("redirect_uri") ?? ""
       const challenge = url.searchParams.get("code_challenge") ?? ""
+      const clientId = url.searchParams.get("client_id") ?? ""
+      if (!clients.get(clientId)?.includes(redirectUri)) {
+        json(response, 400, { error: "invalid_request" })
+        return
+      }
       const code = randomUUID()
-      codes.set(code, { challenge, redirectUri })
+      codes.set(code, { challenge, redirectUri, clientId })
       const target = new URL(redirectUri)
       target.searchParams.set("code", code)
       target.searchParams.set("state", state)
@@ -165,19 +175,23 @@ async function startProvider(): Promise<ProviderHandle> {
     if (url.pathname === "/token" && request.method === "POST") {
       const body = new URLSearchParams(await readBody(request))
       if (body.get("grant_type") === "refresh_token") {
-        if (refreshBroken) {
+        if (refreshBroken || body.get("refresh_token") !== refreshToken || body.get("client_id") !== grantClientId) {
           issues.push("invalid_grant")
           json(response, 400, { error: "invalid_grant" })
           return
         }
         refreshed += 1
+        if (tokenGate) {
+          tokenGate.received()
+          await tokenGate.wait
+        }
         accessToken = "access-" + randomUUID()
         json(response, 200, { access_token: accessToken, token_type: "Bearer", expires_in: 3600, refresh_token: refreshToken })
         return
       }
       const code = body.get("code") ?? ""
       const held = codes.get(code)
-      if (held === undefined) {
+      if (held === undefined || body.get("client_id") !== held.clientId || body.get("redirect_uri") !== held.redirectUri) {
         json(response, 400, { error: "invalid_grant" })
         return
       }
@@ -189,8 +203,13 @@ async function startProvider(): Promise<ProviderHandle> {
         return
       }
       codes.delete(code)
+      if (tokenGate) {
+        tokenGate.received()
+        await tokenGate.wait
+      }
       accessToken = "access-" + randomUUID()
       refreshToken = "refresh-" + randomUUID()
+      grantClientId = held.clientId
       json(response, 200, { access_token: accessToken, token_type: "Bearer", expires_in: 3600, refresh_token: refreshToken })
       return
     }
@@ -229,6 +248,14 @@ async function startProvider(): Promise<ProviderHandle> {
       mcpBroken = true
     },
     headerValues: () => seenHeaders.slice(),
+    holdTokenExchange() {
+      let received!: () => void
+      let release!: () => void
+      const arrived = new Promise<void>((resolve) => { received = resolve })
+      const wait = new Promise<void>((resolve) => { release = resolve })
+      tokenGate = { received, wait }
+      return { received: arrived, release }
+    },
     close: () => new Promise<void>((resolve) => http.close(() => resolve())),
   } as ProviderHandle
 }
@@ -255,9 +282,12 @@ async function completeInBrowser(authorizationUrl: string, options: { deny?: boo
 
 function toolsStub() {
   const live = new Map<string, number>()
+  const definitions = new Map<string, any>()
   return {
     live: () => [...live.keys()].sort(),
+    call: (name: string, args: unknown) => definitions.get(name).execute(args, { signal: new AbortController().signal }),
     register(definition: { name: string }) {
+      definitions.set(definition.name, definition)
       live.set(definition.name, (live.get(definition.name) ?? 0) + 1)
       return () => {
         const left = (live.get(definition.name) ?? 1) - 1
@@ -287,6 +317,62 @@ describe("remote MCP OAuth", () => {
     }
   })
 
+  test("the bridge exports the UnauthorizedError thrown by its ESM transport", async () => {
+    const { StreamableHTTPClientTransport } = await import(fromMcp.resolve("@modelcontextprotocol/sdk/client/streamableHttp.js").replace("/dist/cjs/", "/dist/esm/"))
+    const transport = new StreamableHTTPClientTransport(new URL(provider.mcpUrl))
+    await transport.start()
+    try {
+      await expect(transport.finishAuth("unused")).rejects.toBeInstanceOf(mcpClient.UnauthorizedError)
+    } finally {
+      await transport.close()
+    }
+  })
+
+  test("disposing during configuration cannot revive the engine", async () => {
+    const engine = createMcpOAuthEngine({ credentials: fileCredentials(), fork: async () => { throw new Error("unexpected fork") }, sdk: { auth: mcpClient.auth } })
+    const configuring = engine.configure([{ serverName: "alpha", url: provider.mcpUrl }])
+    await engine.dispose()
+    await configuring
+    expect(engine.providerFor({ serverName: "alpha", url: provider.mcpUrl, transport: "streamable-http" })).toBeUndefined()
+    expect(() => engine.authorize("alpha")).toThrow(/no remote MCP server/)
+  })
+
+  test("one unreadable grant does not hide subsequent servers or prevent removal", async () => {
+    const credentials = fileCredentials()
+    const engine = createMcpOAuthEngine({
+      credentials: { ...credentials, async readRecord(key: string) { if (key === createGrantStore(credentials, { serverName: "alpha", serverUrl: provider.mcpUrl }).key) throw new Error("record unavailable"); return credentials.readRecord(key) } },
+      fork: async () => { throw new Error("unexpected fork") }, sdk: { auth: mcpClient.auth },
+    })
+    const status = await engine.configure([{ serverName: "alpha", url: provider.mcpUrl }, { serverName: "beta", url: provider.mcpUrl }])
+    expect(status.map((server: { state: string }) => server.state)).toEqual([SERVER_STATE.DISCONNECTED, SERVER_STATE.UNAUTHORIZED])
+    expect(engine.providerFor({ serverName: "beta", url: "https://other.example/mcp", transport: "streamable-http" })).toBeUndefined()
+    expect(await engine.remove("alpha")).toHaveLength(1)
+    expect(await engine.remove("alpha")).toHaveLength(1)
+    await engine.dispose()
+  })
+
+  test.each(["signOut", "remove", "dispose"] as const)("%s cancels an in-flight token exchange without restoring credentials or tools", async (operation) => {
+    const credentials = fileCredentials()
+    const { ctx, tools } = makeContext()
+    const engine = createMcpOAuthEngine({ credentials, fork: (config: unknown) => ctx.plugin(mcpClient, config), sdk: { auth: mcpClient.auth } })
+    ctx.provide("mcpAuth", { providerFor: (config: unknown) => engine.providerFor(config) })
+    await engine.configure([{ serverName: "alpha", url: provider.mcpUrl }])
+    const gate = provider.holdTokenExchange()
+    const started = await engine.authorize("alpha")
+    await completeInBrowser(started.authorizationUrl)
+    await gate.received
+    await engine[operation]("alpha")
+    gate.release()
+    await Promise.resolve(started.completion).catch(() => {})
+    try {
+      expect(tools.live()).toEqual([])
+      expect([...credentials.records.values()].some((record: any) => record.payload?.tokens !== undefined)).toBe(false)
+      if (operation !== "dispose") expect(credentials.records.size).toBe(0)
+    } finally {
+      await engine.dispose()
+    }
+  })
+
   test("first authorization: 401 leads to a browser, tokens land in a grant record, tools register", async () => {
     const credentials = fileCredentials()
     const { ctx, tools } = makeContext()
@@ -298,7 +384,7 @@ describe("remote MCP OAuth", () => {
     ctx.provide("mcpAuth", { providerFor: (config: unknown) => engine.providerFor(config) })
 
     expect(await engine.configure([{ serverName: "alpha", url: provider.mcpUrl }])).toEqual([
-      { serverName: "alpha", url: provider.mcpUrl, state: SERVER_STATE.UNAUTHORIZED, authorizationUrl: undefined, lastError: undefined },
+      { serverName: "alpha", url: provider.mcpUrl, state: SERVER_STATE.UNAUTHORIZED, authorizationPending: false, lastError: undefined },
     ])
 
     const { authorizationUrl, completion } = await engine.authorize("alpha")
@@ -310,16 +396,25 @@ describe("remote MCP OAuth", () => {
     expect(await completion).toEqual({ state: SERVER_STATE.CONNECTED })
     await settle()
     expect(tools.live()).toEqual(["mcp__alpha__echo"])
+    expect(await tools.call("mcp__alpha__echo", { text: "verified through MCP" })).toEqual({ content: [{ type: "text", text: "verified through MCP" }] })
     expect(engine.status()[0]?.state).toBe(SERVER_STATE.CONNECTED)
 
     const stored = [...credentials.records.values()] as Array<{ kind: string; payload: Record<string, unknown> }>
     expect(stored).toHaveLength(1)
     expect(stored[0]?.kind).toBe("grant")
     expect((stored[0]?.payload.tokens as { access_token: string }).access_token).toMatch(/^access-/)
+    const [again, duplicate] = await Promise.all([engine.authorize("alpha"), engine.authorize("alpha")])
+    expect(duplicate.authorizationUrl).toBe(again.authorizationUrl)
+    expect(engine.status()[0]?.authorizationPending).toBe(true)
+    expect(tools.live()).toEqual([])
+    await completeInBrowser(again.authorizationUrl)
+    expect(await again.completion).toEqual({ state: SERVER_STATE.CONNECTED })
+    expect(engine.status()[0]?.authorizationPending).toBe(false)
+    expect(tools.live()).toEqual(["mcp__alpha__echo"])
     await engine.dispose()
   })
 
-  test("a redirect whose state does not match is refused and leaves the server unauthorized", async () => {
+  test("unmatched success and error callbacks cannot consume the pending authorization", async () => {
     const credentials = fileCredentials()
     const { ctx, tools } = makeContext()
     const engine = createMcpOAuthEngine({
@@ -333,13 +428,16 @@ describe("remote MCP OAuth", () => {
     const { authorizationUrl, completion } = await engine.authorize("alpha")
     const answer = await completeInBrowser(authorizationUrl, { state: "forged" })
     expect(answer.status).toBe(400)
-    expect(await completion).toEqual({ state: SERVER_STATE.UNAUTHORIZED, error: "state_mismatch" })
+    const denied = await completeInBrowser(authorizationUrl, { state: "forged", deny: true })
+    expect(denied.status).toBe(400)
     expect(tools.live()).toEqual([])
     // A refused callback may still have left a client registration behind; what
     // must not exist is a grant.
     for (const record of credentials.records.values() as Iterable<{ payload: Record<string, unknown> }>) {
       expect(record.payload.tokens).toBeUndefined()
     }
+    expect((await completeInBrowser(authorizationUrl)).status).toBe(200)
+    expect(await completion).toEqual({ state: SERVER_STATE.CONNECTED })
     await engine.dispose()
   })
 
@@ -378,6 +476,21 @@ describe("remote MCP OAuth", () => {
     await settle()
     return { credentials, engine, tools }
   }
+
+  test("a transport refresh finishing after sign-out cannot restore a grant", async () => {
+    const { credentials, engine, tools } = await authorizeOnce()
+    provider.expireAccessToken()
+    const gate = provider.holdTokenExchange()
+    const calling = tools.call("mcp__alpha__echo", { text: "refresh" }).catch(() => {})
+    await gate.received
+    await engine.signOut("alpha")
+    gate.release()
+    await calling
+    expect(credentials.records.size).toBe(0)
+    expect(tools.live()).toEqual([])
+    expect(engine.status()[0]?.state).toBe(SERVER_STATE.UNAUTHORIZED)
+    await engine.dispose()
+  })
 
   function grant(credentials: ReturnType<typeof fileCredentials>) {
     return [...credentials.records.values()] as Array<{ kind: string; payload: Record<string, unknown> }>
@@ -430,7 +543,7 @@ describe("remote MCP OAuth", () => {
     expect(status[0]?.state).toBe(SERVER_STATE.CONNECTED)
     provider.breakMcp()
     const after = await engine.configure([{ serverName: "alpha", url: provider.mcpUrl }])
-    expect(after[0]?.state).not.toBe(SERVER_STATE.EXPIRED)
+    expect(after[0]?.state).toBe(SERVER_STATE.DISCONNECTED)
     expect(after[0]?.lastError).toBeDefined()
     expect(tools.live()).toEqual([])
     expect(grant(credentials)[0]?.payload.tokens).toBeDefined()
@@ -455,7 +568,7 @@ describe("remote MCP OAuth", () => {
 
     const second = makeContext()
     const secondEngine = createMcpOAuthEngine({
-      credentials,
+      credentials: fileCredentials(credentials.path),
       fork: (config: unknown) => second.ctx.plugin(mcpClient as never, config as never),
       sdk: { auth: mcpClient.auth },
     })
@@ -514,5 +627,24 @@ describe("remote MCP OAuth", () => {
     const list = createServerList(join(directory, "mcp-oauth.json"))
     expect(() => list.add({ serverName: "has spaces", url: "https://example.com/mcp" })).toThrow(/server name/)
     expect(list.list()).toEqual([])
+  })
+
+  test("all accepted names retain independent grants and unsafe OAuth URLs never persist", async () => {
+    const list = createServerList(join(mkdtempSync(join(tmpdir(), "oauth-identities-")), "mcp-oauth.json"))
+    const credentials = fileCredentials()
+    const names = ["Alpha", "alpha", "a_b", "a-b", "___"]
+    const stores = names.map((serverName) => {
+      list.add({ serverName, url: provider.mcpUrl })
+      return createGrantStore(credentials, { serverName, serverUrl: provider.mcpUrl })
+    })
+    for (const [index, store] of stores.entries()) await store.update({ tokens: { access_token: names[index] } })
+    await stores[1].clear()
+    expect(await stores[0].read()).toMatchObject({ tokens: { access_token: "Alpha" } })
+    expect(await stores[2].read()).toMatchObject({ tokens: { access_token: "a_b" } })
+    expect(await stores[3].read()).toMatchObject({ tokens: { access_token: "a-b" } })
+    expect(await stores[4].read()).toMatchObject({ tokens: { access_token: "___" } })
+    expect(() => list.add({ serverName: "unsafe", url: "http://example.com/mcp" })).toThrow(/https/i)
+    expect(() => list.add({ serverName: "unsafe", url: "http://127.attacker.example/mcp" })).toThrow(/https/i)
+    expect(list.list().map((server: { serverName: string }) => server.serverName)).toEqual(names)
   })
 })

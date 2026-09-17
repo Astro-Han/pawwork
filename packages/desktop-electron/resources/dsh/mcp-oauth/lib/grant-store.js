@@ -5,7 +5,7 @@
  *
  * Records are addressed as `<scope>/<id>` with both segments lowercase and
  * hyphenated, while a server name may carry uppercase and underscores. The key is
- * therefore the normalized name and the payload restates the real identity: a
+ * therefore a lossless encoding and the payload restates the real identity: a
  * record whose server URL no longer matches the configuration reads as empty
  * instead of handing another server's grant to this one.
  */
@@ -13,12 +13,7 @@ const SCOPE = "mcp-oauth"
 
 /** Credential record key for one remote MCP server. */
 export function grantKey(serverName) {
-  const id = String(serverName)
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-  if (id.length === 0) throw new Error("mcp-oauth: server name " + JSON.stringify(serverName) + " has no key-safe characters")
-  return SCOPE + "/" + id
+  return SCOPE + "/s-" + Buffer.from(serverName, "utf8").toString("hex")
 }
 
 /**
@@ -30,8 +25,10 @@ export function createGrantStore(credentials, identity) {
   const key = grantKey(identity.serverName)
   const empty = () => ({})
 
-  async function payload() {
+  async function payload(signal) {
+    signal?.throwIfAborted()
     const record = await credentials.readRecord(key)
+    signal?.throwIfAborted()
     const held = record?.kind === "grant" ? record.payload : undefined
     if (held === null || typeof held !== "object") return empty()
     if (held.serverName !== identity.serverName || held.serverUrl !== identity.serverUrl) return empty()
@@ -43,8 +40,9 @@ export function createGrantStore(credentials, identity) {
     /** Everything stored for this server, or an empty object. */
     read: payload,
     /** Read-modify-write one patch into the record. */
-    async update(patch) {
+    async update(patch, signal) {
       await credentials.modifyRecord(key, async (current) => {
+        signal?.throwIfAborted()
         const held = current?.kind === "grant" ? current.payload : undefined
         const base = held === null || typeof held !== "object" || held.serverName !== identity.serverName || held.serverUrl !== identity.serverUrl ? {} : held
         // SDK optional fields use undefined; persisted grants contain JSON only.

@@ -10,7 +10,7 @@ import { dirname } from "node:path"
 const VERSION = 1
 
 /** One accepted entry, or a throw naming what a human has to fix. */
-function assertServer(server) {
+export function assertServer(server) {
   if (typeof server?.serverName !== "string" || server.serverName.length === 0) throw new Error("mcp-oauth: a server entry has no serverName")
   // The bridge reserves this name for tool prefixes and the credential seam needs
   // it to address a record, so it is checked before anything is written.
@@ -18,9 +18,10 @@ function assertServer(server) {
   if (typeof server.url !== "string" || server.url.length === 0) throw new Error("mcp-oauth: server " + server.serverName + " has no url")
   try {
     const url = new URL(server.url)
-    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("scheme")
+    const loopback = url.hostname === "localhost" || url.hostname === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(url.hostname)
+    if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) throw new Error("scheme")
   } catch {
-    throw new Error("mcp-oauth: server " + server.serverName + " needs an http or https url")
+    throw new Error("mcp-oauth: server " + server.serverName + " needs an HTTPS URL (HTTP is allowed only on loopback)")
   }
   const headers = server.headers ?? {}
   if (headers === null || typeof headers !== "object" || Array.isArray(headers)) throw new Error("mcp-oauth: server " + server.serverName + " has invalid headers")

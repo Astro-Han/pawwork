@@ -23,7 +23,7 @@ const CLIENT_NAME = "PawWork"
  * needs a human.
  */
 export function createOAuthProvider(options) {
-  const { store, redirectUrl, state, onRedirect } = options
+  const { store, redirectUrl, state, onRedirect, signal } = options
 
   return {
     get redirectUrl() {
@@ -42,39 +42,40 @@ export function createOAuthProvider(options) {
       return state()
     },
     async clientInformation() {
-      const held = await store.read()
+      const held = await store.read(signal)
       if (held.clientInformation === undefined) return undefined
       if (held.redirectUri !== redirectUrl()) {
-        await store.update({ clientInformation: undefined })
+        await store.update({ clientInformation: undefined }, signal)
         return undefined
       }
       return held.clientInformation
     },
     async saveClientInformation(clientInformation) {
-      await store.update({ clientInformation, redirectUri: redirectUrl() })
+      await store.update({ clientInformation, redirectUri: redirectUrl() }, signal)
     },
     async tokens() {
-      return (await store.read()).tokens
+      return (await store.read(signal)).tokens
     },
     async saveTokens(tokens) {
-      await store.update({ tokens })
+      await store.update({ tokens }, signal)
     },
     async redirectToAuthorization(url) {
+      signal?.throwIfAborted()
       onRedirect(String(url))
     },
     async saveCodeVerifier(codeVerifier) {
-      await store.update({ codeVerifier })
+      await store.update({ codeVerifier }, signal)
     },
     async codeVerifier() {
-      const held = (await store.read()).codeVerifier
+      const held = (await store.read(signal)).codeVerifier
       if (typeof held !== "string") throw new Error("mcp-oauth: no PKCE verifier stored for this authorization attempt")
       return held
     },
     async discoveryState() {
-      return (await store.read()).discoveryState
+      return (await store.read(signal)).discoveryState
     },
     async saveDiscoveryState(discoveryState) {
-      await store.update({ discoveryState })
+      await store.update({ discoveryState }, signal)
     },
     /**
      * The SDK asks for this when the authorization server rejects what we hold.
@@ -82,8 +83,8 @@ export function createOAuthProvider(options) {
      * is the "authorization expired" state the product shows.
      */
     async invalidateCredentials(scope) {
-      if (scope === "tokens") await store.update({ tokens: undefined, codeVerifier: undefined })
-      else await store.update({ tokens: undefined, codeVerifier: undefined, clientInformation: undefined, discoveryState: undefined })
+      if (scope === "tokens") await store.update({ tokens: undefined, codeVerifier: undefined }, signal)
+      else await store.update({ tokens: undefined, codeVerifier: undefined, clientInformation: undefined, discoveryState: undefined }, signal)
     },
   }
 }
