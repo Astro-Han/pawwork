@@ -444,6 +444,42 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       }
       return actions
     }
+    // The product ships no model credential, so nothing registers a provider until a user
+    // configures one, and every probe below that reads the model catalog would see an empty
+    // list. Configure one the way the Models page does — profile into the adapter's settings
+    // namespace, key into the credential store — so the checks that follow exercise the UI a
+    // configured install shows. The key is a placeholder; no request leaves this run.
+    const seededProviderRoute = "deepseek"
+    const seededProviderModel = "deepseek-chat"
+    await call("settings/mutate", {
+      ns: "llm-pi-ai",
+      ops: [{
+        op: "set",
+        path: ["providers", seededProviderRoute],
+        value: {
+          displayName: "DeepSeek",
+          apiKeyEnv: "DEEPSEEK_API_KEY",
+          api: "openai-completions",
+          baseURL: "https://api.deepseek.com/v1",
+          models: [{ id: seededProviderModel }, { id: "deepseek-reasoner" }],
+        },
+      }],
+    })
+    await call("credentials/set", { ref: "DEEPSEEK_API_KEY", value: "ci-smoke-placeholder" })
+
+    // A session inherits the default at creation, so this has to land before the chat path below
+    // opens one. The onboarding step would adopt the same provider on its own; writing it here
+    // keeps the probe off that timing and leaves the step with nothing to ask for.
+    await call("settings/mutate", {
+      ns: "agent-default-model",
+      ops: [
+        { op: "set", path: ["provider"], value: seededProviderRoute },
+        { op: "set", path: ["model"], value: seededProviderModel },
+      ],
+    })
+    // The step blocks the app root while it is up, so every probe below reads through it.
+    const onboardingStoodDown = await waitFor(() => !document.querySelector(".pawwork-onboarding-content"), 600, 100)
+    if (!onboardingStoodDown) throw new Error("the first-run model onboarding step stayed up after a provider was configured")
     const isWindows = /^Win/i.test(navigator.platform)
     let selectedWorkspace = ${workspace}
     if (!isWindows) await call("workspace/create", { request: { path: ${workspace} } })
@@ -504,38 +540,6 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       windowsBrowseDirectoryPickerWorked = true
       expandedPrimaryActions = await waitForSidebarPrimaryActions()
     }
-    // The product ships no model credential, so nothing registers a provider until a user
-    // configures one, and every probe below that reads the model catalog would see an empty
-    // list. Configure one the way the Models page does — profile into the adapter's settings
-    // namespace, key into the credential store — so the checks that follow exercise the UI a
-    // configured install shows. The key is a placeholder; no request leaves this run.
-    const seededProviderRoute = "deepseek"
-    const seededProviderModel = "deepseek-chat"
-    await call("settings/mutate", {
-      ns: "llm-pi-ai",
-      ops: [{
-        op: "set",
-        path: ["providers", seededProviderRoute],
-        value: {
-          displayName: "DeepSeek",
-          apiKeyEnv: "DEEPSEEK_API_KEY",
-          api: "openai-completions",
-          baseURL: "https://api.deepseek.com/v1",
-          models: [{ id: seededProviderModel }, { id: "deepseek-reasoner" }],
-        },
-      }],
-    })
-    await call("credentials/set", { ref: "DEEPSEEK_API_KEY", value: "ci-smoke-placeholder" })
-    // A session inherits the default at creation, so this has to land before the chat path below
-    // opens one. Without it a fresh install has no model selected and nothing can be sent.
-    await call("settings/mutate", {
-      ns: "agent-default-model",
-      ops: [
-        { op: "set", path: ["provider"], value: seededProviderRoute },
-        { op: "set", path: ["model"], value: seededProviderModel },
-      ],
-    })
-
     const sidebarToggles = () => Array.from(document.querySelectorAll("button.pawwork-sidebar-toggle")).filter(visible)
     const sidebarBrandButton = document.querySelector('[data-slot="sidebar.brand.name"]')?.closest("button")
     const sidebarExpandedBrandHidden = Boolean(sidebarBrandButton) && !visible(sidebarBrandButton)

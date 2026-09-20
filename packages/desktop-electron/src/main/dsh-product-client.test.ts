@@ -309,7 +309,8 @@ describe("PawWork DSH client product layer", () => {
     }
 
     plugin.apply(ctx)
-    expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout"])
+    expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout",
+      "remote", "remote.credentials", "remote.llm", "remote.settings", "settingsScope"])
     const welcome = registrations.find((entry) => entry.options.id === "welcome-notice")
     expect(welcome).toBeDefined()
     expect(welcome!.options.priority).toBe(-1)
@@ -375,7 +376,8 @@ describe("PawWork DSH client product layer", () => {
 
     plugin.apply(ctx)
 
-    expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout"])
+    expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout",
+      "remote", "remote.credentials", "remote.llm", "remote.settings", "settingsScope"])
     const overlay = registrations.filter((entry) => entry.options.name === "shell.overlay")
     expect(overlay.map((entry) => entry.options.id)).toEqual(["pawwork-window-chrome", "pawwork-v1-import"])
     const chrome = overlay[0]

@@ -322,33 +322,51 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       const [blocked, setBlocked] = useState(false)
       useEffect(() => {
         let stopped = false
+        let deciding = false
+        // The facts are read over several round trips, so an event arriving mid-read would
+        // otherwise be answered by a verdict formed before it — and with no later event, the
+        // dialog would stay up over a provider that is already usable. Each request marks the
+        // read stale instead, and the loop repeats until it finishes against settled facts.
+        let stale = false
         const decide = async () => {
-          const setup = await resolveModelSetup(ctx)
-          if (stopped) return
-          if (setup.kind === "absent") {
-            setBlocked(true)
-            return
-          }
-          if (setup.kind === "adopt") {
-            const written = await ctx.remote.settings.mutate(DEFAULT_MODEL_NS, [
-              { op: "set", path: ["provider"], value: setup.provider },
-              { op: "set", path: ["model"], value: setup.model },
-            ], setup.revision)
-            if (stopped) return
-            // A refused write leaves the session without a model, so the dialog stays and
-            // points at the page where the user can pick one by hand.
-            if (!written.ok) {
-              setBlocked(true)
+          stale = true
+          if (deciding) return
+          deciding = true
+          try {
+            while (stale && !stopped) {
+              stale = false
+              const setup = await resolveModelSetup(ctx)
+              if (stopped) return
+              if (setup.kind === "absent") {
+                setBlocked(true)
+                continue
+              }
+              if (setup.kind === "adopt") {
+                const written = await ctx.remote.settings.mutate(DEFAULT_MODEL_NS, [
+                  { op: "set", path: ["provider"], value: setup.provider },
+                  { op: "set", path: ["model"], value: setup.model },
+                ], setup.revision)
+                if (stopped) return
+                // A refused write leaves the session without a model, so the dialog stays and
+                // points at the page where the user can pick one by hand.
+                if (!written.ok) {
+                  setBlocked(true)
+                  continue
+                }
+              }
+              complete()
               return
             }
+          } finally {
+            deciding = false
           }
-          complete()
         }
         void decide()
         // The step stays mounted while the user is in Models, so the same decision re-runs
         // on the events that adding a provider or a key raises, and the dialog gives way by
         // itself once one lands.
         const disposers = [
+          ctx.remote.$on("settings/document-updated", () => void decide()),
           ctx.remote.$on("llm/adapters-updated", () => void decide()),
           ctx.remote.$on("credentials/reference-updated", () => void decide()),
         ]
