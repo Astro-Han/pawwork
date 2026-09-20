@@ -2,7 +2,21 @@ diff --git a/lib/index.js b/lib/index.js
 index e06cf8d5faf9755710420623908478c704b225b8..079169ccc5b783b6d4a12a69fcf89bbc60fd0889 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -1364,7 +1364,12 @@ function classifyPiAiError(message) {
+@@ -400,7 +400,12 @@ const COMPLETIONS_COMPAT_GATE = {
+ 	vercelGatewayRouting: "withhold",
+ 	zaiToolStream: "withhold",
+ 	supportsOpenAIGrammarTools: "withhold",
+-	sendSessionAffinityHeaders: "withhold",
++	/* PawWork patch: let a route ask for the session-affinity headers, which
++	Completions gates off and Responses sends unconditionally. The decision stays
++	in the product patch. The switch also writes `session_id` and
++	`x-session-affinity`; narrowing it to one header would mean opening
++	`sessionAffinityFormat` too. Drop this once upstream offers the field. */
++	sendSessionAffinityHeaders: "offer",
+ 	deferredToolsMode: "withhold",
+ 	sessionAffinityFormat: "withhold"
+ };
+@@ -1364,7 +1369,12 @@ function classifyPiAiError(message) {
  	};
  }
  function classifyPiAiError(message) {
@@ -16,7 +30,7 @@ index e06cf8d5faf9755710420623908478c704b225b8..079169ccc5b783b6d4a12a69fcf89bbc
  	if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE;
  	if (/\b429\b|rate.?limit/i.test(message)) return "RATE_LIMIT";
  	if (/\b413\b|failed to buffer the request body:\s*length limit exceeded|payload too large|request body too large/i.test(message)) return "INVALID_REQUEST";
-@@ -2564,7 +2564,18 @@ function directoryEntries(profiles) {
+@@ -2564,7 +2569,18 @@ function directoryEntries(profiles) {
  			...error === void 0 ? {} : { error }
  		});
  	};

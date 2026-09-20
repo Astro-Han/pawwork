@@ -1,8 +1,21 @@
 # PawWork product defaults. Applied after the official web profile via --patch.
 # Later user settings still win. A patch replaces the targeted row's whole config.
 # No `agent-default-model` row: the product ships no credential, so any default
-# named here would be a model the user cannot reach. DSH's own onboarding asks
-# for a provider and key on first launch instead.
+# named here would be a model the user cannot reach.
+#
+# `opencode-go` is a paid route a user brings their own key for, and the bundled
+# catalog already describes it, so this states only what the catalog cannot: the
+# gateway rejects a request with no per-conversation id, and the Completions
+# protocol gates that behind `sendSessionAffinityHeaders`. The switch is
+# route-level, and the adapter only offers it because of
+# `patches/@deepseek-ai__dsh-llm-pi-ai@*.patch`; without both halves every turn
+# on this route answers `400 MissingSessionID`.
+- id: llm-pi-ai
+  config:
+    providers:
+      opencode-go:
+        compat:
+          sendSessionAffinityHeaders: true
 - id: llm-deepseek
   disabled: true
 # Silences the `dsh web:` URL line; `pawwork-web-ready` below reports the same
