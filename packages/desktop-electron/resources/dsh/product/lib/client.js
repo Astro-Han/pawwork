@@ -2,7 +2,7 @@ window.__ModuleLoader__.load({
   id: "@pawwork/dsh-product",
   factory: (require) => {
     const { createElement, useEffect, useRef, useState } = require("react")
-    const { Button, IconPanelLeftOutline16 } = require("@deepseek-ai/dsh-client-ui-primitives")
+    const { Button, IconPanelLeftOutline16, Modal } = require("@deepseek-ai/dsh-client-ui-primitives")
     const h = createElement
 
     const productCss = `
@@ -217,6 +217,37 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
   35% { transform: translate(-3px, -1.5px) rotate(-13deg); }
   70% { transform: translate(3px, 0) rotate(8deg); }
 }
+/* The measurements DSH's own onboarding steps use, so a PawWork step sits in the same
+   dialog as the ones it is ordered beside. */
+.pawwork-onboarding { padding: 0; width: min(600px, 100%); }
+.pawwork-onboarding-content {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 28px;
+}
+.pawwork-onboarding-title {
+  color: var(--dsw-alias-label-primary);
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 28px;
+  margin: 0;
+}
+.pawwork-onboarding-body { margin-top: 20px; }
+.pawwork-onboarding-body p {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 24px;
+  margin: 0;
+}
+.pawwork-onboarding-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 24px; }
+.pawwork-onboarding-primary { min-width: 120px; }
+@media (width <= 560px) {
+  .pawwork-onboarding-content { padding: 24px; }
+  .pawwork-onboarding-primary { flex: 1; }
+}
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   span:has(> [data-slot="conversation.hero.brand.mark"]):hover > [data-slot="conversation.hero.brand.mark"] > svg {
     animation: pawwork-hero-mark-swim var(--ds-transition-duration-slow) var(--ds-ease-in-out);
@@ -252,6 +283,100 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     function icon(paths, size = 16) {
       return h("svg", { "aria-hidden": "true", fill: "none", height: size, viewBox: "0 0 24 24", width: size },
         ...paths.map((path, index) => h("path", { d: path, key: index, stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 1.8 })))
+    }
+
+    const DEFAULT_MODEL_NS = "agent-default-model"
+    const PI_AI_NS = "llm-pi-ai"
+
+    /**
+     * What the first run needs from the user before a session can talk to anything.
+     *
+     * The product ships no key, and the default selection it inherits names a provider
+     * PawWork does not mount, so a session refuses the first message with
+     * `session/model-unavailable` until something points the default at a provider that
+     * can actually serve it. A provider serves when it is registered and any key its
+     * profile names is held — the same join the Models page reads.
+     */
+    async function resolveModelSetup(ctx) {
+      const registered = await ctx.remote.llm.listProviders()
+      if (!registered.ok) return { kind: "unknown" }
+      const mirror = ctx.settingsScope.describe()
+      await mirror.ensure()
+      const namespaces = mirror.getSnapshot().view?.namespaces ?? []
+      const profiles = namespaces.find((entry) => entry.ns === PI_AI_NS)?.value?.providers ?? {}
+      const refs = registered.value.map((entry) => profiles[entry.id]?.apiKeyEnv).filter((ref) => typeof ref === "string")
+      const held = refs.length === 0 ? {} : (await ctx.remote.credentials.describe(refs)).value ?? {}
+      const usable = registered.value.filter((entry) => {
+        const ref = profiles[entry.id]?.apiKeyEnv
+        return ref === undefined || held[ref]?.configured === true
+      })
+      const selection = namespaces.find((entry) => entry.ns === DEFAULT_MODEL_NS)
+      if (usable.some((entry) => entry.id === selection?.value?.provider)) return { kind: "ready" }
+      const adoptable = usable
+        .map((entry) => ({ provider: entry.id, model: profiles[entry.id]?.models?.[0]?.id }))
+        .find((candidate) => typeof candidate.model === "string")
+      return adoptable === undefined ? { kind: "absent" } : { kind: "adopt", ...adoptable, revision: selection?.revision }
+    }
+
+    function ModelSetupStep({ complete, openSection, ctx }) {
+      const [blocked, setBlocked] = useState(false)
+      useEffect(() => {
+        let stopped = false
+        const decide = async () => {
+          const setup = await resolveModelSetup(ctx)
+          if (stopped) return
+          if (setup.kind === "absent") {
+            setBlocked(true)
+            return
+          }
+          if (setup.kind === "adopt") {
+            const written = await ctx.remote.settings.mutate(DEFAULT_MODEL_NS, [
+              { op: "set", path: ["provider"], value: setup.provider },
+              { op: "set", path: ["model"], value: setup.model },
+            ], setup.revision)
+            if (stopped) return
+            // A refused write leaves the session without a model, so the dialog stays and
+            // points at the page where the user can pick one by hand.
+            if (!written.ok) {
+              setBlocked(true)
+              return
+            }
+          }
+          complete()
+        }
+        void decide()
+        // The step stays mounted while the user is in Models, so the same decision re-runs
+        // on the events that adding a provider or a key raises, and the dialog gives way by
+        // itself once one lands.
+        const disposers = [
+          ctx.remote.$on("llm/adapters-updated", () => void decide()),
+          ctx.remote.$on("credentials/reference-updated", () => void decide()),
+        ]
+        return () => {
+          stopped = true
+          for (const dispose of disposers) dispose()
+        }
+      }, [complete, ctx])
+      // An onboarding step owns its own chrome, the app root's inert state included.
+      useEffect(() => {
+        const appRoot = document.getElementById("root")
+        if (!blocked || appRoot === null) return
+        const previous = appRoot.inert
+        appRoot.inert = true
+        return () => { appRoot.inert = previous }
+      }, [blocked])
+      if (!blocked) return null
+      const title = text("先添加一个模型服务商", "Add a model provider to start")
+      return h(Modal, { className: "pawwork-onboarding", headless: true, onClose: () => {}, open: true, title },
+        h("div", { className: "pawwork-onboarding-content" },
+          h("h2", { className: "pawwork-onboarding-title" }, title),
+          h("div", { className: "pawwork-onboarding-body" },
+            h("p", null, text("爪印不自带模型。在「模型」里选一个服务商并填入它的 API Key，之后就能开始对话。",
+              "PawWork ships no model of its own. Pick a provider under Models and enter its API key, and conversations can begin.")),
+            h("div", { className: "pawwork-onboarding-actions" },
+              h(Button, { onClick: complete, variant: "outline" }, text("稍后再说", "Not now")),
+              h(Button, { autoFocus: true, className: "pawwork-onboarding-primary", onClick: () => openSection("models"), variant: "primary" },
+                text("打开模型设置", "Open model settings"))))))
     }
 
     function CompleteWelcomeNotice({ complete }) {
@@ -409,7 +534,8 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       return PawGloveMark(props)
     }
 
-    const inject = ["slots", "connection", "sessions", "layout"]
+    const inject = ["slots", "connection", "sessions", "layout",
+      "remote", "remote.credentials", "remote.llm", "remote.settings", "settingsScope"]
 
     function BrandName() { return text("爪印", "PawWork") }
 
@@ -540,6 +666,8 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       ctx.slots.inject("sidebar.brand.name", () => ctx.slots.register({ name: "sidebar.brand.name", priority: -100 }, BrandName))
       ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawGloveMark))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))
+      ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "pawwork-model-setup", order: 0, priority: -1 },
+        (props) => ModelSetupStep({ ...props, ctx })))
       ctx.slots.inject("settings.plugins.tab", () => ctx.slots.register({
         name: "settings.plugins.tab", id: "pawwork-community-market", order: 20,
         label: () => text("社区市场", "Community market"),
