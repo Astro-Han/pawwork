@@ -58,7 +58,7 @@ export const I18N: Record<Lang, Dict> = {
     "t3.f2a": "Missing null check in",
     "t3.f2b": "— minor.",
     "m.h": "Your model, your key",
-    "m.count": "40+",
+    "m.count": "30+",
     "m.num": "providers to choose from",
     "m.lead":
       "<b>Pick a provider and paste a key</b> on first launch, and switch whenever you like. PawWork does not resell model access — you pay your provider directly. Web search is built in and needs no key of its own.",
@@ -135,7 +135,7 @@ export const I18N: Record<Lang, Dict> = {
     "t3.f2a": "",
     "t3.f2b": "缺空值检查，是次要问题。",
     "m.h": "模型自选，Key 在你手里",
-    "m.count": "40+",
+    "m.count": "30+",
     "m.num": "家可选服务商",
     "m.lead":
       "<b>首次启动选服务商、粘贴 Key</b>，之后随时可换。爪印不转售模型额度，费用直接付给服务商。联网搜索内置，不需要另外的 Key。",

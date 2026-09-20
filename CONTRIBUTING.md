@@ -44,7 +44,7 @@ PawWork is a DSH runtime, a native desktop shell, and a product layer on top. Kn
 | Path | What lives there |
 |---|---|
 | `packages/desktop-electron/src/main` | The Electron main process: window chrome, menus, native pickers, updater, DSH sidecar lifecycle |
-| `packages/desktop-electron/resources/dsh` | DSH plugins PawWork owns: OpenCode Free model routes, web search, Automations, v1 migration, desktop host bridge |
+| `packages/desktop-electron/resources/dsh` | DSH plugins PawWork owns: first-run model setup, web search, Automations, v1 migration, desktop host bridge |
 | `skills/` | Vendored Office skills (`.docx`, `.xlsx`, `.pptx`, PDF), run through a bundled `uv` Python toolchain |
 | `site/` | The pawwork.ai marketing site (Astro). Copy for both languages lives in `site/src/i18n.ts` |
 

@@ -11,7 +11,7 @@ import {
 } from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { allRows, overlaidRows, readProductPatch } from "./dsh-product-patch.testing"
 import {
   buildDshEnvironment,
@@ -340,5 +340,27 @@ describe("DSH product home", () => {
       PATH: "/usr/bin",
       DSH_BUNDLED_SKILL_DIR: "/app/skills",
     })
+  })
+  // Four parties have to agree for a paid OpenCode request to carry the id the gateway
+  // routes on, and three of them are upstream: the protocol gate has to offer the switch,
+  // the patch has to turn it on for this route, pi-ai has to write the id under the header
+  // the preload reads, and the preload has to read that same name. Nothing else exercises
+  // the chain — the smoke sends no OpenCode request — so an upstream rename would only
+  // show up as every send failing in a released build.
+  test("keeps the paid OpenCode route's session-id chain spelled the same way end to end", () => {
+    const { adapterRoot, piAiRoot } = installedPiAi()
+    const repositoryRoot = resolve(import.meta.dirname, "../../../..")
+    const adapter = readFileSync(join(adapterRoot, "lib/index.js"), "utf8")
+    const completions = readFileSync(join(piAiRoot, "dist/api/openai-completions.js"), "utf8")
+    const preload = readFileSync(
+      resolve(repositoryRoot, "packages/desktop-electron/resources/dsh/opencode-session.mjs"),
+      "utf8",
+    )
+    const sourceHeader = preload.match(/OPENCODE_SESSION_SOURCE_HEADER = '([^']+)'/)?.[1]
+
+    expect(adapter).toContain('sendSessionAffinityHeaders: "offer"')
+    expect(adapter).toContain('provider === "opencode-go"')
+    expect(sourceHeader).toBe("x-client-request-id")
+    expect(completions).toContain(`headers["${sourceHeader}"]`)
   })
 })
