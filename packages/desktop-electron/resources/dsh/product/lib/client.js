@@ -286,36 +286,25 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     }
 
     const DEFAULT_MODEL_NS = "agent-default-model"
-    const PI_AI_NS = "llm-pi-ai"
 
     /**
-     * What the first run needs from the user before a session can talk to anything.
+     * Whether a new session has a model to send to.
      *
-     * The product ships no key, and the default selection it inherits names a provider
-     * PawWork does not mount, so a session refuses the first message with
-     * `session/model-unavailable` until something points the default at a provider that
-     * can actually serve it. A provider serves when it is registered and any key its
-     * profile names is held — the same join the Models page reads.
+     * The product ships no key, and the default model it inherits from DSH names
+     * `deepseek-official`, which PawWork does not mount — so a first message is refused
+     * with `session/model-unavailable` until the user has both configured a provider and
+     * chosen one of its models. Both show up as the same fact: the selected provider is
+     * not one the adapter registered. Which model to run is the user's to choose, so this
+     * reports the gap rather than closing it.
      */
-    async function resolveModelSetup(ctx) {
+    async function isModelSelectable(ctx) {
       const registered = await ctx.remote.llm.listProviders()
-      if (!registered.ok) return { kind: "unknown" }
+      if (!registered.ok) return true
       const mirror = ctx.settingsScope.describe()
       await mirror.ensure()
-      const namespaces = mirror.getSnapshot().view?.namespaces ?? []
-      const profiles = namespaces.find((entry) => entry.ns === PI_AI_NS)?.value?.providers ?? {}
-      const refs = registered.value.map((entry) => profiles[entry.id]?.apiKeyEnv).filter((ref) => typeof ref === "string")
-      const held = refs.length === 0 ? {} : (await ctx.remote.credentials.describe(refs)).value ?? {}
-      const usable = registered.value.filter((entry) => {
-        const ref = profiles[entry.id]?.apiKeyEnv
-        return ref === undefined || held[ref]?.configured === true
-      })
-      const selection = namespaces.find((entry) => entry.ns === DEFAULT_MODEL_NS)
-      if (usable.some((entry) => entry.id === selection?.value?.provider)) return { kind: "ready" }
-      const adoptable = usable
-        .map((entry) => ({ provider: entry.id, model: profiles[entry.id]?.models?.[0]?.id }))
-        .find((candidate) => typeof candidate.model === "string")
-      return adoptable === undefined ? { kind: "absent" } : { kind: "adopt", ...adoptable, revision: selection?.revision }
+      const selected = mirror.getSnapshot().view?.namespaces
+        ?.find((entry) => entry.ns === DEFAULT_MODEL_NS)?.value?.provider
+      return registered.value.some((entry) => entry.id === selected)
     }
 
     function ModelSetupStep({ complete, openSection, ctx }) {
@@ -323,10 +312,10 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       useEffect(() => {
         let stopped = false
         let deciding = false
-        // The facts are read over several round trips, so an event arriving mid-read would
+        // The facts are read over two round trips, so an event arriving mid-read would
         // otherwise be answered by a verdict formed before it — and with no later event, the
-        // dialog would stay up over a provider that is already usable. Each request marks the
-        // read stale instead, and the loop repeats until it finishes against settled facts.
+        // dialog would stay up over a model that is already selectable. Each request marks
+        // the read stale instead, and the loop repeats until it finishes against settled facts.
         let stale = false
         const decide = async () => {
           stale = true
@@ -335,24 +324,11 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
           try {
             while (stale && !stopped) {
               stale = false
-              const setup = await resolveModelSetup(ctx)
+              const selectable = await isModelSelectable(ctx)
               if (stopped) return
-              if (setup.kind === "absent") {
+              if (!selectable) {
                 setBlocked(true)
                 continue
-              }
-              if (setup.kind === "adopt") {
-                const written = await ctx.remote.settings.mutate(DEFAULT_MODEL_NS, [
-                  { op: "set", path: ["provider"], value: setup.provider },
-                  { op: "set", path: ["model"], value: setup.model },
-                ], setup.revision)
-                if (stopped) return
-                // A refused write leaves the session without a model, so the dialog stays and
-                // points at the page where the user can pick one by hand.
-                if (!written.ok) {
-                  setBlocked(true)
-                  continue
-                }
               }
               complete()
               return
@@ -362,13 +338,12 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
           }
         }
         void decide()
-        // The step stays mounted while the user is in Models, so the same decision re-runs
-        // on the events that adding a provider or a key raises, and the dialog gives way by
-        // itself once one lands.
+        // The step stays mounted while the user is in Models or the composer, so the same
+        // decision re-runs on the events configuring a provider and choosing a model raise,
+        // and the dialog gives way by itself once one lands.
         const disposers = [
           ctx.remote.$on("settings/document-updated", () => void decide()),
           ctx.remote.$on("llm/adapters-updated", () => void decide()),
-          ctx.remote.$on("credentials/reference-updated", () => void decide()),
         ]
         return () => {
           stopped = true
@@ -384,13 +359,13 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
         return () => { appRoot.inert = previous }
       }, [blocked])
       if (!blocked) return null
-      const title = text("先添加一个模型服务商", "Add a model provider to start")
+      const title = text("先设置一个模型", "Set up a model to start")
       return h(Modal, { className: "pawwork-onboarding", headless: true, onClose: () => {}, open: true, title },
         h("div", { className: "pawwork-onboarding-content" },
           h("h2", { className: "pawwork-onboarding-title" }, title),
           h("div", { className: "pawwork-onboarding-body" },
-            h("p", null, text("爪印不自带模型。在「模型」里选一个服务商并填入它的 API Key，之后就能开始对话。",
-              "PawWork ships no model of its own. Pick a provider under Models and enter its API key, and conversations can begin.")),
+            h("p", null, text("爪印不自带模型。在「模型」里添加一个服务商并填入它的 API Key，再到会话输入框的模型按钮里选一个模型。",
+              "PawWork ships no model of its own. Add a provider under Models and enter its API key, then choose one of its models from the model button in the composer.")),
             h("div", { className: "pawwork-onboarding-actions" },
               h(Button, { onClick: complete, variant: "outline" }, text("稍后再说", "Not now")),
               h(Button, { autoFocus: true, className: "pawwork-onboarding-primary", onClick: () => openSection("models"), variant: "primary" },
@@ -553,7 +528,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     }
 
     const inject = ["slots", "connection", "sessions", "layout",
-      "remote", "remote.credentials", "remote.llm", "remote.settings", "settingsScope"]
+      "remote", "remote.llm", "settingsScope"]
 
     function BrandName() { return text("爪印", "PawWork") }
 
