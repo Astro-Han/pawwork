@@ -1,4 +1,4 @@
-import { apply } from './zen-identity.mjs';
+import { apply } from './opencode-session.mjs';
 
 apply();
 

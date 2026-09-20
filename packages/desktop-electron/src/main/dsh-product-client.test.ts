@@ -309,7 +309,8 @@ describe("PawWork DSH client product layer", () => {
     }
 
     plugin.apply(ctx)
-    expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout"])
+    expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout",
+      "remote", "remote.llm", "settingsScope"])
     const welcome = registrations.find((entry) => entry.options.id === "welcome-notice")
     expect(welcome).toBeDefined()
     expect(welcome!.options.priority).toBe(-1)
@@ -375,7 +376,8 @@ describe("PawWork DSH client product layer", () => {
 
     plugin.apply(ctx)
 
-    expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout"])
+    expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout",
+      "remote", "remote.llm", "settingsScope"])
     const overlay = registrations.filter((entry) => entry.options.name === "shell.overlay")
     expect(overlay.map((entry) => entry.options.id)).toEqual(["pawwork-window-chrome", "pawwork-v1-import"])
     const chrome = overlay[0]
@@ -776,5 +778,65 @@ describe("PawWork DSH client product layer", () => {
     await new Promise((resolve) => setImmediate(resolve))
     expect(refresh).not.toHaveBeenCalled()
     expect(timers).toHaveLength(0)
+  })
+  test("hands the app back when the model onboarding step opens the settings section", () => {
+    // The step makes the app root inert while it is up, and the section it points
+    // at renders inside that root, so a step that opens the section without
+    // standing down leaves the user on a page they cannot type into.
+    let step: ((props: Record<string, unknown>) => unknown) | undefined
+    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
+      document: {
+        title: "DeepSeek Harness",
+        documentElement: { lang: "zh-CN" },
+        querySelector: () => null,
+        createElement: () => ({ dataset: {}, textContent: "" }),
+        head: { appendChild: () => {} },
+        body: { firstChild: null, insertBefore: () => {} },
+      },
+      // The v1 import poller starts with the plugin and is not what this test drives.
+      setTimeout: () => 0,
+      clearTimeout: () => {},
+    })
+    const plugin = definition.factory((name) => {
+      if (name === "react") {
+        return {
+          createElement: (type: unknown, props: Record<string, unknown>, ...children: unknown[]) =>
+            ({ type, props: { ...props, children } }),
+          // Pinning the state to `true` renders the blocking branch without
+          // driving the async decision this test is not about.
+          useState: () => [true, () => {}],
+          useEffect: () => {},
+          useRef: () => ({ current: null }),
+        }
+      }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") {
+        return { IconPanelLeftOutline16: () => null, Modal: "Modal", Button: "Button" }
+      }
+      throw new Error(`unexpected product client dependency: ${name}`)
+    })
+    plugin.apply({
+      connection: { rpc: { call: vi.fn() } },
+      effect: (fn: () => unknown) => fn(),
+      remote: { llm: { listProviders: vi.fn() }, $on: () => () => {} },
+      sessions: { refresh: vi.fn(async () => {}) },
+      settingsScope: { describe: () => ({}) },
+      slots: {
+        inject: (_name: string, register: () => void) => register(),
+        register: (options: { id?: string }, component: typeof step) => {
+          if (options.id === "pawwork-model-setup") step = component
+          return () => {}
+        },
+      },
+    })
+
+    const complete = vi.fn()
+    const openSection = vi.fn()
+    const tree = step!({ complete, openSection, stepId: "pawwork-model-setup" })
+    const primary = visit(tree).find((element) =>
+      typeof element.props.className === "string"
+      && element.props.className.includes("pawwork-onboarding-primary"))!
+    ;(primary.props.onClick as () => void)()
+    expect(openSection).toHaveBeenCalledWith("models")
+    expect(complete).toHaveBeenCalled()
   })
 })

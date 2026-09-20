@@ -10,7 +10,6 @@ import {
   appIdForSmoke,
   dshHomeForSmoke,
   assertCiSmokeProduct,
-  assertCiSmokeFreeModelTurn,
   buildSmokeEnv,
   captureWindowsAppScreenshot,
   isCiSmokeDshTarget,
@@ -22,7 +21,7 @@ import {
   resolveLaunchCommand,
   resolveMainEntry,
 } from "./ci-smoke"
-import type { CiSmokeFreeModelTurn, CiSmokeProductSnapshot } from "./ci-smoke"
+import type { CiSmokeProductSnapshot } from "./ci-smoke"
 import { packagedAppEnv } from "./packaged-app-env.ts"
 import type { PawWorkChannel } from "../src/main/app-identity.ts"
 
@@ -338,7 +337,6 @@ describe("ci smoke helpers", () => {
     sidebarExpandToggleHasContent: true,
     sidebarExpandedAgain: true,
     platform: "MacIntel",
-    freeProviderActive: true,
     v1SessionImported: true,
     v1SessionVisibleInSidebar: true,
     skillNames: ["office-docx", "office-pdf", "office-pptx", "office-xlsx"],
@@ -407,7 +405,6 @@ describe("ci smoke helpers", () => {
     sidebarExpandToggleUsable: false,
     sidebarExpandToggleHasContent: false,
     sidebarExpandedAgain: false,
-    freeProviderActive: false,
     v1SessionImported: false,
     v1SessionVisibleInSidebar: false,
     skillNames: ["office-docx"],
@@ -456,7 +453,7 @@ describe("ci smoke helpers", () => {
     // failure would hide the rest until the next run.
     let message = ""
     try {
-      assertCiSmokeProduct({ ...healthy, sidebarExpandedBrandHidden: false, freeProviderActive: false }, "darwin")
+      assertCiSmokeProduct({ ...healthy, sidebarExpandedBrandHidden: false, v1SessionImported: false }, "darwin")
     } catch (error) {
       message = error instanceof Error ? error.message : String(error)
     }
@@ -576,52 +573,3 @@ describe("ci smoke helpers", () => {
   )
 })
 
-describe("free-model turn", () => {
-  const answered: CiSmokeFreeModelTurn = {
-    provider: "opencode",
-    model: "big-pickle",
-    prepared: true,
-    answered: true,
-    completed: true,
-    code: null,
-    events: ["request/header", "assistant/message", "turn/end"],
-  }
-
-  test("accepts a turn the shipped default answered", () => {
-    expect(() => assertCiSmokeFreeModelTurn(answered)).not.toThrow()
-  })
-
-  test("accepts the second Free route, which serves the other wire protocol", () => {
-    expect(() => assertCiSmokeFreeModelTurn({ ...answered, provider: "opencode-responses" })).not.toThrow()
-  })
-
-  test("rejects a default model that is not an OpenCode Free route", () => {
-    for (const provider of ["deepseek", "opencode-paid"]) {
-      expect(() => assertCiSmokeFreeModelTurn({ ...answered, provider }))
-        .toThrow(/not an OpenCode Free route/)
-    }
-  })
-
-  test("rejects a turn that never reached the model layer", () => {
-    expect(() => assertCiSmokeFreeModelTurn({ ...answered, prepared: false, answered: false, events: [] }))
-      .toThrow(/never reached the model layer/)
-  })
-
-  test("rejects a turn that never finished, rather than reading no verdict as a pass", () => {
-    expect(() => assertCiSmokeFreeModelTurn({ ...answered, answered: false, completed: false }))
-      .toThrow(/never put to the test/)
-  })
-
-  test("rejects the credential the gateway refuses", () => {
-    expect(() => assertCiSmokeFreeModelTurn({ ...answered, answered: false, code: "AUTH" }))
-      .toThrow(/rejected as unauthenticated/)
-  })
-
-  test("accepts a turn the gateway failed for a reason other than the credential", () => {
-    // A smoke that went red on upstream instability would be switched off within a week,
-    // and the seeded key is the only part of this the build actually controls.
-    for (const code of ["RATE_LIMIT", "QUOTA_EXCEEDED", "UNKNOWN"]) {
-      expect(() => assertCiSmokeFreeModelTurn({ ...answered, answered: false, code })).not.toThrow()
-    }
-  })
-})

@@ -2,7 +2,7 @@ window.__ModuleLoader__.load({
   id: "@pawwork/dsh-product",
   factory: (require) => {
     const { createElement, useEffect, useRef, useState } = require("react")
-    const { Button, IconPanelLeftOutline16 } = require("@deepseek-ai/dsh-client-ui-primitives")
+    const { Button, IconPanelLeftOutline16, Modal } = require("@deepseek-ai/dsh-client-ui-primitives")
     const h = createElement
 
     const productCss = `
@@ -217,6 +217,37 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
   35% { transform: translate(-3px, -1.5px) rotate(-13deg); }
   70% { transform: translate(3px, 0) rotate(8deg); }
 }
+/* The measurements DSH's own onboarding steps use, so a PawWork step sits in the same
+   dialog as the ones it is ordered beside. */
+.pawwork-onboarding { padding: 0; width: min(600px, 100%); }
+.pawwork-onboarding-content {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 28px;
+}
+.pawwork-onboarding-title {
+  color: var(--dsw-alias-label-primary);
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 28px;
+  margin: 0;
+}
+.pawwork-onboarding-body { margin-top: 20px; }
+.pawwork-onboarding-body p {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 24px;
+  margin: 0;
+}
+.pawwork-onboarding-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 24px; }
+.pawwork-onboarding-primary { min-width: 120px; }
+@media (width <= 560px) {
+  .pawwork-onboarding-content { padding: 24px; }
+  .pawwork-onboarding-primary { flex: 1; }
+}
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   span:has(> [data-slot="conversation.hero.brand.mark"]):hover > [data-slot="conversation.hero.brand.mark"] > svg {
     animation: pawwork-hero-mark-swim var(--ds-transition-duration-slow) var(--ds-ease-in-out);
@@ -252,6 +283,107 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     function icon(paths, size = 16) {
       return h("svg", { "aria-hidden": "true", fill: "none", height: size, viewBox: "0 0 24 24", width: size },
         ...paths.map((path, index) => h("path", { d: path, key: index, stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 1.8 })))
+    }
+
+    const DEFAULT_MODEL_NS = "agent-default-model"
+
+    /**
+     * Whether a new session has a model to send to.
+     *
+     * The product ships no key, and the default model it inherits from DSH names
+     * `deepseek-official`, which PawWork does not mount — so a first message is refused
+     * with `session/model-unavailable` until the user has both configured a provider and
+     * chosen one of its models. Both show up as the same fact: the selected provider is
+     * not one the adapter registered. Which model to run is the user's to choose, so this
+     * reports the gap rather than closing it.
+     */
+    async function isModelSelectable(ctx) {
+      const registered = await ctx.remote.llm.listProviders()
+      if (!registered.ok) return true
+      const mirror = ctx.settingsScope.describe()
+      await mirror.ensure()
+      const selected = mirror.getSnapshot().view?.namespaces
+        ?.find((entry) => entry.ns === DEFAULT_MODEL_NS)?.value?.provider
+      return registered.value.some((entry) => entry.id === selected)
+    }
+
+    function ModelSetupStep({ complete, openSection, ctx }) {
+      const [blocked, setBlocked] = useState(false)
+      // The shell hands a fresh `complete` down on every one of its renders, and it
+      // renders for reasons that have nothing to do with this step. Holding it by
+      // reference keeps those renders from re-running the decision below.
+      const completeRef = useRef(complete)
+      completeRef.current = complete
+      useEffect(() => {
+        let stopped = false
+        let deciding = false
+        // The facts are read over two round trips, so an event arriving mid-read would
+        // otherwise be answered by a verdict formed before it — and with no later event, the
+        // dialog would stay up over a model that is already selectable. Each request marks
+        // the read stale instead, and the loop repeats until it finishes against settled facts.
+        let stale = false
+        const decide = async () => {
+          stale = true
+          if (deciding) return
+          deciding = true
+          try {
+            while (stale && !stopped) {
+              stale = false
+              // Standing down is the answer to "cannot tell" as much as to "yes": this
+              // step is first in the shell's order, so one that never completes is one
+              // that hides every step behind it for the rest of the launch.
+              const selectable = await isModelSelectable(ctx).catch(() => true)
+              if (stopped) return
+              if (!selectable) {
+                setBlocked(true)
+                continue
+              }
+              // A verdict formed before an event that has since arrived is not a
+              // verdict about now, and standing down on it cannot be taken back.
+              if (stale) continue
+              completeRef.current()
+              return
+            }
+          } finally {
+            deciding = false
+          }
+        }
+        void decide()
+        // The step stays mounted while the user is in Models or the composer, so the same
+        // decision re-runs on the events configuring a provider and choosing a model raise,
+        // and the dialog gives way by itself once one lands.
+        const disposers = [
+          ctx.remote.$on("settings/document-updated", () => void decide()),
+          ctx.remote.$on("llm/adapters-updated", () => void decide()),
+        ]
+        return () => {
+          stopped = true
+          for (const dispose of disposers) dispose()
+        }
+      }, [ctx])
+      // An onboarding step owns its own chrome, the app root's inert state included.
+      useEffect(() => {
+        const appRoot = document.getElementById("root")
+        if (!blocked || appRoot === null) return
+        const previous = appRoot.inert
+        appRoot.inert = true
+        return () => { appRoot.inert = previous }
+      }, [blocked])
+      if (!blocked) return null
+      const title = text("先设置一个模型", "Set up a model to start")
+      return h(Modal, { className: "pawwork-onboarding", headless: true, onClose: () => {}, open: true, title },
+        h("div", { className: "pawwork-onboarding-content" },
+          h("h2", { className: "pawwork-onboarding-title" }, title),
+          h("div", { className: "pawwork-onboarding-body" },
+            h("p", null, text("爪印不自带模型。在「模型」里添加一个服务商并填入它的 API Key，再到会话输入框的模型按钮里选一个模型。",
+              "PawWork ships no model of its own. Add a provider under Models and enter its API key, then choose one of its models from the model button in the composer.")),
+            h("div", { className: "pawwork-onboarding-actions" },
+              h(Button, { onClick: complete, variant: "outline" }, text("稍后再说", "Not now")),
+              // The step blocks the app root while it is up, and the section it
+              // opens renders inside that root. Standing down is what makes the
+              // section usable, so it is part of opening it, not a later step.
+              h(Button, { autoFocus: true, className: "pawwork-onboarding-primary", onClick: () => { openSection("models"); complete() }, variant: "primary" },
+                text("打开模型设置", "Open model settings"))))))
     }
 
     function CompleteWelcomeNotice({ complete }) {
@@ -409,7 +541,8 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       return PawGloveMark(props)
     }
 
-    const inject = ["slots", "connection", "sessions", "layout"]
+    const inject = ["slots", "connection", "sessions", "layout",
+      "remote", "remote.llm", "settingsScope"]
 
     function BrandName() { return text("爪印", "PawWork") }
 
@@ -540,6 +673,8 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       ctx.slots.inject("sidebar.brand.name", () => ctx.slots.register({ name: "sidebar.brand.name", priority: -100 }, BrandName))
       ctx.slots.inject("conversation.hero.brand.mark", () => ctx.slots.register({ name: "conversation.hero.brand.mark", priority: -100 }, PawGloveMark))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))
+      ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "pawwork-model-setup", order: 0, priority: -1 },
+        (props) => ModelSetupStep({ ...props, ctx })))
       ctx.slots.inject("settings.plugins.tab", () => ctx.slots.register({
         name: "settings.plugins.tab", id: "pawwork-community-market", order: 20,
         label: () => text("社区市场", "Community market"),

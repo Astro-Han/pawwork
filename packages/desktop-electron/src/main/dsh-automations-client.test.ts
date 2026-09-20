@@ -191,7 +191,7 @@ describe("PawWork DSH Automations client", () => {
                 revision: 1,
                 context: "fresh",
                 cwd: "/tmp/workspace",
-                model: { provider: "opencode", model: "deepseek-v4-flash-free" },
+                model: { provider: "acme", model: "deepseek-v4-flash-free" },
                 timezone: "UTC",
                 kind: "recurring",
                 rhythm: { kind: "cron", expression: "0 9 * * *" },
@@ -253,7 +253,7 @@ describe("PawWork DSH Automations client", () => {
                 paused: false,
                 context: "fresh",
                 cwd: "/tmp/workspace",
-                model: { provider: "opencode", model: "deepseek-v4-flash-free" },
+                model: { provider: "acme", model: "deepseek-v4-flash-free" },
                 timezone: "UTC",
                 kind: "recurring",
                 rhythm: { kind: "cron", expression },
@@ -301,7 +301,7 @@ describe("PawWork DSH Automations client", () => {
         paused: false,
         context: "fresh",
         cwd: "/tmp/workspace",
-        model: { provider: "opencode", model: "deepseek-v4-flash-free" },
+        model: { provider: "acme", model: "deepseek-v4-flash-free" },
         timezone: "UTC",
         kind: "recurring",
         rhythm: { kind: "cron", expression },
@@ -360,7 +360,7 @@ describe("PawWork DSH Automations client", () => {
     const definitionData = {
       id: "automation-1", title: "Weekly digest", prompt: "Summarize the week", revision: 4,
       paused: false, context: "fresh", cwd: "/tmp/workspace",
-      model: { provider: "opencode", model: "deepseek-v4-flash-free" }, timezone: "UTC",
+      model: { provider: "acme", model: "deepseek-v4-flash-free" }, timezone: "UTC",
       kind: "recurring", rhythm: { kind: "cron", expression: "0 9 * * *" },
       stop: { kind: "never" }, recentRuns: [],
     }
@@ -412,16 +412,16 @@ describe("PawWork DSH Automations client", () => {
     const definitionData = {
       id: "automation-1", title: "Weekly digest", prompt: "Summarize the week", revision: 4,
       paused: false, context: "fresh", cwd: "/tmp/workspace",
-      model: { provider: "opencode", model: "deepseek-v4-flash-free" }, timezone: "UTC",
+      model: { provider: "acme", model: "deepseek-v4-flash-free" }, timezone: "UTC",
       kind: "recurring", rhythm: { kind: "cron", expression: "0 9 * * 3" }, stop: { kind: "never" },
       recentRuns: [{
         id: "automation-run-1", state: "succeeded", triggeredAt: 0, sessionId: "session-1", result: "Done",
-        modelFallback: { requested: { provider: "opencode", model: "deepseek-v4-flash-free" }, used: { provider: "opencode", model: "big-pickle" } },
+        modelFallback: { requested: { provider: "acme", model: "deepseek-v4-flash-free" }, used: { provider: "acme", model: "big-pickle" } },
       }],
     }
     const catalog = {
-      routableProviders: ["opencode", "opencode-responses"],
-      groups: [{ id: "opencode", name: "OpenCode", models: [{ id: "big-pickle", name: "Big Pickle" }, { id: "mimo-v2.5-free", name: "MiMo V2.5" }] }],
+      routableProviders: ["acme", "acme-responses"],
+      groups: [{ id: "acme", name: "Acme", models: [{ id: "big-pickle", name: "Big Pickle" }, { id: "mimo-v2.5-free", name: "MiMo V2.5" }] }],
       failures: [{ id: "custom", name: "Custom", message: "ECONNREFUSED" }],
     }
     // Hooks by position: the section's data, selected id, then its catalog is the sixth; the
@@ -478,28 +478,28 @@ describe("PawWork DSH Automations client", () => {
     ])
     const options = visit(modelSelect).filter((element) => element.type === "option")
     expect(options.map((option) => option.props.children)).toEqual([
-      ["opencode/deepseek-v4-flash-free (未列出，运行时改用默认模型)"], ["Big Pickle"], ["MiMo V2.5"],
+      ["acme/deepseek-v4-flash-free (未列出，运行时改用默认模型)"], ["Big Pickle"], ["MiMo V2.5"],
     ])
     expect(modelSelect!.props.value).toBe(options[0].props.value)
-    expect(visit(modelSelect).map((element) => element.props.label).filter(Boolean)).toEqual(["OpenCode"])
+    expect(visit(modelSelect).map((element) => element.props.label).filter(Boolean)).toEqual(["Acme"])
     // The catalog is already loaded, so opening the editor must not ask for it again.
     expect(modelCatalog).not.toHaveBeenCalled()
     expect(formWrites).toHaveLength(0)
 
     ;(modelSelect!.props.onChange as (event: { target: { value: string } }) => void)({ target: { value: options[2].props.value as string } })
     expect(formWrites).toHaveLength(1)
-    expect(formWrites[0]({ provider: "opencode", model: "deepseek-v4-flash-free", title: "Weekly digest" }))
-      .toEqual({ provider: "opencode", model: "mimo-v2.5-free", title: "Weekly digest" })
+    expect(formWrites[0]({ provider: "acme", model: "deepseek-v4-flash-free", title: "Weekly digest" }))
+      .toEqual({ provider: "acme", model: "mimo-v2.5-free", title: "Weekly digest" })
 
     const runTexts = textOf(tree)
-    expect(runTexts).toContain("模型 opencode/deepseek-v4-flash-free 不可用，本次运行使用 opencode/big-pickle")
+    expect(runTexts).toContain("模型 acme/deepseek-v4-flash-free 不可用，本次运行使用 acme/big-pickle")
     expect(runTexts).toContain("Done")
 
     // After the form moved to a listed model the definition's pair is still offered, so the
     // user can move back to it without discarding the rest of the edit. Run now works on the
     // saved definition, so an unsaved model choice blocks it like it blocks Pause.
     stateCall = 0
-    formState = { ...formState, provider: "opencode", model: "mimo-v2.5-free" }
+    formState = { ...formState, provider: "acme", model: "mimo-v2.5-free" }
     const movedTree = visit(settingsSection({
       close: () => {},
       useWorkspaces: (select: (state: unknown) => unknown) => select({ items: [], recentWorkspaceId: null }),
@@ -507,7 +507,7 @@ describe("PawWork DSH Automations client", () => {
     const movedSelect = movedTree.find((element) => element.type === "select" && element.props["aria-label"] === "模型")
     const movedOptions = visit(movedSelect).filter((element) => element.type === "option")
     expect(movedOptions.map((option) => option.props.children)).toEqual([
-      ["opencode/deepseek-v4-flash-free (未列出，运行时改用默认模型)"], ["Big Pickle"], ["MiMo V2.5"],
+      ["acme/deepseek-v4-flash-free (未列出，运行时改用默认模型)"], ["Big Pickle"], ["MiMo V2.5"],
     ])
     expect(movedSelect!.props.value).toBe(movedOptions[2].props.value)
     const runNow = movedTree.find((element) => element.type === "button" && textOf(element).includes("立即运行"))
@@ -519,9 +519,9 @@ describe("PawWork DSH Automations client", () => {
   // run keeps its pair, a provider whose list failed keeps it too, and any other unlisted pair
   // is moved to the default model whether its provider is routable or gone.
   test.each([
-    ["custom", { routableProviders: ["opencode", "custom"], groups: [], failures: [{ id: "custom", name: "Custom", message: "ECONNREFUSED" }] }, "暂时无法列出，运行时仍使用"],
-    ["removed-route", { routableProviders: ["opencode"], groups: [], failures: [] }, "未列出，运行时改用默认模型"],
-    ["opencode", { routableProviders: [], groups: [], failures: [] }, "当前没有可用模型"],
+    ["custom", { routableProviders: ["acme", "custom"], groups: [], failures: [{ id: "custom", name: "Custom", message: "ECONNREFUSED" }] }, "暂时无法列出，运行时仍使用"],
+    ["removed-route", { routableProviders: ["acme"], groups: [], failures: [] }, "未列出，运行时改用默认模型"],
+    ["acme", { routableProviders: [], groups: [], failures: [] }, "当前没有可用模型"],
   ])("labels a %s model by what the catalog proves", (provider, catalog, label) => {
     const document = fakeDocument("zh-CN")
     const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })
@@ -570,7 +570,7 @@ describe("PawWork DSH Automations client", () => {
     const definitionData = {
       id: "automation-1", title: "Weekly digest", prompt: "Summarize the week", revision: 4,
       paused: false, context: "fresh", cwd: "/tmp/workspace",
-      model: { provider: "opencode", model: "big-pickle" }, timezone: "UTC",
+      model: { provider: "acme", model: "big-pickle" }, timezone: "UTC",
       kind: "recurring", rhythm: { kind: "cron", expression: "0 9 * * 3" }, stop: { kind: "never" }, recentRuns: [],
     }
     let stateCall = 0
@@ -616,12 +616,12 @@ describe("PawWork DSH Automations client", () => {
       return visit(modelSelect).filter((element) => element.type === "option").map((option) => option.props.children)
     }
 
-    expect(selectOptions(settingsSection(props))).toEqual([["opencode/big-pickle (正在加载模型…)"]])
+    expect(selectOptions(settingsSection(props))).toEqual([["acme/big-pickle (正在加载模型…)"]])
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
     expect(modelCatalog).toHaveBeenCalledTimes(1)
     expect(catalogWrites).toEqual([{ groups: [], routableProviders: [], failures: [], error: "catalog offline" }])
     stateCall = 0; effectCall = 0
-    expect(selectOptions(settingsSection(props))).toEqual([["opencode/big-pickle (模型列表加载失败)"]])
+    expect(selectOptions(settingsSection(props))).toEqual([["acme/big-pickle (模型列表加载失败)"]])
     // Re-rendering with the editor still open does not ask again.
     expect(modelCatalog).toHaveBeenCalledTimes(1)
     // A failure is not a value: the next editor open asks again.
@@ -638,7 +638,7 @@ describe("PawWork DSH Automations client", () => {
     const definitionData = {
       id: "automation-1", title: "Weekly digest", prompt: "Summarize the week", revision: 4,
       paused: false, context: "fresh", cwd: "/tmp/workspace",
-      model: { provider: "opencode", model: "deepseek-v4-flash-free" }, timezone: "UTC",
+      model: { provider: "acme", model: "deepseek-v4-flash-free" }, timezone: "UTC",
       kind: "recurring", rhythm: { kind: "cron", expression: "0 9 * * 3" },
       stop: { kind: "count", count: 0 }, recentRuns: [],
     }
@@ -689,7 +689,7 @@ describe("PawWork DSH Automations client", () => {
       paused: false,
       context: "fresh",
       cwd: "/tmp/workspace",
-      model: { provider: "opencode", model: "deepseek-v4-flash-free" },
+      model: { provider: "acme", model: "deepseek-v4-flash-free" },
       timezone: "UTC",
       kind: "recurring",
       rhythm: { kind: "interval", everyMs: 86_400_000 },
@@ -768,7 +768,7 @@ describe("PawWork DSH Automations client", () => {
     const definitionData = {
       id: "automation-1", title: "复查 PR", prompt: "Check the PR", revision: 4,
       paused: true, context: "fresh", cwd: "/tmp/workspace",
-      model: { provider: "opencode", model: "deepseek-v4-flash-free" }, timezone: "Asia/Shanghai",
+      model: { provider: "acme", model: "deepseek-v4-flash-free" }, timezone: "Asia/Shanghai",
       kind: "oneshot", fireAt, recentRuns: [],
     }
     let stateCall = 0

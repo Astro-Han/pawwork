@@ -20,7 +20,7 @@ async function applyPlugin(overrides = {}) {
   const listeners = new Map();
   let rpc;
   const ctx = {
-    agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }) },
+    agentDefaultModel: { currentSelection: () => ({ provider: 'acme', model: 'big-pickle' }) },
     agents: { roots: () => overrides.roots ?? [], get: () => undefined, ...overrides.agents },
     connection: { rpc: { handle: (_endpoint, handler) => { rpc = handler; return async () => {}; } } },
     effect: (setup) => { teardowns.push(setup()); },
@@ -89,7 +89,7 @@ test('withholds the automation tools from an automation run session', async () =
     title: 'Brief',
     prompt: 'Write the brief.',
     cwd: '/workspace',
-    model: { provider: 'opencode', model: 'big-pickle' },
+    model: { provider: 'acme', model: 'big-pickle' },
     timezone: 'UTC',
     kind: 'recurring',
     rhythm: { kind: 'interval', everyMs: 60_000 },
@@ -121,15 +121,15 @@ test('moves a run to the default model only on a verdict from the adapter table'
   const unknown = (model) => Object.assign(new Error(`no configured model ${model}`), { code: 'UNKNOWN_MODEL' });
   const noAdapter = Object.assign(new Error('no adapter registered'), { code: 'NO_ADAPTER' });
   const answers = {
-    'opencode/mimo-v2.5-free': null,
-    'opencode/big-pickle': null,
-    'opencode/deepseek-v4-flash-free': unknown('deepseek-v4-flash-free'),
-    'opencode/other-gone': unknown('other-gone'),
+    'acme/mimo-v2.5-free': null,
+    'acme/big-pickle': null,
+    'acme/deepseek-v4-flash-free': unknown('deepseek-v4-flash-free'),
+    'acme/other-gone': unknown('other-gone'),
     'anthropic/claude': noAdapter,
     'custom/anything': new Error('catalog offline'),
   };
-  let providers = [{ id: 'opencode' }, { id: 'opencode-responses' }];
-  let defaultModel = { provider: 'opencode', model: 'big-pickle' };
+  let providers = [{ id: 'acme' }, { id: 'acme-responses' }];
+  let defaultModel = { provider: 'acme', model: 'big-pickle' };
   const ctx = {
     llm: {
       listProviders: () => providers,
@@ -141,32 +141,32 @@ test('moves a run to the default model only on a verdict from the adapter table'
     },
     agentDefaultModel: { currentSelection: () => defaultModel },
   };
-  const moved = (provider, model) => ({ requested: { provider, model }, used: { provider: 'opencode', model: 'big-pickle' } });
+  const moved = (provider, model) => ({ requested: { provider, model }, used: { provider: 'acme', model: 'big-pickle' } });
 
-  assert.equal(await resolveRunModel(ctx, { provider: 'opencode', model: 'mimo-v2.5-free' }), null);
-  assert.deepEqual(await resolveRunModel(ctx, { provider: 'opencode', model: 'deepseek-v4-flash-free' }), moved('opencode', 'deepseek-v4-flash-free'));
+  assert.equal(await resolveRunModel(ctx, { provider: 'acme', model: 'mimo-v2.5-free' }), null);
+  assert.deepEqual(await resolveRunModel(ctx, { provider: 'acme', model: 'deepseek-v4-flash-free' }), moved('acme', 'deepseek-v4-flash-free'));
   assert.deepEqual(await resolveRunModel(ctx, { provider: 'anthropic', model: 'claude' }), moved('anthropic', 'claude'));
   assert.equal(await resolveRunModel(ctx, { provider: 'custom', model: 'anything' }), null);
-  assert.equal(await resolveRunModel(ctx, { provider: 'opencode', model: 'big-pickle' }), null);
+  assert.equal(await resolveRunModel(ctx, { provider: 'acme', model: 'big-pickle' }), null);
   providers = [];
   assert.equal(await resolveRunModel(ctx, { provider: 'anthropic', model: 'claude' }), null);
-  providers = [{ id: 'opencode' }];
-  defaultModel = { provider: 'opencode', model: 'other-gone' };
-  assert.equal(await resolveRunModel(ctx, { provider: 'opencode', model: 'deepseek-v4-flash-free' }), null);
-  defaultModel = { provider: 'opencode', model: 'big-pickle' };
+  providers = [{ id: 'acme' }];
+  defaultModel = { provider: 'acme', model: 'other-gone' };
+  assert.equal(await resolveRunModel(ctx, { provider: 'acme', model: 'deepseek-v4-flash-free' }), null);
+  defaultModel = { provider: 'acme', model: 'big-pickle' };
 
   // Writers apply the same verdict and refuse instead of substituting.
   const checkModel = createModelCheck(ctx);
-  await checkModel({ provider: 'opencode', model: 'mimo-v2.5-free' });
+  await checkModel({ provider: 'acme', model: 'mimo-v2.5-free' });
   await checkModel({ provider: 'custom', model: 'anything' });
-  for (const model of [{ provider: 'opencode', model: 'deepseek-v4-flash-free' }, { provider: 'anthropic', model: 'claude' }]) {
+  for (const model of [{ provider: 'acme', model: 'deepseek-v4-flash-free' }, { provider: 'anthropic', model: 'claude' }]) {
     await assert.rejects(checkModel(model), (error) => error.code === 'unknown-model' && error.message === `model ${model.provider}/${model.model} is not available`);
   }
 });
 
 test('records the model a run was moved to before the agent exists, and does not create one after an abort', async () => {
   const { createDshExecutor } = await import(`${pathToFileURL(path.join(__dirname, 'index.js')).href}?fallback=${Date.now()}`);
-  const requested = { provider: 'opencode', model: 'deepseek-v4-flash-free' };
+  const requested = { provider: 'acme', model: 'deepseek-v4-flash-free' };
   const recorded = [];
   const warnings = [];
   let recordFailure = null;
@@ -179,14 +179,14 @@ test('records the model a run was moved to before the agent exists, and does not
   let releaseLookup;
   const ctx = {
     llm: {
-      listProviders: () => [{ id: 'opencode' }],
+      listProviders: () => [{ id: 'acme' }],
       // The requested pair is answered on release; the default model resolves at once.
       resolveModelInfo: (provider, model) => new Promise((resolve, reject) => {
         if (model !== 'deepseek-v4-flash-free') return resolve({ provider, id: model, name: model });
         releaseLookup = () => reject(Object.assign(new Error('no configured model'), { code: 'UNKNOWN_MODEL' }));
       }),
     },
-    agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }) },
+    agentDefaultModel: { currentSelection: () => ({ provider: 'acme', model: 'big-pickle' }) },
     logger: { warn: (message) => warnings.push(message) },
   };
 
@@ -229,8 +229,8 @@ test('records the model a run was moved to before the agent exists, and does not
   releaseLookup();
   const output = await completion;
 
-  assert.deepEqual(recorded, [{ id: 'automation-run-1', modelFallback: { requested, used: { provider: 'opencode', model: 'big-pickle' } } }]);
-  assert.deepEqual(created, [{ provider: 'opencode', model: 'big-pickle' }]);
+  assert.deepEqual(recorded, [{ id: 'automation-run-1', modelFallback: { requested, used: { provider: 'acme', model: 'big-pickle' } } }]);
+  assert.deepEqual(created, [{ provider: 'acme', model: 'big-pickle' }]);
   assert.equal(output.result, 'ran');
 
   const controller = new AbortController();
@@ -269,7 +269,7 @@ test('the plugin as wired writes the substituted model into the run record on di
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-wired-'));
   const definition = new AutomationStore(path.join(home, 'automations.json')).createDefinition({
     kind: 'oneshot', title: 'Digest', prompt: 'Go.', cwd: '/workspace', fireAt: Date.now() + 86_400_000,
-    model: { provider: 'opencode', model: 'deepseek-v4-flash-free' },
+    model: { provider: 'acme', model: 'deepseek-v4-flash-free' },
   }, Date.now());
   const events = [];
   const agent = {
@@ -288,7 +288,7 @@ test('the plugin as wired writes the substituted model into the run record on di
   const plugin = await applyPlugin({
     home,
     llm: {
-      listProviders: () => [{ id: 'opencode' }],
+      listProviders: () => [{ id: 'acme' }],
       resolveModelInfo: async (provider, model) => {
         if (model === 'deepseek-v4-flash-free') throw Object.assign(new Error('no configured model'), { code: 'UNKNOWN_MODEL' });
         return { provider, id: model, name: model };
@@ -306,8 +306,8 @@ test('the plugin as wired writes the substituted model into the run record on di
     }
     assert.equal(run.state, 'succeeded');
     assert.deepEqual(run.modelFallback, {
-      requested: { provider: 'opencode', model: 'deepseek-v4-flash-free' },
-      used: { provider: 'opencode', model: 'big-pickle' },
+      requested: { provider: 'acme', model: 'deepseek-v4-flash-free' },
+      used: { provider: 'acme', model: 'big-pickle' },
     });
   } finally {
     await plugin.dispose();

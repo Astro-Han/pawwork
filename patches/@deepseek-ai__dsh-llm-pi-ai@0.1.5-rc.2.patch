@@ -1,5 +1,5 @@
 diff --git a/lib/index.js b/lib/index.js
-index e06cf8d5faf9755710420623908478c704b225b8..079169ccc5b783b6d4a12a69fcf89bbc60fd0889 100644
+index e06cf8d5faf9755710420623908478c704b225b8..a4ac43549e8475b35cb80d44d9eb8eda7b24b613 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -400,7 +400,12 @@ const COMPLETIONS_COMPAT_GATE = {
@@ -16,7 +16,30 @@ index e06cf8d5faf9755710420623908478c704b225b8..079169ccc5b783b6d4a12a69fcf89bbc
  	deferredToolsMode: "withhold",
  	sessionAffinityFormat: "withhold"
  };
-@@ -1364,7 +1369,12 @@ function classifyPiAiError(message) {
+@@ -632,6 +637,22 @@ function resolveModelCompat(provider, entry, route, base, api) {
+ */
+ function resolveRouteModels(request, validation = "strict") {
+ 	const { provider } = request;
++	/* PawWork patch: the OpenCode gateway refuses an inference request that carries
++	no per-conversation id, and the Completions protocol gates those headers behind
++	`sendSessionAffinityHeaders`. That is a fact about the endpoint, not a choice a
++	user makes, so it belongs with the route rather than in their settings document
++	— writing it there would also register the route before they have a key for it,
++	putting its models in the picker where every one of them fails. Drop this once
++	the bundled catalog carries the switch. */
++	if (provider === "opencode-go" && request.compat?.sendSessionAffinityHeaders === void 0) {
++		request = {
++			...request,
++			compat: {
++				...request.compat,
++				sendSessionAffinityHeaders: true
++			}
++		};
++	}
+ 	const defaults = catalogModels(provider);
+ 	const providerBaseUrl = catalogProvider(provider)?.baseUrl;
+ 	const configured = request.models ?? [];
+@@ -1364,7 +1385,12 @@ function mapUsage(usage) {
  	};
  }
  function classifyPiAiError(message) {
@@ -30,7 +53,7 @@ index e06cf8d5faf9755710420623908478c704b225b8..079169ccc5b783b6d4a12a69fcf89bbc
  	if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE;
  	if (/\b429\b|rate.?limit/i.test(message)) return "RATE_LIMIT";
  	if (/\b413\b|failed to buffer the request body:\s*length limit exceeded|payload too large|request body too large/i.test(message)) return "INVALID_REQUEST";
-@@ -2564,7 +2569,18 @@ function directoryEntries(profiles) {
+@@ -2564,7 +2590,18 @@ function directoryEntries(profiles) {
  			...error === void 0 ? {} : { error }
  		});
  	};

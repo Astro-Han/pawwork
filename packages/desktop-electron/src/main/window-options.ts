@@ -21,6 +21,11 @@ export function dshWebPreferences(preload: string) {
     sandbox: true,
     contextIsolation: true,
     nodeIntegration: false,
+    // A window another window fully covers is reported as occluded, and Chromium then
+    // throttles its timers to once a second and can stop them outright. The window
+    // still renders a running agent's stream, so the throttle shows up as output that
+    // stalls while the user works elsewhere and jumps when they come back.
+    backgroundThrottling: false,
     preload,
   }
 }
