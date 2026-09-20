@@ -309,6 +309,11 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
 
     function ModelSetupStep({ complete, openSection, ctx }) {
       const [blocked, setBlocked] = useState(false)
+      // The shell hands a fresh `complete` down on every one of its renders, and it
+      // renders for reasons that have nothing to do with this step. Holding it by
+      // reference keeps those renders from re-running the decision below.
+      const completeRef = useRef(complete)
+      completeRef.current = complete
       useEffect(() => {
         let stopped = false
         let deciding = false
@@ -324,13 +329,19 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
           try {
             while (stale && !stopped) {
               stale = false
-              const selectable = await isModelSelectable(ctx)
+              // Standing down is the answer to "cannot tell" as much as to "yes": this
+              // step is first in the shell's order, so one that never completes is one
+              // that hides every step behind it for the rest of the launch.
+              const selectable = await isModelSelectable(ctx).catch(() => true)
               if (stopped) return
               if (!selectable) {
                 setBlocked(true)
                 continue
               }
-              complete()
+              // A verdict formed before an event that has since arrived is not a
+              // verdict about now, and standing down on it cannot be taken back.
+              if (stale) continue
+              completeRef.current()
               return
             }
           } finally {
@@ -349,7 +360,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
           stopped = true
           for (const dispose of disposers) dispose()
         }
-      }, [complete, ctx])
+      }, [ctx])
       // An onboarding step owns its own chrome, the app root's inert state included.
       useEffect(() => {
         const appRoot = document.getElementById("root")
@@ -368,7 +379,10 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
               "PawWork ships no model of its own. Add a provider under Models and enter its API key, then choose one of its models from the model button in the composer.")),
             h("div", { className: "pawwork-onboarding-actions" },
               h(Button, { onClick: complete, variant: "outline" }, text("稍后再说", "Not now")),
-              h(Button, { autoFocus: true, className: "pawwork-onboarding-primary", onClick: () => openSection("models"), variant: "primary" },
+              // The step blocks the app root while it is up, and the section it
+              // opens renders inside that root. Standing down is what makes the
+              // section usable, so it is part of opening it, not a later step.
+              h(Button, { autoFocus: true, className: "pawwork-onboarding-primary", onClick: () => { openSection("models"); complete() }, variant: "primary" },
                 text("打开模型设置", "Open model settings"))))))
     }
 

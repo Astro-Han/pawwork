@@ -444,6 +444,11 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       }
       return actions
     }
+    // Standing the step down only means something once it has stood up. Without this the
+    // absence below is satisfied by a step that never rendered at all — a broken slot
+    // registration would pass the smoke rather than fail it.
+    const onboardingStoodUp = await waitFor(() => document.querySelector(".pawwork-onboarding-content"), 600, 100)
+    if (!onboardingStoodUp) throw new Error("the first-run model onboarding step never appeared on a home with no provider")
     // The product ships no model credential, so nothing registers a provider until a user
     // configures one, and every probe below that reads the model catalog would see an empty
     // list. Configure one the way the Models page does — profile into the adapter's settings
@@ -480,6 +485,9 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     // The step blocks the app root while it is up, so every probe below reads through it.
     const onboardingStoodDown = await waitFor(() => !document.querySelector(".pawwork-onboarding-content"), 600, 100)
     if (!onboardingStoodDown) throw new Error("the first-run model onboarding step stayed up after a provider was configured")
+    // Standing down has to give the app back. An inert root is invisible in a
+    // screenshot and in the DOM tree, and it makes every control below dead.
+    if (document.getElementById("root")?.inert) throw new Error("the first-run model onboarding step left the app root inert")
     const isWindows = /^Win/i.test(navigator.platform)
     let selectedWorkspace = ${workspace}
     if (!isWindows) await call("workspace/create", { request: { path: ${workspace} } })
