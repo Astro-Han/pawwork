@@ -22,12 +22,6 @@ import {
   resolveProductResources,
 } from "./dsh-product-home"
 
-// The product plugin the packaged patch has to stay in step with. It ships as
-// CommonJS into the DSH home, so it is required rather than imported.
-const { OPENCODE_ROUTES, OPENCODE_ROUTE_BASE_URL } = createRequire(import.meta.url)(
-  "../../resources/dsh/product/lib/opencode-free.cjs",
-) as { OPENCODE_ROUTES: Array<{ route: string; api: string }>; OPENCODE_ROUTE_BASE_URL: string }
-
 const appPath = join(import.meta.dirname, "../..")
 const hostModules = resolveHostModules({ appPath, isPackaged: false, resourcesPath: "/unused" })
 
@@ -153,7 +147,7 @@ describe("DSH product home", () => {
 
     expect(readFileSync(credentials, "utf8")).toBe('DEEPSEEK_API_KEY: "user-key"\n')
     expect(readFileSync(join(productHome, "automations.json"), "utf8")).toBe('{"definitions":[]}')
-    expect(readFileSync(prepared.patch, "utf8")).toContain("id: agent-default-model")
+    expect(readFileSync(prepared.patch, "utf8")).toContain("id: llm-deepseek")
     expect(
       JSON.parse(readFileSync(join(productHome, "node_modules/@pawwork/dsh-product/package.json"), "utf8")).name,
     ).toBe("@pawwork/dsh-product")
@@ -252,9 +246,8 @@ describe("DSH product home", () => {
     ).toThrow(/host module scope is missing/)
   })
 
-  // The store is the user's, and the free-model credential is not: it now arrives through the
-  // launching environment, which outranks the store. Writing a seed into the store as well would
-  // put a value the product owns somewhere the user can edit, to no effect.
+  // The product ships no credential, so a fresh home must not carry one: a store written here
+  // would be a key the user never supplied and cannot see.
   test("leaves the credential store alone for a fresh product home", () => {
     const productHome = join(temporaryDirectory(), "fresh")
     const resources = join(import.meta.dirname, "../../resources/dsh")
@@ -262,95 +255,6 @@ describe("DSH product home", () => {
     prepareDshProductHome({ productHome, resources, hostModules })
 
     expect(existsSync(join(productHome, ".credentials.yaml"))).toBe(false)
-  })
-
-  test("publishes OpenCode Free on one route per protocol the gateway serves", () => {
-    const patch = readProductPatch()
-    const modelDefaults = patch.find((entry) => entry.id === "agent-default-model")?.config as {
-      provider: string
-      model: string
-    }
-    const providerConfig = patch.find((entry) => entry.id === "llm-pi-ai")?.config as {
-      providers: Record<string, {
-        apiKeyEnv?: string
-        displayName?: string
-        api?: string
-        baseURL?: string
-        models?: Array<{ id: string }>
-      }>
-    }
-    const catalog = installedOpenCodeCatalog()
-    const environment: NodeJS.ProcessEnv = buildDshEnvironment("/app/skills", {})
-
-    // The patch and the refresh have to name the same routes: a route only one
-    // of them knows is either never refreshed or published as a third provider.
-    expect(Object.keys(providerConfig.providers).sort()).toEqual(
-      OPENCODE_ROUTES.map((entry) => entry.route).sort(),
-    )
-
-    for (const { route, api } of OPENCODE_ROUTES) {
-      const profile = providerConfig.providers[route]
-      // Whatever ref the route names, the launcher has to be the one stating it: a ref only the
-      // patch knows is a credential nothing supplies, and every free model answers 401.
-      expect(profile.apiKeyEnv).toBeTypeOf("string")
-      expect(environment[profile.apiKeyEnv as string]).toBe("public")
-      expect(profile.displayName).toMatch(/^OpenCode Free/)
-      expect(profile.baseURL).toBe(OPENCODE_ROUTE_BASE_URL)
-      // The protocol has to be one the installed adapter still spells this way.
-      expect([...catalog.keys()]).toContain(api)
-      expect(profile.api).toBe(api)
-      expect(profile.models?.length).toBeGreaterThan(0)
-
-      for (const { id } of profile.models ?? []) {
-        // A packaged id the catalog does not describe is exactly why each route
-        // names its own protocol; one it does describe must agree with it, and
-        // must still be free.
-        const served = [...catalog].find(([, models]) => models.has(id))
-        if (served === undefined) continue
-        expect(served[0]).toBe(api)
-        expect(served[1].get(id)?.cost?.input).toBe(0)
-      }
-    }
-
-    expect(modelDefaults.provider).toBe("opencode")
-    expect(providerConfig.providers.opencode.models?.map((model) => model.id)).toContain(modelDefaults.model)
-  })
-
-  // The gateway rejects an inference request with no per-conversation id, and three
-  // packages have to agree for one to go out: the patched adapter has to let a route
-  // ask for it, the packaged patch has to ask, and the header the preload restates
-  // has to be the one pi-ai still writes. Each half is silent on its own.
-  test("carries a per-conversation id to the gateway on both routes", async () => {
-    const { adapterRoot, piAiRoot } = installedPiAi()
-    const adapter = readFileSync(join(adapterRoot, "lib/index.js"), "utf8")
-    const { OPENCODE_ZEN_SESSION_SOURCE_HEADER } = (await import(
-      "../../resources/dsh/zen-identity.mjs"
-    )) as { OPENCODE_ZEN_SESSION_SOURCE_HEADER: string }
-    const providerConfig = readProductPatch().find((entry) => entry.id === "llm-pi-ai")?.config as {
-      providers: Record<string, { compat?: { sendSessionAffinityHeaders?: boolean } }>
-    }
-
-    // Scoped to the Completions gate, because the adapter drops a route-level
-    // switch its gate does not offer with a bare `continue`, and asks whether ANY
-    // protocol offers the field before it complains — a question
-    // `anthropic-messages` already answers for this one. So a whole-file match
-    // would go green off another protocol's gate while the route silently sends
-    // nothing.
-    const completionsGate = adapter.indexOf("const COMPLETIONS_COMPAT_GATE = {")
-    expect(completionsGate).toBeGreaterThan(-1)
-    // Upstream withholds this switch; the packaged patch is what reopens it.
-    expect(adapter.slice(completionsGate, adapter.indexOf("\n};", completionsGate))).toContain(
-      'sendSessionAffinityHeaders: "offer"',
-    )
-    // Completions gates the id behind the switch and defaults it off. Responses
-    // sends it unconditionally, which is why only one route names it.
-    expect(providerConfig.providers.opencode.compat?.sendSessionAffinityHeaders).toBe(true)
-    expect(providerConfig.providers["opencode-responses"].compat?.sendSessionAffinityHeaders).toBeUndefined()
-
-    for (const api of ["openai-completions", "openai-responses"]) {
-      const source = readFileSync(join(piAiRoot, `dist/api/${api}.js`), "utf8")
-      expect(source).toContain(`"${OPENCODE_ZEN_SESSION_SOURCE_HEADER}"`)
-    }
   })
 
   test("does not publish the bundled paid DeepSeek route", () => {
@@ -407,7 +311,6 @@ describe("DSH product home", () => {
     expect(environment).toEqual({
       PATH: "/usr/bin",
       DSH_BUNDLED_SKILL_DIR: "/app/skills",
-      OPENCODE_API_KEY: "public",
     })
   })
 
@@ -426,14 +329,16 @@ describe("DSH product home", () => {
     expect(environment).toEqual({
       PATH: "/usr/bin",
       DSH_BUNDLED_SKILL_DIR: "/app/skills",
-      OPENCODE_API_KEY: "public",
     })
   })
 
-  // The whole fix rests on this value reaching the sidecar as an inherited environment variable:
-  // credentials-local ranks that layer above its own store and refuses writes it would shadow, so
-  // a key a user types on the Models page cannot displace it or reach the gateway.
-  test("states the free-model credential even when nothing ambient names it", () => {
-    expect(buildDshEnvironment("/app/skills", { PATH: "/usr/bin" }).OPENCODE_API_KEY).toBe("public")
+  // credentials-local ranks the inherited environment above its own store and refuses writes it
+  // would shadow, so a key left in the environment would make the one a user types on the Models
+  // page unusable without saying so.
+  test("names no model credential of its own", () => {
+    expect(buildDshEnvironment("/app/skills", { PATH: "/usr/bin" })).toEqual({
+      PATH: "/usr/bin",
+      DSH_BUNDLED_SKILL_DIR: "/app/skills",
+    })
   })
 })

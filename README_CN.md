@@ -1,6 +1,6 @@
 # 爪印 PawWork
 
-**免费、开源的桌面 AI 智能体，支持 macOS 和 Windows。基于 DeepSeek Harness（DSH）打包成一个完整产品——不用终端，不用 API Key，不用付费订阅。**
+**免费、开源的桌面 AI 智能体，支持 macOS 和 Windows。基于 DeepSeek Harness（DSH）打包成一个完整产品——不用终端，不用订阅，模型 Key 自备。**
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![macOS](https://img.shields.io/badge/macOS-signed_and_notarized-black.svg)](https://github.com/Astro-Han/pawwork/releases/latest)
@@ -8,7 +8,7 @@
 
 [English](README.md) · [官网](https://pawwork.ai)
 
-爪印把 DSH 的智能体运行时装配成一个可以直接交给普通人使用的桌面应用。免费模型、联网搜索、Office 文档能力都已经接好，第一次打开就是：选个文件夹，用大白话说要做什么。
+爪印把 DSH 的智能体运行时装配成一个可以直接交给普通人使用的桌面应用。联网搜索和 Office 文档能力都已经接好，填好模型 Key 之后就是：选个文件夹，用大白话说要做什么。
 
 它是 [Codex App](https://openai.com/codex/) 和 [Claude Cowork](https://www.anthropic.com/product/claude-cowork) 的开源替代——面向日常的文档、表格、资料整理和文件处理，而不只是浏览器里聊天或 IDE 里写代码。
 
@@ -23,7 +23,7 @@
 | | 爪印 PawWork | 常见的 DSH 桌面套壳 |
 |---|---|---|
 | 目标用户 | 不写代码的知识工作者 | 已经在用 DSH 的开发者 |
-| 首次启动 | 内置免费模型，不需要 Key | 自备 API Key |
+| 首次启动 | 引导式配置：选服务商、粘贴 Key | 自备 API Key |
 | 界面 | 原生 Electron 外壳——系统菜单、原生文件夹与文件选择器、原生更新 | 窗口里的官方 DSH Web UI |
 | Office 文件 | 内置 `.docx` / `.xlsx` / `.pptx` / PDF 能力，附带 Python 工具链 | 不包含 |
 | 定时任务 | Automations——按 cron 计划自动执行已保存的任务 | 不包含 |
@@ -38,7 +38,7 @@
 | | 爪印 PawWork | Codex App | Claude Desktop（Cowork） |
 |---|---|---|---|
 | 开源 | 是（Apache-2.0） | 否 | 否 |
-| 免订阅可用 | 是（OpenCode Free） | 有限（ChatGPT Free） | 否（需 Pro，$20/月） |
+| 免订阅可用 | 应用免费，模型费用付给服务商 | 有限（ChatGPT Free） | 否（需 Pro，$20/月） |
 | 桌面应用 | macOS + Windows | macOS + Windows | macOS + Windows |
 | 本地文件访问 | 完整工作目录 | 默认沙箱 | 用户选定的文件夹 |
 | Office 文件（Word/Excel/PPT） | 是 | 否 | 是 |
@@ -81,9 +81,9 @@ Automations 按 cron 计划自动执行已保存的任务——周一早上汇�
 
 ## 模型与搜索
 
-爪印内置来自 OpenCode Free 的一批精选免费模型，以及联网搜索。不需要 API Key，也不需要购买模型订阅。如果你更想用自己的服务商，也可以在设置里配置。
+爪印不附带任何模型凭据。首次启动会引导你选择服务商并粘贴 API Key，Key 保存在本地，随时可以在设置里更换。DSH 模型适配器支持的服务商都可以用。
 
-免费模型列表在运行时从 [models.dev](https://models.dev) 目录刷新，目录不可达时回落到随包列表，所以应用内看到的模型可能在不更新版本的情况下发生变化。
+联网搜索是内置的：没有配置搜索 Key 时走共享的匿名额度，所以不需要再准备第二个凭据。
 
 ## 下载
 
@@ -100,7 +100,7 @@ Automations 按 cron 计划自动执行已保存的任务——周一早上汇�
 
 - **运行时** —— 一组锁定版本的官方 `@deepseek-ai/dsh-*` 包（会话、工具、沙箱、上下文压缩、联网搜索、子智能体），在 sidecar 进程里装配，而不是去调 `dsh` CLI。
 - **原生外壳** —— [`packages/desktop-electron/src/main`](packages/desktop-electron/src/main)：窗口装饰、应用菜单、原生目录与文件选择器、Windows 安装器加固、自动更新。
-- **产品层** —— [`packages/desktop-electron/resources/dsh`](packages/desktop-electron/resources/dsh)：爪印自己维护的 DSH 插件，包括 OpenCode Free 模型路由、内置联网搜索、Automations、v1 设置迁移和桌面宿主桥接。
+- **产品层** —— [`packages/desktop-electron/resources/dsh`](packages/desktop-electron/resources/dsh)：爪印自己维护的 DSH 插件，包括内置联网搜索、Automations、v1 设置迁移和桌面宿主桥接。
 - **Skills** —— [`skills/`](skills)：随包的 Office skills，覆盖 `.docx`、`.xlsx`、`.pptx` 和 PDF，通过随包的 [`uv`](https://github.com/astral-sh/uv) Python 工具链执行，不依赖系统 Python。
 
 ## 从源码构建
@@ -119,13 +119,13 @@ pnpm dev:desktop
 ## 常见问题
 
 **爪印是免费的吗？**
-是。爪印采用 Apache-2.0 许可，内置免费模型和联网搜索，不需要 API Key 就能开始使用。
+应用本身免费，采用 Apache-2.0 许可，内置联网搜索也不收费。模型用量由你自备 Key 的那家服务商计费。
 
 **爪印和 DeepSeek Harness 是什么关系？**
-爪印用 DSH 作为智能体运行时。它是一个独立的开源产品：装配 DSH 的包，加上原生桌面外壳，再加上自己的插件来提供免费模型、联网搜索、Automations 和 Office 能力。与 DeepSeek 官方无隶属关系。
+爪印用 DSH 作为智能体运行时。它是一个独立的开源产品：装配 DSH 的包，加上原生桌面外壳，再加上自己的插件来提供联网搜索、Automations 和 Office 能力。与 DeepSeek 官方无隶属关系。
 
 **爪印和其他 DSH 桌面端有什么不同？**
-其他大多是面向已经在用 DSH、自备 API Key 的开发者的启动器。爪印面向不写代码的用户：内置免费模型，随包提供 Office 能力和 Python 工具链，外壳是原生的而不是把 Web UI 装进窗口，并且 macOS 已签名、Windows 也有安装包。
+其他大多是面向已经在用 DSH 的开发者的启动器。爪印面向不写代码的用户：配置模型 Key 有引导而不是默认你已经会，随包提供 Office 能力和 Python 工具链，外壳是原生的而不是把 Web UI 装进窗口，并且 macOS 已签名、Windows 也有安装包。
 
 **能在爪印里用 DSH 插件吗？**
 可以。底层是真正的 DSH，社区插件可以直接安装运行。
@@ -139,15 +139,15 @@ PDF、Word（`.docx`）、Excel（`.xlsx`）、PowerPoint（`.pptx`）、CSV、M
 **能定时执行任务吗？**
 可以。Automations 按 cron 计划执行已保存的任务，结果写回你的工作目录。
 
-**能用自己的模型吗？**
-可以。默认用内置免费模型，是为了让第一次使用不需要任何配置；你也可以在设置里配置自己的服务商。
+**该用哪家模型服务商？**
+DSH 模型适配器支持的都可以。爪印不转售模型额度，也不抽成——Key 在你手里，费用直接付给服务商。
 
 **支持哪些平台？**
 macOS（Apple 芯片与 Intel，已签名公证）和 Windows x64。
 
 ## 运行时与致谢
 
-爪印基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 构建。同时感谢 OpenCode 项目与社区，以及 [Astral](https://github.com/astral-sh) 的 `uv`。
+爪印基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 构建。同时感谢 [Astral](https://github.com/astral-sh) 的 `uv`。
 
 第三方声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 

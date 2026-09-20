@@ -41,7 +41,7 @@ function seedHomes(): Homes {
   mkdirSync(join(legacyHome, "import-v1"), { recursive: true })
   writeFileSync(join(legacyHome, "sessions", "session-1.json"), '{"id":"session-1"}')
   writeFileSync(join(legacyHome, "settings.yaml"), "theme: dark\n")
-  writeFileSync(join(legacyHome, ".credentials.yaml"), 'OPENCODE_API_KEY: "public"\n', { mode: 0o600 })
+  writeFileSync(join(legacyHome, ".credentials.yaml"), 'DEEPSEEK_API_KEY: "user-key"\n', { mode: 0o600 })
   writeFileSync(join(legacyHome, "automations.json"), '{"schema":1}')
   writeFileSync(join(legacyHome, "import-v1", "ledger.json"), '{"schema":1}')
   symlinkSync("/Applications/PawWork.app/Contents/Resources/dsh", join(legacyHome, "installed"))
