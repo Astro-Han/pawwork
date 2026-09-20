@@ -487,7 +487,11 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     if (!onboardingStoodDown) throw new Error("the first-run model onboarding step stayed up after a provider was configured")
     // Standing down has to give the app back. An inert root is invisible in a
     // screenshot and in the DOM tree, and it makes every control below dead.
-    if (document.getElementById("root")?.inert) throw new Error("the first-run model onboarding step left the app root inert")
+    // React drops the dialog's DOM in the commit but releases the root in a passive
+    // cleanup after the next paint, so the root is briefly inert with the dialog
+    // already gone; wait it out rather than read the gap.
+    const handedBackTheRoot = await waitFor(() => document.getElementById("root")?.inert !== true, 600, 100)
+    if (!handedBackTheRoot) throw new Error("the first-run model onboarding step left the app root inert")
     const isWindows = /^Win/i.test(navigator.platform)
     let selectedWorkspace = ${workspace}
     if (!isWindows) await call("workspace/create", { request: { path: ${workspace} } })
