@@ -181,6 +181,9 @@ importers:
       electron-window-state:
         specifier: ^5.0.3
         version: 5.0.3
+      js-yaml:
+        specifier: 4.3.2
+        version: 4.3.2
       pnpm:
         specifier: 11.23.0
         version: 11.23.0
@@ -218,9 +221,6 @@ importers:
       electron-vite:
         specifier: ^5
         version: 5.0.0(supports-color@10.2.2)(vite@7.3.5(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.12)(yaml@2.9.0))
-      js-yaml:
-        specifier: 4.3.2
-        version: 4.3.2
       sharp:
         specifier: 0.35.4
         version: 0.35.4(@types/node@24.13.3)
