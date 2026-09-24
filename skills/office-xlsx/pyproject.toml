@@ -1,7 +1,0 @@
-[project]
-name = "pawwork-office-xlsx"
-version = "0.0.0"
-requires-python = ">=3.9"
-dependencies = [
-  "openpyxl==3.1.5",
-]

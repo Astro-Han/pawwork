@@ -73,6 +73,7 @@ describe("DSH product home", () => {
     ).toEqual({
       dsh: join("/Applications/PawWork.app/Contents/Resources", "dsh"),
       skills: join("/Applications/PawWork.app/Contents/Resources", "skills"),
+      primaryRuntime: join("/Applications/PawWork.app/Contents/Resources", "runtime", "primary-runtime"),
     })
     expect(
       resolveProductResources({
@@ -83,6 +84,7 @@ describe("DSH product home", () => {
     ).toEqual({
       dsh: join("/repo/packages/desktop-electron", "resources", "dsh"),
       skills: join("/repo/packages/desktop-electron", "..", "..", "skills"),
+      primaryRuntime: join("/repo/packages/desktop-electron", "resources", "runtime", "primary-runtime"),
     })
   })
 
@@ -377,8 +379,14 @@ describe("DSH product home", () => {
     })
   })
 
+  const resources = { skills: "/app/skills", primaryRuntime: "/app/runtime/primary-runtime" }
+  const productEnvironment = {
+    DSH_BUNDLED_SKILL_DIR: "/app/skills",
+    PAWWORK_PRIMARY_RUNTIME: "/app/runtime/primary-runtime",
+  }
+
   test("isolates DSH from ambient model credentials", () => {
-    const environment = buildDshEnvironment("/app/skills", {
+    const environment = buildDshEnvironment(resources, {
       PATH: "/usr/bin",
       DSH_HOME: "/ambient/dsh",
       OPENCODE_API_KEY: "ambient",
@@ -387,38 +395,30 @@ describe("DSH product home", () => {
       DEEPSEEK_BASE_URL: "https://example.test",
     })
 
-    expect(environment).toEqual({
-      PATH: "/usr/bin",
-      DSH_BUNDLED_SKILL_DIR: "/app/skills",
-    })
+    expect(environment).toEqual({ PATH: "/usr/bin", ...productEnvironment })
   })
 
   // Windows environment names are case-insensitive while this object is not, so a lowercase
   // export would otherwise ride along beside the name meant to replace it and leave which one
   // the sidecar sees up to the platform.
   test("drops every casing of the names the product owns", () => {
-    const environment = buildDshEnvironment("/app/skills", {
+    const environment = buildDshEnvironment(resources, {
       PATH: "/usr/bin",
       opencode_api_key: "ambient",
       Deepseek_Api_Key: "ambient-deepseek",
       dsh_home: "/ambient/dsh",
       dsh_bundled_skill_dir: "/ambient/skills",
+      pawwork_primary_runtime: "/ambient/runtime",
     })
 
-    expect(environment).toEqual({
-      PATH: "/usr/bin",
-      DSH_BUNDLED_SKILL_DIR: "/app/skills",
-    })
+    expect(environment).toEqual({ PATH: "/usr/bin", ...productEnvironment })
   })
 
   // credentials-local ranks the inherited environment above its own store and refuses writes it
   // would shadow, so a key left in the environment would make the one a user types on the Models
   // page unusable without saying so.
   test("names no model credential of its own", () => {
-    expect(buildDshEnvironment("/app/skills", { PATH: "/usr/bin" })).toEqual({
-      PATH: "/usr/bin",
-      DSH_BUNDLED_SKILL_DIR: "/app/skills",
-    })
+    expect(buildDshEnvironment(resources, { PATH: "/usr/bin" })).toEqual({ PATH: "/usr/bin", ...productEnvironment })
   })
   // Four parties have to agree for a paid OpenCode request to carry the id the gateway
   // routes on, and three of them are upstream: the protocol gate has to offer the switch,

@@ -101,6 +101,11 @@ const getBase = (channel: PawWorkChannel): Configuration => ({
       to: "tools/",
       filter: ["**/*"],
     },
+    {
+      from: "resources/runtime/",
+      to: "runtime/",
+      filter: ["**/*"],
+    },
   ],
   mac: {
     // Chromium's own native strings (context menus, file dialogs, media

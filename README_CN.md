@@ -101,7 +101,7 @@ Automations 按 cron 计划自动执行已保存的任务——周一早上汇�
 - **运行时** —— 一组锁定版本的官方 `@deepseek-ai/dsh-*` 包（会话、工具、沙箱、上下文压缩、联网搜索、子智能体），在 sidecar 进程里装配，而不是去调 `dsh` CLI。
 - **原生外壳** —— [`packages/desktop-electron/src/main`](packages/desktop-electron/src/main)：窗口装饰、应用菜单、原生目录与文件选择器、Windows 安装器加固、自动更新。
 - **产品层** —— [`packages/desktop-electron/resources/dsh`](packages/desktop-electron/resources/dsh)：爪印自己维护的 DSH 插件，包括内置联网搜索、Automations、v1 设置迁移和桌面宿主桥接。
-- **Skills** —— [`skills/`](skills)：随包的 Office skills，覆盖 `.docx`、`.xlsx`、`.pptx` 和 PDF，通过随包的 [`uv`](https://github.com/astral-sh/uv) Python 工具链执行，不依赖系统 Python。
+- **Skills** —— DSH 的 Word、PowerPoint、Excel skills 运行在随包的 Python 3.12 上，Office 相关库已预装，并用随包的 LibreOffice 引擎渲染页面做视觉检查，离线可用、不依赖系统 Python。[`skills/`](skills) 里的 PDF skill 通过随包的 [`uv`](https://github.com/astral-sh/uv) 执行。
 
 ## 从源码构建
 

@@ -27,6 +27,7 @@ out/
 
 resources/tools/*
 !resources/tools/.gitignore
+resources/runtime/
 resources/icons/
 icons/prod/
 icons/dev/
