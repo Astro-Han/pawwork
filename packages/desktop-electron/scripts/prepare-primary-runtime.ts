@@ -96,7 +96,10 @@ export async function preparePrimaryRuntime(platform: SupportedPlatform, arch: S
   await mkdir(path.join(outputDir, "dependencies"), { recursive: true })
 
   const python = await download(pythonArchiveUrl(key), target.pythonSha256)
-  await execFileAsync("tar", ["-xzf", python, "-C", path.join(outputDir, "dependencies")])
+  // GNU tar reads a `C:\...` archive argument as host:path, so name the archive relative to cwd.
+  await execFileAsync("tar", ["-xzf", path.basename(python), "-C", path.join(outputDir, "dependencies")], {
+    cwd: path.dirname(python),
+  })
 
   const site = sitePackages(outputDir, platform)
   for (const wheel of [...target.wheels, ...lock.wheels]) await unpackWheel(await download(wheel.url, wheel.sha256), site)
