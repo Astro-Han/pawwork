@@ -133,6 +133,7 @@ export async function startConsoleWatch(directory: string) {
     async stop(): Promise<ConsoleWatchEvent[]> {
       // Let a window that opens as the command exits reach one more sample.
       await delay(1_000)
+      if (watcher.exitCode !== null) throw new Error(`console window watcher stopped sampling early (exit ${watcher.exitCode}): ${stderr.trim()}`)
       writeFileSync(stopFile, "")
       await Promise.race([exited, delay(10_000)])
       if (watcher.exitCode === null) watcher.kill()
