@@ -6,8 +6,8 @@ import { readEntryList, readProductPatch } from "./dsh-product-patch.testing"
 import {
   Config,
   PAWWORK_SEARCH_PROVIDER_ID,
-  PAWWORK_WEB_SEARCH_SETTINGS_NAMESPACE,
   PawWorkSearchProvider,
+  apply,
   inject,
   name,
 } from "../../resources/dsh/web-search/lib/index.js"
@@ -22,6 +22,16 @@ function contextWith(credential?: string) {
         ? { resolve: async () => (credential === undefined ? undefined : { value: credential }) }
         : undefined,
   }
+}
+
+/** The provider `apply` registers for this entry config. */
+function providerFor(config: Record<string, unknown> = {}, credential?: string) {
+  let registered: PawWorkSearchProvider | undefined
+  apply(
+    { ...contextWith(credential), web: { registerSearchProvider: (provider: PawWorkSearchProvider) => (registered = provider) } },
+    Config(config),
+  )
+  return registered!
 }
 
 /** One SSE-framed JSON-RPC answer carrying Exa's rendered report. */
@@ -44,7 +54,7 @@ function report(...blocks: string[]) {
 async function searchFor(body: string | Response, config: Record<string, unknown> = {}) {
   vi.stubGlobal("fetch", async () => (body instanceof Response ? body : new Response(body, { status: 200 })))
   try {
-    const provider = new PawWorkSearchProvider(contextWith(), () => Config(config))
+    const provider = providerFor(config)
     return (await provider.search({ query: "anything" })) as {
       content?: string
       sources: unknown[]
@@ -60,7 +70,6 @@ describe("PawWork DSH web search plugin", () => {
     expect(name).toBe("pawwork-web-search")
     expect(inject).toEqual(["web"])
     expect(PAWWORK_SEARCH_PROVIDER_ID).toBe("pawwork")
-    expect(PAWWORK_WEB_SEARCH_SETTINGS_NAMESPACE).toBe("pawwork-web-search")
   })
 
   // Three halves, in three files, and any one alone is a broken product: the
@@ -120,10 +129,16 @@ describe("PawWork DSH web search plugin", () => {
   })
 
   test("defaults to the Exa engine, which is the one that needs no key", () => {
-    expect(Config({}).backend).toBe("exa")
+    expect(Config({}).backend.get()).toBe("exa")
   })
 
-  // The settings file is hand-editable and `credentialRef` answers a name
+  // The Plugins page edits only volatile fields, and the provider must see an
+  // edit without a remount.
+  test("every field is editable live", () => {
+    for (const field of Object.values(Config.dict!)) expect(field.meta.volatile).toBe(true)
+  })
+
+  // The profile patch is hand-editable and `credentialRef` answers a name
   // outside its grammar with a bare `TypeError` — not a failure the seam can
   // report but an unhandled throw, taking down the keyless path that needs no
   // reference at all. A name nobody can resolve is a name nobody set, which is
@@ -149,8 +164,8 @@ describe("PawWork DSH web search plugin", () => {
   // `available()` must stay a cheap local check that makes no network call, and
   // the credentials seam answers asynchronously — so it cannot consult a key.
   test("stays selectable so the seam never reports the provider as absent", () => {
-    expect(new PawWorkSearchProvider(contextWith(), () => Config({})).available()).toBe(true)
-    expect(new PawWorkSearchProvider(contextWith(), () => Config({ backend: "deepseek" })).available()).toBe(true)
+    expect(providerFor().available()).toBe(true)
+    expect(providerFor({ backend: "deepseek" }).available()).toBe(true)
   })
 })
 
@@ -165,7 +180,7 @@ describe("PawWork search engine selection", () => {
       return exaResponse(block("T", "https://e.com/"))
     })
 
-    const provider = new PawWorkSearchProvider(contextWith(), () => Config({}))
+    const provider = providerFor()
     const result = await provider.search({ query: "anything", maxResults: 2 })
     vi.unstubAllGlobals()
 
@@ -190,7 +205,7 @@ describe("PawWork search engine selection", () => {
       })
     })
 
-    await new PawWorkSearchProvider(contextWith("a-key"), () => Config({})).search({ query: "anything" })
+    await providerFor({}, "a-key").search({ query: "anything" })
     vi.unstubAllGlobals()
 
     expect(requests[0]).toBe("https://api.exa.ai/search")
@@ -209,7 +224,7 @@ describe("PawWork search engine selection", () => {
       })
     })
 
-    const provider = new PawWorkSearchProvider(contextWith("a-key"), () => Config({ backend: "deepseek" }))
+    const provider = providerFor({ backend: "deepseek" }, "a-key")
     await provider.search({ query: "anything" })
     vi.unstubAllGlobals()
 
@@ -222,12 +237,12 @@ describe("PawWork search engine selection", () => {
   // upstream class's own advice names the `web-search-deepseek` config, an entry
   // this product's patch disables, so it has to be replaced rather than relayed.
   test("the DeepSeek engine with no key points at the card, not the disabled entry", async () => {
-    const provider = new PawWorkSearchProvider(contextWith(), () => Config({ backend: "deepseek" }))
+    const provider = providerFor({ backend: "deepseek" })
 
     const failure = await provider.search({ query: "anything" }).catch((error: unknown) => error)
 
     expect(failure).toMatchObject({ code: "WEB_PROVIDER_CREDENTIAL_MISSING" })
-    expect((failure as Error).message).toContain("Settings")
+    expect((failure as Error).message).toContain("Plugins → Web search")
     expect((failure as Error).message).not.toContain("web-search-deepseek")
   })
 
@@ -245,7 +260,7 @@ describe("PawWork search engine selection", () => {
       },
     }))
 
-    const provider = new PawWorkSearchProvider(contextWith(), () => Config({}))
+    const provider = providerFor()
     await expect(provider.search({ query: "anything" }, controller.signal)).rejects.toMatchObject({
       code: "WEB_ABORTED",
     })
@@ -262,7 +277,7 @@ describe("PawWork search engine selection", () => {
       return exaResponse(block())
     })
 
-    const provider = new PawWorkSearchProvider(contextWith(), () => Config({ backend }))
+    const provider = new PawWorkSearchProvider(contextWith(), () => ({ backend }))
     await provider.search({ query: "a" })
     backend = "deepseek"
     await provider.search({ query: "b" }).catch(() => {})

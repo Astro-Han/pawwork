@@ -733,7 +733,7 @@ describe("PawWork DSH Automations client", () => {
       if (!sessionsRefreshed) throw new Error("session registry is stale")
     })
     const refresh = vi.fn(async () => { sessionsRefreshed = true })
-    const settingsSection = settingsSectionOf(plugin, { sessions: { open, refresh } })
+    const settingsSection = settingsSectionOf(plugin, { sessions: { refresh }, uiWorkspace: { openSession: open } })
     const close = vi.fn(() => {})
     const tree = settingsSection({
       close,

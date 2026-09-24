@@ -20,9 +20,6 @@ export const inject = ['web'];
 /** Registry id this plugin registers under; `web.searchProvider` names it. */
 export const PAWWORK_SEARCH_PROVIDER_ID = 'pawwork';
 
-/** Settings namespace carrying the engine choice and each engine's credential reference. */
-export const PAWWORK_WEB_SEARCH_SETTINGS_NAMESPACE = 'pawwork-web-search';
-
 const DEFAULT_EXA_API_KEY_ENV = 'EXA_API_KEY';
 const DEFAULT_DEEPSEEK_API_KEY_ENV = 'DEEPSEEK_API_KEY';
 
@@ -30,7 +27,7 @@ const DEFAULT_DEEPSEEK_API_KEY_ENV = 'DEEPSEEK_API_KEY';
  * Read a configured credential reference, falling back when it names nothing
  * this deployment could resolve.
  *
- * The settings file is hand-editable and `credentialRef` answers a name outside
+ * The profile patch is hand-editable and `credentialRef` answers a name outside
  * its grammar with a bare `TypeError`, which would take down even the keyless
  * path. The card applies the same predicate.
  * @param declared - the reference named in the section, if any.
@@ -51,13 +48,13 @@ function resolveRef(declared, fallback) {
  */
 const DEEPSEEK_KEY_MESSAGE =
   'The DeepSeek search engine needs a DeepSeek API key. ' +
-  'Open Settings → Plugins → Web search to enter one, ' +
+  'Open Plugins → Web search to enter one, ' +
   'or switch the engine to Exa, which searches without a key.';
 
 export const Config = z.object({
-  backend: z.union(['exa', 'deepseek']).default('exa'),
-  exaApiKeyEnv: z.string().role('credential-ref').default(DEFAULT_EXA_API_KEY_ENV),
-  deepseekApiKeyEnv: z.string().role('credential-ref').default(DEFAULT_DEEPSEEK_API_KEY_ENV),
+  backend: z.union(['exa', 'deepseek']).default('exa').volatile(),
+  exaApiKeyEnv: z.string().role('credential-ref').default(DEFAULT_EXA_API_KEY_ENV).volatile(),
+  deepseekApiKeyEnv: z.string().role('credential-ref').default(DEFAULT_DEEPSEEK_API_KEY_ENV).volatile(),
 });
 
 /**
@@ -201,14 +198,9 @@ export class PawWorkSearchProvider {
  * @param config - the composed entry configuration.
  */
 export function apply(ctx, config) {
-  let current = () => config;
-  ctx.inject(['settings'], (settingsCtx) => {
-    settingsCtx.settings.installSection(ctx, PAWWORK_WEB_SEARCH_SETTINGS_NAMESPACE, Config, config, {
-      setSource: (source) => {
-        current = source;
-      },
-      onChange: () => {},
-    });
-  });
-  ctx.web.registerSearchProvider(new PawWorkSearchProvider(ctx, () => current()));
+  ctx.web.registerSearchProvider(new PawWorkSearchProvider(ctx, () => ({
+    backend: config.backend.get(),
+    exaApiKeyEnv: config.exaApiKeyEnv.get(),
+    deepseekApiKeyEnv: config.deepseekApiKeyEnv.get(),
+  })));
 }
