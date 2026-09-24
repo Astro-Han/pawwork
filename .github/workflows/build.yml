@@ -853,7 +853,7 @@ jobs:
             packages/desktop-electron/dist/latest*.yml
 
       - name: Collect updater metadata
-        if: ${{ (runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label) || (runner.os == 'Windows' && inputs.phase == 'full') }}
+        if: ${{ inputs.channel != 'dev' && ((runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label) || (runner.os == 'Windows' && inputs.phase == 'full')) }}
         shell: bash
         run: |
           set -euo pipefail

@@ -152,5 +152,7 @@ describe("release workflow", () => {
     expect(finalize!.body).toMatch(/GH_REPO: \$\{\{ env\.PUBLISH_OWNER \}\}\/\$\{\{ env\.PUBLISH_REPO \}\}/)
     expect(predownload.body).toMatch(/--repo "\$PUBLISH_OWNER\/\$PUBLISH_REPO"/)
     expect(predownload.body).toMatch(/inputs\.channel != 'dev'/)
+    // Dev builds write no updater metadata, so collecting it runs only where finalizing does.
+    expect(conditionOfStep("Collect updater metadata")).toBe(conditionOfStep("Finalize updater metadata"))
   })
 })
