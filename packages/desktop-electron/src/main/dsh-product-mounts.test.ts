@@ -82,10 +82,10 @@ describe("PawWork DSH product mounts", () => {
   // A patch row whose id upstream renamed composes without complaint and
   // addresses nothing, which would leave the model without a clock.
   test("turns on the clock dsh-web-app ships disabled", () => {
-    const upstream = overlaidRows().filter((row) => row.id === "time-context")
-    const ours = readProductPatch().find((entry) => entry.id === "time-context")
+    const rows = [...overlaidRows(), ...allRows(readProductPatch())].filter((row) => row.id === "time-context")
+    const disabled = rows.reduce<boolean | undefined>((state, row) => row.disabled ?? state, undefined)
 
-    expect(upstream.map((row) => row.name)).toContain("@deepseek-ai/dsh-time-context")
-    expect(ours?.disabled).toBe(false)
+    expect(rows.map((row) => row.name)).toContain("@deepseek-ai/dsh-time-context")
+    expect(disabled).toBe(false)
   })
 })
