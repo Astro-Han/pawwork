@@ -13,7 +13,9 @@ import {
   mkdirSync,
   readFileSync,
   readlinkSync,
+  renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
@@ -155,7 +157,9 @@ function dropRetiredRoutes(home: string) {
   const retired = RETIRED_ROUTES.filter((route) => providers?.[route] !== undefined)
   if (retired.length === 0) return
   for (const route of retired) delete providers![route]
-  writeFileSync(path, yaml.dump(sections))
+  const staging = `${path}.pawwork-tmp`
+  writeFileSync(staging, yaml.dump(sections), { mode: statSync(path).mode & 0o777 })
+  renameSync(staging, path)
 }
 
 export function prepareDshProductHome(options: PrepareDshProductHomeOptions) {
