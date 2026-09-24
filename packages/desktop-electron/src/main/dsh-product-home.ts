@@ -127,15 +127,17 @@ function linkHostScope(productHome: string, hostModules: string) {
   symlinkSync(target, link, "junction")
 }
 
-// `dsh web` loads the `web` profile. PawWork's composition is one more bundle on
-// top of that template, beneath the user's own profile patch, so settings the user
-// saves can override it. Re-selected on every launch because a profile recovery
-// resets the bundle list.
+// `dsh web` loads the `web` profile. PawWork's composition is its last bundle:
+// above every other bundle, whose rows it patches (the market's included), and
+// beneath the user's own profile patch, so settings the user saves override it.
+// Re-applied on every launch because installing a bundle appends it after this
+// one and a profile recovery resets the list.
 function selectProductBundle(profileDir: string) {
   initProfile(profileDir, [...PROFILE_TEMPLATES.web.bundles, PRODUCT_BUNDLE])
   const manifest = readProfileManifest("dsh", profileDir)
   const bundles = manifest.dsh?.profile?.bundles ?? PROFILE_TEMPLATES.web.bundles
-  if (!bundles.includes(PRODUCT_BUNDLE)) writeProfileBundles(profileDir, manifest, [...bundles, PRODUCT_BUNDLE])
+  if (bundles.at(-1) === PRODUCT_BUNDLE) return
+  writeProfileBundles(profileDir, manifest, [...bundles.filter((name) => name !== PRODUCT_BUNDLE), PRODUCT_BUNDLE])
 }
 
 // The retired OpenCode Free tier wrote these routes into the legacy settings file.

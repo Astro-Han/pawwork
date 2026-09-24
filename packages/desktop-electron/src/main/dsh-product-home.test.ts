@@ -193,7 +193,10 @@ describe("DSH product home", () => {
     ).toEqual({ bundle: { patch: "./cordis.patch.yml" } })
   })
 
-  test("adds the product bundle to an existing profile once, keeping what it had", () => {
+  // The product patch targets rows other bundles insert — the market's among
+  // them — and a patch for an id not yet composed is dropped. Installing a
+  // bundle appends it, so the product bundle has to move back to the end.
+  test("keeps the product bundle last in an existing profile, keeping what it had", () => {
     const productHome = temporaryDirectory()
     const resources = join(import.meta.dirname, "../../resources/dsh")
     const profile = join(productHome, "profiles/web")
@@ -202,7 +205,7 @@ describe("DSH product home", () => {
       name: "dsh-profile-web",
       private: true,
       dependencies: { dshmarket: "1.64.0" },
-      dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dshmarket"] } },
+      dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@pawwork/dsh-bundle", "dshmarket"] } },
     }
     writeFileSync(join(profile, "package.json"), JSON.stringify(manifest))
 
@@ -211,7 +214,7 @@ describe("DSH product home", () => {
 
     expect(JSON.parse(readFileSync(join(profile, "package.json"), "utf8"))).toEqual({
       ...manifest,
-      dsh: { profile: { bundles: [...manifest.dsh.profile.bundles, "@pawwork/dsh-bundle"] } },
+      dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dshmarket", "@pawwork/dsh-bundle"] } },
     })
   })
 
