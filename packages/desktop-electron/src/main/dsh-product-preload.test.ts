@@ -36,7 +36,7 @@ describe("PawWork DSH product preload", () => {
     })
 
     expect(listeners).toHaveLength(1)
-    expect(exposed).toEqual(["pawworkLifecycle", "pawworkFiles", "pawworkCommunityMarket", "pawworkUpdater"])
+    expect(exposed).toEqual(["pawworkLifecycle", "__DSH_HOST_PATHS__", "pawworkCommunityMarket", "pawworkUpdater"])
     document.documentElement = { appendChild: (style: { textContent: string }) => void styles.push(style) }
     listeners[0]()
     expect(styles).toHaveLength(1)
@@ -59,7 +59,7 @@ describe("PawWork DSH product preload", () => {
       },
     })
 
-    expect([...exposed.keys()]).toEqual(["pawworkLifecycle", "pawworkFiles", "pawworkCommunityMarket", "pawworkUpdater"])
+    expect([...exposed.keys()]).toEqual(["pawworkLifecycle", "__DSH_HOST_PATHS__", "pawworkCommunityMarket", "pawworkUpdater"])
     exposed.get("pawworkLifecycle")!.ready()
     expect(send).toHaveBeenCalledWith("pawwork:product-ready")
   })
@@ -136,27 +136,28 @@ describe("PawWork DSH product preload", () => {
     expect(document.documentElement.style.colorScheme).toBe("")
   })
 
-  test("exposes only a no-argument native file picker", async () => {
-    const pickerResult = { status: "selected", paths: ["/outside/report.txt"] }
-    const invoke = vi.fn(async () => pickerResult)
-    const exposed = new Map<string, Record<string, () => Promise<unknown>>>()
-    const contextBridge = {
-      exposeInMainWorld: (name: string, api: Record<string, () => Promise<unknown>>) => {
-        exposed.set(name, api)
-      },
-    }
+  test("hands the composer a picked file's host path", () => {
+    const file = { name: "report.txt" }
+    const getPathForFile = vi.fn(() => "/outside/report.txt")
+    const exposed = new Map<string, Record<string, (file: unknown) => unknown>>()
 
     vm.runInNewContext(readFileSync(preloadPath, "utf8"), {
       require: (name: string) => {
-        if (name === "electron") return { contextBridge, ipcRenderer: { invoke } }
+        if (name === "electron") {
+          return {
+            contextBridge: { exposeInMainWorld: (key: string, api: Record<string, (file: unknown) => unknown>) => exposed.set(key, api) },
+            ipcRenderer: { invoke: () => {} },
+            webUtils: { getPathForFile },
+          }
+        }
         throw new Error(`unexpected preload dependency: ${name}`)
       },
     })
 
-    const files = exposed.get("pawworkFiles")!
-    expect(Object.keys(files)).toEqual(["pick"])
-    await expect(files.pick()).resolves.toBe(pickerResult)
-    expect(invoke).toHaveBeenCalledWith("pawwork:pick-conversation-files")
+    const paths = exposed.get("__DSH_HOST_PATHS__")!
+    expect(Object.keys(paths)).toEqual(["pathFor"])
+    expect(paths.pathFor(file)).toBe("/outside/report.txt")
+    expect(getPathForFile).toHaveBeenCalledWith(file)
   })
 
   test("exposes only the bounded community-market operations", async () => {

@@ -19,7 +19,6 @@ import {
   UPDATER_ACTIVE,
 } from "./constants"
 import { ciSmokeCdpSwitches } from "./ci-smoke-cdp"
-import { pickConversationFiles } from "./dsh-file-input"
 import { DshLifecycle, type DshLifecycleState } from "./dsh-lifecycle"
 import { ensureVerifiedCommunityMarket } from "./dsh-market-guard"
 import { createDshMenu } from "./dsh-menu"
@@ -210,14 +209,6 @@ function setupApp() {
   app.commandLine.appendSwitch("proxy-bypass-list", "<-loopback>")
   for (const [name, value] of ciSmokeCdpSwitches(process.env)) app.commandLine.appendSwitch(name, value)
 
-  ipcMain.handle("pawwork:pick-conversation-files", (event) => {
-    const state = lifecycle.state
-    if (state.phase !== "ready") throw new Error("Cannot pick files before DSH is ready")
-    const owner = BrowserWindow.fromWebContents(event.sender)
-    return pickConversationFiles(state.url, event.senderFrame?.url ?? "", (options) =>
-      owner ? dialog.showOpenDialog(owner, options) : dialog.showOpenDialog(options),
-    )
-  })
   ipcMain.handle("pawwork:dsh-community-market:status", (event) => requestDshCommunityMarket({
     action: "status",
     dshUrl: communityMarketUrlFor(event),

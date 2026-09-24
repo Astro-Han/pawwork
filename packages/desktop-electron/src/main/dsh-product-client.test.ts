@@ -42,7 +42,7 @@ describe("PawWork DSH client product layer", () => {
     })
     return definition.factory((name) => {
       if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutlineRegular: () => null }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
   }
@@ -89,7 +89,7 @@ describe("PawWork DSH client product layer", () => {
     const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), { document })
     definition.factory((name) => {
       if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutlineRegular: () => null }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
     return { appRoot, bodyChildren, inserted, css: style.textContent }
@@ -128,7 +128,7 @@ describe("PawWork DSH client product layer", () => {
     })
     const plugin = definition.factory((name) => {
       if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutlineRegular: () => null }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
     const registrations: Array<{ id?: string; label?: () => string; name?: string; order?: number }> = []
@@ -187,7 +187,7 @@ describe("PawWork DSH client product layer", () => {
       if (name === "@deepseek-ai/dsh-client-ui-primitives") {
         return {
           Button: (props: Record<string, unknown>) => ({ type: "button", props }),
-          IconPanelLeftOutline16: () => null,
+          IconPanelLeftOutlineRegular: () => null,
         }
       }
       throw new Error(`unexpected product client dependency: ${name}`)
@@ -292,7 +292,7 @@ describe("PawWork DSH client product layer", () => {
     const useRef = <T>(value: T) => ({ current: value })
     const plugin = definition.factory((name) => {
       if (name === "react") return { createElement, useEffect, useRef }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutlineRegular: () => null }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
     const registrations: Array<{
@@ -313,7 +313,7 @@ describe("PawWork DSH client product layer", () => {
 
     plugin.apply(ctx)
     expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout",
-      "remote", "remote.llm", "settingsScope"])
+      "remote", "remote.llm", "configForms"])
     const welcome = registrations.find((entry) => entry.options.id === "welcome-notice")
     expect(welcome).toBeDefined()
     expect(welcome!.options.priority).toBe(-1)
@@ -356,7 +356,7 @@ describe("PawWork DSH client product layer", () => {
     const PanelLeftIcon = () => null
     const plugin = definition.factory((name) => {
       if (name === "react") return { createElement, useEffect: () => {}, useRef: () => ({ current: null }) }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: PanelLeftIcon }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutlineRegular: PanelLeftIcon }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
     const registrations: Array<{
@@ -380,7 +380,7 @@ describe("PawWork DSH client product layer", () => {
     plugin.apply(ctx)
 
     expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout",
-      "remote", "remote.llm", "settingsScope"])
+      "remote", "remote.llm", "configForms"])
     const overlay = registrations.filter((entry) => entry.options.name === "shell.overlay")
     expect(overlay.map((entry) => entry.options.id)).toEqual(["pawwork-window-chrome", "pawwork-v1-import"])
     const chrome = overlay[0]
@@ -430,7 +430,6 @@ describe("PawWork DSH client product layer", () => {
     const { css } = loadProductCss()
 
     expect(css).not.toMatch(/:where\([^)]*button[^)]*\)[^{]*:hover\s*{[^}]*background(?:-color)?\s*:/s)
-    expect(css).toMatch(/\.pawwork-file-action:hover\s*{[^}]*background\s*:/s)
   })
 
   test("gives inactive conversation tabs a local underline hover cue", () => {
@@ -485,65 +484,6 @@ describe("PawWork DSH client product layer", () => {
     expect(css).toMatch(/body > \[class\*="_banner_"\]\s*{[^}]*top:\s*0[^}]*padding-right:\s*var\(--pawwork-titlebar-inset-right/s)
   })
 
-
-  test("adds selected file paths through the public composer input slot", async () => {
-    const document = {
-      title: "DeepSeek Harness",
-      documentElement: { lang: "zh-CN" },
-      querySelector: () => null,
-      createElement: () => ({ dataset: {}, textContent: "" }),
-      head: { appendChild: () => {} },
-      body: { firstChild: null, insertBefore: () => {} },
-    }
-    const pick = vi.fn(async () => ({
-      status: "selected",
-      paths: ["/tmp/notes.md"],
-    }))
-
-    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
-      document,
-      window: { pawworkFiles: { pick } },
-    })
-    const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
-      type,
-      props: { ...props, children },
-    })
-    const plugin = definition.factory((name) => {
-      if (name === "react") {
-        return {
-          createElement,
-          useEffect: () => {},
-          useRef: <T>(value: T) => ({ current: value }),
-        }
-      }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
-      throw new Error(`unexpected product client dependency: ${name}`)
-    })
-    let fileAction: ((props: unknown) => { props: Record<string, unknown> }) | undefined
-    const ctx = {
-      connection: { rpc: { call: vi.fn(async () => ({ ok: true, value: { phase: "done" } })) } },
-      effect: (fn: () => unknown) => fn(),
-      sessions: { refresh: vi.fn(async () => {}) },
-      slots: {
-        inject: (_name: string, register: () => void) => register(),
-        register: (options: { id?: string }, component: typeof fileAction) => {
-          if (options.id === "pawwork-files") fileAction = component
-        },
-      },
-    }
-
-    plugin.apply(ctx)
-    expect(fileAction).toBeDefined()
-    const setDraft = vi.fn(() => {})
-    const button = fileAction!({
-      input: { draft: "请总结", phase: "plain" },
-      inputActions: { setDraft },
-    })
-    await (button.props.onClick as () => Promise<void>)()
-
-    expect(pick).toHaveBeenCalledTimes(1)
-    expect(setDraft).toHaveBeenCalledWith('请总结\n\n文件：\n- "/tmp/notes.md"')
-  })
 
   // An old backend without this channel and a host restart are both transient, so a transport
   // failure must not be read as completion.
@@ -704,7 +644,7 @@ describe("PawWork DSH client product layer", () => {
         }
       }
       if (name === "@deepseek-ai/dsh-client-ui-primitives") {
-        return { Button: (props: Record<string, unknown>) => ({ type: "button", props }), IconPanelLeftOutline16: () => null }
+        return { Button: (props: Record<string, unknown>) => ({ type: "button", props }), IconPanelLeftOutlineRegular: () => null }
       }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
@@ -813,7 +753,7 @@ describe("PawWork DSH client product layer", () => {
         }
       }
       if (name === "@deepseek-ai/dsh-client-ui-primitives") {
-        return { IconPanelLeftOutline16: () => null, Modal: "Modal", Button: "Button" }
+        return { IconPanelLeftOutlineRegular: () => null, Modal: "Modal", Button: "Button" }
       }
       throw new Error(`unexpected product client dependency: ${name}`)
     })

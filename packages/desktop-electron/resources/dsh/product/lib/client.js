@@ -2,7 +2,7 @@ window.__ModuleLoader__.load({
   id: "@pawwork/dsh-product",
   factory: (require) => {
     const { createElement, useEffect, useRef, useState } = require("react")
-    const { Button, IconPanelLeftOutline16, Modal } = require("@deepseek-ai/dsh-client-ui-primitives")
+    const { Button, IconPanelLeftOutlineRegular, Modal } = require("@deepseek-ai/dsh-client-ui-primitives")
     const h = createElement
 
     const productCss = `
@@ -155,14 +155,6 @@ body > [class*="_banner_"] { box-sizing: border-box; top: 0; padding-right: var(
    rules at (0,2,0) behind tool cards, skill cards and trajectory rows, which the hero page cannot
    reveal. Known gap: trajectory's collapsed-summary row is a bare <tr> with no role to match. */
 html body :is(button, [role="button"], [role="treeitem"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="option"], [aria-haspopup], label, summary, select):not(a[href]):not(:disabled) { cursor: default; }
-.pawwork-file-action {
-  align-items: center; background: transparent; border: 0; border-radius: 6px;
-  color: var(--dsw-alias-label-secondary); display: inline-flex;
-  height: 28px; justify-content: center; padding: 0; width: 28px;
-}
-.pawwork-file-action:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
-.pawwork-file-action:focus-visible { outline: 2px solid #fc5c14; outline-offset: 1px; }
-.pawwork-file-action:disabled { opacity: 0.45; }
 .pawwork-market-connector {
   color: var(--dsw-alias-label-primary); display: flex; flex-direction: column;
   gap: 16px; max-width: 680px; width: 100%;
@@ -280,10 +272,6 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     }
     function isChinese() { return document.documentElement.lang.startsWith("zh") }
     function text(chinese, english) { return isChinese() ? chinese : english }
-    function icon(paths, size = 16) {
-      return h("svg", { "aria-hidden": "true", fill: "none", height: size, viewBox: "0 0 24 24", width: size },
-        ...paths.map((path, index) => h("path", { d: path, key: index, stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 1.8 })))
-    }
 
     const DEFAULT_MODEL_NS = "agent-default-model"
 
@@ -300,7 +288,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     async function isModelSelectable(ctx) {
       const registered = await ctx.remote.llm.listProviders()
       if (!registered.ok) return true
-      const mirror = ctx.settingsScope.describe()
+      const mirror = ctx.configForms.describe()
       await mirror.ensure()
       const selected = mirror.getSnapshot().view?.namespaces
         ?.find((entry) => entry.ns === DEFAULT_MODEL_NS)?.value?.provider
@@ -396,25 +384,11 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       return null
     }
 
-    function FileAction({ input, inputActions }) {
-      if (window.pawworkFiles?.pick === undefined) return null
-      async function chooseFiles() {
-        const result = await window.pawworkFiles.pick()
-        if (result.status === "canceled") return
-        const heading = text("文件：", "Files:")
-        const fileBlock = `${heading}\n${result.paths.map((path) => `- ${JSON.stringify(path)}`).join("\n")}`
-        inputActions.setDraft(input.draft === "" ? fileBlock : `${input.draft}\n\n${fileBlock}`)
-      }
-      const label = text("添加文件", "Add files")
-      return h("button", { "aria-label": label, className: "pawwork-file-action", disabled: input.phase !== "plain", onClick: chooseFiles, title: label, type: "button" },
-        icon(["M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"]))
-    }
-
     function WindowChrome({ toggleSidebar }) {
       const label = text("切换侧边栏", "Toggle sidebar")
       return h("div", { className: "pawwork-window-chrome" },
         h("button", { "aria-label": label, className: "pawwork-sidebar-toggle", onClick: toggleSidebar, title: label, type: "button" },
-          h(IconPanelLeftOutline16, { size: 16 })))
+          h(IconPanelLeftOutlineRegular, { size: 16 })))
     }
 
     function CommunityMarketTab() {
@@ -542,7 +516,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     }
 
     const inject = ["slots", "connection", "sessions", "layout",
-      "remote", "remote.llm", "settingsScope"]
+      "remote", "remote.llm", "configForms"]
 
     function BrandName() { return text("爪印", "PawWork") }
 
@@ -679,7 +653,6 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
         name: "settings.plugins.tab", id: "pawwork-community-market", order: 20,
         label: () => text("社区市场", "Community market"),
       }, CommunityMarketTab))
-      ctx.slots.inject("conversation.input.left", () => ctx.slots.register({ name: "conversation.input.left", id: "pawwork-files", order: -100 }, FileAction))
       ctx.effect(() => watchV1Import(ctx, feedback))
     }
 

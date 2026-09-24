@@ -14,7 +14,7 @@ window.__ModuleLoader__.load({
   id: "@pawwork/dsh-updater",
   factory: (require) => {
     const { createElement, useEffect, useState } = require("react")
-    const { Button, IconDownloadOutline16 } = require("@deepseek-ai/dsh-client-ui-primitives")
+    const { Button, IconDownloadOutlineRegular } = require("@deepseek-ai/dsh-client-ui-primitives")
     const h = createElement
 
     const updaterCss = `
@@ -201,7 +201,7 @@ window.__ModuleLoader__.load({
       return h("button", {
         "aria-label": label, className: "pawwork-update-footer", onClick: () => store.resurface(), title: label, type: "button",
       },
-        h(IconDownloadOutline16, { size: 16 }),
+        h(IconDownloadOutlineRegular, { size: 16 }),
         wide ? h("span", null, label) : null)
     }
 

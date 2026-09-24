@@ -42,11 +42,11 @@ const primitives = {
   Button: primitive("button"), Input: primitive("PrimitiveInput"),
   Modal: primitive("div"), Pill: primitive("button"), StateDot: primitive("span"),
   useAnchoredPosition: () => null, useDismissOnOutsidePointer: () => {},
-  IconChevronLeftOutline14: "IconChevronLeftOutline14", IconChevronRightOutline14: "IconChevronRightOutline14",
-  IconChevronDownOutline14: "IconChevronDownOutline14",
-  IconCheckOutline16: "IconCheckOutline16",
-  IconPauseOutline16: "IconPauseOutline16", IconPlayOutline16: "IconPlayOutline16",
-  IconSearchOutline16: "IconSearchOutline16", IconTrashOutline16: "IconTrashOutline16",
+  IconChevronLeftOutlineRegular: "IconChevronLeftOutlineRegular", IconChevronRightOutlineRegular: "IconChevronRightOutlineRegular",
+  IconChevronDownOutlineRegular: "IconChevronDownOutlineRegular",
+  IconCheckOutlineRegular: "IconCheckOutlineRegular",
+  IconPauseOutlineRegular: "IconPauseOutlineRegular", IconPlayOutlineRegular: "IconPlayOutlineRegular",
+  IconSearchOutlineRegular: "IconSearchOutlineRegular", IconTrashOutlineRegular: "IconTrashOutlineRegular",
 }
 
 function settingsSectionOf(
@@ -130,13 +130,16 @@ describe("PawWork DSH Automations client", () => {
       if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
       throw new Error(`unexpected Automations client dependency: ${name}`)
     })
-    const connectWorkspace = vi.fn(async () => "session-1")
     const setDraft = vi.fn(() => {})
-    const open = vi.fn(() => {})
+    const bound = new Set<string>()
+    const openWorkspace = vi.fn(async (_workspaceId: string, beforeOpen: (sessionId: string) => void) => {
+      bound.add("session-1")
+      beforeOpen("session-1")
+    })
     const settingsSection = settingsSectionOf(plugin, {
       conversation: { input: { for: () => ({ setDraft }) } },
-      sessions: { binding: () => ({ ctx: {} }), open },
-      uiWorkspace: { connectWorkspace },
+      sessions: { binding: (sessionId: string) => (bound.has(sessionId) ? { ctx: {} } : undefined) },
+      uiWorkspace: { openWorkspace },
     })
 
     const close = vi.fn(() => {})
@@ -157,20 +160,19 @@ describe("PawWork DSH Automations client", () => {
     expect(visit(head).some((element) => element.type === "button")).toBe(false)
     expect(createButton).toBeDefined()
     await (createButton!.props.onClick as () => Promise<void>)()
-    expect(connectWorkspace).toHaveBeenCalledWith("workspace-1")
+    expect(openWorkspace).toHaveBeenCalledWith("workspace-1", expect.any(Function))
     expect(setDraft).toHaveBeenCalledWith("帮我创建一个自动化。先问我它要做什么、什么时候运行，再帮我创建。")
-    expect(open).toHaveBeenCalledWith("session-1")
     expect(close).toHaveBeenCalledTimes(1)
   })
 
   // Glyph and trailing text come from one derivation, so they cannot disagree about whether a
   // schedule is still live: a stopped one used to render a play glyph next to "Next —".
   test.each([
-    [{ id: "live", paused: false, nextFireAt: 4_000, terminalReason: null }, "下次", "IconPlayOutline16"],
-    [{ id: "paused", paused: true, nextFireAt: null, terminalReason: null }, "已暂停", "IconPauseOutline16"],
-    [{ id: "done", paused: false, nextFireAt: null, terminalReason: "completed" }, "已完成", "IconCheckOutline16"],
-    [{ id: "limit", paused: false, nextFireAt: null, terminalReason: "run-limit" }, "已跑满", "IconCheckOutline16"],
-    [{ id: "missed", paused: false, nextFireAt: null, terminalReason: "missed" }, "已错过", "IconCheckOutline16"],
+    [{ id: "live", paused: false, nextFireAt: 4_000, terminalReason: null }, "下次", "IconPlayOutlineRegular"],
+    [{ id: "paused", paused: true, nextFireAt: null, terminalReason: null }, "已暂停", "IconPauseOutlineRegular"],
+    [{ id: "done", paused: false, nextFireAt: null, terminalReason: "completed" }, "已完成", "IconCheckOutlineRegular"],
+    [{ id: "limit", paused: false, nextFireAt: null, terminalReason: "run-limit" }, "已跑满", "IconCheckOutlineRegular"],
+    [{ id: "missed", paused: false, nextFireAt: null, terminalReason: "missed" }, "已错过", "IconCheckOutlineRegular"],
   ])("states $id in the row's glyph and its trailing text alike", (state, label, glyph) => {
     const document = fakeDocument("zh-CN")
     const definition = loadDshClientModule(resolve(automationsRoot, "lib/client.js"), { document })

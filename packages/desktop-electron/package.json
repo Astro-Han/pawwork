@@ -79,7 +79,7 @@
     "@types/node": "24.13.3",
     "@types/semver": "7.7.1",
     "@typescript/native-preview": "7.0.0-dev.20251207.1",
-    "electron": "41.10.3",
+    "electron": "44.0.0",
     "electron-builder": "26.15.3",
     "electron-vite": "^5",
     "js-yaml": "4.3.1",
