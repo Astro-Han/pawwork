@@ -12,7 +12,7 @@ export const CI_SMOKE_IMPORTED_AUTOMATION_ID = `pawwork-v1-${CI_SMOKE_V1_AUTOMAT
 // one-session fixture finishes importing before that pull and even the pre-fix
 // importer looks correct. The target session carries the largest time_created
 // and lands last - while it is missing, the fix under test (poll
-// /pawwork-import-v1, refresh the list once at completion) is the only path
+// pawworkImportV1/status, refresh the list once at completion) is the only path
 // that can surface it in the sidebar without a reload.
 export const CI_SMOKE_V1_BULK_SESSION_COUNT = 150
 

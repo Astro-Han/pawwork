@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { Remote, bindTypertRemote } from '@deepseek-ai/dsh-typert-protocol';
 
 const require = createRequire(import.meta.url);
 const importer = require('./import-v1.cjs');
@@ -10,7 +11,6 @@ export const name = 'pawwork-import-v1';
 export const inject = [
   'agentDefaultModel',
   'attachments',
-  'connection',
   'llm',
   'pawworkAutomations',
   'sessions',
@@ -19,6 +19,28 @@ export const inject = [
   'settings',
   'workspaceRegistry',
 ];
+
+// The renderer polls `/api/pawworkImportV1/status` for the import's progress.
+class ImportV1Service {
+  constructor(readStatus) {
+    this.readStatus = readStatus;
+    this.typertRemote = bindTypertRemote(this, 'pawworkImportV1');
+  }
+
+  status() {
+    return this.readStatus();
+  }
+}
+
+// Applies @Remote the way a method decorator would; the sidecar's JavaScript has
+// no decorator syntax.
+Remote(ImportV1Service.prototype.status, {
+  kind: 'method',
+  name: 'status',
+  static: false,
+  private: false,
+  addInitializer: (initialize) => initialize.call(Object.create(ImportV1Service.prototype)),
+});
 
 // The stored header and full log of one session, or undefined when none is stored.
 async function readStoredSession(sessionPersistence, id) {
@@ -318,30 +340,20 @@ export function apply(ctx) {
       }
     }
   })();
-  ctx.effect(() => {
-    const stopStatusRpc = ctx.connection.rpc.handle(
-      '/pawwork-import-v1',
-      async () => {
-        // The result goes out with the first reply that carries it and is gone
-        // from this task afterwards, so a poll that keeps running cannot put a
-        // dismissed strip back on screen.
-        const carried = notice;
-        notice = undefined;
-        return {
-          ok: true,
-          value: {
-            phase: sessionPhase,
-            ...(lastPersistedSessionId === undefined ? {} : { sessionId: lastPersistedSessionId }),
-            ...(carried === undefined ? {} : { notice: carried }),
-          },
-        };
-      },
-      { authority: 'loopback' },
-    );
-    return async () => {
-      await stopStatusRpc();
-      controller.abort(new Error('PawWork v1 importer stopped'));
-      await importTask;
+  ctx.provide('pawworkImportV1', new ImportV1Service(() => {
+    // The result goes out with the first reply that carries it and is gone
+    // from this task afterwards, so a poll that keeps running cannot put a
+    // dismissed strip back on screen.
+    const carried = notice;
+    notice = undefined;
+    return {
+      phase: sessionPhase,
+      ...(lastPersistedSessionId === undefined ? {} : { sessionId: lastPersistedSessionId }),
+      ...(carried === undefined ? {} : { notice: carried }),
     };
+  }));
+  ctx.effect(() => async () => {
+    controller.abort(new Error('PawWork v1 importer stopped'));
+    await importTask;
   });
 }

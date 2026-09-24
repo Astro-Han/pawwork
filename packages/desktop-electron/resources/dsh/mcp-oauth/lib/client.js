@@ -4,7 +4,6 @@ window.__ModuleLoader__.load({
     const { createElement: h, Fragment, useCallback, useEffect, useId, useRef, useState } = require("react")
     const { Button, IconPlusOutlineRegular, Modal, Tag } = require("@deepseek-ai/dsh-client-ui-primitives")
 
-    const CHANNEL = "/pawwork-mcp-oauth"
     const PLUGIN = "@pawwork/dsh-mcp-oauth"
     const css = `
 .pawwork-mcp-surface { color: var(--dsw-alias-label-primary); display: flex; flex-direction: column; gap: 12px; max-width: 720px; min-width: 0; }
@@ -88,8 +87,8 @@ textarea.pawwork-mcp-input { font-family: var(--ds-font-family-code, monospace);
       return known ? known[1]() : text("操作失败：", "The request failed: ") + message
     }
 
-    function call(connection, endpoint, payload = {}) {
-      return connection.rpc.call(CHANNEL, endpoint, payload).then((result) => {
+    function call(connection, method, args = {}) {
+      return connection.rpc.call("/api", `mcpAuth/${method}`, { args }).then((result) => {
         if (!result.ok) throw new Error(result.error.message)
         return result.value
       })

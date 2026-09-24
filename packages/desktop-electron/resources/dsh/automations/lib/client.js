@@ -206,8 +206,8 @@ window.__ModuleLoader__.load({
       return `${minute} ${hour} * * ${frequency === "daily" ? "*" : frequency === "weekdays" ? "1-5" : weekday}`
     }
 
-    function automationCall(connection, endpoint, payload = {}, signal) {
-      return connection.rpc.call("/pawwork-automations", endpoint, payload, signal).then((result) => {
+    function automationCall(connection, method, args = {}, signal) {
+      return connection.rpc.call("/api", `pawworkAutomations/${method}`, { args }, signal).then((result) => {
         if (!result.ok) {
           const failure = new Error(result.error.message)
           failure.issues = result.error.details?.issues
@@ -533,7 +533,7 @@ window.__ModuleLoader__.load({
             model: { provider: form.provider, model: form.model }, timezone: form.timezone,
             ...(schedule.kind === "recurring" ? { stop: stopPayload(form.runCount) } : {}),
           }
-          const result = await automationCall(connection, "update", { id: definition.id, expectedRevision: definition.revision, ...common, ...(schedule.kind === "oneshot" ? { fireAt: schedule.fireAt } : { rhythm: schedule.rhythm }) })
+          const result = await automationCall(connection, "update", { id: definition.id, patch: { expectedRevision: definition.revision, ...common, ...(schedule.kind === "oneshot" ? { fireAt: schedule.fireAt } : { rhythm: schedule.rhythm }) } })
           onSaved(result)
         } catch (saveError) {
           setError(errorText(saveError))
@@ -548,7 +548,7 @@ window.__ModuleLoader__.load({
         setError("")
         try {
           const result = await automationCall(connection, endpoint, payload)
-          onSaved(endpoint === "run-now" ? definition : result)
+          onSaved(endpoint === "runNow" ? definition : result)
         }
         catch (mutationError) { setError(errorText(mutationError)) }
         finally { setBusy("") }
@@ -574,8 +574,8 @@ window.__ModuleLoader__.load({
             h("h2", null, definition.title),
             h("p", { className: "pawwork-automation-panel-summary" }, `${formatSchedule(definition)}  ${workspaceName(definition.cwd)}`)),
           h("div", { className: "pawwork-automation-actions" },
-            h(Button, { disabled: busy !== "" || dirty, icon: h(definition.paused ? IconPlayOutlineRegular : IconPauseOutlineRegular, { size: 16 }), onClick: () => mutate("set-paused", { id: definition.id, paused: !definition.paused }), size: "sm", title: dirty ? text("请先保存更改", "Save changes first") : undefined, variant: "outline" }, definition.paused ? text("启用", "Resume") : text("暂停", "Pause")),
-            h(Button, { disabled: busy !== "" || dirty, icon: h(IconPlayOutlineRegular, { size: 16 }), onClick: () => mutate("run-now", { id: definition.id }), size: "sm", title: dirty ? text("请先保存更改", "Save changes first") : undefined, variant: "primary" }, text("立即运行", "Run now")),
+            h(Button, { disabled: busy !== "" || dirty, icon: h(definition.paused ? IconPlayOutlineRegular : IconPauseOutlineRegular, { size: 16 }), onClick: () => mutate("setPaused", { id: definition.id, paused: !definition.paused }), size: "sm", title: dirty ? text("请先保存更改", "Save changes first") : undefined, variant: "outline" }, definition.paused ? text("启用", "Resume") : text("暂停", "Pause")),
+            h(Button, { disabled: busy !== "" || dirty, icon: h(IconPlayOutlineRegular, { size: 16 }), onClick: () => mutate("runNow", { id: definition.id }), size: "sm", title: dirty ? text("请先保存更改", "Save changes first") : undefined, variant: "primary" }, text("立即运行", "Run now")),
             h(Button, { "aria-label": text("删除", "Delete"), disabled: busy !== "", icon: h(IconTrashOutlineRegular, { size: 16 }), onClick: () => setDeleting(true), size: "sm", title: text("删除", "Delete"), type: "button", variant: "ghost" }))),
         h("form", { className: "pawwork-automation-form", onSubmit: save },
           h(Field, { label: text("标题", "Title") }, h("input", { "aria-label": text("标题", "Title"), className: "pawwork-automation-input", onChange: update("title"), value: form.title })),

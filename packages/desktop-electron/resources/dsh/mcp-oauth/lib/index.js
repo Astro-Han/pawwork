@@ -12,14 +12,13 @@ import path from "node:path"
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client"
 import { createMcpOAuthEngine } from "./engine.js"
 import { createServerList } from "./server-list.js"
-import { createMcpOAuthRpcHandler } from "./rpc.js"
+import { McpAuthService } from "./service.js"
 
 export const name = "mcp-oauth"
 
-/** \`credentials\` holds the grant, \`tools\` must exist before a fork can register, and the Integrations section reaches the engine over \`connection\`. */
-export const inject = ["credentials", "tools", "connection"]
+/** \`credentials\` holds the grant, and \`tools\` must exist before a fork can register. */
+export const inject = ["credentials", "tools"]
 
-const CHANNEL = "/pawwork-mcp-oauth"
 const SERVER_FILE = "mcp-oauth.json"
 
 export function apply(ctx) {
@@ -28,7 +27,7 @@ export function apply(ctx) {
   // Read every service now, while this fiber is certainly active: reading a
   // service off a disposed context throws, and a throw inside a later callback
   // or disposer is an unhandled rejection.
-  const { credentials, connection, logger } = ctx
+  const { credentials, logger } = ctx
   const list = createServerList(path.join(home, SERVER_FILE))
 
   const engine = createMcpOAuthEngine({
@@ -39,10 +38,7 @@ export function apply(ctx) {
     logger,
   })
 
-  ctx.provide("mcpAuth", {
-    /** The bridge's hook: one provider per server, or nothing for servers it owns. */
-    providerFor: (serverConfig) => engine.providerFor(serverConfig),
-  })
+  ctx.provide("mcpAuth", new McpAuthService(engine))
 
   ctx.effect(() => {
     void engine.configure(list.list()).catch((error) => {
@@ -50,6 +46,4 @@ export function apply(ctx) {
     })
     return () => engine.dispose()
   }, "mcp-oauth.servers")
-
-  ctx.effect(() => connection.rpc.handle(CHANNEL, createMcpOAuthRpcHandler({ engine }), { authority: "loopback" }), "mcp-oauth.rpc")
 }

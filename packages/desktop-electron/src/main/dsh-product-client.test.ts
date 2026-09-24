@@ -459,7 +459,7 @@ describe("PawWork DSH client product layer", () => {
 
     await new Promise((resolve) => setImmediate(resolve))
     expect(call).toHaveBeenCalledTimes(1)
-    expect(call).toHaveBeenCalledWith("/pawwork-import-v1", "status", {})
+    expect(call).toHaveBeenCalledWith("/api", "pawworkImportV1/status", { args: {} })
     expect(refresh).not.toHaveBeenCalled()
     expect(timers).toHaveLength(1)
 
