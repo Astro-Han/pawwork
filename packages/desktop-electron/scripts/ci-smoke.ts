@@ -14,6 +14,14 @@ import { resolveDshHome } from "../src/main/pawwork-home.ts"
 import { dshTitleBarOptions } from "../src/main/window-options.ts"
 import { packagedAppEnv } from "./packaged-app-env.ts"
 import {
+  CONSOLE_PROBE_MODEL,
+  CONSOLE_PROBE_PROVIDER,
+  type ConsoleWatchEvent,
+  assertNoVisibleConsoleWindows,
+  startConsoleWatch,
+  startFakeToolModel,
+} from "./ci-smoke-console-probe.ts"
+import {
   CI_SMOKE_IMPORTED_AUTOMATION_ID,
   CI_SMOKE_IMPORTED_SESSION_ID,
   createCiSmokeV1Fixture,
@@ -1094,6 +1102,77 @@ async function evaluateCiSmokeJson(target: CdpTarget, expression: string, timeou
   return JSON.parse(result.result.value) as unknown
 }
 
+/** Points the default model at the fake provider and prompts one fresh session. */
+async function promptConsoleProbeSession(target: CdpTarget, workspacePath: string, baseURL: string) {
+  const expression = `(async () => {
+    const call = async (method, args) => {
+      const request = { type: "client-request", rpcId: crypto.randomUUID(), method, payload: { args } }
+      const response = await fetch("/api/" + method, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(request),
+      })
+      if (!response.ok) throw new Error(method + ": HTTP " + response.status)
+      const envelope = await response.json()
+      if (!envelope?.result?.ok) throw new Error(method + ": " + (envelope?.result?.error?.message || "unknown failure"))
+      return envelope.result.value
+    }
+    await call("settings/mutate", {
+      ns: "llm-pi-ai",
+      ops: [{
+        op: "set",
+        path: ["providers", ${JSON.stringify(CONSOLE_PROBE_PROVIDER)}],
+        value: {
+          displayName: "Console probe",
+          apiKeyEnv: "PAWWORK_CONSOLE_PROBE_KEY",
+          api: "openai-completions",
+          baseURL: ${JSON.stringify(baseURL)},
+          models: [{ id: ${JSON.stringify(CONSOLE_PROBE_MODEL)} }],
+        },
+      }],
+    })
+    await call("credentials/set", { ref: "PAWWORK_CONSOLE_PROBE_KEY", value: "ci-smoke-placeholder" })
+    await call("settings/mutate", {
+      ns: "agent-default-model",
+      ops: [
+        { op: "set", path: ["provider"], value: ${JSON.stringify(CONSOLE_PROBE_PROVIDER)} },
+        { op: "set", path: ["model"], value: ${JSON.stringify(CONSOLE_PROBE_MODEL)} },
+      ],
+    })
+    await call("workspace/create", { request: { path: ${JSON.stringify(workspacePath)} } })
+    const session = await call("session/create", { request: { cwd: ${JSON.stringify(workspacePath)} } })
+    await call("session/prompt", { request: {
+      requestId: crypto.randomUUID(),
+      sessionId: session.sessionId,
+      mode: "queue",
+      content: [{ type: "text", text: "Run the console probe command." }],
+    } })
+    return JSON.stringify(session.sessionId)
+  })()`
+  return await evaluateCiSmokeJson(target, expression, 60_000) as string
+}
+
+async function runConsoleProbe(target: CdpTarget, homeDir: string) {
+  const model = await startFakeToolModel()
+  const watch = await startConsoleWatch(homeDir)
+  let events: ConsoleWatchEvent[] = []
+  let toolResult = ""
+  try {
+    await promptConsoleProbeSession(target, homeDir, model.baseURL)
+    toolResult = await Promise.race([
+      model.toolResult,
+      delay(120_000).then(() => {
+        throw new Error("the agent never sent the pwsh tool result back to the model")
+      }),
+    ])
+  } finally {
+    events = await watch.stop()
+    await model.close()
+  }
+  assertNoVisibleConsoleWindows(events, toolResult)
+  console.log(`CI smoke verified the pwsh tool shows no console window (${events.length} watch events)`)
+}
+
 export async function inspectCiSmokePersistence(target: CdpTarget, sessionId: string, dshHome: string, listedBefore: string[] = [], appLog: string[] = []) {
   const expectedSessionId = JSON.stringify(sessionId)
   const expression = `(async () => {
@@ -1497,6 +1576,7 @@ async function main() {
       }
       assertCiSmokeProduct(product)
       console.log("CI smoke verified DSH product UI and bundled skills")
+      if (process.platform === "win32") await runConsoleProbe(cdpTarget, homeDir)
       await waitForSessionOnDisk(dshHome, product.sessionId)
       console.log(`CI smoke sessions before shutdown: ${product.sessionIdsBeforeRestart.join(", ") || "(none)"}`)
       console.log(`CI smoke session files before shutdown:\n${describeDirectory(join(dshHome, "sessions"))}`)
