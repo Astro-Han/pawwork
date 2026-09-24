@@ -14,8 +14,8 @@ const MARKET_NAME = "dshmarket"
  * validated with, and dsh-market-guard.test.ts fails until it does.
  */
 export const VERIFIED_COMMUNITY_MARKET = {
-  dsh: "0.1.5-rc.2",
-  market: "1.44.0",
+  dsh: "0.1.7-rc.1",
+  market: "1.64.0",
 } as const
 
 // Bounds the wait on the startup page. Overrunning it is not fatal.

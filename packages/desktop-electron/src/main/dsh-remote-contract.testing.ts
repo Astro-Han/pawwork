@@ -8,7 +8,7 @@ import { installedHarnessPackages } from "./dsh-product-patch.testing"
 // refuse a call the real runtime would.
 
 /** One parameter or result codec, with the generated schema the runtime parses. */
-type Codec = { schema?: { parse: (value: unknown) => unknown } }
+type Codec = { create?: () => { parse: (value: unknown) => unknown } }
 type Parameter = { name: string; codec?: Codec }
 type Descriptor = { namespace: string; method: string; parameters: Parameter[]; result?: Codec }
 
@@ -64,21 +64,21 @@ export function fakeDshRemote(
         )
       }
       descriptor.parameters.forEach((parameter, index) => {
-        parse(parameter.codec?.schema, args[index], `${contract.namespace}/${method} ${parameter.name}`)
+        parse(parameter.codec, args[index], `${contract.namespace}/${method} ${parameter.name}`)
       })
       const handler = handlers[method]
       const answer = handler === undefined ? { ok: true as const, value: undefined } : await handler(...(args as never[]))
-      if (answer.ok) parse(descriptor.result?.schema, answer.value, `${contract.namespace}/${method} result`)
+      if (answer.ok) parse(descriptor.result, answer.value, `${contract.namespace}/${method} result`)
       return answer
     }
   }
   return fake
 }
 
-function parse(schema: Codec["schema"], value: unknown, what: string) {
-  if (schema === undefined) return
+function parse(codec: Codec | undefined, value: unknown, what: string) {
+  if (codec?.create === undefined) return
   try {
-    schema.parse(value)
+    codec.create().parse(value)
   } catch (cause) {
     throw new Error(`client api: ${what} rejected ${JSON.stringify(value) ?? String(value)}`, { cause })
   }

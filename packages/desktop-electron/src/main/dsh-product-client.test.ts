@@ -258,9 +258,12 @@ describe("PawWork DSH client product layer", () => {
     expect(client).toContain(`--dsw-static-neutral-bluish-950:${SURFACE_COLOR.dark};`)
     // A third rule would decide the colour for some state the window cannot see.
     expect(client.match(/--dsw-alias-bg-base:/g)).toHaveLength(2)
-    // The boot script covers the first frame only; every later change is the
+    // The boot stylesheet covers the first frame only; every later change is the
     // layout plugin's presenter, and that is the write the preload observes.
-    expect(boot).toContain("document.documentElement.style.colorScheme = dark ? 'dark' : 'light'")
+    expect(boot).toContain(`const LIGHT_BACKGROUND = "${SURFACE_COLOR.light}";`)
+    expect(boot).toContain(`const DARK_BACKGROUND = "${SURFACE_COLOR.dark}";`)
+    expect(boot).toContain(":root{color-scheme:light}body{background-color:${LIGHT_BACKGROUND};")
+    expect(boot).toContain(":root{color-scheme:dark}body{background-color:${DARK_BACKGROUND};")
     expect(layout).toContain("document.documentElement.style.colorScheme = scheme")
   })
 

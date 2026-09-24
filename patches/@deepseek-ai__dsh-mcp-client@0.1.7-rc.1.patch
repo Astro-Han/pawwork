@@ -1,16 +1,17 @@
 diff --git a/lib/index.js b/lib/index.js
-index b2f16b4a2b5eaca1ab66b1c4750454daf3e92a90..a22f905dff369d23b0538d32f61f0aaebc9eb7e1 100644
+index a0c19c8..e1fd96d 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -5,6 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
- import { ListToolsResultSchema, ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
- import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
- import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-+import { UnauthorizedError, auth } from "@modelcontextprotocol/sdk/client/auth.js";
+@@ -1,7 +1,7 @@
+ import z from "@deepseek-ai/schemastery";
+ import { scopeOf } from "@deepseek-ai/dsh-scope";
+ import { MAX_TIMER_DELAY_MS } from "@deepseek-ai/dsh-timeout";
+-import { Client, StreamableHTTPClientTransport, specTypeSchemas } from "@modelcontextprotocol/client";
++import { Client, StreamableHTTPClientTransport, UnauthorizedError, auth, specTypeSchemas } from "@modelcontextprotocol/client";
+ import { assertNever } from "@deepseek-ai/dsh-util-values";
+ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
  import { scrubbedParentEnv } from "@deepseek-ai/dsh-subprocess";
- import { createHash } from "node:crypto";
- import { isDeepStrictEqual } from "node:util";
-@@ -35,9 +36,11 @@ function buildChildEnv(extra) {
+@@ -33,9 +33,11 @@ function buildChildEnv(extra) {
  * Create an MCP transport from the resolved plugin config.
  *
  * @param config - Resolved plugin config discriminated on `transport`.
@@ -23,7 +24,7 @@ index b2f16b4a2b5eaca1ab66b1c4750454daf3e92a90..a22f905dff369d23b0538d32f61f0aae
  	switch (config.transport) {
  		case "stdio": return new StdioClientTransport({
  			command: config.command,
-@@ -45,7 +48,14 @@ function createTransport(config) {
+@@ -43,7 +45,14 @@ function createTransport(config) {
  			env: buildChildEnv(config.env),
  			cwd: config.cwd
  		});
@@ -39,32 +40,33 @@ index b2f16b4a2b5eaca1ab66b1c4750454daf3e92a90..a22f905dff369d23b0538d32f61f0aae
  	}
  }
  //#endregion
-@@ -639,7 +649,11 @@ function startConnection(ctx, config, policy) {
- 			}
- 		});
+@@ -640,7 +649,11 @@ function startConnection(ctx, config, policy) {
+ 		}
+ 		let instructions;
  		try {
--			await generation.connect(createTransport(config));
+-			transport = createTransport(config);
 +			// An optional host-provided `mcpAuth` service answers with an OAuth
 +			// client provider for this server; without the service the transport is
 +			// built exactly as before.
 +			const authProvider = ctx.get("mcpAuth")?.providerFor?.(config);
-+			await generation.connect(createTransport(config, authProvider));
++			transport = createTransport(config, authProvider);
+ 			await generation.connect(transport);
  			if (hasClosed()) {
  				attemptSettled = true;
- 				generationDown(generation);
-@@ -788,4 +802,4 @@ async function apply(ctx, config) {
+@@ -832,4 +845,4 @@ async function apply(ctx, config) {
  	if (outcome.error !== void 0 && config.failOnStartupError) throw new Error(`mcp-client(${config.serverName}): initial connection or tool synchronization failed`, { cause: outcome.error });
  }
  //#endregion
--export { Config, apply, inject, name };
-+export { Config, UnauthorizedError, apply, auth, inject, name };
+-export { Config, apply, createMcpToolDefinition, inject, name };
++export { Config, UnauthorizedError, apply, auth, createMcpToolDefinition, inject, name };
 diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
-index f8d553acbab2e8447ac344e960876bc88b2f662f..9984a90ac5e4e93bc106f13786d2a7c432a42df1 100644
+index bd49f63..9cbb48a 100644
 --- a/lib/types/index.d.ts
 +++ b/lib/types/index.d.ts
-@@ -82,4 +82,5 @@ export declare const Config: z<ConfigInput, Config>;
+@@ -87,4 +87,5 @@ export declare const Config: z<ConfigInput, Config>;
   * @returns startup readiness after connection and initial tool discovery settle.
   */
  export declare function apply(ctx: Context, config: Config): Promise<void>;
-+export { UnauthorizedError, auth } from "@modelcontextprotocol/sdk/client/auth.js";
++export { UnauthorizedError, auth } from "@modelcontextprotocol/client";
  //# sourceMappingURL=index.d.ts.map
+\ No newline at end of file
