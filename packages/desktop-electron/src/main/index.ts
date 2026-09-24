@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process"
-import { randomUUID } from "node:crypto"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { createRequire } from "node:module"
@@ -20,9 +19,8 @@ import {
 } from "./constants"
 import { ciSmokeCdpSwitches } from "./ci-smoke-cdp"
 import { DshLifecycle, type DshLifecycleState } from "./dsh-lifecycle"
-import { ensureVerifiedCommunityMarket } from "./dsh-market-guard"
 import { createDshMenu } from "./dsh-menu"
-import { assertDshPluginRequest, requestDshCommunityMarket } from "./dsh-plugins"
+import { assertDshPluginRequest } from "./dsh-plugins"
 import {
   buildDshEnvironment,
   prepareDshProductHome,
@@ -31,7 +29,7 @@ import {
   resolvePnpmPackagePath,
   resolveProductResources,
 } from "./dsh-product-home"
-import { deferDshRun, launchDshSidecar } from "./dsh-sidecar"
+import { launchDshSidecar } from "./dsh-sidecar"
 import { prepareDshToolsEnvironment } from "./dsh-tools"
 import { failingProfileBundle, removeProfileBundle } from "./dsh-profile-repair"
 import { migrateDshHome, resolveDshHome } from "./pawwork-home"
@@ -63,12 +61,6 @@ const UPDATE_FEED_TIMEOUT_MS = 10_000
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
 const UPDATE_CHANNEL_FILE = process.platform === "win32" ? `${UPDATE_CHANNEL}.yml` : `${UPDATE_CHANNEL}-mac.yml`
 const LATEST_RELEASE_URL = `https://github.com/${UPDATE_GITHUB_OWNER}/${UPDATE_GITHUB_REPO}/releases/latest`
-// Shown while the community market is upgraded ahead of DSH. DSH prints nothing
-// until it is ready, so an unnamed wait in front of it reads as a frozen app.
-const MARKET_UPGRADE_NOTICE: Record<MenuLocale, string> = {
-  en: "Updating the community plugin market…",
-  zh: "正在更新社区插件市场…",
-}
 // Shown when a second launch finds the data already in use. Without it the Dock
 // icon bounces once and the launch disappears with nothing said.
 const SECOND_INSTANCE_NOTICE: Record<MenuLocale, { message: string; detail: string; button: string }> = {
@@ -142,7 +134,6 @@ function windowColorScheme(): WindowColorScheme {
   return publishedColorScheme ?? (nativeTheme.shouldUseDarkColors ? "dark" : "light")
 }
 let currentProgress: number | null = null
-const dshHostToken = randomUUID()
 
 const lifecycle = new DshLifecycle({ launch: launchDsh, onChange: handleLifecycleChange })
 
@@ -209,29 +200,6 @@ function setupApp() {
   app.commandLine.appendSwitch("proxy-bypass-list", "<-loopback>")
   for (const [name, value] of ciSmokeCdpSwitches(process.env)) app.commandLine.appendSwitch(name, value)
 
-  ipcMain.handle("pawwork:dsh-community-market:status", (event) => requestDshCommunityMarket({
-    action: "status",
-    dshUrl: communityMarketUrlFor(event),
-    hostToken: dshHostToken,
-  }))
-  ipcMain.handle("pawwork:dsh-community-market:enable", async (event) => {
-    // Anything running in the product frame can reach this channel, plugins
-    // included, and the frame check cannot tell them apart from the settings
-    // page. The confirmation is native so the decision to hand third-party code
-    // PawWork's permissions is always the user's, made outside the page.
-    const dshUrl = communityMarketUrlFor(event)
-    if (!(await confirmCommunityMarket(event, "enable"))) {
-      return requestDshCommunityMarket({ action: "status", dshUrl, hostToken: dshHostToken })
-    }
-    return requestDshCommunityMarket({ action: "enable", dshUrl, hostToken: dshHostToken })
-  })
-  ipcMain.handle("pawwork:dsh-community-market:disable", async (event) => {
-    const dshUrl = communityMarketUrlFor(event)
-    if (!(await confirmCommunityMarket(event, "disable"))) {
-      return requestDshCommunityMarket({ action: "status", dshUrl, hostToken: dshHostToken })
-    }
-    return requestDshCommunityMarket({ action: "disable", dshUrl, hostToken: dshHostToken })
-  })
   ipcMain.handle("pawwork:updater:get-state", (event) => {
     readyProductStateFor(event)
     return updaterSnapshot()
@@ -252,18 +220,6 @@ function setupApp() {
       return
     }
     void shell.openExternal(LATEST_RELEASE_URL)
-  })
-  ipcMain.on("pawwork:dsh-restart", (event) => {
-    try {
-      communityMarketUrlFor(event)
-    } catch (error) {
-      logger.warn("rejected DSH restart request", error)
-      return
-    }
-    showStartupPage()
-    void lifecycle.stop()
-      .then(() => lifecycle.start())
-      .catch((error) => logger.error("DSH restart failed", error))
   })
   ipcMain.on("pawwork:product-ready", (event) => {
     if (event.senderFrame !== event.sender.mainFrame) return
@@ -351,50 +307,6 @@ function setupApp() {
     })
 }
 
-async function confirmCommunityMarket(event: Electron.IpcMainInvokeEvent, action: "disable" | "enable") {
-  const copy = menuLocale === "zh"
-    ? {
-        enable: {
-          message: "启用 DSH 社区插件市场？",
-          detail: "市场及其中的插件由第三方维护，安装后会以爪印的权限运行。你可以随时在设置里停用市场。",
-          confirm: "启用",
-        },
-        disable: {
-          message: "停用 DSH 社区插件市场？",
-          detail: "市场会从爪印的 DSH 环境中移除，已安装的社区插件将不再加载。设置里可以重新启用。",
-          confirm: "停用",
-        },
-        cancel: "取消",
-      }
-    : {
-        enable: {
-          message: "Enable the DSH community plugin market?",
-          detail: "The market and its plugins are maintained by third parties and run with PawWork's permissions."
-            + " You can turn the market off again from Settings at any time.",
-          confirm: "Enable",
-        },
-        disable: {
-          message: "Disable the DSH community plugin market?",
-          detail: "The market is removed from PawWork's DSH environment and installed community plugins stop loading."
-            + " You can enable it again from Settings.",
-          confirm: "Disable",
-        },
-        cancel: "Cancel",
-      }
-  const prompt = copy[action]
-  const owner = BrowserWindow.fromWebContents(event.sender)
-  const options = {
-    type: "question" as const,
-    message: prompt.message,
-    detail: prompt.detail,
-    buttons: [prompt.confirm, copy.cancel],
-    defaultId: 0,
-    cancelId: 1,
-  }
-  const result = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options)
-  return result.response === 0
-}
-
 function readyProductStateFor(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) {
   const state = lifecycle.state
   const frame = event.senderFrame
@@ -404,11 +316,6 @@ function readyProductStateFor(event: Electron.IpcMainEvent | Electron.IpcMainInv
     isMainFrame: frame === event.sender.mainFrame,
     senderUrl: frame?.url ?? "",
   })
-  return state
-}
-
-function communityMarketUrlFor(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) {
-  return readyProductStateFor(event).url
 }
 
 function liveWindows() {
@@ -419,8 +326,8 @@ function dshUrl() {
   return lifecycle.url
 }
 
-function showStartupPage(notice?: string) {
-  for (const win of liveWindows()) navigateWindow(win, startupUrl(windowColorScheme(), notice))
+function showStartupPage() {
+  for (const win of liveWindows()) navigateWindow(win, startupUrl(windowColorScheme()))
 }
 
 async function showDshFailure(state: Extract<DshLifecycleState, { phase: "failed" }>) {
@@ -600,39 +507,26 @@ function launchDsh() {
   })
   const dshBin = join(dirname(dshPackage), "lib", "bin.js")
   const environment = prepareDshToolsEnvironment({
-    dshBin,
     env: buildDshEnvironment(productResources.skills),
     executable: process.execPath,
     home: product.home,
-    hostToken: dshHostToken,
     pnpmBin: join(dirname(pnpmPackage), "bin", "pnpm.mjs"),
     productToolsDir: join(dirname(productResources.dsh), "tools"),
   })
 
-  return deferDshRun((signal) => ensureVerifiedCommunityMarket({
-    dshBin,
-    env: environment,
+  logger.log("spawning DSH sidecar")
+  return launchDshSidecar({
     executable: process.execPath,
-    profileDir: join(product.home, "profiles", "web"),
+    dshBin,
+    sidecarPreload: pathToFileURL(product.sidecarPreload).href,
+    env: environment,
     spawn: (executable, args, options) => spawn(executable, args, options),
-    signal,
-    onUpgradeStart: () => showStartupPage(MARKET_UPGRADE_NOTICE[menuLocale]),
-    log: (message, detail) => logger.log(message, detail),
-  }), () => {
-    logger.log("spawning DSH sidecar")
-    return launchDshSidecar({
-      executable: process.execPath,
-      dshBin,
-      sidecarPreload: pathToFileURL(product.sidecarPreload).href,
-      env: environment,
-      spawn: (executable, args, options) => spawn(executable, args, options),
-      onStdout: (chunk) => logger.log("DSH stdout", { chunk: chunk.trimEnd() }),
-      onStderr: (chunk) => {
-        dshOutputTail = (dshOutputTail + chunk).slice(-DSH_OUTPUT_TAIL_CHARS)
-        logger.error("DSH stderr", chunk.trimEnd())
-      },
-      onError: (error) => logger.error("DSH sidecar process error", error),
-    })
+    onStdout: (chunk) => logger.log("DSH stdout", { chunk: chunk.trimEnd() }),
+    onStderr: (chunk) => {
+      dshOutputTail = (dshOutputTail + chunk).slice(-DSH_OUTPUT_TAIL_CHARS)
+      logger.error("DSH stderr", chunk.trimEnd())
+    },
+    onError: (error) => logger.error("DSH sidecar process error", error),
   })
 }
 

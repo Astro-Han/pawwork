@@ -130,8 +130,8 @@ function linkHostScope(productHome: string, hostModules: string) {
 }
 
 // `dsh web` loads the `web` profile. PawWork's composition is its last bundle:
-// above every other bundle, whose rows it patches (the market's included), and
-// beneath the user's own profile patch, so settings the user saves override it.
+// above every other bundle, so its rows outrank what they set, and beneath the
+// user's own profile patch, so settings the user saves override it.
 // Re-applied on every launch because installing a bundle appends it after this
 // one and a profile recovery resets the list.
 function selectProductBundle(profileDir: string) {

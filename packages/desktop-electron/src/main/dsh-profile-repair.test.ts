@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { failingProfileBundle, removeProfileBundle } from "./dsh-profile-repair"
 
-// The exact shape DSH dies with when a market install left a bundle behind.
+// The exact shape DSH dies with when a plugin install left a bundle behind.
 const MISSING_OUTPUT = [
   "file:///app/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js:523",
   "\tthrow new Error(`${binName}: cannot resolve profile bundle ${JSON.stringify(packageName)} from the dsh installation`);",

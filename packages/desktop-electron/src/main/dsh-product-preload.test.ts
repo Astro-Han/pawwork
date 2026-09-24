@@ -36,7 +36,7 @@ describe("PawWork DSH product preload", () => {
     })
 
     expect(listeners).toHaveLength(1)
-    expect(exposed).toEqual(["pawworkLifecycle", "__DSH_HOST_PATHS__", "pawworkCommunityMarket", "pawworkUpdater"])
+    expect(exposed).toEqual(["pawworkLifecycle", "__DSH_HOST_PATHS__", "pawworkUpdater"])
     document.documentElement = { appendChild: (style: { textContent: string }) => void styles.push(style) }
     listeners[0]()
     expect(styles).toHaveLength(1)
@@ -59,7 +59,7 @@ describe("PawWork DSH product preload", () => {
       },
     })
 
-    expect([...exposed.keys()]).toEqual(["pawworkLifecycle", "__DSH_HOST_PATHS__", "pawworkCommunityMarket", "pawworkUpdater"])
+    expect([...exposed.keys()]).toEqual(["pawworkLifecycle", "__DSH_HOST_PATHS__", "pawworkUpdater"])
     exposed.get("pawworkLifecycle")!.ready()
     expect(send).toHaveBeenCalledWith("pawwork:product-ready")
   })
@@ -160,36 +160,6 @@ describe("PawWork DSH product preload", () => {
     expect(getPathForFile).toHaveBeenCalledWith(file)
   })
 
-  test("exposes only the bounded community-market operations", async () => {
-    const invoke = vi.fn(async () => ({ enabled: false, version: null }))
-    const send = vi.fn(() => {})
-    const exposed = new Map<string, Record<string, (...args: unknown[]) => unknown>>()
-
-    vm.runInNewContext(readFileSync(preloadPath, "utf8"), {
-      require: (name: string) => {
-        if (name === "electron") {
-          return {
-            contextBridge: { exposeInMainWorld: (key: string, api: Record<string, (...args: unknown[]) => unknown>) => exposed.set(key, api) },
-            ipcRenderer: { invoke, send },
-          }
-        }
-        throw new Error(`unexpected preload dependency: ${name}`)
-      },
-    })
-
-    const api = exposed.get("pawworkCommunityMarket")!
-    expect(Object.keys(api)).toEqual(["status", "enable", "disable", "restart"])
-    await api.status()
-    await api.enable()
-    await api.disable()
-    api.restart()
-    expect(invoke.mock.calls).toEqual([
-      ["pawwork:dsh-community-market:status"],
-      ["pawwork:dsh-community-market:enable"],
-      ["pawwork:dsh-community-market:disable"],
-    ])
-    expect(send).toHaveBeenCalledWith("pawwork:dsh-restart")
-  })
   test("exposes the bounded updater bridge with a state subscription", async () => {
     const snapshot = { state: { status: "ready", version: "0.2.5" }, progress: null, currentVersion: "0.2.4" }
     const invoke = vi.fn(async () => snapshot)

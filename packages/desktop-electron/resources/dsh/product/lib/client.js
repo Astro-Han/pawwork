@@ -158,27 +158,6 @@ body > [class*="_banner_"] { box-sizing: border-box; top: 0; padding-right: var(
    rules at (0,2,0) behind tool cards, skill cards and trajectory rows, which the hero page cannot
    reveal. Known gap: trajectory's collapsed-summary row is a bare <tr> with no role to match. */
 html body :is(button, [role="button"], [role="treeitem"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="option"], [aria-haspopup], label, summary, select):not(a[href]):not(:disabled) { cursor: default; }
-.pawwork-market-connector {
-  color: var(--dsw-alias-label-primary); display: flex; flex-direction: column;
-  gap: 16px; max-width: 680px; width: 100%;
-}
-.pawwork-market-connector h3 { font-size: 15px; font-weight: 600; line-height: 22px; margin: 0; }
-.pawwork-market-connector p { margin: 0; }
-.pawwork-market-copy { color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 20px; }
-.pawwork-market-trust {
-  border-left: 3px solid var(--dsw-alias-label-tertiary); color: var(--dsw-alias-label-tertiary);
-  font-size: 12px; line-height: 19px; padding-left: 10px;
-}
-.pawwork-market-status {
-  align-items: center; background: var(--dsw-alias-bg-module-platform); border-radius: 8px;
-  display: flex; gap: 12px; justify-content: space-between; padding: 10px 12px;
-}
-.pawwork-market-status p { color: var(--dsw-alias-label-secondary); flex: 1; font-size: 12px; line-height: 19px; }
-/* The buttons share the row with a sentence that grows in every locale; without
-   a group of their own the flex line divides evenly and wraps their labels. */
-.pawwork-market-actions { display: flex; flex-shrink: 0; gap: 8px; white-space: nowrap; }
-.pawwork-market-action { align-self: flex-start; }
-.pawwork-market-error { color: var(--dsw-alias-state-error-primary); font-size: 12px; line-height: 19px; }
 /* The v1 import runs before the user has done anything, so what it has to say
    sits over the shell rather than inside a view they may never open. Only the
    strip itself takes pointer events; the rest of the overlay row stays
@@ -394,59 +373,6 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
           h(IconPanelLeftOutlineRegular, { size: 16 })))
     }
 
-    function CommunityMarketTab() {
-      const api = window.pawworkCommunityMarket
-      const unavailable = { enabled: false, restartRequired: false, version: null }
-      const [state, setState] = useState({ status: "loading", market: unavailable, error: "" })
-      const busy = state.status === "working"
-
-      useEffect(() => {
-        let current = true
-        if (!api) {
-          setState({ status: "ready", market: unavailable, error: text("社区市场接入暂不可用。请重新启动爪印。", "Community market setup is unavailable. Restart PawWork.") })
-          return () => { current = false }
-        }
-        api.status().then(
-          (market) => { if (current) setState({ status: "ready", market, error: "" }) },
-          (error) => { if (current) setState({ status: "ready", market: unavailable, error: error instanceof Error ? error.message : String(error) }) },
-        )
-        return () => { current = false }
-      }, [api])
-
-      async function run(operation) {
-        if (!api || busy) return
-        setState((current) => ({ ...current, status: "working", error: "" }))
-        try {
-          const market = await operation()
-          setState({ status: "ready", market, error: "" })
-        } catch (error) {
-          setState((current) => ({ ...current, status: "ready", error: error instanceof Error ? error.message : String(error) }))
-        }
-      }
-
-      return h("section", { "aria-busy": busy, className: "pawwork-market-connector" },
-        h("div", null,
-          h("h3", null, text("DSH 社区插件市场", "DSH community plugin market")),
-          h("p", { className: "pawwork-market-copy" }, text("启用后，插件浏览、安装和卸载都由社区市场提供；仅影响爪印自己的 DSH 环境。", "Once enabled, the community market owns plugin discovery, installation, and removal inside PawWork's isolated DSH environment."))),
-        h("p", { className: "pawwork-market-trust" }, text("社区市场及其中插件均由第三方维护，并会以爪印的权限运行。", "The community market and its plugins are third-party software and run with PawWork's permissions.")),
-        state.error ? h("p", { className: "pawwork-market-error", role: "alert" }, state.error) : null,
-        state.status === "loading" ? h("p", { className: "pawwork-market-copy" }, text("正在检查社区市场…", "Checking community market…")) : null,
-        state.market.enabled || state.market.restartRequired ? h("div", { className: "pawwork-market-status", role: "status" },
-          h("p", null, state.market.restartRequired
-            ? state.market.enabled
-              ? text("社区市场已安装。重新启动后台服务后即可在设置中使用。", "Community market installed. Restart the background service to use it in Settings.")
-              : text("社区市场已停用。重新启动后台服务后生效。", "Community market disabled. Restart the background service to apply it.")
-            : text(`社区市场 ${state.market.version ?? ""} 已启用。`, `Community market ${state.market.version ?? ""} is enabled.`)),
-          h("div", { className: "pawwork-market-actions" },
-            h(Button, { disabled: busy || !api, onClick: () => api?.restart(), size: "sm" }, text("重新启动后台服务", "Restart Background Service")),
-            state.market.enabled ? h(Button, {
-              disabled: busy || !api, onClick: () => run(() => api.disable()), size: "sm",
-            }, text(busy ? "正在停用…" : "停用社区市场", busy ? "Disabling…" : "Disable community market")) : null))
-          : state.status !== "loading" ? h(Button, {
-            className: "pawwork-market-action", disabled: busy || !api, onClick: () => run(() => api.enable()), size: "sm", variant: "primary",
-          }, text(busy ? "正在启用…" : "启用社区市场", busy ? "Enabling…" : "Enable community market")) : null)
-    }
-
     // --- PawWork glove mark --------------------------------------------------
     // Traced from the brand app icon, in a 0..6270 coordinate space GLOVE_TRANSFORM maps into the
     // 64x64 viewBox. The cuff is drawn twice, the copy shifted up, to grow it from 19% of the source
@@ -652,10 +578,6 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "pawwork-model-setup", order: 0, priority: -1 },
         (props) => ModelSetupStep({ ...props, ctx })))
-      ctx.slots.inject("settings.plugins.tab", () => ctx.slots.register({
-        name: "settings.plugins.tab", id: "pawwork-community-market", order: 20,
-        label: () => text("社区市场", "Community market"),
-      }, CommunityMarketTab))
       ctx.effect(() => watchV1Import(ctx, feedback))
     }
 

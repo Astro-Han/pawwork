@@ -105,12 +105,6 @@
   config:
     path: !!js dshHomePath('session-query.sqlite')
     openAt: first-search
-# The market must wait for PawWork's generation-scoped Desktop services. Their
-# presence selects its managed package runtime and makes self-restart unavailable.
-- id: dsh-market
-  inject:
-    - desktopProfiles
-    - desktopPnpm
 - insert:
     - id: directory-picker-browse-host
       name: '@deepseek-ai/dsh-host-directory-picker-browse'
@@ -123,10 +117,10 @@
     - id: pawwork-product
       name: '@pawwork/dsh-product'
     # Its own row rather than a line inside pawwork-product: readiness needs
-    # only `connection` and `webServer`, and an entry that also carries the
-    # catalog refresher, the Desktop services and the market routes is an entry
-    # any of those can keep from ever reporting — or, once its fiber dies with a
-    # report still pending, take the whole runtime down with.
+    # only `connection` and `webServer`, and an entry that also carries other
+    # product work is an entry that work can keep from ever reporting — or, once
+    # its fiber dies with a report still pending, take the whole runtime down
+    # with.
     - id: pawwork-web-ready
       name: '@pawwork/dsh-product/web-ready'
     - id: import-v1

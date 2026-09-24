@@ -193,9 +193,8 @@ describe("DSH product home", () => {
     ).toEqual({ bundle: { patch: "./cordis.patch.yml" } })
   })
 
-  // The product patch targets rows other bundles insert — the market's among
-  // them — and a patch for an id not yet composed is dropped. Installing a
-  // bundle appends it, so the product bundle has to move back to the end.
+  // Installing a bundle appends it, so the product bundle has to move back to
+  // the end for its rows to keep outranking what other bundles set.
   test("keeps the product bundle last in an existing profile, keeping what it had", () => {
     const productHome = temporaryDirectory()
     const resources = join(import.meta.dirname, "../../resources/dsh")
@@ -204,8 +203,8 @@ describe("DSH product home", () => {
     const manifest = {
       name: "dsh-profile-web",
       private: true,
-      dependencies: { dshmarket: "1.64.0" },
-      dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@pawwork/dsh-bundle", "dshmarket"] } },
+      dependencies: { "dsh-lark-bot": "0.3.0" },
+      dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@pawwork/dsh-bundle", "dsh-lark-bot"] } },
     }
     writeFileSync(join(profile, "package.json"), JSON.stringify(manifest))
 
@@ -214,7 +213,7 @@ describe("DSH product home", () => {
 
     expect(JSON.parse(readFileSync(join(profile, "package.json"), "utf8"))).toEqual({
       ...manifest,
-      dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dshmarket", "@pawwork/dsh-bundle"] } },
+      dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-lark-bot", "@pawwork/dsh-bundle"] } },
     })
   })
 
@@ -367,15 +366,6 @@ describe("DSH product home", () => {
     const { adapterRoot } = installedPiAi()
     const retryEntry = createRequire(join(adapterRoot, "package.json")).resolve("@deepseek-ai/dsh-llm-retry")
     expect(readFileSync(retryEntry, "utf8")).not.toContain("registerAdapter(")
-  })
-
-  test("makes the community market wait for PawWork-owned Desktop services", () => {
-    const patch = readProductPatch()
-
-    expect(patch.find((entry) => entry.id === "dsh-market")).toEqual({
-      id: "dsh-market",
-      inject: ["desktopProfiles", "desktopPnpm"],
-    })
   })
 
   // The mcp-client patch is only half the feature: without this row nothing

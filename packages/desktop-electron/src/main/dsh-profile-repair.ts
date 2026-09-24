@@ -2,10 +2,10 @@ import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
 // DSH refuses to boot when the profile declares a bundle it cannot resolve, and
-// it names the offender in the message it dies with. A failed market install is
-// the way users get here: the install rolls back the dependency but leaves the
-// bundle declaration behind, so every later start hits the same wall and the
-// only in-app action — retry — cannot change the outcome.
+// it names the offender in the message it dies with. A failed plugin install
+// that rolls back the dependency but leaves the bundle declaration behind puts
+// users here, and every later start hits the same wall: retry alone cannot
+// change the outcome.
 const UNRESOLVED_BUNDLE = /cannot resolve profile bundle "([^"]+)"/
 
 // The other way a single plugin takes the whole runtime down: the package is
@@ -55,7 +55,7 @@ type RemoveProfileBundleOptions = {
  *
  * Only `dsh.profile.bundles` is touched. A dependency entry, if one survived,
  * is left alone: it is inert as far as booting goes, and removing packages is
- * the market's job, not a recovery path's.
+ * the Plugins page's job, not a recovery path's.
  *
  * @returns whether the manifest changed.
  */
