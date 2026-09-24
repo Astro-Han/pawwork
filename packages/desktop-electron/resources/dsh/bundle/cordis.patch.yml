@@ -27,18 +27,18 @@
 #
 # It has to be one provider rather than one per vendor, because the seam looks
 # its provider up per search but takes the id from static entry config here,
-# with no settings namespace or change event behind it. Anything named here is
-# the only backend the product could ever reach, so the choice between engines
-# lives inside the provider — and in the settings card the plugin ships — rather
-# than in this file.
+# which is not a live setting. Anything named here is the only backend the
+# product could ever reach, so the choice between engines lives inside the
+# provider — and on the Plugins page item the plugin ships — rather than in
+# this file.
 - id: web
   config:
     searchProvider: pawwork
     fetchProvider: http
 # The PawWork provider constructs this same DeepSeek backend when the user
 # selects it, and resolves the same `DEEPSEEK_API_KEY` reference the Models page
-# writes — so this row is not a capability, it is a second settings card titled
-# "web search" that edits a provider the seam will never select.
+# writes — so this row is not a capability, it is a second Plugins page item
+# titled "web search" that edits a provider the seam will never select.
 - id: web-search-deepseek
   disabled: true
 # Temporary Windows escape hatch for the native picker's out-of-process COM

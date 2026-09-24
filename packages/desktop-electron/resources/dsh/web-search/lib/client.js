@@ -6,26 +6,12 @@ window.__ModuleLoader__.load({
     const { createSnapshotStore } = require("@deepseek-ai/dsh-client-store")
     const h = createElement
 
-    // The settings card for the PawWork search provider.
+    // The Plugins page item for the PawWork search provider.
     //
-    // A Host settings namespace renders nothing on its own: the configurable tab
-    // draws the intersection of the namespaces the Host serves and the cards
-    // registered for them, and the shipped cards cover `bash`, `agent-loop` and
-    // `web-search-deepseek` only. So a card is not decoration here — without
-    // this file the section exists and no user can reach it.
-    //
-    // The upstream web-search card is keyed to `web-search-deepseek` and edits
-    // that provider's section, so it cannot express a choice between engines.
-    // This card owns the `pawwork-web-search` namespace instead, and is the only
-    // surface where the free-allowance behaviour is stated: the Exa engine
-    // works with no key, which is a promise the section itself cannot make. It
-    // is also the answer to "the free allowance ran out" — the one place a user
-    // can move onto their own quota.
-    //
-    // The card shell and field rows are hand-built rather than imported. The
-    // plugins section's own shell is package-private and its bundle purity gate
-    // forbids importing it by value, so what is shared with it is the visual
-    // contract — the same `--dsw-*` tokens, metrics, and states — not code.
+    // DSH would generate a plain form from the entry's volatile Config, but that
+    // form can neither say that the Exa engine works with no key nor write a key
+    // through the credentials domain. This page does both, and is the one place a
+    // user whose free allowance ran out can move onto their own quota.
 
     const NS = "pawwork-web-search"
 
