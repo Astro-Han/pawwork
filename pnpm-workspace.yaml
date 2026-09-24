@@ -20,7 +20,6 @@ minimumReleaseAgeExclude:
 
 overrides:
   '@xmldom/xmldom': 0.8.15
-  brace-expansion: 5.0.9
   esbuild: 0.28.1
   fast-uri: 3.1.6
   form-data: 4.0.6
@@ -39,4 +38,3 @@ patchedDependencies:
   '@deepseek-ai/dsh-client-connection@0.1.7-rc.1': patches/@deepseek-ai__dsh-client-connection@0.1.7-rc.1.patch
   '@deepseek-ai/dsh-llm-pi-ai@0.1.7-rc.1': patches/@deepseek-ai__dsh-llm-pi-ai@0.1.7-rc.1.patch
   '@deepseek-ai/dsh-mcp-client@0.1.7-rc.1': patches/@deepseek-ai__dsh-mcp-client@0.1.7-rc.1.patch
-  brace-expansion@5.0.9: patches/brace-expansion@5.0.9.patch
