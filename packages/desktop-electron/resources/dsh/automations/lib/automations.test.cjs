@@ -2,6 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const { createRequire } = require('node:module');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -97,6 +98,56 @@ test('provides the automation service as a Remote the API gateway can dispatch t
     else process.env.DSH_HOME = previousHome;
     fs.rmSync(home, { force: true, recursive: true });
   }
+});
+
+// The gateway maps each wire field onto the parameter of the same name, so the fields
+// below are exactly what client.js sends: renaming a parameter breaks the Settings page
+// while every direct method call in this file still passes.
+test('the API gateway dispatches each Settings page call onto the automation service', async () => {
+  const fromDsh = createRequire(require.resolve('@deepseek-ai/dsh/package.json'));
+  const load = (name) => import(pathToFileURL(fromDsh.resolve(name)).href);
+  const { Context } = await load('@deepseek-ai/cordis');
+  const { TypertRegistry } = await load('@deepseek-ai/dsh-typert-registry');
+  const { TypertGatewayService } = await load('@deepseek-ai/dsh-api-gateway');
+  const ctx = new Context();
+  let dispatch;
+  ctx.provide('connection', { rpc: { intercept: (_channel, _matches, handler) => { dispatch = handler; return () => {}; } } });
+  await ctx.plugin(TypertRegistry);
+  await ctx.plugin(TypertGatewayService);
+  const { file, cwd } = fixture();
+  const store = new AutomationStore(file);
+  const definition = interval(store, cwd, 300_000);
+  let started;
+  ctx.provide('pawworkAutomations', await createAutomationService({
+    store,
+    scheduler: {
+      refresh: () => {},
+      startNow: (id) => {
+        started = id;
+        return { run: { id: 'automation-run-1', automationId: id, state: 'running' }, completion: new Promise(() => {}) };
+      },
+    },
+    now: () => 2_000,
+  }));
+  const call = (method, args) => dispatch(`pawworkAutomations/${method}`, { args });
+
+  assert.deepEqual((await call('list', {})).value.definitions.map((entry) => entry.id), [definition.id]);
+  const renamed = (await call('update', { id: definition.id, patch: { expectedRevision: definition.revision, title: 'Renamed' } })).value;
+  assert.equal(renamed.title, 'Renamed');
+  assert.equal((await call('setPaused', { id: definition.id, paused: true })).value.paused, true);
+  assert.equal((await call('runNow', { id: definition.id })).value.state, 'running');
+  assert.equal(started, definition.id);
+
+  const stale = await call('update', { id: definition.id, patch: { expectedRevision: definition.revision, title: 'Again' } });
+  assert.equal(stale.error.code, 'conflict');
+  const current = store.listDefinitions()[0].revision;
+  const badCron = await call('update', { id: definition.id, patch: { expectedRevision: current, rhythm: { kind: 'cron', expression: '0 9 30 2 *' } } });
+  assert.equal(badCron.error.code, 'bad-request');
+  assert.deepEqual(badCron.error.details.issues, [{ code: 'invalid-cron' }]);
+  assert.equal((await call('list', { surprise: true })).error.code, 'gateway/arguments-invalid');
+
+  assert.deepEqual((await call('delete', { id: definition.id })).value, { id: definition.id });
+  assert.deepEqual(store.listDefinitions(), []);
 });
 
 // Every other listRuns assertion runs against a store holding a single
