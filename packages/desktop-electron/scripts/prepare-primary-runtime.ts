@@ -48,15 +48,14 @@ export function pythonExecutable(root: string, platform: SupportedPlatform) {
 async function download(url: string, sha256: string) {
   await mkdir(cacheDir, { recursive: true })
   const cached = path.join(cacheDir, sha256)
-  let bytes: Buffer
-  try {
-    bytes = await readFile(cached)
-  } catch {
-    const response = await fetch(url, { redirect: "follow" })
-    if (!response.ok) throw new Error(`Failed to download ${url}: HTTP ${response.status}`)
-    bytes = Buffer.from(await response.arrayBuffer())
-  }
-  const actual = createHash("sha256").update(bytes).digest("hex")
+  const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex")
+  const hit = await readFile(cached).catch(() => undefined)
+  if (hit && digest(hit) === sha256) return cached
+
+  const response = await fetch(url, { redirect: "follow" })
+  if (!response.ok) throw new Error(`Failed to download ${url}: HTTP ${response.status}`)
+  const bytes = Buffer.from(await response.arrayBuffer())
+  const actual = digest(bytes)
   if (actual !== sha256) throw new Error(`Checksum mismatch for ${url}: expected ${sha256}, got ${actual}`)
   await writeFile(cached, bytes)
   return cached

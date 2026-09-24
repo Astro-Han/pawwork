@@ -45,7 +45,7 @@ PawWork is a DSH runtime, a native desktop shell, and a product layer on top. Kn
 |---|---|
 | `packages/desktop-electron/src/main` | The Electron main process: window chrome, menus, native pickers, updater, DSH sidecar lifecycle |
 | `packages/desktop-electron/resources/dsh` | DSH plugins PawWork owns: first-run model setup, web search, Automations, v1 migration, desktop host bridge |
-| `skills/` | Vendored Office skills (`.docx`, `.xlsx`, `.pptx`, PDF), run through a bundled `uv` Python toolchain |
+| `skills/` | The vendored PDF skill, run through a bundled `uv`. Word, PowerPoint and Excel skills come from DSH and run on a bundled Python |
 | `site/` | The pawwork.ai marketing site (Astro). Copy for both languages lives in `site/src/i18n.ts` |
 
 The agent runtime itself comes from pinned `@deepseek-ai/dsh-*` packages and is not vendored here.
@@ -62,6 +62,13 @@ For local development:
 
 ```bash
 pnpm dev:desktop
+```
+
+`pnpm dev:desktop` does not download the bundled `uv` and Python that the Office and PDF skills run on. To use those skills in development, prepare them once for your machine:
+
+```bash
+pnpm --filter @pawwork/desktop exec tsx scripts/prepare-uv.ts
+pnpm --filter @pawwork/desktop exec tsx scripts/prepare-primary-runtime.ts
 ```
 
 Use pnpm only. Installing with `bun` rewrites the pnpm dependency tree through `node_modules/.bun` and silently breaks the workspace.
