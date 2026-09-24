@@ -181,9 +181,31 @@ export function createDshExecutor(ctx, store) {
       }
       const used = modelFallback?.used ?? definition.model;
       const agentOptions = { provider: used.provider, model: used.model };
-      handle = definition.context === 'continue'
-        ? await ctx.agents.resume({ resumeSessionId: sessionId, agentOptions, signal })
-        : await ctx.agents.create({ sessionId, meta: { cwd: definition.cwd }, agentOptions, signal });
+      // The agent's tools come from its preset, which only the setup callback can mount: a
+      // fresh run takes the default preset, a continued one the preset its session runs under.
+      const presets = ctx.get('agentPresets');
+      if (definition.context === 'continue') {
+        handle = await ctx.agents.resume({
+          resumeSessionId: sessionId,
+          agentOptions,
+          signal,
+          setup: presets && (async (agentCtx, resumed) => {
+            await presets.mount(agentCtx, ctx.get('sessionProjections')?.stateOf(resumed.session, 'agentPreset') ?? undefined);
+          }),
+        });
+      } else {
+        const agentPreset = presets && (await presets.resolve()).id;
+        signal.throwIfAborted();
+        handle = await ctx.agents.create({
+          sessionId,
+          meta: { cwd: definition.cwd, ...(agentPreset ? { agentPreset } : {}) },
+          agentOptions,
+          signal,
+          setup: presets && (async (agentCtx) => {
+            await presets.mount(agentCtx, agentPreset);
+          }),
+        });
+      }
       agent = handle.agent;
     }
     signal.throwIfAborted();

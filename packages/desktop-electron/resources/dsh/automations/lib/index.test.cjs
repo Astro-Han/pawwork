@@ -23,6 +23,7 @@ async function applyPlugin(overrides = {}) {
     agentDefaultModel: { currentSelection: () => ({ provider: 'acme', model: 'big-pickle' }) },
     agents: { roots: () => overrides.roots ?? [], get: () => undefined, ...overrides.agents },
     effect: (setup) => { teardowns.push(setup()); },
+    get: () => undefined,
     llm: overrides.llm,
     logger: { warn: () => {} },
     on: (event, handler) => {
@@ -209,6 +210,7 @@ test('records the model a run was moved to before the agent exists, and does not
   };
   const execute = createDshExecutor({
     ...ctx,
+    get: () => undefined,
     agents: {
       get: () => undefined,
       create: async ({ agentOptions }) => {
@@ -259,6 +261,58 @@ test('records the model a run was moved to before the agent exists, and does not
   assert.equal((await unrecorded).result, 'ran');
   assert.equal(created.length, 2);
   assert.match(warnings.at(-1), /automation-run-4 could not record its model: ENOSPC/);
+});
+
+test('mounts the agent preset a run needs for its tools, fresh or continued', async () => {
+  const { createDshExecutor } = await import(`${pathToFileURL(path.join(__dirname, 'index.js')).href}?presets=${Date.now()}`);
+  const events = [];
+  let turn = 0;
+  const agent = {
+    session: { snapshotEvents: () => events },
+    followup() {
+      turn += 1;
+      events.push(
+        { type: 'turn/start', data: { turn } },
+        { type: 'assistant/message', data: { turn, message: { content: [{ type: 'text', text: 'ran' }] } } },
+        { type: 'turn/end', data: { turn, reason: { kind: 'completed' } } },
+      );
+    },
+    whenIdle: async () => {},
+    cancel() {},
+    runMaintenance: async (task) => task(new AbortController().signal),
+  };
+  const persisted = { header: { id: 'session-source' } };
+  const mounted = [];
+  const services = {
+    agentPresets: {
+      resolve: async () => ({ id: 'standard' }),
+      mount: async (agentCtx, id) => { mounted.push([agentCtx, id]); },
+    },
+    sessionProjections: { stateOf: (session, key) => (session === persisted && key === 'agentPreset' ? 'ptc' : undefined) },
+  };
+  const calls = [];
+  const start = async (options) => {
+    calls.push(options);
+    await options.setup('agent-ctx', { session: persisted });
+    return { agent, dispose: async () => {} };
+  };
+  const execute = createDshExecutor({
+    get: (name) => services[name],
+    llm: { listProviders: () => [{ id: 'acme' }], resolveModelInfo: async (provider, id) => ({ provider, id, name: id }) },
+    agentDefaultModel: { currentSelection: () => ({ provider: 'acme', model: 'big-pickle' }) },
+    logger: { warn: () => {} },
+    agents: { get: () => undefined, create: start, resume: start },
+    sessions: { flush: async () => {} },
+    sessionTitle: { rename: () => {} },
+  }, { recordRunModel: () => {} });
+  const definition = { cwd: '/workspace', title: 'Digest', prompt: 'Go.', model: { provider: 'acme', model: 'big-pickle' } };
+
+  await execute({ ...definition, context: 'fresh' }, { id: 'automation-run-1' }, new AbortController().signal);
+  await execute({ ...definition, context: 'continue', sourceSessionId: 'session-source' }, { id: 'automation-run-2' }, new AbortController().signal);
+
+  assert.deepEqual(calls[0].meta, { cwd: '/workspace', agentPreset: 'standard' });
+  assert.equal(calls[1].resumeSessionId, 'session-source');
+  assert.deepEqual(mounted, [['agent-ctx', 'standard'], ['agent-ctx', 'ptc']]);
 });
 
 // Every other test stubs the seam between the executor and the store. This one drives the

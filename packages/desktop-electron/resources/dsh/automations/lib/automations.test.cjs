@@ -706,6 +706,7 @@ test('the DSH executor does not follow up when agent creation or resume aborts a
           resolveAgent(() => resolve({ agent, dispose: async () => {} }));
         }),
       },
+      get: () => undefined,
       llm: { resolveModelInfo: async (provider, model) => ({ provider, id: model, name: model }) },
       sessions: { flush: async () => {} },
       sessionTitle: { rename: () => {} },
