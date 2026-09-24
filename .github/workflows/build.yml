@@ -822,8 +822,11 @@ jobs:
 
       - name: Smoke installed Windows package
         if: ${{ runner.os == 'Windows' && inputs.channel == 'prod' && inputs.phase != 'finalize' }}
-        shell: pwsh
-        run: pnpm exec tsx ./scripts/ci-smoke.ts packaged prod "$env:PAWWORK_INSTALLED_EXECUTABLE"
+        # Not pwsh: an app launched from a pwsh step inherits its console, and the
+        # sandbox's restricted pwsh then dies attaching to it (0xC0000142). A user's
+        # launch has no console, and neither does this one from bash.
+        shell: bash
+        run: pnpm exec tsx ./scripts/ci-smoke.ts packaged prod "$PAWWORK_INSTALLED_EXECUTABLE"
         working-directory: packages/desktop-electron
         timeout-minutes: 5
         env:
