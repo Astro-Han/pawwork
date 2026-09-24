@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron")
+const { contextBridge, ipcRenderer, webUtils } = require("electron")
 
 let productReady = false
 let publishTitlebarTheme = () => {}
@@ -58,15 +58,8 @@ contextBridge.exposeInMainWorld("pawworkLifecycle", {
   },
 })
 
-contextBridge.exposeInMainWorld("pawworkFiles", {
-  pick: () => ipcRenderer.invoke("pawwork:pick-conversation-files"),
-})
-
-contextBridge.exposeInMainWorld("pawworkCommunityMarket", {
-  status: () => ipcRenderer.invoke("pawwork:dsh-community-market:status"),
-  enable: () => ipcRenderer.invoke("pawwork:dsh-community-market:enable"),
-  disable: () => ipcRenderer.invoke("pawwork:dsh-community-market:disable"),
-  restart: () => ipcRenderer.send("pawwork:dsh-restart"),
+contextBridge.exposeInMainWorld("__DSH_HOST_PATHS__", {
+  pathFor: (file) => webUtils.getPathForFile(file),
 })
 
 contextBridge.exposeInMainWorld("pawworkUpdater", {

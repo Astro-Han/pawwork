@@ -68,7 +68,7 @@ function loadPlugin() {
     plugin: definition.factory((module: string) => {
       if (module === "react") return { createElement, useState: <T>(value: T) => [value === false ? true : value, () => {}] }
       if (module === "@deepseek-ai/dsh-client-ui-primitives") {
-        return { IconChevronDownOutline14: "IconChevronDown", Menu: "Menu" }
+        return { IconChevronDownOutlineRegular: "IconChevronDown", Menu: "Menu" }
       }
       if (module === "@deepseek-ai/dsh-client-store") return { createSnapshotStore: fakeStore }
       throw new Error(`unexpected web-search client dependency: ${module}`)
@@ -143,9 +143,18 @@ function cardOf(options: CardOptions = {}) {
       throw new Error(`the card reached for a service it does not declare: ${service}`)
     },
     effect: (run: () => unknown) => run(),
-    locale: { register: () => () => {} },
+    locale: { bind: () => (key: string) => key, register: () => () => {} },
     remote: { $on: () => () => {}, credentials },
-    settingsScope: { bind: () => scope },
+    configForms: {
+      get: (namespace: string) => {
+        expect(namespace).toBe("pawwork-web-search")
+        return scope
+      },
+      whileServed: (namespaces: string[], register: () => () => void) => {
+        expect(namespaces).toEqual(["pawwork-web-search"])
+        return register()
+      },
+    },
     slots: {
       inject: (_name: string, register: () => void) => register(),
       register: (registration: Record<string, unknown>, component: typeof card) => {
@@ -164,6 +173,7 @@ function render(card: (props: Record<string, unknown>) => unknown, injected: Car
   const store = injected.hooks as { webSearchCard: { getSnapshot: () => unknown } }
   return card({
     ...injected,
+    view: "page",
     t: (key: string) => key,
     useWebSearchCard: (select: (snapshot: unknown) => unknown) => select(store.webSearchCard.getSnapshot()),
   })
@@ -188,15 +198,24 @@ describe("PawWork DSH web search card", () => {
     const { definition, plugin, registrations } = cardOf()
 
     expect(definition.id).toBe("@pawwork/dsh-web-search")
-    expect(plugin.inject).toEqual(["slots", "locale", "remote", "remote.credentials", "settingsScope"])
+    expect(plugin.inject).toEqual(["slots", "locale", "remote", "remote.credentials", "configForms"])
     expect(registrations).toEqual([
       {
-        name: "settings.plugin.item",
-        key: "pawwork-web-search",
+        name: "plugins.item",
+        id: "pawwork-web-search",
+        order: 40,
+        label: expect.any(Function),
         locale: "pawwork-web-search",
         inject: expect.any(Function),
       },
     ])
+    expect((registrations[0]!.label as () => string)()).toBe("title")
+  })
+
+  test("summarizes itself in one line on the plugin list", () => {
+    const { card, injected } = cardOf()
+
+    expect(card({ ...injected, view: "summary", t: (key: string) => key, useWebSearchCard: () => ({}) })).toBe("description")
   })
 
   // Every contract assertion in this file rests on the double refusing what the

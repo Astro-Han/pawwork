@@ -369,6 +369,10 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       const label = (button.getAttribute("aria-label") || button.textContent || "").trim()
       return visible(button) && pattern.test(label)
     })
+    const settingsCloseButton = () => Array.from(document.querySelectorAll("button")).find((button) => {
+      const label = (button.getAttribute("aria-label") || button.textContent || "").trim()
+      return visible(button) && /^(关闭|Close)$/i.test(label) && !button.closest(".pawwork-automation-panel")
+    })
     const waitFor = async (read, attempts = 400, delayMs = 25) => {
       for (let attempt = 0; attempt < attempts; attempt += 1) {
         const value = await read()
@@ -669,22 +673,24 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     }
     const mcpOAuthSurfaceVisible = visible(document.querySelector(".pawwork-mcp-surface"))
     const mcpOAuthAddFormVisible = visible(document.querySelector(".pawwork-mcp-add"))
-    // A Host settings namespace renders nothing on its own: the card that draws
-    // it is a client plugin, and the two halves fail independently. The Host
-    // half surviving alone leaves a namespace no user can reach — which reads,
-    // from every wire probe, exactly like a working feature. The card renders
-    // only once its bound scope reports \`ready\`, so its presence is evidence
-    // for both halves at once.
-    const pluginsSettingsEntry = visibleButton(/^(插件|Plugins)$/i)
-    pluginsSettingsEntry?.click()
-    for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-websearch-card")); attempt += 1) {
+    // The web search page is a client plugin over a Host Config form, and the two
+    // halves fail independently. The page renders only once its form is served,
+    // so its presence is evidence for both halves at once.
+    settingsCloseButton()?.click()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    visibleButton(/^(插件|Plugins)$/i)?.click()
+    let webSearchItem = null
+    for (let attempt = 0; attempt < 40 && !webSearchItem; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      webSearchItem = document.querySelector('[data-plugin-item="pawwork-web-search"] button')
+    }
+    webSearchItem?.click()
+    for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-websearch-body")); attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
-    const webSearchCardVisible = visible(document.querySelector(".pawwork-websearch-card"))
+    const webSearchCardVisible = visible(document.querySelector(".pawwork-websearch-body"))
     // A write that stops inside the renderer is invisible to every Host-side
     // assertion, so this drives the real form and reads back what it says.
-    document.querySelector(".pawwork-websearch-header")?.click()
-    await new Promise((resolve) => setTimeout(resolve, 50))
     const webSearchConfiguredBeforeSave = visible(document.querySelector(".pawwork-websearch-badge"))
     const webSearchKeyInput = document.querySelector("#pawwork-websearch-key")
     if (webSearchKeyInput) {
@@ -693,19 +699,22 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       webSearchKeyInput.dispatchEvent(new Event("input", { bubbles: true }))
     }
     await new Promise((resolve) => setTimeout(resolve, 50))
-    const webSearchUnsavedShown = visible(document.querySelector(".pawwork-websearch-pending"))
-    document.querySelector(".pawwork-websearch-save")?.click()
+    const webSearchSave = () => document.querySelector(".pawwork-websearch-save")
+    const webSearchUnsavedShown = webSearchSave()?.disabled === false
+    webSearchSave()?.click()
     let webSearchSaveWorks = false
     for (let attempt = 0; attempt < 40 && !webSearchSaveWorks; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 50))
       // The configured state is this class; the keyless badge is a different
       // one, and the copy behind either is the card's own to word.
-      webSearchSaveWorks = !visible(document.querySelector(".pawwork-websearch-pending"))
+      webSearchSaveWorks = webSearchSave()?.disabled === true
         && !visible(document.querySelector(".pawwork-websearch-failed"))
         && visible(document.querySelector(".pawwork-websearch-badge"))
     }
     const webSearchFailureText = (document.querySelector(".pawwork-websearch-failed")?.textContent || "").trim()
     // The automation flow below expects its own surface; navigate back first.
+    visibleButton(/^(设置|Settings)$/i)?.click()
+    await new Promise((resolve) => setTimeout(resolve, 50))
     visibleButton(/^(自动化|Automations)$/i)?.click()
     for (let attempt = 0; attempt < 20 && !visible(document.querySelector(".pawwork-automations-surface")); attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 50))
@@ -824,11 +833,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       && visible(document.querySelector(".pawwork-automation-panel"))
     visibleButton(/^(返回自动化|Back to Automations)$/i)?.click()
     await new Promise((resolve) => setTimeout(resolve, 50))
-    const settingsClose = Array.from(document.querySelectorAll("button")).find((button) => {
-      const label = (button.getAttribute("aria-label") || button.textContent || "").trim()
-      return visible(button) && /^(关闭|Close)$/i.test(label) && !button.closest(".pawwork-automation-panel")
-    })
-    settingsClose?.click()
+    settingsCloseButton()?.click()
     await new Promise((resolve) => setTimeout(resolve, 50))
     // Sample again here: the hero page carries no [data-expandable] rows, so measuring only the
     // first screen would miss the conversation surface entirely.
@@ -854,7 +859,8 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       if (!v1SessionVisibleInSidebar) await new Promise((resolve) => setTimeout(resolve, 250))
     }
     sidebarSessionLeaf()?.closest('[role="treeitem"]')?.click()
-    const currentSessionHeader = () => document.querySelector('[data-slot="conversation.session.header"] > header')
+    const currentSessionHeader = () => document.querySelector('header:has(> [data-slot="conversation.session.header"])')
+    const currentSessionTitleRow = () => document.querySelector('[data-slot="conversation.session.header"]')?.firstElementChild
     const currentSessionTabs = () => currentSessionHeader()?.querySelector('[role="tablist"]')
     const currentComposerCard = () => document.querySelector('[data-composer-card]')
     for (let frame = 0; frame < 120; frame += 1) {
@@ -863,17 +869,16 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     }
     const sessionHeaderDividerHidden = () => {
       const header = currentSessionHeader()
-      return header ? getComputedStyle(header, "::after").display === "none" : false
+      return header ? getComputedStyle(header).borderBottomColor === "rgba(0, 0, 0, 0)" : false
     }
     const sessionHeaderComposerLeftAlignmentOffset = (safeLeft = Number.NEGATIVE_INFINITY) => {
-      const titleRow = currentSessionHeader()?.firstElementChild
-      const titleRect = titleRow?.getBoundingClientRect()
+      const titleRect = currentSessionTitleRow()?.getBoundingClientRect()
       const composerRect = currentComposerCard()?.getBoundingClientRect()
       if (!titleRect || !composerRect) return null
       return Math.abs(titleRect.left - Math.max(composerRect.left, safeLeft))
     }
     const sessionHeaderRightBoundaryIntrusion = () => {
-      const titleRect = currentSessionHeader()?.firstElementChild?.getBoundingClientRect()
+      const titleRect = currentSessionTitleRow()?.getBoundingClientRect()
       const composerRect = currentComposerCard()?.getBoundingClientRect()
       if (!titleRect || !composerRect) return null
       const nativeSafeRight = innerWidth - titlebarInsetRight - 28
@@ -926,7 +931,7 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
       const left = leftElement?.getBoundingClientRect()
       return right && left ? left.left - right.right : null
     }
-    const collapsedSessionTitle = currentSessionHeader()?.querySelector("nav button:disabled")
+    const collapsedSessionTitle = currentSessionHeader()?.querySelector("nav > :last-child > :first-child")
     const collapsedSessionTab = currentSessionTabs()?.querySelector('[role="tab"]')
     const textStart = (element) => {
       const rect = element?.getBoundingClientRect()

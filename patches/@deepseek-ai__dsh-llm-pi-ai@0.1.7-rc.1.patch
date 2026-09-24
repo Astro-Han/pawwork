@@ -1,8 +1,8 @@
 diff --git a/lib/index.js b/lib/index.js
-index e06cf8d5faf9755710420623908478c704b225b8..a4ac43549e8475b35cb80d44d9eb8eda7b24b613 100644
+index 1692082..f8e0c89 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -400,7 +400,12 @@ const COMPLETIONS_COMPAT_GATE = {
+@@ -401,7 +401,12 @@ const COMPLETIONS_COMPAT_GATE = {
  	vercelGatewayRouting: "withhold",
  	zaiToolStream: "withhold",
  	supportsOpenAIGrammarTools: "withhold",
@@ -16,7 +16,7 @@ index e06cf8d5faf9755710420623908478c704b225b8..a4ac43549e8475b35cb80d44d9eb8eda
  	deferredToolsMode: "withhold",
  	sessionAffinityFormat: "withhold"
  };
-@@ -632,6 +637,22 @@ function resolveModelCompat(provider, entry, route, base, api) {
+@@ -633,6 +638,22 @@ function resolveModelCompat(provider, entry, route, base, api) {
  */
  function resolveRouteModels(request, validation = "strict") {
  	const { provider } = request;
@@ -39,7 +39,7 @@ index e06cf8d5faf9755710420623908478c704b225b8..a4ac43549e8475b35cb80d44d9eb8eda
  	const defaults = catalogModels(provider);
  	const providerBaseUrl = catalogProvider(provider)?.baseUrl;
  	const configured = request.models ?? [];
-@@ -1364,7 +1385,12 @@ function mapUsage(usage) {
+@@ -1374,7 +1395,12 @@ function mapUsage(usage) {
  	};
  }
  function classifyPiAiError(message) {
@@ -53,7 +53,7 @@ index e06cf8d5faf9755710420623908478c704b225b8..a4ac43549e8475b35cb80d44d9eb8eda
  	if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE;
  	if (/\b429\b|rate.?limit/i.test(message)) return "RATE_LIMIT";
  	if (/\b413\b|failed to buffer the request body:\s*length limit exceeded|payload too large|request body too large/i.test(message)) return "INVALID_REQUEST";
-@@ -2564,7 +2590,18 @@ function directoryEntries(profiles) {
+@@ -2519,7 +2545,18 @@ function directoryEntries(profiles, settingsNs) {
  			...error === void 0 ? {} : { error }
  		});
  	};

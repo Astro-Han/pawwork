@@ -25,6 +25,7 @@ async function failureFromProvider(status: number, body: string) {
     const directory = installedHarnessPackages().get("@deepseek-ai/dsh-llm-pi-ai")
     if (directory === undefined) throw new Error("dsh-llm-pi-ai is not installed")
     const adapter = (await import(pathToFileURL(join(directory, "lib", "index.js")).href)) as {
+      Config: (raw: unknown) => unknown
       apply: (context: unknown, config: unknown) => void
     }
 
@@ -36,6 +37,7 @@ async function failureFromProvider(status: number, body: string) {
     const noop = () => {}
     const ctx = {
       effect: () => noop,
+      fiber: {},
       get: () => undefined,
       inject: noop,
       llm: {
@@ -51,7 +53,7 @@ async function failureFromProvider(status: number, body: string) {
     }
 
     process.env.PAWWORK_TEST_FREE_MODEL_KEY = "public"
-    adapter.apply(ctx, {
+    adapter.apply(ctx, adapter.Config({
       providers: {
         opencode: {
           apiKeyEnv: "PAWWORK_TEST_FREE_MODEL_KEY",
@@ -60,7 +62,7 @@ async function failureFromProvider(status: number, body: string) {
           models: [{ id: "big-pickle" }],
         },
       },
-    })
+    }))
 
     if (registered === undefined) throw new Error("the adapter registered no route to call")
     const prepared = await registered.prepareCall("opencode", "big-pickle")

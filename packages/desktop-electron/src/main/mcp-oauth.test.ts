@@ -15,14 +15,14 @@ import { createGrantStore } from "../../resources/dsh/mcp-oauth/lib/grant-store.
 // Cordis comes from the tree the installed DSH packages themselves use, so the
 // context this test drives is the same implementation the bridge runs under. The
 // MCP server classes only ever speak to that bridge over HTTP, so their copy is
-// irrelevant and the bridge's own dependency is the convenient one to reuse.
+// irrelevant.
 const fromDesktop = createRequire(import.meta.url)
 const fromDsh = createRequire(fromDesktop.resolve("@deepseek-ai/dsh/package.json"))
 const fromMcp = createRequire(fromDesktop.resolve("@deepseek-ai/dsh-mcp-client"))
 const { Context } = (await import(fromDsh.resolve("@deepseek-ai/cordis"))) as { Context: new () => any }
-const { Server } = (await import(fromMcp.resolve("@modelcontextprotocol/sdk/server/index.js"))) as any
-const { StreamableHTTPServerTransport } = (await import(fromMcp.resolve("@modelcontextprotocol/sdk/server/streamableHttp.js"))) as any
-const { CallToolRequestSchema, ListToolsRequestSchema } = (await import(fromMcp.resolve("@modelcontextprotocol/sdk/types.js"))) as any
+const { Server } = (await import("@modelcontextprotocol/sdk/server/index.js")) as any
+const { StreamableHTTPServerTransport } = (await import("@modelcontextprotocol/sdk/server/streamableHttp.js")) as any
+const { CallToolRequestSchema, ListToolsRequestSchema } = (await import("@modelcontextprotocol/sdk/types.js")) as any
 
 // The engine is driven end to end here: a fake authorization server plus a fake
 // MCP endpoint that refuses until it sees the access token that server issued, the
@@ -390,7 +390,7 @@ describe("remote MCP OAuth", () => {
   })
 
   test("the bridge exports the UnauthorizedError thrown by its ESM transport", async () => {
-    const { StreamableHTTPClientTransport } = await import(fromMcp.resolve("@modelcontextprotocol/sdk/client/streamableHttp.js").replace("/dist/cjs/", "/dist/esm/"))
+    const { StreamableHTTPClientTransport } = await import(fromMcp.resolve("@modelcontextprotocol/client").replace(/\.cjs$/, ".mjs"))
     const transport = new StreamableHTTPClientTransport(new URL(provider.mcpUrl))
     await transport.start()
     try {

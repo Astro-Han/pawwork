@@ -34,6 +34,7 @@ async function configurableProviders() {
   const noop = () => {}
   const ctx = {
     effect: () => noop,
+    fiber: {},
     get: () => undefined,
     inject: noop,
     llm: {
@@ -48,7 +49,8 @@ async function configurableProviders() {
     on: () => noop,
   }
 
-  ;(adapter as { apply: (context: unknown, config: unknown) => void }).apply(ctx, { providers: {} })
+  const { Config, apply } = adapter as { Config: (raw: unknown) => unknown; apply: (context: unknown, config: unknown) => void }
+  apply(ctx, Config({ providers: {} }))
   return (captured.at(-1) ?? []).map((entry) => entry.provider)
 }
 
@@ -111,7 +113,7 @@ describe("DSH authorization surface", () => {
     expect(namespaces.get("credentials")).toBeDefined()
     expect(namespaces.get("llm")).toBeDefined()
     // When this fails, DSH can start a sign-in: drop the pi-ai patch, mount
-    // @deepseek-ai/dsh-authorization in product.cordis.patch.yml, and delete this file.
+    // @deepseek-ai/dsh-authorization in the product bundle patch, and delete this file.
     expect(namespaces.get("authorization")).toBeUndefined()
   })
 })

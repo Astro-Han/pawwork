@@ -2,7 +2,7 @@ window.__ModuleLoader__.load({
   id: "@pawwork/dsh-mcp-oauth",
   factory: (require) => {
     const { createElement: h, Fragment, useCallback, useEffect, useId, useRef, useState } = require("react")
-    const { Button, IconPlusOutline16, Modal, Tag } = require("@deepseek-ai/dsh-client-ui-primitives")
+    const { Button, IconPlusOutlineRegular, Modal, Tag } = require("@deepseek-ai/dsh-client-ui-primitives")
 
     const CHANNEL = "/pawwork-mcp-oauth"
     const PLUGIN = "@pawwork/dsh-mcp-oauth"
@@ -297,7 +297,7 @@ textarea.pawwork-mcp-input { font-family: var(--ds-font-family-code, monospace);
           adding
             ? h(AddCard, { busy, onCancel: () => setAdding(false), onSubmit: add })
             : h("button", { className: "pawwork-mcp-add-button", disabled: servers === null || cannotWrite, onClick: () => { setError(null); setAdding(true) }, type: "button" },
-                h(IconPlusOutline16, { size: 14 }), text("添加远程 MCP 服务器", "Add a remote MCP server"))),
+                h(IconPlusOutlineRegular, { size: 14 }), text("添加远程 MCP 服务器", "Add a remote MCP server"))),
         h(Modal, {
           className: "pawwork-mcp-dialog",
           closeLabel: text("关闭", "Close"),

@@ -2,11 +2,9 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
 type PrepareDshToolsEnvironmentOptions = {
-  dshBin: string
   env: NodeJS.ProcessEnv
   executable: string
   home: string
-  hostToken: string
   platform?: NodeJS.Platform
   pnpmBin: string
   productToolsDir: string
@@ -51,8 +49,6 @@ export function prepareDshToolsEnvironment(options: PrepareDshToolsEnvironmentOp
     ...environment,
     DSH_HOME: options.home,
     ELECTRON_RUN_AS_NODE: "1",
-    PAWWORK_DSH_BIN: options.dshBin,
-    PAWWORK_HOST_TOKEN: options.hostToken,
     PAWWORK_NODE_EXECUTABLE: options.executable,
     PAWWORK_PNPM_CLI: options.pnpmBin,
   }

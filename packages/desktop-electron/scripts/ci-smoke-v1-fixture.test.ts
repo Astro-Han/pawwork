@@ -12,8 +12,8 @@ import {
 } from "./ci-smoke-v1-fixture"
 
 const require = createRequire(import.meta.url)
-const { readV1Sessions } = require("../resources/dsh/home/plugins/import-v1/import-v1.cjs")
-const { readV1Automations } = require("../resources/dsh/home/plugins/import-v1/import-v1-automations.cjs")
+const { readV1Sessions } = require("../resources/dsh/bundle/import-v1/import-v1.cjs")
+const { readV1Automations } = require("../resources/dsh/bundle/import-v1/import-v1-automations.cjs")
 const roots: string[] = []
 
 afterEach(() => {

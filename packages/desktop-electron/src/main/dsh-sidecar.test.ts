@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest"
 import { EventEmitter } from "node:events"
 import { PassThrough } from "node:stream"
-import { deferDshRun, launchDshSidecar, type DshChildProcess } from "./dsh-sidecar"
+import { launchDshSidecar, type DshChildProcess } from "./dsh-sidecar"
 
 class FakeChildProcess extends EventEmitter implements DshChildProcess {
   readonly stdout = new PassThrough()
@@ -62,7 +62,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/node_modules/@deepseek-ai/dsh/lib/bin.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: { PATH: "/app/tools:/usr/bin", DSH_HOME: "/data/dsh", ELECTRON_RUN_AS_NODE: "1" },
       spawn: (executable, args, options) => {
         invocation = { executable, args, options }
@@ -83,8 +82,6 @@ describe("DSH sidecar lifecycle", () => {
         "file:///app/dsh/sidecar-preload.mjs",
         "/app/node_modules/@deepseek-ai/dsh/lib/bin.js",
         "web",
-        "--patch",
-        "/data/dsh/product.cordis.patch.yml",
         "--host",
         "127.0.0.1",
         "--port",
@@ -107,7 +104,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       spawn: () => child,
     })
@@ -130,7 +126,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/bin.js",
       sidecarPreload: "file:///app/preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: { PATH: "/usr/bin" },
       spawn: () => child,
     })
@@ -161,7 +156,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       spawn: () => child,
     })
@@ -177,7 +171,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       spawn: () => child,
     })
@@ -197,7 +190,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       spawn: () => child,
       onError: (error) => errors.push(error),
@@ -222,7 +214,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       spawn: () => child,
     })
@@ -246,7 +237,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       spawn: () => child,
     })
@@ -275,7 +265,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       spawn: () => child,
       onStdout: (chunk) => stdout.push(chunk),
@@ -298,7 +287,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       stopTimeoutMs: 1,
       spawn: () => child,
@@ -310,82 +298,5 @@ describe("DSH sidecar lifecycle", () => {
 
     expect(child.messages).toEqual(["SIGTERM"])
     expect(child.killSignals).toEqual(["SIGKILL"])
-  })
-})
-
-describe("deferDshRun", () => {
-  function fakeRun() {
-    let resolveReady!: (url: string) => void
-    const stopped = { count: 0 }
-    return {
-      stopped,
-      run: {
-        ready: new Promise<string>((resolve) => { resolveReady = resolve }),
-        exited: new Promise<number | null>(() => {}),
-        stop: () => {
-          stopped.count += 1
-          return Promise.resolve()
-        },
-      },
-      announceReady: (url: string) => resolveReady(url),
-    }
-  }
-
-  test("spawns only after the prelude settles, then reports the run it wrapped", async () => {
-    let release!: () => void
-    const prelude = new Promise<void>((resolve) => { release = resolve })
-    let launches = 0
-    const inner = fakeRun()
-
-    const deferred = deferDshRun(() => prelude, () => {
-      launches += 1
-      return inner.run
-    })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(launches).toBe(0)
-
-    release()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(launches).toBe(1)
-    inner.announceReady("http://127.0.0.1:43123/?token=s3cr3t")
-    await expect(deferred.ready).resolves.toBe("http://127.0.0.1:43123/?token=s3cr3t")
-
-    await deferred.stop()
-    expect(inner.stopped.count).toBe(1)
-  })
-
-  // Quitting during work that runs in front of DSH has to end that work, not
-  // wait it out: the prelude owns a process of its own, and its own deadline.
-  test("aborts the prelude when the run is stopped, and does not spawn", async () => {
-    let aborted: AbortSignal | undefined
-    let release!: () => void
-    const prelude = new Promise<void>((resolve) => { release = resolve })
-    let launches = 0
-
-    const deferred = deferDshRun((signal) => {
-      signal.addEventListener("abort", () => { aborted = signal; release() })
-      return prelude
-    }, () => {
-      launches += 1
-      return fakeRun().run
-    })
-    await deferred.stop()
-
-    expect(aborted?.aborted).toBe(true)
-    expect(launches).toBe(0)
-  })
-
-  // The lifecycle reports a launch that threw through `ready`; `exited` answering
-  // as well would race a second, wrongly worded failure into the same start.
-  test("reports a failed launch through readiness alone", async () => {
-    let exitedSettled = false
-    const deferred = deferDshRun(() => Promise.resolve(), () => {
-      throw new Error("DSH host module scope is missing")
-    })
-    void deferred.exited.then(() => { exitedSettled = true }, () => { exitedSettled = true })
-
-    await expect(deferred.ready).rejects.toThrow("DSH host module scope is missing")
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(exitedSettled).toBe(false)
   })
 })

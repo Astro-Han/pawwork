@@ -15,11 +15,9 @@ test("keeps one Windows Path authority with bundled pnpm and Node commands", () 
   temporaryDirectories.push(home)
 
   const environment = prepareDshToolsEnvironment({
-    dshBin: "C:\\PawWork\\dsh\\bin.js",
     env: { Path: "C:\\Windows\\System32" },
     executable: "C:\\PawWork\\PawWork.exe",
     home,
-    hostToken: "host-token",
     platform: "win32",
     pnpmBin: "C:\\PawWork\\node_modules\\pnpm\\bin\\pnpm.mjs",
     productToolsDir: "C:\\PawWork\\resources\\tools",
@@ -29,8 +27,6 @@ test("keeps one Windows Path authority with bundled pnpm and Node commands", () 
   expect(environment).toEqual(expect.objectContaining({
     DSH_HOME: home,
     ELECTRON_RUN_AS_NODE: "1",
-    PAWWORK_DSH_BIN: "C:\\PawWork\\dsh\\bin.js",
-    PAWWORK_HOST_TOKEN: "host-token",
     PAWWORK_NODE_EXECUTABLE: "C:\\PawWork\\PawWork.exe",
     PAWWORK_PNPM_CLI: "C:\\PawWork\\node_modules\\pnpm\\bin\\pnpm.mjs",
     Path: `${privateTools};C:\\PawWork\\resources\\tools;C:\\Windows\\System32`,
@@ -49,11 +45,9 @@ test("makes the Electron-backed Node and pnpm commands executable on macOS", () 
   temporaryDirectories.push(home)
 
   const environment = prepareDshToolsEnvironment({
-    dshBin: "/Applications/PawWork.app/dsh/bin.js",
     env: { PATH: "/usr/bin" },
     executable: "/Applications/PawWork.app/Contents/MacOS/PawWork",
     home,
-    hostToken: "host-token",
     platform: "darwin",
     pnpmBin: "/Applications/PawWork.app/pnpm/bin/pnpm.mjs",
     productToolsDir: "/Applications/PawWork.app/tools",

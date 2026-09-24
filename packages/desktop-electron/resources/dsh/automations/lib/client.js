@@ -10,14 +10,14 @@ window.__ModuleLoader__.load({
       StateDot,
       useAnchoredPosition,
       useDismissOnOutsidePointer,
-      IconChevronLeftOutline14,
-      IconChevronRightOutline14,
-      IconChevronDownOutline14,
-      IconCheckOutline16,
-      IconPauseOutline16,
-      IconPlayOutline16,
-      IconSearchOutline16,
-      IconTrashOutline16,
+      IconChevronLeftOutlineRegular,
+      IconChevronRightOutlineRegular,
+      IconChevronDownOutlineRegular,
+      IconCheckOutlineRegular,
+      IconPauseOutlineRegular,
+      IconPlayOutlineRegular,
+      IconSearchOutlineRegular,
+      IconTrashOutlineRegular,
     } = require("@deepseek-ai/dsh-client-ui-primitives")
     const h = createElement
 
@@ -261,11 +261,11 @@ window.__ModuleLoader__.load({
     }
     // One statement of what a schedule is doing; the row's glyph and trailing text both render it.
     function definitionState(definition) {
-      if (definition.paused) return { icon: IconPauseOutline16, label: text("已暂停", "Paused") }
-      if (definition.terminalReason === "completed") return { icon: IconCheckOutline16, label: text("已完成", "Completed") }
-      if (definition.terminalReason === "missed") return { icon: IconCheckOutline16, label: text("已错过", "Missed") }
-      if (definition.terminalReason === "run-limit") return { icon: IconCheckOutline16, label: text("已跑满", "Run limit reached") }
-      return { icon: IconPlayOutline16, label: `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}` }
+      if (definition.paused) return { icon: IconPauseOutlineRegular, label: text("已暂停", "Paused") }
+      if (definition.terminalReason === "completed") return { icon: IconCheckOutlineRegular, label: text("已完成", "Completed") }
+      if (definition.terminalReason === "missed") return { icon: IconCheckOutlineRegular, label: text("已错过", "Missed") }
+      if (definition.terminalReason === "run-limit") return { icon: IconCheckOutlineRegular, label: text("已跑满", "Run limit reached") }
+      return { icon: IconPlayOutlineRegular, label: `${text("下次", "Next")} ${formatTime(definition.nextFireAt)}` }
     }
 
     // Why a stopped run stopped is the one thing its row has to say, and the reason is an
@@ -476,9 +476,9 @@ window.__ModuleLoader__.load({
         }, formatDate(value)),
         open ? h("div", { "aria-label": label, className: "pawwork-automation-calendar", ref: panel, role: "dialog", style: placement ?? PLACEMENT_PENDING },
           h("div", { className: "pawwork-automation-calendar-head" },
-            h("button", { "aria-label": text("上个月", "Previous month"), className: "pawwork-automation-calendar-nav", onClick: () => shift(-1), type: "button" }, h(IconChevronLeftOutline14, { size: 14 })),
+            h("button", { "aria-label": text("上个月", "Previous month"), className: "pawwork-automation-calendar-nav", onClick: () => shift(-1), type: "button" }, h(IconChevronLeftOutlineRegular, { size: 14 })),
             h("span", { className: "pawwork-automation-calendar-title" }, monthTitle(year, month)),
-            h("button", { "aria-label": text("下个月", "Next month"), className: "pawwork-automation-calendar-nav", onClick: () => shift(1), type: "button" }, h(IconChevronRightOutline14, { size: 14 }))),
+            h("button", { "aria-label": text("下个月", "Next month"), className: "pawwork-automation-calendar-nav", onClick: () => shift(1), type: "button" }, h(IconChevronRightOutlineRegular, { size: 14 }))),
           h("div", { className: "pawwork-automation-calendar-grid", onKeyDown: moveFocus },
             WEEKDAY_INITIALS[isChinese() ? "zh" : "en"].map((initial) => h("span", { className: "pawwork-automation-calendar-weekday", key: initial }, initial)),
             cells)) : null)
@@ -568,15 +568,15 @@ window.__ModuleLoader__.load({
         : [["daily", text("每天", "Daily")], ["weekdays", text("工作日", "Weekdays")], ["weekly", text("每周", "Weekly")], ["interval", text("固定间隔", "Interval")], ["cron", "Cron"]]
       const weekdayOptions = WEEKDAYS.map(([value, chinese, english]) => [value, text(chinese, english)])
       return h("section", { className: "pawwork-automation-panel" }, h("div", { className: "pawwork-automation-panel-inner" },
-        h(Button, { className: "pawwork-automation-back", icon: h(IconChevronLeftOutline14, { size: 14 }), onClick: requestClose, size: "sm", type: "button", variant: "ghost" }, text("返回自动化", "Back to Automations")),
+        h(Button, { className: "pawwork-automation-back", icon: h(IconChevronLeftOutlineRegular, { size: 14 }), onClick: requestClose, size: "sm", type: "button", variant: "ghost" }, text("返回自动化", "Back to Automations")),
         h("div", { className: "pawwork-automation-panel-head" },
           h("div", null,
             h("h2", null, definition.title),
             h("p", { className: "pawwork-automation-panel-summary" }, `${formatSchedule(definition)}  ${workspaceName(definition.cwd)}`)),
           h("div", { className: "pawwork-automation-actions" },
-            h(Button, { disabled: busy !== "" || dirty, icon: h(definition.paused ? IconPlayOutline16 : IconPauseOutline16, { size: 16 }), onClick: () => mutate("set-paused", { id: definition.id, paused: !definition.paused }), size: "sm", title: dirty ? text("请先保存更改", "Save changes first") : undefined, variant: "outline" }, definition.paused ? text("启用", "Resume") : text("暂停", "Pause")),
-            h(Button, { disabled: busy !== "" || dirty, icon: h(IconPlayOutline16, { size: 16 }), onClick: () => mutate("run-now", { id: definition.id }), size: "sm", title: dirty ? text("请先保存更改", "Save changes first") : undefined, variant: "primary" }, text("立即运行", "Run now")),
-            h(Button, { "aria-label": text("删除", "Delete"), disabled: busy !== "", icon: h(IconTrashOutline16, { size: 16 }), onClick: () => setDeleting(true), size: "sm", title: text("删除", "Delete"), type: "button", variant: "ghost" }))),
+            h(Button, { disabled: busy !== "" || dirty, icon: h(definition.paused ? IconPlayOutlineRegular : IconPauseOutlineRegular, { size: 16 }), onClick: () => mutate("set-paused", { id: definition.id, paused: !definition.paused }), size: "sm", title: dirty ? text("请先保存更改", "Save changes first") : undefined, variant: "outline" }, definition.paused ? text("启用", "Resume") : text("暂停", "Pause")),
+            h(Button, { disabled: busy !== "" || dirty, icon: h(IconPlayOutlineRegular, { size: 16 }), onClick: () => mutate("run-now", { id: definition.id }), size: "sm", title: dirty ? text("请先保存更改", "Save changes first") : undefined, variant: "primary" }, text("立即运行", "Run now")),
+            h(Button, { "aria-label": text("删除", "Delete"), disabled: busy !== "", icon: h(IconTrashOutlineRegular, { size: 16 }), onClick: () => setDeleting(true), size: "sm", title: text("删除", "Delete"), type: "button", variant: "ghost" }))),
         h("form", { className: "pawwork-automation-form", onSubmit: save },
           h(Field, { label: text("标题", "Title") }, h("input", { "aria-label": text("标题", "Title"), className: "pawwork-automation-input", onChange: update("title"), value: form.title })),
           h(Field, { label: text("任务内容", "Instructions") }, h("textarea", { "aria-label": text("任务内容", "Instructions"), className: "pawwork-automation-textarea", onChange: update("prompt"), value: form.prompt })),
@@ -597,7 +597,7 @@ window.__ModuleLoader__.load({
               "aria-controls": "pawwork-automation-advanced-content", "aria-expanded": advanced,
               className: "pawwork-automation-advanced-summary",
               onClick: () => setAdvanced((current) => !current), type: "button",
-            }, h(advanced ? IconChevronDownOutline14 : IconChevronRightOutline14, { size: 14 }), text("高级设置", "Advanced settings")),
+            }, h(advanced ? IconChevronDownOutlineRegular : IconChevronRightOutlineRegular, { size: 14 }), text("高级设置", "Advanced settings")),
             advanced ? h("div", { className: "pawwork-automation-advanced-content", id: "pawwork-automation-advanced-content" },
               h(Field, { hint: text("每次运行使用的模型。不在列表里的模型，运行时会改用默认模型。", "The model each run uses. A model not in the list is replaced by the default model at run time."), label: text("模型", "Model") }, h(ModelSelect, { catalog, onChange: ([provider, model]) => setForm((current) => ({ ...current, provider, model })), pinned: definition.model, value: { provider: form.provider, model: form.model } })),
               h(Field, { hint: text("上面的时间按这个时区计算，默认是本机时区。", "The schedule above is read in this time zone. Defaults to this computer's."), label: text("时区", "Timezone") }, h("input", { "aria-label": text("时区", "Timezone"), className: "pawwork-automation-input", onChange: update("timezone"), value: form.timezone })),
@@ -702,7 +702,7 @@ window.__ModuleLoader__.load({
             h("h2", null, text("自动化", "Automations")),
             h("p", null, text("让 PawWork 按计划处理重复工作，创建过程在对话里完成。", "Let PawWork handle recurring work on a schedule; you create one in chat."))),
           h("div", { className: "pawwork-automations-toolbar" },
-            h(Input, { "aria-label": text("搜索自动化", "Search automations"), className: "pawwork-automations-search", icon: h(IconSearchOutline16, { size: 16 }), onChange: (event) => setQuery(event.target.value), placeholder: text("搜索自动化", "Search automations"), value: query }),
+            h(Input, { "aria-label": text("搜索自动化", "Search automations"), className: "pawwork-automations-search", icon: h(IconSearchOutlineRegular, { size: 16 }), onChange: (event) => setQuery(event.target.value), placeholder: text("搜索自动化", "Search automations"), value: query }),
             h("div", { className: "pawwork-automations-tabs", role: "tablist" }, [["all", text("全部", "All")], ["active", text("启用", "Active")], ["paused", text("暂停", "Paused")], ["ended", text("已结束", "Ended")]].map(([value, label]) => h(Pill, { active: filter === value, key: value, onClick: () => setFilter(value), role: "tab" }, label))),
             h(Button, { className: "pawwork-automations-create", disabled: !preferredWorkspace, onClick: createAutomation, size: "sm", variant: "primary" }, text("新建自动化", "New automation"))),
           error ? h("div", { className: "pawwork-automations-error", role: "alert" }, error) : null,
@@ -727,19 +727,16 @@ window.__ModuleLoader__.load({
       }, (props) => h(AutomationSurface, {
           ...props, connection: ctx.connection, remote: ctx.remote,
           createViaChat: async (workspaceId) => {
-            // Navigation moved off the Workspace Controller in DSH 0.1.2-alpha.2:
-            // `workspaces` is the pure Host projection now, and connecting one to
-            // a session — reusing its blank session or creating one — belongs to
-            // `uiWorkspace`. The workspace list this surface renders arrives as a
-            // slot prop, so nothing here reaches the projection any more.
-            const sessionId = await ctx.uiWorkspace.connectWorkspace(workspaceId)
-            const binding = ctx.sessions.binding(sessionId)
-            if (!binding) throw new Error("automation chat session is unavailable")
-            ctx.conversation.input.for(binding.ctx).setDraft(text("帮我创建一个自动化。先问我它要做什么、什么时候运行，再帮我创建。", "Help me create an automation. Ask what it should do and when it should run, then create it."))
-            ctx.sessions.open(sessionId)
+            // The draft has to land while `uiWorkspace` is opening the session:
+            // only then is its binding guaranteed to be held.
+            await ctx.uiWorkspace.openWorkspace(workspaceId, (sessionId) => {
+              const binding = ctx.sessions.binding(sessionId)
+              if (!binding) throw new Error("automation chat session is unavailable")
+              ctx.conversation.input.for(binding.ctx).setDraft(text("帮我创建一个自动化。先问我它要做什么、什么时候运行，再帮我创建。", "Help me create an automation. Ask what it should do and when it should run, then create it."))
+            })
             props.close()
           },
-          sessions: ctx.sessions,
+          sessions: { refresh: () => ctx.sessions.refresh(), open: (sessionId) => ctx.uiWorkspace.openSession(sessionId) },
         })))
     }
 

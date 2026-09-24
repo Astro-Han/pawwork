@@ -14,48 +14,25 @@ import {
 } from "./window-options"
 
 const root = dirname(fileURLToPath(import.meta.url))
-// Covers the quote characters too: the result is interpolated into an attribute
-// value as well as into text.
-const HTML_ESCAPES: Record<string, string> = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-  "'": "&#39;",
+
+// The spinner track, which has no equivalent in the web app to borrow.
+const STARTUP_LINE: Record<WindowColorScheme, string> = {
+  light: "#e3e3e7",
+  dark: "#2d2d31",
 }
 
-const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (character) => HTML_ESCAPES[character] ?? character)
-
-// The spinner track and the notice text, which have no equivalent in the web
-// app to borrow.
-const STARTUP_PALETTE: Record<WindowColorScheme, { line: string; muted: string }> = {
-  light: { line: "#e3e3e7", muted: "#6b6b70" },
-  dark: { line: "#2d2d31", muted: "#a1a1a6" },
-}
-
-const startupHtml = (scheme: WindowColorScheme, notice?: string) => `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>PawWork</title><style>
-:root{color-scheme:${scheme};--bg:${SURFACE_COLOR[scheme]};--line:${
-  STARTUP_PALETTE[scheme].line
-};--accent:#fc5c14;--muted:${STARTUP_PALETTE[scheme].muted}}
-html,body{height:100%;margin:0}body{align-items:center;background:var(--bg);display:flex;flex-direction:column;gap:16px;justify-content:center}
+const startupHtml = (scheme: WindowColorScheme) => `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>PawWork</title><style>
+:root{color-scheme:${scheme};--bg:${SURFACE_COLOR[scheme]};--line:${STARTUP_LINE[scheme]};--accent:#fc5c14}
+html,body{height:100%;margin:0}body{align-items:center;background:var(--bg);display:flex;justify-content:center}
 .titlebar{-webkit-app-region:drag;height:var(--pawwork-titlebar-host-height,env(titlebar-area-height,0px));left:0;position:fixed;right:0;top:0}
 .spinner{animation:spin .8s linear infinite;border:2px solid var(--line);border-radius:50%;box-sizing:border-box;height:20px;position:relative;width:20px}
 .spinner:after{background:conic-gradient(var(--accent) 72deg,transparent 0);border-radius:inherit;content:"";inset:-2px;mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 0);position:absolute;-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 0)}
-.notice{color:var(--muted);font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;margin:0;max-width:32em;padding:0 24px;text-align:center}
 @keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spinner{animation:none}}
-</style></head><body><div class="titlebar"></div><div aria-label="${
-  escapeHtml(notice ?? "PawWork is starting")
-}" class="spinner" role="progressbar"></div>${
-  notice === undefined ? "" : `<p class="notice">${escapeHtml(notice)}</p>`
-}</body></html>`
+</style></head><body><div class="titlebar"></div><div aria-label="PawWork is starting" class="spinner" role="progressbar"></div></body></html>`
 
-/**
- * The page every window sits on while DSH is not serving one. `notice` names
- * the step being waited on; without it a wait in front of DSH, which prints
- * nothing until it is ready, is indistinguishable from a hang.
- */
-export function startupUrl(scheme: WindowColorScheme, notice?: string) {
-  return `data:text/html;charset=utf-8,${encodeURIComponent(startupHtml(scheme, notice))}`
+/** The page every window sits on while DSH is not serving one. */
+export function startupUrl(scheme: WindowColorScheme) {
+  return `data:text/html;charset=utf-8,${encodeURIComponent(startupHtml(scheme))}`
 }
 
 function iconsDir() {

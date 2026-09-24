@@ -2,30 +2,16 @@ window.__ModuleLoader__.load({
   id: "@pawwork/dsh-web-search",
   factory: (require) => {
     const { createElement, useState } = require("react")
-    const { IconChevronDownOutline14, Menu } = require("@deepseek-ai/dsh-client-ui-primitives")
+    const { IconChevronDownOutlineRegular, Menu } = require("@deepseek-ai/dsh-client-ui-primitives")
     const { createSnapshotStore } = require("@deepseek-ai/dsh-client-store")
     const h = createElement
 
-    // The settings card for the PawWork search provider.
+    // The Plugins page item for the PawWork search provider.
     //
-    // A Host settings namespace renders nothing on its own: the configurable tab
-    // draws the intersection of the namespaces the Host serves and the cards
-    // registered for them, and the shipped cards cover `bash`, `agent-loop` and
-    // `web-search-deepseek` only. So a card is not decoration here — without
-    // this file the section exists and no user can reach it.
-    //
-    // The upstream web-search card is keyed to `web-search-deepseek` and edits
-    // that provider's section, so it cannot express a choice between engines.
-    // This card owns the `pawwork-web-search` namespace instead, and is the only
-    // surface where the free-allowance behaviour is stated: the Exa engine
-    // works with no key, which is a promise the section itself cannot make. It
-    // is also the answer to "the free allowance ran out" — the one place a user
-    // can move onto their own quota.
-    //
-    // The card shell and field rows are hand-built rather than imported. The
-    // plugins section's own shell is package-private and its bundle purity gate
-    // forbids importing it by value, so what is shared with it is the visual
-    // contract — the same `--dsw-*` tokens, metrics, and states — not code.
+    // DSH would generate a plain form from the entry's volatile Config, but that
+    // form can neither say that the Exa engine works with no key nor write a key
+    // through the credentials domain. This page does both, and is the one place a
+    // user whose free allowance ran out can move onto their own quota.
 
     const NS = "pawwork-web-search"
 
@@ -48,27 +34,6 @@ window.__ModuleLoader__.load({
     ]
 
     const css = `
-.pawwork-websearch-card {
-  background: var(--dsw-alias-bg-layer-3); border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px;
-  list-style: none; transition: border-color .16s, background .16s;
-}
-.pawwork-websearch-card:hover { border-color: var(--dsw-alias-label-dimmed); }
-.pawwork-websearch-card-open { background: var(--dsw-alias-bg-layer-2); border-color: var(--dsw-alias-label-dimmed); }
-.pawwork-websearch-header {
-  align-items: center; appearance: none; background: 0 0; border: 0; border-radius: 12px; color: inherit;
-  cursor: pointer; display: flex; font: inherit; gap: 12px; padding: 14px 16px; text-align: left; width: 100%;
-}
-.pawwork-websearch-header:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: -2px; }
-.pawwork-websearch-head-text { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
-.pawwork-websearch-name { color: var(--dsw-alias-label-primary); font-size: 15px; font-weight: 600; line-height: 1.4; }
-.pawwork-websearch-description { color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 1.5; }
-.pawwork-websearch-pending {
-  background: var(--dsw-alias-bg-module-platform); border-radius: 999px; color: var(--dsw-alias-label-secondary);
-  flex: none; font-size: 11px; font-weight: 500; line-height: 17px; padding: 1px 8px; white-space: nowrap;
-}
-.pawwork-websearch-chevron { color: var(--dsw-alias-label-tertiary); flex: none; transition: transform .16s; }
-.pawwork-websearch-chevron-open { transform: rotate(180deg); }
-.pawwork-websearch-body { border-top: 1px solid var(--dsw-alias-border-l2); margin: 0 16px; padding-bottom: 8px; }
 .pawwork-websearch-read-only { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 1.5; margin: 12px 0 0; }
 .pawwork-websearch-field { display: flex; flex-direction: column; gap: 6px; padding: 12px 0; }
 .pawwork-websearch-field + .pawwork-websearch-field { border-top: 1px solid var(--dsw-alias-border-l2); }
@@ -156,10 +121,7 @@ window.__ModuleLoader__.load({
       save: "Save",
       saving: "Saving…",
       discard: "Discard",
-      unsaved: "Unsaved",
       saveFailedApp: "Saving failed on this app's side, not on your input. Your values were kept; try again.",
-      expand: "Show settings",
-      collapse: "Hide settings",
     }
 
     const zh = {
@@ -180,10 +142,7 @@ window.__ModuleLoader__.load({
       save: "保存",
       saving: "保存中…",
       discard: "放弃修改",
-      unsaved: "未保存",
       saveFailedApp: "保存失败：应用出错，不是你输入的问题；内容已保留，可重试。",
-      expand: "展开设置",
-      collapse: "收起设置",
     }
 
     /**
@@ -589,15 +548,15 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The web-search card: pick the engine, and hold the key that engine needs.
+     * The web-search page: pick the engine, and hold the key that engine needs.
      * @param props - the slot props, the card store, and the form actions.
-     * @returns the card, or null before the Host serves the namespace.
+     * @returns the one-line summary, the page body, or null before the Host serves the namespace.
      */
     function WebSearchCard(props) {
       const { t } = props
-      const [open, setOpen] = useState(false)
       const [menuOpen, setMenuOpen] = useState(false)
       const state = props.useWebSearchCard((snapshot) => snapshot)
+      if (props.view === "summary") return t("description")
       if (!state.available) return null
       const disabled = !state.writable
       const blocked = !state.dirty || state.saving
@@ -606,22 +565,7 @@ window.__ModuleLoader__.load({
         : state.keyless
           ? h("span", { className: "pawwork-websearch-badge-muted" }, t("keylessBadge"))
           : null
-      return h("li", { className: `pawwork-websearch-card${open ? " pawwork-websearch-card-open" : ""}` },
-        h("button", {
-          "aria-expanded": open,
-          "aria-label": `${t(open ? "collapse" : "expand")}: ${t("title")}`,
-          className: "pawwork-websearch-header",
-          onClick: () => setOpen(!open),
-          type: "button",
-        },
-          h("span", { className: "pawwork-websearch-head-text" },
-            h("span", { className: "pawwork-websearch-name" }, t("title")),
-            h("span", { className: "pawwork-websearch-description" }, t("description"))),
-          state.dirty ? h("span", { className: "pawwork-websearch-pending" }, t("unsaved")) : null,
-          h(IconChevronDownOutline14, {
-            className: `pawwork-websearch-chevron${open ? " pawwork-websearch-chevron-open" : ""}`,
-          })),
-        open ? h("div", { className: "pawwork-websearch-body" },
+      return h("div", { className: "pawwork-websearch-body" },
           disabled ? h("p", { className: "pawwork-websearch-read-only", role: "status" }, t("readOnly")) : null,
           h(Field, {
             badges: state.backendOverridden
@@ -648,7 +592,7 @@ window.__ModuleLoader__.load({
                 type: "button",
               },
                 t(state.backend),
-                h(IconChevronDownOutline14, { className: "pawwork-websearch-selector-chevron" })),
+                h(IconChevronDownOutlineRegular, { className: "pawwork-websearch-selector-chevron" })),
               items: BACKENDS.map((entry) => ({ id: entry.id, label: t(entry.id) })),
               onClose: () => setMenuOpen(false),
               onSelect: (id) => {
@@ -707,24 +651,27 @@ window.__ModuleLoader__.load({
               disabled: blocked || disabled,
               onClick: props.save,
               type: "button",
-            }, t(state.saving ? "saving" : "save")))) : null)
+            }, t(state.saving ? "saving" : "save"))))
     }
 
-    const inject = ["slots", "locale", "remote", "remote.credentials", "settingsScope"]
+    const inject = ["slots", "locale", "remote", "remote.credentials", "configForms"]
 
     function apply(ctx) {
       ctx.effect(() => ctx.locale.register(NS, { en, zh }), "pawwork-web-search: card dictionaries")
-      const card = new CardController(ctx.settingsScope.bind({ namespace: NS }), credentialFace(ctx))
+      const card = new CardController(ctx.configForms.get(NS), credentialFace(ctx))
       ctx.effect(
         () => ctx.remote.$on("credentials/reference-updated", (ref) => card.refreshCredential(ref)),
         "pawwork-web-search: credential invalidations",
       )
-      ctx.slots.inject("settings.plugin.item", () => ctx.slots.register({
-        name: "settings.plugin.item",
-        key: NS,
+      const t = ctx.locale.bind(NS)
+      ctx.effect(() => ctx.configForms.whileServed([NS], () => ctx.slots.inject("plugins.item", () => ctx.slots.register({
+        name: "plugins.item",
+        id: NS,
+        order: 40,
+        label: () => t("title"),
         locale: NS,
         inject: () => card.inject(),
-      }, WebSearchCard))
+      }, WebSearchCard))), "pawwork-web-search: page")
     }
 
     return { inject, apply }

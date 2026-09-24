@@ -26,7 +26,7 @@ const REFUSAL_STATUS = new Set([401, 402, 403]);
 const TRANSIENT_STATUS = new Set([429, 503]);
 
 /** The way off the shared allowance, named wherever the allowance fails. */
-const OWN_KEY_REMEDY = 'open Settings → Plugins → Web search and enter your own Exa API key';
+const OWN_KEY_REMEDY = 'open Plugins → Web search and enter your own Exa API key';
 
 /**
  * What to say when Exa's shared allowance reports a failure in prose.

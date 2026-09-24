@@ -12,7 +12,7 @@ const {
   runV1AutomationImport,
 } = require('./import-v1-automations.cjs');
 const { openV1Snapshot } = require('./migration-io.cjs');
-const { AutomationStore } = require('../../../automations/lib/automations.cjs');
+const { AutomationStore } = require('../../automations/lib/automations.cjs');
 
 // The snapshot belongs to the whole import run, so these stage tests open one the
 // same way index.mjs does. Temporary homes are disposable; no cleanup needed here.

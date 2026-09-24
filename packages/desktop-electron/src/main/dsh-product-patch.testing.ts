@@ -33,7 +33,7 @@ export type EntryRow = {
 
 export const productPatchFile = resolve(
   import.meta.dirname,
-  "../../resources/dsh/home/product.cordis.patch.yml",
+  "../../resources/dsh/bundle/cordis.patch.yml",
 )
 
 /** One entry list's rows, with `!!js` expressions kept as their source text. */

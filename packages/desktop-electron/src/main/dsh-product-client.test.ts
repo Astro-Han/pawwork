@@ -42,7 +42,7 @@ describe("PawWork DSH client product layer", () => {
     })
     return definition.factory((name) => {
       if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutlineRegular: () => null }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
   }
@@ -89,7 +89,7 @@ describe("PawWork DSH client product layer", () => {
     const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), { document })
     definition.factory((name) => {
       if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutlineRegular: () => null }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
     return { appRoot, bodyChildren, inserted, css: style.textContent }
@@ -112,105 +112,6 @@ describe("PawWork DSH client product layer", () => {
       ],
       platform: "web",
     })
-  })
-
-  test("registers one community-market connector tab in DSH Plugins settings", () => {
-    const document = {
-      documentElement: { lang: "zh-CN" },
-      querySelector: () => null,
-      createElement: () => ({ dataset: {}, textContent: "" }),
-      head: { appendChild: () => {} },
-      body: { firstChild: null, insertBefore: () => {} },
-    }
-    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
-      document,
-      window: { pawworkCommunityMarket: { status: vi.fn(), enable: vi.fn(), restart: vi.fn() } },
-    })
-    const plugin = definition.factory((name) => {
-      if (name === "react") return { createElement: () => null, useEffect: () => {}, useRef: () => ({ current: null }) }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
-      throw new Error(`unexpected product client dependency: ${name}`)
-    })
-    const registrations: Array<{ id?: string; label?: () => string; name?: string; order?: number }> = []
-    plugin.apply({
-      connection: { rpc: { call: vi.fn(async () => ({ ok: true, value: { phase: "done" } })) } },
-      effect: (fn: () => unknown) => fn(),
-      sessions: { refresh: vi.fn(async () => {}) },
-      slots: {
-        inject: (_name: string, register: () => void) => register(),
-        register: (options: { id?: string; label?: () => string; name?: string; order?: number }) => {
-          registrations.push(options)
-          return () => {}
-        },
-      },
-    })
-
-    const management = registrations.find((entry) => entry.id === "pawwork-community-market")
-    expect(management).toMatchObject({ name: "settings.plugins.tab", order: 20 })
-    expect(management?.label?.()).toBe("社区市场")
-    document.documentElement.lang = "en"
-    expect(management?.label?.()).toBe("Community market")
-  })
-
-  test("enables the pinned community market from a trust-explicit Settings card", async () => {
-    const enable = vi.fn(async () => ({ enabled: true, restartRequired: true, version: "1.21.0" }))
-    const document = {
-      documentElement: { lang: "zh-CN" },
-      querySelector: () => null,
-      createElement: () => ({ dataset: {}, textContent: "" }),
-      head: { appendChild: () => {} },
-      body: { firstChild: null, insertBefore: () => {} },
-    }
-    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
-      document,
-      window: { pawworkCommunityMarket: { status: vi.fn(), enable, restart: vi.fn() } },
-    })
-    const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]): unknown => {
-      const nextProps = { ...props, children }
-      return typeof type === "function" ? type(nextProps) : { type, props: nextProps }
-    }
-    const states: unknown[] = [{ status: "ready", market: { enabled: false, restartRequired: false, version: null }, error: "" }]
-    let stateIndex = 0
-    const plugin = definition.factory((name) => {
-      if (name === "react") {
-        return {
-          createElement,
-          useEffect: () => {},
-          useRef: <T>(value: T) => ({ current: value }),
-          useState: (initial: unknown) => {
-            const value = stateIndex < states.length ? states[stateIndex] : initial
-            stateIndex += 1
-            return [value, vi.fn()]
-          },
-        }
-      }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") {
-        return {
-          Button: (props: Record<string, unknown>) => ({ type: "button", props }),
-          IconPanelLeftOutline16: () => null,
-        }
-      }
-      throw new Error(`unexpected product client dependency: ${name}`)
-    })
-    let managementTab: ((props: unknown) => unknown) | undefined
-    plugin.apply({
-      connection: { rpc: { call: vi.fn(async () => ({ ok: true, value: { phase: "done" } })) } },
-      effect: (fn: () => unknown) => fn(),
-      sessions: { refresh: vi.fn(async () => {}) },
-      slots: {
-        inject: (_name: string, register: () => void) => register(),
-        register: (options: { id?: string }, component: typeof managementTab) => {
-          if (options.id === "pawwork-community-market") managementTab = component
-          return () => {}
-        },
-      },
-    })
-
-    const tree = managementTab!({})
-    expect(textOf(tree)).toContain("社区市场及其中插件均由第三方维护，并会以爪印的权限运行。")
-    const button = visit(tree).find((element) => element.type === "button")!
-    await (button.props.onClick as () => Promise<void>)()
-    expect(enable).toHaveBeenCalledWith()
   })
 
   test("pins the public DSH layout contracts consumed by the window chrome", () => {
@@ -258,9 +159,12 @@ describe("PawWork DSH client product layer", () => {
     expect(client).toContain(`--dsw-static-neutral-bluish-950:${SURFACE_COLOR.dark};`)
     // A third rule would decide the colour for some state the window cannot see.
     expect(client.match(/--dsw-alias-bg-base:/g)).toHaveLength(2)
-    // The boot script covers the first frame only; every later change is the
+    // The boot stylesheet covers the first frame only; every later change is the
     // layout plugin's presenter, and that is the write the preload observes.
-    expect(boot).toContain("document.documentElement.style.colorScheme = dark ? 'dark' : 'light'")
+    expect(boot).toContain(`const LIGHT_BACKGROUND = "${SURFACE_COLOR.light}";`)
+    expect(boot).toContain(`const DARK_BACKGROUND = "${SURFACE_COLOR.dark}";`)
+    expect(boot).toContain(":root{color-scheme:light}body{background-color:${LIGHT_BACKGROUND};")
+    expect(boot).toContain(":root{color-scheme:dark}body{background-color:${DARK_BACKGROUND};")
     expect(layout).toContain("document.documentElement.style.colorScheme = scheme")
   })
 
@@ -289,7 +193,7 @@ describe("PawWork DSH client product layer", () => {
     const useRef = <T>(value: T) => ({ current: value })
     const plugin = definition.factory((name) => {
       if (name === "react") return { createElement, useEffect, useRef }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutlineRegular: () => null }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
     const registrations: Array<{
@@ -310,7 +214,7 @@ describe("PawWork DSH client product layer", () => {
 
     plugin.apply(ctx)
     expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout",
-      "remote", "remote.llm", "settingsScope"])
+      "remote", "remote.llm", "configForms"])
     const welcome = registrations.find((entry) => entry.options.id === "welcome-notice")
     expect(welcome).toBeDefined()
     expect(welcome!.options.priority).toBe(-1)
@@ -353,7 +257,7 @@ describe("PawWork DSH client product layer", () => {
     const PanelLeftIcon = () => null
     const plugin = definition.factory((name) => {
       if (name === "react") return { createElement, useEffect: () => {}, useRef: () => ({ current: null }) }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: PanelLeftIcon }
+      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutlineRegular: PanelLeftIcon }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
     const registrations: Array<{
@@ -377,7 +281,7 @@ describe("PawWork DSH client product layer", () => {
     plugin.apply(ctx)
 
     expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout",
-      "remote", "remote.llm", "settingsScope"])
+      "remote", "remote.llm", "configForms"])
     const overlay = registrations.filter((entry) => entry.options.name === "shell.overlay")
     expect(overlay.map((entry) => entry.options.id)).toEqual(["pawwork-window-chrome", "pawwork-v1-import"])
     const chrome = overlay[0]
@@ -427,7 +331,6 @@ describe("PawWork DSH client product layer", () => {
     const { css } = loadProductCss()
 
     expect(css).not.toMatch(/:where\([^)]*button[^)]*\)[^{]*:hover\s*{[^}]*background(?:-color)?\s*:/s)
-    expect(css).toMatch(/\.pawwork-file-action:hover\s*{[^}]*background\s*:/s)
   })
 
   test("gives inactive conversation tabs a local underline hover cue", () => {
@@ -454,8 +357,8 @@ describe("PawWork DSH client product layer", () => {
   test("lets the current session title use the space before header actions", () => {
     const { css } = loadProductCss()
 
-    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] nav:has\(button:disabled\)\s*{[^}]*flex:\s*1/s)
-    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] nav button:disabled\s*{[^}]*max-width:\s*100%/s)
+    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] nav\s*{[^}]*flex:\s*1/s)
+    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] nav > :last-child > :first-child\s*{[^}]*max-width:\s*100%/s)
   })
 
   test("hides both DSH sidebar controls while preserving their layout seat and ready mark", () => {
@@ -477,70 +380,11 @@ describe("PawWork DSH client product layer", () => {
     const { css } = loadProductCss()
 
     expect(css).toMatch(/--pawwork-session-column-safe-right:\s*max\([^;]*calc\(28px \+ var\(--pawwork-titlebar-inset-right/s)
-    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] > header > :is\([^}]*{[^}]*width:\s*min\([^;]*var\(--pawwork-session-column-safe-right/s)
+    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] > :is\([^}]*{[^}]*width:\s*min\([^;]*var\(--pawwork-session-column-safe-right/s)
     expect(css).toMatch(/\[data-slot="details"\] > \* > :first-child\s*{[^}]*padding-right:\s*calc\(12px \+ var\(--pawwork-titlebar-inset-right/s)
     expect(css).toMatch(/body > \[class\*="_banner_"\]\s*{[^}]*top:\s*0[^}]*padding-right:\s*var\(--pawwork-titlebar-inset-right/s)
   })
 
-
-  test("adds selected file paths through the public composer input slot", async () => {
-    const document = {
-      title: "DeepSeek Harness",
-      documentElement: { lang: "zh-CN" },
-      querySelector: () => null,
-      createElement: () => ({ dataset: {}, textContent: "" }),
-      head: { appendChild: () => {} },
-      body: { firstChild: null, insertBefore: () => {} },
-    }
-    const pick = vi.fn(async () => ({
-      status: "selected",
-      paths: ["/tmp/notes.md"],
-    }))
-
-    const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
-      document,
-      window: { pawworkFiles: { pick } },
-    })
-    const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
-      type,
-      props: { ...props, children },
-    })
-    const plugin = definition.factory((name) => {
-      if (name === "react") {
-        return {
-          createElement,
-          useEffect: () => {},
-          useRef: <T>(value: T) => ({ current: value }),
-        }
-      }
-      if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
-      throw new Error(`unexpected product client dependency: ${name}`)
-    })
-    let fileAction: ((props: unknown) => { props: Record<string, unknown> }) | undefined
-    const ctx = {
-      connection: { rpc: { call: vi.fn(async () => ({ ok: true, value: { phase: "done" } })) } },
-      effect: (fn: () => unknown) => fn(),
-      sessions: { refresh: vi.fn(async () => {}) },
-      slots: {
-        inject: (_name: string, register: () => void) => register(),
-        register: (options: { id?: string }, component: typeof fileAction) => {
-          if (options.id === "pawwork-files") fileAction = component
-        },
-      },
-    }
-
-    plugin.apply(ctx)
-    expect(fileAction).toBeDefined()
-    const setDraft = vi.fn(() => {})
-    const button = fileAction!({
-      input: { draft: "请总结", phase: "plain" },
-      inputActions: { setDraft },
-    })
-    await (button.props.onClick as () => Promise<void>)()
-
-    expect(pick).toHaveBeenCalledTimes(1)
-    expect(setDraft).toHaveBeenCalledWith('请总结\n\n文件：\n- "/tmp/notes.md"')
-  })
 
   // An old backend without this channel and a host restart are both transient, so a transport
   // failure must not be read as completion.
@@ -701,7 +545,7 @@ describe("PawWork DSH client product layer", () => {
         }
       }
       if (name === "@deepseek-ai/dsh-client-ui-primitives") {
-        return { Button: (props: Record<string, unknown>) => ({ type: "button", props }), IconPanelLeftOutline16: () => null }
+        return { Button: (props: Record<string, unknown>) => ({ type: "button", props }), IconPanelLeftOutlineRegular: () => null }
       }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
@@ -810,7 +654,7 @@ describe("PawWork DSH client product layer", () => {
         }
       }
       if (name === "@deepseek-ai/dsh-client-ui-primitives") {
-        return { IconPanelLeftOutline16: () => null, Modal: "Modal", Button: "Button" }
+        return { IconPanelLeftOutlineRegular: () => null, Modal: "Modal", Button: "Button" }
       }
       throw new Error(`unexpected product client dependency: ${name}`)
     })

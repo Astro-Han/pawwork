@@ -31,8 +31,7 @@ function harnessImportsOf(packageDirectory: string) {
       continue
     }
     for (const file of files) {
-      // `.cjs` carries real payload here — dsh-workflow-worker-thread's worker
-      // reaches four harness packages from one.
+      // `.cjs` files can import harness packages too.
       if (!/\.(?:js|cjs|mjs)$/.test(file)) continue
       let source: string
       try {

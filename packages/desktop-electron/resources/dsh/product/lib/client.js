@@ -2,7 +2,7 @@ window.__ModuleLoader__.load({
   id: "@pawwork/dsh-product",
   factory: (require) => {
     const { createElement, useEffect, useRef, useState } = require("react")
-    const { Button, IconPanelLeftOutline16, Modal } = require("@deepseek-ai/dsh-client-ui-primitives")
+    const { Button, IconPanelLeftOutlineRegular, Modal } = require("@deepseek-ai/dsh-client-ui-primitives")
     const h = createElement
 
     const productCss = `
@@ -56,10 +56,10 @@ div:has(> button [data-slot="sidebar.brand.name"]) {
   padding-bottom: 0;
   padding-top: 0;
 }
-/* DSH's collapsed root already contributes 18px above and 12px below this hidden row. A 16px
-   local seat puts New session and Add workspace on the same centers as their expanded controls. */
+/* This height puts New session and Add workspace on the same centers as their expanded controls;
+   the smoke measures both states. */
 [data-sidebar-collapsed] div:has(> button [data-slot="sidebar.brand.mark"]):not(:has([data-slot="sidebar.brand.name"])) {
-  height: 16px;
+  height: 12px;
 }
 /* The layout already animates its sidebar grid track. Move the surface through the same state
    change: a collapsed rail belongs to the content canvas, while the expanded sidebar keeps DSH's
@@ -79,19 +79,22 @@ html body [data-slot="sidebar"] > * {
 /* A live conversation is one content column: title, tabs and utilities share DSH's composer width
    instead of following the sidebar edge. This keeps their visual center stable while the sidebar
    animates. On narrow windows the same column yields only as much as native controls require. */
-[data-slot="conversation.session.header"] > header {
-  --pawwork-session-column-gutter: var(--dsh-composer-side-clearance, 16px);
+header:has(> [data-slot="conversation.session.header"]) {
+  --pawwork-session-column-gutter: 16px;
   --pawwork-session-column-safe-left: var(--pawwork-session-column-gutter);
   --pawwork-session-column-safe-right: max(
     var(--pawwork-session-column-gutter),
     calc(28px + var(--pawwork-titlebar-inset-right, 0px))
   );
+  /* DSH scopes its composer width to the conversation body, which the header is not inside, so
+     this restates that formula, and the scroll body's 2px margin and gutter below, from the column
+     width the header does inherit. */
   --pawwork-session-column-width: min(
-    var(--dsh-composer-card-max-width, 780px),
+    calc(var(--dsh-chat-user-width, clamp(680px, calc(var(--dsh-conversation-column-width, 0px) * .64), 920px)) + 32px),
     calc(100% - 2 * var(--pawwork-session-column-gutter))
   );
   --pawwork-session-column-center-left: calc(
-    (100% - var(--dsh-scrollbar-width, 8px) - var(--pawwork-session-column-width)) / 2
+    (100% - 2px - var(--dsh-scrollbar-width, 5px) - var(--pawwork-session-column-width)) / 2
   );
   --pawwork-session-column-left: max(
     var(--pawwork-session-column-center-left),
@@ -100,14 +103,16 @@ html body [data-slot="sidebar"] > * {
   box-sizing: border-box;
   padding-left: 0;
   padding-right: 0;
+  /* The selected tab already supplies the local state cue; a full-width rule adds a competing grid. */
+  border-bottom-color: transparent;
 }
-[data-sidebar-collapsed] [data-slot="conversation.session.header"] > header {
+[data-sidebar-collapsed] header:has(> [data-slot="conversation.session.header"]) {
   --pawwork-session-column-safe-left: max(
     var(--pawwork-session-column-gutter),
     calc(var(--pawwork-titlebar-inset-left) + 44px - var(--pawwork-dsh-collapsed-sidebar-width))
   );
 }
-[data-slot="conversation.session.header"] > header > :is(:first-child, [role="tablist"]) {
+[data-slot="conversation.session.header"] > :is(:first-child, [role="tablist"]) {
   box-sizing: border-box;
   margin-left: var(--pawwork-session-column-left);
   margin-right: 0;
@@ -120,10 +125,8 @@ html body [data-slot="sidebar"] > * {
 [data-slot="conversation.session.header"] :has(> [data-slot="conversation.session.header.actions"]) { margin-left: auto; }
 /* DSH caps every breadcrumb at 220px. Let the current title consume the remaining title cluster;
    its existing overflow and ellipsis still take over when actions genuinely leave less room. */
-[data-slot="conversation.session.header"] nav:has(button:disabled) { flex: 1; }
-[data-slot="conversation.session.header"] nav button:disabled { max-width: 100%; }
-/* The selected tab already supplies the local state cue; a full-width rule adds a competing grid. */
-[data-slot="conversation.session.header"] > header::after { display: none; }
+[data-slot="conversation.session.header"] nav { flex: 1; }
+[data-slot="conversation.session.header"] nav > :last-child > :first-child { max-width: 100%; }
 /* Echo the selected underline at lower contrast without bringing back a shared control background. */
 [data-slot="conversation.session.header"] [role="tab"][aria-selected="false"]:hover { color: var(--dsw-alias-label-primary); }
 [data-slot="conversation.session.header"] [role="tab"][aria-selected="false"]:hover::after { background: var(--dsw-alias-label-caption); }
@@ -155,35 +158,6 @@ body > [class*="_banner_"] { box-sizing: border-box; top: 0; padding-right: var(
    rules at (0,2,0) behind tool cards, skill cards and trajectory rows, which the hero page cannot
    reveal. Known gap: trajectory's collapsed-summary row is a bare <tr> with no role to match. */
 html body :is(button, [role="button"], [role="treeitem"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="option"], [aria-haspopup], label, summary, select):not(a[href]):not(:disabled) { cursor: default; }
-.pawwork-file-action {
-  align-items: center; background: transparent; border: 0; border-radius: 6px;
-  color: var(--dsw-alias-label-secondary); display: inline-flex;
-  height: 28px; justify-content: center; padding: 0; width: 28px;
-}
-.pawwork-file-action:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
-.pawwork-file-action:focus-visible { outline: 2px solid #fc5c14; outline-offset: 1px; }
-.pawwork-file-action:disabled { opacity: 0.45; }
-.pawwork-market-connector {
-  color: var(--dsw-alias-label-primary); display: flex; flex-direction: column;
-  gap: 16px; max-width: 680px; width: 100%;
-}
-.pawwork-market-connector h3 { font-size: 15px; font-weight: 600; line-height: 22px; margin: 0; }
-.pawwork-market-connector p { margin: 0; }
-.pawwork-market-copy { color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 20px; }
-.pawwork-market-trust {
-  border-left: 3px solid var(--dsw-alias-label-tertiary); color: var(--dsw-alias-label-tertiary);
-  font-size: 12px; line-height: 19px; padding-left: 10px;
-}
-.pawwork-market-status {
-  align-items: center; background: var(--dsw-alias-bg-module-platform); border-radius: 8px;
-  display: flex; gap: 12px; justify-content: space-between; padding: 10px 12px;
-}
-.pawwork-market-status p { color: var(--dsw-alias-label-secondary); flex: 1; font-size: 12px; line-height: 19px; }
-/* The buttons share the row with a sentence that grows in every locale; without
-   a group of their own the flex line divides evenly and wraps their labels. */
-.pawwork-market-actions { display: flex; flex-shrink: 0; gap: 8px; white-space: nowrap; }
-.pawwork-market-action { align-self: flex-start; }
-.pawwork-market-error { color: var(--dsw-alias-state-error-primary); font-size: 12px; line-height: 19px; }
 /* The v1 import runs before the user has done anything, so what it has to say
    sits over the shell rather than inside a view they may never open. Only the
    strip itself takes pointer events; the rest of the overlay row stays
@@ -280,10 +254,6 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     }
     function isChinese() { return document.documentElement.lang.startsWith("zh") }
     function text(chinese, english) { return isChinese() ? chinese : english }
-    function icon(paths, size = 16) {
-      return h("svg", { "aria-hidden": "true", fill: "none", height: size, viewBox: "0 0 24 24", width: size },
-        ...paths.map((path, index) => h("path", { d: path, key: index, stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 1.8 })))
-    }
 
     const DEFAULT_MODEL_NS = "agent-default-model"
 
@@ -300,7 +270,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     async function isModelSelectable(ctx) {
       const registered = await ctx.remote.llm.listProviders()
       if (!registered.ok) return true
-      const mirror = ctx.settingsScope.describe()
+      const mirror = ctx.configForms.describe()
       await mirror.ensure()
       const selected = mirror.getSnapshot().view?.namespaces
         ?.find((entry) => entry.ns === DEFAULT_MODEL_NS)?.value?.provider
@@ -396,78 +366,11 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       return null
     }
 
-    function FileAction({ input, inputActions }) {
-      if (window.pawworkFiles?.pick === undefined) return null
-      async function chooseFiles() {
-        const result = await window.pawworkFiles.pick()
-        if (result.status === "canceled") return
-        const heading = text("文件：", "Files:")
-        const fileBlock = `${heading}\n${result.paths.map((path) => `- ${JSON.stringify(path)}`).join("\n")}`
-        inputActions.setDraft(input.draft === "" ? fileBlock : `${input.draft}\n\n${fileBlock}`)
-      }
-      const label = text("添加文件", "Add files")
-      return h("button", { "aria-label": label, className: "pawwork-file-action", disabled: input.phase !== "plain", onClick: chooseFiles, title: label, type: "button" },
-        icon(["M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"]))
-    }
-
     function WindowChrome({ toggleSidebar }) {
       const label = text("切换侧边栏", "Toggle sidebar")
       return h("div", { className: "pawwork-window-chrome" },
         h("button", { "aria-label": label, className: "pawwork-sidebar-toggle", onClick: toggleSidebar, title: label, type: "button" },
-          h(IconPanelLeftOutline16, { size: 16 })))
-    }
-
-    function CommunityMarketTab() {
-      const api = window.pawworkCommunityMarket
-      const unavailable = { enabled: false, restartRequired: false, version: null }
-      const [state, setState] = useState({ status: "loading", market: unavailable, error: "" })
-      const busy = state.status === "working"
-
-      useEffect(() => {
-        let current = true
-        if (!api) {
-          setState({ status: "ready", market: unavailable, error: text("社区市场接入暂不可用。请重新启动爪印。", "Community market setup is unavailable. Restart PawWork.") })
-          return () => { current = false }
-        }
-        api.status().then(
-          (market) => { if (current) setState({ status: "ready", market, error: "" }) },
-          (error) => { if (current) setState({ status: "ready", market: unavailable, error: error instanceof Error ? error.message : String(error) }) },
-        )
-        return () => { current = false }
-      }, [api])
-
-      async function run(operation) {
-        if (!api || busy) return
-        setState((current) => ({ ...current, status: "working", error: "" }))
-        try {
-          const market = await operation()
-          setState({ status: "ready", market, error: "" })
-        } catch (error) {
-          setState((current) => ({ ...current, status: "ready", error: error instanceof Error ? error.message : String(error) }))
-        }
-      }
-
-      return h("section", { "aria-busy": busy, className: "pawwork-market-connector" },
-        h("div", null,
-          h("h3", null, text("DSH 社区插件市场", "DSH community plugin market")),
-          h("p", { className: "pawwork-market-copy" }, text("启用后，插件浏览、安装和卸载都由社区市场提供；仅影响爪印自己的 DSH 环境。", "Once enabled, the community market owns plugin discovery, installation, and removal inside PawWork's isolated DSH environment."))),
-        h("p", { className: "pawwork-market-trust" }, text("社区市场及其中插件均由第三方维护，并会以爪印的权限运行。", "The community market and its plugins are third-party software and run with PawWork's permissions.")),
-        state.error ? h("p", { className: "pawwork-market-error", role: "alert" }, state.error) : null,
-        state.status === "loading" ? h("p", { className: "pawwork-market-copy" }, text("正在检查社区市场…", "Checking community market…")) : null,
-        state.market.enabled || state.market.restartRequired ? h("div", { className: "pawwork-market-status", role: "status" },
-          h("p", null, state.market.restartRequired
-            ? state.market.enabled
-              ? text("社区市场已安装。重新启动后台服务后即可在设置中使用。", "Community market installed. Restart the background service to use it in Settings.")
-              : text("社区市场已停用。重新启动后台服务后生效。", "Community market disabled. Restart the background service to apply it.")
-            : text(`社区市场 ${state.market.version ?? ""} 已启用。`, `Community market ${state.market.version ?? ""} is enabled.`)),
-          h("div", { className: "pawwork-market-actions" },
-            h(Button, { disabled: busy || !api, onClick: () => api?.restart(), size: "sm" }, text("重新启动后台服务", "Restart Background Service")),
-            state.market.enabled ? h(Button, {
-              disabled: busy || !api, onClick: () => run(() => api.disable()), size: "sm",
-            }, text(busy ? "正在停用…" : "停用社区市场", busy ? "Disabling…" : "Disable community market")) : null))
-          : state.status !== "loading" ? h(Button, {
-            className: "pawwork-market-action", disabled: busy || !api, onClick: () => run(() => api.enable()), size: "sm", variant: "primary",
-          }, text(busy ? "正在启用…" : "启用社区市场", busy ? "Enabling…" : "Enable community market")) : null)
+          h(IconPanelLeftOutlineRegular, { size: 16 })))
     }
 
     // --- PawWork glove mark --------------------------------------------------
@@ -542,7 +445,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     }
 
     const inject = ["slots", "connection", "sessions", "layout",
-      "remote", "remote.llm", "settingsScope"]
+      "remote", "remote.llm", "configForms"]
 
     function BrandName() { return text("爪印", "PawWork") }
 
@@ -675,11 +578,6 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "welcome-notice", order: -100, priority: -1 }, CompleteWelcomeNotice))
       ctx.slots.inject("settings.onboarding", () => ctx.slots.register({ name: "settings.onboarding", id: "pawwork-model-setup", order: 0, priority: -1 },
         (props) => ModelSetupStep({ ...props, ctx })))
-      ctx.slots.inject("settings.plugins.tab", () => ctx.slots.register({
-        name: "settings.plugins.tab", id: "pawwork-community-market", order: 20,
-        label: () => text("社区市场", "Community market"),
-      }, CommunityMarketTab))
-      ctx.slots.inject("conversation.input.left", () => ctx.slots.register({ name: "conversation.input.left", id: "pawwork-files", order: -100 }, FileAction))
       ctx.effect(() => watchV1Import(ctx, feedback))
     }
 
