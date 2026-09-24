@@ -456,8 +456,8 @@ describe("PawWork DSH client product layer", () => {
   test("lets the current session title use the space before header actions", () => {
     const { css } = loadProductCss()
 
-    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] nav:has\(button:disabled\)\s*{[^}]*flex:\s*1/s)
-    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] nav button:disabled\s*{[^}]*max-width:\s*100%/s)
+    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] nav\s*{[^}]*flex:\s*1/s)
+    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] nav > :last-child > :first-child\s*{[^}]*max-width:\s*100%/s)
   })
 
   test("hides both DSH sidebar controls while preserving their layout seat and ready mark", () => {
@@ -479,7 +479,7 @@ describe("PawWork DSH client product layer", () => {
     const { css } = loadProductCss()
 
     expect(css).toMatch(/--pawwork-session-column-safe-right:\s*max\([^;]*calc\(28px \+ var\(--pawwork-titlebar-inset-right/s)
-    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] > header > :is\([^}]*{[^}]*width:\s*min\([^;]*var\(--pawwork-session-column-safe-right/s)
+    expect(css).toMatch(/\[data-slot="conversation\.session\.header"\] > :is\([^}]*{[^}]*width:\s*min\([^;]*var\(--pawwork-session-column-safe-right/s)
     expect(css).toMatch(/\[data-slot="details"\] > \* > :first-child\s*{[^}]*padding-right:\s*calc\(12px \+ var\(--pawwork-titlebar-inset-right/s)
     expect(css).toMatch(/body > \[class\*="_banner_"\]\s*{[^}]*top:\s*0[^}]*padding-right:\s*var\(--pawwork-titlebar-inset-right/s)
   })

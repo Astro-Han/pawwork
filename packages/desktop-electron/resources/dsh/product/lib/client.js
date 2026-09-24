@@ -56,10 +56,10 @@ div:has(> button [data-slot="sidebar.brand.name"]) {
   padding-bottom: 0;
   padding-top: 0;
 }
-/* DSH's collapsed root already contributes 18px above and 12px below this hidden row. A 16px
-   local seat puts New session and Add workspace on the same centers as their expanded controls. */
+/* This height puts New session and Add workspace on the same centers as their expanded controls;
+   the smoke measures both states. */
 [data-sidebar-collapsed] div:has(> button [data-slot="sidebar.brand.mark"]):not(:has([data-slot="sidebar.brand.name"])) {
-  height: 16px;
+  height: 12px;
 }
 /* The layout already animates its sidebar grid track. Move the surface through the same state
    change: a collapsed rail belongs to the content canvas, while the expanded sidebar keeps DSH's
@@ -79,19 +79,22 @@ html body [data-slot="sidebar"] > * {
 /* A live conversation is one content column: title, tabs and utilities share DSH's composer width
    instead of following the sidebar edge. This keeps their visual center stable while the sidebar
    animates. On narrow windows the same column yields only as much as native controls require. */
-[data-slot="conversation.session.header"] > header {
-  --pawwork-session-column-gutter: var(--dsh-composer-side-clearance, 16px);
+header:has(> [data-slot="conversation.session.header"]) {
+  --pawwork-session-column-gutter: 16px;
   --pawwork-session-column-safe-left: var(--pawwork-session-column-gutter);
   --pawwork-session-column-safe-right: max(
     var(--pawwork-session-column-gutter),
     calc(28px + var(--pawwork-titlebar-inset-right, 0px))
   );
+  /* DSH scopes its composer width to the conversation body, which the header is not inside, so
+     this restates that formula, and the scroll body's 2px margin and gutter below, from the column
+     width the header does inherit. */
   --pawwork-session-column-width: min(
-    var(--dsh-composer-card-max-width, 780px),
+    calc(var(--dsh-chat-user-width, clamp(680px, calc(var(--dsh-conversation-column-width, 0px) * .64), 920px)) + 32px),
     calc(100% - 2 * var(--pawwork-session-column-gutter))
   );
   --pawwork-session-column-center-left: calc(
-    (100% - var(--dsh-scrollbar-width, 8px) - var(--pawwork-session-column-width)) / 2
+    (100% - 2px - var(--dsh-scrollbar-width, 5px) - var(--pawwork-session-column-width)) / 2
   );
   --pawwork-session-column-left: max(
     var(--pawwork-session-column-center-left),
@@ -100,14 +103,16 @@ html body [data-slot="sidebar"] > * {
   box-sizing: border-box;
   padding-left: 0;
   padding-right: 0;
+  /* The selected tab already supplies the local state cue; a full-width rule adds a competing grid. */
+  border-bottom-color: transparent;
 }
-[data-sidebar-collapsed] [data-slot="conversation.session.header"] > header {
+[data-sidebar-collapsed] header:has(> [data-slot="conversation.session.header"]) {
   --pawwork-session-column-safe-left: max(
     var(--pawwork-session-column-gutter),
     calc(var(--pawwork-titlebar-inset-left) + 44px - var(--pawwork-dsh-collapsed-sidebar-width))
   );
 }
-[data-slot="conversation.session.header"] > header > :is(:first-child, [role="tablist"]) {
+[data-slot="conversation.session.header"] > :is(:first-child, [role="tablist"]) {
   box-sizing: border-box;
   margin-left: var(--pawwork-session-column-left);
   margin-right: 0;
@@ -120,10 +125,8 @@ html body [data-slot="sidebar"] > * {
 [data-slot="conversation.session.header"] :has(> [data-slot="conversation.session.header.actions"]) { margin-left: auto; }
 /* DSH caps every breadcrumb at 220px. Let the current title consume the remaining title cluster;
    its existing overflow and ellipsis still take over when actions genuinely leave less room. */
-[data-slot="conversation.session.header"] nav:has(button:disabled) { flex: 1; }
-[data-slot="conversation.session.header"] nav button:disabled { max-width: 100%; }
-/* The selected tab already supplies the local state cue; a full-width rule adds a competing grid. */
-[data-slot="conversation.session.header"] > header::after { display: none; }
+[data-slot="conversation.session.header"] nav { flex: 1; }
+[data-slot="conversation.session.header"] nav > :last-child > :first-child { max-width: 100%; }
 /* Echo the selected underline at lower contrast without bringing back a shared control background. */
 [data-slot="conversation.session.header"] [role="tab"][aria-selected="false"]:hover { color: var(--dsw-alias-label-primary); }
 [data-slot="conversation.session.header"] [role="tab"][aria-selected="false"]:hover::after { background: var(--dsw-alias-label-caption); }
