@@ -17,9 +17,9 @@
     "dev": "electron-vite dev",
     "prebuild": "tsx ./scripts/generate-icons.ts",
     "build": "electron-vite build",
-    "package": "tsx ./scripts/prepare-uv.ts && pnpm run build && electron-builder --config electron-builder.config.ts",
-    "package:mac": "tsx ./scripts/prepare-uv.ts --platform darwin && pnpm run build && electron-builder --mac --config.mac.notarize=false --config electron-builder.config.ts",
-    "package:win": "tsx ./scripts/prepare-uv.ts --platform win32 --arch x64 && pnpm run build && electron-builder --win --config electron-builder.config.ts"
+    "package": "tsx ./scripts/prepare-uv.ts && tsx ./scripts/prepare-primary-runtime.ts && pnpm run build && electron-builder --config electron-builder.config.ts",
+    "package:mac": "tsx ./scripts/prepare-uv.ts --platform darwin && tsx ./scripts/prepare-primary-runtime.ts --platform darwin && pnpm run build && electron-builder --mac --config.mac.notarize=false --config electron-builder.config.ts",
+    "package:win": "tsx ./scripts/prepare-uv.ts --platform win32 --arch x64 && tsx ./scripts/prepare-primary-runtime.ts --platform win32 --arch x64 && pnpm run build && electron-builder --win --config electron-builder.config.ts"
   },
   "main": "./out/main/index.js",
   "dependencies": {
@@ -53,10 +53,12 @@
     "@deepseek-ai/dsh-session-title-llm": "0.1.7-rc.2",
     "@deepseek-ai/dsh-settings": "0.1.7-rc.2",
     "@deepseek-ai/dsh-shell": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-skill-office": "0.1.7-rc.2",
     "@deepseek-ai/dsh-spill": "0.1.7-rc.2",
     "@deepseek-ai/dsh-subagent-in-process-driver": "0.1.7-rc.2",
     "@deepseek-ai/dsh-subprocess": "0.1.7-rc.2",
     "@deepseek-ai/dsh-timeout": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-tool-workspace-dependencies": "0.1.7-rc.2",
     "@deepseek-ai/dsh-typert-protocol": "0.1.7-rc.2",
     "@deepseek-ai/dsh-util-time": "0.1.7-rc.2",
     "@deepseek-ai/dsh-util-workspace-path": "0.1.7-rc.2",

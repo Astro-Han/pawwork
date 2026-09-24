@@ -101,7 +101,7 @@ PawWork is a DSH runtime, a native desktop shell, and a product layer on top.
 - **Runtime** — a pinned set of first-party `@deepseek-ai/dsh-*` packages (sessions, tools, sandbox, compaction, web search, subagents), assembled in a sidecar process rather than shelling out to a `dsh` CLI.
 - **Native shell** — [`packages/desktop-electron/src/main`](packages/desktop-electron/src/main): window chrome, application menus, native directory and file pickers, Windows installer hardening, and the auto-updater.
 - **Product layer** — [`packages/desktop-electron/resources/dsh`](packages/desktop-electron/resources/dsh): the DSH plugins PawWork owns, including built-in web search, Automations, v1 settings migration, and the desktop host bridge.
-- **Skills** — [`skills/`](skills): vendored Office skills for `.docx`, `.xlsx`, `.pptx`, and PDF, executed through a bundled [`uv`](https://github.com/astral-sh/uv) Python toolchain so they work without a system Python.
+- **Skills** — DSH's Word, PowerPoint and Excel skills run on a bundled Python 3.12 with the Office libraries preinstalled, and render pages with a bundled LibreOffice engine for visual checks, so they work offline and without a system Python. The PDF skill in [`skills/`](skills) runs through a bundled [`uv`](https://github.com/astral-sh/uv).
 
 ## Build From Source
 

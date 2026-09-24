@@ -149,3 +149,18 @@
     # state machine stays in the Electron main process.
     - id: pawwork-updater
       name: '@pawwork/dsh-updater'
+    # The bundled Python the Office skills author with. `root` is where the
+    # payload is copied on first use: the app bundle is signed and read-only,
+    # and a user's own `pip install` lands beside the bundled libraries.
+    - id: workspace-dependencies
+      name: '@deepseek-ai/dsh-tool-workspace-dependencies'
+      config:
+        source: !!js process.env.PAWWORK_PRIMARY_RUNTIME
+        root: !!js dshHomePath('dsh-runtimes', 'dsh-primary-runtime')
+    # DSH's Word, PowerPoint and Excel skills. Inside Electron the plugin
+    # refuses to guess a Node for the LibreOffice Kit CLI, so it gets the app
+    # itself, which the agent shell runs as Node (ELECTRON_RUN_AS_NODE).
+    - id: skill-office
+      name: '@deepseek-ai/dsh-skill-office'
+      config:
+        node: !!js process.env.PAWWORK_NODE_EXECUTABLE

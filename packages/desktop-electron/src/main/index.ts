@@ -507,7 +507,7 @@ function launchDsh() {
   })
   const dshBin = join(dirname(dshPackage), "lib", "bin.js")
   const environment = prepareDshToolsEnvironment({
-    env: buildDshEnvironment(productResources.skills),
+    env: buildDshEnvironment(productResources),
     executable: process.execPath,
     home: product.home,
     pnpmBin: join(dirname(pnpmPackage), "bin", "pnpm.mjs"),

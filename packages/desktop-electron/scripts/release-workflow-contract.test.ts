@@ -85,7 +85,7 @@ describe("release workflow", () => {
     expect(publisher).toContain("duplicateReleasesMessage(tag, matches)")
   })
 
-  test("bundles uv before anything packages the app", () => {
+  test("bundles uv and Python before anything packages the app", () => {
     const packaging = stepsRunning(/electron-builder .*(--mac|\$\{\{ matrix\.platform_flag \}\})/)
     // submit packs the signed directory, finalize repacks it into dmg/zip, and
     // Windows packs in one go.
@@ -95,10 +95,11 @@ describe("release workflow", () => {
       "Package app",
     ])
 
-    const prepare = indexOfStep("Prepare uv")
+    const prepare = indexOfStep("Prepare uv and bundled Python")
     expect(prepare).toBeGreaterThanOrEqual(0)
     for (const step of packaging) expect(steps.indexOf(step)).toBeGreaterThan(prepare)
     expect(steps[prepare].body).toMatch(/prepare-uv\.ts/)
+    expect(steps[prepare].body).toMatch(/prepare-primary-runtime\.ts/)
     expect(steps[prepare].body).toMatch(/uv_platform="darwin"/)
     expect(steps[prepare].body).toMatch(/uv_platform="win32"/)
   })

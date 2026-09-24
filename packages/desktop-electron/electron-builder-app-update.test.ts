@@ -62,6 +62,7 @@ describe("electron builder app-update config", () => {
       expect.objectContaining({ to: "skills" }),
       expect.objectContaining({ to: "THIRD_PARTY_NOTICES.md" }),
       expect.objectContaining({ to: "tools/" }),
+      expect.objectContaining({ to: "runtime/" }),
     ])
   })
 

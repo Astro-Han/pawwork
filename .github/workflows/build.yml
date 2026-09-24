@@ -286,7 +286,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Prepare uv
+      - name: Prepare uv and bundled Python
         if: ${{ inputs.phase != 'finalize' }}
         shell: bash
         run: |
@@ -299,6 +299,7 @@ jobs:
           esac
 
           pnpm exec tsx ./scripts/prepare-uv.ts --platform "$uv_platform" --arch "${{ matrix.arch_label }}"
+          pnpm exec tsx ./scripts/prepare-primary-runtime.ts --platform "$uv_platform" --arch "${{ matrix.arch_label }}"
         working-directory: packages/desktop-electron
 
       - name: Resolve packaged app paths

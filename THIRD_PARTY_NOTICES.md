@@ -1,8 +1,12 @@
 # Third-Party Notices
 
+## Python and bundled Python libraries
+
+PawWork bundles a CPython 3.12 interpreter built by the python-build-standalone project (https://github.com/astral-sh/python-build-standalone), together with numpy, pandas, python-dateutil, six, tzdata, python-docx, python-pptx, openpyxl, et_xmlfile, Pillow, lxml, XlsxWriter and typing_extensions, for the Word, PowerPoint and Excel skills. The interpreter's license (Python Software Foundation License, with the licenses of its bundled components) ships at `runtime/primary-runtime/dependencies/python/lib/python3.12/LICENSE.txt` (`Lib/LICENSE.txt` on Windows), and each library's license ships in its `*.dist-info` directory under the interpreter's `site-packages`.
+
 ## uv
 
-PawWork bundles `uv` by Astral to supply a Python runtime for Excel/Word/PowerPoint skills that generate or edit Office files via Python libraries.
+PawWork bundles `uv` by Astral to run Python tools on demand, such as MCP servers started with `uvx` and the PDF skill.
 
 - Project: https://github.com/astral-sh/uv
 - Version: 0.12.5

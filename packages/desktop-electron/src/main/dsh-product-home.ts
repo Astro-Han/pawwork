@@ -63,6 +63,9 @@ export function resolveProductResources(options: ResolveProductResourcesOptions)
     skills: options.isPackaged
       ? join(options.resourcesPath, "skills")
       : join(options.appPath, "..", "..", "skills"),
+    primaryRuntime: options.isPackaged
+      ? join(options.resourcesPath, "runtime", "primary-runtime")
+      : join(options.appPath, "resources", "runtime", "primary-runtime"),
   }
 }
 
@@ -184,7 +187,7 @@ export function prepareDshProductHome(options: PrepareDshProductHomeOptions) {
 }
 
 export function buildDshEnvironment(
-  bundledSkillDir: string,
+  resources: { skills: string; primaryRuntime: string },
   source: NodeJS.ProcessEnv = process.env,
 ) {
   // Windows treats environment names case-insensitively, but this is a plain object: a shell that
@@ -192,12 +195,14 @@ export function buildDshEnvironment(
   // sidecar under a second name. Drop on the lowercased name so every spelling leaves with one
   // rule.
   const owned = new Set(
-    ["DSH_HOME", "DSH_BUNDLED_SKILL_DIR", ...DROPPED_MODEL_ENVIRONMENT].map((name) =>
-      name.toLowerCase(),
+    ["DSH_HOME", "DSH_BUNDLED_SKILL_DIR", "PAWWORK_PRIMARY_RUNTIME", ...DROPPED_MODEL_ENVIRONMENT].map(
+      (name) => name.toLowerCase(),
     ),
   )
   return {
     ...Object.fromEntries(Object.entries(source).filter(([name]) => !owned.has(name.toLowerCase()))),
-    DSH_BUNDLED_SKILL_DIR: bundledSkillDir,
+    DSH_BUNDLED_SKILL_DIR: resources.skills,
+    // Read by the product bundle's workspace-dependencies row.
+    PAWWORK_PRIMARY_RUNTIME: resources.primaryRuntime,
   } satisfies NodeJS.ProcessEnv
 }
