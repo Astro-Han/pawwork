@@ -8,7 +8,7 @@ import * as mcpClient from "@deepseek-ai/dsh-mcp-client"
 import { LocalCredentialProvider, parseCredentialsDocument } from "@deepseek-ai/dsh-credentials-local"
 import { beforeEach, describe, expect, test } from "vitest"
 import { createMcpOAuthEngine, SERVER_STATE } from "../../resources/dsh/mcp-oauth/lib/engine.js"
-import { createMcpOAuthRpcHandler } from "../../resources/dsh/mcp-oauth/lib/rpc.js"
+import { McpAuthService } from "../../resources/dsh/mcp-oauth/lib/service.js"
 import { createServerList } from "../../resources/dsh/mcp-oauth/lib/server-list.js"
 import { createGrantStore } from "../../resources/dsh/mcp-oauth/lib/grant-store.js"
 
@@ -20,6 +20,8 @@ const fromDesktop = createRequire(import.meta.url)
 const fromDsh = createRequire(fromDesktop.resolve("@deepseek-ai/dsh/package.json"))
 const fromMcp = createRequire(fromDesktop.resolve("@deepseek-ai/dsh-mcp-client"))
 const { Context } = (await import(fromDsh.resolve("@deepseek-ai/cordis"))) as { Context: new () => any }
+const { TypertRegistry } = (await import(fromDsh.resolve("@deepseek-ai/dsh-typert-registry"))) as any
+const { TypertGatewayService } = (await import(fromDsh.resolve("@deepseek-ai/dsh-api-gateway"))) as any
 const { Server } = (await import("@modelcontextprotocol/sdk/server/index.js")) as any
 const { StreamableHTTPServerTransport } = (await import("@modelcontextprotocol/sdk/server/streamableHttp.js")) as any
 const { CallToolRequestSchema, ListToolsRequestSchema } = (await import("@modelcontextprotocol/sdk/types.js")) as any
@@ -790,35 +792,30 @@ describe("remote MCP OAuth", () => {
     const credentials = fileCredentials()
     const { ctx, tools } = makeContext()
     const engine = makeEngine(ctx, credentials, list)
-    const rpc = createMcpOAuthRpcHandler({ engine }) as (
-      endpoint: string,
-      payload: unknown,
-      signal?: AbortSignal,
-    ) => Promise<{ ok: boolean; value?: { servers: Array<{ serverName: string; state: string }>; authorizationUrl?: string }; error?: { message: string } }>
+    const service = new McpAuthService(engine)
 
-    const added = await rpc("add", { serverName: "alpha", url: provider.mcpUrl, headers: { "x-static-header": "kept" } })
-    expect(added.ok).toBe(true)
-    expect(added.value?.servers[0]?.state).toBe(SERVER_STATE.UNAUTHORIZED)
+    const added = await service.add("alpha", provider.mcpUrl, { "x-static-header": "kept" })
+    expect(added.servers[0]?.state).toBe(SERVER_STATE.UNAUTHORIZED)
     expect(list.list()).toEqual([{ serverName: "alpha", url: provider.mcpUrl, headers: { "x-static-header": "kept" } }])
-    expect((await rpc("add", { serverName: "alpha", url: provider.mcpUrl })).ok).toBe(false)
+    await expect(service.add("alpha", provider.mcpUrl, undefined)).rejects.toThrow(/already configured/)
 
-    const started = await rpc("authorize", { serverName: "alpha" })
-    expect(started.value?.authorizationUrl).toContain("/authorize?")
-    await completeInBrowser(started.value?.authorizationUrl ?? "")
-    // The RPC drops the completion handle, so poll status until the exchange,
+    const started = await service.authorize("alpha")
+    expect(started.authorizationUrl).toContain("/authorize?")
+    await completeInBrowser(started.authorizationUrl)
+    // The service drops the completion handle, so poll status until the exchange,
     // reconnect and tool registration have all landed.
     await expect
-      .poll(async () => (await rpc("status", {})).value?.servers[0]?.state, { timeout: 10_000, interval: 100 })
+      .poll(() => service.status().servers[0]?.state, { timeout: 10_000, interval: 100 })
       .toBe(SERVER_STATE.CONNECTED)
     expect(tools.live()).toEqual(["mcp__alpha__echo"])
     // A static header still rides every MCP request next to the OAuth token.
     expect(provider.headerValues()).toContain("kept")
 
-    expect((await rpc("signOut", { serverName: "alpha" })).value?.servers[0]?.state).toBe(SERVER_STATE.UNAUTHORIZED)
+    expect((await service.signOut("alpha")).servers[0]?.state).toBe(SERVER_STATE.UNAUTHORIZED)
     expect(tools.live()).toEqual([])
     expect(credentials.records.size).toBe(0)
 
-    expect((await rpc("remove", { serverName: "alpha" })).value?.servers).toEqual([])
+    expect((await service.remove("alpha")).servers).toEqual([])
     expect(list.list()).toEqual([])
     await engine.dispose()
   })
@@ -845,21 +842,28 @@ describe("remote MCP OAuth", () => {
     expect(list.list()).toEqual([])
   })
 
-  test("apply wires mcpAuth and the loopback channel into a real context", async () => {
+  // The Integrations section's calls reach the service only through the API
+  // gateway's `/api` interceptor, which finds the methods by their Remote binding
+  // and markers. Driving the real gateway is what catches a marker the gateway
+  // no longer reads.
+  test("apply exposes mcpAuth to the bridge and to the API gateway in a real context", async () => {
     const home = mkdtempSync(join(tmpdir(), "pawwork-oauth-home-"))
     writeFileSync(join(home, "mcp-oauth.json"), JSON.stringify({ version: 1, servers: [{ serverName: "alpha", url: provider.mcpUrl }] }))
     const credentials = fileCredentials()
     const { ctx, tools } = makeContext()
     ctx.provide("credentials", credentials)
-    const handled = new Map<string, (endpoint: string, payload: unknown, signal?: AbortSignal) => Promise<unknown>>()
+    type Dispatch = (endpoint: string, payload: unknown) => Promise<{ ok: boolean; value?: any; error?: { code: string; message: string } }>
+    let api: { matches: (endpoint: string) => boolean; dispatch: Dispatch } | undefined
     ctx.provide("connection", {
       rpc: {
-        handle: (channel: string, handler: (endpoint: string, payload: unknown, signal?: AbortSignal) => Promise<unknown>) => {
-          handled.set(channel, handler)
+        intercept: (_channel: string, matches: (endpoint: string) => boolean, dispatch: Dispatch) => {
+          api = { matches, dispatch }
           return () => {}
         },
       },
     })
+    await ctx.plugin(TypertRegistry)
+    await ctx.plugin(TypertGatewayService)
     const previousHome = process.env.DSH_HOME
     process.env.DSH_HOME = home
     let fiber: { dispose?: () => Promise<void> } | undefined
@@ -869,15 +873,20 @@ describe("remote MCP OAuth", () => {
       await fiber
       // The patched bridge consults this service for every transport it builds.
       expect(typeof (ctx.get("mcpAuth") as { providerFor?: unknown } | undefined)?.providerFor).toBe("function")
-      const handler = handled.get("/pawwork-mcp-oauth")
-      expect(handler).toBeTypeOf("function")
+      expect(api!.matches("mcpAuth/status")).toBe(true)
+      expect(api!.matches("mcpAuth/providerFor")).toBe(false)
+      const call = async (method: string, args: Record<string, unknown> = {}) => {
+        const result = await api!.dispatch(`mcpAuth/${method}`, { args })
+        if (!result.ok) throw new Error(result.error!.message)
+        return result.value
+      }
+      await expect(call("add", { serverName: "alpha", url: provider.mcpUrl })).rejects.toThrow(/already configured/)
       // Startup probed the configured server, met its 401 and reads as
-      // unauthorized; authorizing through the channel runs the real flow.
-      const readState = async () =>
-        ((await handler!("status", {})) as { value: { servers: Array<{ state: string }> } }).value.servers[0]?.state
+      // unauthorized; authorizing through the gateway runs the real flow.
+      const readState = async () => (await call("status")).servers[0]?.state
       await expect.poll(readState, { timeout: 10_000, interval: 100 }).toBe(SERVER_STATE.UNAUTHORIZED)
-      const started = (await handler!("authorize", { serverName: "alpha" })) as { value: { authorizationUrl: string } }
-      await completeInBrowser(started.value.authorizationUrl)
+      const started = await call("authorize", { serverName: "alpha" })
+      await completeInBrowser(started.authorizationUrl)
       await expect.poll(readState, { timeout: 10_000, interval: 100 }).toBe(SERVER_STATE.CONNECTED)
       expect(tools.live()).toEqual(["mcp__alpha__echo"])
     } finally {

@@ -8,6 +8,7 @@ const path = require('node:path');
 const { createRequire } = require('node:module');
 const { pathToFileURL } = require('node:url');
 const { DatabaseSync } = require('node:sqlite');
+const { remoteMethods } = require('@deepseek-ai/dsh-typert-protocol');
 const {
   attachDshWorkspace,
   buildDshSession,
@@ -168,7 +169,7 @@ test('retires each persisted v1 session through the paired live lifecycle', asyn
     const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?status=${Date.now()}`;
     const { apply } = await import(pluginUrl);
     apply({
-      connection: { rpc: { handle: () => async () => {} } },
+      provide: () => {},
       effect: (setup) => { stopPlugin = setup(); },
       agentDefaultModel: { currentSelection: () => ({ provider: 'opencode', model: 'big-pickle' }) },
       llm: { listProviders: () => [], listModels: async () => [] },
@@ -287,23 +288,14 @@ test('reports done only once every stage has run and the result is recorded', as
     await automationsGate;
     return 0;
   };
-  let registration;
-  let status;
+  const provided = new Map();
   let stopPlugin;
 
   try {
     const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?status-rpc=${Date.now()}`;
     const { apply } = await import(pluginUrl);
     apply({
-      connection: {
-        rpc: {
-          handle: (channel, handler, options) => {
-            registration = { channel, options };
-            status = handler;
-            return async () => {};
-          },
-        },
-      },
+      provide: (name, value) => { provided.set(name, value); },
       effect: (setup) => { stopPlugin = setup(); },
       llm: { listProviders: () => [], listModels: async () => [] },
       logger: { warn: () => {} },
@@ -321,26 +313,19 @@ test('reports done only once every stage has run and the result is recorded', as
       workspaceRegistry: {},
     });
 
-    assert.deepEqual(registration, {
-      channel: '/pawwork-import-v1',
-      options: { authority: 'loopback' },
-    });
-    assert.deepEqual(await status('status', {}), { ok: true, value: { phase: 'running' } });
+    const status = provided.get('pawworkImportV1');
+    assert.deepEqual(status.typertRemote, { service: status, serviceKey: 'pawworkImportV1', namespace: 'pawworkImportV1' });
+    assert.deepEqual(remoteMethods(status).map((marker) => marker.method), ['status']);
+    assert.deepEqual(status.status(), { phase: 'running' });
 
     releaseSessions();
     await settingsStage;
     assert.equal(sessionFlushed, true);
-    assert.deepEqual(await status('status', {}), {
-      ok: true,
-      value: { phase: 'running', sessionId: 'pawwork-v1-session' },
-    });
+    assert.deepEqual(status.status(), { phase: 'running', sessionId: 'pawwork-v1-session' });
 
     releaseSettings();
     await automationsStage;
-    assert.deepEqual(await status('status', {}), {
-      ok: true,
-      value: { phase: 'running', sessionId: 'pawwork-v1-session' },
-    });
+    assert.deepEqual(status.status(), { phase: 'running', sessionId: 'pawwork-v1-session' });
 
     releaseAutomations();
     const done = await waitForPhase(status, 'done');
@@ -387,7 +372,7 @@ test('settles the session status when source discovery fails before import', asy
     const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?discovery-status=${Date.now()}`;
     const { apply } = await import(pluginUrl);
     apply({
-      connection: { rpc: { handle: (_channel, handler) => { status = handler; return async () => {}; } } },
+      provide: (_name, service) => { status = service; },
       effect: (setup) => { stopPlugin = setup(); },
       llm: { listProviders: () => [], listModels: async () => [] },
       logger: { warn: () => {} },
@@ -478,7 +463,7 @@ test('saves a session\'s images once and leaves an already-imported one alone', 
           return { attachmentId: `sha256:${saved.length}`, mediaType: image.mediaType, name: image.name };
         },
       },
-      connection: { rpc: { handle: () => async () => {} } },
+      provide: () => {},
       effect: (setup) => { stopPlugin = setup(); },
       llm: { listProviders: () => [], listModels: async () => [] },
       logger: { warn: () => {} },
@@ -562,7 +547,7 @@ test('opens one v1 database snapshot for the whole import run', { timeout: 20_00
   try {
     const { apply } = await import(`${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?snapshot=${Date.now()}`);
     apply({
-      connection: { rpc: { handle: () => async () => {} } },
+      provide: () => {},
       effect: (setup) => { stopPlugin = setup(); },
       llm: { listProviders: () => [], listModels: async () => [] },
       logger: { warn: () => { finishedResolve(); } },
@@ -641,7 +626,7 @@ test('survives a snapshot it cannot delete', { timeout: 20_000 }, async () => {
   try {
     const { apply } = await import(`${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?locked=${Date.now()}`);
     apply({
-      connection: { rpc: { handle: () => async () => {} } },
+      provide: () => {},
       effect: (setup) => { stopPlugin = setup(); },
       llm: { listProviders: () => [], listModels: async () => [] },
       logger: { warn: (message) => warnings.push(message) },
@@ -680,8 +665,6 @@ test('plugin disposal aborts and awaits the background migration', async () => {
   let started;
   const importStarted = new Promise((resolve) => { started = resolve; });
   let stopPlugin;
-  let releaseStatusRpc;
-  const statusRpcStopped = new Promise((resolve) => { releaseStatusRpc = resolve; });
   let importSignal;
   let settingsCalls = 0;
   let automationCalls = 0;
@@ -698,17 +681,13 @@ test('plugin disposal aborts and awaits the background migration', async () => {
     const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.mjs')).href}?dispose=${Date.now()}`;
     const { apply } = await import(pluginUrl);
     apply({
-      connection: { rpc: { handle: () => async () => { await statusRpcStopped; } } },
+      provide: () => {},
       effect: (setup) => { stopPlugin = setup(); },
       logger: { warn: () => {} },
     });
     await importStarted;
 
-    const stopped = stopPlugin();
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(importSignal.aborted, false);
-    releaseStatusRpc();
-    await stopped;
+    await stopPlugin();
 
     assert.equal(importSignal.aborted, true);
     assert.equal(settingsCalls, 0);
@@ -1612,7 +1591,7 @@ function applyImportPlugin(apply, overrides = {}) {
   let status;
   let stopPlugin;
   apply({
-    connection: { rpc: { handle: (_channel, handler) => { status = handler; return async () => {}; } } },
+    provide: (_name, service) => { status = service; },
     effect: (setup) => { stopPlugin = setup(); },
     llm: { listProviders: () => [], listModels: async () => [] },
     logger: { warn: () => {} },
@@ -1631,7 +1610,7 @@ function applyImportPlugin(apply, overrides = {}) {
 async function waitForPhase(status, phase, deadlineMs = 15_000) {
   const started = Date.now();
   for (;;) {
-    const current = (await status('status', {})).value;
+    const current = status.status();
     if (current.phase === phase) return current;
     if (Date.now() - started > deadlineMs) {
       throw new Error(`v1 import stayed in phase ${current.phase} instead of reaching ${phase}`);
@@ -1838,7 +1817,7 @@ test('writes the run result to the ledger and reports it once', async () => {
     });
     // The reply that carried the result is the only one that does: a poll still
     // running must not put a dismissed strip back on screen.
-    assert.equal((await plugin.status('status', {})).value.notice, undefined);
+    assert.equal(plugin.status.status().notice, undefined);
 
     assert.deepEqual(JSON.parse(fs.readFileSync(ledgerFile, 'utf8')).summary, {
       imported: 3,

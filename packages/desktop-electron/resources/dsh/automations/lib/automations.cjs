@@ -679,85 +679,6 @@ class AutomationScheduler {
   }
 }
 
-function rpcSuccess(value) {
-  return { ok: true, value };
-}
-
-// `code` must come from DSH's enum: it validates the whole response, so an invented
-// code fails validation entirely and the user sees that instead of the message.
-// Our own reasons go in `details.issues`.
-function rpcFailure(code, message, details = {}) {
-  return { ok: false, error: { code, message, details } };
-}
-
-function rpcPayload(payload) {
-  if (!isRecord(payload)) throw new Error('payload must be an object');
-  return payload;
-}
-
-function createAutomationRpcHandler({ store, scheduler, now = () => Date.now() }) {
-  if (!(store instanceof AutomationStore)) throw new Error('automation RPC requires AutomationStore');
-  return async (endpoint, payload, signal) => {
-    try {
-      signal?.throwIfAborted();
-      const args = rpcPayload(payload);
-      if (endpoint === 'list') {
-        const definitions = store.listDefinitions();
-        return rpcSuccess({
-          definitions: definitions.map((definition) => {
-            const runs = store.listRuns(definition.id);
-            const activeRun = runs.find((run) => run.state === 'running') || null;
-            return {
-              ...definition,
-              activeRun,
-              recentRuns: runs.filter((run) => run.state !== 'running').slice(0, RECENT_RUNS_FOR_HUMAN),
-              // A claimed run clears nextFireAt before it lands, so a definition is only
-              // terminal once nothing is still running for it.
-              terminalReason: activeRun ? null : store.terminalReason(definition),
-            };
-          }),
-        });
-      }
-      if (endpoint === 'update') {
-        if (typeof args.id !== 'string') return rpcFailure('bad-request', 'id is required', { issues: [] });
-        const { id, ...patch } = args;
-        const definition = store.updateDefinition(id, patch, now());
-        scheduler.refresh();
-        return rpcSuccess(definition);
-      }
-      if (endpoint === 'set-paused') {
-        if (typeof args.id !== 'string' || typeof args.paused !== 'boolean') {
-          return rpcFailure('bad-request', 'id and paused are required', { issues: [] });
-        }
-        const definition = store.setPaused(args.id, args.paused, now());
-        scheduler.refresh();
-        return rpcSuccess(definition);
-      }
-      if (endpoint === 'run-now') {
-        if (typeof args.id !== 'string') return rpcFailure('bad-request', 'id is required', { issues: [] });
-        const started = scheduler.startNow(args.id, now());
-        // The caller learns that the run started; its outcome lives in the run record.
-        void started.completion.catch(() => {});
-        return rpcSuccess(started.run);
-      }
-      if (endpoint === 'delete') {
-        if (typeof args.id !== 'string') return rpcFailure('bad-request', 'id is required', { issues: [] });
-        store.deleteDefinition(args.id);
-        scheduler.refresh();
-        return rpcSuccess({ id: args.id });
-      }
-      return rpcFailure('bad-request', `unknown automation endpoint: ${endpoint}`, { issues: [] });
-    } catch (error) {
-      if (signal?.aborted) return rpcFailure('cancelled', 'automation request cancelled');
-      if (error?.code === 'conflict') return rpcFailure('conflict', error.message);
-      if (error?.code === 'invalid-cron') {
-        return rpcFailure('bad-request', error.message, { issues: [{ code: 'invalid-cron' }] });
-      }
-      return rpcFailure('internal', error instanceof Error ? error.message : String(error));
-    }
-  };
-}
-
 function textResult(value) {
   return [{ type: 'text', text: JSON.stringify(value) }];
 }
@@ -1000,7 +921,6 @@ module.exports = {
   MIN_INTERVAL_MS,
   AutomationStore,
   automationRunSessionId,
-  createAutomationRpcHandler,
   createAutomationToolDefinitions,
   isAutomationRunSession,
   RECENT_RUNS_FOR_AGENT,

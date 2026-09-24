@@ -452,7 +452,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
     // The client fetches the cold list only on connect and reconnect, while the v1 import writes
     // into it in the background — nothing refreshes when the import ends, so the sidebar keeps the
     // pre-import list. The host's import-v1 plugin exposes the phase and the last persisted session
-    // at /pawwork-import-v1; the list only counts as installed once that marker shows up in the
+    // as pawworkImportV1/status; the list only counts as installed once that marker shows up in the
     // public snapshot.
     const IMPORT_POLL_INTERVAL_MS = 1_000
     const IMPORT_POLL_MAX_RETRY_MS = 30_000
@@ -528,7 +528,7 @@ span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: 
         if (stopped) return
         let result
         try {
-          result = await connection.rpc.call("/pawwork-import-v1", "status", {})
+          result = await connection.rpc.call("/api", "pawworkImportV1/status", { args: {} })
         } catch {
           if (stopped) return
           retry()

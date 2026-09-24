@@ -18,11 +18,10 @@ async function applyPlugin(overrides = {}) {
   process.env.DSH_HOME = home;
   const teardowns = [];
   const listeners = new Map();
-  let rpc;
+  let service;
   const ctx = {
     agentDefaultModel: { currentSelection: () => ({ provider: 'acme', model: 'big-pickle' }) },
     agents: { roots: () => overrides.roots ?? [], get: () => undefined, ...overrides.agents },
-    connection: { rpc: { handle: (_endpoint, handler) => { rpc = handler; return async () => {}; } } },
     effect: (setup) => { teardowns.push(setup()); },
     llm: overrides.llm,
     logger: { warn: () => {} },
@@ -30,7 +29,7 @@ async function applyPlugin(overrides = {}) {
       listeners.set(event, handler);
       return () => listeners.delete(event);
     },
-    provide: () => {},
+    provide: (_name, value) => { service = value; },
     sessions: { flush: async () => {} },
     sessionTitle: { rename: () => {} },
   };
@@ -41,7 +40,7 @@ async function applyPlugin(overrides = {}) {
       ctx,
       home,
       emit: (event, payload) => listeners.get(event)?.(payload),
-      rpc: (endpoint, payload) => rpc(endpoint, payload),
+      service: () => service,
       dispose: async () => { for (const teardown of teardowns.reverse()) await teardown?.(); },
     };
   } finally {
@@ -297,12 +296,11 @@ test('the plugin as wired writes the substituted model into the run record on di
     agents: { create: async () => ({ agent, dispose: async () => {} }) },
   });
   try {
-    const started = await plugin.rpc('run-now', { id: definition.id });
-    assert.equal(started.ok, true);
+    const started = plugin.service().runNow(definition.id);
     let run;
     for (let attempt = 0; attempt < 50 && run?.state !== 'succeeded'; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 10));
-      run = JSON.parse(fs.readFileSync(path.join(plugin.home, 'automations.json'), 'utf8')).runs.find((entry) => entry.id === started.value.id);
+      run = JSON.parse(fs.readFileSync(path.join(plugin.home, 'automations.json'), 'utf8')).runs.find((entry) => entry.id === started.id);
     }
     assert.equal(run.state, 'succeeded');
     assert.deepEqual(run.modelFallback, {

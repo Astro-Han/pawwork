@@ -113,9 +113,13 @@ function mountSurface(rpc: Rpc) {
   const calls: Array<{ endpoint: string; payload: Record<string, unknown> }> = []
   const connection = {
     rpc: {
-      call: async (_channel: string, endpoint: string, payload: Record<string, unknown>) => {
-        calls.push({ endpoint, payload })
-        return rpc(endpoint, payload)
+      call: async (channel: string, endpoint: string, payload: { args: Record<string, unknown> }) => {
+        const [namespace, method] = endpoint.split("/")
+        if (channel !== "/api" || namespace !== "mcpAuth" || Object.keys(payload).join() !== "args") {
+          throw new Error(`unexpected Remote call: ${channel} ${endpoint}`)
+        }
+        calls.push({ endpoint: method, payload: payload.args })
+        return rpc(method, payload.args)
       },
     },
   }

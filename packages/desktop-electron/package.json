@@ -57,6 +57,7 @@
     "@deepseek-ai/dsh-subprocess": "0.1.7-rc.1",
     "@deepseek-ai/dsh-time-context": "0.1.7-rc.1",
     "@deepseek-ai/dsh-timeout": "0.1.7-rc.1",
+    "@deepseek-ai/dsh-typert-protocol": "0.1.7-rc.1",
     "@deepseek-ai/dsh-util-time": "0.1.7-rc.1",
     "@deepseek-ai/dsh-util-workspace-path": "0.1.7-rc.1",
     "@deepseek-ai/dsh-web": "0.1.7-rc.1",

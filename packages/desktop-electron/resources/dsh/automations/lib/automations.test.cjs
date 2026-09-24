@@ -10,9 +10,14 @@ const {
   AutomationStore,
   MIN_INTERVAL_MS,
   RECENT_RUNS_FOR_HUMAN,
-  createAutomationRpcHandler,
   createAutomationToolDefinitions,
 } = require('./automations.cjs');
+const { remoteMethods } = require('@deepseek-ai/dsh-typert-protocol');
+
+async function createAutomationService(options) {
+  const { AutomationService } = await import(pathToFileURL(path.join(__dirname, 'index.js')).href);
+  return new AutomationService(options);
+}
 
 const acceptModel = async () => {};
 
@@ -62,39 +67,30 @@ function fakeClock(initial) {
   };
 }
 
-test('registers and disposes the loopback management RPC with the scheduler lifecycle', async () => {
+// The API gateway finds these methods through the binding and the markers alone:
+// a service missing either answers 404 on every Settings page call.
+test('provides the automation service as a Remote the API gateway can dispatch to', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pawwork-automations-plugin-'));
   const pluginUrl = `${pathToFileURL(path.join(__dirname, 'index.js')).href}?lifecycle=${Date.now()}`;
   const { apply } = await import(pluginUrl);
   const previousHome = process.env.DSH_HOME;
-  let registration;
-  let rpcStopped = false;
+  const provided = new Map();
   let listenerStopped = false;
   let dispose;
   process.env.DSH_HOME = home;
   try {
     apply({
       agents: { roots: () => [] },
-      connection: {
-        rpc: {
-          handle: (channel, _handler, options) => {
-            registration = { channel, options };
-            return async () => { rpcStopped = true; };
-          },
-        },
-      },
       effect: (setup) => { dispose = setup(); },
       logger: { warn: () => {} },
       on: () => () => { listenerStopped = true; },
-      provide: () => {},
+      provide: (name, value) => { provided.set(name, value); },
     });
 
-    assert.deepEqual(registration, {
-      channel: '/pawwork-automations',
-      options: { authority: 'loopback' },
-    });
+    const service = provided.get('pawworkAutomations');
+    assert.deepEqual(service.typertRemote, { service, serviceKey: 'pawworkAutomations', namespace: 'pawworkAutomations' });
+    assert.deepEqual(remoteMethods(service).map((marker) => marker.method), ['list', 'update', 'setPaused', 'runNow', 'delete']);
     await dispose();
-    assert.equal(rpcStopped, true);
     assert.equal(listenerStopped, true);
   } finally {
     if (previousHome === undefined) delete process.env.DSH_HOME;
@@ -763,18 +759,17 @@ test('automation RPC lists only durable definitions and their recent runs', asyn
       orphanedDefinition: true,
     },
   });
-  const rpc = createAutomationRpcHandler({
+  const service = await createAutomationService({
     store,
     scheduler: { refresh() {} },
     now: () => 1_500,
   });
 
-  const result = await rpc('list', {}, new AbortController().signal);
+  const result = service.list();
 
-  assert.equal(result.ok, true);
-  assert.equal(result.value.definitions[0].id, definition.id);
-  assert.equal(result.value.definitions[0].recentRuns[0].sessionId, 'session-current');
-  assert.deepEqual(Object.keys(result.value), ['definitions']);
+  assert.equal(result.definitions[0].id, definition.id);
+  assert.equal(result.definitions[0].recentRuns[0].sessionId, 'session-current');
+  assert.deepEqual(Object.keys(result), ['definitions']);
 });
 
 test('automation RPC keeps the active run separate from bounded terminal history', async () => {
@@ -785,14 +780,13 @@ test('automation RPC keeps the active run separate from bounded terminal history
   for (let index = 0; index < RECENT_RUNS_FOR_HUMAN + 1; index += 1) {
     store.recordStoppedRun(created.id, 3_000 + index, 'previous_run_active', 3_000 + index);
   }
-  const rpc = createAutomationRpcHandler({ store, scheduler: {}, now: () => 10_000 });
+  const service = await createAutomationService({ store, scheduler: {}, now: () => 10_000 });
 
-  const response = await rpc('list', {});
+  const response = service.list();
 
-  assert.equal(response.ok, true);
-  assert.equal(response.value.definitions[0].activeRun.id, active.id);
-  assert.equal(response.value.definitions[0].recentRuns.length, RECENT_RUNS_FOR_HUMAN);
-  assert.equal(response.value.definitions[0].recentRuns.every((run) => run.state !== 'running'), true);
+  assert.equal(response.definitions[0].activeRun.id, active.id);
+  assert.equal(response.definitions[0].recentRuns.length, RECENT_RUNS_FOR_HUMAN);
+  assert.equal(response.definitions[0].recentRuns.every((run) => run.state !== 'running'), true);
 });
 
 // One dash stood for "finished", "ran out of runs" and "paused" alike, so the
@@ -801,7 +795,7 @@ test('automation RPC keeps the active run separate from bounded terminal history
 test('automation RPC says why a definition has no next run', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
-  const rpc = createAutomationRpcHandler({ store, scheduler: {}, now: () => 10_000 });
+  const service = await createAutomationService({ store, scheduler: {}, now: () => 10_000 });
 
   const live = interval(store, cwd, 300_000);
   const paused = interval(store, cwd, 300_000);
@@ -828,10 +822,9 @@ test('automation RPC says why a definition has no next run', async () => {
   const missed = oneShot(store, cwd, 4_000);
   store.setPaused(missed.id, true, 3_500);
   store.setPaused(missed.id, false, 9_000);
-  const response = await rpc('list', {});
-  const reasonOf = (id) => response.value.definitions.find((entry) => entry.id === id).terminalReason;
+  const response = service.list();
+  const reasonOf = (id) => response.definitions.find((entry) => entry.id === id).terminalReason;
 
-  assert.equal(response.ok, true);
   assert.equal(reasonOf(live.id), null);
   assert.equal(reasonOf(paused.id), null);
   assert.equal(reasonOf(finished.id), 'completed');
@@ -886,24 +879,22 @@ test('every write path refuses a cron expression whose date never comes', () => 
 
 // The editor cannot repeat the cron rule without copying the parser, so it reads
 // this issue to know it may say so in the user's language. Plain, the user met
-// the store's own English sentence in a Chinese UI. The reason travels in
-// `issues` rather than `code` because DSH validates `code` against its own enum
-// and rejects the whole response for one it does not know.
+// the store's own English sentence in a Chinese UI.
 test('a refused cron expression reaches the editor as an issue it can localize', async () => {
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
   const definition = interval(store, cwd, 300_000);
-  const rpc = createAutomationRpcHandler({ store, scheduler: { refresh: () => {} }, now: () => 10_000 });
+  const service = await createAutomationService({ store, scheduler: { refresh: () => {} }, now: () => 10_000 });
 
-  const response = await rpc('update', {
-    id: definition.id,
+  assert.throws(() => service.update(definition.id, {
     expectedRevision: definition.revision,
     rhythm: { kind: 'cron', expression: '0 9 30 2 *' },
+  }), (error) => {
+    assert.equal(error.isDSHRemoteError, true);
+    assert.equal(error.code, 'bad-request');
+    assert.deepEqual(error.details.issues, [{ code: 'invalid-cron' }]);
+    return true;
   });
-
-  assert.equal(response.ok, false);
-  assert.equal(response.error.code, 'bad-request');
-  assert.deepEqual(response.error.details.issues, [{ code: 'invalid-cron' }]);
 });
 
 test('automation RPC validates mutations and returns immediately when running now', async () => {
@@ -912,7 +903,7 @@ test('automation RPC validates mutations and returns immediately when running no
   const definition = interval(store, cwd, 300_000);
   let refreshCalls = 0;
   let started;
-  const rpc = createAutomationRpcHandler({
+  const service = await createAutomationService({
     store,
     scheduler: {
       refresh: () => { refreshCalls += 1; },
@@ -924,17 +915,13 @@ test('automation RPC validates mutations and returns immediately when running no
     now: () => 2_000,
   });
 
-  const badPause = await rpc('set-paused', { id: definition.id, paused: 'yes' }, new AbortController().signal);
-  assert.equal(badPause.ok, false);
-  assert.equal(badPause.error.code, 'bad-request');
+  assert.throws(() => service.setPaused(definition.id, 'yes'), { code: 'bad-request' });
 
-  const paused = await rpc('set-paused', { id: definition.id, paused: true }, new AbortController().signal);
-  assert.equal(paused.ok, true);
-  assert.equal(paused.value.paused, true);
+  const paused = service.setPaused(definition.id, true);
+  assert.equal(paused.paused, true);
 
-  const running = await rpc('run-now', { id: definition.id }, new AbortController().signal);
-  assert.equal(running.ok, true);
-  assert.equal(running.value.state, 'running');
+  const running = service.runNow(definition.id);
+  assert.equal(running.state, 'running');
   assert.equal(started, definition.id);
   assert.equal(refreshCalls, 1);
 });
@@ -944,24 +931,21 @@ test('automation RPC updates definitions', async () => {
   const store = new AutomationStore(file);
   const definition = interval(store, cwd, 300_000);
   let refreshCalls = 0;
-  const rpc = createAutomationRpcHandler({
+  const service = await createAutomationService({
     store,
     scheduler: { refresh: () => { refreshCalls += 1; } },
     now: () => Date.parse('2026-08-18T00:00:00.000Z'),
   });
-  const updated = await rpc('update', {
-    id: definition.id, expectedRevision: definition.revision,
+  const updated = service.update(definition.id, {
+    expectedRevision: definition.revision,
     title: 'Morning brief', prompt: 'Summarize important changes.',
   });
-  assert.equal(updated.ok, true);
-  assert.equal(updated.value.title, 'Morning brief');
+  assert.equal(updated.title, 'Morning brief');
   assert.equal(refreshCalls, 1);
 
-  const stale = await rpc('update', {
-    id: definition.id, expectedRevision: definition.revision, title: 'Stale title',
-  });
-  assert.equal(stale.ok, false);
-  assert.equal(stale.error.code, 'conflict');
+  assert.throws(() => service.update(definition.id, {
+    expectedRevision: definition.revision, title: 'Stale title',
+  }), { code: 'conflict' });
   assert.equal(store.getDefinition(definition.id).title, 'Morning brief');
   assert.equal(refreshCalls, 1);
 });

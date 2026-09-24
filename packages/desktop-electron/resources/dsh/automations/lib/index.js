@@ -1,18 +1,106 @@
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { Remote, RemoteError, bindTypertRemote } from '@deepseek-ai/dsh-typert-protocol';
 
 const require = createRequire(import.meta.url);
 const {
   AutomationScheduler,
   AutomationStore,
+  RECENT_RUNS_FOR_HUMAN,
   automationRunSessionId,
-  createAutomationRpcHandler,
   createAutomationToolDefinitions,
   isAutomationRunSession,
 } = require('./automations.cjs');
 
 export const name = 'pawwork-automations';
-export const inject = ['agentDefaultModel', 'agents', 'connection', 'llm', 'sessions', 'sessionTitle'];
+export const inject = ['agentDefaultModel', 'agents', 'llm', 'sessions', 'sessionTitle'];
+
+function badRequest(message) {
+  return new RemoteError('bad-request', message, { issues: [] });
+}
+
+function remoteStoreError(error) {
+  if (error?.code === 'conflict') return new RemoteError('conflict', error.message, {});
+  if (error?.code === 'invalid-cron') return new RemoteError('bad-request', error.message, { issues: [{ code: 'invalid-cron' }] });
+  return error;
+}
+
+// The Settings page reaches these methods as `/api/pawworkAutomations/<method>`;
+// the argument names are the wire fields.
+export class AutomationService {
+  constructor({ store, scheduler, now = () => Date.now() }) {
+    if (!(store instanceof AutomationStore)) throw new Error('automation service requires AutomationStore');
+    this.store = store;
+    this.scheduler = scheduler;
+    this.now = now;
+    this.typertRemote = bindTypertRemote(this, 'pawworkAutomations');
+  }
+
+  list() {
+    return {
+      definitions: this.store.listDefinitions().map((definition) => {
+        const runs = this.store.listRuns(definition.id);
+        const activeRun = runs.find((run) => run.state === 'running') || null;
+        return {
+          ...definition,
+          activeRun,
+          recentRuns: runs.filter((run) => run.state !== 'running').slice(0, RECENT_RUNS_FOR_HUMAN),
+          // A claimed run clears nextFireAt before it lands, so a definition is only
+          // terminal once nothing is still running for it.
+          terminalReason: activeRun ? null : this.store.terminalReason(definition),
+        };
+      }),
+    };
+  }
+
+  update(id, patch) {
+    if (typeof id !== 'string' || patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
+      throw badRequest('id and patch are required');
+    }
+    let definition;
+    try {
+      definition = this.store.updateDefinition(id, patch, this.now());
+    } catch (error) {
+      throw remoteStoreError(error);
+    }
+    this.scheduler.refresh();
+    return definition;
+  }
+
+  setPaused(id, paused) {
+    if (typeof id !== 'string' || typeof paused !== 'boolean') throw badRequest('id and paused are required');
+    const definition = this.store.setPaused(id, paused, this.now());
+    this.scheduler.refresh();
+    return definition;
+  }
+
+  runNow(id) {
+    if (typeof id !== 'string') throw badRequest('id is required');
+    const started = this.scheduler.startNow(id, this.now());
+    // The caller learns that the run started; its outcome lives in the run record.
+    void started.completion.catch(() => {});
+    return started.run;
+  }
+
+  delete(id) {
+    if (typeof id !== 'string') throw badRequest('id is required');
+    this.store.deleteDefinition(id);
+    this.scheduler.refresh();
+    return { id };
+  }
+}
+
+// Applies @Remote the way a method decorator would; the sidecar's JavaScript has
+// no decorator syntax.
+for (const name of ['list', 'update', 'setPaused', 'runNow', 'delete']) {
+  Remote(AutomationService.prototype[name], {
+    kind: 'method',
+    name,
+    static: false,
+    private: false,
+    addInitializer: (initialize) => initialize.call(Object.create(AutomationService.prototype)),
+  });
+}
 
 function eventTurn(event) {
   return Number.isSafeInteger(event?.data?.turn) ? event.data.turn : null;
@@ -184,10 +272,8 @@ export function apply(ctx) {
   const store = new AutomationStore(path.join(home, 'automations.json'));
   const scheduler = new AutomationScheduler({ store, execute: createDshExecutor(ctx, store) });
   const checkModel = createModelCheck(ctx);
-  const rpc = createAutomationRpcHandler({ store, scheduler });
-  ctx.provide('pawworkAutomations', { store, scheduler });
+  ctx.provide('pawworkAutomations', new AutomationService({ store, scheduler }));
   ctx.effect(() => {
-    const stopRpc = ctx.connection.rpc.handle('/pawwork-automations', rpc, { authority: 'loopback' });
     const stopCreated = ctx.on('agent/created', ({ agent }) => {
       if (!ctx.agents.roots().includes(agent)) return;
       registerAgentTools(ctx, agent, store, scheduler, checkModel);
@@ -197,7 +283,6 @@ export function apply(ctx) {
     });
     return async () => {
       stopCreated();
-      await stopRpc();
       await scheduler.stop();
     };
   }, 'pawwork.automations.lifecycle()');

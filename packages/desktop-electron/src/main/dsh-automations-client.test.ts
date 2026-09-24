@@ -344,9 +344,9 @@ describe("PawWork DSH Automations client", () => {
       })
 
       expect(call).toHaveBeenCalledWith(
-        "/pawwork-automations",
-        "update",
-        expect.objectContaining({ rhythm: { kind: "cron", expression }, stop: stop ?? { kind: "never" } }),
+        "/api",
+        "pawworkAutomations/update",
+        { args: { id: definitionData.id, patch: expect.objectContaining({ rhythm: { kind: "cron", expression }, stop: stop ?? { kind: "never" } }) } },
         undefined,
       )
     },
@@ -814,7 +814,7 @@ describe("PawWork DSH Automations client", () => {
     })
 
     expect(call).toHaveBeenCalledWith(
-      "/pawwork-automations", "update", expect.objectContaining({ fireAt }), undefined,
+      "/api", "pawworkAutomations/update", { args: { id: definitionData.id, patch: expect.objectContaining({ fireAt }) } }, undefined,
     )
   })
 })
