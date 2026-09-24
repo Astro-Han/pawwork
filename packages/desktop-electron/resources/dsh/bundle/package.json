@@ -1,0 +1,10 @@
+{
+  "name": "@pawwork/dsh-bundle",
+  "version": "0.0.0",
+  "private": true,
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

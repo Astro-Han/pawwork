@@ -624,7 +624,6 @@ function launchDsh() {
       executable: process.execPath,
       dshBin,
       sidecarPreload: pathToFileURL(product.sidecarPreload).href,
-      productPatch: product.patch,
       env: environment,
       spawn: (executable, args, options) => spawn(executable, args, options),
       onStdout: (chunk) => logger.log("DSH stdout", { chunk: chunk.trimEnd() }),

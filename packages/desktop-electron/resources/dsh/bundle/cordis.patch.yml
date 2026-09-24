@@ -1,5 +1,5 @@
-# PawWork product defaults. Applied after the official web profile via --patch.
-# Later user settings still win. A patch replaces the targeted row's whole config.
+# PawWork product defaults: the last bundle layer of the `web` profile, beneath
+# the user's own profile patch. A patch replaces the targeted row's whole config.
 # No `agent-default-model` row and no `llm-pi-ai` providers: the product ships no
 # credential, so anything named here would be a route the user has no key for —
 # and a named route is a registered one, which puts its models in the picker
@@ -62,8 +62,7 @@
 # answer set, rejects non-public addresses including NAT64-translated ones,
 # hands that pinned address to the transport so the name cannot resolve again to
 # a private one, refuses credentials in the URL, and does not follow
-# cross-origin redirects. dsh-base still ships `fetch: false`, which is a
-# deployment default rather than a warning about the provider.
+# cross-origin redirects.
 #
 # What none of that addresses is the direction the risk actually runs. Page text
 # the model reads is attacker-controlled, and the next fetch URL is the model's
@@ -131,11 +130,8 @@
     - id: pawwork-web-ready
       name: '@pawwork/dsh-product/web-ready'
     - id: import-v1
-      # Since 0.1.2-alpha.2 a relative entry name resolves against the directory
-      # of the patch file that states it — this file's own — where it used to
-      # resolve against the active profile directory. The two are the same path
-      # today only because this patch sits at the DSH home root.
-      name: './plugins/import-v1/index.mjs'
+      # A relative entry name resolves against the directory of this file.
+      name: './import-v1/index.mjs'
     - id: pawwork-automations
       name: '@pawwork/dsh-automations'
     - id: pawwork-web-search

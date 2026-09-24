@@ -12,6 +12,7 @@ import {
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
+import { load } from "js-yaml"
 import { allRows, overlaidRows, readProductPatch } from "./dsh-product-patch.testing"
 import {
   buildDshEnvironment,
@@ -147,7 +148,8 @@ describe("DSH product home", () => {
 
     expect(readFileSync(credentials, "utf8")).toBe('DEEPSEEK_API_KEY: "user-key"\n')
     expect(readFileSync(join(productHome, "automations.json"), "utf8")).toBe('{"definitions":[]}')
-    expect(readFileSync(prepared.patch, "utf8")).toContain("id: llm-deepseek")
+    expect(readFileSync(join(productHome, "node_modules/@pawwork/dsh-bundle/cordis.patch.yml"), "utf8"))
+      .toContain("id: llm-deepseek")
     expect(
       JSON.parse(readFileSync(join(productHome, "node_modules/@pawwork/dsh-product/package.json"), "utf8")).name,
     ).toBe("@pawwork/dsh-product")
@@ -167,6 +169,90 @@ describe("DSH product home", () => {
       JSON.parse(readFileSync(join(productHome, "node_modules/@pawwork/dsh-mcp-oauth/package.json"), "utf8")).name,
     ).toBe("@pawwork/dsh-mcp-oauth")
     expect(prepared.sidecarPreload).toBe(join(resources, "sidecar-preload.mjs"))
+  })
+
+  // Settings the user saves land in the profile patch, which composes above the
+  // bundle layers and below any `--patch` overlay. Only a bundle leaves them
+  // writable.
+  test("layers the product as the last bundle of a fresh web profile", () => {
+    const productHome = temporaryDirectory()
+    const resources = join(import.meta.dirname, "../../resources/dsh")
+
+    prepareDshProductHome({ productHome, resources, hostModules })
+
+    const profile = join(productHome, "profiles/web")
+    expect(JSON.parse(readFileSync(join(profile, "package.json"), "utf8")).dsh.profile.bundles).toEqual([
+      "@deepseek-ai/dsh-base",
+      "@deepseek-ai/dsh-web-app",
+      "@pawwork/dsh-bundle",
+    ])
+    expect(existsSync(join(profile, "cordis.patch.yml"))).toBe(true)
+    expect(existsSync(join(profile, "pnpm-workspace.yaml"))).toBe(true)
+    expect(
+      JSON.parse(readFileSync(join(productHome, "node_modules/@pawwork/dsh-bundle/package.json"), "utf8")).dsh,
+    ).toEqual({ bundle: { patch: "./cordis.patch.yml" } })
+  })
+
+  test("adds the product bundle to an existing profile once, keeping what it had", () => {
+    const productHome = temporaryDirectory()
+    const resources = join(import.meta.dirname, "../../resources/dsh")
+    const profile = join(productHome, "profiles/web")
+    mkdirSync(profile, { recursive: true })
+    const manifest = {
+      name: "dsh-profile-web",
+      private: true,
+      dependencies: { dshmarket: "1.64.0" },
+      dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dshmarket"] } },
+    }
+    writeFileSync(join(profile, "package.json"), JSON.stringify(manifest))
+
+    prepareDshProductHome({ productHome, resources, hostModules })
+    prepareDshProductHome({ productHome, resources, hostModules })
+
+    expect(JSON.parse(readFileSync(join(profile, "package.json"), "utf8"))).toEqual({
+      ...manifest,
+      dsh: { profile: { bundles: [...manifest.dsh.profile.bundles, "@pawwork/dsh-bundle"] } },
+    })
+  })
+
+  // DSH imports the legacy settings file once, into the profile. The retired
+  // free-tier routes must not ride along: a registered route puts its models in
+  // the picker, and every send to them fails.
+  test("drops the retired free-tier routes from the legacy settings before DSH imports them", () => {
+    const productHome = temporaryDirectory()
+    const resources = join(import.meta.dirname, "../../resources/dsh")
+    const settings = join(productHome, "settings.yaml")
+    mkdirSync(productHome, { recursive: true })
+    writeFileSync(settings, [
+      "llm-pi-ai:",
+      "  providers:",
+      "    opencode: {api: openai-completions}",
+      "    opencode-responses: {api: openai-responses}",
+      "    opencode-go: {apiKeyEnv: OPENCODE_API_KEY}",
+      "locale:",
+      "  preference: en",
+      "",
+    ].join("\n"))
+
+    prepareDshProductHome({ productHome, resources, hostModules })
+
+    expect(load(readFileSync(settings, "utf8"))).toEqual({
+      "llm-pi-ai": { providers: { "opencode-go": { apiKeyEnv: "OPENCODE_API_KEY" } } },
+      locale: { preference: "en" },
+    })
+  })
+
+  test("leaves a legacy settings file without retired routes byte for byte", () => {
+    const productHome = temporaryDirectory()
+    const resources = join(import.meta.dirname, "../../resources/dsh")
+    const settings = join(productHome, "settings.yaml")
+    mkdirSync(productHome, { recursive: true })
+    const original = "# mine\nlocale:\n  preference: en\n"
+    writeFileSync(settings, original)
+
+    prepareDshProductHome({ productHome, resources, hostModules })
+
+    expect(readFileSync(settings, "utf8")).toBe(original)
   })
 
   // Under pnpm the installed `dsh` package sits in its own store directory that

@@ -113,7 +113,7 @@ describe("DSH authorization surface", () => {
     expect(namespaces.get("credentials")).toBeDefined()
     expect(namespaces.get("llm")).toBeDefined()
     // When this fails, DSH can start a sign-in: drop the pi-ai patch, mount
-    // @deepseek-ai/dsh-authorization in product.cordis.patch.yml, and delete this file.
+    // @deepseek-ai/dsh-authorization in the product bundle patch, and delete this file.
     expect(namespaces.get("authorization")).toBeUndefined()
   })
 })

@@ -62,7 +62,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/node_modules/@deepseek-ai/dsh/lib/bin.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: { PATH: "/app/tools:/usr/bin", DSH_HOME: "/data/dsh", ELECTRON_RUN_AS_NODE: "1" },
       spawn: (executable, args, options) => {
         invocation = { executable, args, options }
@@ -83,8 +82,6 @@ describe("DSH sidecar lifecycle", () => {
         "file:///app/dsh/sidecar-preload.mjs",
         "/app/node_modules/@deepseek-ai/dsh/lib/bin.js",
         "web",
-        "--patch",
-        "/data/dsh/product.cordis.patch.yml",
         "--host",
         "127.0.0.1",
         "--port",
@@ -107,7 +104,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       spawn: () => child,
     })
@@ -130,7 +126,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/bin.js",
       sidecarPreload: "file:///app/preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: { PATH: "/usr/bin" },
       spawn: () => child,
     })
@@ -161,7 +156,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       spawn: () => child,
     })
@@ -177,7 +171,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       spawn: () => child,
     })
@@ -197,7 +190,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       spawn: () => child,
       onError: (error) => errors.push(error),
@@ -222,7 +214,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       spawn: () => child,
     })
@@ -246,7 +237,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       spawn: () => child,
     })
@@ -275,7 +265,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       spawn: () => child,
       onStdout: (chunk) => stdout.push(chunk),
@@ -298,7 +287,6 @@ describe("DSH sidecar lifecycle", () => {
       executable: "/app/PawWork",
       dshBin: "/app/dsh.js",
       sidecarPreload: "file:///app/dsh/sidecar-preload.mjs",
-      productPatch: "/data/dsh/product.cordis.patch.yml",
       env: {},
       stopTimeoutMs: 1,
       spawn: () => child,

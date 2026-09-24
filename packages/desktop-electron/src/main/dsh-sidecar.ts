@@ -31,7 +31,6 @@ type LaunchDshSidecarOptions = {
   executable: string
   dshBin: string
   sidecarPreload: string
-  productPatch: string
   env: NodeJS.ProcessEnv
   stopTimeoutMs?: number
   spawn: SpawnDshProcess
@@ -112,8 +111,6 @@ export function launchDshSidecar(options: LaunchDshSidecarOptions): DshRun {
       options.sidecarPreload,
       options.dshBin,
       "web",
-      "--patch",
-      options.productPatch,
       "--host",
       "127.0.0.1",
       "--port",

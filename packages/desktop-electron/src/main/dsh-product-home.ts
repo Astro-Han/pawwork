@@ -1,5 +1,27 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, readlinkSync, rmSync, symlinkSync, unlinkSync } from "node:fs"
+import {
+  PROFILES_DIR,
+  PROFILE_TEMPLATES,
+  initProfile,
+  readProfileManifest,
+  writeProfileBundles,
+} from "@deepseek-ai/dsh-app-boot"
+import yaml from "js-yaml"
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { isAbsolute, join } from "node:path"
+
+const PRODUCT_BUNDLE = "@pawwork/dsh-bundle"
+const RETIRED_ROUTES = ["opencode", "opencode-responses"]
 
 // An inherited key would reach the sidecar beside the one the Models page writes, and
 // credentials-local ranks the environment above its own store, so the store's value would be
@@ -105,24 +127,52 @@ function linkHostScope(productHome: string, hostModules: string) {
   symlinkSync(target, link, "junction")
 }
 
+// `dsh web` loads the `web` profile. PawWork's composition is one more bundle on
+// top of that template, beneath the user's own profile patch, so settings the user
+// saves can override it. Re-selected on every launch because a profile recovery
+// resets the bundle list.
+function selectProductBundle(profileDir: string) {
+  initProfile(profileDir, [...PROFILE_TEMPLATES.web.bundles, PRODUCT_BUNDLE])
+  const manifest = readProfileManifest("dsh", profileDir)
+  const bundles = manifest.dsh?.profile?.bundles ?? PROFILE_TEMPLATES.web.bundles
+  if (!bundles.includes(PRODUCT_BUNDLE)) writeProfileBundles(profileDir, manifest, [...bundles, PRODUCT_BUNDLE])
+}
+
+// The retired OpenCode Free tier wrote these routes into the legacy settings file.
+// DSH imports that file into the profile once, so they have to go before it does.
+function dropRetiredRoutes(home: string) {
+  const path = join(home, "settings.yaml")
+  if (!existsSync(path)) return
+  let sections: { "llm-pi-ai"?: { providers?: Record<string, unknown> } } | undefined
+  try {
+    sections = yaml.load(readFileSync(path, "utf8")) as typeof sections
+  } catch {
+    return
+  }
+  const providers = sections?.["llm-pi-ai"]?.providers
+  const retired = RETIRED_ROUTES.filter((route) => providers?.[route] !== undefined)
+  if (retired.length === 0) return
+  for (const route of retired) delete providers![route]
+  writeFileSync(path, yaml.dump(sections))
+}
+
 export function prepareDshProductHome(options: PrepareDshProductHomeOptions) {
   if (!isAbsolute(options.productHome)) throw new Error("DSH product home must be absolute")
 
-  mkdirSync(options.productHome, { recursive: true })
-  cpSync(join(options.resources, "home"), options.productHome, { force: true, recursive: true })
   const productPackageParent = join(options.productHome, "node_modules", "@pawwork")
   mkdirSync(productPackageParent, { recursive: true })
-  for (const plugin of ["product", "automations", "identity", "web-search", "updater", "mcp-oauth"] as const) {
+  for (const plugin of ["bundle", "product", "automations", "identity", "web-search", "updater", "mcp-oauth"] as const) {
     cpSync(join(options.resources, plugin), join(productPackageParent, `dsh-${plugin}`), {
       force: true,
       recursive: true,
     })
   }
   linkHostScope(options.productHome, options.hostModules)
+  selectProductBundle(join(options.productHome, PROFILES_DIR, "web"))
+  dropRetiredRoutes(options.productHome)
 
   return {
     home: options.productHome,
-    patch: join(options.productHome, "product.cordis.patch.yml"),
     sidecarPreload: join(options.resources, "sidecar-preload.mjs"),
   }
 }
