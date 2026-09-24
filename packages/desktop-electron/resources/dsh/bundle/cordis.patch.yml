@@ -8,6 +8,10 @@
 # gives the route its session-affinity switch once the user adds it.
 - id: llm-deepseek
   disabled: true
+# The DeepSeek account sign-in UI mounts only inside DSH's own desktop shell, so
+# here this route could never hold a credential.
+- id: llm-deepseek-account
+  disabled: true
 # Silences the `dsh web:` URL line; `pawwork-web-ready` below reports the same
 # URL to the Electron main process over IPC instead. See
 # resources/dsh/product/lib/web-ready.js for why that line is not an interface.
@@ -105,6 +109,11 @@
   config:
     path: !!js dshHomePath('session-query.sqlite')
     openAt: first-search
+# Off in dsh-web-app; without it the model has no clock. Each injection is a
+# real `user/message` event, so every reading also becomes a document in the
+# session search above, matching `time`, `turn`, `elapsed` and the zone name.
+- id: time-context
+  disabled: false
 - insert:
     - id: directory-picker-browse-host
       name: '@deepseek-ai/dsh-host-directory-picker-browse'
@@ -140,14 +149,3 @@
     # state machine stays in the Electron main process.
     - id: pawwork-updater
       name: '@pawwork/dsh-updater'
-    # Not in the default composition upstream; without it the model has no clock.
-    # The interval is a floor between injections, not a refresh timer — upstream
-    # has no default, so dropping it makes every step carry its own reading.
-    # It is also the noise knob for the session search above: each injection is
-    # a real `user/message` event, and the indexer keys on event type alone, so
-    # every reading becomes a searchable document matching `time`, `turn`,
-    # `elapsed` and the zone name. Filtering by `source.kind` is upstream's to do.
-    - id: time-context
-      name: '@deepseek-ai/dsh-time-context'
-      config:
-        refreshIntervalMs: 60000

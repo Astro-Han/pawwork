@@ -31,7 +31,7 @@ window.__ModuleLoader__.load({
 }
 .pawwork-sidebar-toggle {
   -webkit-app-region: no-drag;
-  align-items: center; background: transparent; border: 0; border-radius: 50%;
+  align-items: center; background: transparent; border: 0; border-radius: var(--dsw-radius-sm);
   color: var(--dsw-alias-label-secondary); display: inline-flex; height: 28px;
   justify-content: center; left: calc(var(--pawwork-titlebar-inset-left) + 8px);
   padding: 0; pointer-events: auto; position: absolute;

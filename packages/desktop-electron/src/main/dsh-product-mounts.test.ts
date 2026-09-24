@@ -79,12 +79,13 @@ describe("PawWork DSH product mounts", () => {
     expect(ours?.printUrl).toBe(false)
   })
 
-  // `refreshIntervalMs` has no default upstream: the clock is injected once per
-  // step unless a positive interval floors it, so losing this value does not
-  // disable a feature, it quietly makes every step carry its own reading.
-  test("floors the clock injections with a positive interval", () => {
-    const clock = insertedRows().find((row) => row.name === "@deepseek-ai/dsh-time-context")
+  // A patch row whose id upstream renamed composes without complaint and
+  // addresses nothing, which would leave the model without a clock.
+  test("turns on the clock dsh-web-app ships disabled", () => {
+    const rows = [...overlaidRows(), ...allRows(readProductPatch())].filter((row) => row.id === "time-context")
+    const disabled = rows.reduce<boolean | undefined>((state, row) => row.disabled ?? state, undefined)
 
-    expect(clock?.config?.refreshIntervalMs).toBeGreaterThan(0)
+    expect(rows.map((row) => row.name)).toContain("@deepseek-ai/dsh-time-context")
+    expect(disabled).toBe(false)
   })
 })
