@@ -170,6 +170,45 @@ describe("PawWork DSH web search plugin", () => {
 })
 
 describe("PawWork search engine selection", () => {
+  test.each([undefined, "proxy-key"])("custom Exa endpoints accept an optional key (%s) and normalize results", async (key) => {
+    const fetch = vi.fn(async () => Response.json({ results: [
+      { url: "https://example.com", title: "Result", highlights: ["Excerpt"], publishedDate: "2026-10-02" },
+      { url: "https://example.com/empty", highlights: [] },
+    ] }))
+    vi.stubGlobal("fetch", fetch)
+    try {
+      const result = await providerFor({ exaBaseURL: " http://127.0.0.1:4479/proxy/ " }, key)
+        .search({ query: "custom search", maxResults: 2 })
+      expect(fetch.mock.calls[0]).toEqual(["http://127.0.0.1:4479/proxy/search", expect.objectContaining({
+        body: expect.stringContaining('"query":"custom search"'),
+        headers: expect.objectContaining({ authorization: `Bearer ${key ?? ""}` }),
+      })])
+      expect(result).toEqual({ sources: [{ url: "https://example.com", title: "Result", snippet: "Excerpt", publishedAt: "2026-10-02" }], truncated: false })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  test("reads a changed Exa endpoint on the next search, including clearing it", async () => {
+    let baseURL = "http://127.0.0.1:4479"
+    const config = { ...Config({}), exaBaseURL: { get: () => baseURL } }
+    let registered: PawWorkSearchProvider | undefined
+    apply({ ...contextWith(), web: { registerSearchProvider: (provider: PawWorkSearchProvider) => (registered = provider) } }, config)
+    const urls: string[] = []
+    vi.stubGlobal("fetch", async (url: string) => {
+      urls.push(String(url))
+      return url.includes("mcp.exa.ai") ? exaResponse(block()) : Response.json({ results: [] })
+    })
+    try {
+      await registered!.search({ query: "custom" })
+      baseURL = "   "
+      await registered!.search({ query: "default" })
+      expect(urls).toEqual(["http://127.0.0.1:4479/search", "https://mcp.exa.ai/mcp"])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   // The product promise: a fresh install searches before anyone configures a
   // key. A request that grew a credential parameter would be scoped to a key
   // nobody has.

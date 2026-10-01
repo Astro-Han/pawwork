@@ -79,6 +79,7 @@ function loadPlugin() {
 type CardActions = {
   discard: () => void
   editKey: (text: string) => void
+  editBaseURL: (text: string) => void
   hooks: { webSearchCard: { getSnapshot: () => Record<string, unknown> } }
   resetBackend: () => Promise<void> | void
   save: () => Promise<void>
@@ -190,6 +191,37 @@ function textOf(card: (props: Record<string, unknown>) => unknown, injected: Car
 }
 
 describe("PawWork DSH web search card", () => {
+  test("stages, discards, saves and clears the Exa endpoint", async () => {
+    const { card, injected, scope } = cardOf()
+    injected.editBaseURL(" http://127.0.0.1:4479/ ")
+    expect(scope.set).not.toHaveBeenCalled()
+    expect(stateOf(injected).dirty).toBe(true)
+    injected.discard()
+    expect(stateOf(injected).baseURL).toBe("")
+    injected.editBaseURL(" http://127.0.0.1:4479/ ")
+    await injected.save()
+    expect(scope.set).toHaveBeenLastCalledWith("exaBaseURL", "http://127.0.0.1:4479/")
+    expect(stateOf(injected).dirty).toBe(false)
+    expect(textOf(card, injected)).not.toContain("keylessBadge")
+    injected.editBaseURL("")
+    await injected.save()
+    expect(scope.set).toHaveBeenLastCalledWith("exaBaseURL", "")
+  })
+
+  test("an Exa endpoint draft is hidden and unwritten while DeepSeek is selected", async () => {
+    const { card, injected, scope } = cardOf()
+    injected.editBaseURL("http://127.0.0.1:4479")
+    injected.selectBackend("deepseek")
+    expect(visit(render(card, injected)).find((element) => element.props.id === "pawwork-websearch-base-url")).toBeUndefined()
+    await injected.save()
+    expect(scope.set).toHaveBeenCalledTimes(1)
+    expect(scope.set).toHaveBeenCalledWith("backend", "deepseek")
+    injected.selectBackend("exa")
+    expect(stateOf(injected).baseURL).toBe("http://127.0.0.1:4479")
+    await injected.save()
+    expect(scope.set).toHaveBeenLastCalledWith("exaBaseURL", "http://127.0.0.1:4479")
+  })
+
   // The card's whole surface is one module the Host evaluates, and a throw at
   // load removes it with nothing but a loader line in a console no user reads.
   // This file is the only thing that evaluates it; lint parses it but does not
@@ -318,7 +350,7 @@ describe("PawWork DSH web search card", () => {
   // A write that threw used to escape `save` before it could clear `saving`,
   // leaving both buttons disabled for the rest of the session with the drafts
   // trapped behind them.
-  test("a throwing write leaves the card usable", async () => {
+  test.each(["backend", "exaBaseURL"])("a throwing %s write leaves the card usable", async (field) => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
       const { card, injected } = cardOf({
@@ -327,15 +359,16 @@ describe("PawWork DSH web search card", () => {
         },
       })
 
-      injected.selectBackend("deepseek")
+      if (field === "backend") injected.selectBackend("deepseek")
+      else injected.editBaseURL("http://127.0.0.1:4479")
       await injected.save()
 
       const state = stateOf(injected)
       expect(state.saving).toBe(false)
-      expect(state.failure).toEqual({ field: "backend" })
+      expect(state.failure).toEqual({ field })
       // Nothing answered, so there are no words of anyone else's to show.
       expect(textOf(card, injected)).toContain("saveFailedApp")
-      expect(state.backend).toBe("deepseek")
+      expect(state.dirty).toBe(true)
     } finally {
       logged.mockRestore()
     }

@@ -108,6 +108,9 @@ window.__ModuleLoader__.load({
       description: "Which engine answers the agent's searches.",
       backend: "Search engine",
       backendHint: "Applies to the next search; no restart needed.",
+      baseURL: "Base URL",
+      baseURLHint: "Optional Exa-compatible endpoint. Leave blank to use the built-in service. Requests go to /search.",
+      apiKeyCustom: "Optional. Enter a key if your custom endpoint requires one.",
       exa: "Exa",
       deepseek: "DeepSeek",
       apiKey: "API key",
@@ -129,6 +132,9 @@ window.__ModuleLoader__.load({
       description: "agent 搜索网页时用哪个引擎。",
       backend: "搜索源",
       backendHint: "下一次搜索即生效，无需重启。",
+      baseURL: "Base URL",
+      baseURLHint: "可选的 Exa 兼容服务地址，留空使用内置服务。请求会发到 /search。",
+      apiKeyCustom: "可选；自定义服务需要密钥时再填写。",
       exa: "Exa",
       deepseek: "DeepSeek",
       apiKey: "API Key",
@@ -169,6 +175,7 @@ window.__ModuleLoader__.load({
     class CardController {
       /** `{ backend }`, `{ reset: true }`, or undefined — never two of them. */
       backendDraft = undefined
+      baseURLDraft = undefined
       keyDraft = undefined
       saving = false
       /** The field a save did not land, with the deployment's own words when it had any: `{ field, message }`, or undefined. */
@@ -232,6 +239,10 @@ window.__ModuleLoader__.load({
         return this.keyDraft?.backend === this.backend() ? this.keyDraft : undefined
       }
 
+      baseURL() {
+        return this.baseURLDraft ?? this.scope.getSnapshot().value?.exaBaseURL ?? ""
+      }
+
       /**
        * Describe every write a save would perform, in the order it performs them.
        *
@@ -265,14 +276,19 @@ window.__ModuleLoader__.load({
           this.backendDraft !== undefined &&
           this.backendDraft.backend !== this.scope.getSnapshot().value?.backend
         ) {
-          writes.push({ field: "backend", backend: this.backendDraft.backend })
+          writes.push({ field: "backend", value: this.backendDraft.backend })
+        }
+        if (this.backend() === "exa" && this.baseURLDraft !== undefined &&
+          this.baseURLDraft.trim() !== (this.scope.getSnapshot().value?.exaBaseURL ?? "")) {
+          writes.push({ field: "exaBaseURL", value: this.baseURLDraft.trim() })
         }
         return writes
       }
 
       /** @returns whether any control holds a draft, whether or not it would write. */
       staged() {
-        return this.backendDraft !== undefined || this.stagedKey() !== undefined
+        return this.backendDraft !== undefined || this.stagedKey() !== undefined ||
+          (this.backend() === "exa" && this.baseURLDraft !== undefined)
       }
 
       /** @returns whether a save would write anything. */
@@ -295,11 +311,12 @@ window.__ModuleLoader__.load({
           saving: this.saving,
           failure: this.failure,
           backend: this.backend(),
+          baseURL: this.baseURL(),
           // Offered while there is an override to remove and removing it is not
           // already staged — the control is how you stage it, so leaving it up
           // afterwards would invite pressing it twice for one effect.
           backendOverridden: Object.hasOwn(user ?? {}, "backend") && this.backendDraft?.reset !== true,
-          keyless: spec.keyless,
+          keyless: spec.keyless && this.baseURL().trim() === "",
           keyText: this.stagedKey()?.text ?? "",
           keyConfigured: this.held.configured,
           keyWritable: this.held.writable,
@@ -366,6 +383,12 @@ window.__ModuleLoader__.load({
             if (this.failure?.field === "key") this.failure = undefined
             this.publish()
           },
+          editBaseURL: (text) => {
+            if (this.saving) return
+            this.baseURLDraft = text
+            if (this.failure?.field === "exaBaseURL") this.failure = undefined
+            this.publish()
+          },
           // Stages the reset; it does not perform it. Restoring the default is
           // not a different kind of act from choosing an engine, so it stages
           // like one and `save` stays the only path to the deployment — which is
@@ -385,6 +408,7 @@ window.__ModuleLoader__.load({
           discard: () => {
             if (this.saving) return
             this.backendDraft = undefined
+            this.baseURLDraft = undefined
             this.keyDraft = undefined
             this.failure = undefined
             this.publish()
@@ -458,15 +482,17 @@ window.__ModuleLoader__.load({
             // did not land is the same lie as an engine that silently did not.
             const made =
               write.reset === true
-                ? await this.commit("backend", () => this.scope.unset("backend"))
-                : await this.commit("backend", () => this.scope.set("backend", write.backend))
+                ? await this.commit(write.field, () => this.scope.unset(write.field))
+                : await this.commit(write.field, () => this.scope.set(write.field, write.value))
             const wrote =
               made &&
               (write.reset === true
-                ? !Object.hasOwn(this.scope.getSnapshot().user ?? {}, "backend")
-                : this.scope.getSnapshot().user?.backend === write.backend)
-            if (wrote) this.backendDraft = undefined
-            else if (made) this.failure = { field: "backend" }
+                ? !Object.hasOwn(this.scope.getSnapshot().user ?? {}, write.field)
+                : this.scope.getSnapshot().user?.[write.field] === write.value)
+            if (wrote) {
+              if (write.field === "backend") this.backendDraft = undefined
+              else this.baseURLDraft = undefined
+            } else if (made) this.failure = { field: write.field }
           }
           await this.readCredential()
         } finally {
@@ -614,6 +640,21 @@ window.__ModuleLoader__.load({
             label: t("backend"),
             labelledControl: true,
           }),
+          state.backend === "exa" ? h(Field, {
+            control: h("input", {
+              autoComplete: "off",
+              className: "pawwork-websearch-input",
+              disabled: disabled || state.saving,
+              id: "pawwork-websearch-base-url",
+              onChange: (event) => props.editBaseURL(event.target.value),
+              placeholder: "https://api.exa.ai",
+              type: "url",
+              value: state.baseURL,
+            }),
+            hint: t("baseURLHint"),
+            id: "pawwork-websearch-base-url",
+            label: t("baseURL"),
+          }) : null,
           h(Field, {
             badges: keyBadge,
             control: h("input", {
@@ -628,7 +669,8 @@ window.__ModuleLoader__.load({
             }),
             hint: state.keyConfigured
               ? t("apiKeyHint")
-              : state.keyless ? t("apiKeyUnsetFree") : t("apiKeyUnsetRequired"),
+              : state.backend === "exa" && !state.keyless ? t("apiKeyCustom")
+                : state.keyless ? t("apiKeyUnsetFree") : t("apiKeyUnsetRequired"),
             id: "pawwork-websearch-key",
             label: t("apiKey"),
           }),
