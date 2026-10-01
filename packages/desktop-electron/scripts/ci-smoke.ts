@@ -628,16 +628,17 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const heroCursorMismatches = cursorMismatches()
     const appRoot = document.getElementById("root")
     const contentInsetHeight = appRoot ? Number.parseFloat(getComputedStyle(appRoot).paddingTop) : -1
-    // Assert that the headline override still fires, not the copy it produces: the mechanism is
-    // what broke silently between rc.7 and rc.8.
+    // The override must hide the actual upstream children, not only style their container.
     const heroMark = document.querySelector('[data-slot="conversation.hero.brand.mark"] > svg')
     const heroHeadline = heroMark?.parentElement?.parentElement?.nextElementSibling
-    const heroBadge = heroHeadline?.nextElementSibling
+    const heroOriginalHeadline = heroHeadline?.firstElementChild
+    const heroBadge = heroOriginalHeadline?.nextElementSibling
     const heroMarkVisible = visible(heroMark)
     const heroHeadlineOverridden = Boolean(heroHeadline)
+      && Boolean(heroOriginalHeadline) && !visible(heroOriginalHeadline)
       && getComputedStyle(heroHeadline).fontSize === "0px"
       && getComputedStyle(heroHeadline, "::before").content.replace(/^"|"$/g, "").trim().length > 0
-    const heroPreviewBadgeHidden = Boolean(heroHeadline) && !visible(heroBadge)
+    const heroPreviewBadgeHidden = Boolean(heroBadge) && !visible(heroBadge)
     const heroMarkRect = heroMark?.getBoundingClientRect()
     const heroHeadlineRect = heroHeadline?.getBoundingClientRect()
     const heroMarkHeadlineOffset = heroMarkRect && heroHeadlineRect

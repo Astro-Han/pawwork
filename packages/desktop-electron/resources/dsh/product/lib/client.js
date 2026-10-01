@@ -175,14 +175,12 @@ html body :is(button, [role="button"], [role="treeitem"], [role="tab"], [role="m
 .pawwork-import-feedback p { font-size: 12px; line-height: 19px; margin: 0; }
 .pawwork-import-detail { color: var(--dsw-alias-label-tertiary); overflow-wrap: anywhere; }
 .pawwork-import-dismiss { align-self: flex-end; }
-/* The rc.8 locale registry throws on a duplicate namespace and offers no override point, so DSH's
-   own headline and preview badge are replaced visually, anchored on data-slot rather than on class
-   names that carry a per-version hash. Zeroing font-size alone leaves a 32px line box that lifts
-   the line 4.5px against the mark, so line-height has to go with it. */
+/* DSH has no headline slot. Its title group follows the public mark slot; replace the headline
+   visually and hide the badge inside that group. */
 span:has(> [data-slot="conversation.hero.brand.mark"]) + span { font-size: 0; line-height: 0; }
 span:has(> [data-slot="conversation.hero.brand.mark"]) + span::before { content: "What's first today?"; font-size: 26px; line-height: 32px; }
 html[lang^="zh"] span:has(> [data-slot="conversation.hero.brand.mark"]) + span::before { content: "今天从哪件事开始？"; }
-span:has(> [data-slot="conversation.hero.brand.mark"]) + span + span { display: none; }
+span:has(> [data-slot="conversation.hero.brand.mark"]) + span > span + span { display: none; }
 /* DSH's hero-fish-swim swims a fish in ±1px and -5° to 3°; a glove has to wave, which needs far
    more travel to read. Selector weight 0,3,2 beats DSH's 0,3,0 and takes the animation shorthand
    outright, and transform-origin stays at DSH's 50% 60%. */
