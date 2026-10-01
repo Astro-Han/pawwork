@@ -21,7 +21,7 @@ minimumReleaseAgeExclude:
 overrides:
   '@xmldom/xmldom': 0.8.15
   esbuild: 0.28.1
-  fast-uri: 3.1.6
+  fast-uri: 3.1.7
   form-data: 4.0.6
   ip-address: 10.3.1
   js-yaml: 4.3.2
@@ -32,8 +32,9 @@ overrides:
   svgo: 4.1.0
   tar: 7.5.21
   tmp: 0.2.7
+  'undici@>=7.0.0 <7.29.1': 7.29.1
   ws: 8.21.0
 
 patchedDependencies:
-  '@deepseek-ai/dsh-llm-pi-ai@0.1.7-rc.2': patches/@deepseek-ai__dsh-llm-pi-ai@0.1.7-rc.2.patch
-  '@deepseek-ai/dsh-mcp-client@0.1.7-rc.2': patches/@deepseek-ai__dsh-mcp-client@0.1.7-rc.2.patch
+  '@deepseek-ai/dsh-llm-pi-ai@0.2.0-rc.2': patches/@deepseek-ai__dsh-llm-pi-ai@0.2.0-rc.2.patch
+  '@deepseek-ai/dsh-mcp-client@0.2.0-rc.2': patches/@deepseek-ai__dsh-mcp-client@0.2.0-rc.2.patch

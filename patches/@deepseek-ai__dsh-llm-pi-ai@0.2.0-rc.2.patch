@@ -1,0 +1,49 @@
+diff --git a/lib/index.js b/lib/index.js
+index 0c74b3ab2b556f4b0e656a304e1242ffceb8c288..02e8d351ffd1dbcc0a508a86f2df689b61fe0f37 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -400,7 +400,8 @@ const COMPLETIONS_COMPAT_GATE = {
+ 	vercelGatewayRouting: "withhold",
+ 	zaiToolStream: "withhold",
+ 	supportsOpenAIGrammarTools: "withhold",
+-	sendSessionAffinityHeaders: "withhold",
++	// Completions routes must be able to request session-affinity headers.
++	sendSessionAffinityHeaders: "offer",
+ 	supportsMidConvoSystemMessages: "withhold",
+ 	supportsMidConvoToolAdditions: "withhold",
+ 	sessionAffinityFormat: "withhold"
+@@ -637,6 +638,10 @@ function resolveModelCompat(provider, entry, route, base, api) {
+ */
+ function resolveRouteModels(request, validation = "strict") {
+ 	const { provider } = request;
++	// OpenCode Go requires a conversation id on every Completions request.
++	if (provider === "opencode-go" && request.compat?.sendSessionAffinityHeaders === void 0) {
++		request = { ...request, compat: { ...request.compat, sendSessionAffinityHeaders: true } };
++	}
+ 	const defaults = catalogModels(provider);
+ 	const providerBaseUrl = catalogProvider(provider)?.baseUrl;
+ 	const configured = request.models ?? [];
+@@ -1782,7 +1787,12 @@ var PiAiAdapter = class extends LlmAdapter {
+ 		const profile = this.profileOf(snapshot, provider);
+ 		const failure = profile.modelErrors.get(model) ?? (profile.piProvider === void 0 ? profile.catalogError : void 0);
+ 		if (failure !== void 0) throw new LlmError(failure, "INVALID_CONFIG");
+-		const resolved = snapshot.models.getModel(provider, model);
++		let resolved = snapshot.models.getModel(provider, model);
++		// DeepSeek still serves these saved aliases as its canonical Flash model.
++		if (resolved === void 0 && provider === "deepseek" && (model === "deepseek-v4-flash" || model === "deepseek-v4-flash-vision-exp")) {
++			const canonical = snapshot.models.getModel(provider, "deepseek-flash");
++			if (canonical !== void 0 && new URL(canonical.baseUrl).origin === "https://api.deepseek.com") resolved = canonical;
++		}
+ 		if (resolved === void 0) throw new LlmError(`pi-ai provider "${provider}" has no configured model "${model}"`, "UNKNOWN_MODEL");
+ 		return resolved;
+ 	}
+@@ -2523,7 +2533,8 @@ function directoryEntries(profiles, settingsNs) {
+ 			...error === void 0 ? {} : { error }
+ 		});
+ 	};
+-	for (const provider of catalog) declare(provider, provider);
++	// PawWork has no sign-in surface for OAuth-only catalog providers.
++	for (const provider of catalog) if (catalogProvider(provider)?.auth?.apiKey !== void 0) declare(provider, provider);
+ 	for (const [provider, profile] of profiles) declare(provider, profile.displayName, profile.catalogError);
+ 	return [...entries.values()];
+ }

@@ -109,12 +109,11 @@
   config:
     path: !!js dshHomePath('session-query.sqlite')
     openAt: first-search
-# Off in dsh-web-app; without it the model has no clock. Each injection is a
-# real `user/message` event, so every reading also becomes a document in the
-# session search above, matching `time`, `turn`, `elapsed` and the zone name.
-- id: time-context
-  disabled: false
 - insert:
+    # The upstream clock now belongs to its optional scheduling bundle.
+    # PawWork needs the clock alongside its own automations.
+    - id: time-context
+      name: '@deepseek-ai/dsh-time-context'
     - id: directory-picker-browse-host
       name: '@deepseek-ai/dsh-host-directory-picker-browse'
       disabled: !!js process.platform !== 'win32'
