@@ -1,0 +1,34 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -400,7 +400,8 @@
+ 	vercelGatewayRouting: "withhold",
+ 	zaiToolStream: "withhold",
+ 	supportsOpenAIGrammarTools: "withhold",
+-	sendSessionAffinityHeaders: "withhold",
++	// Completions routes must be able to request session-affinity headers.
++	sendSessionAffinityHeaders: "offer",
+ 	supportsMidConvoSystemMessages: "withhold",
+ 	supportsMidConvoToolAdditions: "withhold",
+ 	sessionAffinityFormat: "withhold"
+@@ -637,6 +638,10 @@
+ */
+ function resolveRouteModels(request, validation = "strict") {
+ 	const { provider } = request;
++	// OpenCode Go requires a conversation id on every Completions request.
++	if (provider === "opencode-go" && request.compat?.sendSessionAffinityHeaders === void 0) {
++		request = { ...request, compat: { ...request.compat, sendSessionAffinityHeaders: true } };
++	}
+ 	const defaults = catalogModels(provider);
+ 	const providerBaseUrl = catalogProvider(provider)?.baseUrl;
+ 	const configured = request.models ?? [];
+@@ -2523,7 +2528,8 @@
+ 			...error === void 0 ? {} : { error }
+ 		});
+ 	};
+-	for (const provider of catalog) declare(provider, provider);
++	// PawWork has no sign-in surface for OAuth-only catalog providers.
++	for (const provider of catalog) if (catalogProvider(provider)?.auth?.apiKey !== void 0) declare(provider, provider);
+ 	for (const [provider, profile] of profiles) declare(provider, profile.displayName, profile.catalogError);
+ 	return [...entries.values()];
+ }

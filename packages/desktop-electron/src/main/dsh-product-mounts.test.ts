@@ -79,13 +79,9 @@ describe("PawWork DSH product mounts", () => {
     expect(ours?.printUrl).toBe(false)
   })
 
-  // A patch row whose id upstream renamed composes without complaint and
-  // addresses nothing, which would leave the model without a clock.
-  test("turns on the clock dsh-web-app ships disabled", () => {
-    const rows = [...overlaidRows(), ...allRows(readProductPatch())].filter((row) => row.id === "time-context")
-    const disabled = rows.reduce<boolean | undefined>((state, row) => row.disabled ?? state, undefined)
-
-    expect(rows.map((row) => row.name)).toContain("@deepseek-ai/dsh-time-context")
-    expect(disabled).toBe(false)
+  test("mounts the clock without the optional upstream scheduling bundle", () => {
+    expect(insertedRows().filter((row) => row.id === "time-context")).toEqual([
+      { id: "time-context", name: "@deepseek-ai/dsh-time-context" },
+    ])
   })
 })
