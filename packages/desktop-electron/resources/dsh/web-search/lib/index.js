@@ -53,6 +53,7 @@ const DEEPSEEK_KEY_MESSAGE =
 
 export const Config = z.object({
   backend: z.union(['exa', 'deepseek']).default('exa').volatile(),
+  exaBaseURL: z.string().default('').volatile(),
   exaApiKeyEnv: z.string().role('credential-ref').default(DEFAULT_EXA_API_KEY_ENV).volatile(),
   deepseekApiKeyEnv: z.string().role('credential-ref').default(DEFAULT_DEEPSEEK_API_KEY_ENV).volatile(),
 });
@@ -99,10 +100,24 @@ async function resolveKey(ctx, ref) {
  */
 async function searchExa(ctx, config, request, signal) {
   const apiKey = await resolveKey(ctx, resolveRef(config.exaApiKeyEnv, DEFAULT_EXA_API_KEY_ENV));
-  if (apiKey.length > 0) {
+  const baseURL = (config.exaBaseURL ?? '').trim().replace(/\/+$/, '');
+  if (baseURL.length > 0) {
+    let url;
+    try { url = new URL(baseURL); } catch {
+      throw new WebError('The Exa Base URL must be an absolute HTTP or HTTPS URL.', 'WEB_PROVIDER_ERROR');
+    }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+      throw new WebError('The Exa Base URL must be an HTTP or HTTPS URL without credentials, a query or a fragment.', 'WEB_PROVIDER_ERROR');
+    }
+    const loopback = url.hostname === 'localhost' || url.hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(url.hostname);
+    if (apiKey.length > 0 && url.protocol === 'http:' && !loopback) {
+      throw new WebError('An Exa endpoint receiving an API key must use HTTPS (HTTP is allowed only on loopback).', 'WEB_PROVIDER_ERROR');
+    }
+  }
+  if (baseURL.length > 0 || apiKey.length > 0) {
     return new ExaSearchProvider({
       apiKey,
-      baseURL: 'https://api.exa.ai',
+      baseURL: baseURL || 'https://api.exa.ai',
       searchType: 'auto',
       highlightsPerResult: 1,
     }).search(request, signal);
@@ -200,6 +215,7 @@ export class PawWorkSearchProvider {
 export function apply(ctx, config) {
   ctx.web.registerSearchProvider(new PawWorkSearchProvider(ctx, () => ({
     backend: config.backend.get(),
+    exaBaseURL: config.exaBaseURL.get(),
     exaApiKeyEnv: config.exaApiKeyEnv.get(),
     deepseekApiKeyEnv: config.deepseekApiKeyEnv.get(),
   })));

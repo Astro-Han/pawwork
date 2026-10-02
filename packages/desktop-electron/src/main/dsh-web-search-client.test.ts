@@ -1,4 +1,6 @@
 import { resolve } from "node:path"
+import { randomUUID } from "node:crypto"
+import { PawWorkSearchProvider } from "../../resources/dsh/web-search/lib/index.js"
 import { describe, expect, test, vi } from "vitest"
 import { loadDshClientModule } from "./dsh-client-module.testing"
 import { dshRemoteContract, fakeDshRemote, type RemoteAnswer } from "./dsh-remote-contract.testing"
@@ -62,7 +64,7 @@ function fakeStore(value: unknown) {
  */
 function loadPlugin() {
   // The host console stands in for the page's, so the card's logs reach the test.
-  const definition = loadDshClientModule(clientEntry, { console, document: fakeDocument() })
+  const definition = loadDshClientModule(clientEntry, { console, document: fakeDocument(), URL, crypto: { randomUUID } })
   return {
     definition,
     plugin: definition.factory((module: string) => {
@@ -79,6 +81,7 @@ function loadPlugin() {
 type CardActions = {
   discard: () => void
   editKey: (text: string) => void
+  editBaseURL: (text: string) => void
   hooks: { webSearchCard: { getSnapshot: () => Record<string, unknown> } }
   resetBackend: () => Promise<void> | void
   save: () => Promise<void>
@@ -90,7 +93,7 @@ type CardOptions = {
   /** Answers `credentials.describe`, the way the deployment would. */
   describe?: () => RemoteAnswer | Promise<RemoteAnswer>
   /** Answers `credentials.set`, the way the deployment would. */
-  setCredential?: () => RemoteAnswer | Promise<RemoteAnswer>
+  setCredential?: (ref: string, value: string) => RemoteAnswer | Promise<RemoteAnswer>
   set?: () => Promise<unknown>
   unset?: () => Promise<unknown>
   unsetIgnored?: boolean
@@ -102,6 +105,7 @@ function cardOf(options: CardOptions = {}) {
   const snapshot: Record<string, unknown> = {
     status: "ready",
     writable: true,
+    revision: 1,
     // What the Host describes for a namespace whose defaults nothing overrode:
     // the reference names reach the card in both layers, never as a constant.
     value: { backend: "exa", exaApiKeyEnv: "EXA_API_KEY", deepseekApiKeyEnv: "DEEPSEEK_API_KEY" },
@@ -130,10 +134,26 @@ function cardOf(options: CardOptions = {}) {
       snapshot.value = { ...(snapshot.value as object), [key]: (snapshot.base as Record<string, unknown>)?.[key] }
     }),
   }
+  const mutate = vi.fn(async (ops: Array<{ op: string; path: string[]; value?: unknown }>, revision?: number) => {
+    if (revision !== snapshot.revision) return false
+    const previous = { ...snapshot }
+    try {
+      for (const op of ops) {
+        if (op.op === "set") await scope.set(op.path[0], op.value)
+        else await scope.unset(op.path[0])
+      }
+      snapshot.revision = Number(snapshot.revision) + 1
+      return true
+    } catch (error) {
+      Object.assign(snapshot, previous)
+      throw error
+    }
+  })
+  Object.assign(scope, { mutate })
   // Spied, not replaced: the double's parsing is what refuses a bad call.
   const namespace = fakeDshRemote(CREDENTIALS, {
     describe: async () => options.describe?.() ?? { ok: true, value: {} },
-    set: async () => options.setCredential?.() ?? { ok: true, value: undefined },
+    set: async (ref: string, value: string) => options.setCredential?.(ref, value) ?? { ok: true, value: undefined },
   })
   const credentials = { describe: vi.fn(namespace.describe), set: vi.fn(namespace.set) }
   plugin.apply({
@@ -165,7 +185,7 @@ function cardOf(options: CardOptions = {}) {
     },
   })
   const injected = (registrations[0]?.inject as () => CardActions)()
-  return { card: card!, credentials, definition, injected, plugin, registrations, scope }
+  return { card: card!, credentials, definition, injected, plugin, registrations, scope: { ...scope, mutate } }
 }
 
 /** Render the card with a translator that echoes locale keys. */
@@ -190,6 +210,146 @@ function textOf(card: (props: Record<string, unknown>) => unknown, injected: Car
 }
 
 describe("PawWork DSH web search card", () => {
+  test("invalid endpoint drafts stay visible and cannot save a key or settings", async () => {
+    const { injected, scope, credentials } = cardOf()
+    injected.editBaseURL("not-a-url")
+    injected.editKey("secret")
+    await injected.save()
+    expect(scope.set).not.toHaveBeenCalled()
+    expect(credentials.set).not.toHaveBeenCalled()
+    expect(stateOf(injected)).toMatchObject({ baseURL: "not-a-url", keyText: "secret", failure: { field: "exaBaseURL" } })
+    injected.editBaseURL("http://proxy.example.com")
+    await injected.save()
+    expect(credentials.set).not.toHaveBeenCalled()
+    expect(stateOf(injected).failure).toEqual({ field: "exaBaseURL", message: "baseURLInsecure" })
+    injected.editBaseURL("https://proxy.example.com")
+    await injected.save()
+    expect(stateOf(injected)).toMatchObject({ dirty: false, failure: undefined })
+  })
+
+  test("an in-flight search keeps its endpoint and credential through a successful save", async () => {
+    const keys = new Map([["EXA_API_KEY", "old-secret"]])
+    let release!: () => void
+    const resolving = new Promise<void>((resolve) => { release = resolve })
+    const { injected, scope } = cardOf({
+      section: { value: { backend: "exa", exaBaseURL: "https://old.example.com", exaApiKeyEnv: "EXA_API_KEY" } },
+      setCredential: (ref, value) => { keys.set(ref, value); return { ok: true } },
+    })
+    const provider = new PawWorkSearchProvider({ get: () => ({ resolve: async (ref: string) => {
+      await resolving
+      return { value: keys.get(ref) }
+    } }) }, () => scope.getSnapshot().value)
+    const fetch = vi.fn(async () => Response.json({ results: [] }))
+    vi.stubGlobal("fetch", fetch)
+    try {
+      const searching = provider.search({ query: "started before save" })
+      injected.editBaseURL("https://new.example.com")
+      injected.editKey("new-secret")
+      await injected.save()
+      release()
+      await searching
+      expect(fetch).toHaveBeenCalledWith("https://old.example.com/search", expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "Bearer old-secret" }),
+      }))
+      fetch.mockClear()
+      await provider.search({ query: "started after save" })
+      expect(fetch).toHaveBeenCalledWith("https://new.example.com/search", expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "Bearer new-secret" }),
+      }))
+    } finally {
+      release()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  test("an external settings edit during a credential write refuses stale activation", async () => {
+    let release!: (answer: RemoteAnswer) => void
+    const { injected, scope } = cardOf({ setCredential: () => new Promise((resolve) => { release = resolve }) })
+    injected.editBaseURL("https://new.example.com")
+    injected.editKey("new-secret")
+    const saving = injected.save()
+    await scope.mutate([{ op: "set", path: ["exaBaseURL"], value: "https://other.example.com" }], 1)
+    release({ ok: true })
+    await saving
+    expect(scope.getSnapshot().value).toMatchObject({ exaBaseURL: "https://other.example.com", exaApiKeyEnv: "EXA_API_KEY" })
+    expect(stateOf(injected)).toMatchObject({ dirty: true, keyText: "new-secret", failure: { field: "exaBaseURL" } })
+  })
+
+  test("a failed endpoint and key save keeps searches on the previous credential and retries the pair", async () => {
+    const keys = new Map([["EXA_API_KEY", "old-secret"]])
+    let reject = true
+    const { injected, scope } = cardOf({
+      section: { value: { backend: "exa", exaBaseURL: "https://old.example.com", exaApiKeyEnv: "EXA_API_KEY" } },
+      setCredential: (ref, value) => { keys.set(ref, value); return { ok: true } },
+      set: async () => { if (reject) throw new Error("settings write refused") },
+    })
+    const provider = new PawWorkSearchProvider({ get: () => ({ resolve: async (ref: string) => ({ value: keys.get(ref) }) }) },
+      () => scope.getSnapshot().value)
+    const sent: Array<{ url: string; key: string }> = []
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      sent.push({ url, key: (init.headers as Record<string, string>).authorization })
+      return Response.json({ results: [] })
+    })
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      injected.editBaseURL("https://new.example.com")
+      injected.editKey("new-secret")
+      await injected.save()
+      await provider.search({ query: "after failure" })
+      expect(stateOf(injected)).toMatchObject({ dirty: true, keyText: "new-secret" })
+      injected.discard()
+      await provider.search({ query: "after discard" })
+      reject = false
+      injected.editBaseURL("https://new.example.com")
+      injected.editKey("new-secret")
+      await injected.save()
+      await provider.search({ query: "after retry" })
+      expect(scope.mutate).toHaveBeenLastCalledWith(expect.arrayContaining([
+        { op: "set", path: ["exaBaseURL"], value: "https://new.example.com" },
+        { op: "set", path: ["exaApiKeyEnv"], value: expect.stringMatching(/^PAWWORK_EXA_/) },
+      ]), 1)
+      expect(sent).toEqual([
+        { url: "https://old.example.com/search", key: "Bearer old-secret" },
+        { url: "https://old.example.com/search", key: "Bearer old-secret" },
+        { url: "https://new.example.com/search", key: "Bearer new-secret" },
+      ])
+    } finally {
+      logged.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  test("stages, discards, saves and clears the Exa endpoint", async () => {
+    const { card, injected, scope } = cardOf()
+    injected.editBaseURL(" http://127.0.0.1:4479/ ")
+    expect(scope.set).not.toHaveBeenCalled()
+    expect(stateOf(injected).dirty).toBe(true)
+    injected.discard()
+    expect(stateOf(injected).baseURL).toBe("")
+    injected.editBaseURL(" http://127.0.0.1:4479/ ")
+    await injected.save()
+    expect(scope.set).toHaveBeenLastCalledWith("exaBaseURL", "http://127.0.0.1:4479/")
+    expect(stateOf(injected).dirty).toBe(false)
+    expect(textOf(card, injected)).not.toContain("keylessBadge")
+    injected.editBaseURL("")
+    await injected.save()
+    expect(scope.set).toHaveBeenLastCalledWith("exaBaseURL", "")
+  })
+
+  test("an Exa endpoint draft is hidden and unwritten while DeepSeek is selected", async () => {
+    const { card, injected, scope } = cardOf()
+    injected.editBaseURL("http://127.0.0.1:4479")
+    injected.selectBackend("deepseek")
+    expect(visit(render(card, injected)).find((element) => element.props.id === "pawwork-websearch-base-url")).toBeUndefined()
+    await injected.save()
+    expect(scope.set).toHaveBeenCalledTimes(1)
+    expect(scope.set).toHaveBeenCalledWith("backend", "deepseek")
+    injected.selectBackend("exa")
+    expect(stateOf(injected).baseURL).toBe("http://127.0.0.1:4479")
+    await injected.save()
+    expect(scope.set).toHaveBeenLastCalledWith("exaBaseURL", "http://127.0.0.1:4479")
+  })
+
   // The card's whole surface is one module the Host evaluates, and a throw at
   // load removes it with nothing but a loader line in a console no user reads.
   // This file is the only thing that evaluates it; lint parses it but does not
@@ -281,7 +441,7 @@ describe("PawWork DSH web search card", () => {
     expect(stateOf(injected).keyText).toBe("exa-secret")
 
     await injected.save()
-    expect(credentials.set).toHaveBeenCalledWith("EXA_API_KEY", "exa-secret")
+    expect(credentials.set).toHaveBeenCalledWith(expect.stringMatching(/^PAWWORK_EXA_/), "exa-secret")
   })
 
   // The Save button and the writes have to agree on what counts as a change. They
@@ -318,7 +478,7 @@ describe("PawWork DSH web search card", () => {
   // A write that threw used to escape `save` before it could clear `saving`,
   // leaving both buttons disabled for the rest of the session with the drafts
   // trapped behind them.
-  test("a throwing write leaves the card usable", async () => {
+  test.each(["backend", "exaBaseURL"])("a throwing %s write leaves the card usable", async (field) => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
       const { card, injected } = cardOf({
@@ -327,15 +487,16 @@ describe("PawWork DSH web search card", () => {
         },
       })
 
-      injected.selectBackend("deepseek")
+      if (field === "backend") injected.selectBackend("deepseek")
+      else injected.editBaseURL("http://127.0.0.1:4479")
       await injected.save()
 
       const state = stateOf(injected)
       expect(state.saving).toBe(false)
-      expect(state.failure).toEqual({ field: "backend" })
+      expect(state.failure).toEqual({ field })
       // Nothing answered, so there are no words of anyone else's to show.
       expect(textOf(card, injected)).toContain("saveFailedApp")
-      expect(state.backend).toBe("deepseek")
+      expect(state.dirty).toBe(true)
     } finally {
       logged.mockRestore()
     }
@@ -603,14 +764,15 @@ describe("PawWork DSH web search card", () => {
   // A reference the two halves read differently has the card describing and
   // writing one name while the search resolves another, so the card applies the
   // Host's whole grammar and not just its blank check.
-  test("an unresolvable credential reference falls back the way the Host half does", async () => {
+  test("a key can be configured when the previous Exa reference is unresolvable", async () => {
     for (const ref of ["", "   ", "my-key", "1KEY", "EXA.API.KEY"]) {
-      const { credentials, injected } = cardOf({ section: { value: { backend: "exa", exaApiKeyEnv: ref } } })
+      const { credentials, injected, scope } = cardOf({ section: { value: { backend: "exa", exaApiKeyEnv: ref } } })
 
       injected.editKey("exa-secret")
       await injected.save()
 
-      expect(credentials.set).toHaveBeenCalledWith("EXA_API_KEY", "exa-secret")
+      expect(credentials.set).toHaveBeenCalledWith(expect.stringMatching(/^PAWWORK_EXA_/), "exa-secret")
+      expect(scope.getSnapshot().value).toMatchObject({ exaApiKeyEnv: credentials.set.mock.calls[0][0] })
     }
   })
 
