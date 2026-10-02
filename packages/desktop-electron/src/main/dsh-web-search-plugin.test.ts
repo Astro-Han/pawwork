@@ -170,6 +170,33 @@ describe("PawWork DSH web search plugin", () => {
 })
 
 describe("PawWork search engine selection", () => {
+  test("invalid hand-edited Exa endpoints fail before a network request", async () => {
+    const fetch = vi.fn(async () => Response.json({ results: [] }))
+    vi.stubGlobal("fetch", fetch)
+    try {
+      for (const exaBaseURL of ["not-a-url", "file:///tmp/search", "https://user:secret@proxy.example.com", "https://proxy.example.com?token=secret"]) {
+        await expect(providerFor({ exaBaseURL }).search({ query: "test" })).rejects.toMatchObject({ code: "WEB_PROVIDER_ERROR" })
+      }
+      expect(fetch).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  test("never sends a credential to a remote plaintext Exa endpoint", async () => {
+    const fetch = vi.fn(async () => Response.json({ results: [] }))
+    vi.stubGlobal("fetch", fetch)
+    try {
+      await expect(providerFor({ exaBaseURL: "http://proxy.example.com" }, "secret")
+        .search({ query: "private query" })).rejects.toMatchObject({ code: "WEB_PROVIDER_ERROR" })
+      expect(fetch).not.toHaveBeenCalled()
+      await providerFor({ exaBaseURL: "http://proxy.example.com" }).search({ query: "keyless" })
+      expect(fetch).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   test.each([undefined, "proxy-key"])("custom Exa endpoints accept an optional key (%s) and normalize results", async (key) => {
     const fetch = vi.fn(async () => Response.json({ results: [
       { url: "https://example.com", title: "Result", highlights: ["Excerpt"], publishedDate: "2026-10-02" },

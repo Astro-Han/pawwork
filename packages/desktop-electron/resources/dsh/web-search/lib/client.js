@@ -110,6 +110,8 @@ window.__ModuleLoader__.load({
       backendHint: "Applies to the next search; no restart needed.",
       baseURL: "Base URL",
       baseURLHint: "Optional Exa-compatible endpoint. Leave blank to use the built-in service. Requests go to /search.",
+      baseURLInvalid: "Enter an absolute HTTP or HTTPS URL without credentials, a query or a fragment.",
+      baseURLInsecure: "An endpoint receiving an API key must use HTTPS. HTTP is allowed only on loopback.",
       apiKeyCustom: "Optional. Enter a key if your custom endpoint requires one.",
       exa: "Exa",
       deepseek: "DeepSeek",
@@ -134,6 +136,8 @@ window.__ModuleLoader__.load({
       backendHint: "下一次搜索即生效，无需重启。",
       baseURL: "Base URL",
       baseURLHint: "可选的 Exa 兼容服务地址，留空使用内置服务。请求会发到 /search。",
+      baseURLInvalid: "请输入完整的 HTTP 或 HTTPS 地址，不含用户名、密码、查询参数或片段。",
+      baseURLInsecure: "接收 API Key 的服务必须使用 HTTPS；只有本机回环地址可以使用 HTTP。",
       apiKeyCustom: "可选；自定义服务需要密钥时再填写。",
       exa: "Exa",
       deepseek: "DeepSeek",
@@ -152,25 +156,9 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The card's staged form over the `pawwork-web-search` section.
-     *
-     * Two controls, staged together so one save covers both: the backend, which
-     * lives in the section, and the key for whichever backend is selected, which
-     * does not — a secret never rides a settings response, so the card learns only
-     * whether one is configured and writes it through the credentials domain.
-     *
-     * One key draft, and it carries the engine it was typed under. An API key has
-     * no meaning apart from the engine it authenticates, so a staged key the card
-     * is not showing must never be written: type an Exa key, switch the engine,
-     * save, and a secret the user believes they abandoned reaches a second
-     * vendor. `stagedKey` answers with the draft only while its engine is the one
-     * on screen, which keeps what a save can write equal to what the card
-     * displays.
-     *
-     * For the same reason `pendingWrites` is the single description of the work a
-     * save has to do: the button's enabled state and the writes themselves read
-     * it, so "there is something to save" cannot mean one thing to the user and
-     * another to the code.
+     * Staged settings and credentials for the selected search engine.
+     * A key draft remains tied to the engine it was typed under, so switching
+     * engines hides it and excludes it from Save without discarding it.
      */
     class CardController {
       /** `{ backend }`, `{ reset: true }`, or undefined — never two of them. */
@@ -187,8 +175,10 @@ window.__ModuleLoader__.load({
       /**
        * @param scope - the bound settings scope for this card's namespace.
        * @param credentials - the credential face for the reference the section names.
+       * @param t - the section translator for form feedback.
        */
-      constructor(scope, credentials) {
+      constructor(scope, credentials, t) {
+        this.t = t
         this.scope = scope
         this.credentials = credentials
         this.store = createSnapshotStore(this.projection())
@@ -243,26 +233,7 @@ window.__ModuleLoader__.load({
         return this.baseURLDraft ?? this.scope.getSnapshot().value?.exaBaseURL ?? ""
       }
 
-      /**
-       * Describe every write a save would perform, in the order it performs them.
-       *
-       * The key goes first. The two stores cannot commit together — the section
-       * and the credential are separate authorities — so the order decides what a
-       * half-finished save leaves behind, and a key written before the engine
-       * moves means the engine never runs a moment without the credential it was
-       * chosen for. Should the engine write then fail, the key is still filed
-       * under the vendor the user was looking at when they typed it.
-       *
-       * Its reference comes from the draft's own engine rather than the current
-       * selection: deriving the destination from anything that can move between
-       * staging and writing is exactly what sent one vendor's secret to another.
-       *
-       * What counts as a write is decided once, here, and "staged" is not it: a
-       * key that is only whitespace and an engine already in force are both
-       * nothing to save, and the Save button agrees because it asks this rather
-       * than deciding for itself.
-       * @returns the staged writes, empty when there is nothing to save.
-       */
+      /** @returns the staged writes shared by Save and its enabled state. */
       pendingWrites() {
         const staged = this.stagedKey()
         const writes = []
@@ -417,82 +388,77 @@ window.__ModuleLoader__.load({
         }
       }
 
-      /**
-       * Run one settings write and report whether it completed without throwing.
-       *
-       * The scope reports that a write did not land, never why, so a throw is the
-       * only signal that the call itself could not be made.
-       * @param field - the field this write belongs to, for the failure report.
-       * @param write - performs the write; its resolved value is not inspected.
-       * @returns whether the write completed without throwing.
-       */
-      async commit(field, write) {
-        try {
-          await write()
-          return true
-        } catch (failure) {
-          console.error(`[pawwork-web-search] the ${field} write could not be made:`, failure)
-          this.failure = { field }
-          return false
+      /** Localized form feedback; the Host still checks every search destination. */
+      endpointFailure() {
+        if (this.backend() !== "exa" || this.baseURL().trim() === "") return undefined
+        let url
+        try { url = new URL(this.baseURL().trim()) } catch { return "baseURLInvalid" }
+        if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+          return "baseURLInvalid"
+        }
+        const loopback = url.hostname === "localhost" || url.hostname === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(url.hostname)
+        if (url.protocol === "http:" && !loopback && (this.held.configured || this.stagedKey()?.text.trim())) {
+          return "baseURLInsecure"
         }
       }
 
-      /**
-       * The card's only path to the deployment.
-       *
-       * Every control stages; this writes. That is why `saving` alone is enough
-       * to serialize the card — there is no second writer to serialize against.
-       *
-       * The Host decides whether a value landed, so the outcome is read back
-       * rather than predicted, and a field that did not land keeps its draft.
-       * The two stores cannot commit together, so the writes are reported
-       * independently: rolling the engine back because the key failed would be a
-       * third write that can fail too, contradicting a Host that already holds
-       * the new engine.
-       */
+      /** Store secrets separately, then activate the settings in one mutation. */
       async save() {
         if (this.saving) return
         const writes = this.pendingWrites()
         if (writes.length === 0) return
+        const problem = this.endpointFailure()
+        if (problem !== undefined) {
+          this.failure = { field: "exaBaseURL", message: this.t(problem) }
+          this.publish()
+          return
+        }
+        const revision = this.scope.getSnapshot().revision
+        const key = writes.find((write) => write.field === "key")
+        const exaKey = key !== undefined && this.backend() === "exa"
+        // Never overwrite a reference an older search may still be resolving.
+        if (exaKey) key.ref = `PAWWORK_EXA_${crypto.randomUUID().replaceAll("-", "_")}`
+        const settings = writes.filter((write) => write.field !== "key")
+        if (exaKey) {
+          settings.push({ field: "exaApiKeyEnv", value: key.ref })
+          if (!settings.some((write) => write.field === "exaBaseURL")) {
+            settings.push({ field: "exaBaseURL", value: this.baseURL().trim() })
+          }
+        }
         this.saving = true
         this.failure = undefined
         this.publish()
         try {
-          for (const write of writes) {
-            if (write.field === "key") {
-              // The deployment's answer decides, and `configured` cannot stand in
-              // for it: that flag is already true whenever a key was set before,
-              // so a rejected rotation would read as a successful one.
-              const failed = await this.credentials.store(write.ref, write.value)
-              if (failed !== undefined) {
-                // The key goes first so the engine never runs a moment without
-                // the credential it was chosen for — which is exactly what
-                // carrying on would produce. Any pending engine write selects
-                // the engine this key was typed under, so it stays staged and
-                // Save retries both rather than moving the user onto an engine
-                // whose key the deployment just refused.
-                this.failure = { field: "key", ...failed }
-                break
-              }
-              this.keyDraft = undefined
-              continue
+          if (key !== undefined) {
+            const failed = await this.credentials.store(key.ref, key.value)
+            if (failed !== undefined) {
+              this.failure = { field: "key", ...failed }
+              return
             }
-            // Read back either way. A Host that accepts the call without moving
-            // the value is the case this exists for, and a reset that silently
-            // did not land is the same lie as an engine that silently did not.
-            const made =
-              write.reset === true
-                ? await this.commit(write.field, () => this.scope.unset(write.field))
-                : await this.commit(write.field, () => this.scope.set(write.field, write.value))
-            const wrote =
-              made &&
-              (write.reset === true
-                ? !Object.hasOwn(this.scope.getSnapshot().user ?? {}, write.field)
-                : this.scope.getSnapshot().user?.[write.field] === write.value)
-            if (wrote) {
-              if (write.field === "backend") this.backendDraft = undefined
-              else this.baseURLDraft = undefined
-            } else if (made) this.failure = { field: write.field }
+            if (!exaKey) this.keyDraft = undefined
+          }
+          if (settings.length > 0) {
+            let made = false
+            try {
+              await this.scope.mutate(settings.map((write) => write.reset === true
+                ? { op: "unset", path: [write.field] }
+                : { op: "set", path: [write.field], value: write.value }), revision)
+              made = true
+            } catch (failure) {
+              console.error("[pawwork-web-search] the settings mutation could not be made:", failure)
+            }
+            const user = this.scope.getSnapshot().user ?? {}
+            const missing = settings.find((write) => write.reset === true
+              ? Object.hasOwn(user, write.field)
+              : user[write.field] !== write.value)
+            if (made && missing === undefined) {
+              if (settings.some((write) => write.field === "backend")) this.backendDraft = undefined
+              if (settings.some((write) => write.field === "exaBaseURL")) this.baseURLDraft = undefined
+              if (exaKey) this.keyDraft = undefined
+            } else {
+              const field = (missing ?? settings[0]).field
+              this.failure = { field: field === "exaApiKeyEnv" ? "key" : field }
+            }
           }
           await this.readCredential()
         } finally {
@@ -700,12 +666,12 @@ window.__ModuleLoader__.load({
 
     function apply(ctx) {
       ctx.effect(() => ctx.locale.register(NS, { en, zh }), "pawwork-web-search: card dictionaries")
-      const card = new CardController(ctx.configForms.get(NS), credentialFace(ctx))
+      const t = ctx.locale.bind(NS)
+      const card = new CardController(ctx.configForms.get(NS), credentialFace(ctx), t)
       ctx.effect(
         () => ctx.remote.$on("credentials/reference-updated", (ref) => card.refreshCredential(ref)),
         "pawwork-web-search: credential invalidations",
       )
-      const t = ctx.locale.bind(NS)
       ctx.effect(() => ctx.configForms.whileServed([NS], () => ctx.slots.inject("plugins.item", () => ctx.slots.register({
         name: "plugins.item",
         id: NS,
