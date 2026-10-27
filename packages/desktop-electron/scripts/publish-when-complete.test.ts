@@ -1,6 +1,6 @@
-import { describe, expect, test } from "vitest"
+import { afterEach, describe, expect, test, vi } from "vitest"
 
-import { decidePublishAction, findRelease, type ProvenanceMarker } from "./publish-when-complete"
+import { decidePublishAction, findRelease, withdrawProvenanceMarker, type ProvenanceMarker } from "./publish-when-complete"
 import { releaseProvenanceAssetNames, type GithubRelease } from "./verify-release"
 
 const BUILD_SHA = "1111111111111111111111111111111111111111"
@@ -174,6 +174,50 @@ describe("decidePublishAction", () => {
       await expect(
         findRelease("Astro-Han/pawwork", "v2026.6.1", paged([apiRelease(7, "v2026.6.1"), apiRelease(8, "v2026.6.1")])),
       ).rejects.toThrow(/duplicate drafts for tag v2026\.6\.1/)
+    })
+  })
+
+  describe("withdrawProvenanceMarker", () => {
+    const marker = "pawwork-mac-x64-2026.6.1.commit"
+    const assets = [marker, "pawwork-mac-arm64-2026.6.1.commit"].map((name) => ({
+      name,
+      url: `https://api.example.com/assets/${name}`,
+      browser_download_url: `https://example.com/${name}`,
+    }))
+
+    function stubGithub(draft: boolean) {
+      const deleted: string[] = []
+      vi.stubGlobal("fetch", async (input: string | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (init?.method === "DELETE") {
+          deleted.push(url)
+          return new Response(null, { status: 204 })
+        }
+        if (url.includes("/releases?")) {
+          return Response.json([{ id: 7, tag_name: "v2026.6.1", draft, prerelease: false, assets, upload_url: "" }])
+        }
+        if (url.includes("/releases/7/assets?")) return Response.json(assets)
+        throw new Error(`unexpected request ${url}`)
+      })
+      return deleted
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    test("deletes only this target's marker from a draft", async () => {
+      const deleted = stubGithub(true)
+      await withdrawProvenanceMarker("Astro-Han/pawwork", "v2026.6.1", "mac", "x64")
+      expect(deleted).toEqual([`https://api.example.com/assets/${marker}`])
+    })
+
+    test("refuses a published release without touching it", async () => {
+      const deleted = stubGithub(false)
+      await expect(withdrawProvenanceMarker("Astro-Han/pawwork", "v2026.6.1", "mac", "x64")).rejects.toThrow(
+        /already published/,
+      )
+      expect(deleted).toEqual([])
     })
   })
 })

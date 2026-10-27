@@ -48,9 +48,9 @@ function runSourceValidation(phase: string, githubRef: string, sourceRef = "") {
   })
 }
 
-// Runs the upload step's script against a dist/ of four installers and a fake
-// `gh` that reports the release's draft state and records every other call.
-function runInstallerUpload(isDraft: boolean) {
+// Runs the upload step's script against a dist/ of four installers, with fake
+// `pnpm` and `gh` that record their calls; `pnpm` exits with `withdrawStatus`.
+function runInstallerUpload(withdrawStatus: number) {
   const script = steps[indexOfStep("Upload notarized artifacts")]?.body.match(
     /\n {8}run: \|\n(?<script>(?: {10}.*\n|\n)+?) {8}working-directory:/,
   )?.groups?.script
@@ -60,12 +60,11 @@ function runInstallerUpload(isDraft: boolean) {
   mkdirSync(join(dir, "dist"))
   mkdirSync(join(dir, "bin"))
   for (const file of ["a.dmg", "a.dmg.blockmap", "a.zip", "a.zip.blockmap"]) writeFileSync(join(dir, "dist", file), "")
-  const log = join(dir, "gh.log")
-  writeFileSync(
-    join(dir, "bin", "gh"),
-    `#!/bin/sh\nif [ "$1 $2" = "release view" ]; then echo ${isDraft}; else echo "$*" >> "${log}"; fi\n`,
-    { mode: 0o755 },
-  )
+  const log = join(dir, "calls.log")
+  writeFileSync(join(dir, "bin", "pnpm"), `#!/bin/sh\necho "pnpm $*" >> "${log}"\nexit ${withdrawStatus}\n`, {
+    mode: 0o755,
+  })
+  writeFileSync(join(dir, "bin", "gh"), `#!/bin/sh\necho "gh $*" >> "${log}"\n`, { mode: 0o755 })
 
   const result = spawnSync("bash", ["-c", script.replace(/^ {10}/gm, "")], {
     cwd: dir,
@@ -73,8 +72,7 @@ function runInstallerUpload(isDraft: boolean) {
     env: {
       ...process.env,
       PATH: `${join(dir, "bin")}:${process.env.PATH}`,
-      PUBLISH_OWNER: "owner",
-      PUBLISH_REPO: "repo",
+      GH_REPO: "owner/repo",
       RELEASE_TAG: "v2026.1.1",
     },
   })
@@ -112,7 +110,12 @@ describe("release workflow", () => {
 
     const uploading = stepsRunning(/gh release upload/)
     expect(uploading.map((step) => step.name)).toEqual(["Upload notarized artifacts"])
-    expect(conditionOfStep("Upload notarized artifacts")).toMatch(/^\$\{\{ inputs\.channel != 'dev' && runner\.os == 'macOS'/)
+    // Every mac run that finalizes the feed uploads the installers it describes.
+    const macUpload = conditionOfStep("Upload notarized artifacts").match(
+      /^\$\{\{ inputs\.channel != 'dev' && (?<mac>runner\.os == 'macOS' .+) \}\}$/,
+    )?.groups?.mac
+    expect(macUpload).toBeDefined()
+    expect(conditionOfStep("Finalize updater metadata")).toContain(`(${macUpload})`)
     for (const step of uploading) expect(steps.indexOf(step)).toBeGreaterThan(ensure)
     // Windows resolves --publish through a variable, so it is ordered by name.
     expect(indexOfStep("Package app")).toBeGreaterThan(ensure)
@@ -121,7 +124,9 @@ describe("release workflow", () => {
   // A single-arch copy uploaded by a job that then fails is read back by its
   // re-run as the existing feed, dropping the other arch.
   test("leaves the mac updater feed to the metadata finalizer alone", () => {
-    expect(stepsRunning(/electron-builder .*--mac.*--publish always/)).toEqual([])
+    const macPackaging = stepsRunning(/electron-builder .*--mac/)
+    expect(macPackaging.length).toBeGreaterThan(0)
+    for (const step of macPackaging) expect(step.body).toMatch(/--publish never/)
     const upload = steps[indexOfStep("Upload notarized artifacts")]
     expect(upload.body).not.toMatch(/latest/)
     // Nothing reaches the release before both copies of the bundle are verified.
@@ -129,17 +134,20 @@ describe("release workflow", () => {
     expect(indexOfStep("Finalize updater metadata")).toBeGreaterThan(indexOfStep("Upload notarized artifacts"))
   })
 
-  // A published release's feed is frozen, so its installers have to be too.
-  test("uploads installers into a draft and refuses a published release", () => {
-    const draft = runInstallerUpload(true)
-    expect(draft.status).toBe(0)
-    expect(draft.calls).toEqual([
-      "release upload v2026.1.1 dist/a.dmg dist/a.dmg.blockmap dist/a.zip dist/a.zip.blockmap --clobber --repo owner/repo",
+  // The withdraw refuses a published release; replacing installers before it
+  // succeeds could leave the old marker vouching for them.
+  test("withdraws this target's marker before replacing its installers", () => {
+    const withdraw = "pnpm exec tsx ./scripts/publish-when-complete.ts --withdraw-marker"
+    const ok = runInstallerUpload(0)
+    expect(ok.status).toBe(0)
+    expect(ok.calls).toEqual([
+      withdraw,
+      "gh release upload v2026.1.1 dist/a.dmg dist/a.dmg.blockmap dist/a.zip dist/a.zip.blockmap --clobber --repo owner/repo",
     ])
 
-    const published = runInstallerUpload(false)
-    expect(published.status).toBe(1)
-    expect(published.calls).toEqual([])
+    const refused = runInstallerUpload(1)
+    expect(refused.status).toBe(1)
+    expect(refused.calls).toEqual([withdraw])
   })
 
   test("staples and validates through the network retry", () => {
