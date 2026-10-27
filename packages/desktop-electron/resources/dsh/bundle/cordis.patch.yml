@@ -8,9 +8,18 @@
 # gives the route its session-affinity switch once the user adds it.
 - id: llm-deepseek
   disabled: true
-# The DeepSeek account sign-in UI mounts only inside DSH's own desktop shell, so
-# here this route could never hold a credential.
+# PawWork offers no DeepSeek account sign-in. The account menu would offer one
+# that leads nowhere; without it the settings launcher falls back to the plain
+# Settings button.
 - id: llm-deepseek-account
+  disabled: true
+- id: ui-settings-account
+  disabled: true
+# PawWork Automations already schedule agent runs; a second scheduler gives the
+# agent two overlapping tool sets and the sidebar a second entry.
+- id: schedule
+  disabled: true
+- id: ui-schedule
   disabled: true
 # Silences the `dsh web:` URL line; `pawwork-web-ready` below reports the same
 # URL to the Electron main process over IPC instead. See
@@ -22,8 +31,8 @@
   config:
     openBrowser: !!js ctx.webStartup.openBrowser
     printUrl: false
+    publicUrl: !!js ctx.webStartup.publicUrl
     surfaceContext: true
-    trustedHosts: !!js ctx.webStartup.trustedHosts
 # Every provider dsh-base mounts needs a vendor key, and a search key is a
 # second one to hold beyond the model key the user already had to supply, so
 # most installs hold none and the first search fails. The PawWork provider
@@ -110,10 +119,6 @@
     path: !!js dshHomePath('session-query.sqlite')
     openAt: first-search
 - insert:
-    # The upstream clock now belongs to its optional scheduling bundle.
-    # PawWork needs the clock alongside its own automations.
-    - id: time-context
-      name: '@deepseek-ai/dsh-time-context'
     - id: directory-picker-browse-host
       name: '@deepseek-ai/dsh-host-directory-picker-browse'
       disabled: !!js process.platform !== 'win32'

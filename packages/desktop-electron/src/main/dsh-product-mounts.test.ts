@@ -62,6 +62,15 @@ describe("PawWork DSH product mounts", () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 
+  // A row upstream renames or drops leaves the override addressing nothing, so a
+  // disable quietly stops disabling.
+  test("targets only rows upstream still mounts", () => {
+    const upstream = new Set(overlaidRows().map((row) => row.id))
+    const targeted = readProductPatch().flatMap((entry) => (entry.insert === undefined ? [entry.id] : []))
+
+    expect(targeted.filter((id) => !upstream.has(id))).toEqual([])
+  })
+
   // A patch replaces the targeted row's whole config, so this override owns all
   // four keys upstream's `web-runtime` row sets, though it chooses only one of
   // them — and two of the three it restates are `!!js` expressions reading the
@@ -77,11 +86,5 @@ describe("PawWork DSH product mounts", () => {
     expect({ ...ours, printUrl: undefined }).toEqual({ ...upstream, printUrl: undefined })
     expect(upstream?.printUrl).toBe(true)
     expect(ours?.printUrl).toBe(false)
-  })
-
-  test("mounts the clock without the optional upstream scheduling bundle", () => {
-    expect(insertedRows().filter((row) => row.id === "time-context")).toEqual([
-      { id: "time-context", name: "@deepseek-ai/dsh-time-context" },
-    ])
   })
 })
