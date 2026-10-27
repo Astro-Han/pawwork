@@ -1,0 +1,25 @@
+diff --git a/lib/index.js b/lib/index.js
+index 743644a7a69f7071fda73a036061eec7a6660ef1..92da0ad1f2095de0eb2b52230e0e87e50a845e29 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -637,7 +637,7 @@ async function defaultWorkspaceDirectory(documentsDirectory, signal, internals =
+ 	}
+ 	directory = validateDocumentsDirectory(directory, platform);
+ 	signal.throwIfAborted();
+-	return paths.join(directory, "deepseek-harness", DEFAULT_WORKSPACE_DIRECTORY);
++	return paths.join(directory, "PawWork", DEFAULT_WORKSPACE_DIRECTORY);
+ }
+ //#endregion
+ //#region lib/types/index.js
+diff --git a/lib/types/default-directory.js b/lib/types/default-directory.js
+index 6df7843e5177464a2b690b95ac02ee03207b4fd6..50093583258884c4d3ae859a797436b730dcc061 100644
+--- a/lib/types/default-directory.js
++++ b/lib/types/default-directory.js
+@@ -60,6 +60,6 @@ export async function defaultWorkspaceDirectory(documentsDirectory, signal, inte
+     }
+     directory = validateDocumentsDirectory(directory, platform);
+     signal.throwIfAborted();
+-    return paths.join(directory, 'deepseek-harness', DEFAULT_WORKSPACE_DIRECTORY);
++    return paths.join(directory, 'PawWork', DEFAULT_WORKSPACE_DIRECTORY);
+ }
+ //# sourceMappingURL=default-directory.js.map

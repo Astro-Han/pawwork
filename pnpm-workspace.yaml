@@ -48,5 +48,6 @@ overrides:
   'zod@>=4.0.0 <4.6.6': 4.6.7
 
 patchedDependencies:
+  '@deepseek-ai/dsh-api-workspace-controller@0.2.1-rc.4': patches/@deepseek-ai__dsh-api-workspace-controller@0.2.1-rc.4.patch
   '@deepseek-ai/dsh-llm-pi-ai@0.2.1-rc.4': patches/@deepseek-ai__dsh-llm-pi-ai@0.2.1-rc.4.patch
   '@deepseek-ai/dsh-mcp-client@0.2.1-rc.4': patches/@deepseek-ai__dsh-mcp-client@0.2.1-rc.4.patch

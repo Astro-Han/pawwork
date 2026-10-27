@@ -27,6 +27,7 @@ overrides:
   zod@>=4.0.0 <4.6.6: 4.6.7
 
 patchedDependencies:
+  '@deepseek-ai/dsh-api-workspace-controller@0.2.1-rc.4': f0c1ad9f5f621379914c5d166562118dee495f4e479882b0f78f3ee95e507136
   '@deepseek-ai/dsh-llm-pi-ai@0.2.1-rc.4': 5fbcd2919e8f286499c7050166cb64df9979847875764de5a69ccac48e9cfe4e
   '@deepseek-ai/dsh-mcp-client@0.2.1-rc.4': e959aba5d381aa9307d5ce382bcbc9d49d8cd3bb3d6bdebd911c5f722ed47afc
 
@@ -8420,7 +8421,7 @@ snapshots:
       '@xterm/headless': 6.0.0
       zod: 4.6.7
 
-  '@deepseek-ai/dsh-api-workspace-controller@0.2.1-rc.4(c7efc405f8cb93a019546377db84d0d2)':
+  '@deepseek-ai/dsh-api-workspace-controller@0.2.1-rc.4(patch_hash=f0c1ad9f5f621379914c5d166562118dee495f4e479882b0f78f3ee95e507136)(c7efc405f8cb93a019546377db84d0d2)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.10)(@deepseek-ai/cordis-plugin-loader@1.0.6)
       '@deepseek-ai/dsh-api-gateway': 0.2.1-rc.4(@deepseek-ai/cordis@4.0.5)
@@ -10967,7 +10968,7 @@ snapshots:
       '@deepseek-ai/dsh-api-session-controller': 0.2.1-rc.4(52063594cbbddaeb9ca2132f71c2cf59)
       '@deepseek-ai/dsh-api-settings-controller': 0.2.1-rc.4(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-agent-preset-registry@0.2.1-rc.4(0b3a1368e40f48ccc4f79a04a0d6ad87))(@deepseek-ai/dsh-credentials@0.2.1-rc.4(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/dsh-native-command@0.2.1-rc.4(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/dsh-session@0.2.1-rc.4(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-scope@0.2.1-rc.4(@deepseek-ai/cordis@4.0.5)))(@deepseek-ai/dsh-settings@0.2.1-rc.4(0cb0dac60f28f72d8dec33474a1093fb))(@deepseek-ai/dsh-typert-protocol@0.2.1-rc.4(@deepseek-ai/cordis@4.0.5))
       '@deepseek-ai/dsh-api-terminal-controller': 0.2.1-rc.4(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-subprocess@0.2.1-rc.4(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-http-proxy@0.2.1-rc.4(@deepseek-ai/cordis@4.0.5)))
-      '@deepseek-ai/dsh-api-workspace-controller': 0.2.1-rc.4(c7efc405f8cb93a019546377db84d0d2)
+      '@deepseek-ai/dsh-api-workspace-controller': 0.2.1-rc.4(patch_hash=f0c1ad9f5f621379914c5d166562118dee495f4e479882b0f78f3ee95e507136)(c7efc405f8cb93a019546377db84d0d2)
       '@deepseek-ai/dsh-api-workspace-files': 0.2.1-rc.4(@deepseek-ai/cordis@4.0.5)
       '@deepseek-ai/dsh-app-boot': 0.2.1-rc.4(@deepseek-ai/cordis-plugin-group@1.0.5(@deepseek-ai/cordis-plugin-loader@1.0.6)(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/cordis-plugin-include@1.0.10)(@deepseek-ai/cordis-plugin-loader@1.0.6)(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-home-paths@0.2.1-rc.4(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/dsh-launch-environment@0.2.1-rc.4(@deepseek-ai/cordis@4.0.5))
       '@deepseek-ai/dsh-client-connection': 0.2.1-rc.4(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-scope@0.2.1-rc.4(@deepseek-ai/cordis@4.0.5))
