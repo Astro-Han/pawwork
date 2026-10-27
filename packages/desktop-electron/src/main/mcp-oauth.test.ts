@@ -22,6 +22,7 @@ const fromMcp = createRequire(fromDesktop.resolve("@deepseek-ai/dsh-mcp-client")
 const { Context } = (await import(fromDsh.resolve("@deepseek-ai/cordis"))) as { Context: new () => any }
 const { TypertRegistry } = (await import(fromDsh.resolve("@deepseek-ai/dsh-typert-registry"))) as any
 const { TypertGatewayService } = (await import(fromDsh.resolve("@deepseek-ai/dsh-api-gateway"))) as any
+const { RemoteAccessService } = (await import(fromDsh.resolve("@deepseek-ai/dsh-api-remote-access"))) as any
 const { Server } = (await import("@modelcontextprotocol/sdk/server/index.js")) as any
 const { StreamableHTTPServerTransport } = (await import("@modelcontextprotocol/sdk/server/streamableHttp.js")) as any
 const { CallToolRequestSchema, ListToolsRequestSchema } = (await import("@modelcontextprotocol/sdk/types.js")) as any
@@ -852,7 +853,7 @@ describe("remote MCP OAuth", () => {
     const credentials = fileCredentials()
     const { ctx, tools } = makeContext()
     ctx.provide("credentials", credentials)
-    type Dispatch = (endpoint: string, payload: unknown) => Promise<{ ok: boolean; value?: any; error?: { code: string; message: string } }>
+    type Dispatch = (endpoint: string, payload: unknown, signal: AbortSignal, peer: unknown) => Promise<{ ok: boolean; value?: any; error?: { code: string; message: string } }>
     let api: { matches: (endpoint: string) => boolean; dispatch: Dispatch } | undefined
     ctx.provide("connection", {
       rpc: {
@@ -863,6 +864,7 @@ describe("remote MCP OAuth", () => {
       },
     })
     await ctx.plugin(TypertRegistry)
+    await ctx.plugin(RemoteAccessService)
     await ctx.plugin(TypertGatewayService)
     const previousHome = process.env.DSH_HOME
     process.env.DSH_HOME = home
@@ -875,8 +877,9 @@ describe("remote MCP OAuth", () => {
       expect(typeof (ctx.get("mcpAuth") as { providerFor?: unknown } | undefined)?.providerFor).toBe("function")
       expect(api!.matches("mcpAuth/status")).toBe(true)
       expect(api!.matches("mcpAuth/providerFor")).toBe(false)
+      const peer = { principal: { kind: "owner" }, signal: new AbortController().signal }
       const call = async (method: string, args: Record<string, unknown> = {}) => {
-        const result = await api!.dispatch(`mcpAuth/${method}`, { args })
+        const result = await api!.dispatch(`mcpAuth/${method}`, { args }, peer.signal, peer)
         if (!result.ok) throw new Error(result.error!.message)
         return result.value
       }

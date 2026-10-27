@@ -95,7 +95,7 @@ export type CiSmokeProductSnapshot = {
   windowsInsetMatchesDocumentDirection: boolean
   windowsBrowseDirectoryPickerWorked: boolean
   expandedNewSessionFollowsTitlebar: boolean
-  sidebarPrimaryActionCenterOffsets: { addWorkspace: number | null; newSession: number | null }
+  sidebarPrimaryActionCenterOffsets: { newSession: number | null }
   collapsedSidebarFullyMergesWithContent: boolean
   sessionHeaderComposerLeftAlignmentOffset: { expanded: number | null; collapsed: number | null }
   sessionHeaderRightBoundaryIntrusion: { expanded: number | null; collapsed: number | null }
@@ -601,13 +601,11 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const expandedNewSessionFollowsTitlebar = !/^Mac/i.test(navigator.platform)
       || titlebarInsetLeft === 0
       || (expandedNewSessionGap >= 8 && expandedNewSessionGap <= 16)
-    const expandedAddWorkspace = expandedPrimaryActions.addWorkspace
     const centerY = (element) => {
       const rect = element?.getBoundingClientRect()
       return rect ? rect.top + rect.height / 2 : Number.NaN
     }
     const expandedNewSessionCenter = centerY(expandedNewSession)
-    const expandedAddWorkspaceCenter = centerY(expandedAddWorkspace)
     const nativeControlOverlaps = () => {
       const rightStart = innerWidth - titlebarInsetRight
       return Array.from(document.querySelectorAll('button, a, input, textarea, select, [role="button"], [role="tab"], [contenteditable="true"]'))
@@ -959,13 +957,11 @@ export async function inspectCiSmokeProduct(target: CdpTarget, workspacePath: st
     const collapsedSessionTitleGap = rectGap(expandToggles[0], collapsedSessionTitle)
     const collapsedPrimaryActions = await waitForSidebarPrimaryActions()
     const collapsedNewSession = collapsedPrimaryActions.newSession
-    const collapsedAddWorkspace = collapsedPrimaryActions.addWorkspace
     const centerOffset = (collapsed, expandedCenter) => {
       const offset = centerY(collapsed) - expandedCenter
       return Number.isFinite(offset) ? offset : null
     }
     const sidebarPrimaryActionCenterOffsets = {
-      addWorkspace: centerOffset(collapsedAddWorkspace, expandedAddWorkspaceCenter),
       newSession: centerOffset(collapsedNewSession, expandedNewSessionCenter),
     }
     const maxTransitionMs = (element) => Math.max(...getComputedStyle(element).transitionDuration.split(",").map((value) => {

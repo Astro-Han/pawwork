@@ -56,8 +56,8 @@ div:has(> button [data-slot="sidebar.brand.name"]) {
   padding-bottom: 0;
   padding-top: 0;
 }
-/* This height puts New session and Add workspace on the same centers as their expanded controls;
-   the smoke measures both states. */
+/* This height puts New session on the same center as its expanded control; the smoke measures
+   both states. */
 [data-sidebar-collapsed] div:has(> button [data-slot="sidebar.brand.mark"]):not(:has([data-slot="sidebar.brand.name"])) {
   height: 12px;
 }
@@ -112,7 +112,7 @@ header:has(> [data-slot="conversation.session.header"]) {
     calc(var(--pawwork-titlebar-inset-left) + 44px - var(--pawwork-dsh-collapsed-sidebar-width))
   );
 }
-[data-slot="conversation.session.header"] > :is(:first-child, [role="tablist"]) {
+[data-slot="conversation.session.header"] > :is(:first-child, :has(> [role="tablist"])) {
   box-sizing: border-box;
   margin-left: var(--pawwork-session-column-left);
   margin-right: 0;

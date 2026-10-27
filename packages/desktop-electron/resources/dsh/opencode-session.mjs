@@ -26,7 +26,7 @@ export function requestUrl(input) {
 export function isOpenCodeUrl(input) {
   try {
     const parsed = new URL(requestUrl(input));
-    return parsed.hostname === OPENCODE_HOST && parsed.pathname.startsWith('/zen');
+    return parsed.hostname === OPENCODE_HOST && /^\/(?:zen|inference)\//.test(parsed.pathname);
   } catch {
     return false;
   }

@@ -109,10 +109,12 @@ test('the API gateway dispatches each Settings page call onto the automation ser
   const { Context } = await load('@deepseek-ai/cordis');
   const { TypertRegistry } = await load('@deepseek-ai/dsh-typert-registry');
   const { TypertGatewayService } = await load('@deepseek-ai/dsh-api-gateway');
+  const { RemoteAccessService } = await load('@deepseek-ai/dsh-api-remote-access');
   const ctx = new Context();
   let dispatch;
   ctx.provide('connection', { rpc: { intercept: (_channel, _matches, handler) => { dispatch = handler; return () => {}; } } });
   await ctx.plugin(TypertRegistry);
+  await ctx.plugin(RemoteAccessService);
   await ctx.plugin(TypertGatewayService);
   const { file, cwd } = fixture();
   const store = new AutomationStore(file);
@@ -129,7 +131,8 @@ test('the API gateway dispatches each Settings page call onto the automation ser
     },
     now: () => 2_000,
   }));
-  const call = (method, args) => dispatch(`pawworkAutomations/${method}`, { args });
+  const peer = { principal: { kind: 'owner' }, signal: new AbortController().signal };
+  const call = (method, args) => dispatch(`pawworkAutomations/${method}`, { args }, peer.signal, peer);
 
   assert.deepEqual((await call('list', {})).value.definitions.map((entry) => entry.id), [definition.id]);
   const renamed = (await call('update', { id: definition.id, patch: { expectedRevision: definition.revision, title: 'Renamed' } })).value;

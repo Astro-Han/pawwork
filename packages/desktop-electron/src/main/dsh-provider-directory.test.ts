@@ -55,14 +55,21 @@ async function configurableProviders() {
 }
 
 /**
- * pi-ai's own catalog, reached by path rather than by specifier: its `./providers/*` export declares
- * only an `import` condition, so `createRequire().resolve()` refuses the subpath.
+ * pi-ai's own catalog routes, reached by path rather than by specifier: its `./providers/*` export
+ * declares only an `import` condition, so `createRequire().resolve()` refuses the subpath. The
+ * adapter serves a provider only when it ships a chat model or lists no models at all.
  */
 async function builtinProviders() {
   const adapterPackage = resolveInDsh("@deepseek-ai/dsh-llm-pi-ai/package.json")
   const catalogPath = join(dirname(adapterPackage), "..", "..", "@earendil-works", "pi-ai", "dist/providers/all.js")
-  const catalog = await import(pathToFileURL(catalogPath).href)
-  return (catalog as { getBuiltinProviders: () => string[] }).getBuiltinProviders()
+  const catalog = (await import(pathToFileURL(catalogPath).href)) as {
+    getBuiltinProviders: () => string[]
+    getBuiltinModels: (provider: string) => unknown[]
+    getAllBuiltinModels: (provider: string) => unknown[]
+  }
+  return catalog
+    .getBuiltinProviders()
+    .filter((provider) => catalog.getBuiltinModels(provider).length > 0 || catalog.getAllBuiltinModels(provider).length === 0)
 }
 
 describe("pi-ai configurable-provider directory", () => {
@@ -98,7 +105,7 @@ function wireNamespaces() {
     } catch {
       continue
     }
-    for (const [, namespace] of table.matchAll(/namespace: *['"]([A-Za-z][A-Za-z0-9]*)['"]/g)) {
+    for (const [, namespace] of table.matchAll(/^ *['"]([A-Za-z][A-Za-z0-9]*)\/[A-Za-z0-9$]+['"]: *\{/gm)) {
       found.set(namespace, name)
     }
   }

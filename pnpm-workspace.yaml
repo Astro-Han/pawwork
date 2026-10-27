@@ -14,27 +14,39 @@ allowBuilds:
   sharp: true
   workerd: false
 
+# DSH's native addon refuses any Electron outside its fingerprint list
+# (43.0.0, 44.0.0, 44.7.0, 45.0.0-alpha.6), so the Electron fix in 44.9.1
+# cannot ship until DSH recognises a fixed release.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-jr5w-w6x2-84p9
+
 minimumReleaseAgeExclude:
   - '@deepseek-ai/*'
   - pnpm@11.23.0
 
 overrides:
   '@xmldom/xmldom': 0.8.15
+  compression: 1.8.2
   esbuild: 0.28.1
   fast-uri: 3.1.7
   form-data: 4.0.6
+  http-cache-semantics: 4.3.0
   ip-address: 10.3.1
   js-yaml: 4.3.2
   lodash: 4.18.1
   nanoid: 3.3.18
   postcss: 8.5.23
-  sharp: 0.35.4
+  sharp: 0.35.5
   svgo: 4.1.0
   tar: 7.5.21
   tmp: 0.2.7
-  'undici@>=7.0.0 <7.29.1': 7.29.1
+  'undici@>=6.0.0 <6.29.1': 6.29.1
+  'undici@>=7.0.0 <7.30.1': 7.30.1
+  'undici@>=8.0.0 <8.12.2': 8.12.3
   ws: 8.21.0
+  'zod@>=4.0.0 <4.6.6': 4.6.7
 
 patchedDependencies:
-  '@deepseek-ai/dsh-llm-pi-ai@0.2.0-rc.2': patches/@deepseek-ai__dsh-llm-pi-ai@0.2.0-rc.2.patch
-  '@deepseek-ai/dsh-mcp-client@0.2.0-rc.2': patches/@deepseek-ai__dsh-mcp-client@0.2.0-rc.2.patch
+  '@deepseek-ai/dsh-llm-pi-ai@0.2.1-rc.4': patches/@deepseek-ai__dsh-llm-pi-ai@0.2.1-rc.4.patch
+  '@deepseek-ai/dsh-mcp-client@0.2.1-rc.4': patches/@deepseek-ai__dsh-mcp-client@0.2.1-rc.4.patch
