@@ -628,8 +628,8 @@ jobs:
             sleep 60
           done
 
-          xcrun stapler staple -v "$APP_PATH"
-          xcrun stapler validate -v "$APP_PATH"
+          pnpm exec tsx ./scripts/stapler.ts staple "$APP_PATH"
+          pnpm exec tsx ./scripts/stapler.ts validate "$APP_PATH"
         working-directory: packages/desktop-electron
         timeout-minutes: 120
         env:
@@ -666,12 +666,11 @@ jobs:
           set -euo pipefail
 
           pnpm exec tsx ./scripts/generate-icons.ts
-          pnpm exec electron-builder --mac dmg zip --${{ matrix.arch_label }} --prepackaged "$APP_PATH" --publish always --config.mac.sign=./script/skip-mac-sign.cjs --config.mac.notarize=false --config electron-builder.config.ts
+          pnpm exec electron-builder --mac dmg zip --${{ matrix.arch_label }} --prepackaged "$APP_PATH" --publish never --config.mac.sign=./script/skip-mac-sign.cjs --config.mac.notarize=false --config electron-builder.config.ts
         working-directory: packages/desktop-electron
         timeout-minutes: 30
         env:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify notarized artifacts
         if: ${{ runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label }}
@@ -717,7 +716,7 @@ jobs:
           fi
 
           ditto -x -k "$zip_path" "$verify_dir"
-          xcrun stapler validate -v "$verify_dir/$APP_NAME.app"
+          pnpm exec tsx ./scripts/stapler.ts validate "$verify_dir/$APP_NAME.app"
           codesign --verify --deep --strict --verbose=2 "$verify_dir/$APP_NAME.app"
           verify_app_update_config "$verify_dir/$APP_NAME.app/Contents/Resources/app-update.yml"
 
@@ -739,7 +738,7 @@ jobs:
               exit 1
             fi
 
-            xcrun stapler validate -v "$mounted_app"
+            pnpm exec tsx ./scripts/stapler.ts validate "$mounted_app"
             codesign --verify --deep --strict --verbose=2 "$mounted_app"
             verify_app_update_config "$mounted_app/Contents/Resources/app-update.yml"
 
@@ -750,6 +749,25 @@ jobs:
         timeout-minutes: 30
         env:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
+
+      # Installers only: the mac feed holds both arches and finalize-latest-yml
+      # is its only writer, so a per-arch copy must never reach the release.
+      - name: Upload notarized artifacts
+        if: ${{ inputs.channel != 'dev' && runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label }}
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          assets=(dist/*.dmg dist/*.dmg.blockmap dist/*.zip dist/*.zip.blockmap)
+          if [ "${#assets[@]}" -ne 4 ]; then
+            echo "Expected one dmg, one zip and their blockmaps in dist/, found: ${assets[*]}"
+            exit 1
+          fi
+          gh release upload "v${{ steps.package_version.outputs.version }}" "${assets[@]}" --clobber --repo "$PUBLISH_OWNER/$PUBLISH_REPO"
+        working-directory: packages/desktop-electron
+        timeout-minutes: 30
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Summarize submit phase
         if: ${{ runner.os == 'macOS' && inputs.phase == 'submit' }}

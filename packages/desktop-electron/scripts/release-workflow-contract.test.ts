@@ -74,11 +74,32 @@ describe("release workflow", () => {
     // those: the same gate the metadata finalizer runs under, word for word.
     expect(conditionOfStep("Ensure a single release draft")).toBe(conditionOfStep("Finalize updater metadata"))
 
-    const publishing = stepsRunning(/electron-builder .*--publish always/)
-    expect(publishing.map((step) => step.name)).toEqual(["Package notarized artifacts"])
-    for (const step of publishing) expect(steps.indexOf(step)).toBeGreaterThan(ensure)
+    const uploading = stepsRunning(/gh release upload/)
+    expect(uploading.map((step) => step.name)).toEqual(["Upload notarized artifacts"])
+    expect(conditionOfStep("Upload notarized artifacts")).toMatch(/^\$\{\{ inputs\.channel != 'dev' && runner\.os == 'macOS'/)
+    for (const step of uploading) expect(steps.indexOf(step)).toBeGreaterThan(ensure)
     // Windows resolves --publish through a variable, so it is ordered by name.
     expect(indexOfStep("Package app")).toBeGreaterThan(ensure)
+  })
+
+  // A single-arch copy uploaded by a job that then fails is read back by its
+  // re-run as the existing feed, dropping the other arch.
+  test("leaves the mac updater feed to the metadata finalizer alone", () => {
+    expect(stepsRunning(/electron-builder .*--mac.*--publish always/)).toEqual([])
+    const upload = steps[indexOfStep("Upload notarized artifacts")]
+    expect(upload.body).not.toMatch(/latest/)
+    // Nothing reaches the release before both copies of the bundle are verified.
+    expect(indexOfStep("Upload notarized artifacts")).toBeGreaterThan(indexOfStep("Verify notarized artifacts"))
+    expect(indexOfStep("Finalize updater metadata")).toBeGreaterThan(indexOfStep("Upload notarized artifacts"))
+  })
+
+  test("staples and validates through the network retry", () => {
+    expect(workflow).not.toMatch(/xcrun stapler/)
+    expect(stepsRunning(/scripts\/stapler\.ts staple/).map((step) => step.name)).toEqual(["Finalize notarization"])
+    expect(stepsRunning(/scripts\/stapler\.ts validate/).map((step) => step.name)).toEqual([
+      "Finalize notarization",
+      "Verify notarized artifacts",
+    ])
   })
 
   test("release lookup refuses a split tag instead of reading half of one", () => {
