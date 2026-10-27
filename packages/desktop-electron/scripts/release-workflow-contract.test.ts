@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest"
 import { spawnSync } from "node:child_process"
-import { readFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 // A unit test cannot prove what a shell workflow does — only that a step whose
@@ -47,6 +48,41 @@ function runSourceValidation(phase: string, githubRef: string, sourceRef = "") {
   })
 }
 
+// Runs the upload step's script against a dist/ of four installers and a fake
+// `gh` that reports the release's draft state and records every other call.
+function runInstallerUpload(isDraft: boolean) {
+  const script = steps[indexOfStep("Upload notarized artifacts")]?.body.match(
+    /\n {8}run: \|\n(?<script>(?: {10}.*\n|\n)+?) {8}working-directory:/,
+  )?.groups?.script
+  if (!script) throw new Error("installer upload step is missing")
+
+  const dir = mkdtempSync(join(tmpdir(), "installer-upload-"))
+  mkdirSync(join(dir, "dist"))
+  mkdirSync(join(dir, "bin"))
+  for (const file of ["a.dmg", "a.dmg.blockmap", "a.zip", "a.zip.blockmap"]) writeFileSync(join(dir, "dist", file), "")
+  const log = join(dir, "gh.log")
+  writeFileSync(
+    join(dir, "bin", "gh"),
+    `#!/bin/sh\nif [ "$1 $2" = "release view" ]; then echo ${isDraft}; else echo "$*" >> "${log}"; fi\n`,
+    { mode: 0o755 },
+  )
+
+  const result = spawnSync("bash", ["-c", script.replace(/^ {10}/gm, "")], {
+    cwd: dir,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${join(dir, "bin")}:${process.env.PATH}`,
+      PUBLISH_OWNER: "owner",
+      PUBLISH_REPO: "repo",
+      RELEASE_TAG: "v2026.1.1",
+    },
+  })
+  const calls = existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : []
+  rmSync(dir, { recursive: true, force: true })
+  return { status: result.status, calls }
+}
+
 describe("release workflow", () => {
   test("accepts main branch submit and finalize sources", () => {
     expect(runSourceValidation("submit", "refs/heads/main").status).toBe(0)
@@ -91,6 +127,19 @@ describe("release workflow", () => {
     // Nothing reaches the release before both copies of the bundle are verified.
     expect(indexOfStep("Upload notarized artifacts")).toBeGreaterThan(indexOfStep("Verify notarized artifacts"))
     expect(indexOfStep("Finalize updater metadata")).toBeGreaterThan(indexOfStep("Upload notarized artifacts"))
+  })
+
+  // A published release's feed is frozen, so its installers have to be too.
+  test("uploads installers into a draft and refuses a published release", () => {
+    const draft = runInstallerUpload(true)
+    expect(draft.status).toBe(0)
+    expect(draft.calls).toEqual([
+      "release upload v2026.1.1 dist/a.dmg dist/a.dmg.blockmap dist/a.zip dist/a.zip.blockmap --clobber --repo owner/repo",
+    ])
+
+    const published = runInstallerUpload(false)
+    expect(published.status).toBe(1)
+    expect(published.calls).toEqual([])
   })
 
   test("staples and validates through the network retry", () => {

@@ -763,11 +763,17 @@ jobs:
             echo "Expected one dmg, one zip and their blockmaps in dist/, found: ${assets[*]}"
             exit 1
           fi
-          gh release upload "v${{ steps.package_version.outputs.version }}" "${assets[@]}" --clobber --repo "$PUBLISH_OWNER/$PUBLISH_REPO"
+          # A published release keeps the installers its feed points at.
+          if [ "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft --repo "$PUBLISH_OWNER/$PUBLISH_REPO")" != "true" ]; then
+            echo "Release $RELEASE_TAG is already published; refusing to replace its installers"
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber --repo "$PUBLISH_OWNER/$PUBLISH_REPO"
         working-directory: packages/desktop-electron
         timeout-minutes: 30
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: v${{ steps.package_version.outputs.version }}
 
       - name: Summarize submit phase
         if: ${{ runner.os == 'macOS' && inputs.phase == 'submit' }}
