@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest"
 import { spawnSync } from "node:child_process"
-import { readFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 // A unit test cannot prove what a shell workflow does — only that a step whose
@@ -47,6 +48,39 @@ function runSourceValidation(phase: string, githubRef: string, sourceRef = "") {
   })
 }
 
+// Runs the upload step's script against a dist/ of four installers, with fake
+// `pnpm` and `gh` that record their calls; `pnpm` exits with `withdrawStatus`.
+function runInstallerUpload(withdrawStatus: number) {
+  const script = steps[indexOfStep("Upload notarized artifacts")]?.body.match(
+    /\n {8}run: \|\n(?<script>(?: {10}.*\n|\n)+?) {8}working-directory:/,
+  )?.groups?.script
+  if (!script) throw new Error("installer upload step is missing")
+
+  const dir = mkdtempSync(join(tmpdir(), "installer-upload-"))
+  mkdirSync(join(dir, "dist"))
+  mkdirSync(join(dir, "bin"))
+  for (const file of ["a.dmg", "a.dmg.blockmap", "a.zip", "a.zip.blockmap"]) writeFileSync(join(dir, "dist", file), "")
+  const log = join(dir, "calls.log")
+  writeFileSync(join(dir, "bin", "pnpm"), `#!/bin/sh\necho "pnpm $*" >> "${log}"\nexit ${withdrawStatus}\n`, {
+    mode: 0o755,
+  })
+  writeFileSync(join(dir, "bin", "gh"), `#!/bin/sh\necho "gh $*" >> "${log}"\n`, { mode: 0o755 })
+
+  const result = spawnSync("bash", ["-c", script.replace(/^ {10}/gm, "")], {
+    cwd: dir,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${join(dir, "bin")}:${process.env.PATH}`,
+      GH_REPO: "owner/repo",
+      RELEASE_TAG: "v2026.1.1",
+    },
+  })
+  const calls = existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : []
+  rmSync(dir, { recursive: true, force: true })
+  return { status: result.status, calls }
+}
+
 describe("release workflow", () => {
   test("accepts main branch submit and finalize sources", () => {
     expect(runSourceValidation("submit", "refs/heads/main").status).toBe(0)
@@ -74,11 +108,55 @@ describe("release workflow", () => {
     // those: the same gate the metadata finalizer runs under, word for word.
     expect(conditionOfStep("Ensure a single release draft")).toBe(conditionOfStep("Finalize updater metadata"))
 
-    const publishing = stepsRunning(/electron-builder .*--publish always/)
-    expect(publishing.map((step) => step.name)).toEqual(["Package notarized artifacts"])
-    for (const step of publishing) expect(steps.indexOf(step)).toBeGreaterThan(ensure)
+    const uploading = stepsRunning(/gh release upload/)
+    expect(uploading.map((step) => step.name)).toEqual(["Upload notarized artifacts"])
+    // Every mac run that finalizes the feed uploads the installers it describes.
+    const macUpload = conditionOfStep("Upload notarized artifacts").match(
+      /^\$\{\{ inputs\.channel != 'dev' && (?<mac>runner\.os == 'macOS' .+) \}\}$/,
+    )?.groups?.mac
+    expect(macUpload).toBeDefined()
+    expect(conditionOfStep("Finalize updater metadata")).toContain(`(${macUpload})`)
+    for (const step of uploading) expect(steps.indexOf(step)).toBeGreaterThan(ensure)
     // Windows resolves --publish through a variable, so it is ordered by name.
     expect(indexOfStep("Package app")).toBeGreaterThan(ensure)
+  })
+
+  // A single-arch copy uploaded by a job that then fails is read back by its
+  // re-run as the existing feed, dropping the other arch.
+  test("leaves the mac updater feed to the metadata finalizer alone", () => {
+    const macPackaging = stepsRunning(/electron-builder .*--mac/)
+    expect(macPackaging.length).toBeGreaterThan(0)
+    for (const step of macPackaging) expect(step.body).toMatch(/--publish never/)
+    const upload = steps[indexOfStep("Upload notarized artifacts")]
+    expect(upload.body).not.toMatch(/latest/)
+    // Nothing reaches the release before both copies of the bundle are verified.
+    expect(indexOfStep("Upload notarized artifacts")).toBeGreaterThan(indexOfStep("Verify notarized artifacts"))
+    expect(indexOfStep("Finalize updater metadata")).toBeGreaterThan(indexOfStep("Upload notarized artifacts"))
+  })
+
+  // The withdraw refuses a published release; replacing installers before it
+  // succeeds could leave the old marker vouching for them.
+  test("withdraws this target's marker before replacing its installers", () => {
+    const withdraw = "pnpm exec tsx ./scripts/publish-when-complete.ts --withdraw-marker"
+    const ok = runInstallerUpload(0)
+    expect(ok.status).toBe(0)
+    expect(ok.calls).toEqual([
+      withdraw,
+      "gh release upload v2026.1.1 dist/a.dmg dist/a.dmg.blockmap dist/a.zip dist/a.zip.blockmap --clobber --repo owner/repo",
+    ])
+
+    const refused = runInstallerUpload(1)
+    expect(refused.status).toBe(1)
+    expect(refused.calls).toEqual([withdraw])
+  })
+
+  test("staples and validates through the network retry", () => {
+    expect(workflow).not.toMatch(/xcrun stapler/)
+    expect(stepsRunning(/scripts\/stapler\.ts staple/).map((step) => step.name)).toEqual(["Finalize notarization"])
+    expect(stepsRunning(/scripts\/stapler\.ts validate/).map((step) => step.name)).toEqual([
+      "Finalize notarization",
+      "Verify notarized artifacts",
+    ])
   })
 
   test("release lookup refuses a split tag instead of reading half of one", () => {

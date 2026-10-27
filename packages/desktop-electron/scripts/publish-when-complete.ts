@@ -35,10 +35,15 @@
 // Post-publish writes happen at a different site (the build's earlier publish +
 // finalize steps), so they are fenced there, not here: electron-builder leaves an
 // already-published release untouched (releaseType defaults to draft, so its
-// publisher skips a published release), and finalize-latest-yml refuses to upload
+// publisher skips a published release), the mac installer upload runs only after
+// `--withdraw-marker` confirmed a draft, and finalize-latest-yml refuses to upload
 // to a non-draft release. Together a later same-version build from a different
 // commit cannot rewrite the published installers or their updater metadata; it
 // fails loudly instead.
+//
+// A target that replaces its installers withdraws its marker first, so until it
+// records the new hash the release waits instead of publishing a feed and marker
+// that both still describe the installers it replaced.
 //
 // Residual: GitHub offers no atomic compare-and-swap across release assets, so
 // the finalize guard's draft-check and its upload, and this seal's re-read and
@@ -231,7 +236,13 @@ async function deleteExistingAsset(repo: string, releaseId: number, name: string
   const existing = ((await res.json()) as GithubAsset[]).find((entry) => entry.name === name)
   if (!existing) return
   const del = await ghFetch(existing.url, { method: "DELETE", accept: "application/vnd.github+json" })
-  if (!del.ok && del.status !== 404) throw new Error(`failed to replace marker ${name}: ${del.status} ${del.statusText}`)
+  if (!del.ok && del.status !== 404) throw new Error(`failed to delete ${name}: ${del.status} ${del.statusText}`)
+}
+
+export async function withdrawProvenanceMarker(repo: string, tag: string, os: string, arch: string) {
+  const release = await findRelease(repo, tag)
+  if (!release.draft) throw new Error(`${tag} is already published; refusing to replace its installers`)
+  await deleteExistingAsset(repo, release.id, releaseProvenanceAssetName(os, arch, tag.replace(/^v/, "")))
 }
 
 // Upload this target's provenance marker via the release upload_url (draft-safe:
@@ -474,7 +485,17 @@ async function main() {
 }
 
 if (import.meta.main) {
-  main().catch((error) => {
+  const run =
+    process.argv[2] === "--withdraw-marker"
+      ? () =>
+          withdrawProvenanceMarker(
+            requireEnv("GH_REPO"),
+            normalizeTag(requireEnv("RELEASE_TAG")),
+            requireEnv("RELEASE_OS"),
+            requireEnv("RELEASE_ARCH"),
+          )
+      : main
+  run().catch((error) => {
     console.error(`publish-when-complete failed: ${error instanceof Error ? error.message : String(error)}`)
     process.exit(1)
   })
