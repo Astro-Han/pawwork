@@ -26,3 +26,5 @@ jobs:
           comment-summary-in-pr: never
           fail-on-severity: high
           fail-on-scopes: runtime,unknown
+          # Same exception as auditConfig.ignoreGhsas in pnpm-workspace.yaml.
+          allow-ghsas: GHSA-jr5w-w6x2-84p9
