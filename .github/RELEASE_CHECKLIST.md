@@ -150,6 +150,15 @@ curl -fsI https://dl.pawwork.ai/pawwork-mac-arm64-X.Y.Z.dmg | head -1   # expect
 
 If `latest.json` still shows the previous version, the mirror has not finished — do not announce the release until it does. The mirror fails closed, so a failed run leaves the site pointing at the previous good release.
 
+After uploading and switching the pointers, the same workflow removes superseded R2 installers. It retains the complete versions referenced by both the v1 (`latest.yml`, `latest-mac.yml`) and v2 (`latest-v2.yml`, `latest-v2-mac.yml`) channels, all pointer files, and every historical `.blockmap`. The website manifest must agree with v2, and both retained versions must be complete before any deletion. Historical releases remain on GitHub; retired R2 installer URLs stop working. Mirror and cleanup runs share one bucket-wide concurrency group.
+
+To preview or retry cleanup without uploading a release:
+
+```bash
+gh workflow run mirror-release-to-r2.yml --repo Astro-Han/pawwork --ref main -f operation=preview-cleanup
+gh workflow run mirror-release-to-r2.yml --repo Astro-Han/pawwork --ref main -f operation=cleanup
+```
+
 ## 6. Post-Release Verification
 
 Run the verification helper:
