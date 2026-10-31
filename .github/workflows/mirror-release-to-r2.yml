@@ -22,6 +22,7 @@ on:
 concurrency:
   group: mirror-r2-pawwork-downloads
   cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read

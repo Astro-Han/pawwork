@@ -234,7 +234,7 @@ describe("mirror workflow shell-injection guard", () => {
     "utf8",
   )
   const workflow = load(source) as {
-    concurrency: { group: string; "cancel-in-progress": boolean }
+    concurrency: { group: string; "cancel-in-progress": boolean; queue: string }
     jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>
   }
 
@@ -258,7 +258,7 @@ describe("mirror workflow shell-injection guard", () => {
   })
 
   test("serializes all bucket writes and routes manual cleanup without mirroring", () => {
-    expect(workflow.concurrency).toEqual({ group: "mirror-r2-pawwork-downloads", "cancel-in-progress": false })
+    expect(workflow.concurrency).toEqual({ group: "mirror-r2-pawwork-downloads", "cancel-in-progress": false, queue: "max" })
     const script = workflow.jobs.mirror.steps?.find((step) => step.name === "Mirror and clean R2")?.run
     if (!script) throw new Error("Missing mirror step")
     const dir = mkdtempSync(join(tmpdir(), "r2-workflow-test-"))
