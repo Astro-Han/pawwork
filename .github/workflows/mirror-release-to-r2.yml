@@ -12,11 +12,17 @@ on:
     inputs:
       tag:
         description: "Release tag to mirror (e.g. v2026.5.29)"
-        required: true
+        required: false
+      operation:
+        description: "Mirror a release, or clean the existing mirror without uploading"
+        type: choice
+        options: [mirror, preview-cleanup, cleanup]
+        default: mirror
 
 concurrency:
-  group: mirror-r2-${{ github.event.release.tag_name || github.event.inputs.tag }}
+  group: mirror-r2-pawwork-downloads
   cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
@@ -28,6 +34,7 @@ env:
   # attacker-controlled tag must reach the secrets-bearing steps as data, not
   # shell. Steps reference "$TAG" only.
   TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+  OPERATION: ${{ inputs.operation || 'mirror' }}
 
 jobs:
   mirror:
@@ -49,12 +56,19 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify release is complete (fail closed)
+        if: env.OPERATION == 'mirror'
         run: pnpm --filter @pawwork/desktop exec tsx scripts/verify-release.ts "$TAG"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Mirror release assets to R2
-        run: pnpm --filter @pawwork/desktop exec tsx scripts/mirror-release-to-r2.ts "$TAG"
+      - name: Mirror and clean R2
+        run: |
+          case "$OPERATION" in
+            mirror) pnpm --filter @pawwork/desktop exec tsx scripts/mirror-release-to-r2.ts "$TAG" ;;
+            preview-cleanup) pnpm --filter @pawwork/desktop exec tsx scripts/mirror-release-to-r2.ts --cleanup-only --dry-run ;;
+            cleanup) pnpm --filter @pawwork/desktop exec tsx scripts/mirror-release-to-r2.ts --cleanup-only ;;
+            *) echo "Unknown operation: $OPERATION" >&2; exit 1 ;;
+          esac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           R2_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
