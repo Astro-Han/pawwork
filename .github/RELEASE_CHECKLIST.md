@@ -152,10 +152,15 @@ If `latest.json` still shows the previous version, the mirror has not finished â
 
 After uploading and switching the pointers, the same workflow removes superseded R2 installers. It retains the complete versions referenced by both the v1 (`latest.yml`, `latest-mac.yml`) and v2 (`latest-v2.yml`, `latest-v2-mac.yml`) channels, all pointer files, and every historical `.blockmap`. The website manifest must agree with v2, and both retained versions must be complete before any deletion. Historical releases remain on GitHub; retired R2 installer URLs stop working. Mirror and cleanup runs share one bucket-wide concurrency group.
 
-To preview or retry cleanup without uploading a release:
+To preview cleanup without uploading a release:
 
 ```bash
 gh workflow run mirror-release-to-r2.yml --repo Astro-Han/pawwork --ref main -f operation=preview-cleanup
+```
+
+Wait for the preview run to finish and inspect its cleanup plan. To execute or retry the reviewed cleanup:
+
+```bash
 gh workflow run mirror-release-to-r2.yml --repo Astro-Han/pawwork --ref main -f operation=cleanup
 ```
 
