@@ -24,7 +24,7 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 import { gt } from "semver"
 import { parseUpdaterFileUrls, parseUpdaterVersion, releaseAssetNames } from "./verify-release.ts"
-import { METADATA_FILES, RELEASE_TARGETS, releaseAssetName, releaseTarget, type ReleaseTarget } from "./release-targets"
+import { METADATA_FILES, RELEASE_TARGETS, releaseAssetName, type ReleaseTarget } from "./release-targets"
 
 // The updater pointers are the only mutable objects in the mirror: everything
 // else is versioned and cached for a year. A metadata file this set missed
@@ -234,13 +234,14 @@ type MirrorArgs = {
 async function mirror({ assets, tag, repo, dir, bucket, endpoint, publicBase, version }: MirrorArgs) {
   // Retrying an old tag must not roll back the live feed and then prune the
   // newer installers that clients already discovered.
-  const currentFile = join(dir, "current-v2.yml")
-  await run(["aws", "s3api", "get-object", "--key", releaseTarget("win", "x64").metadata, currentFile,
-    "--bucket", bucket, "--endpoint-url", endpoint])
-  const currentVersion = parseUpdaterVersion(await readFile(currentFile, "utf8"))
-  if (!currentVersion) throw new Error("R2 v2 feed has no version; refusing to mirror")
-  if (gt(currentVersion, version)) {
-    throw new Error(`Refusing to replace R2 version ${currentVersion} with older version ${version}`)
+  for (const name of METADATA_FILES) {
+    const currentFile = join(dir, `current-${name}`)
+    await run(["aws", "s3api", "get-object", "--key", name, currentFile, "--bucket", bucket, "--endpoint-url", endpoint])
+    const currentVersion = parseUpdaterVersion(await readFile(currentFile, "utf8"))
+    if (!currentVersion) throw new Error(`R2 ${name} has no version; refusing to mirror`)
+    if (gt(currentVersion, version)) {
+      throw new Error(`Refusing to replace R2 version ${currentVersion} with older version ${version}`)
+    }
   }
   console.log(`Downloading ${assets.length} assets of ${tag} from ${repo} ...`)
   for (const name of assets) {

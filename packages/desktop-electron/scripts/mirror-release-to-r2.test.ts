@@ -88,7 +88,9 @@ describe("R2 installer retention", () => {
   function runCleanup(mode: "preview" | "apply" | "changed" | "error" | "stale") {
     const dir = mkdtempSync(join(tmpdir(), "r2-retention-test-"))
     const state = join(dir, "state.json")
-    writeFileSync(state, JSON.stringify({ objects, pointers, calls: [], reads: 0 }))
+    writeFileSync(state, JSON.stringify({ objects,
+      pointers: mode === "stale" ? { ...pointers, "latest-v2.yml": metadata(versions[1], "win") } : pointers,
+      calls: [], reads: 0 }))
     writeFileSync(join(dir, "gh"), "#!/bin/sh\necho 'Unexpected GitHub mutation or download' >&2\nexit 1\n", { mode: 0o755 })
     writeFileSync(join(dir, "aws"), `#!/usr/bin/env node
 const fs = require('node:fs');
@@ -137,7 +139,7 @@ fs.writeFileSync(state, JSON.stringify(data));
     expect(cleanupPlan(applied.data.objects, pointers, base)).toEqual([])
   })
 
-  test("refuses to mirror an older release before uploading or cleaning anything", () => {
+  test("refuses an old retry even when a newer mirror updated only the macOS pointer", () => {
     const stale = runCleanup("stale")
     expect(stale.status).toBe(1)
     expect(stale.stderr).toContain("Refusing to replace R2 version 2026.10.1 with older version 2026.9.13")
