@@ -60,6 +60,43 @@ contextBridge.exposeInMainWorld("pawworkLifecycle", {
 
 contextBridge.exposeInMainWorld("pawworkFiles", {
   pick: () => ipcRenderer.invoke("pawwork:pick-conversation-files"),
+  pickWorkspace: () => ipcRenderer.invoke("pawwork:pick-workspace-file"),
+  readDocument: (name, data) => ipcRenderer.invoke("pawwork:read-uploaded-document", name, data),
+  onDocumentProgress: (listener) => {
+    const forward = (_event, message) => listener(message)
+    ipcRenderer.on("pawwork:document-progress", forward)
+    return () => ipcRenderer.removeListener("pawwork:document-progress", forward)
+  },
+})
+
+contextBridge.exposeInMainWorld("pawworkAPI", {
+  isSidebar: () => ipcRenderer.invoke("pawwork:is-sidebar"),
+  minimizeWindow: () => ipcRenderer.invoke("window:minimize"),
+  toggleMaximizeWindow: () => ipcRenderer.invoke("window:maximize-toggle"),
+  closeWindow: () => ipcRenderer.invoke("window:close"),
+  getCurrentDirectory: () => ipcRenderer.invoke("pawwork:get-current-directory"),
+  getLaunchDirectory: () => ipcRenderer.invoke("pawwork:get-launch-directory"),
+  setCurrentDirectory: (folder) => ipcRenderer.invoke("pawwork:set-current-directory", folder),
+  createWorkspaceShortcut: (folder) => ipcRenderer.invoke("pawwork:create-workspace-shortcut", folder),
+  openNotes: () => ipcRenderer.invoke("pawwork:open-notes"),
+  onSummarizePdf: (listener) => {
+    const forward = (_event, file) => listener(file)
+    ipcRenderer.on("pawwork:summarize-pdf", forward)
+    return () => ipcRenderer.removeListener("pawwork:summarize-pdf", forward)
+  },
+  onAnalyzeDocument: (listener) => {
+    const forward = (_event, request) => listener(request)
+    ipcRenderer.on("pawwork:analyze-document", forward)
+    return () => ipcRenderer.removeListener("pawwork:analyze-document", forward)
+  },
+  onOpenWorkspace: (listener) => {
+    const forward = (_event, folder) => listener(folder)
+    ipcRenderer.on("pawwork:open-workspace", forward)
+    return () => ipcRenderer.removeListener("pawwork:open-workspace", forward)
+  },
+  saveNote: (content, defaultName) => ipcRenderer.invoke("pawwork:save-note", content, defaultName),
+  saveImage: (base64Data, defaultName) => ipcRenderer.invoke("pawwork:save-image", base64Data, defaultName),
+  setReminder: (title, body, delayMs) => ipcRenderer.invoke("pawwork:set-reminder", title, body, delayMs),
 })
 
 contextBridge.exposeInMainWorld("pawworkCommunityMarket", {

@@ -1,6 +1,6 @@
 import windowState from "electron-window-state"
 import log from "electron-log/main.js"
-import { app, BrowserWindow, nativeImage, shell } from "electron"
+import { app, BrowserWindow, nativeImage, screen, shell } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { macTrafficLightPosition, pawworkWindowTitle, titlebarInsetCss } from "./window-chrome"
@@ -76,6 +76,7 @@ export function setDockIcon() {
 type MainWindowOptions = {
   preload: string
   colorScheme: WindowColorScheme
+  sidebar?: boolean
   // Read on every navigation rather than captured: the window is created before
   // DSH has an origin, and outlives the one it eventually gets.
   dshUrl: () => string | undefined
@@ -86,9 +87,14 @@ export function applyWindowColorScheme(
   win: Pick<BrowserWindow, "setBackgroundColor" | "setTitleBarOverlay">,
   platform: NodeJS.Platform,
   colorScheme: WindowColorScheme,
+  sidebar = false,
 ) {
-  win.setBackgroundColor(SURFACE_COLOR[colorScheme])
-  if (platform === "win32") win.setTitleBarOverlay(titleBarOverlayStyle(colorScheme))
+  try {
+    win.setBackgroundColor(SURFACE_COLOR[colorScheme])
+    if (platform === "win32" && !sidebar) win.setTitleBarOverlay(titleBarOverlayStyle(colorScheme))
+  } catch (error) {
+    log.warn("failed to update window color scheme", error)
+  }
 }
 
 // A load that is superseded rejects with ERR_ABORTED, and an unhandled rejection
@@ -101,23 +107,25 @@ export function navigateWindow(win: BrowserWindow, url: string) {
 
 export function createMainWindow(options: MainWindowOptions) {
   const state = windowState({ defaultWidth: 1280, defaultHeight: 800 })
+  const workArea = options.sidebar ? screen.getPrimaryDisplay().workArea : undefined
   const win = new BrowserWindow({
-    x: state.x,
-    y: state.y,
-    width: state.width,
-    height: state.height,
-    minWidth: 768,
-    minHeight: 480,
+    x: workArea ? workArea.x + workArea.width - 420 : state.x,
+    y: workArea?.y ?? state.y,
+    width: workArea ? 420 : state.width,
+    height: workArea?.height ?? state.height,
+    minWidth: options.sidebar ? 320 : 768,
+    minHeight: options.sidebar ? 400 : 480,
     show: false,
+    ...(options.sidebar ? { alwaysOnTop: true, frame: false, resizable: true, movable: true, minimizable: true, maximizable: true } : {}),
     title: "PawWork",
     icon: iconPath(),
     backgroundColor: SURFACE_COLOR[options.colorScheme],
-    ...dshTitleBarOptions(process.platform, options.colorScheme),
+    ...(!options.sidebar ? dshTitleBarOptions(process.platform, options.colorScheme) : {}),
     ...(process.platform === "darwin" ? { trafficLightPosition: macTrafficLightPosition() } : {}),
     webPreferences: dshWebPreferences(options.preload),
   })
 
-  state.manage(win)
+  if (!options.sidebar) state.manage(win)
   win.webContents.setWindowOpenHandler(({ url: target }) =>
     handleDshWindowOpen(options.dshUrl(), target, (destination) => navigateWindow(win, destination), openExternal))
   win.webContents.on("will-frame-navigate", (event) => {
@@ -161,7 +169,10 @@ export function createMainWindow(options: MainWindowOptions) {
     win.setTitle(pawworkWindowTitle(title))
   })
   navigateWindow(win, options.dshUrl() ?? startupUrl(options.colorScheme))
-  win.once("ready-to-show", () => win.show())
+  // A cold renderer can stall before its first paint. The persistent sidebar
+  // must still be reachable while the runtime is starting.
+  if (options.sidebar) win.show()
+  else win.once("ready-to-show", () => win.show())
 
   return win
 }

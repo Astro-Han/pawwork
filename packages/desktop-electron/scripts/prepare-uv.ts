@@ -100,7 +100,13 @@ async function extractArchive(archivePath: string, asset: string, destDir: strin
       // On Windows CI this script runs under bash, where PATH-resolved `tar`
       // is GNU tar (no zip support) and `unzip` is not guaranteed;
       // PowerShell's Expand-Archive is always present on windows-* images.
-      await execFileAsync("powershell.exe", powershellExpandArchiveArgs(archivePath, destDir))
+      try {
+        await execFileAsync("powershell.exe", powershellExpandArchiveArgs(archivePath, destDir))
+      } catch {
+        // Some locked-down Windows hosts cannot load the Archive module, but
+        // their built-in bsdtar can still extract zip archives.
+        await execFileAsync("tar", ["-xf", archivePath, "-C", destDir])
+      }
     } else {
       // unzip ships on both macos-* and ubuntu-* GitHub runner images.
       await execFileAsync("unzip", ["-o", archivePath, "-d", destDir])

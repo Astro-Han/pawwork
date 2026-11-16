@@ -1,5 +1,17 @@
 # Third-Party Notices
 
+## Local document reader
+
+PawWork includes the following document-reading components. Their license texts
+are retained in their bundled Node package directories, together with notices
+for their transitive dependencies.
+
+- Mammoth (BSD-2-Clause): https://github.com/mwilliamson/mammoth.js
+- PDF.js / pdfjs-dist (Apache-2.0): https://github.com/mozilla/pdf.js
+- @napi-rs/canvas (MIT): https://github.com/Brooooooklyn/canvas
+- Tesseract.js and its WebAssembly core (Apache-2.0): https://github.com/naptha/tesseract.js
+- @tesseract.js-data/eng English OCR data (Apache-2.0): https://github.com/naptha/tessdata
+
 ## uv
 
 PawWork bundles `uv` by Astral to supply a Python runtime for Excel/Word/PowerPoint skills that generate or edit Office files via Python libraries.

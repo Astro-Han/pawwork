@@ -6,14 +6,18 @@
   "type": "module",
   "packageManager": "pnpm@11.23.0",
   "scripts": {
-    "dev": "pnpm run dev:desktop",
-    "dev:desktop": "pnpm --filter @pawwork/desktop dev",
-    "typecheck": "pnpm --filter @pawwork/desktop typecheck",
-    "lint": "eslint \"packages/desktop-electron/{src,scripts}/**/*.ts\" \"packages/desktop-electron/*.ts\" \"packages/desktop-electron/resources/**/*.{js,mjs,cjs}\"",
-    "lint:ci": "pnpm run lint",
-    "test": "pnpm --filter @pawwork/desktop test && node --test .github/scripts/label-policy-check.test.js"
-  },
+  "dev": "pnpm run dev:sidebar",
+  "dev:sidebar": "cross-env PAWWORK_SIDEBAR=true pnpm run dev:desktop",
+  "dev:desktop": "pnpm --filter @pawwork/desktop dev",
+  "dev:sidepop": "pnpm run dev:sidebar",
+  "typecheck": "pnpm --filter @pawwork/desktop typecheck",
+  "lint": "eslint \"packages/desktop-electron/{src,scripts}/**/*.ts\" \"packages/desktop-electron/*.ts\" \"packages/desktop-electron/resources/**/*.{js,mjs,cjs}\"",
+  "lint:ci": "pnpm run lint",
+  "test": "pnpm --filter @pawwork/desktop test && node --test .github/scripts/label-policy-check.test.js"
+},
   "devDependencies": {
+    "concurrently": "^9.1.2",
+    "cross-env": "^10.1.0",
     "eslint": "^9.39.4",
     "typescript-eslint": "8.59.3",
     "wrangler": "4.124.0"

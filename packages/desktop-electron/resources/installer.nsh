@@ -113,10 +113,17 @@ LangString PawWorkShortcutOptions 2052 "快捷方式选项"
       !insertmacro PAWWORK_STANDARD_SHORTCUT
       !insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS_IN_ALL_INSTALL_SCOPES
       !insertmacro PAWWORK_RESTORE_INSTALL_SCOPE
-      CreateShortCut "$DESKTOP\$PawWorkStandardShortcutName.lnk" "$appExe" "" "$appExe" 0 "" "" "${APP_DESCRIPTION}"
+      CreateShortCut "$DESKTOP\$PawWorkStandardShortcutName.lnk" "$appExe" "--sidebar" "$appExe" 0 "" "" "${APP_DESCRIPTION}"
       ClearErrors
       WinShell::SetLnkAUMI "$DESKTOP\$PawWorkStandardShortcutName.lnk" "${APP_ID}"
     ${EndIf}
+
+    WriteRegStr SHCTX "Software\Classes\Directory\shell\PawWork" "" "Open PawWork here"
+    WriteRegStr SHCTX "Software\Classes\Directory\shell\PawWork\command" "" "$\"$appExe$\" --sidebar --workspace $\"%1$\""
+    WriteRegStr SHCTX "Software\Classes\Directory\Background\shell\PawWork" "" "Open PawWork here"
+    WriteRegStr SHCTX "Software\Classes\Directory\Background\shell\PawWork\command" "" "$\"$appExe$\" --sidebar --workspace $\"%V$\""
+    WriteRegStr SHCTX "Software\Classes\*\shell\PawWorkNotes" "" "Open PawWork notes for this file"
+    WriteRegStr SHCTX "Software\Classes\*\shell\PawWorkNotes\command" "" "$\"$appExe$\" --sidebar --note-file $\"%1$\""
   !macroend
 !endif
 
@@ -129,5 +136,8 @@ LangString PawWorkShortcutOptions 2052 "快捷方式选项"
       !insertmacro PAWWORK_RESTORE_INSTALL_SCOPE
       !insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS
     ${EndIf}
+    DeleteRegKey SHCTX "Software\Classes\Directory\shell\PawWork"
+    DeleteRegKey SHCTX "Software\Classes\Directory\Background\shell\PawWork"
+    DeleteRegKey SHCTX "Software\Classes\*\shell\PawWorkNotes"
   !macroend
 !endif

@@ -36,7 +36,7 @@ describe("PawWork DSH product preload", () => {
     })
 
     expect(listeners).toHaveLength(1)
-    expect(exposed).toEqual(["pawworkLifecycle", "pawworkFiles", "pawworkCommunityMarket", "pawworkUpdater"])
+    expect(exposed).toEqual(["pawworkLifecycle", "pawworkFiles", "pawworkAPI", "pawworkCommunityMarket", "pawworkUpdater"])
     document.documentElement = { appendChild: (style: { textContent: string }) => void styles.push(style) }
     listeners[0]()
     expect(styles).toHaveLength(1)
@@ -59,7 +59,7 @@ describe("PawWork DSH product preload", () => {
       },
     })
 
-    expect([...exposed.keys()]).toEqual(["pawworkLifecycle", "pawworkFiles", "pawworkCommunityMarket", "pawworkUpdater"])
+    expect([...exposed.keys()]).toEqual(["pawworkLifecycle", "pawworkFiles", "pawworkAPI", "pawworkCommunityMarket", "pawworkUpdater"])
     exposed.get("pawworkLifecycle")!.ready()
     expect(send).toHaveBeenCalledWith("pawwork:product-ready")
   })
@@ -136,7 +136,7 @@ describe("PawWork DSH product preload", () => {
     expect(document.documentElement.style.colorScheme).toBe("")
   })
 
-  test("exposes only a no-argument native file picker", async () => {
+  test("exposes native pickers and document extraction without an arbitrary path reader", async () => {
     const pickerResult = { status: "selected", paths: ["/outside/report.txt"] }
     const invoke = vi.fn(async () => pickerResult)
     const exposed = new Map<string, Record<string, () => Promise<unknown>>>()
@@ -154,9 +154,42 @@ describe("PawWork DSH product preload", () => {
     })
 
     const files = exposed.get("pawworkFiles")!
-    expect(Object.keys(files)).toEqual(["pick"])
+    expect(Object.keys(files)).toEqual(["pick", "pickWorkspace", "readDocument", "onDocumentProgress"])
     await expect(files.pick()).resolves.toBe(pickerResult)
     expect(invoke).toHaveBeenCalledWith("pawwork:pick-conversation-files")
+    await files.pickWorkspace()
+    expect(invoke).toHaveBeenCalledWith("pawwork:pick-workspace-file")
+  })
+
+  test("forwards sidebar actions through fixed IPC channels", async () => {
+    const invoke = vi.fn(async () => ({ canceled: false }))
+    const exposed = new Map<string, Record<string, (...args: unknown[]) => Promise<unknown>>>()
+    vm.runInNewContext(readFileSync(preloadPath, "utf8"), {
+      require: (name: string) => {
+        if (name === "electron") return {
+          contextBridge: { exposeInMainWorld: (key: string, api: Record<string, (...args: unknown[]) => Promise<unknown>>) => exposed.set(key, api) },
+          ipcRenderer: { invoke, send: () => {} },
+        }
+        throw new Error(`unexpected preload dependency: ${name}`)
+      },
+    })
+    const api = exposed.get("pawworkAPI")!
+    await api.getCurrentDirectory()
+    await api.getLaunchDirectory()
+    await api.setCurrentDirectory("C:\\Work")
+    await api.createWorkspaceShortcut("C:\\Work")
+    await api.saveNote("sample", "note.txt")
+    await api.saveImage("cG5n", "image.png")
+    await api.setReminder("Work", "Time", 1000)
+    expect(invoke.mock.calls).toEqual([
+      ["pawwork:get-current-directory"],
+      ["pawwork:get-launch-directory"],
+      ["pawwork:set-current-directory", "C:\\Work"],
+      ["pawwork:create-workspace-shortcut", "C:\\Work"],
+      ["pawwork:save-note", "sample", "note.txt"],
+      ["pawwork:save-image", "cG5n", "image.png"],
+      ["pawwork:set-reminder", "Work", "Time", 1000],
+    ])
   })
 
   test("exposes only the bounded community-market operations", async () => {

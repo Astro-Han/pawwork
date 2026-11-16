@@ -39,6 +39,11 @@ export function createDshMenu(options: DshMenuOptions, locale: MenuLocale) {
       { label: label("newWindow"), accelerator: "CmdOrCtrl+Shift+N", click: options.newWindow },
       { type: "separator" },
       { label: roleLabel("close"), role: "close" },
+      ...(process.platform === "win32" ? [
+        { type: "separator" as const },
+        { label: label("restart"), click: options.relaunch },
+        { label: roleLabel("quit"), role: "quit" as const, accelerator: "Ctrl+Q" },
+      ] : []),
     ],
   }
   const editMenu: Electron.MenuItemConstructorOptions = {

@@ -12,6 +12,7 @@ allowBuilds:
   node-pty: true
   protobufjs: false
   sharp: true
+  tesseract.js: false
   workerd: false
 
 minimumReleaseAgeExclude:
@@ -39,4 +40,5 @@ patchedDependencies:
   '@deepseek-ai/dsh-client-connection@0.1.5-rc.2': patches/@deepseek-ai__dsh-client-connection@0.1.5-rc.2.patch
   '@deepseek-ai/dsh-llm-pi-ai@0.1.5-rc.2': patches/@deepseek-ai__dsh-llm-pi-ai@0.1.5-rc.2.patch
   '@deepseek-ai/dsh-mcp-client@0.1.5-rc.2': patches/@deepseek-ai__dsh-mcp-client@0.1.5-rc.2.patch
+  '@deepseek-ai/dsh-win32-process@0.1.5-rc.2': patches/@deepseek-ai__dsh-win32-process@0.1.5-rc.2.patch
   brace-expansion@5.0.9: patches/brace-expansion@5.0.9.patch

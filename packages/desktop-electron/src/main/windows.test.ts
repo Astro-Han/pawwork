@@ -54,7 +54,7 @@ const win = vi.hoisted(() => ({
   setTitle: () => {},
   setTitleBarOverlay: vi.fn(() => {}),
   setBackgroundColor: vi.fn(() => {}),
-  show: () => {},
+  show: vi.fn(),
   created: [] as Record<string, unknown>[],
   loaded: [] as string[],
   async loadURL(url: string) {
@@ -82,9 +82,10 @@ vi.mock("electron", () => ({
   },
   nativeImage: { createFromPath: () => ({ isEmpty: () => true }) },
   nativeTheme: { shouldUseDarkColors: false },
+  screen: { getPrimaryDisplay: () => ({ workArea: { x: 100, y: 40, width: 1440, height: 900 } }) },
   shell: { openExternal },
 }))
-vi.mock("electron-log/main.js", () => ({ default: { error: () => {} } }))
+vi.mock("electron-log/main.js", () => ({ default: { error: () => {}, warn: () => {} } }))
 vi.mock("electron-window-state", () => ({
   default: () => ({ x: 0, y: 0, width: 1280, height: 800, manage: () => {} }),
 }))
@@ -115,6 +116,7 @@ beforeEach(() => {
   win.setTitleBarOverlay.mockClear()
   win.setBackgroundColor.mockClear()
   openExternal.mockClear()
+  win.show.mockClear()
 })
 
 function navigate(url: string, isMainFrame: boolean) {
@@ -124,6 +126,10 @@ function navigate(url: string, isMainFrame: boolean) {
 }
 
 describe("main window wiring", () => {
+  test("sidebar appears immediately even when the renderer never signals ready-to-show", () => {
+    createMainWindow({ preload: "/preload.cjs", colorScheme: "light", dshUrl: () => undefined, sidebar: true })
+    expect(win.show).toHaveBeenCalledOnce()
+  })
   // Whatever has not been painted by the web app yet is one of these surfaces,
   // so a scheme that reaches only some of them is the white edge users report.
   test("repaints the window background and the Windows caption overlay together", () => {
@@ -148,6 +154,17 @@ describe("main window wiring", () => {
 
     expect(win.created[0]).toMatchObject({ backgroundColor: "#151517", show: false })
     expect(decodeURIComponent(win.loaded[0]!)).toContain("color-scheme:dark")
+  })
+
+  test("a missing native overlay does not crash a theme change", () => {
+    win.setTitleBarOverlay.mockImplementationOnce(() => { throw new TypeError("Titlebar overlay is not enabled") })
+    expect(() => applyWindowColorScheme(win, "win32", "dark")).not.toThrow()
+  })
+
+  test("sidebar floats at the work area's right edge and still loads the app", () => {
+    createMainWindow({ preload: "/preload.cjs", colorScheme: "light", dshUrl: () => DSH, sidebar: true })
+    expect(win.created[0]).toMatchObject({ x: 1120, y: 40, width: 420, height: 900, alwaysOnTop: true, frame: false, resizable: true, movable: true, minimizable: true, maximizable: true })
+    expect(win.loaded).toEqual([DSH])
   })
 
   // Chromium paints its own canvas white until a declared scheme says otherwise,
@@ -226,4 +243,16 @@ describe("main window wiring", () => {
     expect(navigate("http://127.0.0.1:4321/settings", false).preventDefault).toHaveBeenCalled()
     expect(openExternal).not.toHaveBeenCalled()
   })
+})
+
+test("sidebar uses its own caption controls without a competing native overlay", () => {
+  createMainWindow({ preload: "/preload.cjs", colorScheme: "light", dshUrl: () => DSH, sidebar: true })
+  expect(win.created[0]).not.toHaveProperty("titleBarOverlay")
+  expect(win.created[0]).not.toHaveProperty("titleBarStyle")
+})
+
+test("sidebar theme changes update the background without a native caption overlay", () => {
+  applyWindowColorScheme(win, "win32", "dark", true)
+  expect(win.setBackgroundColor).toHaveBeenCalledWith("#151517")
+  expect(win.setTitleBarOverlay).not.toHaveBeenCalled()
 })

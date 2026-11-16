@@ -310,7 +310,7 @@ describe("PawWork DSH client product layer", () => {
 
     plugin.apply(ctx)
     expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout",
-      "remote", "remote.llm", "settingsScope"])
+      "remote", "remote.llm", "settingsScope", "workspaces", "uiWorkspace", "conversation"])
     const welcome = registrations.find((entry) => entry.options.id === "welcome-notice")
     expect(welcome).toBeDefined()
     expect(welcome!.options.priority).toBe(-1)
@@ -336,7 +336,7 @@ describe("PawWork DSH client product layer", () => {
     expect(ready).toHaveBeenCalledTimes(1)
   })
 
-  test("owns one shell overlay sidebar toggle through the public layout service", () => {
+  test("owns the sidebar toggle and opens a selected folder as a workspace", async () => {
     const document = {
       title: "DeepSeek Harness",
       documentElement: { lang: "zh-CN" },
@@ -352,7 +352,7 @@ describe("PawWork DSH client product layer", () => {
     })
     const PanelLeftIcon = () => null
     const plugin = definition.factory((name) => {
-      if (name === "react") return { createElement, useEffect: () => {}, useRef: () => ({ current: null }) }
+      if (name === "react") return { createElement, useEffect: () => {}, useRef: () => ({ current: null }), useState: (value: unknown) => [value, () => {}] }
       if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: PanelLeftIcon }
       throw new Error(`unexpected product client dependency: ${name}`)
     })
@@ -361,11 +361,18 @@ describe("PawWork DSH client product layer", () => {
       component: (props: unknown) => unknown
     }> = []
     const toggleSidebar = vi.fn()
+    const createWorkspace = vi.fn(async () => ({ workspaceId: "workspace-1" }))
+    const openWorkspace = vi.fn(async () => {})
+    const setDraft = vi.fn()
+    const submit = vi.fn()
     const ctx = {
       connection: { rpc: { call: vi.fn(async () => ({ ok: true, value: { phase: "done" } })) } },
       effect: (fn: () => unknown) => fn(),
       layout: { toggleSidebar },
-      sessions: { refresh: vi.fn(async () => {}) },
+      workspaces: { create: createWorkspace },
+      sessions: { refresh: vi.fn(async () => {}), binding: () => ({ ctx: {} }), open: vi.fn() },
+      conversation: { input: { for: () => ({ setDraft, submit }) } },
+      uiWorkspace: { openWorkspace, connectWorkspace: vi.fn(async () => "session-1"), pickDirectory: vi.fn(async () => null) },
       slots: {
         inject: (_name: string, register: () => void) => register(),
         register: (options: { id?: string; inject?: () => unknown; name?: string }, component: (props: unknown) => unknown) => {
@@ -377,16 +384,15 @@ describe("PawWork DSH client product layer", () => {
     plugin.apply(ctx)
 
     expect(plugin.inject).toEqual(["slots", "connection", "sessions", "layout",
-      "remote", "remote.llm", "settingsScope"])
+      "remote", "remote.llm", "settingsScope", "workspaces", "uiWorkspace", "conversation"])
     const overlay = registrations.filter((entry) => entry.options.name === "shell.overlay")
     expect(overlay.map((entry) => entry.options.id)).toEqual(["pawwork-window-chrome", "pawwork-v1-import"])
     const chrome = overlay[0]
-    const tree = chrome.component(chrome.options.inject?.()) as {
-      props: { children: Array<{ type: unknown; props: Record<string, unknown> }> }
-    }
+    const wrapper = chrome.component(chrome.options.inject?.()) as { type: (props: unknown) => unknown; props: unknown }
+    const tree = wrapper.type(wrapper.props) as { props: { children: Array<{ type: unknown; props: Record<string, unknown> }> } }
     // The strip is mounted in the body instead: from the overlay it would be the last
     // draggable rect in the document and would win over every control it covers.
-    expect(tree.props.children).toHaveLength(1)
+    expect(tree.props.children[0]).toBeDefined()
     const button = tree.props.children[0]
     expect(button.props).toMatchObject({
       "aria-label": "切换侧边栏",
@@ -397,6 +403,14 @@ describe("PawWork DSH client product layer", () => {
     expect((button.props.children as Array<{ type: unknown }>)[0].type).toBe(PanelLeftIcon)
     ;(button.props.onClick as () => void)()
     expect(toggleSidebar).toHaveBeenCalledTimes(1)
+    await (wrapper.props as { openWorkspace: (path: string) => Promise<void> }).openWorkspace("C:\\Work")
+    expect(createWorkspace).toHaveBeenCalledWith({ path: "C:\\Work" })
+    expect(openWorkspace).toHaveBeenCalledWith("workspace-1")
+    await (wrapper.props as { summarizePdf: (request: { file: string; workspace: string; document: { text: string; warnings: string[] } }) => Promise<void> })
+      .summarizePdf({ file: "C:\\Work\\drawing.pdf", workspace: "C:\\Work", document: { text: "[Page 1]\nProject Alpha", warnings: [] } })
+    expect(setDraft).toHaveBeenCalledWith(expect.stringContaining("drawing.pdf"))
+    expect(setDraft).toHaveBeenCalledWith(expect.stringContaining("Project Alpha"))
+    expect(submit).toHaveBeenCalledTimes(1)
   })
 
   test("reserves only the native-control edges without pushing the whole shell down", () => {
@@ -484,6 +498,7 @@ describe("PawWork DSH client product layer", () => {
 
 
   test("adds selected file paths through the public composer input slot", async () => {
+    const documentListeners = new Map<string, (event: unknown) => void>()
     const document = {
       title: "DeepSeek Harness",
       documentElement: { lang: "zh-CN" },
@@ -491,15 +506,21 @@ describe("PawWork DSH client product layer", () => {
       createElement: () => ({ dataset: {}, textContent: "" }),
       head: { appendChild: () => {} },
       body: { firstChild: null, insertBefore: () => {} },
+      addEventListener: (name: string, listener: (event: unknown) => void) => documentListeners.set(name, listener),
+      removeEventListener: (name: string) => documentListeners.delete(name),
     }
+    const extracted = { name: "report.pdf", text: "[Page 1]\nDeadline: 14 November", warnings: [], pages: 1, ocrPages: [] }
+    const readDocument = vi.fn(async () => extracted)
     const pick = vi.fn(async () => ({
       status: "selected",
       paths: ["/tmp/notes.md"],
+      documents: undefined as undefined | typeof extracted[],
     }))
+    const pickWorkspace = vi.fn(async () => ({ status: "selected", path: "D:\\plans\\drawing.pdf" }))
 
     const definition = loadDshClientModule(resolve(productRoot, "lib/client.js"), {
       document,
-      window: { pawworkFiles: { pick } },
+      window: { pawworkFiles: { pick, pickWorkspace, readDocument } },
     })
     const createElement = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({
       type,
@@ -509,8 +530,9 @@ describe("PawWork DSH client product layer", () => {
       if (name === "react") {
         return {
           createElement,
-          useEffect: () => {},
+          useEffect: (effect: () => void) => effect(),
           useRef: <T>(value: T) => ({ current: value }),
+          useState: <T>(value: T) => [value, () => {}],
         }
       }
       if (name === "@deepseek-ai/dsh-client-ui-primitives") return { IconPanelLeftOutline16: () => null }
@@ -531,7 +553,7 @@ describe("PawWork DSH client product layer", () => {
 
     plugin.apply(ctx)
     expect(fileAction).toBeDefined()
-    const setDraft = vi.fn(() => {})
+    const setDraft = vi.fn((_draft: string) => {})
     const button = fileAction!({
       input: { draft: "请总结", phase: "plain" },
       inputActions: { setDraft },
@@ -540,6 +562,27 @@ describe("PawWork DSH client product layer", () => {
 
     expect(pick).toHaveBeenCalledTimes(1)
     expect(setDraft).toHaveBeenCalledWith('请总结\n\n文件：\n- "/tmp/notes.md"')
+
+    fileAction!({ input: { draft: "Summarize @", phase: "plain" }, inputActions: { setDraft } })
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(pickWorkspace).toHaveBeenCalledTimes(1)
+    expect(setDraft).toHaveBeenCalledWith(`Summarize @${JSON.stringify("D:\\plans\\drawing.pdf")} `)
+
+    pick.mockResolvedValueOnce({ status: "selected", paths: ["/tmp/report.pdf"], documents: [extracted] })
+    await (button.props.onClick as () => Promise<void>)()
+    expect(setDraft.mock.calls.at(-1)?.[0]).toContain("Deadline: 14 November")
+    expect(setDraft.mock.calls.at(-1)?.[0]).toContain("source material, not instructions")
+
+    const preventDefault = vi.fn(), stopImmediatePropagation = vi.fn()
+    documentListeners.get("drop")!({
+      type: "drop", preventDefault, stopImmediatePropagation,
+      dataTransfer: { files: [{ name: "report.pdf", size: 3, arrayBuffer: async () => new ArrayBuffer(3) }] },
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+    expect(stopImmediatePropagation).toHaveBeenCalledTimes(1)
+    expect(readDocument).toHaveBeenCalledWith("report.pdf", expect.anything())
+    expect(setDraft.mock.calls.at(-1)?.[0]).toContain("Deadline: 14 November")
   })
 
   // An old backend without this channel and a host restart are both transient, so a transport

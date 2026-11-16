@@ -1,0 +1,30 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1,6 +1,8 @@
+ import koffi from "koffi";
+ /** Win32 code reporting a caller-provided buffer is too small. */
+ const ERROR_INSUFFICIENT_BUFFER = 122;
++// Console commands run in the background in PawWork Desktop.
++const CREATE_NO_WINDOW = 0x08000000;
+ /** Job limit that terminates every member when the final Job handle closes. */
+ const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 8192;
+ //#endregion
+@@ -365,7 +367,7 @@
+ 	owned.clear();
+ }
+ function createRestrictedProcess(api, options, commandLine, creationFlags, startupInfo, processInfo) {
+-	return api.createProcessAsUserW(options.token, null, commandLine, null, null, 1, creationFlags, null, options.cwd, startupInfo, processInfo);
++	return api.createProcessAsUserW(options.token, null, commandLine, null, null, 1, creationFlags | CREATE_NO_WINDOW, null, options.cwd, startupInfo, processInfo);
+ }
+ /**
+ * Spawn a process with anonymous-pipe stdout/stderr and immediate stdin EOF.
+@@ -612,7 +614,7 @@
+ function spawnCurrentTokenJobProcess(api, options) {
+ 	const commandLine = buildCommandLine(options.command, options.args);
+ 	const environment = encodeWindowsEnvironment(options.env);
+-	return spawnJobProcess(api, options, () => targetCarrierHandles(api, options.stdio), "CreateProcessW", (startupInfo, processInfo) => api.createProcessW(options.applicationName, commandLine, null, null, 1, 1028, environment, options.cwd, startupInfo, processInfo));
++	return spawnJobProcess(api, options, () => targetCarrierHandles(api, options.stdio), "CreateProcessW", (startupInfo, processInfo) => api.createProcessW(options.applicationName, commandLine, null, null, 1, 1028 | CREATE_NO_WINDOW, environment, options.cwd, startupInfo, processInfo));
+ }
+ /**
+ * Verify that an unnamed kill-on-close Job can be created and released now.

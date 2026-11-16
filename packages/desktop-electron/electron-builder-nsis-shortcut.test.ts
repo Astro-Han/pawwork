@@ -44,6 +44,9 @@ describe.each([
 })
 
 describe("windows nsis desktop shortcut customization", () => {
+  test("desktop shortcut explicitly launches the sidebar", () => {
+    expect(script).toMatch(/CreateShortCut "\$DESKTOP[^\r\n]+"\$appExe" "--sidebar"/)
+  })
   // electron-builder looks these two up by name. Rename either and the checkbox
   // page, or the whole shortcut-creation block, silently leaves the installer.
   test("uses the hook names electron-builder calls", () => {

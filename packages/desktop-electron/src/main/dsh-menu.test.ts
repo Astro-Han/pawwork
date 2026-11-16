@@ -51,4 +51,12 @@ describe("PawWork application menu", () => {
   test("offers check for updates from the Windows help menu", () => {
     expect(menuLabels("win32", "en")).toContain("Check for Updates...")
   })
+
+  test("Windows sidebar users can restart or quit instead of only hiding the window", () => {
+    const labels = menuLabels("win32", "en")
+    expect(labels).toContain("Restart")
+    expect(labels).toContain("Quit PawWork")
+    const file = electron.template?.[0].submenu as Electron.MenuItemConstructorOptions[]
+    expect(file.find((item) => item.role === "quit")?.accelerator).toBe("Ctrl+Q")
+  })
 })

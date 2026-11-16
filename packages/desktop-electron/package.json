@@ -60,12 +60,17 @@
     "@deepseek-ai/dsh-web-search-exa": "0.1.5-rc.2",
     "@deepseek-ai/dsh-workflow": "0.1.5-rc.2",
     "@deepseek-ai/schemastery": "3.18.1",
+    "@napi-rs/canvas": "^1.1.0",
+    "@tesseract.js-data/eng": "^1.0.0",
     "electron-context-menu": "4.1.2",
     "electron-log": "^5",
     "electron-updater": "6.8.9",
     "electron-window-state": "^5.0.3",
+    "mammoth": "^1.13.0",
+    "pdfjs-dist": "^6.5.438",
     "pnpm": "11.23.0",
-    "semver": "^7.6.0"
+    "semver": "^7.6.0",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-base": "0.1.5-rc.2",

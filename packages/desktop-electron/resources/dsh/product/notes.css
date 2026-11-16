@@ -1,0 +1,55 @@
+:root { color-scheme: light; font: 14px/1.4 system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { background: #fff; color: #171717; display: flex; flex-direction: column; height: 100vh; margin: 0; }
+header { border-bottom: 1px solid GrayText; padding: 14px 18px 10px; }
+h1 { font-size: 18px; margin: 0; }
+header p { color: GrayText; font-size: 12px; margin: 4px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+nav { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 18px 0; }
+button { background: transparent; border: 1px solid GrayText; border-radius: 5px; color: CanvasText; cursor: pointer; font: inherit; padding: 6px 10px; }
+button:hover { background: color-mix(in srgb, CanvasText 8%, Canvas); }
+button:focus-visible { outline: 2px solid #fc5c14; outline-offset: 2px; }
+nav .selected, .primary { background: #f25c05; border-color: #f25c05; color: white; }
+main { display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 14px 18px; }
+.view { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; }
+.view[hidden], [hidden] { display: none !important; }
+.file-row { align-items: center; display: flex; gap: 8px; margin-bottom: 12px; }
+.file-row span { color: GrayText; flex: 1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+label { font-weight: 600; margin-bottom: 7px; }
+textarea { background: Canvas; border: 1px solid GrayText; border-radius: 6px; color: CanvasText; flex: 1; font: 14px/1.5 system-ui, sans-serif; min-height: 100px; padding: 10px; resize: none; }
+#status { color: GrayText; font-size: 12px; min-height: 18px; overflow-wrap: anywhere; }
+details { border-top: 1px solid GrayText; margin-top: 12px; max-height: 45%; overflow-y: auto; padding-top: 8px; }
+details[hidden] { display: none; }
+summary { cursor: pointer; font-weight: 600; margin-bottom: 8px; }
+.page-row, .analysis-row { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+#page { background: Canvas; border: 1px solid GrayText; border-radius: 4px; color: CanvasText; font: inherit; padding: 5px; width: 75px; }
+#page-note { display: block; min-height: 90px; width: 100%; }
+#save-page { margin-top: 8px; }
+footer { border-top: 1px solid GrayText; display: flex; gap: 8px; justify-content: flex-end; padding: 12px 18px; }
+button:disabled { cursor: default; opacity: .5; }
+h2 { font-size: 15px; margin: 14px 0 9px; }
+#task-form { border: 1px solid #d4d4d4; border-radius: 8px; display: grid; gap: 5px; padding: 12px; }
+#task-form label { margin: 4px 0 0; }
+#task-form input, #task-form select, #task-form textarea { background: white; border: 1px solid #888; border-radius: 5px; color: #171717; font: inherit; padding: 7px; width: 100%; }
+#task-form textarea { min-height: 66px; resize: vertical; }
+.form-grid { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+.form-grid > div { display: grid; gap: 5px; min-width: 0; }
+.form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 5px; }
+.task-list { display: grid; gap: 8px; padding-bottom: 8px; }
+.task-card { border: 1px solid #d4d4d4; border-radius: 8px; padding: 10px; }
+.task-card-top { align-items: flex-start; display: flex; gap: 7px; }
+.task-card-top input { accent-color: #f25c05; margin: 4px 0 0; }
+.task-card-title { flex: 1; font-weight: 600; overflow-wrap: anywhere; }
+.task-card p { color: #555; font-size: 12px; margin: 5px 0; overflow-wrap: anywhere; }
+.task-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.task-card-actions button { font-size: 12px; padding: 4px 7px; }
+.badge { background: #fff0e5; border-radius: 4px; color: #ab4100; display: inline-block; font-size: 11px; margin-right: 6px; padding: 2px 5px; }
+.badge.overdue { background: #fee2e2; color: #b91c1c; }
+#task-history { flex: none; max-height: 45%; }
+#reminder-modal { border: 1px solid #aaa; border-radius: 10px; box-shadow: 0 15px 45px #0003; max-width: min(480px, calc(100vw - 36px)); padding: 18px; }
+#reminder-modal::backdrop { background: #0006; }
+#reminder-modal p { overflow-wrap: anywhere; }
+#task-edit-dialog { border: 0; border-radius: 10px; box-shadow: 0 15px 45px #0003; max-height: calc(100vh - 40px); padding: 0; width: min(500px, calc(100vw - 36px)); }
+#task-edit-dialog::backdrop { background: #0006; }
+.dialog-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.reminder-check { align-items: center; display: flex; gap: 5px; margin: 0; }
+.reminder-check input { accent-color: #f25c05; }

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PawWork Notes</title>
+  <link rel="stylesheet" href="notes.css">
+  <script src="notes.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>Important points</h1>
+    <p id="workspace" title="Allowed workspace"></p>
+  </header>
+  <nav aria-label="Notes and tasks">
+    <button id="memory-tab" class="selected" type="button">Workspace memory</button>
+    <button id="file-tab" type="button">File notes</button>
+    <button id="tasks-tab" type="button">Tasks</button>
+    <button id="pending-tab" type="button">Pending Tasks</button>
+  </nav>
+  <main>
+    <section id="notes-view" class="view">
+    <div class="file-row">
+      <span id="source">No file selected</span>
+      <button id="choose-file" type="button">Choose file</button>
+    </div>
+    <label id="editor-label" for="editor">Workspace memory — memory.md</label>
+    <textarea id="editor" spellcheck="true" placeholder="Write the points you want to remember…"></textarea>
+    <details id="pdf-tools" hidden>
+      <summary>PDF pages and analysis</summary>
+      <div class="page-row">
+        <label for="page">Page</label>
+        <input id="page" type="number" min="1" max="100000" value="1">
+        <button id="view-pdf" type="button">Open viewer</button>
+      </div>
+      <div class="analysis-row">
+        <button id="ocr" type="button">OCR page</button>
+        <button id="drawing" type="button">Analyze drawing</button>
+        <button id="compare" type="button">Compare revision</button>
+      </div>
+      <label for="page-note">Page annotation</label>
+      <textarea id="page-note" spellcheck="true" placeholder="Write points specific to this page…"></textarea>
+      <button id="save-page" type="button">Save page annotation</button>
+    </details>
+    <details id="task-history">
+      <summary>Completed Tasks History</summary>
+      <div id="history-list" class="task-list"></div>
+    </details>
+    </section>
+    <section id="tasks-view" class="view" hidden>
+      <form id="task-form">
+        <input id="task-id" type="hidden">
+        <label for="task-title">Task Title</label>
+        <input id="task-title" type="text" maxlength="200" required>
+        <label for="task-source">Associated File</label>
+        <select id="task-source"></select>
+        <label for="task-description">Description/Notes</label>
+        <textarea id="task-description" maxlength="4000" placeholder="Optional details…"></textarea>
+        <div class="form-grid">
+          <div><label for="task-due">Due Date &amp; Time</label><input id="task-due" type="datetime-local" required></div>
+          <div><label for="task-offset">Reminder Offset</label>
+            <select id="task-offset">
+              <option value="5">5 mins before</option>
+              <option value="15" selected>15 mins before</option>
+              <option value="60">1 hour before</option>
+              <option value="1440">1 day before</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+        </div>
+        <label id="custom-offset-row" for="task-custom-offset" hidden>Custom minutes before</label>
+        <input id="task-custom-offset" type="number" min="1" max="525600" hidden>
+        <div class="form-actions"><button id="cancel-edit" type="button" hidden>Cancel edit</button><button id="create-task" class="primary" type="submit">Create Task</button></div>
+      </form>
+      <h2>Upcoming tasks</h2>
+      <div id="upcoming-list" class="task-list"></div>
+    </section>
+    <section id="pending-view" class="view" hidden>
+      <h2>Pending tasks</h2>
+      <div id="pending-list" class="task-list"></div>
+    </section>
+    <p id="status" role="status"></p>
+  </main>
+  <footer>
+    <button id="summarize" type="button">Summarize PDF</button>
+    <button id="save" class="primary" type="button">Save notes</button>
+  </footer>
+  <dialog id="task-edit-dialog" aria-label="Edit task"></dialog>
+  <dialog id="reminder-modal" aria-labelledby="reminder-title">
+    <h2 id="reminder-title">Task reminder</h2>
+    <p id="reminder-file"></p>
+    <p id="reminder-due"></p>
+    <p id="reminder-notes"></p>
+    <div class="dialog-actions">
+      <label class="reminder-check"><input id="reminder-complete" type="checkbox"> Mark as Completed</label>
+      <button id="reminder-snooze-5" type="button">Snooze 5 min</button>
+      <button id="reminder-snooze-15" type="button">Snooze 15 min</button>
+      <button id="reminder-dismiss" type="button">Dismiss</button>
+    </div>
+  </dialog>
+</body>
+</html>
